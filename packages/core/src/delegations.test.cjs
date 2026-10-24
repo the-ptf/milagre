@@ -159,7 +159,7 @@ async function linkedProjects(t, { link = true, agentCli = async () => ({ comman
       },
     ]);
   };
-  const sessionOf = (name) => sessions.filter((session) => session.name === name).at(-1);
+  const sessionOf = (name) => sessions.findLast((session) => session.name === name);
   return {
     get runtime() {
       return runtime;

@@ -299,8 +299,8 @@ html[data-floating-inbox] #root {
   }
 }
 
-/* GENERIC FOUNDATION — tokens, @theme, base rules, the primitive-*
- * spacing utilities, and shared keyframes below are needed by EVERY
+/* GENERIC FOUNDATION — tokens, @theme, base rules
+ * and shared keyframes below are needed by EVERY
  * component. Blocks tagged COMPONENT-SPECIFIC further down belong to
  * one primitive each. */
 /* ──────────────────────────────────────────────────────────
@@ -484,7 +484,6 @@ html[data-floating-inbox] #root {
   /* easing — strong curves; built-ins are too weak */
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ── base ─────────────────────────────────────────────── */
@@ -665,15 +664,6 @@ a {
   padding-right: 24px;
 }
 
-/* Keep the component nav scrollable but hide its scrollbar. */
-.component-nav-scroll {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* legacy Edge */
-}
-.component-nav-scroll::-webkit-scrollbar {
-  display: none; /* WebKit */
-}
-
 /* MessageScroller owns the visual rail. Keep the browser scrollbar out of the
  * chat so the viewport matches the supplied component instead of showing two
  * competing navigation treatments. */
@@ -767,46 +757,6 @@ a {
   vertical-align: top;
 }
 
-@media (min-width: 64rem) {
-  .component-nav-scroll {
-    -webkit-mask-image: linear-gradient(to bottom, oklch(0 0 0) 0, oklch(0 0 0) calc(100% - 6rem), transparent 100%);
-    mask-image: linear-gradient(to bottom, oklch(0 0 0) 0, oklch(0 0 0) calc(100% - 6rem), transparent 100%);
-  }
-}
-
-/* Mobile demo gestures should operate controls and visualizations rather than
- * selecting surrounding labels. Text entry and code remain intentionally
- * selectable. */
-@media (hover: none) and (pointer: coarse) {
-  .primitive-showcase {
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
-  }
-
-  .primitive-showcase :is(input, textarea, [contenteditable="true"], pre, code) {
-    -webkit-user-select: text;
-    user-select: text;
-    -webkit-touch-callout: default;
-  }
-
-  .primitive-showcase :is(a, button, [role="button"]) {
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .primitive-showcase :is(a, button, [role="button"]):focus-visible {
-    outline: none;
-  }
-
-  .primitive-showcase :is(img, svg, canvas) {
-    -webkit-user-drag: none;
-  }
-
-  .insight-chart-stage {
-    touch-action: pan-y;
-  }
-}
-
 /* Tailwind v4 resets buttons to cursor:default — anything
  * clickable must invite the click */
 button:not(:disabled),
@@ -843,7 +793,6 @@ a {
 }
 
 /* The project menu's rows show keyboard focus with their own fill, in ink rather than the accent. */
-[data-workspace-menu] :focus-visible,
 [data-scope-menu-panel] :focus-visible {
   outline: none;
 }
@@ -866,73 +815,6 @@ select:focus-visible,
   outline: none;
 }
 
-.animated-underline {
-  position: relative;
-  display: inline-block;
-}
-
-.animated-underline::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 1px;
-  content: "";
-  background: currentColor;
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 280ms var(--ease-link);
-}
-
-a:hover .animated-underline::after,
-a:focus-visible .animated-underline::after {
-  transform: scaleX(1);
-}
-
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — StreamingText / ContextCards
- * Favicon source avatars.
- * Copy this block only alongside StreamingText / ContextCards; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.source-avatar {
-  box-shadow: 0 0 0 1px oklch(0.21 0.034 263.436 / 0.1);
-}
-
-.dark .source-avatar {
-  box-shadow: 0 0 0 1px oklch(1 0 0 / 0.08);
-}
-
-/* ── primitive spacing system ─────────────────────────────
- * Shared optical offsets for small demo cards. Use these
- * instead of hand-tuning 10/12/14px per component.
- */
-
-.primitive-card-pad {
-  padding: 12px;
-}
-
-.primitive-card-bar {
-  padding: 10px 12px;
-}
-
-.primitive-card-footer {
-  padding: 10px;
-}
-
-.primitive-table-cell {
-  padding: 10px 12px;
-}
-
-.primitive-icon-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-control);
-}
-
 /* ── shared keyframes ─────────────────────────────────── */
 
 @keyframes fade-up {
@@ -944,10 +826,6 @@ a:focus-visible .animated-underline::after {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.home-reveal {
-  will-change: opacity, transform, filter;
 }
 
 /* The sidebar is one persistent 224–420px tree clipped by a 52px shell.
@@ -1156,20 +1034,8 @@ a:focus-visible .animated-underline::after {
     transform var(--sidebar-copy-duration) var(--sidebar-easing);
 }
 
-.sidebar-logo,
-.sidebar-collapse-control,
-.sidebar-expand-control {
-  transition-duration: var(--sidebar-copy-duration);
-  transition-timing-function: ease-out;
-}
-
 .sidebar-chat-initials {
   display: none;
-}
-
-.sidebar-expand-control {
-  pointer-events: none;
-  opacity: 0;
 }
 
 .sidebar-glide-highlight {
@@ -1194,36 +1060,12 @@ a:focus-visible .animated-underline::after {
 
 /* Hidden labels must not take space away from the centered icon. */
 [data-sidebar-collapsed="true"] .sidebar-row > .sidebar-copy,
-[data-sidebar-collapsed="true"] .sidebar-rail-button > .sidebar-copy,
-[data-sidebar-collapsed="true"] .sidebar-workspace-control > .sidebar-copy {
+[data-sidebar-collapsed="true"] .sidebar-rail-button > .sidebar-copy {
   display: none;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-workspace-control {
-  width: 32px;
-  left: 6px;
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-  pointer-events: auto;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-collapse-control {
-  pointer-events: none;
-  opacity: 0;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-logo {
-  opacity: 1;
 }
 
 [data-sidebar-collapsed="true"] .sidebar-chat-initials {
   display: flex;
-}
-
-[data-sidebar-collapsed="true"] .sidebar-expand-control {
-  pointer-events: auto;
-  opacity: 1;
 }
 
 /* Usage rows: the rail (or compact mode) shows only the provider mark and its fullest window. */
@@ -1277,185 +1119,12 @@ a:focus-visible .animated-underline::after {
   width: 32px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .home-reveal {
-    opacity: 1 !important;
-    transform: none !important;
-    filter: none !important;
-  }
-}
-
-/* ── filter table electric status colors ─────────────────── */
-
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — FilterTable
- * Electric status-pill colors.
- * Copy this block only alongside FilterTable; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.filter-status-todo,
-.filter-status-progress,
-.filter-status-done {
-  border: 1px solid transparent;
-}
-
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — InsightCards
- * Liveline chart tooltip + cursor.
- * Copy this block only alongside InsightCards; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.insight-chart-stage {
-  overflow: hidden;
-}
-
-.insight-chart-cursor {
-  position: absolute;
-  z-index: 4;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--ink);
-  opacity: 0.26;
-  pointer-events: none;
-}
-
-.insight-chart-tooltip-anchor {
-  position: absolute;
-  z-index: 5;
-  top: 8px;
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
-.insight-chart-tooltip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 5px 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  color: var(--tooltip-fg);
-  background: var(--tooltip-bg);
-  box-shadow: var(--shadow-overlay);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.insight-chart-tooltip-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.insight-chart-tooltip-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 50%;
-}
-
-/* Status pills derive their colors from one base hue with color-mix, in light and dark. */
-.filter-status-todo {
-  --tag-base: oklch(0.757 0.153 66.401);
-}
-.filter-status-progress {
-  --tag-base: oklch(0.671 0.118 219.351);
-}
-.filter-status-done {
-  --tag-base: oklch(0.652 0.131 162.865);
-}
-
-.filter-status-todo,
-.filter-status-progress,
-.filter-status-done {
-  color: color-mix(in srgb, var(--tag-base) 92%, var(--ink));
-  background: color-mix(in srgb, var(--tag-base) 20%, var(--surface));
-  border-color: color-mix(in srgb, var(--tag-base) 34%, var(--surface));
-}
-
-/* Dark mode — a richer, saturated same-hue fill
- * with bright same-hue text and no visible border (light mode keeps the soft
- * tinted pastels above). */
-.dark .filter-status-todo,
-.dark .filter-status-progress,
-.dark .filter-status-done {
-  color: color-mix(in srgb, var(--tag-base) 86%, white);
-  background: color-mix(in srgb, var(--tag-base) 34%, var(--surface));
-  border-color: color-mix(in srgb, var(--tag-base) 34%, var(--surface));
-}
-
 @keyframes fade-in {
   from {
     opacity: 0;
   }
   to {
     opacity: 1;
-  }
-}
-
-@keyframes eq-bounce {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
-/* ── StreamText primitive ─────────────────────────────────
- * Fast character reveal: the newest few characters carry a
- * soft, masked blur so the leading edge resolves smoothly as
- * text flows in. The caret holds solid while streaming, then
- * blinks once the string settles. */
-/* ══════════════════════════════════════════════════════════
- * COMPONENT-SPECIFIC — StreamText
- * The streaming caret + tail.
- * Copy this block only alongside StreamText; it is not part of the
- * generic foundation above.
- * ══════════════════════════════════════════════════════════ */
-.stream-tail {
-  filter: blur(1.6px);
-  -webkit-mask-image: linear-gradient(to right, oklch(0 0 0) 20%, oklch(0 0 0 / 0.2));
-  mask-image: linear-gradient(to right, oklch(0 0 0) 20%, oklch(0 0 0 / 0.2));
-}
-
-.stream-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 1.5px;
-  translate: 0 -0.5px;
-  border-radius: 1px;
-  background: var(--ink);
-  vertical-align: text-bottom;
-  animation: caret-blink 1s step-end infinite;
-}
-
-.stream-caret.is-streaming {
-  animation: none;
-}
-
-@keyframes caret-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stream-caret {
-    animation: none;
-  }
-  .stream-tail {
-    filter: none;
-    -webkit-mask-image: none;
-    mask-image: none;
   }
 }
 

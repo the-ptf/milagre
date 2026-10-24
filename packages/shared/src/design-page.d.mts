@@ -2,7 +2,8 @@ import type { DesignDocument } from "./design.mjs";
 export interface DesignPageSnapshot {
   schemaVersion: 1;
   title: string;
-  designs: { title: string; document: DesignDocument }[];
+  /** A design's group names the block it sits in, as on the desktop Canvas; designs without one share a block. */
+  designs: { title: string; group?: string; document: DesignDocument }[];
 }
 export interface ArtifactPageSnapshot {
   schemaVersion: 1;
@@ -10,7 +11,6 @@ export interface ArtifactPageSnapshot {
   title: string;
   artifacts: { title: string; html: string; width: number; height: number }[];
 }
-export const DESIGN_PAGE_PUBLIC_NOTICE: string;
 export function validateDesignPageSnapshot(value: unknown): DesignPageSnapshot | ArtifactPageSnapshot;
 export function isSnapshotRaster(source: string): boolean;
 export function renderDesignPage(snapshot: DesignPageSnapshot | ArtifactPageSnapshot): string;

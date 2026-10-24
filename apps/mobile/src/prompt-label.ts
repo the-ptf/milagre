@@ -10,7 +10,7 @@ export function promptAccessibilityLabel(parts: readonly PromptPart[]): string |
   const label = parts
     .map((part) => {
       if (part.kind === "skill") return `skill ${skillLabel(part.name)}`;
-      if (part.kind === "file") return `file ${part.path.split("/").filter(Boolean).at(-1) ?? part.path}`;
+      if (part.kind === "file") return `file ${part.path.split("/").findLast(Boolean) ?? part.path}`;
       if (part.kind === "image") return imageLabel(part.index);
       return part.text;
     })

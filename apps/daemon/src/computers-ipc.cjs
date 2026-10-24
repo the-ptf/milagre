@@ -8,7 +8,7 @@ const OPENED = new Set(["project:read", "project:switch", "project:open", "proje
 // What a window reads that a computer's last copy can answer while it is away.
 const MAX_REMEMBERED_CHARS = 32 * 1024 * 1024;
 const nameOf = (projectPath, recent) =>
-  recent?.find?.((project) => project.path === projectPath)?.name ?? projectPath.split("/").filter(Boolean).at(-1) ?? projectPath;
+  recent?.find?.((project) => project.path === projectPath)?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
 
 /** A read answered from the cache, or null when the cache can't answer it. A chat with no copy reads empty, never pending. */
 function readOffline(cache, id, method, args) {
@@ -161,6 +161,21 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
       }
     } catch (error) {
       warn(computerId, error);
+    }
+  });
+
+  // A chat's last copy, for the window to paint while the computer answers (chat-messages.ts). Older turns are never
+  // kept, so the copy stands alone until the real window replaces it.
+  ipcMain.handle("computers:recall", (_event, id, entry) => {
+    const computerId = String(id);
+    if (!cache || !entry || entry.kind !== "chat" || typeof entry.scope !== "string" || !Number.isSafeInteger(entry.chatId) || !paired(computerId)) return null;
+    try {
+      const kept = cache.get(computerId, "chat", `${stripComputer(computerId, entry.scope)}#${entry.chatId}`);
+      if (!Array.isArray(kept?.messages)) return null;
+      return qualifyResult(computerId, "chat:messages", { messages: kept.messages, hasMore: false, total: kept.total });
+    } catch (error) {
+      warn(computerId, error);
+      return null;
     }
   });
 

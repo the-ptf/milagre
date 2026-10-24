@@ -343,7 +343,16 @@ test("public snapshots omit hidden assets and layer labels while keeping visible
       { id: "hiddenImage", type: "image", hidden: true, width: 100, height: 100, src: "https://example.com/private-image.png" },
     ],
   });
-  const snapshot = publicPageContent({ schemaVersion: 1, title: "Page", designs: [{ title: "First", document: original }] });
+  const snapshot = publicPageContent({
+    schemaVersion: 1,
+    title: "Page",
+    designs: [
+      { title: "First", group: "Onboarding", document: original },
+      { title: "Second", document: original },
+    ],
+  });
+  assert.equal(snapshot.designs[0].group, "Onboarding", "a design's group names its block on the public page");
+  assert.equal("group" in snapshot.designs[1], false);
   const saved = validateDesignDocument(snapshot.designs[0].document);
   assert.equal(saved.nodes.length, 2);
   assert.equal(saved.nodes[1].text, "Visible instance text");

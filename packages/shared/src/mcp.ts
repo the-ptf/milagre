@@ -159,7 +159,6 @@ const STATE_COPY: Record<McpChipState, string> = {
   disabled: "Off in Milagre Chats",
   unchecked: "Loads in Chats",
 };
-export const mcpStateCopy = (state: McpChipState) => STATE_COPY[state];
 
 /** "Connected" for one chip; "2 of 3 connected"; "1 of 2 on" once any chip is off. Accounts that only load it in
  * Chats (unchecked) count in neither side of "connected". */

@@ -25,7 +25,15 @@ function getMessageText(message: HTMLElement) {
     message.querySelector<HTMLElement>('[data-slot="message-bubble-content"]') ??
     message.querySelector<HTMLElement>('[data-slot="message-content"]') ??
     message;
-  return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (surface !== message) return (surface.textContent ?? "").replace(/\s+/g, " ").trim();
+  // Answerless replies preview their summary, independent of which activity rows were opened.
+  const walker = document.createTreeWalker(message, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node instanceof Element ? (node.matches('[data-slot="activity-body"]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP) : NodeFilter.FILTER_ACCEPT,
+  });
+  let text = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) text += node.textContent ?? "";
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function getMessagePreview(message: HTMLElement, assistantResponse?: HTMLElement) {
@@ -68,6 +76,9 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
   /** Compatibility with the previous local API. */
   autoScrollKey?: string | number;
 }
+
+/** Dispatched on the viewport of a parked transcript that is back in the document and needs measuring again. */
+export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
 
 export function MessageScroller({
   followOutput = true,
@@ -326,6 +337,23 @@ export function MessageScroller({
     programmaticScrollRef.current = false;
   }, []);
 
+  // A parked transcript put back in the document (ChatComposer's TranscriptSlots) with messages whose size
+  // contain-intrinsic-size never learned measures every message once more.
+  const [measurePass, setMeasurePass] = useState(0);
+  const shownBefore = useRef(false);
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const remeasure = () => {
+      setMeasuring(true);
+      setMeasurePass((pass) => pass + 1);
+    };
+    viewport.addEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+    // Effects run again when a hidden <Activity> shows this scroller again; display:none dropped the remembered sizes.
+    if (shownBefore.current) remeasure();
+    shownBefore.current = true;
+    return () => viewport.removeEventListener(TRANSCRIPT_SHOWN_EVENT, remeasure);
+  }, []);
   useEffect(() => {
     let settle = 0;
     const first = requestAnimationFrame(() => {
@@ -335,7 +363,8 @@ export function MessageScroller({
       cancelAnimationFrame(first);
       cancelAnimationFrame(settle);
     };
-  }, []);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- each pass runs the settle frames again
+  }, [measurePass]);
 
   useLayoutEffect(() => {
     followingRef.current = followOutput;

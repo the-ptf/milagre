@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
 import { activitySummary, titleSpans } from "../../lib/reply-parts";
 import type { ActivityEntry } from "../../lib/reply-parts";
+import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
 import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
@@ -37,9 +38,9 @@ function Title({ title, shimmer }: { title: string; shimmer: boolean }) {
 
 /**
  * A reply's thinking, tool steps and the text between them, folded into one line. While the agent
- * works the line shows what it is doing now; once done it sums up the activity. It opens to show
- * every entry in order. A single step needs no fold and shows as its own row. Full detail (Settings › Chat ›
- * Tool call display) skips the fold: every step is its own row in the chat, with the text between them.
+ * works the line shows what it is doing now; once done it sums up the activity. Rows mount on first
+ * open, with earlier entries in long replies behind a reveal button. A single step needs no fold.
+ * Full detail (Settings › Chat › Tool call display) skips the fold: every step is its own row in the chat, with the text between them.
  */
 export function ActivityBlock({
   entries,
@@ -51,6 +52,12 @@ export function ActivityBlock({
   waitingStepIds?: string[];
 }) {
   const [open, setOpen] = useState(false);
+  // Null until first opened; mounted rows and their output state survive later collapses.
+  const [boundary, setBoundary] = useState<number | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const hidden = boundary === null ? 0 : activityBoundary(entries, waitingStepIds, streaming, boundary);
+  // An earlier step can resume or need approval. Reveal it permanently, without evicting rows.
+  if (boundary !== null && hidden < boundary) setBoundary(hidden);
   const { toolCallDisplay } = useSettings();
   if (!entries.length) return null;
   if (toolCallDisplay === "full")
@@ -80,7 +87,10 @@ export function ActivityBlock({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
+          setOpen((value) => !value);
+        }}
         className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left text-[12.5px] leading-[1.4] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
       >
         <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" className="shrink-0" fill={current ? "var(--ink-2)" : "var(--ink-3)"}>
@@ -107,16 +117,38 @@ export function ActivityBlock({
         style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
       >
         <div className="min-w-0 overflow-hidden">
-          <div className="relative mt-0.5 ml-[12px] border-l border-line pl-2">
-            {entries.map((entry, index) =>
-              entry.type === "step" ? (
-                <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
-              ) : (
-                <div key={`text-${index}`} className="px-1.5 py-1 text-[12.5px] leading-[1.55] text-ink-2">
-                  <Markdown text={entry.text} />
-                </div>
-              ),
+          <div
+            ref={body}
+            tabIndex={-1}
+            data-slot="activity-body"
+            role="group"
+            aria-label="Activity"
+            aria-live="off"
+            className="relative mt-0.5 ml-[12px] border-l border-line pl-2 outline-none"
+          >
+            {hidden > 0 && (
+              <button
+                type="button"
+                data-earlier-steps
+                className="self-start rounded-control border border-line px-2 py-1 text-[12px] text-ink-2 hover:bg-hover"
+                onClick={() => {
+                  setBoundary(0);
+                  body.current?.focus({ preventScroll: true });
+                }}
+              >
+                {earlierStepsLabel(entries, hidden)}
+              </button>
             )}
+            {boundary !== null &&
+              entries.slice(hidden).map((entry, index) =>
+                entry.type === "step" ? (
+                  <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
+                ) : (
+                  <div key={`text-${hidden + index}`} className="px-1.5 py-1 text-[12.5px] leading-[1.55] text-ink-2">
+                    <Markdown text={entry.text} />
+                  </div>
+                ),
+              )}
           </div>
         </div>
       </div>

@@ -1,4 +1,3 @@
-export const SIZE_STEPS = ["small", "default", "medium", "large", "larger"];
 export const CHAT_WIDTH_IDS = ["comfortable", "wide", "full", "custom"];
 export const SIDEBAR_USAGE_IDS = ["expanded", "compact"];
 export const PROVIDER_ICON_IDS = ["original", "simplified"];

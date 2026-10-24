@@ -1109,8 +1109,7 @@ class ChatHost {
         sessionId: target.sessionId,
         markdown: renderTranscript(before, target.sessionId),
       });
-      const lastUserMessage =
-        before.messages.filter((item) => item.session_id === target.sessionId && item.role === "user" && item.body?.trim()).at(-1)?.body ?? "";
+      const lastUserMessage = before.messages.findLast((item) => item.session_id === target.sessionId && item.role === "user" && item.body?.trim())?.body ?? "";
       const handoffBrief = await Promise.race([
         aborted,
         this.handoverTools.brief({

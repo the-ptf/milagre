@@ -1,13 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useEffect, useRef, useState } from "react";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import type { AgentPort, AgentPorts } from "../model";
 import { keepComputers, replaceComputerEntries } from "./agent-runs";
 import { bridgeFor } from "./computer-bridge";
-import { computerNameOf, useComputers } from "./computers";
+import { listensBeyondLoopback, reachableUrl } from "@milagre/shared/loopback-url";
+import { computerAddressOf, computerNameOf, useComputers } from "./computers";
 
-/** Where a port opens in the browser. A server bound only to IPv6 loopback needs its address; "localhost" covers the rest. */
-export function portUrl(port: AgentPort) {
-  return `http://${port.address === "::1" ? "[::1]" : "localhost"}:${port.port}`;
+/**
+ * Where a port opens in the browser. This Mac's at localhost (a server bound only to IPv6 loopback needs its address);
+ * another computer's at the IP its LAN route dialed, when the server listens beyond loopback; null when this Mac can't
+ * reach it.
+ */
+export function portUrl(port: AgentPort): string | null {
+  if (!port.computerId) return `http://${port.address === "::1" ? "[::1]" : "localhost"}:${port.port}`;
+  const address = computerAddressOf(port.computerId);
+  return address && listensBeyondLoopback(port.address) ? reachableUrl(`http://localhost:${port.port}`, address) : null;
+}
+
+/** The Chat's ports that listen on loopback alone (loopbackOnlyPorts, from ChatComposer): a reply link to one stays localhost. */
+export const LoopbackPortsContext = createContext<ReadonlySet<number>>(new Set());
+
+/** Why another computer's port has no link here, for its title. */
+export function unreachablePortReason(port: AgentPort, computer: string): string {
+  if (!computerAddressOf(port.computerId)) return `Listening on ${computer}, which this Mac reaches through the relay only`;
+  return `Listening on ${computer}'s localhost only. Start it on 0.0.0.0 to open it from here`;
 }
 
 /** A computer's ports, marked with it: their `localhost` is not this Mac's. */

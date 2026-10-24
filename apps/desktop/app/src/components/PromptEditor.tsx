@@ -43,6 +43,8 @@ interface PromptEditorProps {
   onSelect(caret: number): void;
   /** Skill name (lowercase) to description, shown when hovering a skill chip. */
   skillDescriptions: ReadonlyMap<string, string>;
+  /** Opens the attached image an image chip (1-based) stands for. */
+  onOpenImage?(index: number): void;
   /** The Chat the draft belongs to; a new key starts a new undo history. */
   resetKey?: string;
   label?: string;
@@ -95,6 +97,7 @@ export function PromptEditor({
   onPaste,
   onSelect,
   skillDescriptions,
+  onOpenImage,
   resetKey,
   label = "Prompt",
   className = "",
@@ -486,7 +489,7 @@ export function PromptEditor({
           chip.part.kind === "skill" ? (
             <SkillChip name={chip.part.name} description={skillDescriptions.get(chip.part.name.toLowerCase())} />
           ) : chip.part.kind === "image" ? (
-            <ImageChip index={chip.part.index} />
+            <ImageChip index={chip.part.index} onOpen={onOpenImage?.bind(null, chip.part.index)} />
           ) : (
             <FileChip path={chip.part.path} />
           ),
@@ -501,8 +504,13 @@ export function PromptEditor({
 // Programmatic selection doesn't scroll a capped field; keep the caret in view.
 function revealCaret(root: HTMLElement, range: Range) {
   if (root.scrollHeight <= root.clientHeight) return;
-  const rect =
-    range.getClientRects()[0] ?? (range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement)?.getBoundingClientRect();
+  let rect = range.getClientRects()[0];
+  // On an empty line the caret sits before a BR, and Chromium gives that collapsed range no rectangle.
+  // The BR measures this line; its container would measure the whole field and leave the caret offscreen.
+  if (!rect && range.collapsed && range.startContainer instanceof Element) {
+    const next = range.startContainer.childNodes[range.startOffset];
+    if (next instanceof HTMLBRElement) rect = next.getBoundingClientRect();
+  }
   if (!rect) return;
   const box = root.getBoundingClientRect();
   if (rect.bottom > box.bottom) root.scrollTop += rect.bottom - box.bottom;

@@ -63,7 +63,7 @@ export function SkillChip({ name, description }: { name: string; description?: s
 
 /** A file in a prompt: its name, the relative path on hover. A click opens it when `onOpen` is given. */
 export function FileChip({ path, onOpen }: { path: string; onOpen?: () => void }) {
-  const name = path.split("/").filter(Boolean).at(-1) ?? path;
+  const name = path.split("/").findLast(Boolean) ?? path;
   const className = `${CHIP} border-line-strong bg-hover text-ink`;
   const content = (
     <>

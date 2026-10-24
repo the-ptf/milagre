@@ -7,8 +7,13 @@ const EMPTY: UsageState = { snapshot: null, loading: false, error: "" };
 const idleSubscribe = () => () => {};
 const empty = () => EMPTY;
 
+/** Account changes need a new store so an older account's pending read cannot populate it. */
+function createUsageGeneration(client: Client | null, scopeKey: string | undefined, revision: number) {
+  return { revision, usage: client ? createUsageState(client, Date.now, scopeKey) : null };
+}
+
 export function useUsage(client: Client | null, scopeKey?: string, revision = 0) {
-  const usage = useMemo(() => (client ? createUsageState(client, Date.now, scopeKey) : null), [client, scopeKey, revision]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { usage } = useMemo(() => createUsageGeneration(client, scopeKey, revision), [client, scopeKey, revision]);
   const state = useSyncExternalStore(usage?.subscribe ?? idleSubscribe, usage?.get ?? empty, empty);
   // A plain effect, so usage also loads in the navigation panel, outside the router's screens.
   useEffect(() => {

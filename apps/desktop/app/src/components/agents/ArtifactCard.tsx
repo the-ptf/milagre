@@ -681,7 +681,7 @@ export function ArtifactsProvider({
           },
         })),
     }),
-    [chatId, latest, sent, resolutions, anchors, enabled],
+    [chatId, latest, sent, resolutions, anchors],
   );
   const designRefs = [...latest.values()].filter((ref) => ref.format === "design");
   const artifactRefs = [...latest.values()].filter((ref) => ref.format === "html");

@@ -368,6 +368,72 @@ async function browserChecks() {
     );
     console.log("PASS: each Chat sends its chips' files after switching, and undo stays in its Chat");
 
+    // A trailing empty line has no collapsed Range rect in Chromium. Check its actual line box before typing
+    // another character (which would hide the bug), including after soft wraps and an atomic chip.
+    const visibleLine = async (index, label) => {
+      const geometry = await evaluate(`(() => {
+        const field = ${editor};
+        const line = field.querySelectorAll('br')[${index}].getBoundingClientRect();
+        const top = field.getBoundingClientRect().top + field.clientTop;
+        return { top: line.top, bottom: line.bottom, height: line.height, viewportTop: top,
+          viewportBottom: top + field.clientHeight, scrollTop: field.scrollTop, maxScroll: field.scrollHeight - field.clientHeight };
+      })()`);
+      assert.ok(geometry.height > 0, `${label}: measurable line`);
+      assert.ok(geometry.top >= geometry.viewportTop - 1 && geometry.bottom <= geometry.viewportBottom + 1, `${label}: ${JSON.stringify(geometry)}`);
+      return geometry;
+    };
+    const sendsBeforeScrolling = await evaluate("window.calls.length");
+    for (const seed of ["line", "wrapped words ".repeat(40), "use /tldr"]) {
+      await evaluate(`${editor}.value = ''`);
+      await draftIs("");
+      await evaluate(`${editor}.value = ${JSON.stringify(seed)}`);
+      await draftIs(seed);
+      if (seed.includes("/tldr")) await waitFor(`${editor}.querySelectorAll('[data-chip="skill"]').length === 1`, "scrolling with a skill chip");
+      for (let count = 1; count <= 9; count++) {
+        await press("Return", ["shift"]);
+        const expected = seed + "\n".repeat(count);
+        await draftIs(expected);
+        assert.equal(await caret(), expected.length, "caret follows each empty line");
+        await visibleLine(count, `newline ${count} after ${seed.slice(0, 16)}`);
+      }
+      assert.ok(await evaluate(`${editor}.scrollHeight > ${editor}.clientHeight`), "the field reached its height cap");
+      await screenshot(seed.includes("/tldr") ? "composer-empty-line-chip" : seed === "line" ? "composer-empty-line-text" : "composer-empty-line-wrapped");
+      await visibleLine(9, "empty line after optional screenshot");
+    }
+
+    // An interior empty line scrolls only far enough to reveal the caret, in either direction.
+    const interior = "top" + "\n".repeat(10) + "later line\n".repeat(20);
+    await evaluate(`${editor}.value = ''`);
+    await draftIs("");
+    await evaluate(`${editor}.value = ${JSON.stringify(interior)}`);
+    await draftIs(interior);
+    await evaluate(`(() => { const field = ${editor}; field.scrollTop = 0; getSelection().collapse(field, 8); })()`);
+    assert.ok(
+      await evaluate(`${editor}.querySelectorAll('br')[7].getBoundingClientRect().top > ${editor}.getBoundingClientRect().bottom`),
+      "the interior caret starts below the viewport",
+    );
+    await press("Return", ["shift"]);
+    const inserted = "top" + "\n".repeat(11) + "later line\n".repeat(20);
+    await draftIs(inserted);
+    assert.equal(await caret(), "top".length + 8);
+    const middle = await visibleLine(8, "interior newline");
+    assert.ok(middle.scrollTop > 0 && middle.scrollTop < middle.maxScroll, "an interior edit scrolls down without jumping to the end");
+    await press("z", ["meta"]);
+    await draftIs(interior);
+    assert.equal(await caret(), "top".length + 7);
+    await visibleLine(7, "undo on an empty line");
+    await press("z", ["meta", "shift"]);
+    await draftIs(inserted);
+    assert.equal(await caret(), "top".length + 8);
+    await visibleLine(8, "redo on an empty line");
+    await evaluate(`(() => { const field = ${editor}; field.scrollTop = field.scrollHeight; getSelection().collapse(field, 2); })()`);
+    await press("Return", ["shift"]);
+    await draftIs("top" + "\n".repeat(12) + "later line\n".repeat(20));
+    assert.equal(await caret(), "top".length + 2);
+    await visibleLine(2, "empty line scrolled upward");
+    assert.equal(await evaluate("window.calls.length"), sendsBeforeScrolling, "newlines and undo never send");
+    console.log("PASS: capped composer reveals every empty line after text, wraps and chips, including interior edits and undo/redo");
+
     assert.deepEqual(errors, []);
     app.exit(0);
   } catch (error) {

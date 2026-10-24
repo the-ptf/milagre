@@ -441,7 +441,7 @@ export function triggerChipText(trigger, localZone) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-const lastSegment = (path) => String(path).split(/[\\/]/).filter(Boolean).at(-1) ?? String(path);
+const lastSegment = (path) => String(path).split(/[\\/]/).findLast(Boolean) ?? String(path);
 
 /** Where a Routine's Runs land, as its chip says it: "New Worktree in payments-api", "New Chat in payments-api", "In <Chat>". */
 export function routineWhereText(target, chatTitle) {

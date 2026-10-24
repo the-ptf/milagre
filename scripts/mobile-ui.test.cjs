@@ -109,14 +109,22 @@ const designsOn = {
 };
 /** A Chat with no listening ports (useChatPorts in ports.tsx). */
 const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
-function load(file, modules, extra = "", cache = new Map()) {
+function load(file, modules, extra = "", cache = new Map(), reactCompiler = false) {
   if (cache.has(file)) return cache.get(file);
   // These helpers stay private in production; the source harness exposes them only to tests.
   const locals = {
     "floating-inbox-button.tsx": ["landInboxButton"],
     "inbox.tsx": ["usePhoneInbox", "PhoneInboxPages"],
   };
-  const source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
+  let source = fs.readFileSync(path.join(__dirname, "..", "apps/mobile/src", file), "utf8") + extra + `\nexport { ${(locals[file] ?? []).join(",")} };`;
+  if (reactCompiler)
+    source = require("@babel/core").transformSync(source, {
+      filename: file,
+      babelrc: false,
+      configFile: false,
+      parserOpts: { plugins: ["typescript", "jsx"] },
+      plugins: [[require.resolve("babel-plugin-react-compiler"), { target: "19" }]],
+    }).code;
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const exports = {};
   cache.set(file, exports);
@@ -158,6 +166,10 @@ function load(file, modules, extra = "", cache = new Map()) {
         const own = modules[id] ?? {};
         return { ...(base === "theme" ? themeHooks : uiHooks), ...own };
       }
+      // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
+      if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
+      if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
+      if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
       if (
@@ -186,6 +198,9 @@ function load(file, modules, extra = "", cache = new Map()) {
   return exports;
 }
 const jsx = (type, props, key) => ({ type, props, key });
+
+// The compiler's per-component cache uses a hook slot, just like a manual memo.
+const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
 
 test("display clocks stop off-screen and in the background, then catch up from wall time", () => {
   const host = hookHost({ effects: true });
@@ -1337,37 +1352,102 @@ test("mobile skill input preserves edits and clears its description when the car
   assert.equal(draft, "see  next", "Backspace removes the whole image reference");
 });
 
-function markdownHost({ media, basePath } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn };
+for (const reactCompiler of [false, true])
+  test(`file lookup recoloring preserves selection with an unchanged draft (compiler: ${reactCompiler})`, async () => {
+    const react = hookHost();
+    react.useEffect = react.effect;
+    const answer = deferred(),
+      started = deferred();
+    const client = {
+      call: () => {
+        started.resolve();
+        return answer.promise;
+      },
+    };
+    const known = require("../apps/mobile/src/file-mentions.ts").createKnownFiles();
+    const { PromptField } = load(
+      "prompt-field.tsx",
+      {
+        react,
+        "react/compiler-runtime": compilerRuntime(react),
+        "react/jsx-runtime": { jsx, jsxs: jsx },
+        "react-native": { Text: "Text", View: "View" },
+        "react-native-reanimated": reanimatedStub,
+        "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+        "./use-rpc": { useRpc: () => ({ data: null }) },
+        "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+        "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+      },
+      "",
+      new Map(),
+      reactCompiler,
+    );
+    const mention = "@notes.txt";
+    const props = { client, known, projectPath: "/p", draft: `see ${mention} next`, onChangeText() {} };
+    const render = () => {
+      react.begin();
+      const tree = PromptField(props);
+      react.flush();
+      return find(tree, (node) => node.type === "Field");
+    };
+    const fileMark = (field) => find(field, (node) => node.type === "Text" && node.props.children === mention);
+    try {
+      const field = render();
+      assert.equal(fileMark(field), undefined);
+      field.props.onSelectionChange({ nativeEvent: { selection: { start: 0, end: 3 } } });
+      render();
+      await started.promise;
+      answer.resolve(["notes.txt"]);
+      await settle();
+      const colored = render();
+      assert.equal(fileMark(colored)?.props.style.color, "accentInk");
+      assert.deepEqual({ ...colored.props.selection }, { start: 0, end: 3 });
+      const children = colored.props.children;
+      assert.deepEqual(render().props.children, children, "recoloring settles with stable marks");
+      assert.deepEqual(render().props.children, children);
+    } finally {
+      react.cleanup();
+    }
+  });
+
+function markdownHost({ media, basePath, reachable = null, reactCompiler = false } = {}) {
+  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
-  const { Markdown } = load("markdown.tsx", {
-    "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
-    "@milagre/shared/diagram": require("../packages/shared/src/diagram.ts"),
-    "./diagram": { MermaidBlock: "MermaidBlock" },
-    "./genui/GenerativeUI": { GenerativeUI: "GenerativeUI", MarkdownStreamingContext: "MarkdownStreamingContext" },
-    react,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": {
-      Text: "Text",
-      View: "View",
-      Image: "Image",
-      Pressable: "Pressable",
-      Alert: {},
-      Linking: {
-        openURL: async (url) => {
-          links.push(url);
+  const { Markdown } = load(
+    "markdown.tsx",
+    {
+      "react/compiler-runtime": compilerRuntime(react),
+      "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
+      "@milagre/shared/diagram": require("../packages/shared/src/diagram.ts"),
+      "./diagram": { MermaidBlock: "MermaidBlock" },
+      "./genui/GenerativeUI": { GenerativeUI: "GenerativeUI", MarkdownStreamingContext: "MarkdownStreamingContext" },
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        Text: "Text",
+        View: "View",
+        Image: "Image",
+        Pressable: "Pressable",
+        Alert: {},
+        Linking: {
+          openURL: async (url) => {
+            links.push(url);
+          },
         },
       },
+      "expo-router": { router: { push: (route) => routes.push(route) } },
+      "./viewer-store": viewer,
+      "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
+      "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
+      "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
+      "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
     },
-    "expo-router": { router: { push: (route) => routes.push(route) } },
-    "./viewer-store": viewer,
-    "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
-    "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
-  });
+    "",
+    new Map(),
+    reactCompiler,
+  );
   function expand(node) {
     if (Array.isArray(node)) return node.flatMap(expand);
     if (!node || typeof node !== "object") return node;
@@ -1418,6 +1498,29 @@ test("plain URLs in mobile replies render as links and open the exact address", 
       assert.deepEqual(screen.links, [url]);
     }
   }
+});
+
+test("a localhost link opens at the computer's IP when the phone reaches it on the LAN, and stays as written otherwise or for a loopback-only server", async () => {
+  for (const [text, label, url] of [
+    ["Open http://localhost:5173 to see it.", "http://100.69.206.111:5173", "http://100.69.206.111:5173"],
+    ["[The app](http://127.0.0.1:3000/app?x=1)", "The app", "http://100.69.206.111:3000/app?x=1"],
+  ]) {
+    const screen = markdownHost({ reachable: { host: "100.69.206.111", loopbackOnly: new Set([5175]) } });
+    const tree = screen.render(text);
+    const link = find(tree, (node) => node.props?.accessibilityRole === "link");
+    assert.ok(link, `Missing link in ${text}`);
+    assert.ok(JSON.stringify(link.props.children).includes(label), `the link reads ${label}`);
+    await link.props.onPress();
+    assert.deepEqual(screen.links, [url]);
+  }
+  // A server the Chat's ports show on the computer's loopback only would not answer at its IP.
+  const loopback = markdownHost({ reachable: { host: "100.69.206.111", loopbackOnly: new Set([5175]) } });
+  await find(loopback.render("Running at http://127.0.0.1:5175."), (node) => node.props?.accessibilityRole === "link").props.onPress();
+  assert.deepEqual(loopback.links, ["http://127.0.0.1:5175"]);
+  const relay = markdownHost();
+  const link = find(relay.render("Open http://localhost:5173 to see it."), (node) => node.props?.accessibilityRole === "link");
+  await link.props.onPress();
+  assert.deepEqual(relay.links, ["http://localhost:5173"]);
 });
 
 test("links to files on the computer open the file preview", () => {
@@ -1499,6 +1602,114 @@ test("relay Markdown images wait for the cached file and render it when ready", 
   await settle();
   assert.equal(find(screen.render(text), (node) => node.type === "Image")?.props.source.uri, "file:///phone/cache/shot.png");
 });
+
+for (const reactCompiler of [false, true])
+  test(`image retry refetches once and ignores a late previous source (compiler: ${reactCompiler})`, async () => {
+    const requests = [];
+    const media = (path) => {
+      const request = deferred();
+      requests.push({ path, ...request });
+      return request.promise;
+    };
+    const screen = markdownHost({ media, reactCompiler });
+    const first = "![Preview](/tmp/first.png)",
+      second = "![Preview](/tmp/second.png)";
+    screen.render(first);
+    screen.render(first);
+    assert.equal(requests.length, 1, "unrelated renders reuse the image request");
+    requests[0].reject(new Error("Computer unavailable"));
+    await settle();
+    const retry = find(screen.render(first), (node) => node.props?.accessibilityLabel === "Retry Preview");
+    assert.ok(retry);
+    retry.props.onPress();
+    screen.render(first);
+    assert.equal(requests.length, 2, "retry reads again with unchanged target and media callback");
+    screen.render(second);
+    assert.equal(requests.length, 3);
+    requests[2].resolve({ uri: "file:///cache/second.png" });
+    await settle();
+    assert.equal(find(screen.render(second), (node) => node.type === "Image")?.props.source.uri, "file:///cache/second.png");
+    requests[1].resolve({ uri: "file:///cache/first.png" });
+    await settle();
+    assert.equal(find(screen.render(second), (node) => node.type === "Image")?.props.source.uri, "file:///cache/second.png");
+    assert.equal(requests.length, 3);
+  });
+
+for (const reactCompiler of [false, true])
+  test(`usage revision isolates pending account reads and closes the old connection (compiler: ${reactCompiler})`, async () => {
+    const host = hookHost({ effects: true });
+    const listeners = new Set(),
+      connections = [],
+      reads = [];
+    const AppState = {
+      currentState: "active",
+      addEventListener: (_event, fn) => {
+        listeners.add(fn);
+        return { remove: () => listeners.delete(fn) };
+      },
+    };
+    const react = {
+      ...host,
+      useSyncExternalStore(subscribe, snapshot) {
+        host.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
+    };
+    const client = {
+      call(method) {
+        const pending = deferred();
+        reads.push({ method, ...pending });
+        return pending.promise;
+      },
+      live() {
+        const connection = {
+          closed: 0,
+          close() {
+            this.closed++;
+          },
+        };
+        connections.push(connection);
+        return connection;
+      },
+    };
+    const { useUsage } = load(
+      "use-usage.ts",
+      {
+        react,
+        "react/compiler-runtime": compilerRuntime(host),
+        "react-native": { AppState },
+        "./usage-state": require("../apps/mobile/src/usage-state.ts"),
+      },
+      "",
+      new Map(),
+      reactCompiler,
+    );
+    const render = (revision) => {
+      host.begin();
+      return useUsage(client, "/p", revision);
+    };
+    try {
+      const old = render(0);
+      assert.equal(reads.length, 2);
+      assert.equal(render(0).refresh, old.refresh);
+      assert.equal(reads.length, 2, "same revision keeps the store and its pending reads");
+      assert.equal(render(1).snapshot, null);
+      assert.equal(reads.length, 4, "new account gets fresh cached and live reads");
+      assert.equal(connections[0].closed, 1);
+      assert.equal(listeners.size, 1);
+      for (const read of reads.slice(2)) read.resolve({ accountKey: "new-account", providers: [] });
+      await settle();
+      assert.equal(render(1).snapshot.accountKey, "new-account");
+      for (const read of reads.slice(0, 2)) read.resolve({ accountKey: "old-account", providers: [] });
+      await settle();
+      assert.equal(render(1).snapshot.accountKey, "new-account");
+      assert.equal(connections.length, 2);
+    } finally {
+      host.unmount();
+    }
+    assert.equal(listeners.size, 0);
+    assert.equal(connections[1].closed, 1);
+  });
 
 test("images embedded in emphasis, links and tables keep their surrounding text", () => {
   const screen = markdownHost();
@@ -5651,7 +5862,7 @@ test("an accepted preview cannot assign its Chat id to a different requested Pro
   assert.equal(screen.session.pendingChats["mac|/p#new:1"].promoted, undefined);
 });
 
-function simulatorHost(client, file = "simulator.tsx") {
+function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: nativeExtra = {} } = {}) {
   const react = hookHost({ effects: true }),
     files = new Map(),
     listeners = new Set();
@@ -5672,6 +5883,7 @@ function simulatorHost(client, file = "simulator.tsx") {
         };
       },
     },
+    ...nativeExtra,
   };
   class File {
     constructor(_cache, name) {
@@ -5728,6 +5940,7 @@ function simulatorHost(client, file = "simulator.tsx") {
         colors: {},
         styles: {},
       },
+      ...modules,
     },
     file === "simulator.tsx"
       ? "\nexports.TestSimulatorWebView = SimulatorWebView;"
@@ -7648,6 +7861,37 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   assert.deepEqual(calls, []);
 });
 
+test("mobile Ports sheet opens and copies a server at the computer's LAN address, and says when it listens on localhost only", async (t) => {
+  const opened = [],
+    copied = [];
+  const ports = [
+    { port: 5173, pid: 22, command: "node", address: "*" },
+    { port: 3000, pid: 23, command: "node", address: "127.0.0.1" },
+  ];
+  const client = { url: "mac", call: async () => ({ chatId: "/p#7", ports }) };
+  const h = simulatorHost(client, "ports.tsx", {
+    native: { Linking: { openURL: async (url) => opened.push(url) } },
+    modules: {
+      "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
+      "./routes-native": { useReachableHost: (id) => (id === "mac" ? "100.69.206.111" : null) },
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:5173").props.onPress();
+  assert.deepEqual(opened, ["http://100.69.206.111:5173"]);
+  assert.equal(
+    find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:3000"),
+    undefined,
+    "a server on the computer's loopback isn't reachable from the phone",
+  );
+  assert.match(JSON.stringify(render()), /localhost only/);
+  await find(render(), (n) => n.props.accessibilityLabel === "Copy address for port 5173").props.onPress();
+  assert.deepEqual(copied, ["http://100.69.206.111:5173"]);
+});
+
 test("mobile Ports sheet drops a server Stop ended before the host's list comes back", async (t) => {
   let refetch = null;
   let stopped = false;
@@ -9313,10 +9557,7 @@ test("with two Linear workspaces the issue sheet has a tab each, and the picked 
   // The sheet's tab reads the other workspace; the same key in two workspaces never collides.
   const beta = await request.load("beta", false);
   assert.equal(JSON.stringify(beta.map((item) => item.id)), JSON.stringify(["beta:OPS-7"]));
-  assert.equal(
-    JSON.stringify(screen.calls.filter((call) => call.method === "linear:issues").at(-1).args),
-    JSON.stringify([{ fresh: false, workspace: "beta" }]),
-  );
+  assert.equal(JSON.stringify(screen.calls.findLast((call) => call.method === "linear:issues").args), JSON.stringify([{ fresh: false, workspace: "beta" }]));
   screen.render();
   request.onSelect("beta:OPS-7");
   await settle();
@@ -12122,7 +12363,9 @@ const heartbeatFor = (chatId, extra = {}) => ({
   enabled: true,
   createdBy: { kind: "agent", chatId },
   nextRunAt: new Date(2026, 9, 17, 10, 45).getTime(),
-  expiresAt: new Date(2026, 9, 24, 9, 0).getTime(),
+  // A year far ahead: the card reads "ends 09:00" instead of "ends Oct 24" on the day a Heartbeat ends, and the
+  // runner's clock crossed that day (UTC) before the Mac's did.
+  expiresAt: new Date(2036, 9, 24, 9, 0).getTime(),
   runCount: 2,
   createdAt: 1,
   updatedAt: 1,

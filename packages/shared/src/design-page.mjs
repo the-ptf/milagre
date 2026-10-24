@@ -8,8 +8,6 @@ function freeze(value) {
   }
   return value;
 }
-export const DESIGN_PAGE_PUBLIC_NOTICE =
-  "This publishes every saved design on this page. Anyone with the link can view, copy or redistribute it. Copies may remain online permanently.";
 const title = (value) => {
   if (typeof value !== "string" || !value.trim() || value.length > 120) throw Error("A public page title must have 1 to 120 characters.");
   return value.trim();
@@ -28,7 +26,8 @@ export function validateDesignPageSnapshot(value) {
       for (const node of document.nodes) {
         if (node.type === "image" && node.src && !isSnapshotRaster(node.src)) throw Error("Shared page images must be embedded PNG, JPEG, GIF or WebP files.");
       }
-      return { title: title(design?.title), document };
+      const group = typeof design?.group === "string" ? design.group.trim().slice(0, 60) : "";
+      return { title: title(design?.title), ...(group ? { group } : {}), document };
     }),
   };
   freeze(snapshot);
@@ -101,6 +100,30 @@ function designsDescription(page) {
   return summary([...named, ...layers].join(" · "), page.title);
 }
 
+// The desktop Canvas's spacing: between frames and blocks, a block's padding around its frames (canvas pixels), a
+// group's name above its block (screen pixels) and the title row above each frame.
+const GAP = 80;
+const GROUP_PADDING = 48;
+const GROUP_LABEL = 30;
+const CAPTION = 42;
+// A block's name keeps its screen size through --inv (the inverse zoom the controller sets), like the desktop Canvas.
+const GROUP_STYLE =
+  `section{display:flex;flex-direction:column;align-items:flex-start}.name{position:relative;flex-shrink:0;height:calc(${GROUP_LABEL}px * var(--inv,1))}` +
+  ".name>div{position:absolute;bottom:0;left:0;display:flex;align-items:baseline;gap:8px;padding-bottom:8px;white-space:nowrap;font:500 13px/1.35 system-ui,sans-serif;color:#e5edf3;transform:scale(var(--inv,1));transform-origin:bottom left}" +
+  ".name .none{color:#9199a4}.name b{font-weight:400;color:#9199a4;font-variant-numeric:tabular-nums}" +
+  `.block{display:flex;align-items:flex-start;gap:${GAP}px;padding:${GROUP_PADDING}px;border-radius:40px;background:rgb(255 255 255/.05)}`;
+/** One row per group, in the order they first appear; designs without a group share a row where the first of them is. */
+function designRows(designs) {
+  const rows = new Map();
+  for (const design of designs) {
+    const group = design.group ?? null;
+    const row = rows.get(group);
+    if (row) row.push(design);
+    else rows.set(group, [design]);
+  }
+  return [...rows].map(([group, members]) => ({ group, designs: members }));
+}
+
 const descriptionMeta = (description) => (description ? `<meta name="description" content="${escape(description)}">` : "");
 
 // Public pages carry no header or footer: the content fills the window, the zoom bar floats bottom-left as on the
@@ -125,23 +148,35 @@ const ZOOM_BAR = `<nav class="bar" aria-label="Canvas zoom"><button id="out" cla
 export function renderDesignPage(input) {
   const page = validatedSnapshots.has(input) ? input : validateDesignPageSnapshot(input);
   if (page.kind === "artifacts") return renderArtifactPage(page);
-  const width = page.designs.reduce((sum, item) => sum + item.document.width, 0) + 64 * (page.designs.length - 1);
-  const height = page.designs.reduce((maximum, item) => Math.max(maximum, item.document.height), 0) + 42;
+  // Laid out as the desktop Canvas does: one row of frames, or once any design names a group, one block per group
+  // (the groups and the designs in each in the order they first appear, designs without a group in a row of their own)
+  // with the group's name above it. The name keeps its screen size, so the fit allows for it at the zoom it lands on.
+  const rows = designRows(page.designs);
+  const grouped = rows.some((row) => row.group);
+  const pad = grouped ? GROUP_PADDING : 0;
+  const rowWidth = (row) => row.designs.reduce((sum, item) => sum + item.document.width, 0) + GAP * (row.designs.length - 1) + 2 * pad;
+  const rowHeight = (row) => row.designs.reduce((maximum, item) => Math.max(maximum, item.document.height), 0) + CAPTION + 2 * pad;
+  const width = Math.max(...rows.map(rowWidth));
+  const height = rows.reduce((sum, row) => sum + rowHeight(row), 0) + GAP * (rows.length - 1);
+  const labels = grouped ? rows.length : 0;
   const renderFrames = (embedFonts) => {
-    return page.designs
-      .map(({ title: name, document }) => {
-        const frame = `<figure style="width:${document.width}px"><figcaption>${escape(name)}</figcaption><img draggable="false" width="${document.width}" height="${document.height}" alt="${escape(name)}" src="data:image/svg+xml,${encodeURIComponent(designSvg(document, { embedFonts, renderByteLimit: Infinity }))}"></figure>`;
-        return frame;
-      })
+    const frame = ({ title: name, document }) =>
+      `<figure style="width:${document.width}px"><figcaption>${escape(name)}</figcaption><img draggable="false" width="${document.width}" height="${document.height}" alt="${escape(name)}" src="data:image/svg+xml,${encodeURIComponent(designSvg(document, { embedFonts, renderByteLimit: Infinity }))}"></figure>`;
+    if (!grouped) return page.designs.map(frame).join("");
+    return rows
+      .map(
+        (row) =>
+          `<section aria-label="${escape(row.group ?? "Ungrouped")}"><div class="name"><div><span${row.group ? "" : ' class="none"'}>${escape(row.group ?? "Ungrouped")}</span><b>${row.designs.length}</b></div></div><div class="block">${row.designs.map(frame).join("")}</div></section>`,
+      )
       .join("");
   };
   const description = descriptionMeta(designsDescription(page));
   const render = (embedFonts) => {
     const frames = renderFrames(embedFonts);
     const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${escape(page.title)} | Milagre Designs</title>${description}<style>
-*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}body{display:flex;flex-direction:column}#viewport:focus-visible{outline:2px solid #91bdff;outline-offset:-2px}#viewport{position:relative;overflow:hidden;flex:1;touch-action:none;cursor:grab;background-image:radial-gradient(#304052 1px,transparent 1px);background-size:20px 20px}#canvas{position:absolute;display:flex;gap:64px;transform-origin:0 0;width:${width}px;height:${height}px}figure{margin:0;flex-shrink:0}figcaption{height:42px;padding:10px 0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}img{display:block;pointer-events:none;box-shadow:0 4px 24px #0005;background:white}${CHROME_STYLE}
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#111922;color:#e5edf3}body{display:flex;flex-direction:column}#viewport:focus-visible{outline:2px solid #91bdff;outline-offset:-2px}#viewport{position:relative;overflow:hidden;flex:1;touch-action:none;cursor:grab;background-image:radial-gradient(#304052 1px,transparent 1px);background-size:20px 20px}#canvas{position:absolute;display:flex;${grouped ? "flex-direction:column;align-items:flex-start;" : ""}gap:${GAP}px;transform-origin:0 0;width:${width}px;min-height:${height}px}${grouped ? GROUP_STYLE : ""}figure{margin:0;flex-shrink:0}figcaption{height:42px;padding:10px 0;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}img{display:block;pointer-events:none;box-shadow:0 4px 24px #0005;background:white}${CHROME_STYLE}
 </style></head><body><h1 class="sr">${escape(page.title)}</h1><main id="viewport" tabindex="0" aria-label="Designs canvas. Drag to pan; use plus and minus to zoom."><div id="canvas">${frames}</div></main><div class="dock">${ZOOM_BAR}${LOGO_LINK}</div><script>
-(()=>{const port=document.getElementById('viewport'),canvas=document.getElementById('canvas'),label=document.getElementById('zoom');let x=0,y=0,scale=1;const points=new Map();const paint=()=>{canvas.style.transform='translate('+x+'px,'+y+'px) scale('+scale+')';label.textContent=(scale<.01?Math.round(scale*1000)/10:Math.round(scale*100))+'%'};const zoom=(factor,px=port.clientWidth/2,py=port.clientHeight/2)=>{const next=Math.max(.0001,Math.min(4,scale*factor));x=px-(px-x)*next/scale;y=py-(py-y)*next/scale;scale=next;paint()};const fit=()=>{scale=Math.min(1,Math.max(.0001,Math.min((port.clientWidth-48)/${width},(port.clientHeight-112)/${height})));x=(port.clientWidth-${width}*scale)/2;y=(port.clientHeight-${height}*scale)/2;paint()};document.getElementById('in').onclick=()=>zoom(1.25);document.getElementById('out').onclick=()=>zoom(.8);document.getElementById('fit').onclick=fit;label.onclick=()=>zoom(1/scale);port.addEventListener('wheel',e=>{e.preventDefault();if(e.ctrlKey||e.metaKey){const r=port.getBoundingClientRect();zoom(Math.exp(-e.deltaY*.01),e.clientX-r.left,e.clientY-r.top)}else{x-=e.deltaX;y-=e.deltaY;paint()}},{passive:false});port.onpointerdown=e=>{if(e.button!==0)return;port.setPointerCapture(e.pointerId);points.set(e.pointerId,{x:e.clientX,y:e.clientY})};port.onpointermove=e=>{const old=points.get(e.pointerId);if(!old)return;if(points.size===1){x+=e.clientX-old.x;y+=e.clientY-old.y;paint()}else{const other=[...points.entries()].find(([id])=>id!==e.pointerId)[1];const before=Math.hypot(old.x-other.x,old.y-other.y),after=Math.hypot(e.clientX-other.x,e.clientY-other.y),r=port.getBoundingClientRect();if(before>0){zoom(after/before,(old.x+other.x)/2-r.left,(old.y+other.y)/2-r.top);x+=(e.clientX-old.x)/2;y+=(e.clientY-old.y)/2;paint()}}points.set(e.pointerId,{x:e.clientX,y:e.clientY})};port.onpointerup=port.onpointercancel=port.onlostpointercapture=e=>points.delete(e.pointerId);port.onkeydown=e=>{if(e.key==='+'||e.key==='='){e.preventDefault();zoom(1.25)}if(e.key==='-'){e.preventDefault();zoom(.8)}if(e.key==='0'){e.preventDefault();fit()}};new ResizeObserver(fit).observe(port);fit()})();
+(()=>{const port=document.getElementById('viewport'),canvas=document.getElementById('canvas'),label=document.getElementById('zoom');let x=0,y=0,scale=1;const points=new Map();const paint=()=>{canvas.style.transform='translate('+x+'px,'+y+'px) scale('+scale+')';canvas.style.setProperty('--inv',1/scale);label.textContent=(scale<.01?Math.round(scale*1000)/10:Math.round(scale*100))+'%'};const zoom=(factor,px=port.clientWidth/2,py=port.clientHeight/2)=>{const next=Math.max(.0001,Math.min(4,scale*factor));x=px-(px-x)*next/scale;y=py-(py-y)*next/scale;scale=next;paint()};const fit=()=>{let h=${height};scale=Math.min(1,Math.max(.0001,Math.min((port.clientWidth-48)/${width},(port.clientHeight-112)/h)));h+=${labels * GROUP_LABEL}*(1/scale-1);scale=Math.min(scale,Math.max(.0001,(port.clientHeight-112)/h));h=${height}+${labels * GROUP_LABEL}*(1/scale-1);x=(port.clientWidth-${width}*scale)/2;y=(port.clientHeight-h*scale)/2;paint()};document.getElementById('in').onclick=()=>zoom(1.25);document.getElementById('out').onclick=()=>zoom(.8);document.getElementById('fit').onclick=fit;label.onclick=()=>zoom(1/scale);port.addEventListener('wheel',e=>{e.preventDefault();if(e.ctrlKey||e.metaKey){const r=port.getBoundingClientRect();zoom(Math.exp(-e.deltaY*.01),e.clientX-r.left,e.clientY-r.top)}else{x-=e.deltaX;y-=e.deltaY;paint()}},{passive:false});port.onpointerdown=e=>{if(e.button!==0)return;port.setPointerCapture(e.pointerId);points.set(e.pointerId,{x:e.clientX,y:e.clientY})};port.onpointermove=e=>{const old=points.get(e.pointerId);if(!old)return;if(points.size===1){x+=e.clientX-old.x;y+=e.clientY-old.y;paint()}else{const other=[...points.entries()].find(([id])=>id!==e.pointerId)[1];const before=Math.hypot(old.x-other.x,old.y-other.y),after=Math.hypot(e.clientX-other.x,e.clientY-other.y),r=port.getBoundingClientRect();if(before>0){zoom(after/before,(old.x+other.x)/2-r.left,(old.y+other.y)/2-r.top);x+=(e.clientX-old.x)/2;y+=(e.clientY-old.y)/2;paint()}}points.set(e.pointerId,{x:e.clientX,y:e.clientY})};port.onpointerup=port.onpointercancel=port.onlostpointercapture=e=>points.delete(e.pointerId);port.onkeydown=e=>{if(e.key==='+'||e.key==='='){e.preventDefault();zoom(1.25)}if(e.key==='-'){e.preventDefault();zoom(.8)}if(e.key==='0'){e.preventDefault();fit()}};new ResizeObserver(fit).observe(port);fit()})();
 </script></body></html>`;
     return html;
   };

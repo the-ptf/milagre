@@ -86,6 +86,7 @@ export function LinkWorkspace({
   onCanvasChat,
   usage,
   initialSessionId,
+  openNonce = 0,
   hostConnection,
   saveNotice,
   saveScopes,
@@ -98,6 +99,8 @@ export function LinkWorkspace({
   preferences: Preferences;
   drafts: ReturnType<typeof createScopeDrafts>;
   initialSessionId?: number;
+  /** Counts the requests to show `initialSessionId`, so the same Chat asked for again (from a Project's sidebar) is shown again. */
+  openNonce?: number;
   hostConnection: { connected: boolean };
   saveNotice?: ReactNode;
   saveScopes: UnsavedScope[];
@@ -123,20 +126,14 @@ export function LinkWorkspace({
   const draftStore = useMemo(createDraftStore, [owner]);
   const saved = drafts.read(scope);
   const [sessionId, setSessionId] = useState<number | null>(
-    () =>
-      initialSessionId ??
-      (drafts.has(scope)
-        ? saved.sessionId
-        : (Object.values(state.sessions)
-            .filter((session) => !session.archived)
-            .at(-1)?.id ?? null)),
+    () => initialSessionId ?? (drafts.has(scope) ? saved.sessionId : (Object.values(state.sessions).findLast((session) => !session.archived)?.id ?? null)),
   );
   const session = sessionId == null ? undefined : state.sessions[sessionId];
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
     path: member.worktreePath,
-    label: member.alias ?? member.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? member.worktreePath,
+    label: member.alias ?? member.projectPath.split(/[\\/]/).findLast(Boolean) ?? member.worktreePath,
   }));
   const run = chatId ? agents.runs[chatId] : undefined;
   // Every project's chats that wait on the user, except in Projects hidden from the sidebar; the Link's own are marked in its sidebar.
@@ -233,7 +230,7 @@ export function LinkWorkspace({
       drafts.newSelection(scope);
       setSessionId(initialSessionId);
     }
-  }, [initialSessionId]);
+  }, [initialSessionId, openNonce]);
   const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;
   // The picker follows the open chat, as a Project's does: its own pick, else its last turn's model.
   useEffect(() => {
@@ -560,6 +557,7 @@ export function LinkWorkspace({
                         messageScope={owner}
                         earlier={earlierMessages}
                         messages={messages}
+                        loading={lean && chatWindow.loading && !messages.length && session !== undefined}
                         imageDraft={imageDraft}
                         onSend={() => void send()}
                         onSendDesignMessage={(text) => send(text, true, false)}

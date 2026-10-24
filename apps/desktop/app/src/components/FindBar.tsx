@@ -18,7 +18,7 @@ function blockOf(element: Element, cache: Map<Element, Element>): Element {
   return block;
 }
 
-/** Text ranges for every match under `root`, including ones that cross inline markup. Hidden text (collapsed tool rows) isn't laid out, so it is skipped. */
+/** Text ranges for every match under `root`, including ones that cross inline markup. Hidden and inert text (collapsed tool rows) is skipped. */
 function collectRanges(root: Element, query: string): Range[] {
   const ranges: Range[] = [];
   const visible = new Map<Element, boolean>();
@@ -45,8 +45,8 @@ function collectRanges(root: Element, query: string): Range[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
     const parent = node.parentElement;
-    if (!parent || parent.closest("script, style")) continue;
-    if (!visible.has(parent)) visible.set(parent, parent.checkVisibility?.() ?? true);
+    if (!parent) continue;
+    if (!visible.has(parent)) visible.set(parent, !parent.closest("script, style, [inert]") && (parent.checkVisibility?.() ?? true));
     if (!visible.get(parent)) continue;
     const block = blockOf(parent, blocks);
     if (block !== groupBlock) {
@@ -117,7 +117,7 @@ export function FindBar({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => search(false));
     });
-    observer.observe(column, { childList: true, characterData: true, subtree: true });
+    observer.observe(column, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["inert"] });
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);

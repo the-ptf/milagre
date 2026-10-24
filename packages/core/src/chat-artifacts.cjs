@@ -233,7 +233,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
         for (const entry of entries) {
           const latest = entry.versions.at(-1);
           const source = await readVersionFile(documentFile(folder, entry.id, latest.version));
-          designs.push({ title: latest.title, document: JSON.parse(source) });
+          designs.push({ title: latest.title, ...(latest.group ? { group: latest.group } : {}), document: JSON.parse(source) });
         }
         return { schemaVersion: 1, title: request.title, designs };
       }),

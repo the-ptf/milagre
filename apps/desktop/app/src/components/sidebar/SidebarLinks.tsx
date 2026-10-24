@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
@@ -101,7 +101,7 @@ export function SidebarLinksProvider({
   const latest = useRef({ scopes, projects, onAskChat });
   latest.current = { scopes, projects, onAskChat };
 
-  const read = async () => {
+  const read = useCallback(async () => {
     const bridge = window.milagre;
     if (!bridge) return;
     let next: unknown;
@@ -118,11 +118,11 @@ export function SidebarLinksProvider({
         return;
       }
     if (Array.isArray(next)) setLinks(next as ProjectLink[]);
-  };
+  }, []);
   useEffect(() => {
     void read();
     return window.milagre?.onLinksChanged?.((next) => Array.isArray(next) && setLinks(next));
-  }, []);
+  }, [read]);
 
   useEffect(() => {
     if (!toast) return;
@@ -130,44 +130,52 @@ export function SidebarLinksProvider({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const showToast = (text: string, options: { undo?: () => void; left?: number } = {}) => {
+  const showToast = useCallback((text: string, options: { undo?: () => void; left?: number } = {}) => {
     const left = options.left ?? (document.querySelector("aside")?.getBoundingClientRect().right ?? 0) + 12;
     setToast({ text, undo: options.undo, left });
-  };
+  }, []);
 
-  const scopeOf = (key: string) => latest.current.scopes.find((scope) => scope.scopeKey === key);
-  const projectName = (id: string) =>
-    latest.current.scopes.find((scope) => scope.projectId === id)?.projectName ?? latest.current.projects.find((project) => project.id === id)?.name;
-  const branchAt = (projectId: string, path: string) => {
-    for (const scope of latest.current.scopes) {
-      if (scope.projectId !== projectId) continue;
-      const row = scope.rows.find((item) => item.details?.path === path && item.details.branch);
-      if (row) return row.details?.branch;
-    }
-    return undefined;
-  };
+  const scopeOf = useCallback((key: string) => scopes.find((scope) => scope.scopeKey === key), [scopes]);
+  const projectName = useCallback(
+    (id: string) => scopes.find((scope) => scope.projectId === id)?.projectName ?? projects.find((project) => project.id === id)?.name,
+    [scopes, projects],
+  );
+  const branchAt = useCallback(
+    (projectId: string, path: string) => {
+      for (const scope of scopes) {
+        if (scope.projectId !== projectId) continue;
+        const row = scope.rows.find((item) => item.details?.path === path && item.details.branch);
+        if (row) return row.details?.branch;
+      }
+      return undefined;
+    },
+    [scopes],
+  );
 
   // Each row keeps the same array while its Links and their names don't change, so the memo'd rows don't re-render.
   const endsCache = useRef(new Map<string, { key: string; ends: LinkedEnd[] }>());
-  const endsFor = (scopeKey: string, item: SidebarRecent) => {
-    const projectId = scopeOf(scopeKey)?.projectId;
-    const worktree = projectId ? worktreeOf(projectId, item) : null;
-    if (!worktree) return NO_ENDS;
-    const ends = linkedEnds(links, worktree).map(({ link, other }) => ({
-      linkId: link.id,
-      label: linkedEndLabel(other, {
-        project: projectName(other.project_id),
-        branch: other.worktree_path === undefined ? undefined : branchAt(other.project_id, other.worktree_path),
-      }),
-    }));
-    if (!ends.length) return NO_ENDS;
-    const id = `${scopeKey}#${item.id}`;
-    const key = ends.map((end) => `${end.linkId}\0${end.label}`).join("\n");
-    const cached = endsCache.current.get(id);
-    if (cached?.key === key) return cached.ends;
-    endsCache.current.set(id, { key, ends });
-    return ends;
-  };
+  const endsFor = useCallback(
+    (scopeKey: string, item: SidebarRecent) => {
+      const projectId = scopeOf(scopeKey)?.projectId;
+      const worktree = projectId ? worktreeOf(projectId, item) : null;
+      if (!worktree) return NO_ENDS;
+      const ends = linkedEnds(links, worktree).map(({ link, other }) => ({
+        linkId: link.id,
+        label: linkedEndLabel(other, {
+          project: projectName(other.project_id),
+          branch: other.worktree_path === undefined ? undefined : branchAt(other.project_id, other.worktree_path),
+        }),
+      }));
+      if (!ends.length) return NO_ENDS;
+      const id = `${scopeKey}#${item.id}`;
+      const key = ends.map((end) => `${end.linkId}\0${end.label}`).join("\n");
+      const cached = endsCache.current.get(id);
+      if (cached?.key === key) return cached.ends;
+      endsCache.current.set(id, { key, ends });
+      return ends;
+    },
+    [links, scopeOf, projectName, branchAt],
+  );
 
   async function create(ask: { source: LinkChat; target: LinkChat }, choice: { scope: LinkScope; allow: boolean; text: string }) {
     const bridge = window.milagre;
@@ -198,11 +206,16 @@ export function SidebarLinksProvider({
     }
     const text = choice.text.trim();
     if (!text || !latest.current.onAskChat || !ask.target.item.details?.path) return showToast("Link created", { undo });
+    const current = latest.current;
+    const targetName = targetProject
+      ? (current.scopes.find((scope) => scope.projectId === targetProject)?.projectName ??
+        current.projects.find((project) => project.id === targetProject)?.name)
+      : undefined;
     const message = linkAskMessage(text, {
       label: ask.target.item.label,
       chatRef: `${ask.target.scopeKey}#${ask.target.item.id}`,
       worktreePath: ask.target.item.details.path,
-      projectName: targetProject ? projectName(targetProject) : undefined,
+      projectName: targetName,
       branch: ask.target.item.details.branch,
     });
     try {
@@ -232,26 +245,29 @@ export function SidebarLinksProvider({
     }
   }
 
-  const value: SidebarLinksValue = {
-    links,
-    projectIdOf: (key) => scopeOf(key)?.projectId ?? null,
-    endsFor,
-    refresh: () => void read(),
-    ask: (source, target, anchor) => {
-      setPicking(null);
-      setAsking({ source, target, anchor });
-    },
-    pick: (source, anchor, mode) => {
-      setAsking(null);
-      setPicking({ source, anchor, mode });
-    },
-    toast: showToast,
-    register: (handle) => {
-      handles.current.add(handle);
-      return () => void handles.current.delete(handle);
-    },
-    lists: () => [...handles.current],
-  };
+  const value = useMemo<SidebarLinksValue>(
+    () => ({
+      links,
+      projectIdOf: (key) => scopeOf(key)?.projectId ?? null,
+      endsFor,
+      refresh: () => void read(),
+      ask: (source, target, anchor) => {
+        setPicking(null);
+        setAsking({ source, target, anchor });
+      },
+      pick: (source, anchor, mode) => {
+        setAsking(null);
+        setPicking({ source, anchor, mode });
+      },
+      toast: showToast,
+      register: (handle) => {
+        handles.current.add(handle);
+        return () => void handles.current.delete(handle);
+      },
+      lists: () => [...handles.current],
+    }),
+    [links, scopeOf, endsFor, read, showToast],
+  );
 
   const focusRow = (chat: LinkChat) =>
     document.querySelector<HTMLElement>(`[data-chat-scope="${CSS.escape(chat.scopeKey)}"] [data-chat-id="${CSS.escape(chat.item.id)}"] [data-row]`)?.focus();

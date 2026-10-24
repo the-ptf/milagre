@@ -28,7 +28,7 @@ test("a forwarded shortcut is kept from the frame and sent to the renderer", () 
   assert.deepEqual(sent, [["app:shortcut", "e"]]);
 });
 
-test("⌘W closes the focused Terminal, and the window otherwise", () => {
+test("⌘W closes the focused Terminal and is swallowed otherwise", () => {
   const contents = new EventEmitter();
   const ipc = new EventEmitter();
   const sent = [];
@@ -38,17 +38,32 @@ test("⌘W closes the focused Terminal, and the window otherwise", () => {
   const event = { preventDefault: () => prevented++ };
   const close = key("w", { shift: false });
   contents.emit("before-input-event", event, close);
-  assert.equal(prevented, 0, "the window menu closes the window");
+  assert.equal(prevented, 1, "the window menu never sees ⌘W");
+  assert.deepEqual(sent, []);
   ipc.emit("app:terminal-focused", { sender: contents }, true);
   ipc.emit("app:terminal-focused", { sender: new EventEmitter() }, false);
   contents.emit("before-input-event", event, close);
-  assert.equal(prevented, 1);
+  assert.equal(prevented, 2);
   assert.deepEqual(sent, [["app:close-focused-terminal"]]);
   ipc.emit("app:terminal-focused", { sender: contents }, false);
   contents.emit("before-input-event", event, close);
-  assert.equal(prevented, 1);
+  assert.equal(prevented, 3);
+  assert.deepEqual(sent, [["app:close-focused-terminal"]]);
   assert.equal(isCloseKey(key("w", { shift: false, meta: false, control: true }), "win32"), true);
   assert.equal(isCloseKey(key("w"), "darwin"), false, "⌘⇧W is not ⌘W");
   contents.emit("destroyed");
   assert.equal(ipc.listenerCount("app:terminal-focused"), 0);
+});
+
+test("⌘Q asks through onQuitKey instead of the menu", () => {
+  const contents = new EventEmitter();
+  contents.send = () => {};
+  let asked = 0;
+  forwardAppShortcuts(contents, "darwin", new EventEmitter(), () => asked++);
+  let prevented = 0;
+  const event = { preventDefault: () => prevented++ };
+  contents.emit("before-input-event", event, key("q", { shift: false }));
+  contents.emit("before-input-event", event, key("q", { shift: false, type: "keyUp" }));
+  assert.equal(asked, 1);
+  assert.equal(prevented, 1);
 });

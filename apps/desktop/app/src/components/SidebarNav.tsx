@@ -183,6 +183,8 @@ type SidebarNavProps = {
   askingKeys?: string;
   /** Opens a chat of another Project (its path) or Link (`milagre-link:` key) from the all-Projects sidebar. */
   onOpenScopeChat?: (scopeKey: string, id: string) => void;
+  /** The pointer rests on a chat's row: its page can be read before the click. */
+  onHoverChat?: (scopeKey: string, id: string) => void;
   /** "Link and ask A…": sends the message to that chat (its Project path and id) through the normal send path. */
   onAskChat?: (scopeKey: string, id: string, message: { body: string; prompt: string }) => Promise<unknown>;
 };
@@ -429,6 +431,21 @@ const lastLists = {
   order: null as string[] | null,
 };
 
+/** A Link as the last sidebar read it, with its member Projects: enough to open it at once while the host answers. */
+export function knownLink(id: string): { link: NamedProjectLink; projects: Array<{ id: string; name: string; path: string }> } | null {
+  const link = lastLists.links.find((item) => item.id === id);
+  if (!link) return null;
+  const projects = link.projectIds.map(
+    (projectId) =>
+      lastLists.registered.find((project) => project.id === projectId) ?? {
+        id: projectId,
+        name: projectId.split(/[\\/]/).filter(Boolean).at(-2) ?? projectId,
+        path: "",
+      },
+  );
+  return { link, projects };
+}
+
 function AttentionDot({ className = "" }: { className?: string }) {
   return <span role="img" aria-label="Needs attention" title="A chat here waits for you" className={`size-2 shrink-0 rounded-full bg-orange ${className}`} />;
 }
@@ -552,6 +569,7 @@ export default memo(function SidebarNav({
   waitingKeys = "",
   askingKeys = "",
   onOpenScopeChat,
+  onHoverChat,
   onNewChatInScope,
   onAskChat,
 }: SidebarNavProps) {
@@ -610,6 +628,19 @@ export default memo(function SidebarNav({
     ? projectRows({ recent: recentProjects, currentPath: projectPath, currentName: workspaceName })
     : recentProjects.map((project) => ({ ...project, initial: project.name.slice(0, 1).toUpperCase(), current: false }));
 
+  // A sidebar whose effects run again after a hidden spell (the Project's behind a Link, an <Activity>) first takes
+  // what the other sidebar read meanwhile, before paint, so a Link made while it was away is listed at once.
+  const readBefore = useRef(false);
+  useLayoutEffect(() => {
+    // Taken now: this sidebar's own effect below writes its stale lists over the cache right after.
+    const { links, registered, recent } = lastLists;
+    if (readBefore.current) {
+      setNamedLinks(links);
+      setRegisteredProjects(registered);
+      setRecentProjects(recent);
+    }
+    readBefore.current = true;
+  }, []);
   // Read on mount and again each time the menu opens, so a folder that's gone drops out.
   useEffect(() => {
     let live = true;
@@ -755,6 +786,17 @@ export default memo(function SidebarNav({
   };
   const openScope = useRef((key: string, id: string) => onOpenScopeChat?.(key, id));
   openScope.current = (key: string, id: string) => onOpenScopeChat?.(key, id);
+  const hoverScope = useRef((key: string, id: string) => onHoverChat?.(key, id));
+  hoverScope.current = (key: string, id: string) => onHoverChat?.(key, id);
+  const scopeHovers = useRef(new Map<string, (item: SidebarRecent) => void>());
+  const hoverFor = (key: string) => {
+    let hover = scopeHovers.current.get(key);
+    if (!hover) {
+      hover = (item) => hoverScope.current(key, item.id);
+      scopeHovers.current.set(key, hover);
+    }
+    return hover;
+  };
   // Canvas Links join this Mac's Projects: a Named Link's shared chats and another computer's take none.
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
@@ -771,6 +813,7 @@ export default memo(function SidebarNav({
               actions: chatActions,
               showHints,
               onPick: pickChat,
+              onHover: hoverFor(scope.key),
               linkProjectId: scope.link ? null : linkProjectIdOf(scope.key),
               computer: rowComputer(scope.key),
               show: chatRowShow,
@@ -781,6 +824,7 @@ export default memo(function SidebarNav({
               actions: actionsFor(scope.key),
               showHints: false,
               onPick: pickerFor(scope.key),
+              onHover: hoverFor(scope.key),
               linkProjectId: scope.link ? null : linkProjectIdOf(scope.key),
               computer: rowComputer(scope.key),
               show: chatRowShow,
@@ -1250,6 +1294,7 @@ export default memo(function SidebarNav({
                       actions={chatActions}
                       showHints={showHints}
                       onPick={pickChat}
+                      onHover={hoverFor(currentKey)}
                       show={chatRowShow}
                       linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
                       header={
@@ -1395,6 +1440,7 @@ function ChatList({
   actions,
   showHints,
   onPick,
+  onHover,
   linkProjectId,
   computer,
   show,
@@ -1413,6 +1459,7 @@ function ChatList({
   actions: ChatRowActions;
   showHints: boolean;
   onPick: (item: SidebarRecent) => void;
+  onHover?: (item: SidebarRecent) => void;
   /** The Project's id on the canvas; null when its chats can't be linked from here. */
   linkProjectId: string | null;
   computer?: RowComputer;
@@ -1459,8 +1506,13 @@ function ChatList({
   const otherList = (scope: string | undefined) => (scope === undefined ? undefined : sidebarLinks.lists().find((handle) => handle.scopeKey === scope));
 
   // Window listeners and memoized row actions call through this, so they always see the latest render.
-  const live = useRef({ recents, actions, over, drop, finish, hit, sidebarLinks });
-  live.current = { recents, actions, over, drop, finish, hit, sidebarLinks };
+  const live = useRef({ recents, actions, sidebarLinks });
+  live.current = { recents, actions, sidebarLinks };
+  // Keep the drag handlers separate: drop closes over rowActions below.
+  const dragHandlers = useRef({ over, drop, finish, hit });
+  useLayoutEffect(() => {
+    dragHandlers.current = { over, drop, finish, hit };
+  });
 
   // Another Project's list finds this one's rows when a drag from there ends here.
   useEffect(() => {
@@ -1469,10 +1521,13 @@ function ChatList({
     return sidebarLinks.register(handle);
   }, [scopeKey, linkProjectId]);
 
-  const showToast = (text: string, undo?: () => void) => {
-    const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-    live.current.sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
-  };
+  const showToast = useCallback(
+    (text: string, undo?: () => void) => {
+      const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
+      live.current.sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+    },
+    [live],
+  );
 
   /** Beside the sidebar, level with the row the menu or the drop was on. */
   const anchorAt = (top: number) => {
@@ -1510,7 +1565,7 @@ function ChatList({
           }
         : {}),
     }),
-    [actions, linkProjectId, scopeKey],
+    [actions, linkProjectId, scopeKey, live, showToast],
   );
 
   const endpoint = (item: SidebarRecent) => ({ pinned: item.pinned, worktree: item.details?.path });
@@ -1676,7 +1731,7 @@ function ChatList({
         started = true;
         begin(id, false);
       }
-      live.current.over(live.current.hit(moveEvent.clientX, moveEvent.clientY));
+      dragHandlers.current.over(dragHandlers.current.hit(moveEvent.clientX, moveEvent.clientY));
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -1693,11 +1748,11 @@ function ChatList({
       };
       window.addEventListener("click", swallow, { capture: true, once: true });
       window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
-      live.current.drop();
+      dragHandlers.current.drop();
     };
     const cancel = () => {
       stop();
-      if (started) live.current.finish();
+      if (started) dragHandlers.current.finish();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
@@ -1710,7 +1765,7 @@ function ChatList({
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      live.current.finish();
+      dragHandlers.current.finish();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -1808,6 +1863,7 @@ function ChatList({
       actions={rowActions}
       shortcutHint={showHints && hintOffset + index < 9 ? `${shortcutModifier}${hintOffset + index + 1}` : undefined}
       onPick={onPick}
+      onHover={onHover}
       computer={computer}
       show={show}
       dimOffline={dimOffline || (Boolean(pinnedTarget) && Boolean(item.pinned))}

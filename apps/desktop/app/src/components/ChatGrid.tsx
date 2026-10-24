@@ -109,6 +109,7 @@ function ChatTile({
   const worktree = session && "worktree_id" in session && "worktrees" in state! ? state.worktrees[session.worktree_id] : undefined;
   const branch = worktree?.name;
   const remote = isRemoteKey(scope);
+  const bridge = bridgeForKey(scope);
   const title = session ? chatTitle(session, messages) : "Chat";
   const earlier = useMemo(
     () =>
@@ -161,7 +162,7 @@ function ChatTile({
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       ) : (
         // A tile's images, attachments and file links belong to its own Project (and Computer), not the focused one's.
-        <BridgeContext.Provider value={bridgeForKey(scope)}>
+        <BridgeContext.Provider value={bridge}>
           <ScopeContext.Provider value={scope}>
             <EditorLinks root={remote ? "" : (worktree?.path ?? scope)} files={remote ? "" : (worktree?.path ?? scope)}>
               <ChatTranscript

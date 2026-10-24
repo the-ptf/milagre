@@ -191,28 +191,29 @@ async function browserChecks() {
       document.querySelector(${JSON.stringify(prompt)}).dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
     })()`);
     await waitFor(`document.body.textContent.includes('note.png')`);
-    await send("Keep this draft");
+    // The drop inserted the image's chip; the draft keeps it, since deleting the chip would remove the image.
+    await send("[Image #1] Keep this draft");
     await immediate("Keep this draft");
     await type("A follow-up note");
     await evaluate("window.failCreate()");
     await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('Setup failed')`);
     assert.equal(
       await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`),
-      "Keep this draft\n\nA follow-up note",
+      "[Image #1] Keep this draft\n\nA follow-up note",
       "failed setup keeps both the submitted message and text typed while preparing",
     );
     assert.equal(await evaluate(`document.body.textContent.includes('note.png')`), true, "failed setup restores attachments");
     await screenshot("setup-failed");
-    await send("Keep this draft");
+    await send("[Image #1] Keep this draft");
     await evaluate("window.finishCreate()");
     await waitFor("window.calls.sent.length === 3");
     assert.equal(await evaluate("window.calls.sent[2].images[0].name"), "note.png");
     assert.deepEqual(await evaluate("window.calls.sent[2].files"), ["/fixture/note.png"]);
     await evaluate("window.failSend()");
     await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('Disk full')`);
-    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "Keep this draft");
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "[Image #1] Keep this draft");
     const created = await evaluate("window.calls.created");
-    await send("Keep this draft");
+    await send("[Image #1] Keep this draft");
     await waitFor("window.calls.sent.length === 4");
     assert.equal(await evaluate("window.calls.created"), created, "retry after persistence failure reuses the prepared worktree");
     await evaluate("window.saveSend(); window.ackSend()");

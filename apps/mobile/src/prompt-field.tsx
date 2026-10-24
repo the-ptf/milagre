@@ -16,6 +16,11 @@ import type { PastedImage } from "./attachment-picker";
 
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 
+/** A lookup answer versions the mutable known-file cache without changing the draft or its selection. */
+function readMarks(draft: string, options: Parameters<typeof promptParts>[1], lookups: number) {
+  return { lookups, parts: promptParts(draft, options) };
+}
+
 const openSkills = (scale: number) =>
   scale <= 0
     ? undefined
@@ -73,8 +78,8 @@ export function PromptField({
   const [focused, setFocused] = useState(false);
   const typing = onMention && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
-  const marks = useMemo(
-    () => promptParts(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!known?.has(projectPath, path), images }),
+  const { parts: marks } = useMemo(
+    () => readMarks(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!known?.has(projectPath, path), images }, lookups),
     [draft, skills, known, projectPath, lookups, images],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);

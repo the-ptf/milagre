@@ -43,7 +43,7 @@ import { folderName, formatLineCount, type ChatMark } from "@/lib/chat-list";
 import { rowPullRequests } from "@/lib/chat-pull-requests";
 import { useEditors } from "@/lib/editors";
 import type { AgentPort, DiffStat, PullRequest } from "@/model";
-import { portComputer, portUrl } from "@/lib/ports";
+import { portComputer, portUrl, unreachablePortReason } from "@/lib/ports";
 import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr-blockers";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
@@ -170,6 +170,8 @@ function BackgroundMark({ count = 0 }: { count?: number }) {
 }
 
 const HOVER_CARD_DELAY = 500;
+// Long enough for a pointer crossing the list not to read every chat, short enough to finish before most clicks.
+const PREFETCH_DELAY = 90;
 /** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
 const HOVER_CARD_GRACE = 250;
 /** PR chips the row has room for; the rest are a count, and the hover card lists them all. */
@@ -258,6 +260,7 @@ export const ChatRow = memo(function ChatRow({
   active,
   collapsed,
   onPick,
+  onHover,
   actions,
   shortcutHint,
   computer,
@@ -271,6 +274,8 @@ export const ChatRow = memo(function ChatRow({
   active: boolean;
   collapsed: boolean;
   onPick: (item: SidebarRecent) => void;
+  /** The pointer has rested on the row: a chance to read the chat's page before the click. */
+  onHover?: (item: SidebarRecent) => void;
   actions: ChatRowActions;
   shortcutHint?: string;
   computer?: RowComputer;
@@ -362,8 +367,23 @@ export const ChatRow = memo(function ChatRow({
     clearHover();
     setCard(null);
   };
+  const prefetchTimer = useRef<number | null>(null);
+  const clearPrefetch = () => {
+    if (prefetchTimer.current !== null) window.clearTimeout(prefetchTimer.current);
+    prefetchTimer.current = null;
+  };
+  // A pointer resting on the row is about to click it: the chat's page is read now, so the click paints at once.
+  const prefetchSoon = () => {
+    clearPrefetch();
+    if (!onHover) return;
+    prefetchTimer.current = window.setTimeout(() => {
+      prefetchTimer.current = null;
+      onHover(item);
+    }, PREFETCH_DELAY);
+  };
   const showCardSoon = () => {
     clearHover();
+    prefetchSoon();
     // Back on the row from the card: the card stays as it is. A chat being dragged over the row doesn't open it.
     if (menu || renaming || card || document.documentElement.hasAttribute("data-chat-drag")) return;
     hoverTimer.current = window.setTimeout(() => {
@@ -398,7 +418,10 @@ export const ChatRow = memo(function ChatRow({
         data-chat-id={item.id}
         className={`group/row relative ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
         onPointerEnter={showCardSoon}
-        onPointerLeave={hideCardSoon}
+        onPointerLeave={() => {
+          clearPrefetch();
+          hideCardSoon();
+        }}
         onPointerDown={hideCard}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -819,24 +842,33 @@ function ChatHoverCard({
             <span className="flex min-w-0 flex-wrap gap-1">
               {details.ports.map((port) => {
                 const computer = portComputer(port);
+                const url = portUrl(port);
                 const chip = "rounded-[6px] bg-hover px-1.5 py-0.5 font-mono text-[11.5px] tabular-nums text-ink-2";
-                // Another computer's port is not at this Mac's localhost: shown, not linked.
-                return computer ? (
-                  <span key={port.port} data-chat-card-port data-port-remote title={`${port.command} · listening on ${computer}`} className={chip}>
+                // Another computer's port opens at its LAN or tailnet IP; one this Mac can't reach is shown, not linked.
+                return computer && !url ? (
+                  <span
+                    key={port.port}
+                    data-chat-card-port
+                    data-port-remote
+                    title={`${port.command} · ${unreachablePortReason(port, computer)}`}
+                    className={chip}
+                  >
                     :{port.port} <span className="font-sans text-ink-3">on {computer}</span>
                   </span>
                 ) : (
                   <a
                     key={port.port}
-                    href={portUrl(port)}
+                    href={url ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     data-chat-card-port
-                    title={`${port.command} · open ${portUrl(port)}`}
+                    {...(computer ? { "data-port-remote": true } : {})}
+                    title={`${port.command} · open ${url}`}
                     onClick={onOpenLink}
                     className={`${chip} no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent`}
                   >
                     :{port.port}
+                    {computer ? <span className="font-sans text-ink-3"> on {computer}</span> : null}
                   </a>
                 );
               })}

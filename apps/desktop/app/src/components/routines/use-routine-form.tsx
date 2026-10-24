@@ -196,7 +196,7 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   /** A new Routine's trigger kind. Only a schedule can check back on a Chat; another trigger starts new Chats. */
   const setTrigger = (trigger: RoutineFormState["trigger"]) =>
     update({ trigger, runIn: trigger !== "schedule" && state.runIn === "chat" ? "worktree" : state.runIn });
-  const placeholders = useMemo(() => placeholdersFor(draftTrigger(state)), [state.trigger, state.linear.event, state.linear.workspace]);
+  const placeholders = useMemo(() => placeholdersFor(draftTrigger(state)), [state]);
   const project = targets?.projects.find((entry) => entry.path === state.projectPath);
 
   /** Saves the form; a problem shows under its field and resolves null. */
