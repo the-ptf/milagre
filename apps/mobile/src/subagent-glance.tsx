@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useDisplayNow } from "./display-clock";
+import { formatElapsed } from "@milagre/shared/display-clock";
 import { Pressable, Text, View } from "react-native";
 import {
   AlertCircleIcon,
@@ -35,8 +37,7 @@ const entries = (count: number) => `${count} ${count === 1 ? "entry" : "entries"
 export const subagentRunning = (agent: Subagent) => ["initializing", "running", "waiting"].includes(agent.status);
 
 export function elapsed(agent: Subagent, now: number) {
-  const seconds = Math.max(0, Math.floor(((agent.endedAt ?? now) - agent.startedAt) / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return formatElapsed((agent.endedAt ?? now) - agent.startedAt);
 }
 
 /**
@@ -74,13 +75,7 @@ function useWholeSubagent(agent: Subagent, read: () => Promise<Subagent>): Subag
 
 /** The time, ticking each second while `running`. */
 export function useClock(running: boolean) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
+  return useDisplayNow(1000, running);
 }
 
 function useText() {

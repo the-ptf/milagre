@@ -1,4 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useDisplayNow } from "../../lib/display-clock";
+import { formatElapsed } from "@milagre/shared/display-clock";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
@@ -50,20 +52,7 @@ const sectionLabel = "text-[11px] font-medium tracking-[0.08em] text-ink-3 upper
 const entries = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
 
 function elapsed(agent: Subagent, now: number) {
-  const seconds = Math.max(0, Math.floor(((agent.endedAt ?? now) - agent.startedAt) / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
-
-/** The time, ticking each second while `running`. */
-function useClock(running: boolean) {
-  // oxlint-disable-next-line react/purity -- Date.now() only seeds the initial clock state; an effect keeps it current
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
+  return formatElapsed((agent.endedAt ?? now) - agent.startedAt);
 }
 
 function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?: (id: string) => void; onRetry?: (id: string) => void }) {
@@ -255,7 +244,7 @@ export const SubagentDetail = memo(function SubagentDetail({
 }) {
   const { agent, transcript, status } = useSubagentDetails(chatKey, sent);
   const running = subagentActive(agent);
-  const now = useClock(running);
+  const now = useDisplayNow(1000, running);
   const [log, setLog] = useState(false);
   const steps = subagentSteps(transcript);
   const current = steps.at(-1);
@@ -418,7 +407,7 @@ export function SubagentTrack({
   const child = rows.find((agent) => agent.id === selected);
   const running = visible.filter(subagentActive).length;
   const done = visible.filter(subagentFinished).length;
-  const now = useClock(opened && rows.some(subagentActive));
+  const now = useDisplayNow(1000, opened && rows.some(subagentActive));
   const actionClass = "flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40";
   const footerClass =
     "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-3";
