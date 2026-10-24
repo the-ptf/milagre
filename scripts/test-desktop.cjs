@@ -459,10 +459,17 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     }
     throw error;
   } finally {
+    // Quit the way a user does. On Windows child.kill() is TerminateProcess: Chromium never flushes localStorage,
+    // so the packaged run read the source run's stale settings (light theme, Floating inbox still on).
+    if (child.exitCode === null) await connection?.call("Runtime.evaluate", { expression: "void window.milagre?.retryQuit()" }).catch(() => {});
     connection?.close();
-    child.kill("SIGTERM");
-    const timeout = setTimeout(() => child.kill("SIGKILL"), 10000);
+    const terminate = setTimeout(() => {
+      console.error("Desktop did not quit within 10 s; terminating it");
+      child.kill("SIGTERM");
+    }, 10000);
+    const timeout = setTimeout(() => child.kill("SIGKILL"), 20000);
     await exited;
+    clearTimeout(terminate);
     clearTimeout(timeout);
     // Desktop quit leaves the shared host available. This fixture alone owns
     // the temporary profile, so explicitly stop it before deleting test data.
