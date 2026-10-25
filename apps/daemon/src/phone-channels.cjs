@@ -13,6 +13,13 @@ const PENDING_REPEAT_MS = 20_000;
 const LIVE_ORIGIN = "milagre-app://phone";
 const MAX_LIVE = 8;
 const MAX_INFLIGHT = 16;
+// Requests past MAX_INFLIGHT wait for a free slot instead of failing: on a busy Mac slow answers fill the slots, and a
+// refusal only makes the phone ask again. Past these a flood is still refused (429).
+const MAX_QUEUED = 64;
+const MAX_QUEUED_BYTES = 16 * 1024 * 1024;
+// The phone can't cancel a relayed request and gives up after 30 s at the least, so one that waited this long is
+// refused (429: it never ran, the phone may send it again) rather than run late, like a Stop landing on a newer turn.
+const MAX_QUEUE_WAIT = 20_000;
 const MAX_UPLOAD = 8 * 1024 * 1024;
 // Longer than the phone's own deadline for the slowest call (worktree:create, 330 s), so the phone gives up first.
 const REQUEST_TIMEOUT = 340_000;
@@ -63,6 +70,7 @@ function createPhoneChannels({
   openPeer,
   allowComputer,
   pendingRepeatMs = PENDING_REPEAT_MS,
+  queueWaitMs = MAX_QUEUE_WAIT,
 }) {
   const sendFrame = (current, type, conn, payload) => current.send(frame(type, conn, payload));
   function sendMessage(current, conn, record, message) {
@@ -92,6 +100,7 @@ function createPhoneChannels({
     closeLives(record);
     // A desktop's daemon connection goes with its channel.
     record.peer?.close();
+    for (const queued of record.queue.splice(0)) clearTimeout(queued.expiry);
     if (notify) sendFrame(current, CLOSE, conn);
   }
 
@@ -256,6 +265,12 @@ function createPhoneChannels({
       );
     } finally {
       record.inflight -= 1;
+      const next = record.queue.shift();
+      if (next) {
+        clearTimeout(next.expiry);
+        record.queuedBytes -= next.body.length;
+        if (current.conns.get(conn) === record) void forward(current, conn, record, next.meta, next.body);
+      }
     }
   }
 
@@ -272,7 +287,8 @@ function createPhoneChannels({
     }
     let upload = record.uploads.get(id);
     if (!upload) {
-      if (record.inflight + record.uploads.size >= MAX_INFLIGHT) return refuseRequest(current, conn, record, message, 429, tooManyRequests);
+      if (record.inflight + record.uploads.size + record.queue.length >= MAX_INFLIGHT + MAX_QUEUED)
+        return refuseRequest(current, conn, record, message, 429, tooManyRequests);
       if ((message.method !== "GET" && message.method !== "POST") || !routeOk(message.path))
         return refuseRequest(current, conn, record, message, 400, new Uint8Array());
       upload = { size: 0, meta: { id, method: message.method, path: message.path, headers: message.headers } };
@@ -294,7 +310,18 @@ function createPhoneChannels({
     }
     if (!result.done) return;
     record.uploads.delete(id);
-    void forward(current, conn, record, upload.meta, result.body);
+    if (record.inflight < MAX_INFLIGHT) return void forward(current, conn, record, upload.meta, result.body);
+    if (record.queuedBytes + result.body.length > MAX_QUEUED_BYTES) return respond(current, conn, record, id, 429, JSON_HEADERS, tooManyRequests);
+    const queued = { meta: upload.meta, body: result.body };
+    queued.expiry = setTimeout(() => {
+      const at = record.queue.indexOf(queued);
+      if (at < 0) return;
+      record.queue.splice(at, 1);
+      record.queuedBytes -= queued.body.length;
+      respond(current, conn, record, id, 429, JSON_HEADERS, tooManyRequests);
+    }, queueWaitMs);
+    record.queue.push(queued);
+    record.queuedBytes += result.body.length;
   }
 
   /** Answers a request without forwarding it; the rest of its parts are skipped. */
@@ -372,6 +399,8 @@ function createPhoneChannels({
         channel: null,
         lives: new Map(),
         inflight: 0,
+        queue: [],
+        queuedBytes: 0,
         uploads: new Map(),
         rejected: new Set(),
         assembler: createAssembler(),

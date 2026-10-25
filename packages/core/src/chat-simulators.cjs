@@ -115,7 +115,7 @@ function createChatSimulators({ simulators, file, validateChat }) {
       await Promise.all([queue, closing]);
     },
   };
-  for (const method of ["offer", "status", "control", "input", "repair"])
+  for (const method of ["offer", "frame", "status", "control", "input", "repair"])
     api[method] = async (request, owner) => {
       const viewer = viewers.get(request?.viewerId);
       if (!viewer || viewer.owner !== owner) throw Error("Unknown simulator viewer or owner. It may have been detached.");

@@ -4,6 +4,8 @@ import { ipcErrorMessage } from "./result.mjs";
 export const SEND_RETRY_DELAYS = Object.freeze([1000, 2000, 4000, 8000, 15000, 30000]);
 /** How long a send keeps trying before it fails as it would have at once. */
 export const SEND_RETRY_BUDGET = 10 * 60 * 1000;
+/** How long a read the screen waits on (branches, installed agents) keeps trying before it shows its error. */
+export const READ_RETRY_BUDGET = 60 * 1000;
 
 const RELAY_LOST = new Set(["lost", "host-offline"]);
 

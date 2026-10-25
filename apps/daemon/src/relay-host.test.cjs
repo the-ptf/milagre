@@ -224,7 +224,7 @@ test("a live-open with a path that is not a route is refused", async (t) => {
   assert.equal(bridge.seen.liveOpen, 0);
 });
 
-test("a connection is limited to 8 live sockets and 16 requests in flight", async (t) => {
+test("a connection is limited to 8 live sockets and 16 requests in flight, with 64 more waiting their turn", async (t) => {
   const { bridge, connect } = await paired(t);
   const phone = await connect();
   for (let id = 1; id <= 9; id++) phone.send({ t: "live-open", id, path: "/live" });
@@ -238,13 +238,35 @@ test("a connection is limited to 8 live sockets and 16 requests in flight", asyn
   assert.deepEqual(refused, [{ t: "live-close", id: 9, code: 1013 }]);
   assert.equal(bridge.seen.liveOpen, 8);
 
-  for (let id = 100; id < 117; id++) phone.request(id, { path: "/slow" });
-  const over = await phone.response(116);
-  assert.equal(over.status, 429);
+  for (let id = 100; id < 181; id++) phone.request(id, { path: "/slow" });
+  const over = await phone.response(180);
+  assert.equal(over.status, 429, "past 16 running and 64 waiting a flood is refused");
   assert.equal(decode(over.body), '{"v":1,"error":{"message":"Too many requests"}}');
   await until(() => bridge.waiting() === 16, "the 16 requests to reach the bridge");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(bridge.waiting(), 16, "the rest wait on the Mac, not at the bridge");
+  // A busy Mac answering slowly: each free slot takes the next waiting request, so every one is answered.
+  const freeing = setInterval(() => bridge.release(), 10);
+  t.after(() => clearInterval(freeing));
+  // Answers come back in any order, so read them all in one pass.
+  const statuses = new Map();
+  while (statuses.size < 80) {
+    const message = await phone.next();
+    if (message.t === "res" && !message.more) statuses.set(message.id, message.status);
+  }
+  assert.deepEqual(new Set(statuses.values()), new Set([200]));
+});
+
+test("a request that waited too long on the Mac is refused unread, never run late", async (t) => {
+  const { bridge, connect } = await paired(t, { mac: { timing: { queueWaitMs: 150 } } });
+  const phone = await connect();
+  for (let id = 1; id <= 17; id++) phone.request(id, { path: "/slow" });
+  await until(() => bridge.waiting() === 16, "16 requests to reach the bridge");
+  const late = await phone.response(17);
+  assert.equal(late.status, 429, "the phone can't cancel it, so the Mac turns it away instead of running it later");
   bridge.release();
-  assert.equal((await phone.response(100)).status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(bridge.waiting(), 0, "the refused request never reached the bridge");
 });
 
 test("a bad frame closes only that phone", async (t) => {

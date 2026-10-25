@@ -40,7 +40,7 @@ import { ReachableHostContext } from "../reachable-host";
 import { useReachableHost } from "../routes-native";
 import { useComposer, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
-import { retryKind, retrySend } from "@milagre/shared/send-retry";
+import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { shiftImageMentions } from "@milagre/shared/prompt-mentions";
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
@@ -331,9 +331,12 @@ export default function ChatScreen() {
   );
   useEffect(() => {
     let cancelled = false;
+    // A busy Mac (429) or a dropped answer is read again for a minute; the error shows only once that gives up.
     if (connected && projectPath && !session.snapshot?.project.link && !params.id)
-      void connected
-        .call<string[]>("project:branches", [projectPath])
+      void retrySend(() => connected.call<string[]>("project:branches", [projectPath]), {
+        retryable: (error) => !cancelled && retryKind(error) !== null,
+        budget: READ_RETRY_BUDGET,
+      })
         .then((items) => {
           if (!cancelled) setBranchList({ client: connected, path: projectPath, items });
         })
@@ -651,12 +654,15 @@ export default function ChatScreen() {
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
   const branches = branchList?.client === client && branchList.path === project.path ? branchList : null;
-  const base =
-    baseBranch && branches?.items.includes(baseBranch)
+  // Until the branch list arrives a new Worktree starts from this checkout's branch, as on desktop, so a busy Mac
+  // never holds the send.
+  const base = !branches?.items.length
+    ? worktree?.name || ""
+    : baseBranch && branches.items.includes(baseBranch)
       ? baseBranch
-      : worktree?.name && branches?.items.includes(worktree.name)
+      : worktree?.name && branches.items.includes(worktree.name)
         ? worktree.name
-        : branches?.items[0] || "";
+        : branches.items[0];
   const newWorktree = !project.link && !params.id && isolation === "worktree";
   const targetDisabled = busy || picking;
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
@@ -1349,7 +1355,7 @@ export default function ChatScreen() {
                   </Text>
                 </View>
               )}
-              {newWorktree && branches?.error ? <ErrorNotice message={branches.error} /> : null}
+              {newWorktree && branches?.error && !base ? <ErrorNotice message={branches.error} /> : null}
               {historyState.key === scrollKey && historyState.error ? <ErrorNotice message={historyState.error} retry={() => void showEarlier()} /> : null}
               {messages.length + remote > visible && (
                 <PillButton
