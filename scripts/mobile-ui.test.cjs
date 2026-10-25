@@ -62,7 +62,8 @@ function hookHost({ effects = false } = {}) {
       if (!effects) return;
       const index = cursor++;
       const previous = slots[index];
-      if (previous && deps.every((value, i) => value === previous.deps[i])) return;
+      // No dependency list runs every render, as in React.
+      if (previous && deps && deps.every((value, i) => value === previous.deps[i])) return;
       previous?.cleanup?.();
       slots[index] = { deps, cleanup: fn() };
     },
@@ -107,6 +108,8 @@ const designsOn = {
   save: async () => {},
   connectionChanged() {},
 };
+/** The split layout on a phone (split-context.tsx): the Chats list is a page or slides over, never pinned. */
+const phoneSplit = { widthClass: "compact", available: true, dockable: false, pinned: false, hidden: false, toggle() {} };
 /** A Chat with no listening ports (useChatPorts in ports.tsx). */
 const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
 function load(file, modules, extra = "", cache = new Map(), reactCompiler = false) {
@@ -197,6 +200,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       if (base === "all-computers" && !(id in modules)) return { useArchivedCount: () => null, useArchivedChats: () => ({ chats: [], loading: false }) };
+      // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
+      if (base === "split-context" && !(id in modules)) return { useSplit: () => phoneSplit, SplitProvider: ({ children }) => children };
+      if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
+      // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
+      if (base === "hardware-keys" && !(id in modules))
+        return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },

@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, Keyboard, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, type Href } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
@@ -14,6 +14,8 @@ import { IconButton } from "./ui";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
+import { useSplit } from "./split-context";
+import { CARD_MARGIN, CARD_TOP, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-width";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree. */
@@ -157,6 +159,19 @@ export function usePanelNavigation() {
   return usePanels().navigate;
 }
 
+/** The focused screen's Chat and Worktree, and the panels it offers, for the pinned sidebar and keyboard shortcuts. */
+export function usePanelScreen() {
+  const { screen, open, show } = usePanels();
+  return { attached: !!screen, chatId: screen?.chatId, worktreeId: screen?.worktreeId, open, show };
+}
+
+/** How far a panel travels: the whole screen on a phone, a card's width plus its margins on a wider window. */
+function panelTravel(width: number) {
+  return widthClass(width) === "compact" ? width : SIDEBAR_WIDTH + CARD_MARGIN * 2;
+}
+/** A card's own safe area: it sits clear of the status bar and home indicator already. */
+export const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+
 /** Offers the panels while this screen is focused. A rightward drag opens the left one, a leftward drag Changes. */
 export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktreeId?: number }) {
   const panels = usePanels();
@@ -175,14 +190,25 @@ export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktre
   );
   useEffect(() => () => detach(token), [detach, token]);
   const { width } = useWindowDimensions();
+  const travel = panelTravel(width);
+  // Where the sidebar is pinned beside the Chat, a drag only reaches Changes.
+  const { dockable } = useSplit();
   const ours = panels.screen?.token === token;
   const scale = useMotionScale();
   const gesture = useMemo(
     () =>
-      swipe({ progress, from, width, min: worktreeId === undefined ? 0 : -1, max: 1, offset: [-SLOP_X, SLOP_X], pull, settled, scale }).enabled(
-        ours && !panels.open,
-      ),
-    [progress, from, width, worktreeId, pull, settled, ours, panels.open, scale],
+      swipe({
+        progress,
+        from,
+        width: travel,
+        min: worktreeId === undefined ? 0 : -1,
+        max: dockable ? 0 : 1,
+        offset: [-SLOP_X, SLOP_X],
+        pull,
+        settled,
+        scale,
+      }).enabled(ours && !panels.open),
+    [progress, from, travel, worktreeId, dockable, pull, settled, ours, panels.open, scale],
   );
   return { gesture, open: ours ? panels.open : null, show };
 }
@@ -256,9 +282,14 @@ export function SidePanelsHost() {
   const session = useSession();
   const { screen, open, mounted, progress, from, show, settled, navigate } = usePanels();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const scale = useMotionScale();
-  const left = useAnimatedStyle(() => ({ transform: [{ translateX: (Math.max(progress.get(), 0) - 1) * width }] }));
-  const right = useAnimatedStyle(() => ({ transform: [{ translateX: (1 + Math.min(progress.get(), 0)) * width }] }));
+  // Wider than a phone, each panel is a card sliding over the Chat from its side instead of a whole page.
+  const card = widthClass(width) !== "compact";
+  const travel = panelTravel(width);
+  const rightTravel = card ? CHANGES_WIDTH + CARD_MARGIN * 2 : width;
+  const left = useAnimatedStyle(() => ({ transform: [{ translateX: (Math.max(progress.get(), 0) - 1) * travel }] }));
+  const right = useAnimatedStyle(() => ({ transform: [{ translateX: (1 + Math.min(progress.get(), 0)) * rightTravel }] }));
   const shade = useAnimatedStyle(() => ({ opacity: Math.abs(progress.get()) }));
   // Open, only a drag back toward the screen closes it.
   const close = useMemo(
@@ -266,16 +297,32 @@ export function SidePanelsHost() {
       swipe({
         progress,
         from,
-        width,
+        width: travel,
         min: open === "right" ? -1 : 0,
         max: open === "left" ? 1 : 0,
         offset: open === "left" ? [-SLOP_X, 1e5] : [-1e5, SLOP_X],
         settled,
         scale,
       }).enabled(!!open),
-    [progress, from, width, open, settled, scale],
+    [progress, from, travel, open, settled, scale],
   );
   if (!screen || !session.client) return null;
+  const frame = (side: Side) =>
+    card
+      ? ({
+          position: "absolute",
+          top: insets.top + CARD_TOP,
+          bottom: Math.max(insets.bottom, CARD_MARGIN),
+          [side]: CARD_MARGIN,
+          width: side === "left" ? SIDEBAR_WIDTH : CHANGES_WIDTH,
+          borderRadius: 18,
+          borderCurve: "continuous",
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.line,
+          backgroundColor: colors.surface,
+          overflow: "hidden",
+        } as const)
+      : [StyleSheet.absoluteFill, { backgroundColor: colors.page }];
   const hidden = (side: Side) =>
     ({ accessibilityElementsHidden: open !== side, importantForAccessibility: open === side ? "auto" : "no-hide-descendants" }) as const;
   return (
@@ -283,16 +330,19 @@ export function SidePanelsHost() {
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, shade]} />
       <GestureDetector gesture={close}>
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-          {mounted.left && (
-            <Animated.View {...hidden("left")} style={[StyleSheet.absoluteFill, { backgroundColor: colors.page }, left]}>
-              <ProjectNavigation visible={open === "left"} activeChatId={screen.chatId} onClose={() => show(null)} onNavigate={navigate} />
-            </Animated.View>
-          )}
-          {mounted.right && screen.worktreeId !== undefined && (
-            <Animated.View {...hidden("right")} style={[StyleSheet.absoluteFill, { backgroundColor: colors.page }, right]}>
-              <ChangesPanel key={`${session.snapshot?.project.path}#${screen.worktreeId}`} worktreeId={screen.worktreeId} onClose={() => show(null)} />
-            </Animated.View>
-          )}
+          {/* A card sits below the status bar already, so what it holds lays out with no safe area of its own. */}
+          <SafeAreaInsetsContext.Provider value={card ? NO_INSETS : insets}>
+            {mounted.left && (
+              <Animated.View {...hidden("left")} style={[frame("left"), left]}>
+                <ProjectNavigation visible={open === "left"} activeChatId={screen.chatId} surface={card} onClose={() => show(null)} onNavigate={navigate} />
+              </Animated.View>
+            )}
+            {mounted.right && screen.worktreeId !== undefined && (
+              <Animated.View {...hidden("right")} style={[frame("right"), right]}>
+                <ChangesPanel key={`${session.snapshot?.project.path}#${screen.worktreeId}`} worktreeId={screen.worktreeId} onClose={() => show(null)} />
+              </Animated.View>
+            )}
+          </SafeAreaInsetsContext.Provider>
         </View>
       </GestureDetector>
     </View>
