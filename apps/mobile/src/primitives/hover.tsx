@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View, type PointerEvent, type StyleProp, type ViewProps, type ViewStyle } from "react-native";
 
 /** Pointer events also come from touches (pointerType "touch"); only a trackpad, mouse or pencil hovers. */
-export const hovers = (event: { nativeEvent: { pointerType?: string } }) => event.nativeEvent.pointerType !== "touch";
+const hovers = (event: { nativeEvent: { pointerType?: string } }) => event.nativeEvent.pointerType !== "touch";
 
 /** Whether an iPad pointer (trackpad, mouse or pencil) is over a view. A finger never hovers, so phones never see it. */
 export function useHover() {
