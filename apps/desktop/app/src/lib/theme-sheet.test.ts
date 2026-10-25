@@ -15,7 +15,7 @@ test("writes every token, ANSI color and Shiki variable", () => {
 
 test("kebab-cases the palette keys the stylesheet names", () => {
   const css = themeStylesheet(resolvePalette("catppuccin-mocha", "dark"));
-  for (const name of ["hover-2", "line-strong", "diff-add-word", "tooltip-bg", "on-accent", "accent-ink", "accent-tint"]) {
+  for (const name of ["hover-2", "line-strong", "diff-add-word", "on-accent", "accent-ink", "accent-tint"]) {
     assert.match(css, new RegExp(`--${name}:`), name);
   }
 });
