@@ -946,14 +946,14 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 22, fontWeight: "700" }}>
             Chats
           </Text>
-          {/* Settings and Routines open over the sidebar, which stays where it was under them. */}
+          {/* Settings opens over the sidebar, which stays where it was under it. Routines is a page, so the sidebar closes first. */}
           <View>
             <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
             <UpdateSettingsBadge />
           </View>
           {routinesAvailable && (
             <View>
-              <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", "sheet")} />
+              <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
               {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
             </View>
           )}

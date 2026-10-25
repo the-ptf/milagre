@@ -11797,13 +11797,13 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
 
-test("the header opens Settings and Routines over the sidebar, and its ⋯ holds Add project, Link projects and Canvas", () => {
+test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add project, Link projects and Canvas", () => {
   const nav = navigationHost(deferred().promise);
   const tree = nav.render();
   find(tree, (node) => node.props?.label === "Settings").props.onPress();
   find(tree, (node) => node.props?.label === "Routines").props.onPress();
   assert.deepEqual(nav.routes, ["/settings", "/routines"]);
-  assert.deepEqual(nav.secondaryRoutes, ["sheet", "sheet"], "both open over the sidebar, which stays under them");
+  assert.deepEqual(nav.secondaryRoutes, ["sheet", true], "Settings opens over the sidebar; Routines is a page, pushed after the sidebar closes");
   assert.equal(
     find(tree, (node) => node.props?.label === "Close navigation"),
     undefined,
