@@ -13702,8 +13702,17 @@ function splitShellHost() {
       useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }),
     },
     "./project-navigation": { ProjectNavigation: "ProjectNavigation" },
-    "./side-panels": { NO_INSETS: {}, usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
-    "./split-context": { useSplit: () => split },
+    "./side-panels": { usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      Easing: { bezier: () => (t) => t },
+      ReduceMotion: { System: "system" },
+      useSharedValue: (value) => ({ get: () => value, set() {} }),
+      useAnimatedStyle: (style) => style(),
+      withTiming: (value) => value,
+    },
+    "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
+    "./split-context": { useSplit: () => split, useCardTop: () => ({ top: 24, controls: 0, content: {} }) },
     "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
   });
   const render = () => {

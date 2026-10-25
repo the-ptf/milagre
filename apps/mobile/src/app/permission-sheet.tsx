@@ -8,6 +8,7 @@ import { useComposer, useSession } from "../session";
 import { Icon } from "../icons";
 import { CircleButton, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatPreferences } from "../turn-options";
 
 /** Desktop's permission picker as a sheet: Ask approval, Auto mode, Full permission. A tap applies it and closes. */
@@ -17,13 +18,24 @@ export default function PermissionSheet() {
   const { chatId, busy } = useLocalSearchParams<{ chatId: string; busy?: string }>();
   const composer = useComposer();
   const session = useSession();
-  const current = chatPreferences(composer.preferences[chatId], composer.defaults, session.snapshot?.runs.runs[chatId]?.permissionMode).permissionMode;
+  const draft = /#new:/.test(chatId);
+  const project = session.snapshot?.project;
+  const chatMode = !draft && project?.path === projectOfKey(chatId) ? project.state.sessions[sessionIdFromKey(chatId)]?.permissionMode : undefined;
+  const current = chatPreferences(
+    composer.preferences[chatId],
+    composer.defaults,
+    chatMode,
+    session.snapshot?.runs.runs[chatId]?.permissionMode,
+  ).permissionMode;
   // Like desktop: the pick becomes the default for new Chats and applies to this Chat's agent right away, including a
   // turn that is running (its next tool request uses the new mode). A Chat not yet sent has no agent to tell.
   const pick = (mode: PermissionMode) => {
-    composer.setPreferences((all) => ({ ...all, [chatId]: { ...(all[chatId] || composer.defaults), permissionMode: mode } }));
+    composer.setPreferences((all) => ({
+      ...all,
+      [chatId]: { ...(all[chatId] || composer.defaults), permissionMode: mode, permissionPick: { mode, over: chatMode } },
+    }));
     composer.setDefaultPermission(mode);
-    if (session.client && !/#new:/.test(chatId)) void session.client.call("agent:set-permission-mode", [{ chatId, mode }]).catch(() => {});
+    if (session.client && !draft) void session.client.call("agent:set-permission-mode", [{ chatId, mode }]).catch(() => {});
     router.back();
   };
   return (

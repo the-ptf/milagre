@@ -2,14 +2,16 @@ import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { router, usePathname, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { ProjectNavigation } from "./project-navigation";
-import { NO_INSETS, usePanelScreen } from "./side-panels";
-import { useSplit } from "./split-context";
-import { CARD_MARGIN, CARD_TOP, SIDEBAR_WIDTH } from "./split-width";
+import { usePanelScreen } from "./side-panels";
+import { useCardTop, useSplit } from "./split-context";
+import { CARD_MARGIN, SIDEBAR_WIDTH } from "./split-width";
 import { chatShortcutIndex, useHardwareShortcuts, type ShortcutId } from "./hardware-keys";
 import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
+import { scaledTiming, useMotionScale } from "./motion";
 
 /**
  * The app's frame: on a wide iPad the Chats list is a card pinned beside the screen, as desktop's sidebar sits beside
@@ -37,9 +39,23 @@ export function SplitShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** The room the pinned sidebar takes beside the Chat: its card and the gap to its left. */
+const SLOT = SIDEBAR_WIDTH + CARD_MARGIN;
+/** iOS's own sidebar timing: quick off the mark, settling gently. */
+const SLIDE = { duration: 320, easing: Easing.bezier(0.32, 0.72, 0, 1), reduceMotion: ReduceMotion.System };
+
 function PinnedSidebar({ shown }: { shown: boolean }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const top = useCardTop();
+  const scale = useMotionScale();
+  // Hiding, the slot narrows as the card slides out past the left edge, and the Chat widens into the room it leaves.
+  const progress = useSharedValue(shown ? 1 : 0);
+  useEffect(() => {
+    progress.set(withTiming(shown ? 1 : 0, scaledTiming(SLIDE, scale)));
+  }, [shown, progress, scale]);
+  const slot = useAnimatedStyle(() => ({ width: progress.get() * SLOT }));
+  const slide = useAnimatedStyle(() => ({ transform: [{ translateX: (progress.get() - 1) * SLOT }] }));
   const session = useSession();
   const pathname = usePathname();
   const { chatId } = usePanelScreen();
@@ -59,23 +75,30 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
     [hostId, projectPath, chatId],
   );
   return (
-    <View
-      style={[
-        s.card,
-        {
-          display: shown ? "flex" : "none",
-          marginTop: insets.top + CARD_TOP,
-          marginBottom: Math.max(insets.bottom, CARD_MARGIN),
-          backgroundColor: colors.surface,
-          borderColor: colors.line,
-        },
-      ]}
+    <Animated.View
+      pointerEvents={shown ? "auto" : "none"}
+      accessibilityElementsHidden={!shown}
+      importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
+      style={[s.slot, slot]}
     >
-      {/* The card sits below the status bar already, so the list inside lays out with no safe area of its own. */}
-      <SafeAreaInsetsContext.Provider value={NO_INSETS}>
-        <ProjectNavigation docked visible={shown} activeChatId={pathname === "/chat" ? chatId : undefined} onNavigate={navigate} />
-      </SafeAreaInsetsContext.Provider>
-    </View>
+      <Animated.View
+        style={[
+          s.card,
+          {
+            marginTop: top.top,
+            marginBottom: Math.max(insets.bottom, CARD_MARGIN),
+            backgroundColor: colors.surface,
+            borderColor: colors.line,
+          },
+          slide,
+        ]}
+      >
+        {/* The card sits clear of the status bar already, so the list inside keeps only below a window's controls. */}
+        <SafeAreaInsetsContext.Provider value={top.content}>
+          <ProjectNavigation docked visible={shown} activeChatId={pathname === "/chat" ? chatId : undefined} onNavigate={navigate} />
+        </SafeAreaInsetsContext.Provider>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
@@ -112,7 +135,9 @@ export function HardwareShortcuts() {
 }
 
 const s = StyleSheet.create({
+  slot: { overflow: "hidden" },
   card: {
+    flex: 1,
     width: SIDEBAR_WIDTH,
     marginLeft: CARD_MARGIN,
     borderRadius: 18,

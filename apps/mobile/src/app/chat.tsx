@@ -87,7 +87,7 @@ import LINEAR_MARK from "../../assets/linear-mark.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplit } from "../split-context";
-import { chatAreaWidth, readingInset } from "../split-width";
+import { chatAreaWidth, READING_WIDTH } from "../split-width";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
@@ -170,9 +170,10 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const split = useSplit();
-  // Beside a pinned sidebar or on a wide iPad, the transcript and composer keep to a centered reading column.
   const area = chatAreaWidth(window.width, split.pinned);
-  const column = readingInset(area);
+  // On a wide iPad the transcript and composer keep to a centered reading column. It is a max width, not padding
+  // worked out from the window, so the column slides without reflowing while the sidebar opens or closes.
+  const column = { width: "100%", maxWidth: READING_WIDTH, alignSelf: "center" } as const;
   const [actionBusy, setBusy] = useState(false);
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
@@ -668,7 +669,7 @@ export default function ChatScreen() {
   // Feedback cards read the agent's resolutions again only when a comment may have changed.
   const designsMoved = history.designActivity + designActivity(run?.steps ?? [], []);
   const contextUsage = run?.contextUsage ?? chat?.contextUsage;
-  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, run?.permissionMode);
+  const preferences = chatPreferences(composer.preferences[chatId], composer.defaults, chat?.permissionMode, run?.permissionMode);
   const turn = turnTarget(composer.preferences[chatId], chat?.provider, composer.defaults);
   const actualProvider = turn.provider;
   const model = selectedModel(actualProvider, turn.model || (chat && !turn.picked ? lastUserModel(project.state, chat.id) : ""), session.models);
@@ -1379,7 +1380,8 @@ export default function ChatScreen() {
               keyboardDismissMode="interactive"
               contentContainerStyle={[
                 styles.content,
-                { paddingTop: insets.top + 84, paddingLeft: 28 + column, paddingRight: 20 + column, gap: 16, paddingBottom: dockHeight + 16 },
+                column,
+                { paddingTop: insets.top + 84, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
               ]}
               scrollEventThrottle={32}
               onScrollBeginDrag={() => {
@@ -1622,7 +1624,7 @@ export default function ChatScreen() {
               <BottomFade height={dockHeight + 48} />
               <View
                 onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
-                style={{ paddingHorizontal: 12 + column, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }}
+                style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
               >
                 <PersistenceNotice
                   key={`${client.url}|${project.path}`}
