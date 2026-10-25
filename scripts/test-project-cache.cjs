@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const data = `
 const stateFor = (name) => ({ next_id: 4, projects: { 1: { id: 1, name } },
@@ -347,7 +348,7 @@ async function main() {
             return transformWithEsbuild(stubs[id.slice("\0cache-stub:".length, -4)], id.slice(1), { loader: "tsx", jsx: "automatic" });
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             const match = /^\/__cache\/(desktop|mobile)$/.exec(request.url);
             if (!match) return next();
             response.setHeader("Content-Type", "text/html");

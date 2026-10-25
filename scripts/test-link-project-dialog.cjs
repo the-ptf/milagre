@@ -5,6 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const preview = process.argv.includes("--preview");
 const names = ["rd-mobile-backend", "rd-mobile", "food-api", "food-web", "rd-food-merchant", "rd-food-apps", "shared-components", "notifications-service"];
 const projects = names.map((name) => ({
@@ -160,7 +161,7 @@ async function main() {
           if (id === "/__link-dialog.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__link-dialog") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

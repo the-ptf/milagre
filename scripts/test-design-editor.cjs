@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const chatId = "/design-fixture#1";
 const designId = "fieldnotes";
@@ -1368,7 +1369,7 @@ async function main() {
           if (id === "/__design_editor_fixture.tsx") return fixture;
         },
         configureServer(vite) {
-          vite.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(vite.middlewares, async (request, response, next) => {
             if (request.url !== "/__design_editor__") return next();
             const html = await vite.transformIndexHtml(
               request.url,

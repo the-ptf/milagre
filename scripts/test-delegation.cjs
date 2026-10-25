@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React, { useState } from "react";
@@ -151,7 +152,7 @@ async function main() {
           if (id === "/__delegation_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__delegation__") return next();
             const html = await server.transformIndexHtml(
               request.url,

@@ -1,5 +1,5 @@
 import { memo, useId, useState } from "react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, CSSProperties } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AiBrain01Icon,
@@ -17,6 +17,7 @@ import type { ChatStep, StepKind } from "../../model";
 import { fileSpanIndex } from "../../lib/file-links";
 import { titleSpans } from "../../lib/reply-parts";
 import { useSettings } from "../../lib/settings";
+import { useStepTitleSweep } from "../../lib/step-sweep";
 import { useFileOpener } from "../editor-links";
 import { CodeBlock } from "../markdown/CodeBlock";
 import { Markdown } from "../markdown/Markdown";
@@ -43,7 +44,7 @@ function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-function FileLink({ text, title, shimmer, onOpen }: { text: string; title: string; shimmer: boolean; onOpen: () => void }) {
+function FileLink({ text, title, sweep, onOpen }: { text: string; title: string; sweep: { className?: string; style?: CSSProperties }; onOpen: () => void }) {
   const open = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
     onOpen();
@@ -60,7 +61,8 @@ function FileLink({ text, title, shimmer, onOpen }: { text: string; title: strin
           open(event);
         }
       }}
-      className={`pointer-events-auto cursor-pointer rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink decoration-ink-3 underline-offset-2 hover:underline ${shimmer ? "step-shimmer" : ""}`}
+      className={`pointer-events-auto cursor-pointer rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink decoration-ink-3 underline-offset-2 hover:underline ${sweep.className ?? ""}`}
+      style={sweep.style}
     >
       {text}
     </code>
@@ -80,8 +82,8 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
   const fileIndex = opener ? fileSpanIndex(step.title, step.file) : -1;
   const expandable = useHasStepDetail(step);
   const { detail, loading, failed } = useStepDetail(step, open);
-  // A running tool's title shimmers; a tool waiting on the approval card is paused on the user.
-  const shimmer = step.status === "running" && !waiting;
+  // Only the first two sweeps move; approval pauses motion without restarting the step's deadline.
+  const sweep = useStepTitleSweep(step, step.status === "running" && !waiting);
   // A finished tool just stops shimmering; screen readers hear only what isn't obvious.
   const state = waiting ? "Waiting for approval" : step.status === "running" ? "Running" : step.status === "failed" ? "Failed" : "";
   const rowClass = "flex w-full min-w-0 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left text-[12.5px] leading-[1.4] text-ink-2";
@@ -93,13 +95,13 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
       <span className="min-w-0 flex-1 truncate">
         {titleSpans(step.title).map((span, index) =>
           index === fileIndex && opener && step.file ? (
-            <FileLink key={index} text={span.text} title={opener.title} shimmer={shimmer} onOpen={() => opener.open(step.file!)} />
+            <FileLink key={index} text={span.text} title={opener.title} sweep={sweep} onOpen={() => opener.open(step.file!)} />
           ) : span.code ? (
-            <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${shimmer ? "step-shimmer" : ""}`}>
+            <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`} style={sweep.style}>
               {span.text}
             </code>
           ) : (
-            <span key={index} className={shimmer ? "step-shimmer" : undefined}>
+            <span key={index} {...sweep}>
               {span.text}
             </span>
           ),

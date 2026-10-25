@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 // This fixture exercises a device that has already accepted AI sharing.
@@ -353,7 +354,7 @@ async function main() {
           if (id === "/__worktree_setup_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__worktree_setup__") return next();
             const html = await server.transformIndexHtml(
               request.url,

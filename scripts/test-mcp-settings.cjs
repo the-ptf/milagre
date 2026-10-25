@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -343,7 +344,7 @@ async function main() {
         resolveId: (id) => (id === "/__mcp.tsx" ? id : null),
         load: (id) => (id === "/__mcp.tsx" ? fixture : null),
         configureServer(server) {
-          server.middlewares.use(async (req, res, next) => {
+          useAsyncMiddleware(server.middlewares, async (req, res, next) => {
             if (req.url !== "/__mcp__") return next();
             res.setHeader("Content-Type", "text/html");
             res.end(

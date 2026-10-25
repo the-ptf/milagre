@@ -11,12 +11,26 @@ export type TurnPreferences = {
   /** The Chat's provider when `provider` was picked as a switch; the pick only holds while the Chat is still on it. */
   pickedOn?: ModelProvider;
   permissionMode: PermissionMode;
+  /** A mode picked here, and the Chat's saved mode when it was picked: it shows until the Mac's copy moves on. */
+  permissionPick?: { mode: PermissionMode; over?: PermissionMode };
 };
 export const defaultPreferences: TurnPreferences = { provider: "codex", model: "", effort: "high", fastMode: false, permissionMode: "ask" };
 
-/** A Chat's preferences. One another Chat started (MCP, Delegation) has none saved: it shows the mode its turn runs in, not the default. */
-export function chatPreferences(saved: TurnPreferences | undefined, defaults: TurnPreferences, runMode?: PermissionMode): TurnPreferences {
-  return saved || (runMode ? { ...defaults, permissionMode: runMode } : defaults);
+/**
+ * A Chat's preferences. Its permission mode is the one the Mac saved on the Chat (the last pick or message, from this
+ * phone, desktop or another Chat), so every device shows the same; a pick made here shows until that copy catches up.
+ * A Chat from before the Mac saved one shows the mode its turn runs in, then this phone's choice.
+ */
+export function chatPreferences(
+  saved: TurnPreferences | undefined,
+  defaults: TurnPreferences,
+  chatMode?: PermissionMode,
+  runMode?: PermissionMode,
+): TurnPreferences {
+  const base = saved || defaults;
+  const pick = saved?.permissionPick;
+  const permissionMode = pick && pick.over === chatMode ? pick.mode : (chatMode ?? runMode ?? base.permissionMode);
+  return permissionMode === base.permissionMode ? base : { ...base, permissionMode };
 }
 
 export function modelsFor(provider: ModelProvider, reported?: AgentModels | null): MobileModel[] {

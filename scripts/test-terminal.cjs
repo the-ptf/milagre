@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const CHAT = "/fixture#1";
 // ⌘ on macOS, Ctrl elsewhere: the main process only takes the close key with the platform's own modifier.
@@ -355,7 +356,7 @@ async function main() {
           if (id === "/__terminal_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__terminal__") return next();
             const html = await server.transformIndexHtml(
               request.url,

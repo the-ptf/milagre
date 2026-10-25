@@ -159,11 +159,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
           id === "@milagre/shared/themes" ||
-          id === "@milagre/shared/file-kinds") &&
+          id === "@milagre/shared/file-kinds" ||
+          id === "@milagre/shared/step-sweep") &&
         !(id in modules)
       )
         return require(id);
       if (relative && `./${relative}` in modules) id = `./${relative}`;
+      if (id === "react-native-gesture-handler") return { ScrollView: "GestureScrollView", ...modules[id] };
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
@@ -220,6 +222,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     process: { env: {} },
     // The host's Error, so `failure instanceof Error` holds for errors a test's fake client throws.
     Error,
+    Date,
     URL,
     TextDecoder,
     fetch: () => {
@@ -255,6 +258,7 @@ test("display clocks stop off-screen and in the background, then catch up from w
   };
   const react = {
     ...host,
+    useState: (initial) => host.useState(typeof initial === "function" ? () => now : initial),
     useSyncExternalStore(subscribe, snapshot) {
       host.useEffect(() => subscribe(() => {}), [subscribe]);
       return snapshot();
@@ -300,6 +304,118 @@ test("display clocks stop off-screen and in the background, then catch up from w
     now = 9000;
     focused = true;
     assert.equal(read(), 9000);
+  } finally {
+    host.unmount();
+  }
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+});
+
+test("an inactive mobile clock reader starts at mount time even if the shared snapshot is old", () => {
+  const host = hookHost({ effects: true });
+  let subscriptions = 0;
+  const clock = load("display-clock.ts", {
+    react: {
+      ...host,
+      useSyncExternalStore(subscribe, snapshot) {
+        host.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
+    },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "expo-router": { useIsFocused: () => true },
+    "@milagre/shared/display-clock": {
+      createDisplayClock: () => ({
+        snapshot: () => 1000,
+        subscribe: () => {
+          subscriptions++;
+          return () => subscriptions--;
+        },
+      }),
+    },
+  });
+  const before = Date.now();
+  const value = clock.useDisplayNow(1000, false);
+  assert.ok(value >= before && value <= Date.now(), "a disabled reader uses a stable current mount time");
+  assert.equal(subscriptions, 0);
+  host.begin();
+  assert.equal(clock.useDisplayNow(1000, false), value, "the mount-time fallback stays stable across renders");
+  host.unmount();
+});
+
+test("formatted display clocks stop off-screen and in the background, then catch up from wall time", () => {
+  const host = hookHost({ effects: true });
+  let focused = true,
+    now = 1000;
+  const listeners = new Set(),
+    timers = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener(_event, fn) {
+      listeners.add(fn);
+      return { remove: () => listeners.delete(fn) };
+    },
+  };
+  const react = {
+    ...host,
+    useSyncExternalStore(subscribe, snapshot) {
+      host.useEffect(() => subscribe(() => {}), [subscribe]);
+      return snapshot();
+    },
+  };
+  const real = require("@milagre/shared/display-clock");
+  const clock = load("display-clock.ts", {
+    react,
+    "react-native": { AppState },
+    "expo-router": { useIsFocused: () => focused },
+    "@milagre/shared/display-clock": {
+      createDisplayClock(options) {
+        return real.createDisplayClock({
+          ...options,
+          now: () => now,
+          setInterval: (fn) => {
+            timers.add(fn);
+            return fn;
+          },
+          clearInterval: (fn) => timers.delete(fn),
+        });
+      },
+    },
+  });
+  let enabled = true;
+  const read = () => {
+    host.begin();
+    return clock.useDisplayValue(250, (value) => real.formatElapsed(value - 1000), enabled);
+  };
+  try {
+    assert.equal(read(), "0s");
+    assert.equal(timers.size, 1);
+    now = 1250;
+    for (const fn of timers) fn();
+    assert.equal(read(), "0s", "250 ms ticks keep the snapshot unchanged within a second");
+    now = 2000;
+    for (const fn of timers) fn();
+    assert.equal(read(), "1s");
+    AppState.currentState = "background";
+    for (const fn of Array.from(listeners)) fn();
+    read();
+    assert.equal(timers.size, 0);
+    now = 5000;
+    AppState.currentState = "active";
+    for (const fn of Array.from(listeners)) fn();
+    assert.equal(read(), "4s");
+    focused = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 9000;
+    focused = true;
+    assert.equal(read(), "8s");
+    enabled = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 12_000;
+    enabled = true;
+    assert.equal(read(), "11s");
   } finally {
     host.unmount();
   }
@@ -1449,7 +1565,7 @@ for (const reactCompiler of [false, true])
     }
   });
 
-function markdownHost({ media, basePath, reachable = null, reactCompiler = false } = {}) {
+function markdownHost({ media, basePath, reachable = null, reactCompiler = false, copy = async () => {}, haptic = () => {}, textPx = 15, codeSize = 12 } = {}) {
   const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
@@ -1469,6 +1585,9 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
         View: "View",
         Image: "Image",
         Pressable: "Pressable",
+        StyleSheet: { hairlineWidth: 0.5 },
+        Platform: { OS: "ios" },
+        AccessibilityInfo: { announceForAccessibility: () => {} },
         Alert: {},
         Linking: {
           openURL: async (url) => {
@@ -1477,6 +1596,12 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
         },
       },
       "expo-router": { router: { push: (route) => routes.push(route) } },
+      "expo-clipboard": { setStringAsync: copy },
+      "@hugeicons/core-free-icons": { Copy01Icon: "copy", Tick02Icon: "tick" },
+      "./icons": { Icon: "Icon" },
+      "expo-haptics": { selectionAsync: async () => haptic() },
+      "./markdown-table": require("../apps/mobile/src/markdown-table.ts"),
+      "./theme": { useTheme: () => ({ ...themeHooks.useTheme(), textPx, codeSize }) },
       "./viewer-store": viewer,
       "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
       "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
@@ -1491,6 +1616,10 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
     if (Array.isArray(node)) return node.flatMap(expand);
     if (!node || typeof node !== "object") return node;
     if (typeof node.type === "function") return expand(node.type(node.props));
+    if (node.type === "MermaidBlock" || node.type === "GenerativeUI") {
+      const prop = node.type === "MermaidBlock" ? "plain" : "fallback";
+      return { ...node, props: { ...node.props, [prop]: expand(node.props[prop]) } };
+    }
     return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
   }
   return {
@@ -1501,8 +1630,122 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
     routes,
     links,
     viewer,
+    unmount: () => react.unmount(),
   };
 }
+
+test("Markdown code copies exact current content, replaces its feedback timer, and scales code", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const reactCompiler of [false, true]) {
+    const copies = [];
+    let taps = 0;
+    const screen = markdownHost({ reactCompiler, copy: async (code) => copies.push(code), haptic: () => taps++ });
+    const source = "```BASH\n  printf 'a  b'\n\n```";
+    const button = (tree) => find(tree, (node) => node.props?.accessibilityRole === "button");
+    let rendered = screen.render(source);
+    assert.ok(textOf(rendered).includes("bash"));
+    const codeText = find(rendered, (node) => node.type === "Text" && Array.isArray(node.props.style) && node.props.style[1]?.fontSize);
+    assert.equal(codeText.props.style[1].fontSize, 13);
+    assert.equal(codeText.props.style[1].lineHeight, 20);
+    assert.equal(button(rendered).props.accessibilityLabel, "Copy code");
+    const hit = button(rendered).props.style({ pressed: false });
+    assert.ok(hit.minWidth >= 44 && hit.minHeight >= 44);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    rendered = screen.render(source);
+    assert.equal(button(rendered).props.accessibilityLabel, "Copied");
+    assert.equal(find(rendered, (node) => node.type === "Icon").props.icon, "tick");
+    t.mock.timers.tick(1000);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    t.mock.timers.tick(500);
+    assert.equal(button(screen.render(source)).props.accessibilityLabel, "Copied");
+    t.mock.timers.tick(1000);
+    assert.equal(button(screen.render(source)).props.accessibilityLabel, "Copy code");
+    assert.deepEqual(copies, ["  printf 'a  b'\n", "  printf 'a  b'\n"]);
+    assert.equal(taps, 2);
+    rendered = screen.render("```\nfirst", true);
+    assert.ok(textOf(rendered).includes("text"));
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    rendered = screen.render("```\nfirst\nsecond", true);
+    button(rendered).props.onPress();
+    await Promise.resolve();
+    assert.deepEqual(copies.slice(-2), ["first", "first\nsecond"]);
+    screen.unmount();
+    t.mock.timers.tick(1500);
+  }
+});
+
+test("Markdown code ignores stale clipboard completion, failure and resolution after unmount", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const requests = [];
+  let taps = 0;
+  const screen = markdownHost({
+    copy: () => {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    },
+    haptic: () => taps++,
+  });
+  const source = "    indented code\n";
+  const button = () => find(screen.render(source), (node) => node.props?.accessibilityRole === "button");
+  assert.ok(textOf(screen.render(source)).includes("text"));
+  button().props.onPress();
+  button().props.onPress();
+  requests[1].resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(1000);
+  requests[0].resolve();
+  await Promise.resolve();
+  t.mock.timers.tick(500);
+  assert.equal(button().props.accessibilityLabel, "Copy code");
+  assert.equal(taps, 1);
+  button().props.onPress();
+  requests[2].reject(new Error("clipboard unavailable"));
+  await Promise.resolve();
+  assert.equal(button().props.accessibilityLabel, "Copy code");
+  button().props.onPress();
+  screen.unmount();
+  requests[3].resolve();
+  await Promise.resolve();
+  assert.equal(taps, 1);
+});
+
+test("Markdown tables align header/body columns, fill short tables and preserve rich nested cells", async () => {
+  for (const prefix of ["", "> ", "  "]) {
+    const source =
+      (prefix === "  " ? "- Table\n\n" : "") +
+      ["| Name | Value |", "| --- | --- |", "| **bold** | [short](https://example.org) |", "| `code` | final |"].map((line) => prefix + line).join("\n");
+    const screen = markdownHost({ textPx: 20 });
+    let rendered = screen.render(source);
+    const outer = find(rendered, (node) => typeof node.props?.onLayout === "function");
+    outer.props.onLayout({ nativeEvent: { layout: { width: 341 } } });
+    rendered = screen.render(source);
+    const scroll = find(rendered, (node) => node.type === "PageScroll" && node.props.horizontal);
+    assert.deepEqual({ ...scroll.props.contentContainerStyle }, { padding: 0, paddingBottom: 0, gap: 0 });
+    const cells = [];
+    const collect = (node) => {
+      if (Array.isArray(node)) return node.forEach(collect);
+      if (!node || typeof node !== "object") return;
+      if (node.props?.style?.width) cells.push(node);
+      collect(node.props?.children);
+    };
+    collect(scroll);
+    assert.equal(cells.length, 6);
+    assert.ok(cells.every((cell) => cell.props.style.width === 170));
+    const headerText = find(cells[0], (node) => node.type === "Text");
+    assert.equal(headerText.props.style.fontWeight, "600");
+    assert.equal(headerText.props.style.fontSize, 20);
+    assert.ok(textOf(rendered).includes("bold") && textOf(rendered).includes("code"));
+    const link = find(rendered, (node) => node.props?.accessibilityRole === "link");
+    link.props.onPress();
+    await Promise.resolve();
+    assert.deepEqual(screen.links, ["https://example.org"]);
+    screen.unmount();
+  }
+});
 
 test("Markdown fences render native headings and links with nested code kept literal", async () => {
   for (const streaming of [false, true]) {
@@ -3786,6 +4029,11 @@ test("shared mobile scrolling fades only the edges with more content and keeps n
   ]);
   react.begin();
   assert.equal(PageScroll({ children: "Plain" }, ref).type, "ScrollView", "other screens keep their existing native scroll");
+  react.begin();
+  const horizontal = PageScroll({ horizontal: true, children: "Wide", contentContainerStyle: { padding: 0 } }, ref);
+  assert.equal(horizontal.type, "GestureScrollView", "horizontal content owns its drag instead of opening a side panel");
+  assert.equal(horizontal.props.ref, ref);
+  assert.equal(horizontal.props.horizontal, true);
 });
 
 test("composer attachment choices stay in a native menu after the header action-sheet fix", async (t) => {
@@ -5274,8 +5522,10 @@ test("a notification target clears an older Project loading state", async () => 
 });
 
 // Render the real activity adapters, disclosure and shimmer against native leaves.
-function activityItemHost({ expandReasoning = false } = {}) {
+function activityItemHost({ expandReasoning = false, effects = false, active = true, reduced = false, permissionQuery } = {}) {
   const hosts = new Map();
+  const animations = [];
+  let motionListener;
   let current;
   const react = Object.fromEntries(["useState", "useRef", "useMemo", "useEffect"].map((name) => [name, (...args) => current[name](...args)]));
   react.memo = (fn) => fn;
@@ -5292,13 +5542,42 @@ function activityItemHost({ expandReasoning = false } = {}) {
     View: "View",
     Pressable: "Pressable",
     useColorScheme: () => "dark",
-    AccessibilityInfo: {},
+    AccessibilityInfo: {
+      isReduceMotionEnabled: permissionQuery ?? (async () => reduced),
+      addEventListener: (_name, listener) => {
+        motionListener = listener;
+        return {
+          remove: () => {
+            motionListener = null;
+          },
+        };
+      },
+    },
     StyleSheet: { create: (value) => value, absoluteFill: {} },
     Animated: {
       Value: class {
-        interpolate() {}
+        setValue(value) {
+          this.value = value;
+        }
+        interpolate(config) {
+          return { ...config, value: this };
+        }
       },
       View: "AnimatedView",
+      modulo: (value, divisor) => ({ value, divisor }),
+      timing: (value, config) => {
+        const animation = {
+          value,
+          config,
+          start() {},
+          stopped: false,
+          stop() {
+            this.stopped = true;
+          },
+        };
+        animations.push(animation);
+        return animation;
+      },
     },
     Easing: { bezier: () => () => {}, linear() {} },
   };
@@ -5309,6 +5588,10 @@ function activityItemHost({ expandReasoning = false } = {}) {
     "react-native": native,
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "@milagre/shared/use-step-sweep": {
+      useStepSweep: (start, enabled) => (enabled ? require("@milagre/shared/step-sweep").sweepRemainingMs(start, Date.now()) : 0),
+    },
+    "./display-clock": { useScreenActive: () => active },
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./ui": {
       colors: palette,
@@ -5326,12 +5609,12 @@ function activityItemHost({ expandReasoning = false } = {}) {
     "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "expo-router": { useIsFocused: () => false },
     "./logo": { LEFT: "", RIGHT: "", STAR: "", STAR_BOX: {} },
-    "./theme": { colors: palette, fonts: { mono: "mono" }, hex: () => palette },
+    "./theme": { useTheme: () => ({ colors: palette, motionScale: 1 }), fonts: { mono: "mono" } },
   });
   const shared = load("activity-item.tsx", {
     ...common,
     "./running-logo": running,
-    "./theme": { fonts: { mono: "mono" } },
+    "./theme": { useTheme: () => ({ colors: palette, motionScale: 1 }), fonts: { mono: "mono" } },
   });
   const ToolRow = load("tool-row.tsx", {
     ...common,
@@ -5343,7 +5626,7 @@ function activityItemHost({ expandReasoning = false } = {}) {
     if (Array.isArray(node)) return node.map((child, index) => visit(child, `${key}.${child?.props?.id || index}`));
     if (!node || typeof node !== "object" || !node.type) return node;
     if (typeof node.type === "function") {
-      current = hosts.get(key) || hookHost();
+      current = hosts.get(key) || hookHost({ effects });
       hosts.set(key, current);
       current.begin();
       return visit(node.type(node.props), `${key}.render`);
@@ -5358,8 +5641,115 @@ function activityItemHost({ expandReasoning = false } = {}) {
   }
   return {
     tool: (props) => visit(jsx(ToolRow, props), "tool"),
+    title: (props) => visit(jsx(shared.ActivityTitle, props), "title"),
+    animations,
+    reduce(value) {
+      reduced = value;
+      motionListener?.(value);
+    },
+    activate(value) {
+      active = value;
+    },
+    unmount() {
+      for (const host of hosts.values()) host.unmount();
+    },
   };
 }
+
+test("phone titles resume only the remaining sweep and settle code chips to running ink", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 11_700 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+  host.title(props);
+  await Promise.resolve();
+  const moving = host.title(props);
+  assert.ok(find(moving, (node) => node.type === "MaskedView"));
+  const animation = host.animations.at(-1);
+  assert.equal(animation.config.duration, 700);
+  assert.ok(Math.abs(animation.value.value - (320 * 1700) / 1200) < 0.000001);
+  assert.equal(animation.config.toValue, 640);
+  assert.equal(animation.config.useNativeDriver, true);
+  assert.equal(animation.config.isInteraction, false);
+  const overlay = find(moving, (node) => node.type === "AnimatedView" && node.props.pointerEvents === "none");
+  assert.deepEqual([...overlay.props.style[1].opacity.outputRange], [1, 1, 0], "native completion hides the band even during a JS stall");
+  t.mock.timers.tick(700);
+  const settled = host.title(props);
+  assert.equal(
+    find(settled, (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  const chip = find(settled, (node) => node.type === "Text" && node.props.children === "check");
+  assert.equal(chip.props.style.color, "#666");
+  assert.equal(chip.props.style.backgroundColor, "#222");
+  assert.equal(host.animations.length, 1);
+  const finished = host.title({ ...props, shimmer: false });
+  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
+});
+
+test("phone reduced motion reacts without restart, inactive screens and old hosts stay static", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+  host.title(props);
+  await Promise.resolve();
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  host.reduce(true);
+  assert.equal(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  t.mock.timers.tick(3000);
+  host.reduce(false);
+  assert.equal(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    undefined,
+    "motion changes cannot replay expired steps",
+  );
+  host.activate(false);
+  assert.equal(
+    find(host.title({ ...props, startedAt: 13_000 }), (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  host.activate(true);
+  host.title({ ...props, startedAt: undefined });
+  await Promise.resolve();
+  assert.equal(
+    find(host.title({ ...props, startedAt: undefined }), (node) => node.type === "MaskedView"),
+    undefined,
+  );
+});
+test("phone reactivation waits for fresh reduced-motion permission, including a failed query", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  for (const reject of [false, true]) {
+    const pending = deferred();
+    let calls = 0;
+    const host = activityItemHost({ effects: true, permissionQuery: () => (++calls === 1 ? Promise.resolve(false) : pending.promise) });
+    const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+    host.title(props);
+    await Promise.resolve();
+    assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+    host.activate(false);
+    host.title(props);
+    host.activate(true);
+    assert.equal(
+      find(host.title(props), (node) => node.type === "MaskedView"),
+      undefined,
+      "pending permission is conservative on every activation",
+    );
+    if (reject) pending.reject(new Error("Unavailable"));
+    else pending.resolve(true);
+    await Promise.resolve();
+    assert.equal(
+      find(host.title(props), (node) => node.type === "MaskedView"),
+      undefined,
+    );
+    assert.equal(host.animations.length, 1, "reactivation did not start another native animation");
+    host.unmount();
+  }
+});
+
 test("Always expand reasoning opens thinking rows in Activity until tapped, and leaves other tools folded", () => {
   const thinking = {
     step: { id: "t", kind: "thinking", title: "Thought for 4s", status: "done", detail: "Weighing the two fixes." },
@@ -8767,6 +9157,7 @@ test("mobile usage identifies the account by email, falls back to its label, and
 function subagentGlance() {
   const react = hookHost();
   const glance = load("subagent-glance.tsx", {
+    "./display-clock": { useDisplayNow: () => 0 },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
@@ -8818,7 +9209,7 @@ test("mobile subagent rows say what it does now and how far it got, and a finish
   const { SubagentRow, render } = subagentGlance();
   const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
   const shown = texts(row);
-  for (const text of ["Review authentication", "1m 5s", "Now running the auth suite.", "Step 2 · 3 files read · 1 command"])
+  for (const text of ["Review authentication", "1m 05s", "Now running the auth suite.", "Step 2 · 3 files read · 1 command"])
     assert.ok(shown.includes(text), text);
   const planned = texts(
     render(SubagentRow, {
@@ -8882,6 +9273,7 @@ test("mobile subagent detail shows its plan with what it does now, else its step
 test("mobile subagent detail reads the whole transcript when the host sent only its end", async () => {
   const react = hookHost({ effects: true });
   const { WholeSubagentDetail } = load("subagent-glance.tsx", {
+    "./display-clock": { useDisplayNow: () => 0 },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
@@ -11797,13 +12189,13 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
 
-test("the header opens Settings and Routines over the sidebar, and its ⋯ holds Add project, Link projects and Canvas", () => {
+test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add project, Link projects and Canvas", () => {
   const nav = navigationHost(deferred().promise);
   const tree = nav.render();
   find(tree, (node) => node.props?.label === "Settings").props.onPress();
   find(tree, (node) => node.props?.label === "Routines").props.onPress();
   assert.deepEqual(nav.routes, ["/settings", "/routines"]);
-  assert.deepEqual(nav.secondaryRoutes, ["sheet", "sheet"], "both open over the sidebar, which stays under them");
+  assert.deepEqual(nav.secondaryRoutes, ["sheet", true], "Settings opens over the sidebar; Routines is a page, pushed after the sidebar closes");
   assert.equal(
     find(tree, (node) => node.props?.label === "Close navigation"),
     undefined,
@@ -13310,8 +13702,17 @@ function splitShellHost() {
       useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }),
     },
     "./project-navigation": { ProjectNavigation: "ProjectNavigation" },
-    "./side-panels": { NO_INSETS: {}, usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
-    "./split-context": { useSplit: () => split },
+    "./side-panels": { usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      Easing: { bezier: () => (t) => t },
+      ReduceMotion: { System: "system" },
+      useSharedValue: (value) => ({ get: () => value, set() {} }),
+      useAnimatedStyle: (style) => style(),
+      withTiming: (value) => value,
+    },
+    "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
+    "./split-context": { useSplit: () => split, useCardTop: () => ({ top: 24, controls: 0, content: {} }) },
     "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
   });
   const render = () => {

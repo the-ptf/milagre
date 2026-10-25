@@ -1107,10 +1107,14 @@ select:focus-visible,
   }
 }
 
-/* A running tool row: a light highlight sweeps across the title's glyphs until the tool is done. */
-/* The gradient is a fixed-size tile pinned to the viewport (background-attachment: fixed), so every
- * piece of the title (label and code chip) shares one set of coordinates and the highlight travels
- * across the whole title, left to right. Moving it one tile width is one seamless loop. */
+/* Running titles sweep twice, then fall back to this static rule even if JS is busy. */
+.step-running {
+  color: var(--ink-3);
+  -webkit-text-fill-color: currentColor;
+}
+
+/* The fixed tile keeps all title spans in phase. Only keyframes own the gradient and text clipping:
+ * there is no forwards fill, frozen band or retained animation after the two sweeps. */
 @keyframes step-shimmer {
   from {
     background-position: 0 0;
@@ -1118,21 +1122,22 @@ select:focus-visible,
   to {
     background-position: 320px 0;
   }
+  from,
+  to {
+    background-image: linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px);
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
-.step-shimmer {
-  background-image: linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px);
+.step-running.step-sweep {
   background-size: 320px 100vh;
   background-repeat: repeat-x;
   background-attachment: fixed;
-  animation: step-shimmer 1.2s linear infinite;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
+  animation: step-shimmer 1.2s linear 2;
+  animation-delay: var(--sweep-delay, 0ms);
 }
 
-/* The same sweep for code chips, whose second background layer (the chip fill) stays put. */
 @keyframes step-shimmer-code {
   from {
     background-position:
@@ -1144,33 +1149,29 @@ select:focus-visible,
       320px 0,
       0 0;
   }
+  from,
+  to {
+    background-image:
+      linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px),
+      linear-gradient(var(--field), var(--field));
+    background-clip: text, border-box;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
-/* Code in a title keeps its chip: the chip's fill sits behind the clipped gradient. */
-code.step-shimmer {
-  background-image:
-    linear-gradient(90deg, var(--ink-3) 0, var(--ink-3) 110px, var(--ink) 160px, var(--ink-3) 210px, var(--ink-3) 320px),
-    linear-gradient(var(--field), var(--field));
+code.step-running.step-sweep {
   background-size:
     320px 100vh,
     100% 100%;
   background-repeat: repeat-x, no-repeat;
   background-attachment: fixed, scroll;
   animation-name: step-shimmer-code;
-  -webkit-background-clip: text, border-box;
-  background-clip: text, border-box;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .step-shimmer,
-  code.step-shimmer {
-    animation: none !important;
-    background-image: none;
-    -webkit-text-fill-color: currentColor;
-    color: var(--ink-3);
-  }
-  code.step-shimmer {
-    background-color: var(--field);
+  .step-running.step-sweep,
+  code.step-running.step-sweep {
+    animation: none;
   }
 }
 
