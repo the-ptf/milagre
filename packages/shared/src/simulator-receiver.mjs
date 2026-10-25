@@ -5,7 +5,7 @@ export const SIMULATOR_CONNECTION_LABELS = {
   connecting: "Connecting",
   live: "Live",
   "view-only": "View only",
-  rotating: "Rotating",
+  rotating: "Changing display",
   blocked: "Input blocked",
   paused: "Paused",
   error: "Disconnected",
@@ -137,7 +137,7 @@ export function createSimulatorInputQueue(send, failed, limit = 32) {
 }
 
 /** The wrapper is capability-scoped too: a receiver cannot address another viewer or call arbitrary RPC. */
-export function createSimulatorBridge(call, respond) {
+export function createSimulatorBridge(call, respond, transform = (_method, result) => result) {
   const viewers = new Set();
   const openings = new Map();
   let disposed = false;
@@ -165,7 +165,7 @@ export function createSimulatorBridge(call, respond) {
         if (!disposed) respond({ channel: "milagre-simulator", id, ...value });
       };
       try {
-        if (!["open", "offer", "status", "control", "input", "repair", "close"].includes(method)) throw new Error("Unknown simulator command.");
+        if (!["open", "offer", "frame", "status", "control", "input", "repair", "close"].includes(method)) throw new Error("Unknown simulator command.");
         if (!args || typeof args !== "object") throw new Error("Invalid simulator request.");
         if (method === "open") {
           if ([...openings.values()].some((value) => !value.cancelled) || viewers.size) throw new Error("Close the current viewer before opening another.");
@@ -199,7 +199,7 @@ export function createSimulatorBridge(call, respond) {
               for (const [requestId, item] of openings) if (item.viewerId === args.viewerId) openings.delete(requestId);
             }
           }
-          reply({ result });
+          if (!disposed) reply({ result: transform(method, result) });
         }
       } catch (error) {
         reply({ error: error instanceof Error ? error.message : "Simulator request failed." });
@@ -227,10 +227,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
   window.simulatorTheme(config.theme);
   document.documentElement.dataset.touchControls = String(!!config.touchControls);
   const stage = document.getElementById("stage"),
-    video = document.getElementById("video");
+    video = document.getElementById("video"),
+    image = document.getElementById("image");
   const deviceFrame = document.getElementById("device"),
     screen = document.getElementById("screen"),
-    hardware = document.getElementById("hardware"),
     waiting = document.getElementById("waiting");
   const message = document.getElementById("message"),
     retry = document.getElementById("retry");
@@ -242,6 +242,23 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
   const blocked = document.getElementById("blocked"),
     blockedText = document.getElementById("blocked-text"),
     repair = document.getElementById("repair");
+  const more = document.getElementById("more"),
+    extras = document.getElementById("extras"),
+    hinge = document.getElementById("hinge");
+  extras.hidden = true;
+  more.addEventListener("click", () => {
+    extras.hidden = !extras.hidden;
+    more.setAttribute("aria-expanded", String(!extras.hidden));
+    render();
+  });
+  const duo = document.getElementById("duo"),
+    hingeAngle = document.getElementById("hinge-angle"),
+    hingeApply = document.getElementById("hinge-apply");
+  const poses = ["closed", "open", "book", "laptop", "tent"].map((pose) => [pose, document.getElementById("pose-" + pose)]);
+  let hingeDraft = false;
+  hingeAngle.addEventListener("input", () => {
+    hingeDraft = true;
+  });
   back.hidden = config.device?.platform !== "android";
   let nextId = 0,
     epoch = 0,
@@ -250,6 +267,13 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     status = null,
     queue = null,
     sequence = 0;
+  let reconnectTimer = null,
+    reconnectAttempts = 0,
+    disposed = false,
+    relaying = false,
+    paintedGeneration = null,
+    frameTimer = null,
+    cancelImage = null;
   let heartbeat = null,
     deadline = null,
     disconnected = null,
@@ -313,11 +337,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     if (!g) return;
     const appearance = appearanceFor(device),
       short = Math.min(g.width, g.height),
-      long = Math.max(g.width, g.height),
       bezel = Math.min(8, short * 0.025),
       radius = short * appearance.radius;
-    // Android reports only buffer dimensions, so landscape cannot identify the camera's edge.
-    deviceFrame.dataset.cutout = device?.platform === "android" && g.width > g.height ? "none" : appearance.cutout;
+    // Hardware cutouts belong to the captured pixels. A second mask can drift or cover expanded Island content.
+    deviceFrame.dataset.cutout = "stream";
     deviceFrame.dataset.sideways = String(g.width > g.height);
     deviceFrame.style.left = g.left - bezel + "px";
     deviceFrame.style.top = g.top - bezel + "px";
@@ -326,30 +349,27 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     deviceFrame.style.setProperty("--bezel", bezel + "px");
     deviceFrame.style.borderRadius = radius + bezel + "px";
     screen.style.borderRadius = radius + "px";
-    const degrees =
-      {
-        "landscape-left": 90,
-        "landscape-right": -90,
-        "portrait-upside-down": 180,
-      }[capture().orientation] || 0;
-    hardware.style.width = short + "px";
-    hardware.style.height = long + "px";
-    hardware.style.transform = "translate(-50%,-50%) rotate(" + degrees + "deg)";
-    video.style.width = g.rawWidth + "px";
-    video.style.height = g.rawHeight + "px";
-    video.style.transform = "translate(-50%,-50%) rotate(" + g.rotation + "deg)";
+    for (const media of [video, image]) {
+      media.style.width = g.rawWidth + "px";
+      media.style.height = g.rawHeight + "px";
+      media.style.transform = "translate(-50%,-50%) rotate(" + g.rotation + "deg)";
+    }
   };
   new ResizeObserver(layout).observe(stage);
   const resetRepair = () => {
     clearTimeout(confirmRepair);
     confirmRepair = null;
-    blockedText.textContent = "Xcode Device Hub is blocking touches.";
-    repair.textContent = "Fix";
-    repair.disabled = repairing;
+    blockedText.textContent = "If touches don't respond, reset input.";
+    repair.textContent = "Reset input";
+    repair.disabled = repairing || !active || !frames || !status?.ready || !status.controlling;
+    if (!status?.deviceHubInputActive && !status?.inputBlocked) blocked.hidden = true;
   };
+  const displayGeneration = (value) => value?.displayGeneration ?? value?.generation;
+  const displayReady = () => active && frames && status?.ready && (!relaying || paintedGeneration === displayGeneration(status));
   const render = (reportConnection = true) => {
-    const ready = active && frames && status?.ready;
-    const touchesBlocked = !!(ready && status.controlling && status.inputBlocked);
+    const ready = displayReady() && !repairing;
+    // Older hosts named this hint inputBlocked, but neither flag confirms touch delivery failed.
+    const inputHint = !!(ready && status.controlling && (status.deviceHubInputActive || status.inputBlocked));
     if (reportConnection)
       reportState(
         !active
@@ -357,22 +377,30 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
             ? "error"
             : "paused"
           : !ready
-            ? rotatingGeneration !== null
+            ? rotatingGeneration !== null || (frames && relaying && paintedGeneration !== displayGeneration(status))
               ? "rotating"
               : "connecting"
-            : touchesBlocked
-              ? "blocked"
-              : status.controlling
-                ? "live"
-                : "view-only",
+            : status.controlling
+              ? "live"
+              : "view-only",
       );
-    if (!touchesBlocked && confirmRepair) resetRepair();
-    blocked.hidden = !touchesBlocked;
+    if (!(ready && status.controlling) && confirmRepair) resetRepair();
+    blocked.hidden = !(inputHint || confirmRepair || repairing);
     back.disabled = home.disabled = rotate.disabled = !(ready && status.controlling);
+    duo.hidden = hinge.hidden = status?.supportsHingeAngle !== true;
+    repair.hidden = device?.platform === "android";
+    repair.disabled = !(ready && status.controlling) || repairing;
+    for (const [pose, button] of poses) {
+      button.disabled = !(ready && status.controlling);
+      button.setAttribute("aria-pressed", String(status?.hingePose === pose));
+    }
+    hingeAngle.disabled = hingeApply.disabled = !(ready && status.controlling);
+    if (!hingeDraft && document.activeElement !== hingeAngle) hingeAngle.value = Number.isFinite(status?.hingeAngle) ? String(status.hingeAngle) : "";
     control.disabled = !ready || claiming;
     control.hidden = !ready || !!status?.controlling;
     waiting.hidden = frames || !active;
-    video.hidden = !frames;
+    video.hidden = !frames || relaying;
+    image.hidden = !frames || !relaying;
     retry.disabled = active && (!frames || rotatingGeneration !== null);
     if (ready) {
       retry.hidden = false;
@@ -384,11 +412,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
         : !status?.ready
           ? "Preparing simulator input..."
           : status.controlling
-            ? status.inputBlocked
-              ? "Xcode Device Hub is blocking touches."
-              : "You control this simulator"
+            ? "You control this simulator"
             : "View only. Another viewer may control it.";
     if (ready) {
+      reconnectAttempts = 0;
       clearTimeout(deadline);
       deadline = null;
     }
@@ -405,14 +432,22 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     active = false;
     stopped = true;
     frames = false;
+    paintedGeneration = null;
     clearInput();
     clearInterval(heartbeat);
+    clearTimeout(frameTimer);
+    frameTimer = null;
+    cancelImage?.();
+    image.removeAttribute("src");
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
     clearTimeout(deadline);
     clearTimeout(disconnected);
     clearTimeout(rotationTimer);
     heartbeat = deadline = disconnected = rotationTimer = rotatingGeneration = null;
     clearPeerListeners();
     clearPeerListeners = () => {};
+    hingeDraft = false;
     if (peer) {
       peer.close();
       peer = null;
@@ -442,11 +477,22 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     retry.title = message.textContent + " Retry";
     retry.ariaLabel = "Retry";
     retry.hidden = false;
+    extras.hidden = false;
+    more.setAttribute("aria-expanded", "true");
+    // Reopen with fresh ownership and ICE candidates after a network or host interruption.
+    // Bound retries so a stopped simulator cannot churn capture forever.
+    if (!disposed && !document.hidden && reconnectAttempts < 5) {
+      const delay = Math.min(1000 * 2 ** reconnectAttempts++, 15000);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void start();
+      }, delay);
+    }
   };
   const acceptStatus = (value) => {
     if (status && status.generation > value.generation) return;
     if (rotatingGeneration !== null) {
-      if (value.generation === rotatingGeneration) value = { ...value, ready: false };
+      if (value.generation === rotatingGeneration || !value.ready) value = { ...value, ready: false };
       else {
         rotatingGeneration = null;
         clearTimeout(rotationTimer);
@@ -503,10 +549,11 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
   });
   // Restarting the simulator's input closes its apps, so the first tap only says so.
   repair.addEventListener("click", async () => {
-    if (repairing || !viewerId) return;
+    if (repairing || !viewerId || !displayReady() || !status.controlling) return;
     if (!confirmRepair) {
-      blockedText.textContent = "Fixing restarts the simulator's home screen and closes its apps.";
+      blockedText.textContent = "Resetting input restarts the simulator's home screen and closes its apps.";
       repair.textContent = "Restart";
+      blocked.hidden = false;
       confirmRepair = setTimeout(resetRepair, 6000);
       return;
     }
@@ -517,7 +564,13 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
     // The host drops this viewer while it repairs, so no poll or input may use it in the meantime.
     clearInterval(heartbeat);
     heartbeat = null;
+    clearTimeout(frameTimer);
+    frameTimer = null;
+    cancelImage?.();
+    clearTimeout(disconnected);
+    disconnected = null;
     clearInput();
+    render();
     try {
       await rpc("repair", { viewerId });
       if (currentEpoch === epoch) void start();
@@ -530,20 +583,41 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
   });
   back.addEventListener("click", () => queue?.push({ kind: "button", button: "back" }));
   home.addEventListener("click", () => queue?.push({ kind: "button", button: "home" }));
-  rotate.addEventListener("click", () => {
-    if (!queue || pointers.size) return;
-    // iPhones do not support upside-down portrait. A two-way toggle always offers a usable next orientation.
-    const orientation = status.orientation.startsWith("landscape") ? "portrait" : "landscape-left";
+  const changeGeometry = (event) => {
+    if (!queue || pointers.size || !displayReady() || repairing || !status.controlling) return;
     rotatingGeneration = status.generation;
     const currentEpoch = epoch;
     rotationTimer = setTimeout(() => {
-      if (currentEpoch === epoch) fail(new Error("The simulator did not finish rotating. Retry to reconnect."));
+      if (currentEpoch === epoch) fail(new Error("The simulator did not finish changing its display. Retry to reconnect."));
     }, 8000);
-    queue.push({ kind: "rotate", orientation });
+    queue.push(event);
     // Wait for the new generation before accepting touches in the old geometry.
     back.disabled = home.disabled = rotate.disabled = true;
     status.ready = false;
     render();
+    return true;
+  };
+  rotate.addEventListener("click", () => {
+    if (!status) return;
+    // iPhones do not support upside-down portrait. Always offer a usable next orientation.
+    changeGeometry({ kind: "rotate", orientation: status.orientation.startsWith("landscape") ? "portrait" : "landscape-left" });
+  });
+  for (const [pose, button] of poses)
+    button.addEventListener("click", () => {
+      if (status?.supportsHingeAngle && changeGeometry({ kind: "pose", pose })) hingeDraft = false;
+    });
+  const applyHinge = () => {
+    const angle = Number(hingeAngle.value);
+    if (status?.supportsHingeAngle && hingeAngle.value.trim() && Number.isFinite(angle) && angle >= 0 && angle <= 180)
+      if (changeGeometry({ kind: "hinge", angle })) hingeDraft = false;
+  };
+  hingeApply.addEventListener("click", applyHinge);
+  hingeAngle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      applyHinge();
+    }
   });
   const sendTouch = (phase) => {
     if (pointers.size && queue)
@@ -554,7 +628,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       });
   };
   stage.addEventListener("pointerdown", (event) => {
-    if (!active || !frames || !status?.controlling || !status.ready || pointers.size >= 2 || event.button > 0) return;
+    if (!displayReady() || repairing || !status?.controlling || pointers.size >= 2 || event.button > 0) return;
     const rect = stage.getBoundingClientRect();
     const g = geometry();
     if (!g) return;
@@ -623,6 +697,81 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       back.hidden = device?.platform !== "android";
       layout();
       viewerId = opened.viewerId;
+      let polling = false,
+        triedControl = false;
+      const poll = async () => {
+        if (polling || currentEpoch !== epoch || repairing) return;
+        polling = true;
+        try {
+          const value = await rpc("status", { viewerId });
+          if (currentEpoch !== epoch || repairing) return;
+          acceptStatus(value);
+          if (value.ready && !triedControl) {
+            triedControl = true;
+            await claim(false);
+          }
+        } catch (error) {
+          if (currentEpoch === epoch && !repairing) fail(error);
+        } finally {
+          polling = false;
+        }
+      };
+      relaying = opened.transport === "frames";
+      if (relaying) {
+        let after = 0;
+        const pull = async () => {
+          if (currentEpoch !== epoch || repairing) return;
+          try {
+            const frame = await rpc("frame", { viewerId, after });
+            if (currentEpoch !== epoch || repairing) return;
+            if (frame) {
+              if (!Number.isSafeInteger(frame.sequence) || frame.sequence <= after || !["image/jpeg", "image/png"].includes(frame.mimeType))
+                throw new Error("Invalid simulator frame.");
+              let source;
+              if (window.ReactNativeWebView && typeof frame.uri === "string" && frame.uri.startsWith("file:///")) source = frame.uri;
+              else {
+                if (typeof frame.data !== "string" || frame.data.length > 2796204 || !/^[A-Za-z0-9+/]*={0,2}$/.test(frame.data))
+                  throw new Error("Invalid simulator frame data.");
+                source = "data:" + frame.mimeType + ";base64," + frame.data;
+              }
+              await new Promise((resolve, reject) => {
+                const done = (error) => {
+                  clearTimeout(timer);
+                  cancelImage = null;
+                  image.removeEventListener("load", loaded);
+                  image.removeEventListener("error", failed);
+                  if (error) reject(error);
+                  else resolve();
+                };
+                const timer = setTimeout(() => done(new Error("The simulator frame did not load. Retry to reconnect.")), 8000);
+                cancelImage = () => done(new Error("Viewer closed."));
+                const loaded = () => done();
+                const failed = () => done(new Error("The simulator frame could not be displayed."));
+                image.addEventListener("load", loaded);
+                image.addEventListener("error", failed);
+                image.src = source;
+              });
+              if (currentEpoch !== epoch || repairing) return;
+              after = frame.sequence;
+              frames = true;
+              paintedGeneration = displayGeneration(frame.status);
+              acceptStatus(frame.status);
+              render();
+              if (frame.status.ready && !triedControl) {
+                triedControl = true;
+                await claim(false);
+              }
+            }
+            if (currentEpoch === epoch) frameTimer = setTimeout(() => void pull(), 67);
+          } catch (error) {
+            if (currentEpoch === epoch && !repairing) fail(error);
+          }
+        };
+        void pull();
+        await poll();
+        if (currentEpoch === epoch && active) heartbeat = setInterval(poll, 1000);
+        return;
+      }
       const connection = new RTCPeerConnection({
         iceServers: opened.iceServers,
       });
@@ -630,7 +779,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       connection.addTransceiver("video", { direction: "recvonly" });
       const endedTracks = new Set();
       const trackEnded = () => {
-        if (currentEpoch === epoch) fail(new Error("The simulator video stopped. Retry to reconnect."));
+        if (currentEpoch === epoch && !repairing) fail(new Error("The simulator video stopped. Retry to reconnect."));
       };
       const receiveTrack = (event) => {
         if (currentEpoch !== epoch) return;
@@ -638,7 +787,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
         endedTracks.add(event.track);
         event.track.addEventListener("ended", trackEnded);
         void video.play().catch((error) => {
-          if (currentEpoch === epoch) fail(error);
+          if (currentEpoch === epoch && !repairing) fail(error);
         });
       };
       const playing = () => {
@@ -648,7 +797,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
         }
       };
       const checkConnection = () => {
-        if (currentEpoch !== epoch) return;
+        if (currentEpoch !== epoch || repairing) return;
         const state = connection.connectionState,
           ice = connection.iceConnectionState;
         if (state === "failed" || ice === "failed") fail(new Error("Video could not reach this device. Check the network and retry."));
@@ -697,52 +846,56 @@ function receiver(config, geometryFor, pointFor, inputQueue, appearanceFor) {
       if (currentEpoch !== epoch) return;
       await connection.setRemoteDescription(answer);
       if (currentEpoch !== epoch) return;
-      let polling = false,
-        triedControl = false;
-      const poll = async () => {
-        if (polling || currentEpoch !== epoch) return;
-        polling = true;
-        try {
-          const value = await rpc("status", { viewerId });
-          if (currentEpoch !== epoch) return;
-          acceptStatus(value);
-          if (value.ready && !triedControl) {
-            triedControl = true;
-            await claim(false);
-          }
-        } catch (error) {
-          if (currentEpoch === epoch) fail(error);
-        } finally {
-          polling = false;
-        }
-      };
       await poll();
       if (currentEpoch === epoch && active) heartbeat = setInterval(poll, 1000);
     } catch (error) {
       if (currentEpoch === epoch) fail(error);
     }
   };
-  // Video pauses while hidden and reconnects on its own when shown again, unless it had already failed.
   let resumeOnShow = false;
   retry.addEventListener("click", () => {
+    extras.hidden = true;
+    more.setAttribute("aria-expanded", "false");
     resumeOnShow = false;
+    reconnectAttempts = 0;
     void start();
   });
-  window.simulatorDispose = stop;
+  const pause = () => {
+    resumeOnShow ||= !stopped || reconnectTimer !== null;
+    stop();
+    message.textContent = "Viewer paused while hidden.";
+    retry.hidden = false;
+  };
+  const resume = () => {
+    if (disposed || !resumeOnShow || document.hidden) return;
+    resumeOnShow = false;
+    reconnectAttempts = 0;
+    void start();
+  };
+  const dispose = () => {
+    disposed = true;
+    resumeOnShow = false;
+    return stop();
+  };
+  window.simulatorDispose = dispose;
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      resumeOnShow ||= !stopped;
-      stop();
-      message.textContent = "Viewer paused while hidden.";
-      retry.hidden = false;
-    } else if (resumeOnShow) {
-      resumeOnShow = false;
-      void start();
-    }
+    if (document.hidden) pause();
+    else resume();
   });
-  window.addEventListener("pagehide", stop);
+  window.addEventListener("online", () => {
+    if (disposed || document.hidden || (active && connectionState !== "error")) return;
+    reconnectAttempts = 0;
+    void start();
+  });
+  window.addEventListener("pagehide", dispose);
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") post({ channel: "milagre-simulator", event: "close" });
+    if (event.key === "Escape") {
+      if (!extras.hidden) {
+        extras.hidden = true;
+        more.setAttribute("aria-expanded", "false");
+        more.focus?.();
+      } else post({ channel: "milagre-simulator", event: "close" });
+    }
   });
   void start();
 }
@@ -767,27 +920,35 @@ body{font:12px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--surf
 #device[data-sideways=true]::before{top:-2px;left:24%;height:3px;width:12%}
 #device[data-sideways=true]::after{top:auto;bottom:-2px;left:29%;height:3px;width:15%}
 #screen{position:relative;width:100%;height:100%;overflow:hidden;background:#08090b}
-video,#hardware{position:absolute;left:50%;top:50%;pointer-events:none}video{object-fit:fill}
-#hardware{z-index:1}#cutout{position:absolute;left:50%;transform:translateX(-50%);background:#000}
-#device[data-cutout=none] #cutout{display:none}
-#device[data-cutout=island] #cutout{top:1.3%;width:30%;height:4%;border-radius:999px}
-#device[data-cutout=notch] #cutout{top:-1px;width:44%;height:3.8%;border-radius:0 0 14px 14px}
-#device[data-cutout=notch] #cutout::before{content:"";position:absolute;left:32%;top:24%;width:32%;height:12%;border-radius:3px;background:#1e2125}
-#device[data-cutout=camera] #cutout{top:1.4%;width:4%;aspect-ratio:1;border-radius:50%;box-shadow:0 0 0 1px #303641}
-#cutout::after{content:"";position:absolute;right:8%;top:32%;height:34%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 40% 40%,#183148,#080d15 65%);box-shadow:0 0 0 2px #050506}
-#device[data-cutout=camera] #cutout::after{inset:28%;height:auto;box-shadow:none}
+video,#image{position:absolute;left:50%;top:50%;pointer-events:none}video,#image{object-fit:fill}
 #waiting{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:#9199a4}
 #failure{position:absolute;left:24px;right:24px;top:50%;transform:translateY(-50%);margin:0;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);text-align:center;line-height:1.5}
-footer{padding:2px 12px 16px;flex-shrink:0;display:flex;flex-direction:column;align-items:center}
+#viewer{display:flex;flex:1;min-height:0;container-type:size;container-name:simulator-viewer}
+#viewport{display:flex;flex:1;min-width:0;min-height:0;gap:8px;padding-right:12px}
+#rail{display:flex;flex:0 0 auto;flex-direction:column;align-items:center;justify-content:center;gap:12px;width:47px;padding:12px 0}
+html[data-touch-controls=true] #rail{width:56px}
+#rail nav{flex-direction:column}
+footer{flex-shrink:0}
 #message{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 nav{display:flex;gap:3px;align-items:center;justify-content:center;padding:3px 5px;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--hover) 50%,var(--surface))}
 button{display:grid;place-items:center;width:35px;height:35px;padding:0;border:1px solid transparent;border-radius:50%;background:transparent;color:var(--ink2);cursor:pointer}
 html[data-touch-controls=true] nav button{width:44px;height:44px}
 button:hover:not(:disabled){background:var(--hover);color:var(--ink)}button:disabled{opacity:.3;cursor:default}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-#retry{margin-left:5px;position:relative}#retry::before{content:"";position:absolute;left:-5px;width:1px;height:16px;background:var(--line)}
+
 #blocked{display:flex;gap:8px;align-items:center;justify-content:center;padding:0 0 10px;color:var(--ink2);line-height:1.4;text-align:center}
 #blocked button{flex-shrink:0;width:auto;height:32px;padding:0 10px;border-color:var(--line);border-radius:8px;color:var(--ink)}
+#duo{display:flex;flex-direction:column;gap:12px;align-items:center}
+#extras{flex-shrink:0;padding:8px 16px 12px;border-top:1px solid var(--line)}
+.extra-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+#extras button{width:auto;min-height:35px;padding:0 10px;border-color:var(--line);border-radius:9px;color:var(--ink);gap:8px;grid-auto-flow:column}
+html[data-touch-controls=true] #extras button,html[data-touch-controls=true] #hinge-angle{min-height:44px}
+#more[aria-expanded=true]{background:var(--hover);color:var(--accent)}
+#hinge{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:10px}
+@container simulator-viewer (max-height:500px){#viewport{flex-direction:column;padding-right:0}#rail{width:auto!important;flex-direction:row;flex-wrap:wrap;padding:0 12px 8px;gap:8px}#rail nav,#duo{flex-direction:row}#duo{gap:8px}}
+#duo button[aria-pressed=true]{background:var(--hover);color:var(--accent)}
+#hinge label{display:flex;align-items:center;gap:6px;color:var(--ink2)}
+#hinge-angle{font:inherit;width:52px;min-height:35px;box-sizing:border-box;padding:4px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
 button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
-</style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="stage" aria-label="Simulator touch screen"><div id="device"><div id="screen"><video id="video" autoplay muted playsinline></video><div id="hardware" aria-hidden="true"><span id="cutout"></span></div><span id="waiting" aria-hidden="true">Connecting...</span></div></div><p id="failure" role="alert" hidden></p></div><footer><p id="message" role="status" aria-live="polite">Connecting...</p><div id="blocked" hidden><span id="blocked-text">Xcode Device Hub is blocking touches.</span><button id="repair" type="button">Fix</button></div><nav aria-label="Simulator controls"><button id="back" aria-label="Back" title="Back" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><button id="home" aria-label="Home" title="Home" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></button><button id="rotate" aria-label="Rotate" title="Rotate" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="9" height="14" rx="2" transform="rotate(30 12.5 12)"/><path d="M3 10a9 9 0 0 1 14-7M3 5v5h5m13 4a9 9 0 0 1-14 7m14-2v-5h-5"/></svg></button><button id="retry" aria-label="Retry" title="Retry" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/></svg></button><button id="control" aria-label="Take control" title="Take control" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/></svg></button></nav></footer><script>${SIMULATOR_RECEIVER_SCRIPT}</script></body></html>`;
+</style></head><body><div id="config" hidden data-config="${escaped}"></div><div id="viewer"><div id="viewport"><div id="stage" aria-label="Simulator touch screen"><div id="device"><div id="screen"><video id="video" autoplay muted playsinline></video><img id="image" alt="" hidden><span id="waiting" aria-hidden="true">Connecting...</span></div></div><p id="failure" role="alert" hidden></p></div><aside id="rail" aria-label="Simulator controls"><nav aria-label="General controls"><button id="home" aria-label="Home" title="Home" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></button><button id="back" aria-label="Back" title="Back" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button><button id="rotate" aria-label="Rotate" title="Rotate" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="5" width="9" height="14" rx="2" transform="rotate(30 12.5 12)"/><path d="M3 10a9 9 0 0 1 14-7M3 5v5h5m13 4a9 9 0 0 1-14 7m14-2v-5h-5"/></svg></button><button id="more" type="button" aria-label="More simulator controls" title="More controls" aria-expanded="false" aria-controls="extras"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button><button id="control" aria-label="Take control" title="Take control" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a2 2 0 0 1 4 0v6-2a2 2 0 0 1 4 0v2a2 2 0 0 1 4 0v4c0 4-3 6-6 6h-1c-2 0-3-1-4-2l-5-6a2 2 0 0 1 3-2l1 1Z"/></svg></button></nav><div id="duo" role="group" aria-label="Duo pose" hidden><nav aria-label="Fold shape"><button id="pose-closed" type="button" aria-label="Closed" title="Closed" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="18" rx="2"/><path d="M13 6h1"/></svg></button><button id="pose-book" type="button" aria-label="Book" title="Book" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 6-8-3v15l8 3 8-3V3l-8 3Zm0 0v15"/></svg></button><button id="pose-open" type="button" aria-label="Open" title="Open" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg></button></nav><nav aria-label="Device stand"><button id="pose-laptop" type="button" aria-label="Laptop" title="Laptop" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v10H5zM3 20l2-6h14l2 6H3Z"/></svg></button><button id="pose-tent" type="button" aria-label="Tent" title="Tent" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 19 8-14h2l8 14-9-3-9 3ZM12 5v11"/></svg></button></nav></div></aside></div></div><section id="extras" aria-label="Additional simulator controls" hidden><div class="extra-actions"><button id="retry" aria-label="Retry" title="Retry" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/></svg><span>Reconnect</span></button><button id="repair" type="button">Reset input</button></div><div id="blocked" hidden><span id="blocked-text">If touches don't respond, reset input.</span></div><div id="hinge" hidden><label>Hinge <input id="hinge-angle" type="number" min="0" max="180" step="1" inputmode="decimal" aria-label="Hinge angle in degrees">°</label><button id="hinge-apply" type="button" aria-label="Apply hinge angle" title="Apply hinge angle"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button></div></section><footer><p id="message" role="status" aria-live="polite">Connecting...</p></footer><script>${SIMULATOR_RECEIVER_SCRIPT}</script></body></html>`;
 }

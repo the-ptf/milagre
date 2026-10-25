@@ -99,7 +99,7 @@ import { ChatGrid } from "./components/ChatGrid";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
-import { retryKind, retrySend } from "@milagre/shared/send-retry";
+import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
@@ -598,10 +598,22 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (project)
-      void bridgeForKey(project.path)
-        .listBranches(project.path)
-        .then(setBranches, () => {});
+    if (!project) return;
+    let cancelled = false;
+    // Another computer's busy host (429) answers a later try; meanwhile a new Worktree starts from the checkout's branch.
+    void retrySend(() => bridgeForKey(project.path).listBranches(project.path), {
+      retryable: (error) => !cancelled && retryKind(error) !== null,
+      budget: READ_RETRY_BUDGET,
+    }).then(
+      (next) => {
+        // oxlint-disable-next-line promise/no-callback-in-promise -- the handler receives the resolved value, not a Node-style callback
+        if (!cancelled) setBranches(next);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [project?.path]);
 
   const worktrees = useMemo(() => (state ? sortedWorktrees(state) : []), [state]);

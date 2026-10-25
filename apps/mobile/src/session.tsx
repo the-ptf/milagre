@@ -15,6 +15,7 @@ import type { AgentCliStatus, AgentModels, PermissionMode } from "@milagre/share
 import type { Attachment } from "./attachments";
 import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
+import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { createLinkOperations } from "./link-operations";
 
 const hostOf = (url: string) =>
@@ -94,7 +95,10 @@ function useSessionState() {
     setProviderError("");
     try {
       const args = scopeKey ? [scopeKey] : [];
-      const [models, status] = await Promise.all([client.call<AgentModels>("agent:models", args), client.call<AgentCliStatus>("agent:cli-status", args)]);
+      // A busy Mac (429) answers these on a later try; the error shows only once a minute of tries gives up.
+      const read = <T,>(command: string) =>
+        retrySend(() => client.call<T>(command, args), { retryable: (error) => current() && retryKind(error) !== null, budget: READ_RETRY_BUDGET });
+      const [models, status] = await Promise.all([read<AgentModels>("agent:models"), read<AgentCliStatus>("agent:cli-status")]);
       if (!current()) return;
       providerCache.current.set(key, { models, status });
       setModels(models);

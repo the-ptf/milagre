@@ -1,6 +1,7 @@
 const { randomBytes, randomUUID } = require("node:crypto");
 
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
+const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
 const MAX_SDP_BYTES = 262144;
 function identifier() {
   return randomBytes(24).toString("base64url");
@@ -17,6 +18,8 @@ function validEvent(event) {
     );
   if (event.kind === "button") return event.button === "home" || event.button === "back";
   if (event.kind === "rotate") return ORIENTATIONS.has(event.orientation);
+  if (event.kind === "pose") return POSES.has(event.pose);
+  if (event.kind === "hinge") return Number.isFinite(event.angle) && event.angle >= 0 && event.angle <= 180;
   return (
     event.kind === "key" &&
     ["down", "up"].includes(event.phase) &&
@@ -32,6 +35,8 @@ function cleanEvent(event) {
   if (event.kind === "touch") return { kind: "touch", phase: event.phase, points: event.points.map(({ x, y }) => ({ x, y })) };
   if (event.kind === "button") return { kind: "button", button: event.button };
   if (event.kind === "rotate") return { kind: "rotate", orientation: event.orientation };
+  if (event.kind === "pose") return { kind: "pose", pose: event.pose };
+  if (event.kind === "hinge") return { kind: "hinge", angle: event.angle };
   return {
     kind: "key",
     phase: event.phase,
@@ -105,16 +110,17 @@ function createSimulators(options = {}) {
   }
   function metadata(device) {
     const state = device.channel.status();
-    const signature = `${state.width}:${state.height}:${state.orientation}:${state.ready}:${state.error ?? ""}`;
+    const signature = `${state.width}:${state.height}:${state.orientation}:${state.ready}:${state.hingeAngle ?? ""}:${state.hingePose ?? ""}:${state.error ?? ""}`;
     if (device.signature !== signature) {
       if (device.signature !== undefined) {
         releaseHeld(device);
         device.generation++;
+        device.displayGeneration++;
       }
       device.signature = signature;
     }
     if (device.rotation && (state.orientation === device.rotation.orientation || now() - device.rotation.at >= 5000)) device.rotation = null;
-    return { ...state, ready: !!state.ready && !state.error && !device.rotation };
+    return { ...state, ready: !!state.ready && !state.error && !device.rotation && !device.poseChanging };
   }
   function statusOf(v) {
     const device = v.device,
@@ -125,13 +131,23 @@ function createSimulators(options = {}) {
       height: state.height,
       orientation: state.orientation,
       generation: device.generation,
+      displayGeneration: device.displayGeneration,
       controlling: device.controller === v.id,
       ready: state.ready,
-      ...(state.inputBlocked ? { inputBlocked: true } : {}),
+      ...(state.supportsHingeAngle === true
+        ? {
+            supportsHingeAngle: true,
+            ...(Number.isFinite(state.hingeAngle) && state.hingeAngle >= 0 && state.hingeAngle <= 180 ? { hingeAngle: state.hingeAngle } : {}),
+            ...(POSES.has(state.hingePose) ? { hingePose: state.hingePose } : {}),
+          }
+        : {}),
+      // Older clients need the legacy wire name to expose their manual reset action.
+      ...(state.deviceHubInputActive ? { deviceHubInputActive: true, inputBlocked: true } : {}),
     };
   }
   async function remove(v) {
     if (!viewers.delete(v.id)) return;
+    v.abort.abort();
     const device = v.device;
     v.ownerState.count--;
     if (v.ownerState.count === 0 && owners.get(v.owner) === v.ownerState) owners.delete(v.owner);
@@ -192,6 +208,7 @@ function createSimulators(options = {}) {
             viewers: new Set(),
             controller: null,
             generation: 1,
+            displayGeneration: 1,
             touch: null,
             keys: new Set(),
             rotation: null,
@@ -217,10 +234,33 @@ function createSimulators(options = {}) {
           rateAt: now(),
           inputTokens: 240,
           offered: false,
+          waiting: false,
+          abort: new AbortController(),
         });
         device.viewers.add(id);
-        return { viewerId: id, device: { ...found }, iceServers: structuredClone(iceServers) };
+        return { viewerId: id, device: { ...found }, iceServers: structuredClone(iceServers), ...(device.channel.frame ? { transport: "frames" } : {}) };
       });
+    },
+    // Wait outside the input queue. A slow video link must never delay a touch, close or another viewer.
+    async frame(request, owner) {
+      const v = await serial(async () => {
+        const viewer = await active(request, owner);
+        if (!Number.isSafeInteger(request.after) || request.after < 0) throw new Error("Invalid simulator frame request.");
+        if (!viewer.device.channel.frame) throw new Error("Update Milagre on this Mac to relay simulator video.");
+        if (viewer.waiting) throw new Error("A simulator frame request is already pending for this viewer.");
+        viewer.waiting = true;
+        viewer.heartbeat = now();
+        return viewer;
+      });
+      try {
+        const frame = await v.device.channel.frame(request.after, v.abort.signal);
+        if (v.abort.signal.aborted || v.ownerState.dead) return null;
+        const status = statusOf(v);
+        v.heartbeat = now();
+        return frame ? { ...frame, status } : null;
+      } finally {
+        v.waiting = false;
+      }
     },
     offer(request, owner) {
       return serial(async () => {
@@ -267,6 +307,8 @@ function createSimulators(options = {}) {
         if (request.event.kind === "button" && request.event.button === "back" && device.platform !== "android")
           throw new Error("Back is available only on Android.");
         const state = metadata(device);
+        if ((request.event.kind === "pose" || request.event.kind === "hinge") && (device.platform !== "ios" || !state.supportsHingeAngle))
+          throw new Error("This simulator does not support hinge controls.");
         if (device.controller !== v.id || !state.ready || request.generation !== device.generation || request.sequence <= v.sequence)
           return { accepted: false };
         v.sequence = request.sequence;
@@ -284,13 +326,24 @@ function createSimulators(options = {}) {
         if (event.kind === "rotate") {
           releaseHeld(device);
           device.generation++;
+          device.displayGeneration++;
           device.rotation = { orientation: event.orientation, at: now() };
         }
+        if (event.kind === "pose" || event.kind === "hinge") {
+          releaseHeld(device);
+          // A panel can change before its dimensions do. Reject all input using the old geometry.
+          device.generation++;
+          device.displayGeneration++;
+          device.poseChanging = true;
+        }
         try {
-          device.channel.send(event);
-        } catch {
+          await device.channel.send(event);
+        } catch (error) {
           revoke(device);
+          if (event.kind === "pose" || event.kind === "hinge") throw error;
           return { accepted: false };
+        } finally {
+          device.poseChanging = false;
         }
         if (event.kind === "touch") device.touch = event.phase === "end" ? null : event;
         if (event.kind === "key") {

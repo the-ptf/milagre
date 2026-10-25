@@ -3,12 +3,18 @@ import { Text, View } from "react-native";
 import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
 import { useSession } from "../session";
 import { ProjectNavigation } from "../project-navigation";
-import { ErrorNotice, useStyles } from "../ui";
+import { ErrorNotice, PillButton, useStyles } from "../ui";
 import { LoadingLogo } from "../loading-logo";
+import { useSplit } from "../split-context";
+import { requestNavigation } from "../navigation-commands";
+import { useTheme } from "../theme";
 
 export default function ProjectsScreen() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const session = useSession();
+  // On a wide iPad the Chats list is the pinned sidebar, so this page only invites a pick.
+  const { pinned } = useSplit();
   const { resume } = useLocalSearchParams<{ resume?: string }>();
   const attempted = useRef(false);
   const [restoring, setRestoring] = useState(resume === "1" && !!session.lastLocation && session.lastLocation.hostId === session.client?.url);
@@ -58,7 +64,17 @@ export default function ProjectsScreen() {
               <ErrorNotice message={error} />
             </View>
           ) : null}
-          <ProjectNavigation onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />
+          {pinned ? (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 24 }}>
+              <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, fontWeight: "700" }}>
+                Pick a Chat
+              </Text>
+              <Text style={[styles.muted, { textAlign: "center" }]}>Choose one in the sidebar, or start a new one with ⌘N.</Text>
+              <PillButton title="New Chat" onPress={() => requestNavigation({ kind: "new" })} style={{ marginTop: 8 }} />
+            </View>
+          ) : (
+            <ProjectNavigation onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />
+          )}
         </>
       )}
     </View>

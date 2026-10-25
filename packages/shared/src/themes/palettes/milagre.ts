@@ -66,7 +66,7 @@ const darkSyntax = syntax({
   punctuation: "#e1e4e8",
 });
 
-// Gray: today's colors, from apps/mobile/src/theme.ts. hover2, lineSoft and the tooltip colors come from desktop's oklch tokens.
+// Gray: today's colors, from apps/mobile/src/theme.ts. hover2 comes from desktop's oklch tokens.
 const grayLight: ThemeSource = {
   page: "#fafafb",
   canvas: "#f1f2f3",
@@ -81,7 +81,6 @@ const grayLight: ThemeSource = {
   onAccent: "#ffffff",
   line: "#ecedef",
   lineStrong: "#e0e2e5",
-  lineSoft: fromOklch(0.966, 0.002, 264.542),
   accent: "#0285ff",
   accentInk: "#0070dd",
   accentTint: "#e9f3ff",
@@ -92,10 +91,6 @@ const grayLight: ThemeSource = {
   red: "#e3474c",
   redTint: "#fcecec",
   purple: "#ad46ff",
-  tooltipBg: fromOklch(0.272, 0.008, 264.435),
-  tooltipFg: fromOklch(0.976, 0.002, 247.839),
-  tooltipMuted: fromOklch(0.731, 0.008, 260.731),
-  tooltipBorder: fromOklch(0.356, 0.007, 264.474),
   diffAdd: "#e4f9ea",
   diffAddWord: "#b1ebc4",
   diffRemove: "#ffeceb",
@@ -117,7 +112,6 @@ const grayDark: ThemeSource = {
   onAccent: "#ffffff",
   line: "#2e3033",
   lineStrong: "#3a3c40",
-  lineSoft: fromOklch(0.278, 0.006, 258.354),
   accent: "#3d9aff",
   accentInk: "#7ec0ff",
   accentTint: "#3d9aff29",
@@ -128,10 +122,6 @@ const grayDark: ThemeSource = {
   red: "#ee5c61",
   redTint: "#ee5c6124",
   purple: "#ad46ff",
-  tooltipBg: fromOklch(0.182, 0.004, 264.459),
-  tooltipFg: fromOklch(0.964, 0.002, 247.839),
-  tooltipMuted: fromOklch(0.731, 0.008, 260.731),
-  tooltipBorder: fromOklch(0.308, 0.006, 258.354),
   diffAdd: "#3cbb721f",
   diffAddWord: "#3cbb724d",
   diffRemove: "#ee5c611f",

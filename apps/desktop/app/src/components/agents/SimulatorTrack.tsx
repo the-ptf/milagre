@@ -133,37 +133,39 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
   if (!api || !list.supported || !attachedCount) return <AnimatePresence initial={false} />;
   const panelContent = (
     <>
-      <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-        {attaching ? (
-          <Tooltip label="Back to devices">
-            <button
-              type="button"
-              aria-label="Back to devices"
-              onClick={() => {
-                setSelected(null);
-                setAttaching(false);
-              }}
-              className="rounded p-1 text-ink-2 hover:bg-hover"
-            >
-              <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
+      {!selected && (
+        <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+          {attaching ? (
+            <Tooltip label="Back to devices">
+              <button
+                type="button"
+                aria-label="Back to devices"
+                onClick={() => {
+                  setSelected(null);
+                  setAttaching(false);
+                }}
+                className="rounded p-1 text-ink-2 hover:bg-hover"
+              >
+                <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
+              </button>
+            </Tooltip>
+          ) : (
+            <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px]">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
+            {!selected && <div className="text-[11px] text-ink-3">{attaching ? "Other devices on this Mac" : "This Chat"}</div>}
+          </div>
+          <Tooltip label="Close simulator">
+            <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
+              <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
             </button>
           </Tooltip>
-        ) : (
-          <HugeiconsIcon icon={SmartphoneIcon} size={16} aria-hidden />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px]">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
-          {!selected && <div className="text-[11px] text-ink-3">{attaching ? "Other devices on this Mac" : "This Chat"}</div>}
-        </div>
-        <Tooltip label="Close simulator">
-          <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
-            <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
-          </button>
-        </Tooltip>
-      </header>
+        </header>
+      )}
       {selected ? (
         <>
-          <div className="flex shrink-0 items-center justify-between gap-3 px-[18px] pb-1 pt-4">
+          <header className="flex shrink-0 items-center justify-between gap-3 px-[18px] pb-1 pt-4">
             <div className="min-w-0 flex-1">
               <button
                 type="button"
@@ -185,7 +187,12 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               />
               {SIMULATOR_CONNECTION_LABELS[connectionState]}
             </div>
-          </div>
+            <Tooltip label="Close simulator">
+              <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-2 text-ink-2 hover:bg-hover">
+                <HugeiconsIcon icon={Cancel01Icon} size={16} aria-hidden />
+              </button>
+            </Tooltip>
+          </header>
           <SimulatorFrame key={selected.id} api={api} device={selected} chatId={chatId} onClose={close} onConnection={setConnection} />
         </>
       ) : (

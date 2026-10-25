@@ -5,7 +5,7 @@ export const SIMULATOR_CONNECTION_LABELS: {
   connecting: "Connecting";
   live: "Live";
   "view-only": "View only";
-  rotating: "Rotating";
+  rotating: "Changing display";
   blocked: "Input blocked";
   paused: "Paused";
   error: "Disconnected";
@@ -34,6 +34,7 @@ export function createSimulatorInputQueue(
 export function createSimulatorBridge(
   call: (method: SimulatorMethod, args: Record<string, unknown>) => Promise<unknown>,
   respond: (response: SimulatorRpcResponse) => void,
+  transform?: (method: SimulatorMethod, result: unknown) => unknown,
 ): { receive(message: unknown): Promise<void>; dispose(): void };
 export type SimulatorTheme = {
   scheme: "light" | "dark";

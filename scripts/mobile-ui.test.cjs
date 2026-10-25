@@ -62,7 +62,8 @@ function hookHost({ effects = false } = {}) {
       if (!effects) return;
       const index = cursor++;
       const previous = slots[index];
-      if (previous && deps.every((value, i) => value === previous.deps[i])) return;
+      // No dependency list runs every render, as in React.
+      if (previous && deps && deps.every((value, i) => value === previous.deps[i])) return;
       previous?.cleanup?.();
       slots[index] = { deps, cleanup: fn() };
     },
@@ -107,6 +108,8 @@ const designsOn = {
   save: async () => {},
   connectionChanged() {},
 };
+/** The split layout on a phone (split-context.tsx): the Chats list is a page or slides over, never pinned. */
+const phoneSplit = { widthClass: "compact", available: true, dockable: false, pinned: false, hidden: false, toggle() {} };
 /** A Chat with no listening ports (useChatPorts in ports.tsx). */
 const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
 function load(file, modules, extra = "", cache = new Map(), reactCompiler = false) {
@@ -205,6 +208,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           allComputers: { clientFor: () => null, hostFor: () => undefined },
         };
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
+      // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
+      if (base === "split-context" && !(id in modules)) return { useSplit: () => phoneSplit, SplitProvider: ({ children }) => children };
+      if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
+      // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
+      if (base === "hardware-keys" && !(id in modules))
+        return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -1836,6 +1845,7 @@ function sessionHost(
       },
       "./turn-options": require("../apps/mobile/src/turn-options.ts"),
       "@milagre/shared/chats": require("@milagre/shared/chats"),
+      "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
       "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
@@ -4155,6 +4165,39 @@ test("New worktree creates from the chosen branch on first send and keeps the se
   assert.equal(screen.params.id, "7");
 });
 
+test("a busy Mac that can't list branches yet still takes a New worktree send from the checkout's branch", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let listed = 0;
+  const screen = chatHost({
+    effects: true,
+    call: async (method) => {
+      if (method === "project:branches") {
+        if (++listed < 3) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
+        return ["main", "release"];
+      }
+      if (method === "worktree:create") return { worktreeId: 9, project: { state: { sessions: { 7: { id: 7, worktree_id: 9 } } } } };
+      return { sessionId: 7 };
+    },
+  });
+  screen.session.snapshot.project.state.worktrees = { 1: { id: 1, name: "main" } };
+  find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.onSelect("worktree");
+  await settle();
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+    "a busy answer waits for the next try instead of showing",
+  );
+  screen.send();
+  await settle();
+  assert.equal(screen.calls.find((call) => call.method === "worktree:create").args[0].baseBranch, "main");
+  assert.equal(screen.params.id, "7");
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  assert.equal(listed, 3, "the branch list is read again until the Mac answers");
+});
+
 test("retrying a failed first send reuses the created worktree and keeps the draft", async () => {
   let sends = 0;
   const screen = chatHost({
@@ -6123,6 +6166,33 @@ test("mobile simulator receiver is an OTA JS string cached locally; backgroundin
   assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([method]) => method === "simulator:close"))), ["simulator:close", [{ viewerId: "late-viewer" }]]);
   h.cleanup();
   assert.equal(h.files.size, 0);
+});
+
+test("mobile simulator forwards Duo pose and angle actions through its scoped viewer bridge", async () => {
+  const calls = [],
+    client = {
+      call: async (method, args) => {
+        calls.push([method, args]);
+        return method === "simulator:open" ? { viewerId: "duo-viewer", iceServers: [] } : { accepted: true };
+      },
+    };
+  const h = simulatorHost(client);
+  h.render("TestSimulatorWebView", { client, deviceId: "duo", chatId: "/p#7" });
+  await settle();
+  const view = h.render("TestSimulatorWebView", { client, deviceId: "duo", chatId: "/p#7" });
+  const receive = (id, method, args) => view.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: "milagre-simulator", id, method, args }) } });
+  receive(1, "open", { deviceId: "duo" });
+  await settle();
+  for (const [index, event] of [
+    { kind: "pose", pose: "book" },
+    { kind: "hinge", angle: 123 },
+  ].entries()) {
+    const args = { viewerId: "duo-viewer", sequence: index + 1, generation: 4, event };
+    receive(index + 2, "input", args);
+    await settle();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["simulator:input", [args]]);
+  }
+  h.cleanup();
 });
 
 test("mobile simulator chooses the sole running device, but a list never starts capture", async () => {
@@ -12738,7 +12808,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
   assert.ok(rows.has("s1"));
 });
 
-function heartbeatCardHost(routines, { fail } = {}) {
+function heartbeatCardHost(routines, { fail, now } = {}) {
   const react = hookHost();
   const calls = [];
   let refreshed = 0;
@@ -12749,32 +12819,36 @@ function heartbeatCardHost(routines, { fail } = {}) {
       return { removed: true };
     },
   };
-  const { HeartbeatCard } = load("heartbeat-card.tsx", {
-    react,
-    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
-    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
-    "./session": { useSession: () => ({ client }) },
-    "./use-routines": {
-      useRoutines: () => ({
-        routines,
-        enabled: true,
-        unavailable: null,
-        error: "",
-        loading: false,
-        refresh: async () => void refreshed++,
-        update: async () => {},
-      }),
-    },
-    "./routine-rows": load("routine-rows.ts", {
+  const { HeartbeatCard } = load(
+    "heartbeat-card.tsx",
+    {
+      react,
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react-native": { Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { hairlineWidth: 1 } },
       "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+      "./session": { useSession: () => ({ client }) },
+      "./use-routines": {
+        useRoutines: () => ({
+          routines,
+          enabled: true,
+          unavailable: null,
+          error: "",
+          loading: false,
+          refresh: async () => void refreshed++,
+          update: async () => {},
+        }),
+      },
+      "./routine-rows": load("routine-rows.ts", {
+        "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+        "@milagre/shared/routines": require("@milagre/shared/routines"),
+        "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
+      }),
       "@milagre/shared/routines": require("@milagre/shared/routines"),
-      "@milagre/shared/routine-form": require("@milagre/shared/routine-form"),
-    }),
-    "@milagre/shared/routines": require("@milagre/shared/routines"),
-    "./icons": { Icon: "Icon" },
-    "./ui": { tap() {}, ErrorNotice: "ErrorNotice" },
-  });
+      "./icons": { Icon: "Icon" },
+      "./ui": { tap() {}, ErrorNotice: "ErrorNotice" },
+    },
+    now === undefined ? "" : `\nDate.now = () => ${now};`,
+  );
   const step = { id: "s2", kind: "other", title: "Set Heartbeat", status: "done", routine: { id: "hb1", name: "Babysit PR #473" } };
   const render = () => {
     react.begin();
@@ -12784,7 +12858,7 @@ function heartbeatCardHost(routines, { fail } = {}) {
 }
 
 test("the phone Heartbeat set card names the Heartbeat, its cadence and end, and Stop deletes it", async () => {
-  const host = heartbeatCardHost([heartbeatFor("/p#7")]);
+  const host = heartbeatCardHost([heartbeatFor("/p#7")], { now: new Date(2026, 9, 17, 10, 0).getTime() });
   const tree = host.render();
   const texts = allNodes(tree, (node) => node.type === "Text").map(textOf);
   assert.ok(texts.includes("Heartbeat set: Babysit PR #473"));
@@ -13209,4 +13283,125 @@ test("Git polling on the phone keeps the current list during reads and pauses of
   finish({ files: ["late.ts"] });
   await settle();
   assert.equal(timers.size, 0);
+});
+
+function splitShellHost() {
+  const split = { pinned: true, dockable: true, available: true, hidden: false, widthClass: "wide", toggle() {} };
+  const calls = [];
+  const screen = { pathname: "/chat", pagePushed: false };
+  const router = {
+    canDismiss: () => screen.pagePushed,
+    dismissAll: () => {
+      calls.push("dismissAll");
+      screen.pagePushed = false;
+    },
+    replace: (href) => calls.push(["replace", href]),
+    push: (href) => calls.push(["push", href]),
+  };
+  const shell = hookHost();
+  const sidebar = hookHost();
+  const { SplitShell } = load("split-layout.tsx", {
+    react: shell,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", StyleSheet: { create: (styles) => styles, hairlineWidth: 1 } },
+    "expo-router": { router, usePathname: () => screen.pathname },
+    "react-native-safe-area-context": {
+      SafeAreaInsetsContext: { Provider: "InsetsProvider" },
+      useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }),
+    },
+    "./project-navigation": { ProjectNavigation: "ProjectNavigation" },
+    "./side-panels": { NO_INSETS: {}, usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
+    "./split-context": { useSplit: () => split },
+    "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
+  });
+  const render = () => {
+    shell.begin();
+    return SplitShell({ children: "Screen" });
+  };
+  // The sidebar is drawn as an element; run it with its own hooks to reach the list inside.
+  const sidebarOf = (tree) => {
+    const element = find(tree, (node) => typeof node.type === "function" && "shown" in node.props);
+    if (!element) return null;
+    sidebar.begin();
+    return { element, tree: element.type(element.props) };
+  };
+  return { split, calls, screen, render, sidebarOf };
+}
+
+test("the pinned sidebar stays mounted, hidden, when the window narrows, so a Chat it is opening still arrives", () => {
+  const { split, render, sidebarOf } = splitShellHost();
+  assert.equal(sidebarOf(render()).element.props.shown, true);
+  // An iPad window dragged below the pinned width while the sidebar connects another computer.
+  Object.assign(split, { pinned: false, dockable: false, widthClass: "regular" });
+  const narrowed = sidebarOf(render());
+  assert.ok(narrowed, "still mounted, so its open request isn't dropped");
+  assert.equal(narrowed.element.props.shown, false);
+  assert.equal(find(narrowed.tree, (node) => node.type === "ProjectNavigation").props.visible, false, "reads nothing while hidden");
+  // Leaving the computer (back to the Computers list) is what unmounts it.
+  split.available = false;
+  render();
+  assert.equal(sidebarOf(render()), null);
+});
+
+test("the pinned sidebar reopens the Chat under a pushed page by closing the page, and opens other Chats", () => {
+  const { calls, screen, render, sidebarOf } = splitShellHost();
+  const navigate = (href) => find(sidebarOf(render()).tree, (node) => node.type === "ProjectNavigation").props.onNavigate(href);
+  const chat = (id) => ({ pathname: "/chat", params: { hostId: "http://mac", projectPath: "/p", id } });
+  // Routines pushed over Chat 4: the row isn't marked open, and picking Chat 4 pops back to it without remounting it.
+  Object.assign(screen, { pathname: "/routines", pagePushed: true });
+  assert.equal(find(sidebarOf(render()).tree, (node) => node.type === "ProjectNavigation").props.activeChatId, undefined);
+  navigate(chat("4"));
+  assert.deepEqual(calls, ["dismissAll"]);
+  // On the Chat itself, picking it again does nothing; another Chat replaces it.
+  calls.length = 0;
+  screen.pathname = "/chat";
+  navigate(chat("4"));
+  navigate(chat("5"));
+  assert.deepEqual(calls, [["replace", chat("5")]]);
+});
+
+test("mobile simulator relayed frames stay in two cache files and never enter injected JavaScript", async () => {
+  const pixels = "aW1hZ2U=",
+    injected = [];
+  const client = {
+    call: async (method, args) => {
+      if (method === "simulator:open") return { viewerId: "relay-viewer", transport: "frames" };
+      if (method === "simulator:frame")
+        return {
+          sequence: args[0].after + 1,
+          data: pixels,
+          mimeType: "image/jpeg",
+          status: { width: 1, height: 1, generation: 1, ready: true, controlling: true, orientation: "portrait" },
+        };
+      return null;
+    },
+  };
+  const h = simulatorHost(client);
+  const props = { client, deviceId: "sim", chatId: "/p#7" };
+  h.render("TestSimulatorWebView", props);
+  await settle();
+  const tree = h.render("TestSimulatorWebView", props);
+  tree.props.ref.current = { injectJavaScript: (value) => injected.push(value) };
+  const message = (id, method, args) => tree.props.onMessage({ nativeEvent: { data: JSON.stringify({ channel: "milagre-simulator", id, method, args }) } });
+  message(1, "open", { deviceId: "sim" });
+  await settle();
+  for (let after = 0; after < 2; after++) {
+    message(after + 2, "frame", { viewerId: "relay-viewer", after });
+    await settle();
+  }
+  assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2);
+  assert.equal(
+    injected.some((value) => value.includes(pixels)),
+    false,
+  );
+  assert.ok(injected.some((value) => value.includes("file:///cache/simulator-")));
+  message(4, "close", { viewerId: "relay-viewer" });
+  await settle();
+  message(5, "open", { deviceId: "sim" });
+  await settle();
+  message(6, "frame", { viewerId: "relay-viewer", after: 0 });
+  await settle();
+  assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2, "reset frame sequences must not evict the newly written file");
+  h.cleanup();
+  assert.equal(h.files.size, 0);
 });

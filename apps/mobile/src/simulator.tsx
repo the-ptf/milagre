@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import type { SimulatorDevice, SimulatorList } from "@milagre/shared/simulator";
+import type { SimulatorDevice, SimulatorFrame, SimulatorList } from "@milagre/shared/simulator";
 import {
   createSimulatorBridge,
   createSimulatorReceiverHtml,
@@ -156,53 +156,10 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
     >
       <View
         collapsable={false}
-        style={{
-          flexShrink: 0,
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          paddingBottom: 8,
-          gap: 8,
-        }}
+        style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}
       >
-        {attaching ? (
-          <CircleButton
-            label="Back to devices"
-            icon={ArrowLeft01Icon}
-            onPress={() => {
-              setChoosing(true);
-              setSelected(null);
-              setAttaching(false);
-            }}
-          />
-        ) : (
-          <View style={{ width: 40, alignItems: "center" }}>
-            <Icon icon={SmartphoneIcon} tone="ink2" size={18} />
-          </View>
-        )}
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-            {attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}
-          </Text>
-          {!selected && <Text style={{ color: colors.ink3, fontSize: 11 }}>{attaching ? "Other devices on this Mac" : "This Chat"}</Text>}
-        </View>
-        <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={() => router.back()} />
-      </View>
-      <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
-        {selected && (
-          <View
-            style={{
-              flexShrink: 0,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingHorizontal: 24,
-              paddingTop: 12,
-              paddingBottom: 4,
-              gap: 12,
-            }}
-          >
+        {selected ? (
+          <>
             <View style={{ flex: 1, gap: 4 }}>
               <Pressable
                 accessibilityRole="button"
@@ -242,8 +199,35 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
               />
               <Text style={{ color: colors.ink2, fontSize: 11 }}>{SIMULATOR_CONNECTION_LABELS[connectionState]}</Text>
             </View>
-          </View>
+          </>
+        ) : (
+          <>
+            {attaching ? (
+              <CircleButton
+                label="Back to devices"
+                icon={ArrowLeft01Icon}
+                onPress={() => {
+                  setChoosing(true);
+                  setSelected(null);
+                  setAttaching(false);
+                }}
+              />
+            ) : (
+              <View style={{ width: 40, alignItems: "center" }}>
+                <Icon icon={SmartphoneIcon} tone="ink2" size={18} />
+              </View>
+            )}
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+                {attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}
+              </Text>
+              {!selected && <Text style={{ color: colors.ink3, fontSize: 11 }}>{attaching ? "Other devices on this Mac" : "This Chat"}</Text>}
+            </View>
+          </>
         )}
+        <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={() => router.back()} />
+      </View>
+      <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source ? (
           <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open its simulators.</Text>
         ) : paused ? (
@@ -363,11 +347,39 @@ function SimulatorWebView({
   const bridge = useRef<ReturnType<typeof createSimulatorBridge> | null>(null);
   useEffect(() => {
     onConnection?.({ deviceId: receiverConfig.deviceId, state: "connecting" });
+    const frameFiles: File[] = [];
+    let frameRevision = 0;
+    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const drop = (file: File) => {
+      try {
+        if (file.exists) file.delete();
+      } catch {
+        /* The OS may purge cached frames. */
+      }
+    };
     const currentBridge = createSimulatorBridge(
       (method, args) => client.call(`simulator:${method}`, [method === "open" ? { ...(args as object), chatId } : args]),
       (reply) => {
         // Data stays JSON, never an executable string supplied by the remote peer.
         view.current?.injectJavaScript(`window.simulatorReply?.(${JSON.stringify(reply).replace(/</g, "\\u003c")});true;`);
+      },
+      (method, result) => {
+        if (method !== "frame" || !result) return result;
+        const frame = result as SimulatorFrame;
+        if (
+          !Number.isSafeInteger(frame.sequence) ||
+          frame.sequence < 1 ||
+          !["image/jpeg", "image/png"].includes(frame.mimeType) ||
+          typeof frame.data !== "string" ||
+          frame.data.length > 2796204
+        )
+          throw new Error("Invalid simulator frame.");
+        // Image bytes stay out of injected JavaScript. Retain only the current and previous file.
+        const file = new File(Paths.cache, `simulator-${token}-${++frameRevision}.${frame.mimeType === "image/png" ? "png" : "jpg"}`);
+        frameFiles.push(file);
+        file.writeSync(frame.data, { encoding: "base64" });
+        while (frameFiles.length > 2) drop(frameFiles.shift()!);
+        return { ...frame, data: "", uri: file.uri };
       },
     );
     bridge.current = currentBridge;
@@ -401,6 +413,7 @@ function SimulatorWebView({
       cancelled = true;
       currentBridge.dispose();
       subscription.remove();
+      frameFiles.forEach(drop);
       try {
         if (file.exists) file.delete();
       } catch {
