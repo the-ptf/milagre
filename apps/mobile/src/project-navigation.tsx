@@ -937,6 +937,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
             onSelect={menuChoice}
           >
             <View style={s.headerButton}>
+              <HeaderGlass />
               <Icon icon={MoreHorizontalIcon} tone="ink" size={20} />
             </View>
           </PullDown>
@@ -1402,6 +1403,8 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
 /** A round button in the list's header. */
 function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
   const s = useS();
+  const { colors } = useTheme();
+  // A press tints the glass instead of fading it: UIKit drops Liquid Glass for good when an ancestor's alpha changes.
   return (
     <Pressable
       accessibilityRole="button"
@@ -1411,10 +1414,30 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
         tap();
         onPress();
       }}
-      style={({ pressed }) => [s.headerButton, { opacity: pressed ? 0.6 : 1 }]}
+      style={s.headerButton}
     >
-      <Icon icon={icon} tone="ink" size={20} />
+      {({ pressed }) => (
+        <>
+          <HeaderGlass />
+          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.hover }]} />}
+          <Icon icon={icon} tone="ink" size={20} />
+        </>
+      )}
     </Pressable>
+  );
+}
+
+/** The Liquid Glass behind a header button, as the list's floating controls have. */
+function HeaderGlass() {
+  const { colors } = useTheme();
+  return (
+    <LiquidGlassView
+      pointerEvents="none"
+      glassType="regular"
+      isInteractive={false}
+      reducedTransparencyFallbackColor={colors.surface}
+      style={[StyleSheet.absoluteFill, { borderRadius: 20, borderCurve: "continuous" }]}
+    />
   );
 }
 
@@ -1463,7 +1486,7 @@ const makeS = (colors: Palette) =>
   StyleSheet.create({
     secondary: { color: colors.ink2, fontSize: 15 },
     detail: { color: colors.ink2, fontSize: 12 },
-    headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.field, alignItems: "center", justifyContent: "center" },
+    headerButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
     startEmpty: { alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 80 },
     startTitle: { color: colors.ink, fontSize: 17, fontWeight: "600", textAlign: "center", marginBottom: 14 },
     startCard: {
