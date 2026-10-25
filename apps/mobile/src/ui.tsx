@@ -18,4 +18,3 @@ export { CircleButton } from "./primitives/circle-button";
 export type { MenuSection } from "./primitives/menu";
 export { showActions } from "./primitives/show-actions";
 export { PullDown } from "./primitives/pull-down";
-export { HoverView, useHover } from "./primitives/hover";

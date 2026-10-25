@@ -3,7 +3,7 @@ import { Platform, findNodeHandle, type TextInputInstance } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
 
 /** The hardware keyboard shortcuts, as desktop has them. Holding ⌘ on an iPad lists them by title. */
-export const SHORTCUTS = [
+const SHORTCUTS = [
   { id: "new-chat", input: "n", modifiers: ["command"], title: "New Chat" },
   { id: "search", input: "k", modifiers: ["command"], title: "Search Chats" },
   { id: "sidebar", input: "b", modifiers: ["command"], title: "Toggle Sidebar" },

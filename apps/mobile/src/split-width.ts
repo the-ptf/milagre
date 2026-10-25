@@ -2,9 +2,9 @@
 export type WidthClass = "compact" | "regular" | "wide";
 
 /** Below this (an iPhone, iPad Split View or Slide Over, a narrow Stage Manager window) the app is the phone stack. */
-export const REGULAR_WIDTH = 700;
+const REGULAR_WIDTH = 700;
 /** From here (iPad landscape) the sidebar stays pinned beside the Chat; between the two it slides over as a card. */
-export const WIDE_WIDTH = 1080;
+const WIDE_WIDTH = 1080;
 export const SIDEBAR_WIDTH = 320;
 /** The gap around a card: the pinned sidebar, the sidebar sliding over and Changes. */
 export const CARD_MARGIN = 12;
@@ -16,7 +16,7 @@ export const CARD_TOP = 44;
 /** Changes slides over from the right as a card this wide. */
 export const CHANGES_WIDTH = 420;
 /** The transcript and composer keep to this reading column on a wide Chat, centered as on desktop. */
-export const READING_WIDTH = 760;
+const READING_WIDTH = 760;
 
 export function widthClass(width: number): WidthClass {
   return width >= WIDE_WIDTH ? "wide" : width >= REGULAR_WIDTH ? "regular" : "compact";
