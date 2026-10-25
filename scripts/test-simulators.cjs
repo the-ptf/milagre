@@ -20,9 +20,18 @@ window.simulatorVideo = false;
 window.simulatorControlling = true;
 window.simulatorReady = true;
 window.simulatorInputs = [];
+window.simulatorInputHint = {};
+window.simulatorHinge = {};
 window.deviceOverrides = {};
 const viewers = new Map();
 const device = i => ({...(i === 0 ? {id:'device-0',name:'iPhone 17',deviceType:'com.apple.CoreSimulator.SimDeviceType.iPhone-17',platform:'ios',version:'27'} : i === 3 ? {id:'device-3',name:'iPhone 13',deviceType:'com.apple.CoreSimulator.SimDeviceType.iPhone-13',platform:'ios',version:'27'} : {id:'device-'+i,name:i===1?'Pixel 9':'Other Chat device',platform:'android',version:'16'}),...(window.deviceOverrides[i]??{})});
+function paintStreamCutout(ctx,width,height) {
+  if(!window.simulatorCutout) return;
+  ctx.fillStyle='#e144b4';ctx.fillRect(0,0,width,height*.16);
+  ctx.fillStyle='#000';
+  if(window.simulatorCutout==='island'){ctx.beginPath();ctx.roundRect(width*.27,height*.055,width*.30,height*.035,height*.0175);ctx.fill();}
+  if(window.simulatorCutout==='notch'){ctx.beginPath();ctx.roundRect(width*.08,-20,width*.38,height*.075+20,20);ctx.fill();}
+}
 async function liveOffer({viewerId,sdp}) {
   if (!window.simulatorVideo) throw Error('Test connection failed. Retry to reconnect.');
   const viewer = viewers.get(viewerId), canvas = document.createElement('canvas');
@@ -47,6 +56,7 @@ async function liveOffer({viewerId,sdp}) {
     ctx.fillStyle='#9199a4';ctx.font='18px sans-serif';ctx.fillText('Chats           Projects           Settings',44,1192);
     ctx.fillStyle='#e9eff7';ctx.beginPath();ctx.roundRect(205,1243,178,6,3);ctx.fill();
     ctx.restore();
+    paintStreamCutout(ctx,canvas.width,canvas.height);
   };
   draw();
   const stream=canvas.captureStream(5), peer=new RTCPeerConnection({iceServers:[]});
@@ -59,18 +69,26 @@ async function liveOffer({viewerId,sdp}) {
 }
 const status = viewerId => {
  const viewer=viewers.get(viewerId),sideways=viewer?.platform==='android' && viewer.orientation.startsWith('landscape');
- return {width:sideways?1280:588,height:sideways?588:1280,orientation:viewer?.orientation??'portrait',generation:viewer?.generation??1,controlling:window.simulatorControlling,ready:window.simulatorReady};
+ return {width:sideways?1280:588,height:sideways?588:1280,orientation:viewer?.orientation??'portrait',generation:viewer?.generation??1,displayGeneration:viewer?.displayGeneration??1,controlling:window.simulatorControlling,ready:window.simulatorReady,...window.simulatorInputHint,...window.simulatorHinge};
 };
 window.milagre = { simulators: {
  list: async ({chatId}) => ({chatId,devices:window.attachedIds.filter(i=>!window.stoppedIds.includes(i)).map(device),attached:window.attachedIds.map(device),available:Array.from({length:window.deviceCount},(_,i)=>i).filter(i=>!window.attachedIds.includes(i)).map(device),supported:true}),
  attach: async ({chatId,deviceId}) => {window.attachedIds.push(Number(deviceId.split('-')[1]));return window.milagre.simulators.list({chatId});},
  detach: async ({chatId,deviceId}) => {window.attachedIds=window.attachedIds.filter(i=>device(i).id!==deviceId);return window.milagre.simulators.list({chatId});},
- open: async args => { window.simulatorCalls.push(args);const viewerId='view-'+window.simulatorCalls.length,currentDevice=device(Number(args.deviceId.split('-')[1]));viewers.set(viewerId,{orientation:'portrait',generation:1,platform:currentDevice.platform});return {viewerId,device:currentDevice,iceServers:[]}; },
+ open: async args => { window.simulatorCalls.push(args);const viewerId='view-'+window.simulatorCalls.length,currentDevice=device(Number(args.deviceId.split('-')[1]));viewers.set(viewerId,{orientation:'portrait',generation:1,displayGeneration:1,platform:currentDevice.platform});return {viewerId,device:currentDevice,iceServers:[],...(window.simulatorFrames?{transport:"frames"}:{})}; },
+ frame: async ({viewerId}) => {
+   if(window.simulatorFrameBroken) throw Error('Frame link interrupted');
+   const v=viewers.get(viewerId),state=status(viewerId),canvas=document.createElement('canvas');
+   canvas.width=state.width;canvas.height=state.height;
+   const c=canvas.getContext('2d');c.fillStyle='#0d1624';c.fillRect(0,0,canvas.width,canvas.height);c.fillStyle='#e9eff7';c.font='30px sans-serif';c.fillText('Relayed simulator',30,100);
+   paintStreamCutout(c,canvas.width,canvas.height);
+   return {sequence:v.frameSequence=(v.frameSequence??0)+1,data:canvas.toDataURL('image/jpeg').split(',')[1],mimeType:'image/jpeg',status:state};
+ },
  offer: liveOffer,
  status: async ({viewerId}) => status(viewerId),
  control: async ({viewerId,takeOver}) => {if(takeOver)window.simulatorControlling=true;return status(viewerId);},
  close: async args => {window.simulatorClosed.push(args.viewerId);const v=viewers.get(args.viewerId);clearInterval(v?.timer);v?.peer?.close();for(const t of v?.stream?.getTracks()??[])t.stop();viewers.delete(args.viewerId);return null;},
- input: async args => {window.simulatorInputs.push(args.event);const v=viewers.get(args.viewerId);if(args.event.kind==='rotate'){v.orientation=args.event.orientation;v.generation++;}return {accepted:true};},
+ input: async args => {window.simulatorInputs.push(args.event);const v=viewers.get(args.viewerId);if(args.event.kind==='rotate'){v.orientation=args.event.orientation;v.generation++;v.displayGeneration++;}if(args.event.kind==='pose'||args.event.kind==='hinge'){v.generation++;v.displayGeneration++;window.simulatorHinge={supportsHingeAngle:true,hingePose:args.event.pose,hingeAngle:args.event.angle??(args.event.pose==='open'?180:args.event.pose==='closed'?0:90)};}return {accepted:true};},
 }};
 function Fixture() {
   const [count, setCount] = useState(2);
@@ -217,22 +235,128 @@ async function browserChecks() {
     const footerMatches =
       '(()=>{const doc=document.querySelector("[data-slot=simulator-frame]").contentDocument;return doc && getComputedStyle(doc.body).backgroundColor===getComputedStyle(document.querySelector("[data-slot=simulator-popover] > div")).backgroundColor})()';
     await waitFor(footerMatches);
+    // Failed connections retry automatically, so count opens only once the stream is live.
+    await evaluate('void(window.simulatorThemeDocument=document.querySelector("[data-slot=simulator-frame]").contentDocument)');
     await evaluate("window.setDark(false)");
     await waitFor(footerMatches);
-    assert.equal(await evaluate("window.simulatorCalls.length"), 1, "theme changes must preserve the viewer session");
+    assert.equal(
+      await evaluate('document.querySelector("[data-slot=simulator-frame]").contentDocument===window.simulatorThemeDocument'),
+      true,
+      "theme changes must preserve the receiver document",
+    );
     await screenshot("docked-light");
     // Real WebRTC video in the receiver, with deterministic pixels at the capture boundary.
     await evaluate("window.simulatorVideo=true");
     const receiver = 'document.querySelector("[data-slot=simulator-frame]").contentDocument';
+    const streamPixel = async (x, y) => {
+      const point = await evaluate(`(()=>{
+        const frame=document.querySelector('[data-slot=simulator-frame]'),doc=frame.contentDocument;
+        const media=doc.querySelector('#image').hidden?doc.querySelector('video'):doc.querySelector('#image');
+        const f=frame.getBoundingClientRect(),b=media.getBoundingClientRect(),style=getComputedStyle(media),m=new DOMMatrix(style.transform);
+        const vx=(${x}-.5)*parseFloat(style.width),vy=(${y}-.5)*parseFloat(style.height);
+        return {x:Math.floor(f.left+b.left+b.width/2+m.a*vx+m.c*vy),y:Math.floor(f.top+b.top+b.height/2+m.b*vx+m.d*vy)};
+      })()`);
+      // Wake the hidden Linux window's compositor before sampling a newly decoded frame.
+      // Keep the same two-capture sequence as test-appearance.cjs.
+      window.webContents.invalidate();
+      await window.webContents.capturePage();
+      await delay(100);
+      const pixels = (await window.webContents.capturePage({ ...point, width: 2, height: 2 })).resize({ width: 1, height: 1 }).toBitmap();
+      return { r: pixels[2], g: pixels[1], b: pixels[0] };
+    };
+    const assertStreamCutout = async (kind) => {
+      await evaluate(`window.simulatorCutout=${JSON.stringify(kind)}`);
+      await delay(600);
+      await screenshot(`stream-${kind}-probe`);
+      const clear = await streamPixel(kind === "notch" ? 0.64 : 0.5, 0.025);
+      assert.ok(
+        clear.r > 140 && clear.b > 100 && clear.g < 140,
+        `${kind}: shell must preserve source pixels where a guessed cutout would be (${JSON.stringify(clear)})`,
+      );
+      if (kind !== "clean") {
+        const black = await streamPixel(kind === "notch" ? 0.25 : 0.42, kind === "notch" ? 0.025 : 0.0725);
+        assert.ok(Math.max(black.r, black.g, black.b) < 45, `${kind}: transmitted cutout remains in its original position (${JSON.stringify(black)})`);
+      }
+      assert.equal(await evaluate(receiver + '.querySelectorAll("#hardware,#cutout").length'), 0);
+    };
+    await evaluate(`if(${receiver}.querySelector("#extras").hidden) ${receiver}.querySelector("#more").click()`);
     await evaluate(receiver + '.querySelector("#retry").click()');
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
     await waitFor(receiver + '.querySelector("video").videoWidth>0');
-    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "island");
+    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "stream");
     assert.equal(await evaluate(receiver + '.querySelector("#back").hidden'), true);
     assert.equal(await evaluate(receiver + '.querySelector("#control").hidden'), true);
+    await assertStreamCutout("island");
+    await screenshot("stream-island-priority");
+    await assertStreamCutout("clean");
+    await evaluate("window.simulatorCutout=null");
+    await evaluate(receiver + '.querySelector("#more").click()');
+    for (const hint of [{ inputBlocked: true }, { deviceHubInputActive: true }]) {
+      await evaluate(`window.simulatorInputHint=${JSON.stringify(hint)}`);
+      await waitFor(receiver + '.querySelector("#blocked").hidden===false');
+      assert.equal(
+        await evaluate('document.querySelector("[data-slot=simulator-connection]").dataset.state'),
+        "live",
+        "an input-mode hint must not claim delivery is blocked",
+      );
+      assert.match(await evaluate(receiver + '.querySelector("#blocked-text").textContent'), /^If touches/);
+      const beforeInput = await evaluate("window.simulatorInputs.length");
+      await evaluate(receiver + '.querySelector("#home").click()');
+      await waitFor(`window.simulatorInputs.length>${beforeInput}`);
+    }
+    await screenshot("input-reset-advisory");
+    await evaluate("window.simulatorInputHint={}");
+    await waitFor(receiver + '.querySelector("#blocked").hidden===true');
+    await evaluate(receiver + '.querySelector("#more").click()');
+    assert.equal(await evaluate(receiver + '.querySelector("#duo").hidden'), true, "ordinary phones have no hinge controls");
+    await evaluate("window.simulatorHinge={supportsHingeAngle:true,hingePose:'closed',hingeAngle:0}");
+    await waitFor(receiver + '.querySelector("#duo").hidden===false');
+    for (const pose of ["open", "book", "laptop", "tent", "closed"]) {
+      assert.equal(await evaluate(receiver + `.querySelector('#pose-${pose}').textContent`), "", "pose actions are icons");
+      assert.equal(await evaluate(receiver + `.querySelector('#pose-${pose}').getAttribute('aria-label')`), pose[0].toUpperCase() + pose.slice(1));
+      assert.equal(await evaluate(receiver + `.querySelector('#pose-${pose}').querySelectorAll('svg').length`), 1);
+      await evaluate(receiver + `.querySelector("#pose-${pose}").click()`);
+      await waitFor(receiver + `.querySelector('#pose-${pose}').getAttribute('aria-pressed')==='true' && !${receiver}.querySelector('#pose-${pose}').disabled`);
+      assert.deepEqual(await evaluate("window.simulatorInputs.at(-1)"), { kind: "pose", pose });
+    }
+    assert.equal(await evaluate(receiver + '.querySelector("#pose-book").parentElement.getAttribute("aria-label")'), "Fold shape");
+    assert.equal(await evaluate(receiver + '.querySelector("#pose-tent").parentElement.getAttribute("aria-label")'), "Device stand");
+    await screenshot("duo-grouped-rail");
+    await evaluate(receiver + '.querySelector("#more").click()');
+    await evaluate(
+      `(()=>{const doc=${receiver},input=doc.querySelector('#hinge-angle');input.focus();input.value='123';input.dispatchEvent(new Event('input',{bubbles:true}));doc.querySelector('#hinge-apply').focus();})()`,
+    );
+    await delay(1100);
+    assert.equal(await evaluate(receiver + '.querySelector("#hinge-angle").value'), "123", "live status updates preserve a draft after blur");
+    await evaluate(receiver + '.querySelector("#hinge-apply").click()');
+    await waitFor(receiver + '.querySelector("#hinge-angle").value==="123" && !' + receiver + '.querySelector("#hinge-apply").disabled');
+    assert.deepEqual(await evaluate("window.simulatorInputs.at(-1)"), { kind: "hinge", angle: 123 });
+    await screenshot("duo-actions");
+    await evaluate("window.simulatorControlling=false");
+    await waitFor(receiver + '.querySelector("#pose-open").disabled===true');
+    // Match a short phone WebView with More expanded and Take control visible.
+    await evaluate(
+      `(()=>{const iframe=document.querySelector('[data-slot=simulator-frame]');window.savedSimulatorStyle=iframe.style.cssText;iframe.style.cssText='position:fixed;left:0;top:0;width:390px;height:561px;z-index:99999';iframe.contentDocument.documentElement.dataset.touchControls='true';})()`,
+    );
+    await delay(100);
+    const shortControls = await evaluate(
+      `(()=>{const doc=${receiver};return [...doc.querySelectorAll('#rail button')].filter(b=>!b.hidden).map(b=>{const r=b.getBoundingClientRect();return {id:b.id,top:r.top,bottom:r.bottom,height:r.height};});})()`,
+    );
+    await screenshot("duo-short-phone-more");
+    for (const button of shortControls) {
+      assert.ok(button.top >= 0 && button.bottom <= 561, `${button.id} stays inside the short viewer`);
+      assert.ok(button.height >= 44, `${button.id} retains its touch target: ${button.height}`);
+    }
+    await evaluate(
+      `(()=>{const iframe=document.querySelector('[data-slot=simulator-frame]');iframe.style.cssText=window.savedSimulatorStyle;iframe.contentDocument.documentElement.dataset.touchControls='false';})()`,
+    );
+    await evaluate("window.simulatorControlling=true;window.simulatorHinge={}");
+    await waitFor(receiver + '.querySelector("#duo").hidden===true');
     await screenshot("iphone-live-light");
+    const beforeTheme = await evaluate("window.simulatorCalls.length");
     await evaluate("window.setDark(true)");
     await waitFor(footerMatches);
+    assert.equal(await evaluate("window.simulatorCalls.length"), beforeTheme, "theme changes must preserve the live viewer session");
     await screenshot("iphone-live-dark");
     await evaluate("window.simulatorReady=false");
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="connecting"');
@@ -257,6 +381,9 @@ async function browserChecks() {
     await waitFor(receiver + '.querySelector("#device").dataset.sideways==="true"');
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
     await screenshot("iphone-landscape-dark");
+    await assertStreamCutout("island");
+    await screenshot("stream-island-landscape");
+    await evaluate("window.simulatorCutout=null");
     await evaluate(receiver + '.querySelector("#rotate").click()');
     await waitFor(receiver + '.querySelector("#device").dataset.sideways==="false"');
     await evaluate("window.simulatorControlling=false");
@@ -268,7 +395,7 @@ async function browserChecks() {
     await click('[aria-label="iPhone 17, choose simulator"]');
     await click('[data-simulator-device="device-1"]');
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
-    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "camera");
+    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "stream");
     assert.equal(await evaluate(receiver + '.querySelector("#back").hidden'), false);
     await screenshot("android-live-dark");
     await evaluate(receiver + '.querySelector("#back").click()');
@@ -279,7 +406,7 @@ async function browserChecks() {
       receiver + '.querySelector("video").videoWidth>document.querySelector("[data-slot=simulator-frame]").contentDocument.querySelector("video").videoHeight',
     );
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
-    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "none");
+    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "stream");
     assert.equal(
       await evaluate(receiver + '.querySelector("video").style.transform'),
       "translate(-50%, -50%) rotate(0deg)",
@@ -289,14 +416,32 @@ async function browserChecks() {
     await evaluate(receiver + '.querySelector("#rotate").click()');
     await waitFor(receiver + '.querySelector("#device").dataset.sideways==="false"');
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
-    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "camera", "portrait restores the known camera position");
+    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "stream", "portrait keeps the streamed camera pixels");
     await evaluate('window.deviceCount=4;window.attachedIds.push(3);document.dispatchEvent(new Event("visibilitychange"))');
     await click('[aria-label="Pixel 9, choose simulator"]');
     await waitFor('!!document.querySelector("[data-simulator-device=device-3]")');
     await click('[data-simulator-device="device-3"]');
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
-    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "notch");
+    assert.equal(await evaluate(receiver + '.querySelector("#device").dataset.cutout'), "stream");
     await screenshot("iphone-notch-dark");
+    await assertStreamCutout("notch");
+    await evaluate("window.simulatorFrames=true");
+    await evaluate(receiver + '.querySelector("#retry").click()');
+    await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
+    await waitFor(receiver + '.querySelector("#image").naturalWidth>0');
+    assert.equal(await evaluate(receiver + '.querySelector("video").hidden'), true, "relayed frames do not open a direct video path");
+    await assertStreamCutout("notch");
+    await assertStreamCutout("island");
+    await assertStreamCutout("clean");
+    await evaluate("window.simulatorCutout=null");
+    const beforeRecovery = await evaluate("window.simulatorCalls.length");
+    await evaluate("window.simulatorFrameBroken=true");
+    await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="error"');
+    await evaluate("window.simulatorFrameBroken=false");
+    await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="live"');
+    assert.equal(await evaluate("window.simulatorCalls.length"), beforeRecovery + 1, "a frame link interruption automatically opens fresh ownership");
+    await screenshot("relayed-live-dark");
+    await evaluate("window.simulatorFrames=false");
     await evaluate('window.deviceCount=3;window.attachedIds=[0,1];window.simulatorVideo=false;document.dispatchEvent(new Event("visibilitychange"))');
     await click('[aria-label="Close simulator"]');
     await click("[data-slot=simulator-track] button");

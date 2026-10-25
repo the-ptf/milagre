@@ -12,15 +12,24 @@ export type SimulatorStatus = {
   height: number;
   orientation: SimulatorOrientation;
   generation: number;
+  displayGeneration?: number;
   controlling: boolean;
   ready: boolean;
-  /** Xcode Device Hub shadows touches until the simulator's input restarts. */
+  /** Reported by the host helper, not inferred from the simulator name. */
+  supportsHingeAngle?: boolean;
+  hingeAngle?: number;
+  hingePose?: "closed" | "open" | "book" | "laptop" | "tent";
+  /** Runtime input-mode hint; it does not establish whether touches reach the app. */
+  deviceHubInputActive?: boolean;
+  /** @deprecated Compatibility alias for the same unverified input-mode hint. */
   inputBlocked?: boolean;
 };
 export type SimulatorInput =
   | { kind: "touch"; phase: "begin" | "move" | "end"; points: { x: number; y: number }[] }
   | { kind: "button"; button: "home" | "back" }
   | { kind: "rotate"; orientation: SimulatorOrientation }
+  | { kind: "pose"; pose: "closed" | "open" | "book" | "laptop" | "tent" }
+  | { kind: "hinge"; angle: number }
   | { kind: "key"; phase: "down" | "up"; usage: number; key?: string; shifted?: boolean };
 export type SimulatorList = {
   devices: SimulatorDevice[];
@@ -30,12 +39,19 @@ export type SimulatorList = {
   supported: boolean;
   error?: string;
 };
-export type SimulatorOpen = { viewerId: string; device: SimulatorDevice; iceServers: { urls: string | string[]; username?: string; credential?: string }[] };
+export type SimulatorFrame = { sequence: number; data: string; mimeType: "image/jpeg" | "image/png"; status: SimulatorStatus };
+export type SimulatorOpen = {
+  viewerId: string;
+  device: SimulatorDevice;
+  iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+  transport?: "frames";
+};
 export interface SimulatorApi {
   list(request: { chatId: string }): Promise<SimulatorList>;
   attach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
   detach(request: { chatId: string; deviceId: string }): Promise<SimulatorList>;
   open(request: { deviceId: string; chatId: string }): Promise<SimulatorOpen>;
+  frame(request: { viewerId: string; after: number }): Promise<SimulatorFrame | null>;
   offer(request: { viewerId: string; sdp: string }): Promise<{ type: "answer"; sdp: string }>;
   status(request: { viewerId: string }): Promise<SimulatorStatus>;
   control(request: { viewerId: string; takeOver: boolean }): Promise<SimulatorStatus>;

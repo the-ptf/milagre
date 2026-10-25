@@ -2,10 +2,17 @@ const { spawn: spawnProcess, execFile: execFileCallback } = require("node:child_
 const { promisify } = require("node:util");
 const path = require("node:path");
 
+const { createMjpegFrames, createSnapshotFrames, normalizeAndroidSnapshot } = require("./simulator-frames.cjs");
+
 const PREFIX = "/vendor/serve-sim/helper";
 const UUID = /^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$/;
 const EMULATOR = /^emulator-[0-9]{4,5}$/;
 const ORIENTATIONS = new Set(["portrait", "portrait-upside-down", "landscape-left", "landscape-right"]);
+const POSES = new Set(["closed", "open", "book", "laptop", "tent"]);
+// Duo's native panel IDs match Device Hub/T3: cover 1, inner 3.
+// Partially folded poses can retain either active panel. Always follow native selection for those.
+const DUO_SCREENS = { closed: 1, open: 3, tent: 1 };
+const sameHingeAngle = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.01;
 
 function resolveHelperPath(packagePath = require.resolve("expo-device-hub/package.json")) {
   // Execute the whole package outside ASAR: native libraries resolve siblings.
@@ -16,7 +23,7 @@ function configuredIceServers(env) {
     .split(",")
     .map((url) => url.trim())
     .filter(Boolean);
-  if (!urls.length) return [];
+  if (!urls.length) return [{ urls: "stun:stun.cloudflare.com:3478" }];
   if (urls.length > 8 || urls.some((url) => url.length > 2048 || !/^turns?:[^\s]+$/i.test(url))) throw new Error("Invalid simulator TURN configuration.");
   const username = env.MILAGRE_SIMULATOR_TURN_USERNAME;
   const credential = env.MILAGRE_SIMULATOR_TURN_CREDENTIAL;
@@ -108,7 +115,7 @@ function createSimulatorHelper(options = {}) {
         "--platform",
         android ? "android" : "ios",
         "--transport",
-        "webrtc",
+        android ? "webrtc" : "mjpeg",
         "--video-fps",
         "30",
         "--max-dimension",
@@ -125,7 +132,7 @@ function createSimulatorHelper(options = {}) {
         childEnv.MILAGRE_HELPER_ICE = JSON.stringify(iceServers);
         args.unshift(
           "-e",
-          `const ice=JSON.parse(process.env.MILAGRE_HELPER_ICE);delete process.env.MILAGRE_HELPER_ICE;for(const s of ice){process.argv.push('--turn-url',Array.isArray(s.urls)?s.urls.join(','):s.urls,'--turn-username',s.username,'--turn-credential',s.credential)}import(require('node:url').pathToFileURL(process.argv[1]).href)`,
+          `const ice=JSON.parse(process.env.MILAGRE_HELPER_ICE);delete process.env.MILAGRE_HELPER_ICE;for(const s of ice){const urls=Array.isArray(s.urls)?s.urls:[s.urls];const stun=urls.filter(u=>/^stuns?:/i.test(u)),turn=urls.filter(u=>/^turns?:/i.test(u));if(stun.length)process.argv.push('--stun-url',stun.join(','));if(turn.length)process.argv.push('--turn-url',turn.join(','),'--turn-username',s.username,'--turn-credential',s.credential)}import(require('node:url').pathToFileURL(process.argv[1]).href)`,
         );
       }
       let child;
@@ -196,16 +203,15 @@ function createSimulatorHelper(options = {}) {
       starting = null;
     }
   }
-  // Once Xcode 27's Device Hub attaches to a simulator it sets this flag and the guest drops legacy HID touches.
-  // Clearing it means restarting backboardd, which also restarts SpringBoard and closes running apps, so viewers
-  // only report the flag and the user chooses when to repair.
+  // Device Hub's input-mode flag is a diagnostic hint, not an acknowledgement that legacy touches were dropped.
+  // Resetting it restarts backboardd and closes apps, so the viewer offers a manual, confirmed reset only.
   const INPUT_FLAG = "com.apple.coredevice.dtuhidd.active";
   const spawnIn = (deviceId, ...args) => execFile("/usr/bin/xcrun", ["simctl", "spawn", deviceId, ...args], { timeout: 10000, encoding: "utf8" });
-  async function inputBlocked(deviceId) {
+  async function deviceHubInputActive(deviceId) {
     try {
       return (await spawnIn(deviceId, "notifyutil", "-g", INPUT_FLAG)).stdout.trim() === `${INPUT_FLAG} 1`;
     } catch {
-      return false; // Older runtimes do not publish the flag; input then works as before.
+      return false; // Missing or unreadable flags give no diagnostic hint.
     }
   }
   async function request(instance, deviceId, route, body) {
@@ -291,15 +297,57 @@ function createSimulatorHelper(options = {}) {
         localClosed = false;
       let pollTimer = null,
         polling = false,
-        blocked = false,
-        inputTimer = null;
+        hubInputActive = false,
+        inputTimer = null,
+        media = null,
+        snapshotSize = null,
+        nativeConfig = null,
+        displayChange = null;
+      const clearDisplayChange = () => {
+        clearTimeout(displayChange?.timer);
+        displayChange = null;
+      };
+      const checkDisplayChange = () => {
+        const change = displayChange;
+        if (!change?.acknowledged || !nativeConfig) return;
+        const observed = nativeConfig.observedDeviceState;
+        if (
+          !sameHingeAngle(state.hingeAngle, change.angle) ||
+          (change.pose && state.hingePose !== change.pose) ||
+          (observed &&
+            (!sameHingeAngle(observed.hingeAngle, change.angle) ||
+              (change.physical && observed.physicalOrientation?.replaceAll("_", "-") !== change.physical))) ||
+          (change.screenId !== undefined && nativeConfig.screenId !== change.screenId)
+        ) {
+          change.confirmed = false;
+          change.observedAt = change.geometry = null;
+          return;
+        }
+        change.confirmed = true;
+        change.observedAt ??= Date.now();
+        const geometry = `${nativeConfig.screenId}:${state.width}:${state.height}:${state.orientation}`;
+        if (change.geometry !== geometry) {
+          change.geometry = geometry;
+          change.geometryAt = Date.now();
+          // Discard cached pixels only after native observation and panel geometry agree.
+          change.after = media?.discard() ?? 0;
+        }
+      };
       let rejectAdmission, resolveAdmission;
+      let hingeRequestId = 0;
+      const hingeRequests = new Map();
+      const rejectHingeRequests = (message) => {
+        for (const settle of Array.from(hingeRequests.values())) settle(new Error(message));
+      };
       const admission = new Promise((resolve, reject) => {
         resolveAdmission = resolve;
         rejectAdmission = reject;
       });
       const fail = (message) => {
         state = { ...state, ready: false, error: state.error ?? message };
+        clearDisplayChange();
+        media?.close();
+        rejectHingeRequests(message);
         rejectAdmission(new Error(message));
         if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
       };
@@ -309,11 +357,110 @@ function createSimulatorHelper(options = {}) {
       };
       const channel = {
         fail,
+        async frame(after, signal) {
+          if (!media) {
+            if (android) {
+              const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(require("node:os").homedir(), "Library/Android/sdk");
+              const adb =
+                options.adbPath ?? (require("node:fs").existsSync(path.join(sdk, "platform-tools/adb")) ? path.join(sdk, "platform-tools/adb") : "adb");
+              media = createSnapshotFrames(async (captureSignal) => {
+                const { stdout } = await execFile(adb, ["-s", deviceId, "exec-out", "screencap", "-p"], {
+                  encoding: null,
+                  timeout: 5000,
+                  maxBuffer: 32 * 1024 * 1024,
+                  signal: captureSignal,
+                });
+                if (!Buffer.isBuffer(stdout) || stdout.length < 24 || !stdout.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+                  throw new Error("Invalid Android screenshot.");
+                const width = stdout.readUInt32BE(16),
+                  height = stdout.readUInt32BE(20);
+                if (!width || !height || width > 16384 || height > 16384 || width * height > 16 * 1024 * 1024)
+                  throw new Error("Invalid Android screenshot dimensions.");
+                snapshotSize = { width, height };
+                state = { ...state, width, height, orientation: width > height ? "landscape-left" : "portrait" };
+                return normalizeAndroidSnapshot(stdout, { execFile, signal: captureSignal });
+              });
+            } else {
+              media = createMjpegFrames((captureSignal) =>
+                fetch(`${instance.base}${routeFor(deviceId, "stream.mjpeg")}`, {
+                  headers: { authorization: `Bearer ${instance.token}` },
+                  signal: AbortSignal.any([instance.abort.signal, captureSignal]),
+                  redirect: "error",
+                }),
+              );
+            }
+          }
+          try {
+            const frame = await media.read(after, signal);
+            if (
+              frame &&
+              displayChange?.confirmed &&
+              frame.sequence > displayChange.after &&
+              Date.now() - displayChange.observedAt >= displayChange.settleMs &&
+              Date.now() - displayChange.geometryAt >= (options.displayQuietMs ?? 350)
+            )
+              clearDisplayChange();
+            return frame;
+          } catch (error) {
+            fail("Simulator frame stream failed. Reopen the viewer to reconnect.");
+            throw error;
+          }
+        },
         status() {
-          return blocked ? { ...state, inputBlocked: true } : { ...state };
+          return { ...state, ready: state.ready && !displayChange, ...(hubInputActive ? { deviceHubInputActive: true } : {}) };
         },
         send(event) {
-          if (!state.ready) throw new Error("Simulator input is not ready.");
+          if (!state.ready || displayChange) throw new Error("Simulator input is not ready.");
+          if (event.kind === "pose" || event.kind === "hinge") {
+            if (android || !state.supportsHingeAngle) throw new Error("This simulator does not support hinge controls.");
+            if (event.kind === "pose" ? !POSES.has(event.pose) : !Number.isFinite(event.angle) || event.angle < 0 || event.angle > 180)
+              throw new Error("Invalid simulator hinge command.");
+            if (hingeRequests.size) throw new Error("A simulator pose change is already pending.");
+            const physical = event.kind === "pose" ? (event.pose === "tent" ? "facedown" : event.pose === "laptop" ? "landscape-left" : "portrait") : null;
+            const angle = event.kind === "hinge" ? event.angle : { closed: 0, open: 180, book: 90, laptop: 90, tent: 80 }[event.pose];
+            const oldPhysical = nativeConfig?.physicalOrientation?.replaceAll("_", "-");
+            // Partial folds can retain the cover even after leaving Tent. Native selection is
+            // authoritative; only fully closed/open and Tent promise a particular panel.
+            const screenId = event.kind === "pose" ? DUO_SCREENS[event.pose] : angle === 0 ? 1 : angle === 180 ? 3 : undefined;
+            const unchanged =
+              sameHingeAngle(state.hingeAngle, angle) &&
+              (screenId === undefined || screenId === nativeConfig?.screenId) &&
+              (!physical || (physical === oldPhysical && state.hingePose === event.pose));
+            displayChange = {
+              angle,
+              pose: event.kind === "pose" ? event.pose : null,
+              physical,
+              screenId,
+              // Rotation may follow panel activation, and its final orientation is not fixed by
+              // the physical pose. Require stable native geometry and a fresh frame after settling.
+              settleMs: unchanged ? 0 : (options.displaySettleMs ?? 1500),
+              timer: setTimeout(() => fail("Simulator display did not settle. Reopen the viewer to retry."), options.displayTimeoutMs ?? 7000),
+            };
+            media?.discard();
+            return new Promise((resolve, reject) => {
+              const requestId = ++hingeRequestId;
+              const settle = (error) => {
+                clearTimeout(timeout);
+                hingeRequests.delete(requestId);
+                if (error) {
+                  clearDisplayChange();
+                  if (!localClosed && !state.error) fail("Simulator pose change failed. Reopen the viewer to reconnect.");
+                  reject(error);
+                } else {
+                  if (displayChange) displayChange.acknowledged = true;
+                  checkDisplayChange();
+                  resolve();
+                }
+              };
+              const timeout = setTimeout(() => settle(new Error("Simulator pose change timed out.")), options.hingeTimeoutMs ?? 5000);
+              hingeRequests.set(requestId, settle);
+              try {
+                send(16, { requestId, command: event.kind === "pose" ? { control: "pose", value: event.pose } : { control: "angle", value: event.angle } });
+              } catch (error) {
+                settle(error);
+              }
+            });
+          }
           if (!android) {
             send(...packet(event));
             return;
@@ -333,6 +480,9 @@ function createSimulatorHelper(options = {}) {
         async close() {
           if (localClosed) return;
           localClosed = true;
+          clearDisplayChange();
+          rejectHingeRequests("Simulator viewer closed.");
+          media?.close();
           clearInterval(pollTimer);
           clearInterval(inputTimer);
           state = { ...state, ready: false };
@@ -361,7 +511,8 @@ function createSimulatorHelper(options = {}) {
           try {
             const health = await request(instance, deviceId, "health");
             if (localClosed || state.error) return;
-            const { width, height } = health.size ?? {};
+            // Snapshots can be larger than the helper's capped H.264 stream. Input geometry must not oscillate between them.
+            const { width, height } = snapshotSize ?? health.size ?? {};
             if (
               health.status !== "streaming" ||
               !Number.isInteger(width) ||
@@ -390,6 +541,7 @@ function createSimulatorHelper(options = {}) {
         });
       }
       socket.addEventListener("message", ({ data }) => {
+        if (localClosed || state.error) return;
         if (android) {
           try {
             const reply = JSON.parse(typeof data === "string" ? data : Buffer.from(data).toString());
@@ -401,6 +553,13 @@ function createSimulatorHelper(options = {}) {
         const bytes = Buffer.from(data);
         if (bytes.length > 65536) {
           fail("Simulator input configuration is invalid.");
+          return;
+        }
+        if (bytes[0] === 0x90) {
+          try {
+            const reply = JSON.parse(bytes.subarray(1).toString("utf8"));
+            hingeRequests.get(reply.requestId)?.(reply.ok === true ? null : new Error("Simulator could not change the device pose."));
+          } catch {}
           return;
         }
         if (bytes.length === 1 && bytes[0] === 0x83) admitted = true;
@@ -423,7 +582,23 @@ function createSimulatorHelper(options = {}) {
             )
               return;
             admitted = true;
-            state = { width: config.width, height: config.height, orientation, ready: true };
+            const previousGeometry = `${nativeConfig?.screenId}:${state.width}:${state.height}:${state.orientation}`;
+            state = {
+              width: config.width,
+              height: config.height,
+              orientation,
+              ready: true,
+              ...(config.supportsHingeAngle === true
+                ? {
+                    supportsHingeAngle: true,
+                    ...(Number.isFinite(config.hingeAngle) && config.hingeAngle >= 0 && config.hingeAngle <= 180 ? { hingeAngle: config.hingeAngle } : {}),
+                    ...(POSES.has(config.hingePose) ? { hingePose: config.hingePose } : {}),
+                  }
+                : {}),
+            };
+            if (previousGeometry !== `${config.screenId}:${state.width}:${state.height}:${state.orientation}`) media?.discard();
+            nativeConfig = config;
+            checkDisplayChange();
           } catch {
             return;
           }
@@ -442,8 +617,8 @@ function createSimulatorHelper(options = {}) {
         if (!android) {
           // Device Hub can attach while a viewer is open, so the flag is read again while the channel lives.
           const checkInput = async () => {
-            const value = await inputBlocked(deviceId);
-            if (!localClosed) blocked = value;
+            const value = await deviceHubInputActive(deviceId);
+            if (!localClosed) hubInputActive = value;
           };
           await checkInput();
           inputTimer = setInterval(() => void checkInput(), options.inputCheckMs ?? 10000);
