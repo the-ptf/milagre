@@ -14,8 +14,8 @@ import { IconButton } from "./ui";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
-import { useSplit } from "./split-context";
-import { CARD_MARGIN, CARD_TOP, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-width";
+import { useCardTop, useSplit } from "./split-context";
+import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-width";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree. */
@@ -283,6 +283,7 @@ export function SidePanelsHost() {
   const { screen, open, mounted, progress, from, show, settled, navigate } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const cardTop = useCardTop();
   const scale = useMotionScale();
   // Wider than a phone, each panel is a card sliding over the Chat from its side instead of a whole page.
   const card = widthClass(width) !== "compact";
@@ -311,7 +312,7 @@ export function SidePanelsHost() {
     card
       ? ({
           position: "absolute",
-          top: insets.top + CARD_TOP,
+          top: cardTop.top,
           bottom: Math.max(insets.bottom, CARD_MARGIN),
           [side]: CARD_MARGIN,
           width: side === "left" ? SIDEBAR_WIDTH : CHANGES_WIDTH,
@@ -330,11 +331,14 @@ export function SidePanelsHost() {
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, shade]} />
       <GestureDetector gesture={close}>
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-          {/* A card sits below the status bar already, so what it holds lays out with no safe area of its own. */}
+          {/* A card sits clear of the status bar already, so what it holds lays out with no safe area of its own, but for
+          the window controls over the left card's corner. */}
           <SafeAreaInsetsContext.Provider value={card ? NO_INSETS : insets}>
             {mounted.left && (
               <Animated.View {...hidden("left")} style={[frame("left"), left]}>
-                <ProjectNavigation visible={open === "left"} activeChatId={screen.chatId} surface={card} onClose={() => show(null)} onNavigate={navigate} />
+                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>
+                  <ProjectNavigation visible={open === "left"} activeChatId={screen.chatId} surface={card} onClose={() => show(null)} onNavigate={navigate} />
+                </SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
             {mounted.right && screen.worktreeId !== undefined && (

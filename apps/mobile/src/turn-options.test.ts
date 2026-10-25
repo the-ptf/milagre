@@ -153,9 +153,18 @@ test("a fresh Chat uses the saved default model while an existing Chat keeps its
   assert.deepEqual(turnTarget(undefined, "codex", defaults), { provider: "codex", model: "", picked: false });
 });
 
-test("a Chat with no saved preferences shows the mode its turn runs in", () => {
+test("a Chat shows the mode the Mac saved on it, whatever this phone picked last", () => {
   const saved = { ...defaultPreferences, permissionMode: "auto" as const };
-  assert.equal(chatPreferences(undefined, defaultPreferences, "full").permissionMode, "full");
-  assert.equal(chatPreferences(saved, defaultPreferences, "full").permissionMode, "auto");
+  assert.equal(chatPreferences(undefined, defaultPreferences, "full").permissionMode, "full", "picked on desktop");
+  assert.equal(chatPreferences(saved, defaultPreferences, "full").permissionMode, "full", "picked here, then on desktop");
+  assert.equal(chatPreferences(undefined, defaultPreferences, undefined, "auto").permissionMode, "auto", "an older Chat's running turn");
+  assert.equal(chatPreferences(saved, defaultPreferences).permissionMode, "auto", "a Chat not sent yet");
   assert.equal(chatPreferences(undefined, defaultPreferences), defaultPreferences);
+});
+
+test("a pick made here shows until the Mac's copy moves on", () => {
+  const picked = { ...defaultPreferences, permissionMode: "full" as const, permissionPick: { mode: "full" as const, over: "ask" as const } };
+  assert.equal(chatPreferences(picked, defaultPreferences, "ask").permissionMode, "full", "not saved on the Mac yet");
+  assert.equal(chatPreferences(picked, defaultPreferences, "full").permissionMode, "full", "saved");
+  assert.equal(chatPreferences(picked, defaultPreferences, "auto").permissionMode, "auto", "changed on desktop since");
 });

@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { useWindowDimensions } from "react-native";
+import { Dimensions, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
 import { useSession } from "./session";
-import { widthClass, type WidthClass } from "./split-width";
+import { cardTop, widthClass, type WidthClass } from "./split-width";
 
 type Split = {
   widthClass: WidthClass;
@@ -38,4 +39,19 @@ export function useSplit() {
   const split = useContext(SplitContext);
   if (!split) throw new Error("The split layout needs SplitProvider.");
   return split;
+}
+
+/**
+ * Where a sidebar or Changes card starts, and how far its content keeps below the window controls. A window smaller
+ * than the screen is a resizable one (Stage Manager, iPadOS windowing), which has those controls in its corner.
+ */
+export function useCardTop() {
+  const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  // Read on every window change, which a rotation also is.
+  const screen = Dimensions.get("screen");
+  const { top, controls } = cardTop(insets.top, window.width < screen.width || window.height < screen.height);
+  // The safe area a card's content lays out with: none, but for the window controls over its corner.
+  const content = useMemo(() => ({ top: controls, right: 0, bottom: 0, left: 0 }), [controls]);
+  return { top, controls, content };
 }
