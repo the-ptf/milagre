@@ -85,7 +85,7 @@ export const StyleSheet = { create: value => value, hairlineWidth: 1 };
 export const View = ({ children }) => <div>{children}</div>;
 export const KeyboardAvoidingView = View;
 export const Text = ({ children }) => <span>{children}</span>;
-export const Pressable = ({ children, onPress, accessibilityLabel, disabled }) => <button aria-label={accessibilityLabel} onClick={onPress} disabled={disabled}>{children}</button>;
+export const Pressable = ({ children, onPress, accessibilityLabel, disabled }) => <button aria-label={accessibilityLabel} onClick={onPress} disabled={disabled}>{typeof children === "function" ? children({ pressed: false }) : children}</button>;
 export const RefreshControl = () => null;
 export const FlatList = ({ data, renderItem, ListEmptyComponent, keyExtractor }) => <div>{data.length ? data.map(item => <div key={keyExtractor(item)}>{renderItem({ item })}</div>) : ListEmptyComponent}</div>;
 `;
@@ -106,11 +106,13 @@ const stubs = {
   "./routes-native":
     'export const lanRoutes = { set() {}, forget() {}, checkAll() {}, subscribe: () => () => {}, kind: () => "remote", view: () => ({ current: () => null, subscribe: () => () => {} }) }; export const learnRoutes = async () => {};',
   "./hosts-native":
-    "window.savedHostList = []; export const savedHosts = { list: async () => window.savedHostList.slice(), save: async host => { window.savedHostList = [...window.savedHostList.filter(saved => saved.id !== host.address), { id: host.address, lastUsed: 1, ...host }]; } }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
+    "window.savedHostList = []; export const savedHosts = { list: async () => window.savedHostList.slice(), save: async host => { window.savedHostList = [...window.savedHostList.filter(saved => saved.id !== host.address), { id: host.address, lastUsed: 1, ...host }]; } }; export const savedNavigation = { read: async () => null }; export const readPermission = async () => null; export const savePermission = async () => {}; export const savedChatDefaults = { readModel: () => null, saveModel: async () => {}, readLastProject: () => null, saveLastProject: async () => {} }; export const savedProjectOrder = { apply: async (_host, projects) => projects, save: async () => {} }; const noFolds = new Set(); export const savedHiddenProjects = { hidden: () => noFolds, apply: async (_host, projects) => projects, setHidden: async () => {} }; export const savedFoldedProjects = { subscribe: () => () => {}, folded: () => noFolds, loaded: () => true, load: async () => {}, toggle: async () => {} };",
   "./live": "export const syncProject = () => () => {};",
   "./ui": ui,
   "./theme":
     "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
+  "./primitives/tap": "export const tap = () => {};",
+  "@sbaiahmed1/react-native-blur": "export const LiquidGlassView = ({ children }) => <div>{children}</div>;",
   "expo-router": "import { useEffect } from 'react'; export const useFocusEffect = effect => useEffect(effect, [effect]);",
   "expo-linking": "export const openURL = async () => {};",
   "expo-clipboard": "export const setStringAsync = async () => {};",
