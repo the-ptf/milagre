@@ -10,8 +10,6 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
   const { page, surface, ink, accent, green, orange, red } = source;
   const dark = scheme === "dark";
   const toward = (t: number) => mix(surface, ink, t);
-  const tooltipBg = dark ? mix(page, "#000000", 0.3) : mix(ink, page, 0.06);
-  const tooltipFg = dark ? ink : page;
   const derived: ThemePalette = {
     page,
     surface,
@@ -33,16 +31,11 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     onAccent: onColor(accent, page),
     line: toward(dark ? 0.09 : 0.07),
     lineStrong: toward(dark ? 0.14 : 0.12),
-    lineSoft: toward(dark ? 0.06 : 0.045),
     accentInk: dark ? mix(accent, ink, 0.35) : mix(accent, "#000000", 0.12),
     accentTint: tint(page, accent, scheme, 0.08, 0.16),
     greenTint: tint(page, green, scheme, 0.08, 0.14),
     orangeTint: tint(page, orange, scheme, 0.08, 0.14),
     redTint: tint(page, red, scheme, 0.08, 0.14),
-    tooltipBg,
-    tooltipFg,
-    tooltipMuted: mix(tooltipFg, tooltipBg, 0.3),
-    tooltipBorder: mix(tooltipBg, tooltipFg, 0.12),
     diffAdd: tint(page, green, scheme, 0.12, 0.12),
     diffAddWord: tint(page, green, scheme, 0.3, 0.3),
     diffRemove: tint(page, red, scheme, 0.1, 0.12),

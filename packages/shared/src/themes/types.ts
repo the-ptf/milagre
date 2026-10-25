@@ -32,7 +32,6 @@ export interface ThemePalette {
   onAccent: string;
   line: string;
   lineStrong: string;
-  lineSoft: string;
   accent: string;
   accentInk: string;
   accentTint: string;
@@ -43,10 +42,6 @@ export interface ThemePalette {
   red: string;
   redTint: string;
   purple: string;
-  tooltipBg: string;
-  tooltipFg: string;
-  tooltipMuted: string;
-  tooltipBorder: string;
   diffAdd: string;
   diffAddWord: string;
   diffRemove: string;
