@@ -2,6 +2,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const imageBytes = require("node:fs").readFileSync(path.join(__dirname, "fixtures/photo.png")).toString("base64");
 const fixture = `
 // This fixture exercises a device that has already accepted AI sharing.
@@ -518,7 +519,7 @@ async function main() {
           if (id === "/__issues.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__issues") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

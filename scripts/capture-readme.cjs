@@ -7,6 +7,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const output = path.resolve(process.argv[2] || path.join(os.tmpdir(), "milagre-readme"));
 const projectPath = "/demo/milagre";
 const projectImage =
@@ -186,7 +187,7 @@ async function main() {
           resolveId: (id) => (id === "/__readme.tsx" ? id : null),
           load: (id) => (id === "/__readme.tsx" ? fixture : null),
           configureServer(server) {
-            server.middlewares.use(async (req, res, next) => {
+            useAsyncMiddleware(server.middlewares, async (req, res, next) => {
               if (req.url !== "/__readme") return next();
               res.setHeader("Content-Type", "text/html");
               res.end(

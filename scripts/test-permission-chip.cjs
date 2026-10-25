@@ -4,6 +4,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
 localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
@@ -121,7 +122,7 @@ async function main() {
           if (id === "/__chip.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__chip") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

@@ -2,6 +2,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 // Match the real desktop shortcuts: Command on macOS, Control on Linux and Windows.
 const mac = process.platform === "darwin";
 const modifierKey = mac ? "Meta" : "Control";
@@ -410,7 +411,7 @@ async function main() {
           if (id === "/__commands.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__commands") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

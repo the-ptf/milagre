@@ -9,6 +9,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 /** The New mark on a phone's row in Settings › Devices, as an expression to evaluate in the window. */
 const newMark = (key) => `document.querySelector('[data-device-row="phone"][data-device-key="${key}"] [data-device-new]')?.textContent`;
@@ -338,7 +339,7 @@ async function main() {
           if (id === "/__devices_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__devices__") return next();
             const html = await server.transformIndexHtml(
               request.url,

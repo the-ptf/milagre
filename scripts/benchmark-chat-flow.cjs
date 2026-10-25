@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const base = require("./fixtures/chat-send-feedback.cjs");
 const fixture = base
   .replace(
@@ -92,7 +93,7 @@ async function main() {
           }
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url.split("?")[0] !== "/__chat_flow__") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

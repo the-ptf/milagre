@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 import React from 'react';
@@ -213,7 +214,7 @@ async function main() {
           if (id === "/__linear_link_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (!request.url.startsWith("/__linear-link")) return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

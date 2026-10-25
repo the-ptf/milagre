@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const CHROME = process.env.MILAGRE_TEST_CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PAGE =
@@ -342,7 +343,7 @@ async function main() {
           if (id === "/__browsers_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (req, res, next) => {
+          useAsyncMiddleware(server.middlewares, async (req, res, next) => {
             if (req.url !== "/__browsers__") return next();
             res.setHeader("Content-Type", "text/html");
             res.end(

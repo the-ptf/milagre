@@ -8,6 +8,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const { designHtml } = require("@milagre/shared/design");
 
@@ -531,7 +532,7 @@ async function main() {
         resolveId: (id) => (id === "/__gallery-app.tsx" ? id : undefined),
         load: (id) => (id === "/__gallery-app.tsx" ? fixture : undefined),
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__gallery/app") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

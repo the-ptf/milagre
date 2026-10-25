@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 // This fixture exercises a device that has already accepted AI sharing.
 import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
@@ -171,7 +172,7 @@ async function main() {
           if (id === "/__chat_drafts_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__chat_drafts__") return next();
             const html = await server.transformIndexHtml(
               request.url,
