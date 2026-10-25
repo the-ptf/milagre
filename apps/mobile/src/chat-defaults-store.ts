@@ -6,6 +6,7 @@ export type ChatTargetDefaults = { isolation: "local" | "worktree"; baseBranch?:
 type ModelDefaults = Pick<TurnPreferences, "provider" | "model" | "effort" | "fastMode" | "ultracode">;
 const isolationKey = "milagre.chat-isolation.v1";
 const modelKey = "milagre.chat-model.v1";
+const lastProjectKey = "milagre.chat-last-project.v1";
 
 function targetKey(scope: string) {
   let hash = 0x811c9dc5;
@@ -65,6 +66,16 @@ export function createChatDefaultsStore(storage: Storage) {
     },
     saveModel(value: ModelDefaults) {
       return write(modelKey, modelDefaults(value));
+    },
+    /** The Project the last new Chat was started in, which the next New Chat opens in. */
+    readLastProject(): { hostId: string; projectPath: string } | null {
+      const saved = read(lastProjectKey);
+      return saved && typeof saved.hostId === "string" && typeof saved.projectPath === "string"
+        ? { hostId: saved.hostId, projectPath: saved.projectPath }
+        : null;
+    },
+    saveLastProject(hostId: string, projectPath: string) {
+      return write(lastProjectKey, { hostId, projectPath });
     },
   };
 }

@@ -5,6 +5,7 @@ import { listArchivedChats } from "./chat-list-archived";
 import { createClient } from "./client";
 import { savedFoldedProjects, savedHiddenProjects, savedProjectOrder } from "./hosts-native";
 import type { SavedHost } from "./hosts-store";
+import { newChatProjects, type NewChatProject } from "./new-chat-project";
 import { relayRuntime } from "./relay-native";
 import { useSession } from "./session";
 
@@ -89,6 +90,13 @@ export function useAllComputers({ visible, expandAll }: { visible: boolean; expa
   const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- versions changes exactly when a view does.
   return useMemo(() => allComputers.views(), [versions]);
+}
+
+/** The Projects a new Chat can start in, on every shown computer, as the sidebars last read them. Reads nothing itself. */
+export function useNewChatProjects(): NewChatProject[] {
+  const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- versions changes exactly when a view does.
+  return useMemo(() => newChatProjects(allComputers.views()), [versions]);
 }
 
 /**

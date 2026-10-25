@@ -1,6 +1,6 @@
-// Settings › Chat in Electron: Detail level holds Always expand reasoning, which opens thinking rows until they are
-// toggled, and Tool call display, whose Full detail shows a reply's tool calls one row each instead of folding them
-// into one line. A window that had Murilo mode on opens on Full detail.
+// Settings › Chat in Electron: Chat list, Reasoning and Tool calls are each two picture cards in a radio group. Expanded
+// reasoning opens thinking rows until they are toggled, and Full detail shows a reply's tool calls one row each instead
+// of folding them into one line. A window that had Murilo mode on opens on Full detail.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -68,13 +68,11 @@ async function browserChecks() {
   const openChat = async () => {
     await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Chat')`);
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Chat').click()`);
-    await waitFor(`!!${trigger}`);
+    await waitFor(`!!${card("Tool calls", "Compact")}`);
   };
-  const listTrigger = `document.querySelector('button[aria-label="Chat list"]')`;
-  const reasoning = `document.querySelector('[role="switch"][aria-label="Always expand reasoning"]')`;
-  const trigger = `document.querySelector('button[aria-label="Tool call display"]')`;
-  const option = (label) =>
-    `[...document.querySelectorAll('[role="listbox"][aria-label="Tool call display"] [role="option"]')].find((o) => o.textContent.includes(${JSON.stringify(label)}))`;
+  const card = (group, label) => `document.querySelector('[role="radiogroup"][aria-label="${group}"] [role="radio"][aria-label="${label}"]')`;
+  const checked = (group) =>
+    `document.querySelector('[role="radiogroup"][aria-label="${group}"] [role="radio"][aria-checked="true"]')?.getAttribute("aria-label")`;
   const reply = (which, selector = "") => `document.querySelector('[data-reply=${which}] ${selector}')`;
   const shows = (which, text) => `${reply(which)}.innerText.includes(${JSON.stringify(text)})`;
   const saved = () => evaluate(`JSON.parse(localStorage.getItem("milagre-settings") ?? "{}")`);
@@ -82,32 +80,27 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await openChat();
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Chat");
-    assert.ok(await evaluate(`document.body.innerText.includes("Detail level")`), "one Detail level group");
-    assert.equal(await evaluate(`${reasoning}.getAttribute("aria-checked")`), "false", "reasoning starts folded");
-    assert.equal(await evaluate(`${trigger}.textContent.trim()`), "Compact", "tool calls start compact");
+    assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"] [role="radio"]').length`), 6, "three settings, two cards each");
+    assert.equal(await evaluate(checked("Reasoning")), "Folded", "reasoning starts folded");
+    assert.equal(await evaluate(checked("Tool calls")), "Compact", "tool calls start compact");
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");
     assert.equal(await evaluate(shows("lone", "Only one way")), false, "a thinking row starts closed");
-    assert.equal(await evaluate(`${listTrigger}.textContent.trim()`), "One list", "the sidebar lists Chats in one list by default");
-    await evaluate(`${listTrigger}.click()`);
-    await waitFor(
-      `!![...document.querySelectorAll('[role="listbox"][aria-label="Chat list"] [role="option"]')].find((o) => o.textContent.includes("Grouped by Project"))`,
-    );
-    await evaluate(
-      `[...document.querySelectorAll('[role="listbox"][aria-label="Chat list"] [role="option"]')].find((o) => o.textContent.includes("Grouped by Project")).click()`,
-    );
-    await waitFor(`${listTrigger}.textContent.trim() === "Grouped by Project"`);
-    assert.equal((await saved()).chatList, "grouped", "Grouped by Project is saved");
+    assert.equal(await evaluate(checked("Chat list")), "One list", "the sidebar lists Chats in one list by default");
     await screenshot("chat-settings-default");
+    // The arrow keys move the choice between a group's cards, as in any radio group.
+    // A card takes the choice when focus lands on it, which needs the page focused.
+    window.webContents.focus();
+    await evaluate(`${card("Chat list", "One list")}.focus()`);
+    await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))`);
+    await waitFor(`${checked("Chat list")} === "By Project"`);
+    assert.equal((await saved()).chatList, "grouped", "By Project is saved");
 
-    await evaluate(`${reasoning}.click()`);
+    await evaluate(`${card("Reasoning", "Expanded")}.click()`);
     await waitFor(shows("lone", "Only one way"));
-    assert.equal((await saved()).expandReasoning, true, "Always expand reasoning is saved");
+    assert.equal((await saved()).expandReasoning, true, "Expanded reasoning is saved");
     await screenshot("chat-settings-expand-reasoning");
 
-    await evaluate(`${trigger}.click()`);
-    await waitFor(`!!${option("Full detail")}`);
-    await screenshot("chat-settings-tool-call-menu");
-    await evaluate(`${option("Full detail")}.click()`);
+    await evaluate(`${card("Tool calls", "Full detail")}.click()`);
     await waitFor(`!!${reply("many", "[data-slot=activity-inline]")}`);
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), false, "Full detail leaves no fold");
     const text = await evaluate(`${reply("many")}.innerText`);
@@ -120,17 +113,17 @@ async function browserChecks() {
     // A click folds an expanded thinking row; the setting only sets where it starts.
     await evaluate(`${reply("lone", "[data-slot=step] button")}.click()`);
     await waitFor(`!(${shows("lone", "Only one way")})`);
-    assert.equal(await evaluate(`${reasoning}.getAttribute("aria-checked")`), "true");
+    assert.equal(await evaluate(checked("Reasoning")), "Expanded");
 
     // Murilo mode, the Experimental switch this replaces, opens on Full detail.
     await evaluate(`localStorage.setItem("milagre-settings", JSON.stringify({ muriloMode: true }))`);
     await window.loadURL(process.argv[2]);
     await openChat();
-    assert.equal(await evaluate(`${trigger}.textContent.trim()`), "Full detail", "Murilo mode on reads as Full detail");
+    assert.equal(await evaluate(checked("Tool calls")), "Full detail", "Murilo mode on reads as Full detail");
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity-inline]")}`), true);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: Settings › Chat opens with Chat list on One list and saves Grouped by Project, then lists Always expand reasoning and Tool call display under Detail level, folded and Compact by default; reasoning opens thinking rows until clicked; Full detail shows each tool call, thinking and note in order with no fold; both save; Murilo mode reads as Full detail",
+      "PASS: Settings › Chat shows Chat list, Reasoning and Tool calls as card radio groups on One list, Folded and Compact; arrow keys pick By Project and save it; Expanded opens thinking rows until clicked; Full detail shows each tool call, thinking and note in order with no fold; both save; Murilo mode reads as Full detail",
     );
     app.exit(0);
   } catch (error) {

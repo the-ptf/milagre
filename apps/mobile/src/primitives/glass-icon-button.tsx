@@ -4,22 +4,26 @@ import { Host } from "@expo/ui";
 import { Button as IOSButton } from "@expo/ui/swift-ui";
 import { accessibilityLabel, buttonBorderShape, buttonStyle, labelStyle, tint, controlSize } from "@expo/ui/swift-ui/modifiers";
 import { type IconData } from "../icons";
+import { useTheme } from "../theme";
 import { tap } from "./tap";
 import { CircleButton } from "./circle-button";
 
-/** Native Liquid Glass on iOS 26; SwiftUI supplies the fallback on older iOS. */
+/** Native Liquid Glass on iOS 26; SwiftUI supplies the fallback on older iOS. `prominent` fills it with the accent. */
 export function GlassIconButton({
   label,
   systemImage,
   icon,
   onPress,
+  prominent = false,
 }: {
   label: string;
   systemImage: React.ComponentProps<typeof IOSButton>["systemImage"];
   icon: IconData;
   onPress: () => void;
+  prominent?: boolean;
 }) {
-  if (Platform.OS !== "ios") return <CircleButton label={label} icon={icon} onPress={onPress} />;
+  const { colors } = useTheme();
+  if (Platform.OS !== "ios") return <CircleButton label={label} icon={icon} onPress={onPress} filled={prominent} />;
   return (
     <Host ignoreSafeArea="all" matchContents>
       <IOSButton
@@ -30,11 +34,11 @@ export function GlassIconButton({
           onPress();
         }}
         modifiers={[
-          buttonStyle("glass"),
+          buttonStyle(prominent ? "glassProminent" : "glass"),
           controlSize("large"),
           labelStyle("iconOnly"),
           buttonBorderShape("circle"),
-          tint({ type: "hierarchical", style: "primary" }),
+          tint(prominent ? colors.accent : { type: "hierarchical", style: "primary" }),
           accessibilityLabel(label),
         ]}
       />

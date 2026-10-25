@@ -1,6 +1,8 @@
 // Browser check: the One list sidebar (the default) shows the pinned Chats under Pinned and every other Chat of every
-// Project in one list, latest first, each row naming its Project on its second line; Settings › Chat's Grouped by
-// Project brings the Project groups back, and One list takes them away again. The bridge is stubbed; no agent calls.
+// Project in one list, latest first. Its rows are inbox rows: the Project's icon, the title with its time (a spinner
+// while it runs, a dot when unread), and one line naming the Project, what the Chat is doing and its diff, with no
+// branch and no ⋯ button (the menu opens on a right-click). Settings › Chat's By Project brings the Project groups back,
+// and One list takes them away again. The bridge is stubbed; no agent calls.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -27,7 +29,7 @@ const states = {
     session(8, "Shop chat", 5),
     session(9, "Pinned shop chat", 400, { pinned: true, pin_order: 1 }),
   ]),
-  "/work/api": state([session(4, "API chat", 30)]),
+  "/work/api": state([session(4, "API chat", 30, { unread: true })]),
 };
 window.milagre = {
   listRecentProjects: async () => [
@@ -46,11 +48,12 @@ window.milagre = {
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre-settings");
-updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW });
+// Branch on: the One list's rows still never show it.
+updateSettings({ chatRowShow: { ...DESKTOP_CHAT_ROW_SHOW, branch: true, lastActivity: true } });
 function Fixture() {
   return (
     <div style={{ display: "flex", gap: 12, height: "100vh", padding: "60px 12px 12px" }}>
-      <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", details: { lastAt: minutes(60) } }]} activeId="1" />
+      <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", mark: "running", details: { lastAt: minutes(60), branch: "fix-login", diff: { added: 142, removed: 38 } } }]} activeId="1" />
       <main style={{ flex: 1, minWidth: 0 }}><SettingsPanel section="chat" models={[]} update={null} /></main>
     </div>
   );
@@ -58,8 +61,9 @@ function Fixture() {
 createRoot(document.getElementById("root")).render(<Fixture />);
 `;
 
-const option = (label) =>
-  `[...document.querySelectorAll('[role="listbox"][aria-label="Chat list"] [role="option"]')].find((o) => o.textContent.includes(${JSON.stringify(label)}))`;
+const card = (label) => `document.querySelector('[role="radiogroup"][aria-label="Chat list"] [aria-label=${JSON.stringify(label)}]')`;
+const row = (id) => `document.querySelector('[data-chat-list-flat] [data-chat-id="${id}"]')`;
+const checked = `document.querySelector('[role="radiogroup"][aria-label="Chat list"] [aria-checked="true"]')?.getAttribute("aria-label")`;
 
 async function browserChecks() {
   const { app, BrowserWindow } = require("electron");
@@ -91,21 +95,19 @@ async function browserChecks() {
     await delay(300);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const trigger = `document.querySelector('button[aria-label="Chat list"]')`;
   const rows = (container) =>
     evaluate(
-      `[...document.querySelectorAll(${JSON.stringify(container + " [data-chat-id]")})].map((node) => [node.textContent.trim(), node.querySelector("[data-chat-project]")?.textContent.trim() ?? null])`,
+      `[...document.querySelectorAll(${JSON.stringify(container + " [data-chat-id]")})].map((node) => [node.querySelector("[data-chat-title]").textContent.trim(), node.querySelector("[data-chat-project]")?.textContent.trim() ?? null])`,
     );
   const choose = async (label) => {
-    await evaluate(`${trigger}.click()`);
-    await waitFor(`!!${option(label)}`);
-    await evaluate(`${option(label)}.click()`);
+    await evaluate(`${card(label)}.click()`);
+    await waitFor(`${checked} === ${JSON.stringify(label)}`);
   };
   try {
     await window.loadURL(process.argv[2]);
     await waitFor(`document.querySelectorAll("[data-chat-list-flat] [data-chat-id]").length === 4`);
 
-    assert.equal(await evaluate(`${trigger}.textContent.trim()`), "One list", "Settings › Chat starts on One list");
+    assert.equal(await evaluate(checked), "One list", "Settings › Chat starts on One list");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
     assert.equal(await evaluate(`document.querySelectorAll("[data-scope-toggle]").length`), 0, "No Project headers to fold");
     assert.equal(await evaluate(`document.querySelectorAll("[data-chat-list-flat]").length`), 1, "One flat list");
@@ -135,17 +137,71 @@ async function browserChecks() {
     flat.forEach(([title], index) => assert.ok(title.includes(expected[index][0]), `row ${index} is ${expected[index][0]}, not ${title}`));
     assert.equal(
       await evaluate(`[...document.querySelectorAll("[data-chat-list-flat] [data-chat-id]")].every((row) => {
-        const line = row.querySelector("[data-chat-prs]");
+        const line = row.querySelector("[data-chat-line]");
         return line && line.firstElementChild.querySelector("[data-chat-project]");
       })`),
       true,
       "The Project is the first item of every second line",
     );
+
+    // Inbox rows: the Project's icon on the left, no ⋯ button, no branch, a sans second line.
+    const inbox = await evaluate(`[...document.querySelectorAll("[data-chat-list-flat] [data-chat-id], [data-all-pinned] [data-chat-id]")].map((row) => ({
+      icon: !!row.querySelector("[data-row] [data-chat-project-icon]"),
+      actions: !!row.querySelector('[aria-label="Chat actions"]'),
+      branch: !!row.querySelector("[data-chat-branch]"),
+      mono: [...row.querySelectorAll("[data-chat-line] *")].some((node) => /mono/i.test(getComputedStyle(node).fontFamily)),
+    }))`);
+    assert.equal(inbox.length, 5);
+    assert.ok(
+      inbox.every((row) => row.icon),
+      "Every row leads with its Project's icon",
+    );
+    assert.ok(
+      inbox.every((row) => !row.actions),
+      "No ⋯ button on One list rows",
+    );
+    assert.ok(
+      inbox.every((row) => !row.branch),
+      "No branch on One list rows, even with Branch on",
+    );
+    assert.ok(
+      inbox.every((row) => !row.mono),
+      "No monospace on the second line",
+    );
+    // Running: a spinner where the time goes, "Running" in the accent on the second line.
+    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-time] [data-mark]")?.dataset.mark`), "running");
+    assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-ago]")`), false, "A running row shows its spinner, not its time");
+    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-status]")?.textContent`), "Running");
+    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-status]").className.includes("text-accent")`), true);
+    // Diff stats are off by default; the branch is on but never shows here.
+    assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
+    assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");
+    // Unread: the time in the accent, bold, and a dot after it; the title bold.
+    assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]")?.textContent`), "30m");
+    assert.equal(await evaluate(`${row(4)}.querySelector("[data-chat-ago]").className.includes("text-accent")`), true);
+    assert.equal(await evaluate(`!!${row(4)}.querySelector('[data-chat-time] [data-mark="unread"]')`), true, "The unread dot follows the time");
+    assert.equal(await evaluate(`getComputedStyle(${row(4)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "600");
+    assert.equal(await evaluate(`getComputedStyle(${row(7)}.querySelector("[data-chat-title]").parentElement).fontWeight`), "500");
+    // Pinned: a pin before the title.
+    assert.equal(await evaluate(`!!document.querySelector('[data-all-pinned] [data-chat-id="9"] [data-chat-pinned]')`), true, "Pinned rows show a pin");
+    // The menu opens on a right-click and from the keyboard.
+    await evaluate(
+      `(() => { const r = ${row(7)}.querySelector("[data-row]").getBoundingClientRect(); ${row(7)}.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
+    );
+    await waitFor(`!!document.querySelector("[data-chat-menu]")`);
+    await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitFor(`!document.querySelector("[data-chat-menu]")`);
+    await evaluate(
+      `${row(7)}.querySelector("[data-row]").focus(); ${row(7)}.querySelector("[data-row]").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }))`,
+    );
+    await waitFor(`!!document.querySelector("[data-chat-menu]")`);
+    await evaluate(`document.querySelector("[data-chat-menu]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitFor(`!document.querySelector("[data-chat-menu]")`);
     assert.equal(await evaluate(`!!document.querySelector("[data-one-list-header] button[aria-label='New chat']")`), true, "New chat stays in the list header");
     await screenshot("one-list");
 
     // Grouped by Project: today's sidebar, a group per Project that folds.
-    await choose("Grouped by Project");
+    await choose("By Project");
     await waitFor(`document.querySelectorAll("[data-sidebar-scope]").length === 3`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("[data-sidebar-scope]")].map((node) => node.dataset.sidebarScope)`), [
       "/work/arketa",
@@ -154,6 +210,7 @@ async function browserChecks() {
     ]);
     assert.equal(await evaluate(`document.querySelectorAll("[data-chat-list-flat]").length`), 0, "The flat list is gone");
     assert.equal(await evaluate(`document.querySelectorAll("[data-chat-project]").length`), 0, "Rows no longer repeat their Project");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-inbox-row]").length`), 0, "Grouped rows keep their own look");
     assert.equal(JSON.parse(await evaluate(`localStorage.getItem("milagre-settings")`)).chatList, "grouped", "Grouped by Project is saved");
     await screenshot("grouped");
 
@@ -165,7 +222,7 @@ async function browserChecks() {
 
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list with its Project leading the second line, and Settings › Chat switches to Project groups and back",
+      "PASS: the One list sidebar shows pinned Chats under Pinned and every other Chat in one latest-first list of inbox rows (Project icon, title with time, spinner or unread dot, Project leading the second line, no branch or ⋯ button, menu on right-click and Shift-F10), and Settings › Chat switches to Project groups and back",
     );
     app.exit(0);
   } catch (error) {

@@ -17,7 +17,8 @@ function Fixture() {
   const [isolation, setIsolation] = useState('worktree');
   const [baseBranch, setBaseBranch] = useState('main');
   const [selectedWorktreeId, setWorktree] = useState(1);
-  return <div style={{ padding: 40 }}><NewChatHeader worktrees={worktrees} branches={branches} isolation={isolation} onIsolationChange={setIsolation} baseBranch={baseBranch} onBaseBranchChange={setBaseBranch} selectedWorktreeId={selectedWorktreeId} onWorktreeChange={setWorktree} /></div>;
+  // At the bottom, as above the composer, so the pickers open upward.
+  return <div style={{ position: 'fixed', left: 40, right: 40, bottom: 40 }}><NewChatHeader worktrees={worktrees} branches={branches} isolation={isolation} onIsolationChange={setIsolation} baseBranch={baseBranch} onBaseBranchChange={setBaseBranch} selectedWorktreeId={selectedWorktreeId} onWorktreeChange={setWorktree} /></div>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
 `;

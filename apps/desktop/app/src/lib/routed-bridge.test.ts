@@ -100,6 +100,8 @@ const ALLOWED: Record<string, string[]> = {
     "setProjectHidden",
   ],
   "components/SidebarNav.tsx": ["listRecentProjects", "listNamedLinks", "listProjects", "revealInFolder", "setProjectHidden", "updateNamedLink"],
+  // This Mac's own Projects in the new-chat heading's dropdown; other computers' come through their bridges.
+  "components/NewChatHeading.tsx": ["listRecentProjects"],
   // Canvas Links are this Mac's own, like the canvas.
   "components/sidebar/SidebarLinks.tsx": ["onLinksChanged"],
   "components/LinkWorkspace.tsx": ["syncNotifications", "revealInFolder"],

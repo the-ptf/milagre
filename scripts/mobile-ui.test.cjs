@@ -199,7 +199,15 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
-      if (base === "all-computers" && !(id in modules)) return { useArchivedCount: () => null, useArchivedChats: () => ({ chats: [], loading: false }) };
+      // New Chat's Project choices come from the same store: none unless a test says so.
+      if (base === "all-computers" && !(id in modules))
+        return {
+          useArchivedCount: () => null,
+          useArchivedChats: () => ({ chats: [], loading: false }),
+          useNewChatProjects: () => [],
+          allComputers: { clientFor: () => null, hostFor: () => undefined },
+        };
+      if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules)) return { useSplit: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
@@ -2211,6 +2219,7 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "react-native-reanimated": { default: { View: "AnimatedView" }, useAnimatedStyle: (style) => style() },
     "../hosts-native": { savedChatDefaults: chatDefaults },
     "../genui/GenerativeUI": { GenerativeUIProvider: "GenerativeUIProvider" },
     // A test can stand in for a host that keeps messages by Chat with globalThis.chatPage.
@@ -2272,7 +2281,11 @@ function chatHost({
       "./session": { useSession: () => session },
     }),
     "../dot-background": { useDotBackground: () => ({}) },
-    "react-native-keyboard-controller": { KeyboardChatScrollView: "KeyboardChatScrollView", KeyboardStickyView: "KeyboardStickyView" },
+    "react-native-keyboard-controller": {
+      KeyboardChatScrollView: "KeyboardChatScrollView",
+      KeyboardStickyView: "KeyboardStickyView",
+      useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
+    },
     "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/model": require("@milagre/shared/model"),
@@ -2824,6 +2837,8 @@ function navigationHost(
     react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "./hosts-native": {
+      // No new Chat has started on this phone yet, so New Chat opens in the open Project.
+      savedChatDefaults: { readLastProject: () => null },
       savedFoldedProjects: {
         subscribe: () => () => {},
         folded: () => folded,
@@ -2905,6 +2920,9 @@ function navigationHost(
     "./choice-store": { showChoiceSheet: (request) => choiceRequests.push(request) },
     "./chat-list-order": load("chat-list-order.ts", { "@milagre/shared/chats": chats }),
     "./computer-actions": { isDesktopComputer: () => false },
+    "./new-chat-project": load("new-chat-project.ts", {}),
+    "expo-haptics": { selectionAsync: async () => {} },
+    "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     // The store's polling is the store's own test; here each computer's views come from the test's session or `computers`.
     "./all-computers": allComputersFake(session, computers, storeCalls),
   });
@@ -3004,21 +3022,26 @@ test("One list shows Chats from every computer in one list, each row naming its 
   assert.equal(new Set(data.map((item) => item.key)).size, 4, "the same path and Chat id on two computers make two rows");
   const text = (node) => allNodes(node, (child) => child.type === "Text").map((child) => child.props.children);
   const first = nav.rows().props.renderItem({ item: data[0] });
-  assert.ok(text(first).includes("web"), "line 1 names the Project");
-  assert.ok(text(first).includes("Docs"), "line 2 is the title");
+  assert.ok(text(first).includes("Docs"), "line 1 is the title");
+  assert.ok(text(first).includes("web"), "line 2 names the Project");
   assert.ok(
-    find(first, (node) => node.type === "ComputerTag" || node.props?.name === "MacBook") ||
-      text(first).includes("MacBook") ||
-      JSON.stringify(first).includes("MacBook"),
-    "line 3 names the computer",
+    find(first, (node) => node.type === "ProjectIcon" && node.props.size === 32),
+    "the Project's icon leads the row",
+  );
+  assert.equal(
+    find(first, (node) => node.type?.name === "ComputerTag"),
+    undefined,
+    "the open computer goes unnamed",
   );
   const offline = nav.rows().props.renderItem({ item: data[1] });
   assert.equal(offline.props.style.opacity, 0.55, "an offline computer's rows are dimmed");
-  assert.ok(JSON.stringify(offline).includes("offline"), "and say so");
+  // Another computer is named on line 2, offline here.
+  same(find(offline, (node) => node.type?.name === "ComputerTag").props, { name: "Studio", offline: true, large: true });
+  // No ⋯ button: the long-press menu covers the whole row.
+  const menus = allNodes(offline, (node) => node.type === "PullDown");
+  assert.equal(menus.length, 1);
+  assert.ok(menus[0].props.onPress && menus[0].props.sections.length, "a tap opens the Chat, a long press its menu");
   // A row on another computer opens through that computer's own client, never the session's.
-  nav.rows().props.renderItem({ item: data[1] });
-  const archive = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && !node.props.onPress);
-  assert.ok(archive, "its ⋯ menu is there");
   const tap = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && node.props.onPress);
   tap.props.onPress();
   await settleAll();
@@ -3062,7 +3085,7 @@ test("mobile chat titles fall back to messages from an older host, including mes
   ];
   assert.equal(find(nav.row("chat"), (node) => node.type === "Text" && node.props.numberOfLines === 2).props.children, "Fix login");
   find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("wrangler");
-  assert.equal(nav.row("message").props.accessibilityLabel, "Check the wrangler configuration, in Fix login");
+  assert.equal(nav.row("message").props.accessibilityLabel, "Check the wrangler configuration, in Fix login, last");
 });
 
 test("mobile chat rows keep unread emphasis during a running turn and match desktop read title contrast", () => {
@@ -3311,7 +3334,7 @@ test("a new Chat from the sidebar opens at once too", () => {
 
 test("Add project from the + menu opens the computer search, and a pick opens its Chat at once", async () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Chat actions").props.onSelect("add");
+  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "More").props.onSelect("add");
   await settleAll();
   const search = find(nav.render(), (node) => node.type === "ProjectSearch");
   assert.ok(search, "the search replaces the project list");
@@ -3325,11 +3348,11 @@ test("Add project from the + menu opens the computer search, and a pick opens it
   );
 });
 
-test("Settings push onto the native stack from project navigation, preserving the screen to go back to", () => {
+test("Settings opens as a sheet over project navigation, which stays open under it", () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.type === "ChatListControls").props.onSettings();
+  find(nav.render(), (node) => node.props?.label === "Settings").props.onPress();
   assert.deepEqual(nav.routes, ["/settings"]);
-  assert.deepEqual(nav.secondaryRoutes, [true], "push Settings rather than replacing the originating screen");
+  assert.deepEqual(nav.secondaryRoutes, ["sheet"], "the sidebar is not closed to open Settings");
   assert.equal(
     find(nav.render(), (node) => node.type === "SettingsView"),
     undefined,
@@ -3445,21 +3468,19 @@ test("the phone list and its Link picker leave out a running hidden Run Chat, an
   same(picker(waiting), [5, 4, 3]);
 });
 
-test("the phone's dock Routines button shows the unread dot while a hidden Run Chat is unread", () => {
-  const dock = (unread) => {
+test("the header's Routines button says so while a hidden Run Chat is unread", () => {
+  const label = (unread) => {
     const nav = navigationHost(deferred().promise);
     nav.state.project.state.sessions[5] = { id: 5, worktree_id: 1, unread, routine: { routineId: "tr", runId: "u5", hidden: true } };
-    const tree = nav.render();
-    const controls = find(tree, (node) => node.type === "ChatListControls");
-    return { routines: controls.props.routines };
+    return find(nav.render(), (node) => typeof node.props?.label === "string" && node.props.label.startsWith("Routines")).props.label;
   };
-  same(dock(true), { routines: { unread: true } });
-  same(dock(false), { routines: { unread: false } });
+  assert.equal(label(true), "Routines, unread Runs");
+  assert.equal(label(false), "Routines");
 });
 
 test("Choose projects opens as a sheet over the sidebar instead of closing it", () => {
   const nav = navigationHost(deferred().promise);
-  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Chat actions").props.onSelect("choose");
+  find(nav.render(), (node) => node.type === "ChatListControls").props.filters.onSelect("choose-projects");
   assert.deepEqual(nav.routes, ["/choose-projects"]);
   assert.deepEqual(nav.secondaryRoutes, ["sheet"]);
 });
@@ -3545,14 +3566,19 @@ test("a chat search with no matching title lists matching messages, and a tap op
     JSON.stringify(["Messages", "Deploy the relay with wrangler, then check /health"]),
   );
   const message = nav.row("message");
-  assert.equal(message.props.accessibilityLabel, "Deploy the relay with wrangler, then check /health, in Relay work");
+  assert.equal(message.props.accessibilityLabel, "Deploy the relay with wrangler, then check /health, in Relay work, last");
   message.props.onPress();
   assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", id: "3" } }]));
   search().props.onQuery("relay");
   assert.equal(
-    nav.rows().props.data.some((item) => item.kind === "message"),
-    false,
-    "a Chat title match keeps messages out",
+    JSON.stringify(
+      nav
+        .rows()
+        .props.data.filter((item) => item.kind === "section")
+        .map((item) => item.name),
+    ),
+    JSON.stringify(["Chats", "Messages"]),
+    "like ⌘K, a Chat title match lists the messages that match too",
   );
 });
 
@@ -3591,7 +3617,7 @@ test("a drawer search over Projects held without messages asks the host, which f
 test("a sidebar Project can be removed from the list after confirming", async () => {
   const alerts = [];
   const nav = navigationHost(deferred().promise, { alert: pressDanger(alerts) });
-  nav.more(nav.row("project")).props.onSelect("remove");
+  nav.open(nav.row("project")).props.onSelect("remove");
   await settleAll();
   assert.equal(alerts[0].title, "Remove last?");
   assert.equal(
@@ -11771,30 +11797,67 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
 
-test("the phone's floating controls put Routines before the search and Settings, and push /routines and /settings", () => {
+test("the header opens Settings and Routines over the sidebar, and its ⋯ holds Add project, Link projects and Canvas", () => {
   const nav = navigationHost(deferred().promise);
-  const controls = find(nav.render(), (node) => node.type === "ChatListControls");
-  same(controls.props.routines, { unread: false });
-  assert.equal(controls.props.trailing, undefined, "the search field's end is left for a microphone");
-  controls.props.onRoutines();
-  controls.props.onSettings();
-  assert.deepEqual(nav.routes, ["/routines", "/settings"]);
-  assert.deepEqual(nav.secondaryRoutes, [true, true], "both push onto the stack");
-  const menu = find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "Chat actions");
+  const tree = nav.render();
+  find(tree, (node) => node.props?.label === "Settings").props.onPress();
+  find(tree, (node) => node.props?.label === "Routines").props.onPress();
+  assert.deepEqual(nav.routes, ["/settings", "/routines"]);
+  assert.deepEqual(nav.secondaryRoutes, ["sheet", "sheet"], "both open over the sidebar, which stays under them");
+  assert.equal(
+    find(tree, (node) => node.props?.label === "Close navigation"),
+    undefined,
+    "no close button",
+  );
+  const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "More");
   same(
     menu.props.sections.flatMap((section) => section.items.map((item) => item.title)),
-    ["New Chat", "Add project", "Link projects", "Canvas", "Choose projects"],
+    ["Add project", "Link projects", "Canvas"],
   );
   menu.props.onSelect("canvas");
   menu.props.onSelect("link");
   assert.deepEqual(nav.routes.slice(2), ["/canvas", "/link-projects"]);
 });
 
-test("the phone's floating controls leave Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
+test("the header leaves Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {
   const nav = navigationHost(deferred().promise, { routinesAvailable: false });
+  assert.equal(
+    find(nav.render(), (node) => node.props?.label === "Routines"),
+    undefined,
+  );
+  assert.ok(find(nav.render(), (node) => node.props?.label === "Settings"));
+});
+
+test("the floating controls hold the Filters menu and New Chat, which opens in the open Project", () => {
+  const nav = navigationHost(deferred().promise);
   const controls = find(nav.render(), (node) => node.type === "ChatListControls");
-  assert.equal(controls.props.routines, undefined);
-  assert.ok(controls.props.onSettings);
+  same(
+    controls.props.filters.sections.map((section) => section.title ?? ""),
+    ["", "Show", "On chats"],
+  );
+  same(
+    controls.props.filters.sections[1].items.map((item) => [item.title, item.checked]),
+    [
+      ["All Chats", true],
+      ["Needs me", false],
+      ["Running", false],
+      ["Archived", false],
+    ],
+  );
+  assert.equal(controls.props.filters.active, false);
+  controls.props.onNewChat();
+  assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac" } }]));
+});
+
+test("a search that finds nothing offers a new Chat with the search as its draft", () => {
+  const nav = navigationHost(deferred().promise);
+  find(nav.render(), (node) => node.type === "ChatListControls").props.onQuery("dark canvas");
+  same(
+    nav.rows().props.data.map((item) => item.kind),
+    ["start"],
+  );
+  find(nav.row("start"), (node) => node.props?.accessibilityLabel === "Start a new chat with your search").props.onPress();
+  assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", prefill: "dark canvas" } }]));
 });
 
 const routineFixtures = () => [

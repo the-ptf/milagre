@@ -37,6 +37,7 @@ export function PullDown({
   style,
   nativeTrigger,
   searchable,
+  fill = false,
 }: {
   title?: string;
   sections: MenuSection[];
@@ -47,6 +48,8 @@ export function PullDown({
   style?: StyleProp<ViewStyle>;
   nativeTrigger?: NativeMenuTrigger;
   searchable?: { placeholder: string; emptyLabel: string };
+  /** The trigger fills `style`'s box: a row's whole area under its own tap targets (a Chat row's PR links). */
+  fill?: boolean;
 }) {
   const { colors } = useTheme();
   if (searchable)
@@ -143,11 +146,17 @@ export function PullDown({
   }
   // The system draws menus below the keyboard, so a touch on the trigger lowers it first.
   const trigger = onPress ? (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} onTouchStart={() => Keyboard.dismiss()}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      onTouchStart={() => Keyboard.dismiss()}
+      style={fill ? { flex: 1 } : undefined}
+    >
       {children}
     </Pressable>
   ) : (
-    <View accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()}>
+    <View accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={fill ? { flex: 1 } : undefined}>
       {children}
     </View>
   );

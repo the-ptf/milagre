@@ -3,6 +3,7 @@ import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
@@ -51,7 +52,7 @@ import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, terminalPlaces } from "../terminal";
-import { KeyboardChatScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
+import { KeyboardChatScrollView, KeyboardStickyView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { ChatReply } from "../chat-reply";
 import { designMessageSent, peekDesignMessage } from "../design-outbox";
 import { chosenDesign, designActivity } from "@milagre/shared/artifact";
@@ -111,6 +112,8 @@ import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
+import { allComputers, useNewChatProjects } from "../all-computers";
+import { ProjectIcon } from "../project-icon";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -156,7 +159,8 @@ export default function ChatScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
   const navigation = useNavigation<NavigationProp<{ chat: { worktreeId?: string } }, "chat">>();
-  const params = useLocalSearchParams<{ id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string }>();
+  // `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
+  const params = useLocalSearchParams<{ id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string }>();
   // This New Chat's own id; the drawer passes a sending one's back to reopen it (pending-chats.ts).
   const [ownDraft] = useState(() => randomUUID());
   const draftId = params.draft || ownDraft;
@@ -528,6 +532,24 @@ export default function ChatScreen() {
     if (starterId === undefined) router.replace("/projects");
     else router.setParams({ worktreeId: String(starterId) });
   }, [needsWorktree, loaded, starterId]);
+  // A prefill lands in the new Chat's composer once its Worktree is known, unless something is typed there already.
+  const prefillKey = loaded && !params.id && params.worktreeId && params.prefill ? `${session.snapshot!.project.path}#new:${params.worktreeId}` : null;
+  const { setDrafts } = composer;
+  useEffect(() => {
+    if (!prefillKey || !params.prefill) return;
+    const text = params.prefill;
+    setDrafts((current) => (current[prefillKey] ? current : { ...current, [prefillKey]: text }));
+    router.setParams({ prefill: undefined });
+  }, [prefillKey, params.prefill, setDrafts]);
+  // The Projects a new Chat can switch to, on every shown computer.
+  const newChatProjects = useNewChatProjects();
+  // The "Start a new chat in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
+  // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
+  const keyboard = useReanimatedKeyboardAnimation();
+  const startLift = Math.max(insets.bottom, 12) - 8;
+  const startLineStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 }],
+  }));
   const sidebar = (
     <Stack.Toolbar placement="left">
       <Stack.Toolbar.Button
@@ -669,6 +691,61 @@ export default function ChatScreen() {
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
+  // A new Chat before its first message: "Start a new chat in <Project>" in the middle of the screen picks its Project.
+  const startingChat = !params.id && !pending && !messages.length;
+  const projectName = project.name || project.path.split("/").findLast(Boolean) || "Project";
+  const hostIds = new Set(newChatProjects.map((item) => item.hostId));
+  const hostName = newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName;
+  function chooseProject() {
+    if (busy) return;
+    showChoiceSheet({
+      title: "Start a new chat in",
+      placeholder: "Search projects",
+      emptyLabel: "No projects",
+      items: newChatProjects.map((item) => ({
+        id: `${item.hostId}\n${item.path}`,
+        title: item.name,
+        keywords: `${item.hostName} ${item.path}`,
+        checked: item.hostId === client.url && item.path === project.path,
+        disabled: item.offline,
+        ...(hostIds.size > 1 ? { section: item.hostName } : {}),
+        leading: <ProjectIcon client={item.hostId === client.url ? client : allComputers.clientFor(item.hostId)} path={item.path} size={24} />,
+      })),
+      onSelect: (id) => {
+        const [hostId = "", ...rest] = id.split("\n");
+        void switchProject(hostId, rest.join("\n"));
+      },
+    });
+  }
+  // The typed draft comes along to the other Project. Another computer is connected after the address changes, so the
+  // screen waits behind the splash mark instead of leaving for the list.
+  async function switchProject(hostId: string, projectPath: string) {
+    if (hostId === client.url && projectPath === project.path) return;
+    const back = { hostId: client.url, projectPath: project.path, worktreeId: params.worktreeId, prefill: draft || undefined };
+    const host = hostId === client.url ? null : allComputers.hostFor(hostId);
+    if (hostId !== client.url && !host) {
+      setError("This computer is no longer in your list.");
+      return;
+    }
+    setError("");
+    if (draft) composer.setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== chatId)));
+    router.setParams({ hostId, projectPath, worktreeId: undefined, prefill: draft || undefined });
+    // The open hook loads on focus only, so a Project on this computer is opened here; another computer's opens as its
+    // client arrives.
+    if (!host) {
+      session.open(projectPath).catch((e: Error) => {
+        router.setParams(back);
+        setError(e.message);
+      });
+      return;
+    }
+    try {
+      if (!(await session.connect(host, false))) router.setParams(back);
+    } catch (e) {
+      router.setParams(back);
+      setError((e as Error).message);
+    }
+  }
   async function action(work: () => Promise<unknown>, allowPending = false) {
     if (actionBusy || (!allowPending && pending)) return false;
     setBusy(true);
@@ -829,6 +906,8 @@ export default function ChatScreen() {
       withAttachments && mentionRoot ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path)) : { added: [] };
     const sent = body;
     const sendingProjectPath = project.path;
+    // The next New Chat opens where this one started.
+    if (!params.id) void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
@@ -1278,7 +1357,10 @@ export default function ChatScreen() {
     <GenerativeUIProvider send={genuiSend}>
       <ReachableHostContext value={reachable}>
         <View style={[styles.screen, dots]}>
-          <Stack.Screen options={{ title, headerTitle: () => header, headerBackVisible: false, gestureEnabled: false }} />
+          {/* A new Chat has no title until it has a name. */}
+          <Stack.Screen
+            options={{ title: startingChat ? "" : title, headerTitle: () => (startingChat ? null : header), headerBackVisible: false, gestureEnabled: false }}
+          />
           {sidebar}
           {more}
           <PanelSwipe panels={panels} covered={planPanel.phase !== "closed"}>
@@ -1343,7 +1425,8 @@ export default function ChatScreen() {
                   />
                 </View>
               )}
-              {!messages.length && !run && !pageLoading && (
+              {/* A new Chat's empty state is the centred "Start a new chat in" line instead. */}
+              {!messages.length && !run && !pageLoading && !startingChat && (
                 <View style={{ paddingVertical: 48, alignItems: "center", gap: 8 }}>
                   <Text style={styles.subtitle}>What are we working on?</Text>
                   <Text style={[styles.muted, { textAlign: "center" }]}>
@@ -1475,6 +1558,53 @@ export default function ChatScreen() {
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. */}
             <EdgeFade edge="top" height={insets.top + 84} />
+            {startingChat && (
+              <Animated.View
+                pointerEvents="box-none"
+                style={[
+                  {
+                    position: "absolute",
+                    left: 24,
+                    right: 24,
+                    top: insets.top + 56,
+                    bottom: dockHeight,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  },
+                  startLineStyle,
+                ]}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Start a new chat in ${projectName}${hostIds.size > 1 ? ` on ${hostName}` : ""}. Change project`}
+                  disabled={busy}
+                  onPress={chooseProject}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    columnGap: 6,
+                    opacity: pressed ? 0.6 : 1,
+                  })}
+                >
+                  <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start a new chat in</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+                    <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                      {projectName}
+                    </Text>
+                    <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
+                  </View>
+                </Pressable>
+                {hostIds.size > 1 && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Icon icon={LaptopIcon} tone="ink3" size={13} />
+                    <Text style={styles.caption}>on {hostName}</Text>
+                  </View>
+                )}
+              </Animated.View>
+            )}
             <AttentionPill projectPath={project.path} bottom={dockHeight + 12} />
             {toast ? (
               <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
