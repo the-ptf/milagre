@@ -188,6 +188,7 @@ export function LiveDesignLayer({
   chatId,
   live,
   shown,
+  savedPainted,
   width,
   height,
   scale,
@@ -196,6 +197,8 @@ export function LiveDesignLayer({
   live: LiveDesign | null;
   /** The version the frame has loaded, or null while it loads. */
   shown: number | null;
+  /** The saved version decoded as an image or loaded as an iframe. */
+  savedPainted: boolean;
   width: number;
   height: number;
   scale: number;
@@ -210,27 +213,16 @@ export function LiveDesignLayer({
   const key = live?.key ?? null;
   const settledHere = !!live && live.status === "settling" && shown === live.version;
   useEffect(() => {
-    if (!settledHere || !key) return;
-    const frame = layer.current?.parentElement?.querySelector<HTMLIFrameElement>(":scope > [data-design-body] iframe");
-    let done = false;
-    const leave = () => {
-      if (done) return;
-      done = true;
-      setLeaving(key);
-    };
-    // The frame loads the saved version; one that was already showing it never loads again.
-    frame?.addEventListener("load", leave, { once: true });
-    const fallback = setTimeout(leave, 450);
-    return () => {
-      clearTimeout(fallback);
-      frame?.removeEventListener("load", leave);
-    };
-  }, [settledHere, key]);
+    if (!settledHere || !key || savedPainted) return;
+    const fallback = setTimeout(() => setLeaving(key), 450);
+    return () => clearTimeout(fallback);
+  }, [settledHere, key, savedPainted]);
+  const leavingHere = !!key && (leaving === key || (settledHere && savedPainted));
   useEffect(() => {
-    if (!leaving) return;
-    const timer = setTimeout(() => finishLiveDesign(chatId, leaving), placeholder ? 0 : 220);
+    if (!leavingHere || !key) return;
+    const timer = setTimeout(() => finishLiveDesign(chatId, key), placeholder ? 0 : 220);
     return () => clearTimeout(timer);
-  }, [leaving, chatId, placeholder]);
+  }, [leavingHere, key, chatId, placeholder]);
   if (!live || placeholder) return <div ref={layer} hidden />;
   return (
     <div
@@ -238,7 +230,7 @@ export function LiveDesignLayer({
       data-slot="live-design"
       data-live={live.kind}
       className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-200"
-      style={{ opacity: leaving === live.key ? 0 : 1 }}
+      style={{ opacity: leavingHere ? 0 : 1 }}
     >
       <LiveWork
         live={live}

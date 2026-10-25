@@ -407,7 +407,7 @@ async function browserChecks() {
     const frames = `${dock}.querySelectorAll("[data-slot=artifact-frame]")`;
     const frame = (id) => `${dock}.querySelector("[data-slot=artifact-frame][data-artifact=${id}]")`;
     await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${thumb("login")}.click()`);
-    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("iframe"))`);
+    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("[data-design-body][data-painted]"))`);
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
     assert.equal(await evaluate(`${dock}.querySelector("[data-slot=designs-experimental]").textContent`), "Experimental");
     // The chat's room springs open with the panel, to the panel's width and its gap.
@@ -657,6 +657,7 @@ async function browserChecks() {
     });
     await waitFor(`${frame("login")}.querySelector("[data-design-body]").dataset.active === "true"`);
     assert.equal(await evaluate(`!!${frame("login")}.querySelector("[data-slot=artifact-shield]")`), false, "the design has the mouse");
+    await waitFor(`(() => { const iframe = ${frame("login")}.querySelector("iframe"); return iframe && !iframe.closest("[inert]"); })()`);
     // A click in the design gives it the focus, so the window never sees the key: Escape still leaves the design.
     window.webContents.sendInputEvent({
       type: "mouseDown",

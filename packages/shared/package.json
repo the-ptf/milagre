@@ -360,6 +360,10 @@
     "./attachment-upload": {
       "types": "./src/attachment-upload.d.mts",
       "default": "./src/attachment-upload.mjs"
+    },
+    "./design-preview": {
+      "types": "./src/design-preview.d.mts",
+      "default": "./src/design-preview.mjs"
     }
   },
   "scripts": {
