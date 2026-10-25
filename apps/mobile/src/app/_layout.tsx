@@ -12,7 +12,7 @@ import { StartupSplash } from "../startup-splash";
 import { useTheme } from "../theme";
 import { UpdateShell } from "../update-sheet";
 import { stackScreenOptions } from "../stack-options";
-import { SidePanelsHost, SidePanelsProvider } from "../side-panels";
+import { SidePanelsHost, SidePanelsProvider, enterUnderPanel } from "../side-panels";
 import { setConfirmPresenter } from "../confirm-store";
 import { setChoicePresenter } from "../choice-store";
 import { setLinkPresenter } from "../link-chat-store";
@@ -76,7 +76,11 @@ export default function Layout() {
                           <Stack.Screen name="link-projects" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                           <Stack.Screen name="link-chat" options={{ ...sheet, sheetAllowedDetents: [1] }} />
                           <Stack.Screen name="choose-projects" options={{ ...sheet, sheetAllowedDetents: [0.6, 1], sheetInitialDetentIndex: 0 }} />
-                          <Stack.Screen name="chat" options={{ title: "Chat" }} />
+                          {/* A Chat opened from the open navigation swaps in under it, which then slides off (side-panels.tsx). */}
+                          <Stack.Screen
+                            name="chat"
+                            options={({ route }) => ({ title: "Chat", ...(enterUnderPanel(route.key) ? { animation: "none" as const } : {}) })}
+                          />
                           <Stack.Screen name="context-sheet" options={{ ...sheet, sheetAllowedDetents: "fitToContents" }} />
                           <Stack.Screen name="permission-sheet" options={{ ...sheet, sheetAllowedDetents: [0.42, 0.6], sheetInitialDetentIndex: 0 }} />
                           {/* Full height: the effort, Fast and Ultracode panel pinned at the bottom leaves a half-height sheet room for one model. */}
