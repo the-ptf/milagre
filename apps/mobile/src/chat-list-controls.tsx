@@ -2,15 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
-import { RepeatIcon, Search01Icon, Settings01Icon } from "@hugeicons/core-free-icons";
+import { FilterHorizontalIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
-import { chatMarkTone } from "@milagre/shared/chats";
-import { UpdateSettingsBadge } from "./update-sheet";
 import { EdgeFade } from "./bottom-fade";
 import { Icon } from "./icons";
 import { scaledTiming, useMotionScale } from "./motion";
-import { GlassIconButton } from "./ui";
+import { GlassIconButton, PullDown } from "./ui";
+import type { MenuSection } from "./primitives/menu";
 import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
 import { insertDictation } from "./voice-dictation";
@@ -65,8 +64,8 @@ export function useControlsVisibility() {
 }
 
 /**
- * Routines, search and Settings floating over the list on Liquid Glass. The search field ends in a dictation mic where the
- * phone can transcribe; the update dot sits on Settings and the unread-Run dot on Routines. A take ends when the list hides.
+ * Filters, search and New Chat floating over the list on Liquid Glass. The search field ends in a dictation mic where the
+ * phone can transcribe. A take ends when the list hides.
  * While a take is under way or the search field is focused the controls stay up, whatever the list scrolls: the mic is the
  * only way to stop a take, and the field is being typed in.
  */
@@ -75,19 +74,17 @@ export function ChatListControls({
   query,
   onQuery,
   onFocus,
-  routines,
-  onRoutines,
-  onSettings,
+  filters,
+  onNewChat,
   visible = true,
 }: {
   hidden: ReturnType<typeof useControlsVisibility>["hidden"];
   query: string;
   onQuery: (query: string) => void;
   onFocus: () => void;
-  /** Absent when this phone has no Routines to show: `unread` lights the dot. */
-  routines?: { unread: boolean };
-  onRoutines: () => void;
-  onSettings: () => void;
+  /** The Filters menu: `active` when it hides some Chats. */
+  filters: { sections: MenuSection[]; onSelect: (id: string) => void; active: boolean };
+  onNewChat: () => void;
   /** False while the list is mounted but off screen. */
   visible?: boolean;
 }) {
@@ -130,12 +127,18 @@ export function ChatListControls({
         <EdgeFade edge="bottom" height={CONTROLS_HEIGHT + bottom + FADE_EXTRA} />
       </Animated.View>
       <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
-        {routines && (
-          <View style={s.circle}>
-            <GlassIconButton label={routines.unread ? "Routines, unread Runs" : "Routines"} systemImage="repeat" icon={RepeatIcon} onPress={onRoutines} />
-            {routines.unread && <View pointerEvents="none" style={[s.dot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
+        <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
+          <View style={[s.circle, filters.active && { borderWidth: 1.5, borderColor: colors.accent, borderRadius: CONTROLS_HEIGHT / 2 }]}>
+            <LiquidGlassView
+              pointerEvents="none"
+              glassType="regular"
+              isInteractive={false}
+              reducedTransparencyFallbackColor={colors.surface}
+              style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
+            />
+            <Icon icon={FilterHorizontalIcon} tone={filters.active ? "accent" : "ink"} size={20} />
           </View>
-        )}
+        </PullDown>
         <View style={s.search}>
           <LiquidGlassView
             pointerEvents="none"
@@ -146,8 +149,8 @@ export function ChatListControls({
           />
           <Icon icon={Search01Icon} tone="ink3" size={18} />
           <TextInput
-            accessibilityLabel="Search chats"
-            placeholder={dictationError?.message ?? "Search chats"}
+            accessibilityLabel="Search chats, messages and projects"
+            placeholder={dictationError?.message ?? "Search"}
             placeholderTextColor={colors.ink3}
             selectionColor={colors.accent}
             value={query}
@@ -180,8 +183,7 @@ export function ChatListControls({
           ) : null}
         </View>
         <View style={s.circle}>
-          <GlassIconButton label="Settings" systemImage="gearshape" icon={Settings01Icon} onPress={onSettings} />
-          <UpdateSettingsBadge />
+          <GlassIconButton label="New Chat" systemImage="square.and.pencil" icon={PencilEdit02Icon} onPress={onNewChat} prominent />
         </View>
       </Animated.View>
     </KeyboardStickyView>
@@ -201,5 +203,4 @@ const s = StyleSheet.create({
     borderRadius: CONTROLS_HEIGHT / 2,
     borderCurve: "continuous",
   },
-  dot: { position: "absolute", right: 4, top: 4, width: 9, height: 9, borderRadius: 5 },
 });

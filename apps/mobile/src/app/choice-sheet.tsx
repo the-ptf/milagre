@@ -119,39 +119,54 @@ export default function ChoiceSheet() {
         }
         ItemSeparatorComponent={ChoiceSeparator}
         ListEmptyComponent={switching ? undefined : <Text style={[styles.muted, { paddingVertical: 24, textAlign: "center" }]}>{entry.emptyLabel}</Text>}
-        renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityLabel={item.subtitle ? `${item.title}. ${item.subtitle}` : item.title}
-            accessibilityState={{ checked: !!item.checked, disabled: !!item.disabled }}
-            disabled={item.disabled}
-            onPress={() => close(item.id)}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 12,
-              minHeight: 60,
-              paddingHorizontal: 10,
-              paddingVertical: 14,
-              borderRadius: 10,
-              borderCurve: "continuous",
-              // The chosen row shows only its tick, like the Linear issue rows; no fill.
-              backgroundColor: pressed ? colors.hover : "transparent",
-              opacity: item.disabled ? 0.4 : 1,
-            })}
-          >
-            {entry.leading ?? <Icon icon={entry.icon ?? GitBranchIcon} tone={item.checked ? "accent" : "ink3"} size={18} />}
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 20 }}>{item.title}</Text>
-              {item.subtitle && (
-                <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
-                  {item.subtitle}
-                </Text>
-              )}
+        renderItem={({ item, index }) => {
+          const row = (
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityLabel={item.subtitle ? `${item.title}. ${item.subtitle}` : item.title}
+              accessibilityState={{ checked: !!item.checked, disabled: !!item.disabled }}
+              disabled={item.disabled}
+              onPress={() => close(item.id)}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                minHeight: 60,
+                paddingHorizontal: 10,
+                paddingVertical: 14,
+                borderRadius: 10,
+                borderCurve: "continuous",
+                // The chosen row shows only its tick, like the Linear issue rows; no fill.
+                backgroundColor: pressed ? colors.hover : "transparent",
+                opacity: item.disabled ? 0.4 : 1,
+              })}
+            >
+              {item.leading ?? entry.leading ?? <Icon icon={entry.icon ?? GitBranchIcon} tone={item.checked ? "accent" : "ink3"} size={18} />}
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 20 }}>{item.title}</Text>
+                {item.subtitle && (
+                  <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
+                    {item.subtitle}
+                  </Text>
+                )}
+              </View>
+              <View style={{ width: 18 }}>{item.checked && <Icon icon={Tick02Icon} tone="accent" size={18} />}</View>
+            </Pressable>
+          );
+          // The first row of a section (a computer's Projects) carries its heading.
+          if (!item.section || item.section === items[index - 1]?.section) return row;
+          return (
+            <View>
+              <Text
+                accessibilityRole="header"
+                style={[styles.caption, { paddingHorizontal: 10, paddingTop: index ? 18 : 0, paddingBottom: 4, fontWeight: "600" }]}
+              >
+                {item.section}
+              </Text>
+              {row}
             </View>
-            <View style={{ width: 18 }}>{item.checked && <Icon icon={Tick02Icon} tone="accent" size={18} />}</View>
-          </Pressable>
-        )}
+          );
+        }}
       />
       {/* Rows blur and fade under the transparent title bar, as in the Chat: the sheet doesn't get iOS's soft scroll edge. */}
       <EdgeFade edge="top" height={SHEET_HEADER_HEIGHT} />

@@ -60,3 +60,20 @@ test("corrupt or unavailable storage falls back without blocking new Chats", asy
     assert.deepEqual(store.readTarget("mac", "/a"), { isolation: "worktree" });
   }
 });
+
+test("the last new Chat's Project survives a fresh store", async () => {
+  const data = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItemAsync: async (key: string, value: string) => {
+      data.set(key, value);
+    },
+  };
+  const first = createChatDefaultsStore(storage);
+  assert.equal(first.readLastProject(), null);
+  await first.saveLastProject("mac", "/a");
+  await first.saveLastProject("other-mac", "/b");
+  assert.deepEqual(createChatDefaultsStore(storage).readLastProject(), { hostId: "other-mac", projectPath: "/b" });
+  data.set("milagre.chat-last-project.v1", '{"hostId":1}');
+  assert.equal(createChatDefaultsStore(storage).readLastProject(), null);
+});

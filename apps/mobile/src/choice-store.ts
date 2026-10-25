@@ -2,7 +2,17 @@ import type { ReactElement } from "react";
 import type { IconData } from "./icons";
 /** Searchable choices wait here because a native sheet route cannot carry callbacks. */
 /** `keywords`: more text the search matches besides the title (the Link picker's Project and branch). */
-type ChoiceItem = { id: string; title: string; subtitle?: string; keywords?: string; checked?: boolean; disabled?: boolean };
+/** `section` heads a run of rows (a computer's Projects); `leading` replaces the row's icon (its Project's icon). */
+type ChoiceItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  keywords?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  section?: string;
+  leading?: ReactElement;
+};
 /** `icon` replaces the leading branch icon on each row, and `leading` (a brand mark) replaces both; the default stays for branch and worktree pickers. */
 type ChoiceRequest = {
   title: string;
