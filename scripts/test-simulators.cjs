@@ -235,9 +235,15 @@ async function browserChecks() {
     const footerMatches =
       '(()=>{const doc=document.querySelector("[data-slot=simulator-frame]").contentDocument;return doc && getComputedStyle(doc.body).backgroundColor===getComputedStyle(document.querySelector("[data-slot=simulator-popover] > div")).backgroundColor})()';
     await waitFor(footerMatches);
+    // Failed connections retry automatically, so count opens only once the stream is live.
+    await evaluate('void(window.simulatorThemeDocument=document.querySelector("[data-slot=simulator-frame]").contentDocument)');
     await evaluate("window.setDark(false)");
     await waitFor(footerMatches);
-    assert.equal(await evaluate("window.simulatorCalls.length"), 1, "theme changes must preserve the viewer session");
+    assert.equal(
+      await evaluate('document.querySelector("[data-slot=simulator-frame]").contentDocument===window.simulatorThemeDocument'),
+      true,
+      "theme changes must preserve the receiver document",
+    );
     await screenshot("docked-light");
     // Real WebRTC video in the receiver, with deterministic pixels at the capture boundary.
     await evaluate("window.simulatorVideo=true");
@@ -341,8 +347,10 @@ async function browserChecks() {
     await evaluate("window.simulatorControlling=true;window.simulatorHinge={}");
     await waitFor(receiver + '.querySelector("#duo").hidden===true');
     await screenshot("iphone-live-light");
+    const beforeTheme = await evaluate("window.simulatorCalls.length");
     await evaluate("window.setDark(true)");
     await waitFor(footerMatches);
+    assert.equal(await evaluate("window.simulatorCalls.length"), beforeTheme, "theme changes must preserve the live viewer session");
     await screenshot("iphone-live-dark");
     await evaluate("window.simulatorReady=false");
     await waitFor('document.querySelector("[data-slot=simulator-connection]").dataset.state==="connecting"');
