@@ -1169,6 +1169,18 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
             const unreadColor = colors[chatMarkTone("unread")];
             const otherComputer = item.many && (item.hostId !== currentHostId || offline);
             const separator = <Text style={s.inboxSeparator}>·</Text>;
+            // What VoiceOver reads for the row: what it shows, without the branch.
+            const inboxLabel = [
+              title,
+              item.chat.pinned ? "pinned" : "",
+              item.chat.unread ? "unread" : "",
+              copy?.project.link ? `${copy.project.link.projects.length} Projects` : item.project,
+              word,
+              otherComputer ? `${item.hostName}${offline ? ", offline" : ""}` : "",
+              linked.length ? linkedAccessibilityLabel(linked) : "",
+            ]
+              .filter(Boolean)
+              .join(", ");
             // The second line's parts, " · " between them; the pull request links keep their own taps.
             const parts: { key: string; node: ReactNode; links?: boolean }[] = [
               {
@@ -1219,7 +1231,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
               <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
                 <View style={[s.inbox, { backgroundColor: selected && !archiving ? colors.hover : "transparent" }]}>
                   <PullDown
-                    label={label}
+                    label={inboxLabel}
                     title={title}
                     sections={item.pending || archiving ? [] : menu}
                     onSelect={(action) => {
