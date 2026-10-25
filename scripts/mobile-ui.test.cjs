@@ -13156,3 +13156,78 @@ test("Git polling on the phone keeps the current list during reads and pauses of
   await settle();
   assert.equal(timers.size, 0);
 });
+
+function splitShellHost() {
+  const split = { pinned: true, dockable: true, available: true, hidden: false, widthClass: "wide", toggle() {} };
+  const calls = [];
+  const screen = { pathname: "/chat", pagePushed: false };
+  const router = {
+    canDismiss: () => screen.pagePushed,
+    dismissAll: () => {
+      calls.push("dismissAll");
+      screen.pagePushed = false;
+    },
+    replace: (href) => calls.push(["replace", href]),
+    push: (href) => calls.push(["push", href]),
+  };
+  const shell = hookHost();
+  const sidebar = hookHost();
+  const { SplitShell } = load("split-layout.tsx", {
+    react: shell,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", StyleSheet: { create: (styles) => styles, hairlineWidth: 1 } },
+    "expo-router": { router, usePathname: () => screen.pathname },
+    "react-native-safe-area-context": {
+      SafeAreaInsetsContext: { Provider: "InsetsProvider" },
+      useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }),
+    },
+    "./project-navigation": { ProjectNavigation: "ProjectNavigation" },
+    "./side-panels": { NO_INSETS: {}, usePanelScreen: () => ({ attached: true, chatId: 4, open: null, show() {} }) },
+    "./split-context": { useSplit: () => split },
+    "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
+  });
+  const render = () => {
+    shell.begin();
+    return SplitShell({ children: "Screen" });
+  };
+  // The sidebar is drawn as an element; run it with its own hooks to reach the list inside.
+  const sidebarOf = (tree) => {
+    const element = find(tree, (node) => typeof node.type === "function" && "shown" in node.props);
+    if (!element) return null;
+    sidebar.begin();
+    return { element, tree: element.type(element.props) };
+  };
+  return { split, calls, screen, render, sidebarOf };
+}
+
+test("the pinned sidebar stays mounted, hidden, when the window narrows, so a Chat it is opening still arrives", () => {
+  const { split, render, sidebarOf } = splitShellHost();
+  assert.equal(sidebarOf(render()).element.props.shown, true);
+  // An iPad window dragged below the pinned width while the sidebar connects another computer.
+  Object.assign(split, { pinned: false, dockable: false, widthClass: "regular" });
+  const narrowed = sidebarOf(render());
+  assert.ok(narrowed, "still mounted, so its open request isn't dropped");
+  assert.equal(narrowed.element.props.shown, false);
+  assert.equal(find(narrowed.tree, (node) => node.type === "ProjectNavigation").props.visible, false, "reads nothing while hidden");
+  // Leaving the computer (back to the Computers list) is what unmounts it.
+  split.available = false;
+  render();
+  assert.equal(sidebarOf(render()), null);
+});
+
+test("the pinned sidebar reopens the Chat under a pushed page by closing the page, and opens other Chats", () => {
+  const { calls, screen, render, sidebarOf } = splitShellHost();
+  const navigate = (href) => find(sidebarOf(render()).tree, (node) => node.type === "ProjectNavigation").props.onNavigate(href);
+  const chat = (id) => ({ pathname: "/chat", params: { hostId: "http://mac", projectPath: "/p", id } });
+  // Routines pushed over Chat 4: the row isn't marked open, and picking Chat 4 pops back to it without remounting it.
+  Object.assign(screen, { pathname: "/routines", pagePushed: true });
+  assert.equal(find(sidebarOf(render()).tree, (node) => node.type === "ProjectNavigation").props.activeChatId, undefined);
+  navigate(chat("4"));
+  assert.deepEqual(calls, ["dismissAll"]);
+  // On the Chat itself, picking it again does nothing; another Chat replaces it.
+  calls.length = 0;
+  screen.pathname = "/chat";
+  navigate(chat("4"));
+  navigate(chat("5"));
+  assert.deepEqual(calls, [["replace", chat("5")]]);
+});
