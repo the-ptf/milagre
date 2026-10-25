@@ -2912,6 +2912,7 @@ function navigationHost(
     "./computer-actions": { isDesktopComputer: () => false },
     "./new-chat-project": load("new-chat-project.ts", {}),
     "expo-haptics": { selectionAsync: async () => {} },
+    "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     // The store's polling is the store's own test; here each computer's views come from the test's session or `computers`.
     "./all-computers": allComputersFake(session, computers, storeCalls),
   });

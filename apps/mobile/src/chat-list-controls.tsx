@@ -183,7 +183,7 @@ export function ChatListControls({
           ) : null}
         </View>
         <View style={s.circle}>
-          <GlassIconButton label="New Chat" systemImage="square.and.pencil" icon={PencilEdit02Icon} onPress={onNewChat} prominent />
+          <GlassIconButton label="New Chat" systemImage="square.and.pencil" icon={PencilEdit02Icon} onPress={onNewChat} />
         </View>
       </Animated.View>
     </KeyboardStickyView>

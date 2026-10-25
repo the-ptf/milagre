@@ -22,6 +22,7 @@ import {
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { chatMarkTone, chatPullRequests, chatTitle, comparePins, pendingChatSessionId, pullRequestRefs, withPendingChat } from "@milagre/shared/chats";
 import { searchMessages } from "@milagre/shared/message-search";
 import { unreadRunRoutines } from "@milagre/shared/routines";
@@ -981,11 +982,17 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
                     tap();
                     startNewChat(query.trim());
                   }}
-                  style={({ pressed }) => [s.startCard, { opacity: pressed ? 0.7 : 1 }]}
+                  style={({ pressed }) => [s.startCard, pressed && { backgroundColor: colors.hover }]}
                 >
-                  <View style={s.startIcon}>
-                    <Icon icon={PencilEdit02Icon} tone="onAccent" size={18} />
-                  </View>
+                  {/* Liquid Glass like the controls under it; only its position may animate, never its alpha. */}
+                  <LiquidGlassView
+                    pointerEvents="none"
+                    glassType="regular"
+                    isInteractive={false}
+                    reducedTransparencyFallbackColor={colors.surface}
+                    style={[StyleSheet.absoluteFill, { borderRadius: 18, borderCurve: "continuous" }]}
+                  />
+                  <Icon icon={PencilEdit02Icon} tone="ink" size={20} />
                   <Text style={[s.secondary, { flex: 1, color: colors.ink, fontWeight: "600" }]}>Start a new chat with your search</Text>
                 </Pressable>
               </View>
@@ -1376,10 +1383,8 @@ const makeS = (colors: Palette) =>
       borderRadius: 18,
       borderCurve: "continuous",
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.accent,
-      backgroundColor: colors.field,
+      borderColor: colors.line,
     },
-    startIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
     projectHit: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingHorizontal: 16 },
     headerDot: { position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: 4 },
     chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderCurve: "continuous", backgroundColor: colors.field },
