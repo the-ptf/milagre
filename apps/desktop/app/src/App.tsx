@@ -2013,6 +2013,25 @@ function App() {
         if (!selectedLinkRef.current && projectRef.current?.path === key) start();
       });
   });
+  // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far.
+  const moveNewChat = useEvent((key: string) => {
+    const from = projectRef.current?.path;
+    if (selectedLinkRef.current || !from || from === key) return;
+    const carried = draftStore.get();
+    // The text leaves this Project's new Chat, so it isn't waiting here too on the way back.
+    if (carried) setDraft("");
+    const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
+    const start = () => startNewChat(carried || (remembered.sessionId === null ? remembered.text : ""));
+    const arrived = () => !selectedLinkRef.current && projectRef.current?.path === key;
+    const switched = switchProject(key);
+    if (arrived()) start();
+    else
+      void switched.then(() => {
+        if (arrived()) start();
+        // The switch failed: the text comes back where it was typed.
+        else if (carried && !selectedLinkRef.current && projectRef.current?.path === from && !draftStore.get()) setDraft(carried);
+      });
+  });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
@@ -2940,6 +2959,7 @@ function App() {
                         permissionMode={permissionMode}
                         onPermissionModeChange={changePermissionMode}
                         onRecommendationSelect={sendRecommendation}
+                        newChatProject={{ key: project.path, name: project.name, onChange: moveNewChat }}
                         worktrees={composerWorktrees}
                         selectedWorktreeId={selectedWorktree?.id}
                         onWorktreeChange={(id) => {
@@ -3074,6 +3094,7 @@ function App() {
                       )
                   : undefined
               }
+              onStartChat={(query) => startNewChat(query)}
               onClose={() => setCommandPaletteOpen(false)}
               onError={setNotice}
             />

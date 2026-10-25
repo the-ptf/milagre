@@ -196,10 +196,14 @@ async function browserChecks() {
     assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Commit and open PR")'));
     await key("Tab");
     assert.equal(await evaluate('document.activeElement.getAttribute("role")'), "combobox");
+    // Nothing matches at all: one row offers a new Chat with the search as its draft.
     await search("missing-command-xyz");
-    assert.equal(await evaluate('document.querySelectorAll("dialog [role=option]").length'), 0);
-    await key("Enter");
-    assert.ok(await evaluate('!!document.querySelector("dialog[open]")'));
+    assert.deepEqual(
+      await evaluate('[...document.querySelectorAll("dialog [role=option]")].map((option) => option.textContent.trim())'),
+      ["Start a new chat with your search"],
+      "An unmatched search offers only the new-chat row",
+    );
+    await screenshot("palette-start-chat-dark.png");
     await search("FINDER");
     await key("Enter");
     await key("Enter");
@@ -337,8 +341,48 @@ async function browserChecks() {
     await waitFor(`document.body.textContent.includes('Could not update Chat: Chat could not be saved: disk full')`);
     assert.ok(await evaluate('document.body.textContent.includes("Add a command palette")'));
     await screenshot("chat-action-failure.png");
+    // The new-chat row starts a Chat in the open Project with the search in the composer, not sent.
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await open();
+    await search("zebra crossing notes");
+    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Start a new chat with your search")'));
+    await key("Enter");
+    await waitFor('!document.querySelector("dialog")');
+    await waitFor(
+      '!!document.querySelector("[data-new-chat-heading]") && document.querySelector("[data-prompt-editor]").textContent.includes("zebra crossing notes")',
+    );
+    assert.ok(
+      await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start a new chat in")'),
+      "The new Chat names its Project",
+    );
+    assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The search waits in the composer, unsent");
+    await screenshot("palette-started-chat.png");
+    // The heading's Project dropdown lists the Projects with the open one checked; a pick switches to that Project and a
+    // switch that fails puts the draft back where it was typed.
+    await evaluate('document.querySelector("[data-new-chat-project]").click()');
+    await waitFor('document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 2');
+    assert.deepEqual(
+      await evaluate(
+        '[...document.querySelectorAll("[data-new-chat-heading] [data-picker-row]")].map((row) => [row.querySelector("strong").textContent, !!row.querySelector("svg")])',
+      ),
+      [
+        ["Milagre", true],
+        ["Website", false],
+      ],
+      "The open Project is first and checked",
+    );
+    await screenshot("new-chat-project-menu.png");
+    await key("Escape");
+    await waitFor('!document.querySelector("[data-new-chat-heading] [data-picker-panel]")');
+    assert.equal(await evaluate("document.activeElement.hasAttribute('data-new-chat-project')"), true, "Escape returns focus to the dropdown");
+    const switches = await evaluate('window.calls.filter((call) => call === "/other").length');
+    await evaluate('document.querySelector("[data-new-chat-project]").click()');
+    await waitFor('document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 2');
+    await evaluate('[...document.querySelectorAll("[data-new-chat-heading] [data-picker-row]")].find((row) => row.textContent.includes("Website")).click()');
+    await waitFor(`window.calls.filter((call) => call === "/other").length === ${switches + 1}`);
+    await waitFor('document.querySelector("[data-prompt-editor]").textContent.includes("zebra crossing notes")');
     console.log(
-      "PASS: Cmd/Ctrl+K, fuzzy message fallback opening the chat with find seeded, animated exit, reduced-motion dismissal, repeated Enter guard, direct settings changes and persistence, current setting, filtering, navigation, empty state, action dispatch, focus restore, Escape isolation, modifier-only hints, release/blur cleanup, numbered chat navigation, themes, viewport fit, settings and project navigation, shortcuts over a waiting question card",
+      "PASS: Cmd/Ctrl+K, fuzzy message fallback opening the chat with find seeded, animated exit, reduced-motion dismissal, repeated Enter guard, direct settings changes and persistence, current setting, filtering, navigation, empty state, action dispatch, focus restore, Escape isolation, modifier-only hints, release/blur cleanup, numbered chat navigation, the new-chat row for an unmatched search and the heading's Project dropdown, themes, viewport fit, settings and project navigation, shortcuts over a waiting question card",
     );
     app.exit(0);
   } catch (error) {

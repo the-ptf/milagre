@@ -9,6 +9,7 @@ import {
   Copy01Icon,
   FolderOpenIcon,
   GitBranchIcon,
+  PencilEdit02Icon,
   Refresh01Icon,
   RepeatIcon,
   Search01Icon,
@@ -32,6 +33,7 @@ const icons = {
   message: BubbleChatSearchIcon,
   reload: Refresh01Icon,
   routines: RepeatIcon,
+  newChat: PencilEdit02Icon,
 };
 
 function Label({ command }: { command: Command }) {
@@ -49,17 +51,20 @@ function Label({ command }: { command: Command }) {
 /**
  * `searchMessages` runs only when no command, chat or project matches, so a chat's own words are the fallback.
  * `searchMessagesAsync` does the same through the host, for a window that holds no messages.
+ * When nothing matches at all, `onStartChat` offers one row that starts a new Chat with the search as its draft.
  */
 export function CommandPalette({
   commands,
   searchMessages,
   searchMessagesAsync,
+  onStartChat,
   onClose,
   onError,
 }: {
   commands: Command[];
   searchMessages?: (query: string) => Command[];
   searchMessagesAsync?: (query: string) => Promise<Command[]>;
+  onStartChat?: (query: string) => void;
   onClose: () => void;
   onError: (message: string) => void;
 }) {
@@ -89,7 +94,21 @@ export function CommandPalette({
       clearTimeout(timer);
     };
   }, [searchHost, query, searchMessagesAsync]);
-  const results = matches.length ? matches : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
+  const searched = matches.length ? matches : searchMessages ? searchMessages(query) : searchHost && found.query === query ? found.commands : [];
+  // The host is still looking: nothing is offered until it answers, so the new-chat row doesn't flash in and out.
+  const searching = !matches.length && !searchMessages && searchHost && found.query !== query;
+  const results: Command[] =
+    searched.length || searching || !onStartChat || !query.trim()
+      ? searched
+      : [
+          {
+            id: "start-chat-with-search",
+            label: "Start a new chat with your search",
+            group: "New chat",
+            icon: "newChat",
+            run: () => onStartChat(query.trim()),
+          },
+        ];
   const selected = results.find((command) => command.id === selectedId) ?? results[0];
   const selectedIndex = selected ? results.indexOf(selected) : -1;
 
@@ -244,7 +263,7 @@ export function CommandPalette({
               ))}
           </div>
         ))}
-        {!results.length && (
+        {!results.length && !searching && (
           <div role="status" className="px-4 py-10 text-center text-[13px] text-ink-3">
             No results for “{query}”
           </div>

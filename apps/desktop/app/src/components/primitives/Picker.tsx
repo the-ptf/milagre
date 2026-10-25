@@ -101,6 +101,7 @@ export function PickerRow({
   label,
   description,
   meta,
+  trailing,
   selected,
   onClick,
   option = false,
@@ -113,6 +114,8 @@ export function PickerRow({
   description?: string;
   /** A short fact in a chip beside the label: a model's context window. */
   meta?: string;
+  /** Right-aligned text before the check: the computer a Project lives on. */
+  trailing?: string;
   selected: boolean;
   onClick: () => void;
   option?: boolean;
@@ -147,6 +150,7 @@ export function PickerRow({
         )}
         {description && <span className="truncate text-[10px] text-ink-3">{description}</span>}
       </span>
+      {trailing && <span className="max-w-[40%] shrink-0 truncate text-[11px] text-ink-3">{trailing}</span>}
       {selected && (
         <span className="shrink-0">
           <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={1.8} color="currentColor" />

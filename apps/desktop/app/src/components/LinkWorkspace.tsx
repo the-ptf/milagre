@@ -758,6 +758,12 @@ export function LinkWorkspace({
                       messageCommandsFrom(await bridge.searchChats(owner, query), new Map(recents.map((row) => [Number(row.id), row.label])), openMessage)
                   : undefined
               }
+              onStartChat={(query) => {
+                pick(null);
+                // The new Chat's draft takes the search now, before the render that selects it.
+                draftStore.select(draftKey(owner, null));
+                draftStore.set(query);
+              }}
               onClose={() => setCommandsOpen(false)}
               onError={setError}
             />

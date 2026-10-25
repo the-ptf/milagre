@@ -99,19 +99,7 @@ import {
 import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
-import {
-  CHAT_LIST_HINT,
-  CHAT_LIST_MODES,
-  CHAT_LIST_TITLE,
-  DETAIL_LEVEL_TITLE,
-  EXPAND_REASONING_HINT,
-  EXPAND_REASONING_TITLE,
-  TOOL_CALL_DISPLAYS,
-  TOOL_CALL_DISPLAY_HINT,
-  TOOL_CALL_DISPLAY_TITLE,
-  type ChatList,
-  type ToolCallDisplay,
-} from "@milagre/shared/chat-display";
+import { ChatListChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -462,6 +450,16 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
   );
 }
 
+/** A setting chosen from side-by-side picture cards, under its group title and outside the rows' card. */
+function ChoiceGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-6">
+      <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-6">
@@ -640,17 +638,15 @@ function ChatSettings() {
   const settings = useSettings();
   return (
     <>
-      <Group title={CHAT_LIST_TITLE}>
-        <Row label={CHAT_LIST_TITLE} description={CHAT_LIST_HINT}>
-          <Select<ChatList>
-            label={CHAT_LIST_TITLE}
-            width={300}
-            value={settings.chatList}
-            onChange={(chatList) => updateSettings({ chatList })}
-            options={CHAT_LIST_MODES.map((mode) => ({ value: mode.id, label: mode.label, description: mode.description }))}
-          />
-        </Row>
-      </Group>
+      <ChoiceGroup title="Chat list">
+        <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
+      </ChoiceGroup>
+      <ChoiceGroup title="Reasoning">
+        <ReasoningChoice expanded={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
+      </ChoiceGroup>
+      <ChoiceGroup title="Tool calls">
+        <ToolCallChoice value={settings.toolCallDisplay} onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })} />
+      </ChoiceGroup>
       <Group title="Replies">
         <Row
           label="TLDR writing"
@@ -667,20 +663,6 @@ function ChatSettings() {
               { value: "concise", label: "Concise" },
               { value: "normal", label: "Normal" },
             ]}
-          />
-        </Row>
-      </Group>
-      <Group title={DETAIL_LEVEL_TITLE}>
-        <Row label={EXPAND_REASONING_TITLE} description={EXPAND_REASONING_HINT}>
-          <Switch label={EXPAND_REASONING_TITLE} checked={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
-        </Row>
-        <Row label={TOOL_CALL_DISPLAY_TITLE} description={TOOL_CALL_DISPLAY_HINT}>
-          <Select<ToolCallDisplay>
-            label={TOOL_CALL_DISPLAY_TITLE}
-            width={300}
-            value={settings.toolCallDisplay}
-            onChange={(toolCallDisplay) => updateSettings({ toolCallDisplay })}
-            options={TOOL_CALL_DISPLAYS.map((display) => ({ value: display.id, label: display.label, description: display.description }))}
           />
         </Row>
       </Group>

@@ -66,6 +66,7 @@ import { NextCheck } from "./routines/NextCheck";
 import type { QueueControls } from "./QueuedMessages";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
+import { NewChatHeading } from "./NewChatHeading";
 import Tooltip from "./primitives/Tooltip";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
@@ -773,6 +774,8 @@ interface ChatComposerProps {
   permissionLocked?: boolean;
   onRecommendationSelect: (option: string) => void;
   approval?: ReactNode;
+  /** The Project a new Chat starts in, named in the "Start a new chat in" heading; its dropdown moves the new Chat to another. */
+  newChatProject?: { key: string; name: string; onChange?: (key: string) => void };
   worktrees: Array<{ id: number; name: string; path: string }>;
   selectedWorktreeId?: number;
   onWorktreeChange: (id: number) => void;
@@ -862,7 +865,7 @@ function NewChatHeader({
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"isolation" | "branch" | "issue" | null>(null);
   const [query, setQuery] = useState("");
-  const [popover, setPopover] = useState({ left: 0, maxHeight: 480 });
+  const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];
   const isolationOption = ISOLATIONS.find((option) => option.id === isolation) ?? ISOLATIONS[0];
   const search = query.trim().toLowerCase();
@@ -887,7 +890,10 @@ function NewChatHeader({
     lastTrigger.current = trigger;
     const row = trigger.parentElement?.getBoundingClientRect();
     const button = trigger.getBoundingClientRect();
-    setPopover({ left: button.left - (row?.left ?? button.left), maxHeight: window.innerHeight - button.bottom - 24 });
+    // The chips sit right above the composer, so their pickers open upward into the room above, unless there's more below.
+    const above = button.top - 24;
+    const below = window.innerHeight - button.bottom - 24;
+    setPopover({ left: button.left - (row?.left ?? button.left), maxHeight: Math.max(above, below), up: above >= below });
   }
 
   useDismiss(
@@ -910,20 +916,20 @@ function NewChatHeader({
     setQuery("");
   }
 
-  const popoverStyle = { left: popover.left, maxHeight: popover.maxHeight, transformOrigin: "top left" };
+  const popoverStyle = { left: popover.left, maxHeight: popover.maxHeight, transformOrigin: popover.up ? "bottom left" : "top left" };
+  const popoverEdge = popover.up ? "bottom-[calc(100%+0.375rem)]" : "top-[calc(100%+0.375rem)]";
 
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-      <h1 className="text-[17px] font-medium text-ink">New chat</h1>
       {noGit && selected && (
-        <p data-no-git-note className="mt-4 mb-2.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+        <p data-no-git-note className="mb-2.5 flex items-center gap-1.5 text-[13px] text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
           {selected.name} has no Git, so this Chat works in the folder itself.
         </p>
       )}
       {!noGit && selected && (
-        <div data-new-chat-pickers className="relative mt-4 mb-2.5 -ml-1.5 flex items-center gap-1">
+        <div data-new-chat-pickers className="relative mb-2 -ml-1.5 flex items-center gap-1">
           <Tooltip label="Choose the isolation level">
             <ChipButton
               icon={isolationOption.icon}
@@ -942,7 +948,7 @@ function NewChatHeader({
             <ChipButton leading={<LinearLogo size={13} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
           )}
           {menu === "isolation" && (
-            <PickerPanel title="Isolation" className="absolute top-[calc(100%+0.375rem)] w-[320px]" style={popoverStyle}>
+            <PickerPanel title="Isolation" className={`absolute ${popoverEdge} w-[320px]`} style={popoverStyle}>
               {ISOLATIONS.map((option) => (
                 <PickerRow
                   key={option.id}
@@ -960,6 +966,7 @@ function NewChatHeader({
           )}
           {menu === "issue" && (
             <LinearIssuePicker
+              className={`absolute ${popoverEdge} w-[420px] max-w-[calc(100vw-2rem)]`}
               style={popoverStyle}
               onPick={(issue) => {
                 onStartFromIssue?.(issue);
@@ -977,7 +984,7 @@ function NewChatHeader({
               searchPlacement="bottom"
               emptyLabel={isolation === "local" ? "No worktrees found." : "No branches found."}
               isEmpty={branchRows.length === 0}
-              className="absolute top-[calc(100%+0.375rem)] w-[420px] max-w-[calc(100vw-2rem)]"
+              className={`absolute ${popoverEdge} w-[420px] max-w-[calc(100vw-2rem)]`}
               style={popoverStyle}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
@@ -1072,6 +1079,7 @@ export function ChatComposer({
   permissionLocked,
   onRecommendationSelect,
   approval,
+  newChatProject,
   worktrees,
   selectedWorktreeId,
   onWorktreeChange,
@@ -1103,6 +1111,9 @@ export function ChatComposer({
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
   const isNewChat = messages.length === 0 && !loading;
+  // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
+  // bot's new Chat keeps the composer centred.
+  const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
   const workingModelName = runModelName ?? selectedModel.name;
   const [scrolled, setScrolled] = useState(false);
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
@@ -1235,7 +1246,7 @@ export function ChatComposer({
     >
       <div
         ref={root}
-        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
+        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat && !projectNewChat ? "justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
             event.preventDefault();
@@ -1256,6 +1267,18 @@ export function ChatComposer({
           </div>
         )}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
+        {projectNewChat && (
+          <div
+            className="chat-gutter mx-auto flex min-h-0 w-full max-w-[var(--chat-width)] flex-1 flex-col items-center px-3 pt-[max(48px,24vh)]"
+            style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
+          >
+            <NewChatHeading
+              projectKey={newChatProject?.key ?? projectPath}
+              projectName={newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath}
+              onProjectChange={newChatProject?.onChange}
+            />
+          </div>
+        )}
         <TranscriptSlots
           activeKey={transcriptKey}
           view={scrollKey}
@@ -1398,7 +1421,7 @@ export function ChatComposer({
         >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
           <UpdatePillSlot className="bottom-full mb-2" />
-          {isNewChat && (scopeKind ?? "project") === "project" && !offlineName && (
+          {projectNewChat && (
             <NewChatHeader
               worktrees={worktrees}
               selectedWorktreeId={selectedWorktreeId}
