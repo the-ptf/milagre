@@ -85,6 +85,8 @@ import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turn
 import LINEAR_MARK from "../../assets/linear-mark.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
+import { useSplit } from "../split-context";
+import { chatAreaWidth, readingInset } from "../split-width";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
@@ -163,6 +165,10 @@ export default function ChatScreen() {
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
+  const split = useSplit();
+  // Beside a pinned sidebar or on a wide iPad, the transcript and composer keep to a centered reading column.
+  const area = chatAreaWidth(window.width, split.pinned);
+  const column = readingInset(area);
   const [actionBusy, setBusy] = useState(false);
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
@@ -521,7 +527,11 @@ export default function ChatScreen() {
   }, [needsWorktree, loaded, starterId]);
   const sidebar = (
     <Stack.Toolbar placement="left">
-      <Stack.Toolbar.Button icon="sidebar.left" accessibilityLabel="Open navigation" onPress={() => panels.show("left")} />
+      <Stack.Toolbar.Button
+        icon="sidebar.left"
+        accessibilityLabel={split.dockable ? (split.pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation"}
+        onPress={() => (split.dockable ? split.toggle() : panels.show("left"))}
+      />
     </Stack.Toolbar>
   );
   // A comment or a choice from the design sheet is sent from here when the Chat comes back into view. Sent while the
@@ -1039,7 +1049,9 @@ export default function ChatScreen() {
     let left = false;
     const leave = () => {
       left = true;
-      panels.show("left");
+      // The pinned sidebar is already there to pick the next Chat; narrower, it slides over the archived one.
+      if (split.dockable) router.replace("/projects");
+      else panels.show("left");
     };
     // By the time the archive ends the phone may show another Project, so the list's copy of this one is read too.
     const refresh = () => Promise.all([session.refresh(), session.previewProject(project.path)]);
@@ -1135,7 +1147,7 @@ export default function ChatScreen() {
   }
   const header = (
     <>
-      <View style={{ alignItems: "center", maxWidth: headerTitleWidth(window.width, !!ownRoutine) }}>
+      <View style={{ alignItems: "center", maxWidth: headerTitleWidth(area, !!ownRoutine) }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
           <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
             {title}
@@ -1251,6 +1263,8 @@ export default function ChatScreen() {
       onActivity={openActivity}
     />
   ) : null;
+  const sendDisabled =
+    busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!session.error || !!chat?.archived || unavailable;
   // The composer floats above the transcript and rides the keyboard, stopping 8pt above it.
   const dockPadding = Math.max(insets.bottom, 12);
   const lift = dockPadding - 8;
@@ -1275,7 +1289,10 @@ export default function ChatScreen() {
               maintainVisibleContentPosition={KEEP_VISIBLE_POSITION}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
-              contentContainerStyle={[styles.content, { paddingTop: insets.top + 84, paddingLeft: 28, gap: 16, paddingBottom: dockHeight + 16 }]}
+              contentContainerStyle={[
+                styles.content,
+                { paddingTop: insets.top + 84, paddingLeft: 28 + column, paddingRight: 20 + column, gap: 16, paddingBottom: dockHeight + 16 },
+              ]}
               scrollEventThrottle={32}
               onScrollBeginDrag={() => {
                 scrollingToBottom.current = false;
@@ -1469,7 +1486,7 @@ export default function ChatScreen() {
               <BottomFade height={dockHeight + 48} />
               <View
                 onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
-                style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }}
+                style={{ paddingHorizontal: 12 + column, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }}
               >
                 <PersistenceNotice
                   key={`${client.url}|${project.path}`}
@@ -1792,6 +1809,10 @@ export default function ChatScreen() {
                         commands={chat ? UNDO_COMMANDS : undefined}
                         // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                         placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
+                        // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
+                        onSubmit={() => {
+                          if (!sendDisabled) void send();
+                        }}
                         onChangeText={(value) => {
                           // Clearing the composer also clears the limit error that its mentions caused.
                           composer.setDrafts((current) => ({ ...current, [chatId]: value }));
@@ -1873,15 +1894,7 @@ export default function ChatScreen() {
                             filled
                             size={34}
                             loading={busy}
-                            disabled={
-                              busy ||
-                              picking ||
-                              (newWorktree && !base) ||
-                              (!draft.trim() && !attachments.length) ||
-                              !!session.error ||
-                              !!chat?.archived ||
-                              unavailable
-                            }
+                            disabled={sendDisabled}
                             onPress={() => void send()}
                           />
                         )}
