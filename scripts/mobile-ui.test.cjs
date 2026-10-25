@@ -3012,21 +3012,26 @@ test("One list shows Chats from every computer in one list, each row naming its 
   assert.equal(new Set(data.map((item) => item.key)).size, 4, "the same path and Chat id on two computers make two rows");
   const text = (node) => allNodes(node, (child) => child.type === "Text").map((child) => child.props.children);
   const first = nav.rows().props.renderItem({ item: data[0] });
-  assert.ok(text(first).includes("web"), "line 1 names the Project");
-  assert.ok(text(first).includes("Docs"), "line 2 is the title");
+  assert.ok(text(first).includes("Docs"), "line 1 is the title");
+  assert.ok(text(first).includes("web"), "line 2 names the Project");
   assert.ok(
-    find(first, (node) => node.type === "ComputerTag" || node.props?.name === "MacBook") ||
-      text(first).includes("MacBook") ||
-      JSON.stringify(first).includes("MacBook"),
-    "line 3 names the computer",
+    find(first, (node) => node.type === "ProjectIcon" && node.props.size === 32),
+    "the Project's icon leads the row",
+  );
+  assert.equal(
+    find(first, (node) => node.type?.name === "ComputerTag"),
+    undefined,
+    "the open computer goes unnamed",
   );
   const offline = nav.rows().props.renderItem({ item: data[1] });
   assert.equal(offline.props.style.opacity, 0.55, "an offline computer's rows are dimmed");
-  assert.ok(JSON.stringify(offline).includes("offline"), "and say so");
+  // Another computer is named on line 2, offline here.
+  same(find(offline, (node) => node.type?.name === "ComputerTag").props, { name: "Studio", offline: true, large: true });
+  // No ⋯ button: the long-press menu covers the whole row.
+  const menus = allNodes(offline, (node) => node.type === "PullDown");
+  assert.equal(menus.length, 1);
+  assert.ok(menus[0].props.onPress && menus[0].props.sections.length, "a tap opens the Chat, a long press its menu");
   // A row on another computer opens through that computer's own client, never the session's.
-  nav.rows().props.renderItem({ item: data[1] });
-  const archive = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && !node.props.onPress);
-  assert.ok(archive, "its ⋯ menu is there");
   const tap = find(nav.rows().props.renderItem({ item: data[1] }), (node) => node.type === "PullDown" && node.props.onPress);
   tap.props.onPress();
   await settleAll();

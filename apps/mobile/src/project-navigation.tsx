@@ -1,5 +1,5 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
@@ -43,7 +43,7 @@ import { chatMark, type ChatMark } from "./indicators";
 import { shownChat } from "./chat-list-filter";
 import { backgroundLabel, chatActivity } from "@milagre/shared/chat-activity";
 import { ChatMarkIcon } from "./status-indicators";
-import { Icon, type IconData } from "./icons";
+import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
 import { ErrorNotice, IconButton, PullDown, useStyles } from "./ui";
@@ -57,10 +57,10 @@ import { clearArchiveNotice, showArchiveNotice } from "./archive";
 import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
 import { useChatPullRequests } from "./use-chat-pull-requests";
-import { ChatPullRequestChips } from "./chat-pull-request-chips";
+import { ChatPullRequestChips, InlinePullRequestLinks } from "./chat-pull-request-chips";
 import { useLinear } from "./use-linear";
 import { useWorktreeLinearIssues } from "./use-worktree-linear-issues";
-import { createStylesHook, fonts, useTheme, type Palette } from "./theme";
+import { createStylesHook, useTheme, type Palette } from "./theme";
 import { activityAgo, CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
 import { saveChatRowShow, useActivityClock, useChatRowShow } from "./chat-row-store";
 import { useChatList } from "./chat-display-setting";
@@ -965,7 +965,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           />
         }
         ListEmptyComponent={<Text style={[styles.muted, { padding: 20 }]}>{emptyText}</Text>}
-        renderItem={({ item, index }) => {
+        renderItem={({ item }) => {
           if (item.kind === "section")
             return <Text style={[s.detail, { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
           if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
@@ -1159,13 +1159,136 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           const grouped = chatList === "grouped";
           const label = `${title}${item.chat.pinned ? ", pinned" : ""}, ${grouped ? item.worktree : `${item.project}, ${item.worktree}`}${markLabel ? `, ${markLabel}` : ""}${item.many ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`;
           const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
-          const next = displayedRows[index + 1];
-          // A thin divider under every row of the list, except the last.
-          const divided = !grouped && next?.kind === "chat";
+          // One list: inbox rows. The Project's icon, then the title with its time (a spinner while it runs, a dot when unread),
+          // then one line naming the Project, its pull requests and Linear issue, what the Chat is doing, the diff, and the
+          // computer when it isn't the open one. A tap opens the Chat and a long press opens its menu: the menu covers the row,
+          // under the pull request links, which keep their own taps.
+          if (!grouped) {
+            const running = item.mark === "running" || item.mark === "background";
+            const word = item.mark === "unread" ? "" : markLabel;
+            const unreadColor = colors[chatMarkTone("unread")];
+            const otherComputer = item.many && (item.hostId !== currentHostId || offline);
+            const separator = <Text style={s.inboxSeparator}>·</Text>;
+            // The second line's parts, " · " between them; the pull request links keep their own taps.
+            const parts: { key: string; node: ReactNode; links?: boolean }[] = [
+              {
+                key: "project",
+                node: copy?.project.link ? (
+                  <>
+                    <Icon icon={Link04Icon} tone="ink3" size={13} />
+                    <Text numberOfLines={1} style={s.inboxText}>
+                      {copy.project.link.projects.length} Projects
+                    </Text>
+                  </>
+                ) : (
+                  <Text numberOfLines={1} style={[s.inboxText, { flexShrink: 1 }]}>
+                    {item.project}
+                  </Text>
+                ),
+              },
+              ...(hasChips
+                ? [{ key: "links", links: true, node: <InlinePullRequestLinks pullRequests={pullRequests} linearIssue={linearIssue} separator={separator} /> }]
+                : []),
+              ...(word
+                ? [
+                    {
+                      key: "mark",
+                      node: (
+                        <Text numberOfLines={1} style={[s.inboxText, { color: markColor, flexShrink: 1 }]}>
+                          {word}
+                        </Text>
+                      ),
+                    },
+                  ]
+                : []),
+              ...(diff
+                ? [
+                    {
+                      key: "diff",
+                      node: (
+                        <Text style={[s.inboxText, { fontVariant: ["tabular-nums"] }]}>
+                          <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
+                        </Text>
+                      ),
+                    },
+                  ]
+                : []),
+              ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
+            ];
+            return (
+              <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
+                <View style={[s.inbox, { backgroundColor: selected && !archiving ? colors.hover : "transparent" }]}>
+                  <PullDown
+                    label={label}
+                    title={title}
+                    sections={item.pending || archiving ? [] : menu}
+                    onSelect={(action) => {
+                      if (!item.pending && !archiving) void act(item, action);
+                    }}
+                    onPress={() => {
+                      if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
+                    }}
+                    style={StyleSheet.absoluteFill}
+                    fill
+                  >
+                    <View style={{ flex: 1 }} />
+                  </PullDown>
+                  <View
+                    pointerEvents="box-none"
+                    style={[s.inboxContent, { opacity: archiving ? 0.3 : 1 }]}
+                    accessibilityElementsHidden={archiving}
+                    importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
+                  >
+                    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                      {item.members?.[0] ? (
+                        <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
+                      ) : (
+                        <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
+                      )}
+                    </View>
+                    <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
+                      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
+                        {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={13} />}
+                        {linkedIcon}
+                        <Text numberOfLines={1} style={[s.inboxTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
+                          {title}
+                        </Text>
+                        {running ? (
+                          <SpinnerRing size={14} tone="accent" />
+                        ) : (
+                          <>
+                            {lastAt !== undefined && (
+                              <Text style={[s.inboxTime, item.chat.unread && { color: unreadColor, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
+                            )}
+                            {item.chat.unread && <View style={[s.unread, { backgroundColor: unreadColor }]} />}
+                          </>
+                        )}
+                      </View>
+                      <View pointerEvents="box-none" style={s.inboxLine}>
+                        {parts.map((part, at) => (
+                          <View
+                            key={part.key}
+                            pointerEvents={part.links ? "box-none" : "none"}
+                            accessibilityElementsHidden={!part.links}
+                            importantForAccessibility={part.links ? "auto" : "no-hide-descendants"}
+                            style={[s.inboxPart, !part.links && { flexShrink: 1 }]}
+                          >
+                            {at > 0 && <View pointerEvents="none">{separator}</View>}
+                            {part.node}
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                  {archiving && <ArchivingOverlay title={title} />}
+                </View>
+              </View>
+            );
+          }
           // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
           return (
             <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
-              <View style={[s.chat, grouped && s.grouped, { backgroundColor: selected && !archiving ? colors.hover : "transparent" }]}>
+              <View style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? colors.hover : "transparent" }]}>
                 <View
                   style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
                   accessibilityElementsHidden={archiving}
@@ -1183,84 +1306,42 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
                     }}
                     style={{ flex: 1 }}
                   >
-                    {grouped ? (
-                      <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
-                        <ChatMarkIcon mark={item.mark} background={item.background} />
-                        <View style={{ flex: 1, gap: 3 }}>
-                          <Text
-                            numberOfLines={hasChips ? 1 : 2}
-                            style={[
-                              s.chatTitle,
-                              { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" },
-                            ]}
-                          >
-                            {title}
-                          </Text>
-                          {!hasChips && secondLine && (
-                            <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
-                              {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                              {linkedIcon}
-                              {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
-                              {!!branchLine && (
-                                <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                                  {branchLine}
-                                </Text>
-                              )}
-                              {facts}
-                              {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
-                            </View>
-                          )}
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={s.listBody}>
-                        <View style={s.line}>
-                          {item.members?.[0] ? (
-                            <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={16} />
-                          ) : (
-                            <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={16} />
-                          )}
-                          <Text numberOfLines={1} style={[s.project2, { flex: 1 }]}>
-                            {item.project}
-                          </Text>
-                          {markLabel ? (
-                            <Text numberOfLines={1} style={[s.detail, { color: markColor, fontWeight: "500" }]}>
-                              {markLabel}
-                            </Text>
-                          ) : (
-                            item.chat.unread && <View accessibilityLabel="Unread" style={[s.unread, { backgroundColor: colors[chatMarkTone("unread")] }]} />
-                          )}
-                          {lastAt !== undefined && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
-                        </View>
-                        <Text numberOfLines={hasChips ? 1 : 2} style={[s.listTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
+                    <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
+                      <ChatMarkIcon mark={item.mark} background={item.background} />
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <Text
+                          numberOfLines={hasChips ? 1 : 2}
+                          style={[
+                            s.chatTitle,
+                            { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" },
+                          ]}
+                        >
                           {title}
                         </Text>
-                        <View style={s.line}>
-                          {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                          {linkedIcon}
-                          {!!branchLine && (
-                            <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, fontFamily: fonts.mono }]}>
-                              {branchLine}
-                            </Text>
-                          )}
-                          {facts}
-                          {item.many && (
-                            <>
-                              {!!branchLine && <Text style={s.detail}>·</Text>}
-                              <ComputerTag name={item.hostName} offline={offline} />
-                            </>
-                          )}
-                        </View>
+                        {!hasChips && secondLine && (
+                          <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+                            {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                            {linkedIcon}
+                            {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
+                            {!!branchLine && (
+                              <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+                                {branchLine}
+                              </Text>
+                            )}
+                            {facts}
+                            {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
+                          </View>
+                        )}
                       </View>
-                    )}
+                    </View>
                   </PullDown>
                   {hasChips && (
-                    <View style={grouped ? undefined : { marginLeft: -26 }}>
+                    <View>
                       <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue}>
-                        {grouped && item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                        {grouped && linkedIcon}
-                        {grouped && facts}
-                        {grouped && !!markLabel && (
+                        {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                        {linkedIcon}
+                        {facts}
+                        {!!markLabel && (
                           <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: markColor }]}>
                             {markLabel}
                           </Text>
@@ -1278,7 +1359,6 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
                 )}
                 {archiving && <ArchivingOverlay title={title} />}
               </View>
-              {divided && <View style={[s.divider, { backgroundColor: colors.line }]} />}
             </View>
           );
         }}
@@ -1354,13 +1434,13 @@ function OfflineLine({ hostIds }: { hostIds: string[] }) {
 }
 
 /** A Chat's computer: its icon and name, with an offline mark when it isn't answering. */
-function ComputerTag({ name, offline, chip = false }: { name: string; offline: boolean; chip?: boolean }) {
+function ComputerTag({ name, offline, chip = false, large = false }: { name: string; offline: boolean; chip?: boolean; large?: boolean }) {
   const s = useS();
   const { colors } = useTheme();
   return (
     <View style={[{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }, chip && s.chip]}>
-      <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={13} />
-      <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }, offline && { color: colors.orange }]}>
+      <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={large ? 14 : 13} />
+      <Text numberOfLines={1} style={[large ? s.inboxText : s.detail, { flexShrink: 1 }, offline && { color: colors.orange }]}>
         {offline ? `${name}, offline` : name}
       </Text>
     </View>
@@ -1393,12 +1473,16 @@ const makeS = (colors: Palette) =>
     chat: { flexDirection: "row", alignItems: "center" },
     grouped: { marginVertical: 2, marginHorizontal: 8, borderRadius: 8, borderCurve: "continuous" },
     chatBody: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
-    listBody: { gap: 3, paddingLeft: 16, paddingVertical: 10 },
     line: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },
-    project2: { color: colors.ink2, fontSize: 13, fontWeight: "500" },
-    listTitle: { fontSize: 16, lineHeight: 21 },
     unread: { width: 8, height: 8, borderRadius: 4 },
-    divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
+    inbox: { position: "relative" },
+    inboxContent: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+    inboxLine: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 20, overflow: "hidden" },
+    inboxTitle: { flex: 1, fontSize: 16, lineHeight: 21 },
+    inboxTime: { color: colors.ink3, fontSize: 13, fontVariant: ["tabular-nums"] },
+    inboxText: { color: colors.ink2, fontSize: 14 },
+    inboxSeparator: { color: colors.ink3, fontSize: 14 },
+    inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
     chatTitle: { color: colors.ink, fontSize: 15, lineHeight: 20 },
     notice: { minHeight: 44, justifyContent: "center", paddingLeft: 42, paddingRight: 12 },
     offlineLine: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },

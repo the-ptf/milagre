@@ -86,3 +86,71 @@ export function ChatPullRequestChips({
     </View>
   );
 }
+
+/**
+ * The same links inline in a Chat row's second line (the One list): the Linear key, then up to two pull requests, each its
+ * own tap target so a tap opens the issue or pull request rather than the Chat. `separator` goes between them.
+ */
+export function InlinePullRequestLinks({
+  pullRequests,
+  linearIssue,
+  separator,
+  fontSize = 14,
+}: {
+  pullRequests: PullRequest[];
+  linearIssue?: LinearIssue;
+  separator: ReactNode;
+  fontSize?: number;
+}) {
+  const { colors } = useTheme();
+  const open = (url: string) => {
+    if (url.startsWith("https://")) void Linking.openURL(url).catch(() => {});
+  };
+  const ordered = rowPullRequests(pullRequests);
+  const links: ReactNode[] = [];
+  if (linearIssue)
+    links.push(
+      <Pressable
+        key="linear"
+        accessibilityRole="link"
+        accessibilityLabel={`Open Linear issue ${linearIssue.key}`}
+        accessibilityHint={linearIssue.title}
+        hitSlop={8}
+        onPress={(event) => {
+          event.stopPropagation();
+          open(linearIssue.url);
+        }}
+        style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
+      >
+        <LinearLogo size={fontSize - 3} />
+        <Text style={{ color: colors.ink2, fontSize }}>{linearIssue.key}</Text>
+      </Pressable>,
+    );
+  for (const pr of ordered.slice(0, 2)) {
+    const { tone, icon, label } = pullRequestPresentation(pr);
+    links.push(
+      <Pressable
+        key={pr.url}
+        accessibilityRole="link"
+        accessibilityLabel={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
+        accessibilityHint={pr.title}
+        hitSlop={8}
+        onPress={(event) => {
+          event.stopPropagation();
+          open(pr.url);
+        }}
+        style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, opacity: pressed ? 0.55 : 1 })}
+      >
+        <Icon icon={icons[icon]} tone={tone} size={fontSize - 1} />
+        <Text style={{ color: colors.ink2, fontSize, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+      </Pressable>,
+    );
+  }
+  if (ordered.length > 2)
+    links.push(
+      <Text key="more" style={{ color: colors.ink3, fontSize }}>
+        +{ordered.length - 2}
+      </Text>,
+    );
+  return links.flatMap((link, index) => (index ? [<View key={`sep${index}`}>{separator}</View>, link] : [link]));
+}
