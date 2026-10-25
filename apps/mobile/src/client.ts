@@ -72,6 +72,23 @@ const replaced = () => new Error("This computer was replaced.");
 /** The connection dropped or a deadline passed: the request may have reached the Mac (see retryKind in send-retry). */
 const lost = () => Object.assign(new Error(LOST), { retry: "unknown" as const });
 const decoder = new TextDecoder();
+// The waits before a request a busy Mac turned away (429) goes again; its own deadline ends the tries.
+const BUSY_RETRY_DELAYS = [250, 500, 1000, 2000] as const;
+/** Waits `ms`, or rejects as a lost connection once `signal` aborts (the request's deadline passed). */
+function pause(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(lost());
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(lost());
+      },
+      { once: true },
+    );
+  });
+}
 const MEDIA_AT_ONCE = 4;
 // Creating a worktree can fetch and copy files; removing one with big ignored folders can take minutes.
 const LONG_CALLS = new Set(["worktree:create", "worktree:remove", "link:send", "link:open", "agent:update-cli"]);
@@ -222,49 +239,62 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
   }
 
   function request<T>(route: string, body?: unknown, deadlineMs = timeoutMs, extraHeaders: Record<string, string> = {}): Promise<T> {
+    const started = Date.now();
     return timed(deadlineMs, async (signal) => {
-      if (retired) throw replaced();
-      const previous = body === undefined ? cached.get(route) : undefined;
-      const headers = { "Content-Type": "application/json", ...extraHeaders, ...(previous ? { "If-None-Match": previous.etag } : {}) };
-      const sent = body === undefined ? undefined : JSON.stringify(body);
-      let response: Answer;
-      const through = carrier();
-      if (through) {
-        const relayed = await overRelay(through, sent === undefined ? "GET" : "POST", route, headers, sent, signal);
-        response = {
-          status: relayed.status,
-          ok: relayed.status >= 200 && relayed.status < 300,
-          etag: relayed.headers.etag,
-          text: async () => decoder.decode(relayed.body),
-        };
-      } else response = await overHttp(route, headers, sent, signal);
-      if (response.status === 304 && cached.has(route)) return cached.get(route)!.value as T;
-      let value;
-      // Cloudflare and proxies answer with an HTML page when the request never reaches the host.
-      try {
-        value = JSON.parse(await response.text());
-      } catch {
-        throw Object.assign(
-          new Error(
-            [401, 403].includes(response.status)
-              ? through
-                ? "Your Mac refused this phone. Scan its code again in Settings → Devices."
-                : "Your computer's Cloudflare access was refused. Scan its pairing code again."
-              : response.status >= 500
-                ? "Your computer isn't answering. Check that Milagre and its mobile host are running on your Mac."
-                : `Unexpected response from your computer (${response.status}).`,
-          ),
-          { status: response.status },
-        );
+      for (let tries = 0; ; tries++) {
+        try {
+          return await attempt<T>(route, body, extraHeaders, signal);
+        } catch (error) {
+          // A busy Mac turns a request away unread (429), so it goes again while its deadline lasts.
+          const delay = BUSY_RETRY_DELAYS[Math.min(tries, BUSY_RETRY_DELAYS.length - 1)] ?? 2000;
+          if ((error as { status?: number }).status !== 429 || Date.now() - started + delay >= deadlineMs) throw error;
+          await pause(delay, signal);
+        }
       }
-      if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
-      // The Mac's channel holds 16 requests at once (phone-channels.cjs); a busy Mac fills it with slow ones.
-      if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
-      if (!response.ok || value.error)
-        throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
-      if (body === undefined && response.etag) remember(route, { etag: response.etag, value: value.result });
-      return value.result as T;
     });
+  }
+
+  async function attempt<T>(route: string, body: unknown, extraHeaders: Record<string, string>, signal: AbortSignal): Promise<T> {
+    if (retired) throw replaced();
+    const previous = body === undefined ? cached.get(route) : undefined;
+    const headers = { "Content-Type": "application/json", ...extraHeaders, ...(previous ? { "If-None-Match": previous.etag } : {}) };
+    const sent = body === undefined ? undefined : JSON.stringify(body);
+    let response: Answer;
+    const through = carrier();
+    if (through) {
+      const relayed = await overRelay(through, sent === undefined ? "GET" : "POST", route, headers, sent, signal);
+      response = {
+        status: relayed.status,
+        ok: relayed.status >= 200 && relayed.status < 300,
+        etag: relayed.headers.etag,
+        text: async () => decoder.decode(relayed.body),
+      };
+    } else response = await overHttp(route, headers, sent, signal);
+    if (response.status === 304 && cached.has(route)) return cached.get(route)!.value as T;
+    let value;
+    // Cloudflare and proxies answer with an HTML page when the request never reaches the host.
+    try {
+      value = JSON.parse(await response.text());
+    } catch {
+      throw Object.assign(
+        new Error(
+          [401, 403].includes(response.status)
+            ? through
+              ? "Your Mac refused this phone. Scan its code again in Settings → Devices."
+              : "Your computer's Cloudflare access was refused. Scan its pairing code again."
+            : response.status >= 500
+              ? "Your computer isn't answering. Check that Milagre and its mobile host are running on your Mac."
+              : `Unexpected response from your computer (${response.status}).`,
+        ),
+        { status: response.status },
+      );
+    }
+    if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
+    // The Mac's channel holds 16 requests at once (phone-channels.cjs); a busy Mac fills it with slow ones.
+    if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
+    if (!response.ok || value.error) throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
+    if (body === undefined && response.etag) remember(route, { etag: response.etag, value: value.result });
+    return value.result as T;
   }
 
   const mediaRoute = (projectPath: string, path: string) => `/media?projectPath=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(path)}`;

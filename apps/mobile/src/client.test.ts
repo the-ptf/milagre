@@ -357,14 +357,14 @@ test("a relay host sends its calls through the relay transport and reads the JSO
   assert.deepEqual(relay.opened[0], { relay: relayHost.relay, token: relayHost.token });
 });
 
-test("a Mac refusing a relayed call because its queue is full reads as busy", async () => {
+test("a Mac refusing a relayed call because its queue is full reads as busy once the deadline runs out", async () => {
   const relay = fakeRelay(() => reply({ v: 1, error: { message: "Too many requests" } }, 429));
   const client = createClient(
     relayHost,
     async () => {
       throw new Error("a relay host never fetches");
     },
-    30000,
+    600,
     relay.runtime,
   );
   await assert.rejects(client.call("daemon:status"), (error) => {
@@ -373,6 +373,24 @@ test("a Mac refusing a relayed call because its queue is full reads as busy", as
     assert.equal(retryKind(error), "unsent");
     return true;
   });
+  assert.equal(relay.sent.length, 2, "tried again while the deadline lasted");
+});
+
+test("a call a busy Mac turned away goes again and gets the answer once the Mac has room", async () => {
+  let tries = 0;
+  const relay = fakeRelay(() =>
+    ++tries < 3 ? reply({ v: 1, error: { message: "Too many pending requests" } }, 429) : reply({ v: 1, result: ["main", "release"] }),
+  );
+  const client = createClient(
+    relayHost,
+    async () => {
+      throw new Error("a relay host never fetches");
+    },
+    30000,
+    relay.runtime,
+  );
+  assert.deepEqual(await client.call("project:branches", ["/p"]), ["main", "release"]);
+  assert.equal(tries, 3);
 });
 
 test("a relay snapshot answered with 304 reuses the cached one", async () => {
