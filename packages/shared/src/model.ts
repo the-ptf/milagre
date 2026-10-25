@@ -615,6 +615,8 @@ export interface ArtifactRef {
 export interface ChatStep {
   id: string;
   kind: StepKind;
+  /** Host time when this step first started. Older hosts omit it; clients leave their titles static. */
+  startedAt?: number;
   /** What it did, e.g. "Ran `npm test`"; text between backticks is code. */
   title: string;
   /** Saved steps are done or failed; only a reply still streaming has running ones. */
@@ -843,7 +845,7 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool" | "agent"> }
+  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool" | "agent" | "startedAt"> }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to

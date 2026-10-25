@@ -5,6 +5,8 @@
   "files": [
     "src/chat-window-cache.ts",
     "src/display-clock.ts",
+    "src/step-sweep.ts",
+    "src/use-step-sweep.ts",
     "src/chat-history.ts",
     "src/*.mjs",
     "src/design-catalog-fonts/*",
@@ -56,6 +58,8 @@
   "exports": {
     "./chat-window-cache": "./src/chat-window-cache.ts",
     "./display-clock": "./src/display-clock.ts",
+    "./step-sweep": "./src/step-sweep.ts",
+    "./use-step-sweep": "./src/use-step-sweep.ts",
     "./chat-history": "./src/chat-history.ts",
     "./live-activity": {
       "types": "./src/live-activity.d.mts",

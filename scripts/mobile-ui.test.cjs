@@ -159,7 +159,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
           id === "@milagre/shared/themes" ||
-          id === "@milagre/shared/file-kinds") &&
+          id === "@milagre/shared/file-kinds" ||
+          id === "@milagre/shared/step-sweep") &&
         !(id in modules)
       )
         return require(id);
@@ -221,6 +222,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     process: { env: {} },
     // The host's Error, so `failure instanceof Error` holds for errors a test's fake client throws.
     Error,
+    Date,
     URL,
     TextDecoder,
     fetch: () => {
@@ -5520,8 +5522,10 @@ test("a notification target clears an older Project loading state", async () => 
 });
 
 // Render the real activity adapters, disclosure and shimmer against native leaves.
-function activityItemHost({ expandReasoning = false } = {}) {
+function activityItemHost({ expandReasoning = false, effects = false, active = true, reduced = false, permissionQuery } = {}) {
   const hosts = new Map();
+  const animations = [];
+  let motionListener;
   let current;
   const react = Object.fromEntries(["useState", "useRef", "useMemo", "useEffect"].map((name) => [name, (...args) => current[name](...args)]));
   react.memo = (fn) => fn;
@@ -5538,13 +5542,42 @@ function activityItemHost({ expandReasoning = false } = {}) {
     View: "View",
     Pressable: "Pressable",
     useColorScheme: () => "dark",
-    AccessibilityInfo: {},
+    AccessibilityInfo: {
+      isReduceMotionEnabled: permissionQuery ?? (async () => reduced),
+      addEventListener: (_name, listener) => {
+        motionListener = listener;
+        return {
+          remove: () => {
+            motionListener = null;
+          },
+        };
+      },
+    },
     StyleSheet: { create: (value) => value, absoluteFill: {} },
     Animated: {
       Value: class {
-        interpolate() {}
+        setValue(value) {
+          this.value = value;
+        }
+        interpolate(config) {
+          return { ...config, value: this };
+        }
       },
       View: "AnimatedView",
+      modulo: (value, divisor) => ({ value, divisor }),
+      timing: (value, config) => {
+        const animation = {
+          value,
+          config,
+          start() {},
+          stopped: false,
+          stop() {
+            this.stopped = true;
+          },
+        };
+        animations.push(animation);
+        return animation;
+      },
     },
     Easing: { bezier: () => () => {}, linear() {} },
   };
@@ -5555,6 +5588,10 @@ function activityItemHost({ expandReasoning = false } = {}) {
     "react-native": native,
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "@milagre/shared/use-step-sweep": {
+      useStepSweep: (start, enabled) => (enabled ? require("@milagre/shared/step-sweep").sweepRemainingMs(start, Date.now()) : 0),
+    },
+    "./display-clock": { useScreenActive: () => active },
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./ui": {
       colors: palette,
@@ -5572,12 +5609,12 @@ function activityItemHost({ expandReasoning = false } = {}) {
     "expo-linear-gradient": { LinearGradient: "LinearGradient" },
     "expo-router": { useIsFocused: () => false },
     "./logo": { LEFT: "", RIGHT: "", STAR: "", STAR_BOX: {} },
-    "./theme": { colors: palette, fonts: { mono: "mono" }, hex: () => palette },
+    "./theme": { useTheme: () => ({ colors: palette, motionScale: 1 }), fonts: { mono: "mono" } },
   });
   const shared = load("activity-item.tsx", {
     ...common,
     "./running-logo": running,
-    "./theme": { fonts: { mono: "mono" } },
+    "./theme": { useTheme: () => ({ colors: palette, motionScale: 1 }), fonts: { mono: "mono" } },
   });
   const ToolRow = load("tool-row.tsx", {
     ...common,
@@ -5589,7 +5626,7 @@ function activityItemHost({ expandReasoning = false } = {}) {
     if (Array.isArray(node)) return node.map((child, index) => visit(child, `${key}.${child?.props?.id || index}`));
     if (!node || typeof node !== "object" || !node.type) return node;
     if (typeof node.type === "function") {
-      current = hosts.get(key) || hookHost();
+      current = hosts.get(key) || hookHost({ effects });
       hosts.set(key, current);
       current.begin();
       return visit(node.type(node.props), `${key}.render`);
@@ -5604,8 +5641,115 @@ function activityItemHost({ expandReasoning = false } = {}) {
   }
   return {
     tool: (props) => visit(jsx(ToolRow, props), "tool"),
+    title: (props) => visit(jsx(shared.ActivityTitle, props), "title"),
+    animations,
+    reduce(value) {
+      reduced = value;
+      motionListener?.(value);
+    },
+    activate(value) {
+      active = value;
+    },
+    unmount() {
+      for (const host of hosts.values()) host.unmount();
+    },
   };
 }
+
+test("phone titles resume only the remaining sweep and settle code chips to running ink", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 11_700 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+  host.title(props);
+  await Promise.resolve();
+  const moving = host.title(props);
+  assert.ok(find(moving, (node) => node.type === "MaskedView"));
+  const animation = host.animations.at(-1);
+  assert.equal(animation.config.duration, 700);
+  assert.ok(Math.abs(animation.value.value - (320 * 1700) / 1200) < 0.000001);
+  assert.equal(animation.config.toValue, 640);
+  assert.equal(animation.config.useNativeDriver, true);
+  assert.equal(animation.config.isInteraction, false);
+  const overlay = find(moving, (node) => node.type === "AnimatedView" && node.props.pointerEvents === "none");
+  assert.deepEqual([...overlay.props.style[1].opacity.outputRange], [1, 1, 0], "native completion hides the band even during a JS stall");
+  t.mock.timers.tick(700);
+  const settled = host.title(props);
+  assert.equal(
+    find(settled, (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  const chip = find(settled, (node) => node.type === "Text" && node.props.children === "check");
+  assert.equal(chip.props.style.color, "#666");
+  assert.equal(chip.props.style.backgroundColor, "#222");
+  assert.equal(host.animations.length, 1);
+  const finished = host.title({ ...props, shimmer: false });
+  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
+});
+
+test("phone reduced motion reacts without restart, inactive screens and old hosts stay static", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+  host.title(props);
+  await Promise.resolve();
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  host.reduce(true);
+  assert.equal(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  t.mock.timers.tick(3000);
+  host.reduce(false);
+  assert.equal(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    undefined,
+    "motion changes cannot replay expired steps",
+  );
+  host.activate(false);
+  assert.equal(
+    find(host.title({ ...props, startedAt: 13_000 }), (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  host.activate(true);
+  host.title({ ...props, startedAt: undefined });
+  await Promise.resolve();
+  assert.equal(
+    find(host.title({ ...props, startedAt: undefined }), (node) => node.type === "MaskedView"),
+    undefined,
+  );
+});
+test("phone reactivation waits for fresh reduced-motion permission, including a failed query", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  for (const reject of [false, true]) {
+    const pending = deferred();
+    let calls = 0;
+    const host = activityItemHost({ effects: true, permissionQuery: () => (++calls === 1 ? Promise.resolve(false) : pending.promise) });
+    const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+    host.title(props);
+    await Promise.resolve();
+    assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+    host.activate(false);
+    host.title(props);
+    host.activate(true);
+    assert.equal(
+      find(host.title(props), (node) => node.type === "MaskedView"),
+      undefined,
+      "pending permission is conservative on every activation",
+    );
+    if (reject) pending.reject(new Error("Unavailable"));
+    else pending.resolve(true);
+    await Promise.resolve();
+    assert.equal(
+      find(host.title(props), (node) => node.type === "MaskedView"),
+      undefined,
+    );
+    assert.equal(host.animations.length, 1, "reactivation did not start another native animation");
+    host.unmount();
+  }
+});
+
 test("Always expand reasoning opens thinking rows in Activity until tapped, and leaves other tools folded", () => {
   const thinking = {
     step: { id: "t", kind: "thinking", title: "Thought for 4s", status: "done", detail: "Weighing the two fixes." },

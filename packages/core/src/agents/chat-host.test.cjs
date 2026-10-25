@@ -298,6 +298,38 @@ test("a window that loads mid-turn takes the runs and skips the events they hold
   assert.ok(published.every((item) => typeof item.seq === "number"));
 });
 
+test("step deadlines agree in live events and reload snapshots, including duplicate starts and approval", async (t) => {
+  let now = NOW;
+  const { host, manager, published, session } = harness({ now: () => now });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "go"));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  const step = { id: "tool-1", kind: "shell", title: "Ran `check`" };
+  session(ALPHA).emit({ type: "step-started", step });
+  await waitUntil(() => published.some((item) => item.event.type === "step-started"));
+  const event = published.find((item) => item.event.type === "step-started").event;
+  assert.equal(event.step.startedAt, NOW);
+  assert.equal(step.startedAt, undefined, "the provider's event is not mutated");
+  const snapshot = host.snapshot();
+  assert.equal(snapshot.runs[chatId].steps[0].startedAt, NOW);
+  const client = applyRunEvent({}, chatId, { type: "turn-started" });
+  assert.equal(applyRunEvent(client, chatId, event)[chatId].steps[0].startedAt, NOW);
+
+  now += 5000;
+  session(ALPHA).emit({ type: "step-started", step: { ...step, title: "Updated title" } });
+  session(ALPHA).emit({ type: "permission-request", requestId: "permission-1", stepId: step.id, kind: "command", tool: "Shell", title: "Approve?" });
+  await waitUntil(() => host.runs[chatId].approvals.length === 1);
+  session(ALPHA).emit({ type: "permission-resolved", requestId: "permission-1" });
+  session(ALPHA).emit({ type: "step-output", id: step.id, text: "still running" });
+  await waitUntil(() => host.runs[chatId].steps[0].detail === "still running");
+  assert.equal(host.runs[chatId].steps[0].startedAt, NOW);
+  const reloaded = published.filter((item) => item.seq > snapshot.seq).reduce((runs, item) => applyRunEvent(runs, chatId, item.event), snapshot.runs);
+  assert.equal(reloaded[chatId].steps[0].startedAt, NOW);
+  assert.equal(reloaded[chatId].steps[0].title, "Updated title");
+  assert.equal(reloaded[chatId].approvals.length, 0);
+});
+
 test("a turn that ends in the open chat while no window has focus leaves it unread", async (t) => {
   const { host, manager, saved, session } = harness({ focused: false });
   t.after(() => manager.closeAll());

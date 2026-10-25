@@ -40,6 +40,7 @@ export function ToolRow({ step, live, waiting, onPress }: { step: ChatStep; live
   return (
     <ActivityItem
       title={step.title}
+      startedAt={step.startedAt}
       // A step that set a Heartbeat (listed in the activity sheet) wears the Heartbeat's pulse.
       icon={step.routine ? Pulse01Icon : icons[step.kind]}
       state={step.status === "failed" ? "failed" : running ? (waiting ? "waiting" : "running") : "idle"}

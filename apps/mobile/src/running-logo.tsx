@@ -10,6 +10,7 @@ import { useDisplayValue, useScreenActive } from "./display-clock";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
+import { SWEEP_MS, SWEEP_PERIOD_MS, sweepRemainingMs } from "@milagre/shared/step-sweep";
 
 // The library types its class on RN's NativeMethods, which RN 0.88 removed, so JSX rejects it; the props are unchanged.
 const MaskedView = RNCMaskedView as unknown as ComponentType<{ maskElement: ReactElement; children?: ReactNode }>;
@@ -180,56 +181,108 @@ function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
 const TILE = 320;
 const TILES = 4;
 
-/** Desktop's step-shimmer: a light highlight sweeps across the text, left to right, until the step is done. */
-export function ShimmerText({ children, style, numberOfLines = 1 }: { children: ReactNode; style?: TextStyle; numberOfLines?: number }) {
-  const { colors } = useTheme();
-  const [shift] = useState(() => new Animated.Value(0));
-  const [reduced, setReduced] = useState(false);
-  const active = useScreenActive();
+/** Recheck on screen activation and listen while mounted; Reanimated's reduced-motion value is startup-only. */
+export function useShimmerReducedMotion(active: boolean) {
+  const [reduced, setReduced] = useState(true);
+  const { motionScale } = useTheme();
   useEffect(() => {
     if (!active) return;
-    let cancelled = false;
-    const loop = Animated.loop(Animated.timing(shift, { toValue: TILE, duration: 1200, easing: Easing.linear, useNativeDriver: true }));
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      if (cancelled) return;
-      setReduced(reduce);
-      if (!reduce) loop.start();
+    let live = true;
+    let changed = false;
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", (value) => {
+      changed = true;
+      setReduced(value);
     });
+    void AccessibilityInfo.isReduceMotionEnabled().then(
+      (value) => {
+        if (live && !changed) setReduced(value);
+        return null;
+      },
+      () => null,
+    );
     return () => {
-      cancelled = true;
-      loop.stop();
+      live = false;
+      subscription.remove();
+      // Permission learned on a previous screen visit cannot authorize motion on the next one.
+      setReduced(true);
     };
-  }, [shift, active]);
+  }, [active]);
+  return reduced || motionScale === 0;
+}
+
+/** The remaining portion of two sweeps. ActivityTitle removes this mask at the original host deadline. */
+export function ShimmerText({
+  children,
+  settledChildren,
+  startedAt,
+  style,
+  numberOfLines = 1,
+}: {
+  children: ReactNode;
+  settledChildren: ReactNode;
+  startedAt: number;
+  style?: TextStyle;
+  numberOfLines?: number;
+}) {
+  const { colors } = useTheme();
+  const [shift] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const remaining = sweepRemainingMs(startedAt, Date.now());
+    if (!remaining) return;
+    shift.setValue(((SWEEP_MS - remaining) / SWEEP_PERIOD_MS) * TILE);
+    // A single native timing runs the remaining budget. Modulo wraps the tile at the sweep boundary,
+    // without restarting a loop or granting two more sweeps after a remount.
+    const animation = Animated.timing(shift, { toValue: TILE * 2, duration: remaining, easing: Easing.linear, useNativeDriver: true, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [shift, startedAt]);
+  const motion = useMemo(
+    () => ({
+      translateX: Animated.modulo(shift, TILE),
+      // The native layer vanishes at completion even if JS cannot replace the mask until later.
+      opacity: shift.interpolate({ inputRange: [0, TILE * 2 - 0.001, TILE * 2], outputRange: [1, 1, 0], extrapolate: "clamp" }),
+    }),
+    [shift],
+  );
   const text = (
     <Text numberOfLines={numberOfLines} style={style}>
       {children}
     </Text>
   );
-  if (reduced)
-    return (
-      <Text numberOfLines={numberOfLines} style={[style, { color: colors.ink3 }]}>
-        {children}
-      </Text>
-    );
   return (
-    <MaskedView maskElement={text}>
-      <Text numberOfLines={numberOfLines} style={[style, { opacity: 0 }]}>
-        {children}
+    <View>
+      <Text numberOfLines={numberOfLines} style={[style, { color: colors.ink3 }]}>
+        {settledChildren}
       </Text>
-      <Animated.View
-        style={{ position: "absolute", top: 0, bottom: 0, left: -TILE, width: TILE * TILES, flexDirection: "row", transform: [{ translateX: shift }] }}
-      >
-        {Array.from({ length: TILES }, (_, index) => (
-          <LinearGradient
-            key={index}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            colors={[colors.ink3, colors.ink3, colors.ink, colors.ink3, colors.ink3]}
-            locations={[0, 110 / TILE, 160 / TILE, 210 / TILE, 1]}
-            style={{ width: TILE, height: "100%" }}
-          />
-        ))}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: motion.opacity }]}>
+        <MaskedView maskElement={text}>
+          <Text numberOfLines={numberOfLines} style={[style, { opacity: 0 }]}>
+            {children}
+          </Text>
+          <Animated.View
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: -TILE,
+              width: TILE * TILES,
+              flexDirection: "row",
+              transform: [{ translateX: motion.translateX }],
+            }}
+          >
+            {Array.from({ length: TILES }, (_, index) => (
+              <LinearGradient
+                key={index}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                colors={[colors.ink3, colors.ink3, colors.ink, colors.ink3, colors.ink3]}
+                locations={[0, 110 / TILE, 160 / TILE, 210 / TILE, 1]}
+                style={{ width: TILE, height: "100%" }}
+              />
+            ))}
+          </Animated.View>
+        </MaskedView>
       </Animated.View>
-    </MaskedView>
+    </View>
   );
 }
