@@ -14,6 +14,7 @@ const DEFAULT_TIMING = {
   idleMs: 45_000,
   helloMs: 15_000,
   pendingRepeatMs: 20_000,
+  queueWaitMs: 20_000,
   backoff: [1000, 2000, 5000, 10_000, 30_000],
   replacedMs: 60_000,
   stableMs: 30_000,
@@ -61,7 +62,7 @@ function startRelayHost({
   hooks,
   hooksOnly = false,
 }) {
-  const { pingMs, idleMs, helloMs, backoff, replacedMs, stableMs, jitter, pendingRepeatMs } = { ...DEFAULT_TIMING, ...timing };
+  const { pingMs, idleMs, helloMs, backoff, replacedMs, stableMs, jitter, pendingRepeatMs, queueWaitMs } = { ...DEFAULT_TIMING, ...timing };
   // `hooksOnly`: no phone is served (phone access is off), the socket is kept for webhooks alone.
   const channels = hooksOnly
     ? null
@@ -79,6 +80,7 @@ function startRelayHost({
         openPeer,
         allowComputer,
         pendingRepeatMs,
+        queueWaitMs,
       });
   let status = "connecting";
   let closed = false;

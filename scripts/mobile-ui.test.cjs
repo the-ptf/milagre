@@ -1828,6 +1828,7 @@ function sessionHost(
       },
       "./turn-options": require("../apps/mobile/src/turn-options.ts"),
       "@milagre/shared/chats": require("@milagre/shared/chats"),
+      "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
       "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
@@ -4127,6 +4128,39 @@ test("New worktree creates from the chosen branch on first send and keeps the se
   assert.equal(sent.sessionId, 7);
   assert.equal(sent.model, "gpt-6-astra");
   assert.equal(screen.params.id, "7");
+});
+
+test("a busy Mac that can't list branches yet still takes a New worktree send from the checkout's branch", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let listed = 0;
+  const screen = chatHost({
+    effects: true,
+    call: async (method) => {
+      if (method === "project:branches") {
+        if (++listed < 3) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
+        return ["main", "release"];
+      }
+      if (method === "worktree:create") return { worktreeId: 9, project: { state: { sessions: { 7: { id: 7, worktree_id: 9 } } } } };
+      return { sessionId: 7 };
+    },
+  });
+  screen.session.snapshot.project.state.worktrees = { 1: { id: 1, name: "main" } };
+  find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.onSelect("worktree");
+  await settle();
+  assert.equal(
+    find(screen.render(), (node) => node.type === "ErrorNotice"),
+    undefined,
+    "a busy answer waits for the next try instead of showing",
+  );
+  screen.send();
+  await settle();
+  assert.equal(screen.calls.find((call) => call.method === "worktree:create").args[0].baseBranch, "main");
+  assert.equal(screen.params.id, "7");
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(2000);
+  await settle();
+  assert.equal(listed, 3, "the branch list is read again until the Mac answers");
 });
 
 test("retrying a failed first send reuses the created worktree and keeps the draft", async () => {
