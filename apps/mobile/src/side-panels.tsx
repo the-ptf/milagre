@@ -245,7 +245,7 @@ function panelTravel(width: number) {
   return widthClass(width) === "compact" ? width : SIDEBAR_WIDTH + CARD_MARGIN * 2;
 }
 /** A card's own safe area: it sits clear of the status bar and home indicator already. */
-export const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** Offers the panels while this screen is focused. A rightward drag opens the left one, a leftward drag Changes. */
 export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktreeId?: number }) {
