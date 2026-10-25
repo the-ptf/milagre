@@ -13,6 +13,10 @@ const PENDING_REPEAT_MS = 20_000;
 const LIVE_ORIGIN = "milagre-app://phone";
 const MAX_LIVE = 8;
 const MAX_INFLIGHT = 16;
+// Requests past MAX_INFLIGHT wait for a free slot instead of failing: on a busy Mac slow answers fill the slots, and a
+// refusal only makes the phone ask again. Past these a flood is still refused (429).
+const MAX_QUEUED = 64;
+const MAX_QUEUED_BYTES = 16 * 1024 * 1024;
 const MAX_UPLOAD = 8 * 1024 * 1024;
 // Longer than the phone's own deadline for the slowest call (worktree:create, 330 s), so the phone gives up first.
 const REQUEST_TIMEOUT = 340_000;
@@ -256,6 +260,11 @@ function createPhoneChannels({
       );
     } finally {
       record.inflight -= 1;
+      const next = record.queue.shift();
+      if (next) {
+        record.queuedBytes -= next.body.length;
+        if (current.conns.get(conn) === record) void forward(current, conn, record, next.meta, next.body);
+      }
     }
   }
 
@@ -272,7 +281,8 @@ function createPhoneChannels({
     }
     let upload = record.uploads.get(id);
     if (!upload) {
-      if (record.inflight + record.uploads.size >= MAX_INFLIGHT) return refuseRequest(current, conn, record, message, 429, tooManyRequests);
+      if (record.inflight + record.uploads.size + record.queue.length >= MAX_INFLIGHT + MAX_QUEUED)
+        return refuseRequest(current, conn, record, message, 429, tooManyRequests);
       if ((message.method !== "GET" && message.method !== "POST") || !routeOk(message.path))
         return refuseRequest(current, conn, record, message, 400, new Uint8Array());
       upload = { size: 0, meta: { id, method: message.method, path: message.path, headers: message.headers } };
@@ -294,7 +304,10 @@ function createPhoneChannels({
     }
     if (!result.done) return;
     record.uploads.delete(id);
-    void forward(current, conn, record, upload.meta, result.body);
+    if (record.inflight < MAX_INFLIGHT) return void forward(current, conn, record, upload.meta, result.body);
+    if (record.queuedBytes + result.body.length > MAX_QUEUED_BYTES) return respond(current, conn, record, id, 429, JSON_HEADERS, tooManyRequests);
+    record.queue.push({ meta: upload.meta, body: result.body });
+    record.queuedBytes += result.body.length;
   }
 
   /** Answers a request without forwarding it; the rest of its parts are skipped. */
@@ -372,6 +385,8 @@ function createPhoneChannels({
         channel: null,
         lives: new Map(),
         inflight: 0,
+        queue: [],
+        queuedBytes: 0,
         uploads: new Map(),
         rejected: new Set(),
         assembler: createAssembler(),

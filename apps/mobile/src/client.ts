@@ -290,7 +290,7 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
       );
     }
     if (value?.v !== 1) throw new Error("Incompatible daemon response. Update the app and daemon together.");
-    // The Mac's channel holds 16 requests at once (phone-channels.cjs); a busy Mac fills it with slow ones.
+    // The Mac runs 16 requests at once and holds 64 more (phone-channels.cjs, mobile-bridge.cjs); an older Mac refuses past 16.
     if (response.status === 429) throw Object.assign(new Error("Your computer is busy right now. Try again in a moment."), { status: 429 });
     if (!response.ok || value.error) throw Object.assign(new Error(value.error?.message || `Request failed (${response.status})`), { status: response.status });
     if (body === undefined && response.etag) remember(route, { etag: response.etag, value: value.result });

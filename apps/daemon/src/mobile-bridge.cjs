@@ -367,6 +367,9 @@ function runsForPhone(runs) {
 // on a WebSocket anyway.
 const LIVE_ORIGIN = "milagre-app://phone";
 const MAX_LIVE = 8;
+// Requests the bridge runs at once, and how many more may wait for a free one before a flood is refused (429).
+const MAX_ACTIVE = 16;
+const MAX_WAITING = 64;
 // A turn's events arrive many times a second; one signal per window is enough for the phone to fetch once.
 const LIVE_DELAY = { runs: 150, project: 400 };
 /** The turns streaming now in one Project's Chats; the daemon holds every Project's. */
@@ -527,7 +530,33 @@ async function startMobileBridge({
       ...Object.values(link.state.sessions).flatMap((chat) => [chat.workspacePath, ...chat.worktrees.map((member) => member.worktreePath)]),
     ];
   }
+  // Sixteen requests run at once; the next ones wait their turn rather than fail, since on a busy Mac slow answers fill
+  // the slots and a refusal would only make the phone ask again. Past the waiting room a flood is still refused.
   let active = 0;
+  const waiting = [];
+  function slot(res) {
+    if (active < MAX_ACTIVE) {
+      active++;
+      return Promise.resolve();
+    }
+    if (waiting.length >= MAX_WAITING) return Promise.reject(failure(429, "Too many pending requests"));
+    return new Promise((resolve, reject) => {
+      const turn = { resolve, reject };
+      waiting.push(turn);
+      // A phone that gave up leaves the line.
+      res.once("close", () => {
+        const at = waiting.indexOf(turn);
+        if (at < 0) return;
+        waiting.splice(at, 1);
+        reject(failure(499, "The phone stopped waiting"));
+      });
+    });
+  }
+  function release() {
+    const next = waiting.shift();
+    if (next) next.resolve();
+    else active--;
+  }
   let closed;
   let url;
   // Every route, the live socket included, checks the token, a loopback Host and no web Origin before anything else.
@@ -696,8 +725,11 @@ async function startMobileBridge({
     };
     void (async () => {
       admit(req);
-      if (active >= 16) throw failure(429, "Too many pending requests");
-      active++;
+      await slot(res);
+      if (closed) {
+        release();
+        throw failure(503, "Bridge is closing");
+      }
       try {
         const target = new URL(req.url, url);
         let result;
@@ -895,7 +927,7 @@ async function startMobileBridge({
         } else throw failure(404, "Unknown endpoint");
         reply(200, { result: result ?? null });
       } finally {
-        active--;
+        release();
       }
     })().catch((error) => {
       if (!res.headersSent && !res.destroyed) reply(error.status ?? 409, { error: { message: error.message } });
@@ -935,6 +967,7 @@ async function startMobileBridge({
   });
   async function close() {
     closed ??= new Promise((resolve) => {
+      for (const turn of waiting.splice(0)) turn.reject(failure(503, "Bridge is closing"));
       server.close(resolve);
       server.closeAllConnections();
       // Upgraded sockets are no longer the HTTP server's to close; one that ignores the close frame is cut after a second.
