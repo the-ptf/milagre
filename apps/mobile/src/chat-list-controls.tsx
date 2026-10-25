@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
+import { StyleSheet, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextInputInstance } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { RepeatIcon, Search01Icon, Settings01Icon } from "@hugeicons/core-free-icons";
@@ -74,6 +74,7 @@ export function ChatListControls({
   hidden,
   query,
   onQuery,
+  inputRef,
   onFocus,
   routines,
   onRoutines,
@@ -83,6 +84,8 @@ export function ChatListControls({
   hidden: ReturnType<typeof useControlsVisibility>["hidden"];
   query: string;
   onQuery: (query: string) => void;
+  /** The search field, which ⌘K focuses. */
+  inputRef?: Ref<TextInputInstance>;
   onFocus: () => void;
   /** Absent when this phone has no Routines to show: `unread` lights the dot. */
   routines?: { unread: boolean };
@@ -146,6 +149,7 @@ export function ChatListControls({
           />
           <Icon icon={Search01Icon} tone="ink3" size={18} />
           <TextInput
+            ref={inputRef}
             accessibilityLabel="Search chats"
             placeholder={dictationError?.message ?? "Search chats"}
             placeholderTextColor={colors.ink3}

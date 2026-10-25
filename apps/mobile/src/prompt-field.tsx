@@ -14,6 +14,7 @@ import { useRpc } from "./use-rpc";
 import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
+import { useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
 import { insertDictation } from "./voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
@@ -69,6 +70,7 @@ export function PromptField({
   known,
   images = 0,
   onMention,
+  onSubmit,
   placeholder = "Message the agent",
 }: {
   client: Client;
@@ -84,6 +86,8 @@ export function PromptField({
   images?: number;
   /** Called with a picked file's path relative to the Project; the screen attaches it. */
   onMention?: (path: string) => void;
+  /** Return on a hardware keyboard; Shift+Return and the on-screen keyboard still add a line. */
+  onSubmit?: () => void;
   placeholder?: string;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
@@ -92,6 +96,7 @@ export function PromptField({
   // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
   const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
+  const enter = useReturnKey(paste.ref, onSubmit);
   const glyphs = useChipGlyphs();
   const { data, loading, error, refresh } = useRpc<SkillCatalog>(projectPath ? client : null, "skills:list", [projectPath]);
   const skillList = data?.skills;
@@ -230,6 +235,10 @@ export function PromptField({
       <View>
         <Field
           {...paste}
+          onLayout={() => {
+            paste.onLayout();
+            enter.attach();
+          }}
           label="Message"
           hideLabel
           placeholder={placeholder}
@@ -253,6 +262,7 @@ export function PromptField({
           selection={restore}
           onFocus={() => {
             paste.onFocus();
+            enter.attach();
             setFocused(true);
           }}
           onBlur={() => setFocused(false)}

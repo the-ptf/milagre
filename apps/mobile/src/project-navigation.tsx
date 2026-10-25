@@ -1,6 +1,6 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
 import {
@@ -39,6 +39,8 @@ import { ChatMarkIcon } from "./status-indicators";
 import { Icon } from "./icons";
 import { LoadingLogo } from "./loading-logo";
 import { ErrorNotice, IconButton, PullDown, useStyles } from "./ui";
+import { HoverView } from "./primitives/hover";
+import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ProjectIcon, ProjectIcons } from "./project-icon";
 import { ProjectSearch } from "./project-search";
 import { chatMenu, runChatAction } from "./chat-actions";
@@ -225,8 +227,12 @@ type NavigationProps = {
   activeChatId?: number;
   /** False while the sidebar is mounted but off screen: nothing is read from the computers then. */
   visible?: boolean;
+  /** Pinned beside the Chat on a wide iPad: it never closes, and its `onNavigate` skips the Chat already open. */
+  docked?: boolean;
+  /** Drawn on a card's surface color (the pinned sidebar and the one sliding over) instead of the page's. */
+  surface?: boolean;
 };
-export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible = true }: NavigationProps) {
+export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible = true, docked = false, surface = docked }: NavigationProps) {
   const s = useS();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -260,6 +266,10 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   const [refreshing, setRefreshing] = useState(false);
   const controls = useControlsVisibility();
   const bottomInset = useControlsBottomInset();
+  const searchInput = useRef<TextInputInstance>(null);
+  const background = surface ? colors.surface : colors.page;
+  // On a card the open Chat's row takes the stronger tint, so a row under the pointer still reads apart from it.
+  const selectedFill = surface ? colors.hover2 : colors.hover;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -816,9 +826,33 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
     else if (id === "choose") onNavigate("/choose-projects", "sheet");
   }
 
+  // ⌘N, ⌘K and ⌘1 to ⌘9 act on the list on screen; one that opens for a shortcut picks it up as it shows.
+  const runCommand = useRef<(command: NavigationCommand) => void>(() => {});
+  useEffect(() => {
+    runCommand.current = (command) => {
+      if (command.kind === "new") startNewChat();
+      else if (command.kind === "search") {
+        setPage(null);
+        controls.reveal();
+        searchInput.current?.focus();
+      } else {
+        const row = displayedRows.filter((item) => item.kind === "chat")[command.index];
+        if (row?.kind === "chat") void enter(row.hostId, row.path, row.chat.id, row.pending);
+      }
+    };
+  });
+  useEffect(() => {
+    if (!visible) return;
+    const run = () => {
+      const command = takeNavigation();
+      if (command) runCommand.current(command);
+    };
+    run();
+    return subscribeNavigation(run);
+  }, [visible]);
   if (page)
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, { backgroundColor: background }]}>
         <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
           <IconButton label="Back to Chats" icon={ArrowLeft01Icon} size={44} onPress={() => setPage(null)} />
           <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
@@ -837,7 +871,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
         ? "Every computer is hidden. Show one in Settings."
         : "Pair your computer. Open Settings → Devices in Milagre on your Mac, then scan its pairing code.";
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: background }]}>
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, gap: 8, paddingBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 22, fontWeight: "700" }}>
@@ -1036,7 +1070,10 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
           return (
             <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
-              <View style={[s.chat, grouped && s.grouped, { backgroundColor: selected && !archiving ? colors.hover : "transparent" }]}>
+              <HoverView
+                style={[s.chat, grouped && s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
+                hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
+              >
                 <View
                   style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
                   accessibilityElementsHidden={archiving}
@@ -1148,7 +1185,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
                   </PullDown>
                 )}
                 {archiving && <ArchivingOverlay title={title} />}
-              </View>
+              </HoverView>
               {divided && <View style={[s.divider, { backgroundColor: colors.line }]} />}
             </View>
           );
@@ -1158,6 +1195,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
         hidden={controls.hidden}
         query={query}
         onQuery={setQuery}
+        inputRef={searchInput}
         onFocus={controls.reveal}
         routines={routinesAvailable ? { unread: unreadRuns } : undefined}
         onRoutines={() => onNavigate("/routines", true)}

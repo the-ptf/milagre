@@ -2,6 +2,7 @@ import { ActivityIndicator, Pressable } from "react-native";
 import { useTheme } from "../theme";
 import { Icon, type IconData, type Tone } from "../icons";
 import { tap } from "./tap";
+import { useHover } from "./hover";
 
 export function IconButton({
   label,
@@ -23,8 +24,10 @@ export function IconButton({
   size?: number;
 }) {
   const { colors } = useTheme();
+  const { hovered, ...pointer } = useHover();
   return (
     <Pressable
+      {...pointer}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled, busy: loading }}
@@ -40,7 +43,7 @@ export function IconButton({
         borderRadius: size / 2,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: filled ? colors.ink : "transparent",
+        backgroundColor: filled ? colors.ink : hovered && !disabled ? colors.hover : "transparent",
         opacity: disabled ? 0.35 : pressed ? 0.5 : 1,
       })}
     >

@@ -39,7 +39,7 @@
         "expo-camera",
         {
           "cameraPermission": "Milagre uses the camera to scan your Mac's pairing code and to take photos for a Chat.",
-          "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this iPhone.",
+          "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this device.",
           "recordAudioAndroid": false
         }
       ],
@@ -69,7 +69,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this iPhone.",
+          "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this device.",
           "recordAudioAndroid": false,
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false
@@ -80,12 +80,12 @@
       "expo-status-bar"
     ],
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.victorlucas.milagre",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocalNetworkUsageDescription": "Milagre connects to your computer directly when you are on the same network.",
-        "NSSpeechRecognitionUsageDescription": "Milagre turns your dictated message into text on this iPhone. Your voice never leaves the device."
+        "NSSpeechRecognitionUsageDescription": "Milagre turns your dictated message into text on this device. Your voice never leaves it."
       }
     },
     "android": {
