@@ -256,12 +256,18 @@ async function browserChecks() {
         const vx=(${x}-.5)*parseFloat(style.width),vy=(${y}-.5)*parseFloat(style.height);
         return {x:Math.floor(f.left+b.left+b.width/2+m.a*vx+m.c*vy),y:Math.floor(f.top+b.top+b.height/2+m.b*vx+m.d*vy)};
       })()`);
+      // Wake the hidden Linux window's compositor before sampling a newly decoded frame.
+      // Keep the same two-capture sequence as test-appearance.cjs.
+      window.webContents.invalidate();
+      await window.webContents.capturePage();
+      await delay(100);
       const pixels = (await window.webContents.capturePage({ ...point, width: 2, height: 2 })).resize({ width: 1, height: 1 }).toBitmap();
       return { r: pixels[2], g: pixels[1], b: pixels[0] };
     };
     const assertStreamCutout = async (kind) => {
       await evaluate(`window.simulatorCutout=${JSON.stringify(kind)}`);
       await delay(600);
+      await screenshot(`stream-${kind}-probe`);
       const clear = await streamPixel(kind === "notch" ? 0.64 : 0.5, 0.025);
       assert.ok(
         clear.r > 140 && clear.b > 100 && clear.g < 140,
