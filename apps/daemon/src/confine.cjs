@@ -50,6 +50,7 @@ const PATHS = Object.freeze({
   "simulator:detach": denySimulator,
   "simulator:open": denySimulator,
   "simulator:offer": denySimulator,
+  "simulator:frame": denySimulator,
   "simulator:status": denySimulator,
   "simulator:control": denySimulator,
   "simulator:input": denySimulator,

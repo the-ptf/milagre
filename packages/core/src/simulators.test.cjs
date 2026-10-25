@@ -18,6 +18,7 @@ function fixture(t, options = {}) {
     async connect(deviceId) {
       const channel = {
         deviceId,
+        ...(options.frame ? { frame: options.frame } : {}),
         state: { width: 588, height: 1280, orientation: "portrait", ready: true },
         status() {
           return { ...this.state };
@@ -69,6 +70,92 @@ async function controller(f, owner = "owner-a") {
 function input(f, viewer, event = BEGIN, sequence = 1, generation = viewer.generation) {
   return f.service.input({ viewerId: viewer.viewerId, sequence, generation, event }, viewer.owner);
 }
+
+test("taking control invalidates the input lease without requiring an unchanged display to repaint", async (t) => {
+  const f = fixture(t),
+    first = await controller(f),
+    second = await f.service.open({ deviceId: DEVICE.id }, "owner-b");
+  const taken = await f.service.control({ viewerId: second.viewerId, takeOver: true }, "owner-b");
+  assert.ok(taken.generation > first.generation);
+  assert.equal(taken.displayGeneration, first.displayGeneration);
+  f.channels[0].state.orientation = "landscape-left";
+  const rotated = await f.service.status({ viewerId: second.viewerId }, "owner-b");
+  assert.ok(rotated.displayGeneration > taken.displayGeneration, "actual display changes invalidate painted pixels");
+});
+
+test("Duo poses require control and capability, await dispatch, and invalidate old touch geometry", async (t) => {
+  let deliverFrame;
+  const f = fixture(t, {
+      frame: () =>
+        new Promise((resolve) => {
+          deliverFrame = resolve;
+        }),
+    }),
+    a = await controller(f);
+  const b = await f.service.open({ deviceId: DEVICE.id }, "owner-b");
+  const state = f.channels[0].state;
+  await assert.rejects(input(f, a, { kind: "pose", pose: "book" }), /hinge|fold/i);
+  Object.assign(state, { supportsHingeAngle: true, hingeAngle: 0, hingePose: "closed" });
+  let current = { ...a, ...(await f.service.status({ viewerId: a.viewerId }, a.owner)) };
+  assert.equal(current.hingePose, "closed");
+  assert.deepEqual(await input(f, { ...b, owner: "owner-b", generation: current.generation }, { kind: "pose", pose: "open" }), { accepted: false });
+  await input(f, current, BEGIN, 1);
+  let acknowledge;
+  const send = f.channels[0].send;
+  f.channels[0].send = (event) => {
+    send(event);
+    if (event.kind === "pose")
+      return new Promise((resolve) => {
+        acknowledge = resolve;
+      });
+  };
+  let settled = false;
+  const inFlightFrame = f.service.frame({ viewerId: a.viewerId, after: 0 }, a.owner);
+  await new Promise((resolve) => setImmediate(resolve));
+  const changing = input(f, current, { kind: "pose", pose: "book", ignored: "shell" }, 2).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  deliverFrame({ sequence: 1, data: "test", mimeType: "image/jpeg" });
+  assert.equal((await inFlightFrame).status.ready, false, "frames cannot reenable input while guest acknowledgement is pending");
+  assert.deepEqual(f.events.slice(-2), [
+    { ...BEGIN, phase: "end" },
+    { kind: "pose", pose: "book" },
+  ]);
+  Object.assign(state, { hingeAngle: 90, hingePose: "book" });
+  acknowledge();
+  assert.deepEqual(await changing, { accepted: true });
+  const next = await f.service.status({ viewerId: a.viewerId }, a.owner);
+  assert.equal(next.ready, true);
+  assert.ok(next.generation > current.generation);
+  assert.equal(next.hingeAngle, 90);
+  assert.deepEqual(await input(f, current, BEGIN, 3), { accepted: false });
+  current = { ...a, ...next };
+  for (const event of [
+    { kind: "pose", pose: "arbitrary" },
+    { kind: "hinge", angle: -1 },
+    { kind: "hinge", angle: 181 },
+    { kind: "hinge", angle: NaN },
+  ])
+    await assert.rejects(input(f, current, event, 4), /invalid/i);
+  assert.deepEqual(await input(f, current, { kind: "hinge", angle: 120 }, 4), { accepted: true });
+  assert.deepEqual(f.events.at(-1), { kind: "hinge", angle: 120 });
+});
+
+test("a failed Duo pose reports its error and releases the pending readiness gate", async (t) => {
+  const f = fixture(t),
+    v = await controller(f);
+  f.channels[0].state.supportsHingeAngle = true;
+  f.channels[0].send = async () => {
+    throw new Error("Simulator could not change the device pose.");
+  };
+  await assert.rejects(input(f, v, { kind: "pose", pose: "open" }), /could not change/);
+  const state = await f.service.status({ viewerId: v.viewerId }, v.owner);
+  assert.equal(state.ready, true);
+  assert.equal(state.controlling, false);
+});
 
 test("discovery is private and unknown devices cannot reach the helper", async (t) => {
   const f = fixture(t);
@@ -345,9 +432,14 @@ test("Device Hub's input flag reaches the viewer, and only its controller can re
   const f = fixture(t),
     v = await controller(f),
     other = await f.service.open({ deviceId: DEVICE.id }, "owner-b");
-  assert.equal(v.inputBlocked, undefined);
-  f.channels[0].state = { ...f.channels[0].state, inputBlocked: true };
-  assert.equal((await f.service.status({ viewerId: v.viewerId }, v.owner)).inputBlocked, true);
+  assert.equal(v.deviceHubInputActive, undefined);
+  f.channels[0].state = { ...f.channels[0].state, deviceHubInputActive: true };
+  const status = await f.service.status({ viewerId: v.viewerId }, v.owner);
+  assert.equal(status.deviceHubInputActive, true);
+  assert.equal(status.inputBlocked, true, "older clients still need this alias to expose their manual reset action");
+  assert.deepEqual(await f.service.input({ viewerId: v.viewerId, generation: v.generation, sequence: 1, event: { kind: "button", button: "home" } }, v.owner), {
+    accepted: true,
+  });
   assert.equal((await f.service.status({ viewerId: other.viewerId }, "owner-b")).generation, v.generation);
   await assert.rejects(f.service.repair({ viewerId: other.viewerId }, "owner-b"), /control/i);
   await assert.rejects(f.service.repair({ viewerId: v.viewerId }, "owner-b"), /owner/i);
@@ -359,4 +451,29 @@ test("Device Hub's input flag reaches the viewer, and only its controller can re
   await assert.rejects(f.service.status({ viewerId: other.viewerId }, "owner-b"), /Reopen/);
   await f.service.open({ deviceId: DEVICE.id }, v.owner);
   assert.equal(f.channels.length, 2);
+});
+
+test("relayed frames keep owner checks and do not block input or close behind a slow viewer", async (t) => {
+  const f = await fixture(t, { frame: (_after, signal) => new Promise((resolve) => signal.addEventListener("abort", () => resolve(null), { once: true })) });
+  const v = await controller(f);
+  assert.equal(v.transport, "frames");
+  await assert.rejects(f.service.frame({ viewerId: v.viewerId, after: 0 }, "wrong-owner"), /owner/);
+  const wait = f.service.frame({ viewerId: v.viewerId, after: 0 }, v.owner);
+  await new Promise(setImmediate);
+  await assert.rejects(f.service.frame({ viewerId: v.viewerId, after: 0 }, v.owner), /pending/);
+  assert.equal((await input(f, v)).accepted, true);
+  await f.service.closeViewer({ viewerId: v.viewerId }, v.owner);
+  assert.equal(await wait, null);
+});
+
+test("frame replies contain current input geometry and keep the viewer alive", async (t) => {
+  const f = await fixture(t, { frame: async () => ({ sequence: 2, data: "aW1hZ2U=", mimeType: "image/jpeg" }) });
+  const v = await controller(f);
+  f.advance(25000);
+  const frame = await f.service.frame({ viewerId: v.viewerId, after: 0 }, v.owner);
+  assert.equal(frame.data, "aW1hZ2U=");
+  assert.equal(frame.status.generation, v.generation);
+  assert.equal(frame.status.controlling, true);
+  f.advance(25000);
+  assert.equal((await f.service.status({ viewerId: v.viewerId }, v.owner)).ready, true);
 });

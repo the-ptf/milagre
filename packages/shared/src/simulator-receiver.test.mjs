@@ -268,6 +268,20 @@ test("HTML embeds the receiver in the JS bundle and escapes device identifiers",
   assert.ok(html.includes("playsinline"));
   assert.ok(!html.includes('src="http'));
 });
+test("the streamed display owns its cutouts; shells never paint a second Island, notch or camera over it", () => {
+  for (const device of [
+    { platform: "ios", name: "iPhone 17 Pro" },
+    { platform: "ios", name: "iPhone 13" },
+    { platform: "ios", name: "iPhone Duo" },
+    { platform: "ios", name: "iPad Pro" },
+    { platform: "android", name: "Pixel 9" },
+  ]) {
+    const html = createSimulatorReceiverHtml({ deviceId: "sim", device });
+    assert.ok(!html.includes('id="cutout"'), device.name);
+    assert.ok(!html.includes('id="hardware"'), device.name);
+    assert.ok(!html.includes("#cutout"), device.name);
+  }
+});
 test("bundled script stays identical to tested source and every device uses the same CSP hash", () => {
   assert.equal(
     SIMULATOR_RECEIVER_SCRIPT,
@@ -295,6 +309,7 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     "hardware",
     "waiting",
     "video",
+    "image",
     "failure",
     "message",
     "retry",
@@ -305,6 +320,17 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     "blocked",
     "blocked-text",
     "repair",
+    "more",
+    "extras",
+    "hinge",
+    "duo",
+    "pose-closed",
+    "pose-open",
+    "pose-book",
+    "pose-laptop",
+    "pose-tent",
+    "hinge-angle",
+    "hinge-apply",
   ])
     elements[id] = {
       ...eventTarget(),
@@ -318,12 +344,25 @@ function browserHarness(call, { playVideo = true, device } = {}) {
       dataset: { config: JSON.stringify({ deviceId: "sim", device }) },
       getBoundingClientRect: () => ({ left: 0, top: 0 }),
       setPointerCapture() {},
+      setAttribute(name, value) {
+        this[name] = value;
+      },
     };
   const track = { ...eventTarget(), stop() {} };
   elements.back.hidden = true;
   elements.video.play = async () => {
     if (playVideo) elements.video.emit("playing");
   };
+  elements.image.removeAttribute = () => {};
+  Object.defineProperty(elements.image, "src", {
+    set(value) {
+      this.source = value;
+      this.emit("load");
+    },
+    get() {
+      return this.source;
+    },
+  });
   const themeValues = {};
   const rootStyle = {
     setProperty: (key, value) => {
@@ -428,6 +467,75 @@ function fakeHost(calls, status = readyStatus) {
   };
 }
 const pointer = (pointerId, clientX = 300, clientY = 300) => ({ pointerId, clientX, clientY, button: 0, preventDefault() {} });
+test("Duo actions follow host capability, preserve reported pose, and pause touch input during changes", async () => {
+  const calls = [],
+    state = { ...readyStatus, supportsHingeAngle: true, hingeAngle: 0, hingePose: "closed" };
+  const host = fakeHost(calls, state);
+  const h = browserHarness(async (method, args) => {
+    const result = await host(method, args);
+    if (method === "input" && ["pose", "hinge"].includes(args.event.kind)) {
+      state.generation++;
+      state.hingePose = args.event.kind === "pose" ? args.event.pose : undefined;
+      state.hingeAngle = args.event.kind === "hinge" ? args.event.angle : args.event.pose === "open" ? 180 : 90;
+    }
+    return result;
+  });
+  await h.flush();
+  assert.equal(h.elements.duo.hidden, false);
+  assert.equal(h.elements["pose-closed"]["aria-pressed"], "true");
+  for (const pose of ["open", "book", "laptop", "tent", "closed"]) {
+    h.elements[`pose-${pose}`].emit("click");
+    h.elements.stage.emit("pointerdown", pointer(1));
+    await h.flush();
+    assert.deepEqual(calls.findLast(([method]) => method === "input")[1].event, { kind: "pose", pose });
+    for (const poll of h.intervals.values()) await poll();
+    await h.flush();
+    assert.equal(h.elements[`pose-${pose}`]["aria-pressed"], "true");
+  }
+  h.elements["hinge-angle"].value = "123";
+  h.elements["hinge-angle"].emit("input");
+  h.document.activeElement = h.elements["hinge-apply"];
+  // Live frame/status rendering can land between the field's blur and Apply's click.
+  for (const poll of h.intervals.values()) await poll();
+  assert.equal(h.elements["hinge-angle"].value, "123");
+  h.elements["hinge-apply"].emit("click");
+  await h.flush();
+  assert.deepEqual(calls.findLast(([method]) => method === "input")[1].event, { kind: "hinge", angle: 123 });
+  assert.equal(
+    calls.some(([method, args]) => method === "input" && args.event.kind === "touch"),
+    false,
+  );
+  for (const poll of h.intervals.values()) await poll();
+  await h.flush();
+  for (const value of ["", "-1", "181", "NaN"]) {
+    h.elements["hinge-angle"].value = value;
+    h.elements["hinge-apply"].emit("click");
+  }
+  state.controlling = false;
+  for (const poll of h.intervals.values()) await poll();
+  assert.equal(h.elements["pose-book"].disabled, true);
+  h.elements["pose-book"].emit("click");
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "input").length, 6);
+  state.supportsHingeAngle = false;
+  for (const poll of h.intervals.values()) await poll();
+  assert.equal(h.elements.duo.hidden, true);
+  h.bridge.dispose();
+});
+test("additional controls expand inline, preserve the viewer and close before Escape dismisses it", async () => {
+  const calls = [],
+    h = browserHarness(fakeHost(calls));
+  await h.flush();
+  assert.equal(h.elements.extras.hidden, true);
+  h.elements.more.emit("click");
+  assert.equal(h.elements.extras.hidden, false);
+  assert.equal(h.elements.more["aria-expanded"], "true");
+  h.listeners.keydown({ key: "Escape" });
+  assert.equal(h.elements.extras.hidden, true);
+  assert.equal(calls.filter(([method]) => method === "open").length, 1);
+  h.bridge.dispose();
+});
+
 test("the framed viewer reports connection and ownership states to its native header", async () => {
   const calls = [],
     host = fakeHost(calls);
@@ -448,7 +556,7 @@ test("the framed viewer reports connection and ownership states to its native he
   });
   await h.flush();
   assert.deepEqual(h.states, ["connecting", "live"], "startup must not report a pause");
-  assert.equal(h.elements.device.dataset.cutout, "notch");
+  assert.equal(h.elements.device.dataset.cutout, "stream");
   controlling = false;
   for (const poll of h.intervals.values()) await poll();
   assert.equal(h.states.at(-1), "view-only");
@@ -510,7 +618,7 @@ test("Android landscape keeps already-rotated video intact without guessing the 
     });
     await h.flush();
     assert.equal(h.elements.device.dataset.sideways, "true");
-    assert.equal(h.elements.device.dataset.cutout, "none");
+    assert.equal(h.elements.device.dataset.cutout, "stream");
     assert.equal(h.elements.video.style.transform, "translate(-50%,-50%) rotate(0deg)");
     h.bridge.dispose();
   }
@@ -538,7 +646,7 @@ test("bundled receiver releases pointer cancellation and closes video/control on
   await h.flush();
   assert.equal(calls.filter(([method]) => method === "input").length, 3);
 });
-test("bundled receiver reconnects by itself when shown again, but not after a failure", async () => {
+test("bundled receiver resumes pending recovery when shown again", async () => {
   const calls = [];
   const h = browserHarness(fakeHost(calls));
   await h.flush();
@@ -562,20 +670,43 @@ test("bundled receiver reconnects by itself when shown again, but not after a fa
   h.document.hidden = false;
   h.listeners.visibilitychange();
   await h.flush();
-  assert.equal(calls.filter(([method]) => method === "open").length, opens);
-  assert.equal(h.states.at(-1), "error", "hiding an already failed viewer must not relabel it as paused");
+  assert.equal(calls.filter(([method]) => method === "open").length, opens + 1);
+  assert.equal(h.states.at(-1), "live");
 });
-test("bundled receiver repairs Device Hub's blocked touches only after a second, confirming tap", async () => {
+test("Device Hub hints leave working input live, including hints from older hosts", async () => {
+  for (const hint of [{ inputBlocked: true }, { deviceHubInputActive: true }]) {
+    const calls = [];
+    const h = browserHarness(fakeHost(calls, { ...readyStatus, ...hint }));
+    await h.flush();
+    assert.equal(h.states.at(-1), "live", "the runtime flag does not prove touch delivery failed");
+    assert.equal(h.elements.message.textContent, "You control this simulator");
+    assert.equal(h.elements.blocked.hidden, false, "manual input reset stays available");
+    h.elements.stage.emit("pointerdown", pointer(1));
+    h.elements.stage.emit("pointerup", pointer(1));
+    await h.flush();
+    assert.deepEqual(
+      calls.filter(([method]) => method === "input").map(([, args]) => args.event.phase),
+      ["begin", "end"],
+    );
+    assert.equal(
+      calls.some(([method]) => method === "repair"),
+      false,
+      "working input is never reset automatically",
+    );
+    h.bridge.dispose();
+  }
+});
+test("bundled receiver resets potentially affected input only after a second, confirming tap", async () => {
   const calls = [];
   let blocked = true;
   const host = fakeHost(calls);
   const h = browserHarness(async (method, args) => {
     const result = await host(method, args);
-    return (method === "status" || method === "control") && blocked ? { ...result, inputBlocked: true } : result;
+    return (method === "status" || method === "control") && blocked ? { ...result, deviceHubInputActive: true } : result;
   });
   await h.flush();
   assert.equal(h.elements.blocked.hidden, false);
-  assert.match(h.elements.message.textContent, /Device Hub/);
+  assert.equal(h.states.at(-1), "live");
   h.elements.repair.emit("click");
   await h.flush();
   assert.equal(calls.filter(([method]) => method === "repair").length, 0, "the first tap only warns");
@@ -595,6 +726,32 @@ test("bundled receiver repairs Device Hub's blocked touches only after a second,
   assert.equal(h.elements.blocked.hidden, true);
   assert.equal(h.elements.message.textContent, "You control this simulator");
 });
+test("manual reset without a runtime hint keeps its confirmation through polls and cancels on control loss", async () => {
+  const calls = [],
+    state = { ...readyStatus },
+    h = browserHarness(fakeHost(calls, state));
+  await h.flush();
+  h.elements.more.emit("click");
+  h.elements.repair.emit("click");
+  for (const poll of h.intervals.values()) await poll();
+  assert.equal(h.elements.blocked.hidden, false);
+  assert.match(h.elements["blocked-text"].textContent, /closes its apps/);
+  assert.equal(
+    calls.some(([method]) => method === "repair"),
+    false,
+  );
+  state.controlling = false;
+  for (const poll of h.intervals.values()) await poll();
+  h.timeout(6000);
+  assert.equal(h.elements.repair.disabled, true);
+  h.elements.repair.emit("click");
+  await h.flush();
+  assert.equal(
+    calls.some(([method]) => method === "repair"),
+    false,
+  );
+  h.bridge.dispose();
+});
 test("a status poll during repair does not strand the viewer on the removed capability", async () => {
   const calls = [];
   let release;
@@ -611,7 +768,7 @@ test("a status poll during repair does not strand the viewer on the removed capa
     // The host drops every viewer of the device while it repairs.
     if (repairing && method === "status") throw new Error("Unknown simulator viewer or owner. Reopen the viewer.");
     const result = await host(method, args);
-    return (method === "status" || method === "control") && !repaired ? { ...result, inputBlocked: true } : result;
+    return (method === "status" || method === "control") && !repaired ? { ...result, deviceHubInputActive: true } : result;
   });
   await h.flush();
   h.elements.repair.emit("click");
@@ -626,6 +783,55 @@ test("a status poll during repair does not strand the viewer on the removed capa
   assert.equal(h.elements.failure.hidden, true, h.elements.failure.textContent);
   assert.equal(h.elements.message.textContent, "You control this simulator");
 });
+for (const failingMethod of ["frame", "status"])
+  test(`an in-flight ${failingMethod} failure during input reset cannot cancel the repair`, async () => {
+    const calls = [],
+      gate = deferred(),
+      host = fakeHost(calls);
+    let repairing = false,
+      frameSequence = 0,
+      rejectPending,
+      hold = false;
+    const h = browserHarness(async (method, args) => {
+      calls.push([method, args]);
+      if (hold && method === failingMethod)
+        return new Promise((_resolve, reject) => {
+          rejectPending = reject;
+        });
+      if (method === "open") return { viewerId: "relay-viewer", transport: "frames" };
+      if (method === "frame") {
+        assert.equal(repairing, false, "no new video request starts during reset");
+        return { sequence: ++frameSequence, data: "aW1hZ2U=", mimeType: "image/jpeg", status: readyStatus };
+      }
+      if (method === "repair") {
+        repairing = true;
+        await gate.promise;
+        repairing = false;
+        return null;
+      }
+      return host(method, args);
+    });
+    await h.flush();
+    hold = true;
+    if (failingMethod === "frame") h.timeout(67);
+    else void [...h.intervals.values()][0]();
+    await h.flush();
+    h.elements.repair.emit("click");
+    const completion = h.elements.repair.emit("click");
+    await h.flush();
+    rejectPending(new Error("Capture restarted while resetting input."));
+    await h.flush();
+    h.timeout(67);
+    await h.flush();
+    assert.notEqual(h.states.at(-1), "error", "expected capture failure does not tear down the pending reset");
+    assert.equal(h.elements.home.disabled, true);
+    hold = false;
+    gate.resolve();
+    await completion;
+    await h.flush();
+    assert.equal(h.states.at(-1), "live");
+    h.window.simulatorDispose();
+  });
 test("bundled receiver shows a bounded negotiation failure when no video frames arrive", async () => {
   const calls = [];
   const h = browserHarness(fakeHost(calls), { playVideo: false });
@@ -782,4 +988,217 @@ test("connection failures are visible in the screen area and retry clears them",
   h.elements.retry.emit("click");
   assert.equal(h.elements.failure.hidden, true);
   h.bridge.dispose();
+});
+
+test("a lost video connection reopens a fresh viewer automatically", async () => {
+  const calls = [],
+    h = browserHarness(fakeHost(calls));
+  await h.flush();
+  h.peers[0].iceConnectionState = "disconnected";
+  h.peers[0].emit("iceconnectionstatechange");
+  h.timeout(6000);
+  await h.flush();
+  h.timeout(1000);
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 2);
+  assert.equal(h.peers[0].closed, true);
+  assert.equal(h.states.at(-1), "live");
+});
+
+test("recovery backs off while the Mac is offline and disposal cancels it", async () => {
+  const calls = [];
+  const host = fakeHost(calls);
+  let offline = false;
+  const h = browserHarness((method, args) => {
+    if (method === "open" && offline) {
+      calls.push([method, args]);
+      throw new Error("Mac offline");
+    }
+    return host(method, args);
+  });
+  await h.flush();
+  offline = true;
+  h.peers[0].connectionState = "failed";
+  h.peers[0].emit("connectionstatechange");
+  await h.flush();
+  h.timeout(1000);
+  await h.flush();
+  h.timeout(1000);
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 2);
+  h.timeout(2000);
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 3);
+  h.window.simulatorDispose();
+  h.timeout(4000);
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 3);
+});
+
+test("network restoration resumes video but cannot resurrect a disposed viewer", async () => {
+  const calls = [],
+    h = browserHarness(fakeHost(calls));
+  await h.flush();
+  h.peers[0].connectionState = "failed";
+  h.peers[0].emit("connectionstatechange");
+  await h.flush();
+  h.listeners.online?.();
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 2);
+  h.timeout(1000);
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 2);
+  h.window.simulatorDispose();
+  h.listeners.online?.();
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 2);
+});
+
+test("a stopped simulator exhausts automatic retries and manual Retry starts a new attempt", async () => {
+  let attempts = 0;
+  const h = browserHarness(async () => {
+    attempts++;
+    throw new Error("Simulator stopped");
+  });
+  await h.flush();
+  for (const delay of [1000, 2000, 4000, 8000, 15000]) {
+    h.timeout(delay);
+    await h.flush();
+  }
+  assert.equal(attempts, 6);
+  h.timeout(15000);
+  await h.flush();
+  assert.equal(attempts, 6);
+  h.elements.retry.emit("click");
+  await h.flush();
+  assert.equal(attempts, 7);
+});
+
+test("a brief ICE disconnect that recovers does not replace the live viewer", async () => {
+  const calls = [],
+    h = browserHarness(fakeHost(calls));
+  await h.flush();
+  const peer = h.peers[0];
+  peer.iceConnectionState = "disconnected";
+  peer.emit("iceconnectionstatechange");
+  peer.iceConnectionState = "connected";
+  peer.emit("iceconnectionstatechange");
+  h.timeout(6000);
+  h.timeout(1000);
+  await h.flush();
+  assert.equal(calls.filter(([method]) => method === "open").length, 1);
+  assert.equal(peer.closed, undefined);
+});
+
+test("a relayed viewer paints frames and sends input without opening any WebRTC connection", async () => {
+  const calls = [],
+    host = fakeHost(calls);
+  const h = browserHarness(async (method, args) => {
+    calls.push([method, args]);
+    if (method === "open") return { viewerId: "relay-viewer", transport: "frames", iceServers: [] };
+    if (method === "frame") return { sequence: 1, data: "aW1hZ2U=", mimeType: "image/jpeg", status: readyStatus };
+    return host(method, args);
+  });
+  await h.flush();
+  assert.equal(h.peers.length, 0);
+  assert.equal(
+    calls.some(([method]) => method === "offer"),
+    false,
+  );
+  assert.equal(h.elements.image.src, "data:image/jpeg;base64,aW1hZ2U=");
+  assert.equal(h.elements.image.hidden, false);
+  assert.equal(h.elements.video.hidden, true);
+  assert.equal(h.states.at(-1), "live");
+  h.elements.stage.emit("pointerdown", pointer(1));
+  await h.flush();
+  assert.ok(calls.some(([method]) => method === "input"));
+  h.window.simulatorDispose();
+});
+
+test("a relayed viewer cannot accept touches until its own frame catches up with new geometry", async () => {
+  const calls = [],
+    oldFrame = deferred();
+  let state = { ...readyStatus, displayGeneration: 1 },
+    sequence = 0;
+  const host = fakeHost(calls);
+  const h = browserHarness(async (method, args) => {
+    if (method === "open") return { viewerId: "relay-viewer", transport: "frames" };
+    if (method === "status" || method === "control") return { ...state };
+    if (method === "frame") {
+      const frame = { sequence: ++sequence, data: "aW1hZ2U=", mimeType: "image/jpeg", status: { ...state } };
+      if (sequence === 2) {
+        await oldFrame.promise;
+        return frame;
+      }
+      return frame;
+    }
+    return host(method, args);
+  });
+  await h.flush();
+  h.timeout(67);
+  await h.flush();
+  state = { ...state, width: 800, height: 400, orientation: "landscape-left", generation: 2, displayGeneration: 2 };
+  for (const poll of h.intervals.values()) await poll();
+  await h.flush();
+  const touch = () => h.elements.stage.emit("pointerdown", pointer(1));
+  touch();
+  await h.flush();
+  assert.equal(h.elements.home.disabled, true);
+  assert.equal(
+    calls.some(([method]) => method === "input"),
+    false,
+    "a newer host status cannot unlock old pixels",
+  );
+  oldFrame.resolve();
+  await h.flush();
+  touch();
+  await h.flush();
+  assert.equal(h.elements.home.disabled, true, "an older in-flight frame cannot unlock the new geometry");
+  h.timeout(67);
+  await h.flush();
+  assert.equal(h.elements.home.disabled, false);
+  touch();
+  await h.flush();
+  assert.ok(calls.some(([method]) => method === "input"));
+  h.window.simulatorDispose();
+});
+
+test("taking and losing control of a quiet relayed display never waits for a repaint", async () => {
+  const calls = [],
+    quiet = deferred();
+  let state = { ...readyStatus, generation: 1, displayGeneration: 1, controlling: false },
+    reads = 0;
+  const host = fakeHost(calls);
+  const h = browserHarness(async (method, args) => {
+    if (method === "open") return { viewerId: "relay-viewer", transport: "frames" };
+    if (method === "frame") {
+      if (reads++) return quiet.promise;
+      return { sequence: 1, data: "aW1hZ2U=", mimeType: "image/jpeg", status: { ...state } };
+    }
+    if (method === "status") return { ...state };
+    if (method === "control") {
+      state = { ...state, generation: state.generation + 1, controlling: true };
+      return { ...state };
+    }
+    return host(method, args);
+  });
+  await h.flush();
+  assert.equal(h.elements.home.disabled, false, "automatic claim uses the already painted display");
+  h.timeout(67);
+  await h.flush();
+  state = { ...state, generation: state.generation + 1, controlling: false };
+  for (const poll of h.intervals.values()) await poll();
+  await h.flush();
+  assert.equal(h.states.at(-1), "view-only");
+  assert.equal(h.elements.control.disabled, false);
+  h.elements.control.emit("click");
+  await h.flush();
+  assert.equal(h.elements.home.disabled, false, "Take control works while the next frame request remains quiet");
+  assert.equal(h.states.at(-1), "live");
+  h.elements.stage.emit("pointerdown", pointer(1));
+  await h.flush();
+  assert.ok(calls.some(([method, args]) => method === "input" && args.generation === state.generation));
+  h.window.simulatorDispose();
+  quiet.resolve(null);
+  await h.flush();
 });

@@ -7,7 +7,7 @@ const { createSimulatorHelper, createSimulatorAdapter, resolveHelperPath } = req
 const DEVICE = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE";
 async function waitFor(check) {
   const deadline = Date.now() + 5000;
-  while (!check()) {
+  while (!(await check())) {
     if (Date.now() >= deadline) assert.fail("Timed out waiting for helper state");
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -32,6 +32,11 @@ const server = http.createServer(async (req, res) => {
   const authenticated = req.headers.authorization === 'Bearer ' + token;
   log({ url: req.url, method: req.method, authenticated, body: data ? JSON.parse(data) : null });
   if (!authenticated) { res.writeHead(401).end(); return; }
+  if (req.url.split('?')[0].endsWith('/stream.mjpeg')) {
+    res.writeHead(200, {'content-type':'multipart/x-mixed-replace; boundary=frame'});
+    const part=Buffer.concat([Buffer.from('--frame\\r\\nContent-Type: image/jpeg\\r\\nContent-Length: 6\\r\\n\\r\\n'),Buffer.from([255,216,1,2,255,217]),Buffer.from('\\r\\n')]);
+    res.write(part); const interval=setInterval(()=>res.write(part),100);res.on('close',()=>clearInterval(interval));return;
+  }
   if (req.url.split('?')[0].endsWith('/webrtc/close')) { res.writeHead(204).end(); return; }
   if (req.url.includes('/health')) { res.end(JSON.stringify({status:'streaming',size:{width:640,height:1280}})); return; }
   res.setHeader('content-type', 'application/json');
@@ -40,7 +45,10 @@ const server = http.createServer(async (req, res) => {
 const wss = new WebSocketServer({ server, handleProtocols: (protocols) => [...protocols][0] });
 wss.on('connection', (socket, req) => {
   log({ url: req.url, authenticated: req.headers['sec-websocket-protocol'] === (mode === 'android' ? 'serve-emu.token.' : 'serve-sim.token.') + token });
-  const config = () => socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait',inputUnavailable:mode==='unavailable'}))]));
+  const duo = mode.startsWith('duo');
+  let hinge = {supportsHingeAngle:true,hingeAngle:0,hingePose:'closed'};
+  let panel = {screenId:1,orientation:'portrait',physicalOrientation:'portrait',tableMode:false,observedDeviceState:{hingeAngle:0,physicalOrientation:'portrait'}};
+  const config = () => socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait',inputUnavailable:mode==='unavailable',...(duo?{...hinge,...panel}:{})}))]));
   if (mode !== 'unadmitted' && mode !== 'android') {
     socket.send(Buffer.from([0x83])); if (mode !== 'admission-only') config();
     if (mode === 'unavailable') socket.send(Buffer.concat([Buffer.from([0x82]), Buffer.from(JSON.stringify({width:588,height:1280,orientation:'portrait'}))]));
@@ -48,6 +56,27 @@ wss.on('connection', (socket, req) => {
   socket.on('message', (bytes) => {
     if (mode === 'android') { log({gesture:JSON.parse(bytes.toString())}); return; }
     log({ tag: bytes[0], data: JSON.parse(bytes.subarray(1).toString()) });
+    if(bytes[0]===16 && duo && mode!=='duo-timeout') {
+      const {requestId,command}=JSON.parse(bytes.subarray(1).toString());
+      setTimeout(()=>{
+        const ok=mode==='duo'||mode==='duo-late-screen';
+        if(ok) {
+          hinge=command.control==='pose'?{supportsHingeAngle:true,hingeAngle:({closed:0,open:180,book:90,laptop:90,tent:80})[command.value],hingePose:command.value}:{supportsHingeAngle:true,hingeAngle:command.value};
+          panel={...panel,tableMode:command.control==='pose'&&command.value==='tent',physicalOrientation:command.control==='angle'?panel.physicalOrientation:command.value==='tent'?'facedown':command.value==='laptop'?'landscape-left':'portrait'};
+          config();
+        }
+        socket.send(Buffer.concat([Buffer.from([144]),Buffer.from(JSON.stringify({requestId,ok,error:'Pose failed'}))]));
+        if(ok) {
+          setTimeout(()=>{panel={...panel,observedDeviceState:{hingeAngle:Math.fround(hinge.hingeAngle),physicalOrientation:panel.physicalOrientation}};config();},0);
+          setTimeout(()=>{
+            const pose=command.control==='pose'?command.value:null;
+            const screenId=pose?(pose==='closed'||pose==='tent'?1:3):hinge.hingeAngle===0?1:hinge.hingeAngle===180?3:panel.physicalOrientation==='facedown'?panel.screenId:3;
+            const orientation=pose?(pose==='open'||pose==='book'?'landscape-left':'portrait'):screenId===panel.screenId||panel.physicalOrientation!=='portrait'?panel.orientation:screenId===3?'landscape-left':'portrait';
+            panel={...panel,screenId,orientation};config();
+          },mode==='duo-late-screen'?250:0);
+        }
+      },30);
+    }
     if(bytes[0]===7) socket.send(Buffer.concat([Buffer.from([0x82]),Buffer.from(JSON.stringify({width:588,height:1280,orientation:'landscape_left'}))]));
   });
 });
@@ -67,6 +96,8 @@ server.listen(0, '127.0.0.1', () => {
     admissionTimeoutMs: 1000,
     startupTimeoutMs: 10000,
     idleMs: 0,
+    displaySettleMs: 50,
+    displayQuietMs: 20,
     ...extra,
   });
   t.after(async () => {
@@ -83,6 +114,118 @@ server.listen(0, '127.0.0.1', () => {
     },
   };
 }
+
+test("Duo hinge commands wait for matching acknowledgement and expose reported pose state", async (t) => {
+  const f = await fixture(t, "duo"),
+    channel = await f.helper.connect(DEVICE);
+  await waitFor(() => channel.status().ready);
+  assert.equal(channel.status().supportsHingeAngle, true);
+  assert.equal(channel.status().hingePose, "closed");
+  await channel.send({ kind: "pose", pose: "book" });
+  assert.equal(channel.status().hingePose, "book");
+  assert.equal(channel.status().hingeAngle, 90);
+  await waitFor(async () => {
+    await channel.frame(0);
+    return channel.status().ready;
+  });
+  await channel.send({ kind: "hinge", angle: 123.4 });
+  assert.equal(channel.status().hingeAngle, 123.4);
+  await waitFor(async () => {
+    await channel.frame(0);
+    return channel.status().ready;
+  });
+  const commands = (await f.logs()).filter((entry) => entry.tag === 16).map((entry) => entry.data);
+  assert.deepEqual(
+    commands.map((entry) => entry.command),
+    [
+      { control: "pose", value: "book" },
+      { control: "angle", value: 123.4 },
+    ],
+  );
+  assert.notEqual(commands[0].requestId, commands[1].requestId);
+  await assert.rejects(async () => channel.send({ kind: "hinge", angle: Infinity }), /invalid/i);
+});
+
+test("a Duo ACK leaves input disabled until native panel observation and fresh pixels arrive", async (t) => {
+  const f = await fixture(t, "duo-late-screen", undefined, { displaySettleMs: 350, displayQuietMs: 60 }),
+    channel = await f.helper.connect(DEVICE);
+  await waitFor(() => channel.status().ready);
+  const before = await channel.frame(0);
+  await channel.send({ kind: "pose", pose: "open" });
+  assert.equal(channel.status().ready, false, "the ACK still describes the old cover panel");
+  assert.throws(() => channel.send({ kind: "button", button: "home" }), /not ready/i);
+  const provisional = await channel.frame(before.sequence);
+  assert.equal(channel.status().ready, false, "pixels arriving before the panel switches do not release input");
+  await waitFor(async () => {
+    await channel.frame(provisional.sequence);
+    return channel.status().ready;
+  });
+  let after = provisional.sequence;
+  for (const event of [
+    { kind: "pose", pose: "laptop" },
+    { kind: "pose", pose: "closed" },
+  ]) {
+    await channel.send(event);
+    assert.equal(channel.status().ready, false);
+    const pending = await channel.frame(after);
+    after = pending.sequence;
+    assert.equal(channel.status().ready, false, "native observation before the panel/rotation update is insufficient");
+    await waitFor(async () => {
+      const frame = await channel.frame(after);
+      if (frame) after = frame.sequence;
+      return channel.status().ready;
+    });
+  }
+  await channel.send({ kind: "pose", pose: "tent" });
+  await waitFor(async () => {
+    const frame = await channel.frame(after);
+    if (frame) after = frame.sequence;
+    return channel.status().ready;
+  });
+  // Partial angles while held face-down retain the cover, even though the helper clears its table-mode hint.
+  await channel.send({ kind: "hinge", angle: 90 });
+  await waitFor(async () => {
+    const frame = await channel.frame(after);
+    if (frame) after = frame.sequence;
+    return channel.status().ready;
+  });
+  // A flat angle selects the inner panel; its old portrait orientation is valid until Book rotates it.
+  await channel.send({ kind: "hinge", angle: 180 });
+  const flatFrame = await channel.frame(after);
+  assert.equal(channel.status().ready, false);
+  await waitFor(async () => {
+    const frame = await channel.frame(flatFrame.sequence);
+    if (frame) after = frame.sequence;
+    return channel.status().ready;
+  });
+  await channel.send({ kind: "pose", pose: "book" });
+  const bookFrame = await channel.frame(after);
+  assert.equal(channel.status().ready, false, "the new inner panel alone does not prove its rotation has settled");
+  await waitFor(async () => {
+    const frame = await channel.frame(bookFrame.sequence);
+    if (frame) after = frame.sequence;
+    return channel.status().ready;
+  });
+  await channel.send({ kind: "pose", pose: "book" });
+  assert.equal(channel.status().ready, false);
+  await waitFor(async () => {
+    await channel.frame(after);
+    return channel.status().ready;
+  });
+  channel.send({ kind: "button", button: "home" });
+});
+
+for (const mode of ["duo-failure", "duo-timeout"])
+  test(`${mode} does not acknowledge a successful pose`, async (t) => {
+    const f = await fixture(t, mode, undefined, { hingeTimeoutMs: 100 }),
+      channel = await f.helper.connect(DEVICE);
+    await waitFor(() => channel.status().ready);
+    await assert.rejects(channel.send({ kind: "pose", pose: "open" }), /pose|timed out/i);
+    assert.equal(channel.status().hingePose, "closed");
+    assert.equal(channel.status().ready, false);
+    assert.match(channel.status().error, /pose change failed/i);
+    assert.throws(() => channel.send({ kind: "button", button: "home" }), /not ready/i, "reconnect cannot reuse uncertain input geometry");
+  });
 
 test("unpacks the entire helper package path for native framework loading", () => {
   assert.equal(
@@ -115,7 +258,13 @@ test("helper uses private loopback authentication, exact query socket route and 
   const offer = logs.find((entry) => entry.url?.endsWith("/webrtc/offer"));
   assert.equal(offer.url, "/vendor/serve-sim/helper/" + DEVICE + "/webrtc/offer");
   assert.equal(offer.authenticated, true);
-  assert.deepEqual(offer.body, { type: "offer", sdp: "v=0\r\n", sessionId: "private-session", codec: "h264", iceServers: [] });
+  assert.deepEqual(offer.body, {
+    type: "offer",
+    sdp: "v=0\r\n",
+    sessionId: "private-session",
+    codec: "h264",
+    iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+  });
   assert.deepEqual(logs.find((entry) => entry.url?.endsWith("/webrtc/close")).body, { sessionId: "private-session" });
   const { port, pid } = JSON.parse(await readFile(f.address, "utf8"));
   assert.equal((await fetch("http://127.0.0.1:" + port + "/api/devices")).status, 401);
@@ -219,7 +368,8 @@ test("Device Hub's input flag is reported, never repaired on connect, and repair
     });
     const channel = await f.helper.connect(DEVICE);
     await waitFor(() => channel.status().ready);
-    assert.equal(channel.status().inputBlocked, shadowed || undefined);
+    assert.equal(channel.status().deviceHubInputActive, shadowed || undefined);
+    assert.equal(channel.status().inputBlocked, undefined, "the flag does not establish that touches are blocked");
     const spawn = `/usr/bin/xcrun simctl spawn ${DEVICE}`;
     assert.deepEqual(calls, [`${spawn} notifyutil -g com.apple.coredevice.dtuhidd.active`]);
     await f.helper.repairInput(DEVICE);
@@ -243,9 +393,11 @@ test("the input flag is read again while a viewer stays open", async (t) => {
   );
   const channel = await f.helper.connect(DEVICE);
   await waitFor(() => channel.status().ready);
-  assert.equal(channel.status().inputBlocked, undefined);
+  assert.equal(channel.status().deviceHubInputActive, undefined);
   shadowed = true;
-  await waitFor(() => channel.status().inputBlocked === true);
+  await waitFor(() => channel.status().deviceHubInputActive === true);
+  shadowed = false;
+  await waitFor(() => !channel.status().deviceHubInputActive);
   await channel.close();
 });
 
@@ -322,4 +474,68 @@ test("closing one Android device ends its capture while another remains connecte
   assert.doesNotThrow(() => process.kill(b.pid, 0));
   assert.equal(second.status().ready, true);
   await second.close();
+});
+
+test("unconfigured iOS video offers include STUN so peers can discover public candidates", async (t) => {
+  const f = await fixture(t);
+  await f.helper.connect(DEVICE);
+  await f.helper.offer(DEVICE, "remote-viewer", "v=0\r\n");
+  const offer = (await f.logs()).find((entry) => entry.url?.endsWith("/webrtc/offer"));
+  assert.ok(offer.body.iceServers.some((server) => [server.urls].flat().some((url) => url.startsWith("stun:"))));
+});
+
+test("iOS frames are fetched privately from the helper stream and cancelled with capture", async (t) => {
+  const f = await fixture(t);
+  const channel = await f.helper.connect(DEVICE);
+  const frame = await channel.frame(0, new AbortController().signal);
+  assert.equal(frame.mimeType, "image/jpeg");
+  assert.equal(frame.data, Buffer.from([255, 216, 1, 2, 255, 217]).toString("base64"));
+  assert.ok((await f.logs()).some((entry) => entry.url?.endsWith("/stream.mjpeg") && entry.authenticated));
+  await channel.close();
+});
+
+test("Android relay frames use a bounded screenshot command for the exact emulator", async (t) => {
+  const commands = [];
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4u0AAAAASUVORK5CYII=", "base64");
+  const f = await fixture(t, "android", async (file, args, options) => {
+    commands.push({ file, args, options });
+    return { stdout: args.includes("screencap") ? png : "" };
+  });
+  const channel = await f.helper.connect("emulator-5554");
+  const frame = await channel.frame(0, new AbortController().signal);
+  assert.equal(frame.mimeType, "image/png");
+  assert.equal(frame.data, png.toString("base64"));
+  const capture = commands.find((entry) => entry.args.includes("screencap"));
+  assert.deepEqual(capture.args, ["-s", "emulator-5554", "exec-out", "screencap", "-p"]);
+  assert.equal(capture.options.maxBuffer, 32 * 1024 * 1024);
+  const healthCount = (await f.logs()).filter((entry) => entry.url?.includes("/health")).length;
+  await waitFor(async () => (await f.logs()).filter((entry) => entry.url?.includes("/health")).length > healthCount);
+  assert.equal(channel.status().width, 1, "encoded stream health must not replace snapshot geometry");
+  assert.equal(channel.status().height, 1);
+  await channel.close();
+});
+
+test("an Android capture failure makes the shared channel replaceable on reconnect", async (t) => {
+  let captures = 0;
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4u0AAAAASUVORK5CYII=", "base64");
+  const f = await fixture(t, "android", async (_file, args) => {
+    if (args.includes("screencap")) {
+      if (++captures === 1) throw new Error("adb timed out");
+      return { stdout: png };
+    }
+    return { stdout: "" };
+  });
+  const { createSimulators } = require("./simulators.cjs");
+  const service = createSimulators({
+    supported: true,
+    adapter: { ...f.helper, list: async () => [{ id: "emulator-5554", platform: "android" }] },
+  });
+  t.after(() => service.close());
+  const first = await service.open({ deviceId: "emulator-5554" }, "one");
+  const second = await service.open({ deviceId: "emulator-5554" }, "two");
+  await assert.rejects(service.frame({ viewerId: first.viewerId, after: 0 }, "one"), /frame|stream/i);
+  const reopened = await service.open({ deviceId: "emulator-5554" }, "three");
+  const frame = await service.frame({ viewerId: reopened.viewerId, after: 0 }, "three");
+  assert.equal(frame.data, png.toString("base64"));
+  await assert.rejects(service.status({ viewerId: second.viewerId }, "two"), /unknown/i, "a failed shared capture is not retained by another viewer");
 });

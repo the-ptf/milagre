@@ -73,6 +73,7 @@ const METHODS = new Set([
   "simulator:detach",
   "simulator:open",
   "simulator:offer",
+  "simulator:frame",
   "simulator:status",
   "simulator:control",
   "simulator:input",

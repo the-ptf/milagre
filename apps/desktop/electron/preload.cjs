@@ -64,6 +64,7 @@ function makeBridge(invoke, listen, send) {
       attach: (request) => invoke("simulator:attach", request),
       detach: (request) => invoke("simulator:detach", request),
       open: (request) => invoke("simulator:open", request),
+      frame: (request) => invoke("simulator:frame", request),
       offer: (request) => invoke("simulator:offer", request),
       status: (request) => invoke("simulator:status", request),
       control: (request) => invoke("simulator:control", request),
