@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { useDisplayNow } from "../lib/display-clock";
+import { formatElapsed } from "@milagre/shared/display-clock";
+import { useDisplayValue } from "../lib/display-clock";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
@@ -29,10 +30,7 @@ function RunningLogo() {
 
 function useElapsed(startedAt?: number) {
   const [mountedAt] = useState(() => Date.now());
-  const now = useDisplayNow(100);
-
-  const total = Math.floor(Math.max(0, now - (startedAt ?? mountedAt)) / 100) / 10;
-  return total < 60 ? `${total.toFixed(1)}s` : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
+  return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? mountedAt)));
 }
 
 /** The running mark and the elapsed time. The label is only announced to screen readers, unless `showLabel` writes it out beside the mark. */

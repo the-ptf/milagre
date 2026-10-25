@@ -1,11 +1,12 @@
 import { memo, useEffect, useMemo, useState, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { formatElapsed } from "@milagre/shared/display-clock";
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View, type EasingFunction, type TextStyle } from "react-native";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "./icons";
 import Svg, { Path } from "react-native-svg";
 import RNCMaskedView from "@react-native-masked-view/masked-view";
 import { LinearGradient } from "expo-linear-gradient";
-import { useDisplayNow, useScreenActive } from "./display-clock";
+import { useDisplayValue, useScreenActive } from "./display-clock";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
@@ -113,9 +114,7 @@ const RunningLogo = memo(function RunningLogo({ size = 16 }: { size?: number }) 
 function useElapsed(startedAt?: number) {
   // Measured from the clock, so the time is still right after the ticks pause under another screen.
   const [start] = useState(() => Date.now());
-  const now = useDisplayNow(100);
-  const total = Math.floor(Math.max(0, now - (startedAt ?? start)) / 100) / 10;
-  return total < 60 ? `${total.toFixed(1)}s` : `${Math.floor(total / 60)}m ${(total % 60).toFixed(1)}s`;
+  return useDisplayValue(250, (now) => formatElapsed(now - (startedAt ?? start)));
 }
 
 /** Desktop's ThinkingIndicator: the running mark and the elapsed time; the label is for screen readers unless shown. */

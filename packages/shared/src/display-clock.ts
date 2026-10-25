@@ -1,3 +1,14 @@
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** Whole seconds for live elapsed labels; finished durations keep their own rounding rules. */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${pad(seconds % 60)}s`;
+  return `${Math.floor(minutes / 60)}h ${pad(minutes % 60)}m ${pad(seconds % 60)}s`;
+}
+
 /** A wall clock for display labels only. It never controls agent work, connections, polling or notifications. */
 export function createDisplayClock<Timer = ReturnType<typeof setInterval>>({
   intervalMs,

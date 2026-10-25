@@ -255,6 +255,7 @@ test("display clocks stop off-screen and in the background, then catch up from w
   };
   const react = {
     ...host,
+    useState: (initial) => host.useState(typeof initial === "function" ? () => now : initial),
     useSyncExternalStore(subscribe, snapshot) {
       host.useEffect(() => subscribe(() => {}), [subscribe]);
       return snapshot();
@@ -300,6 +301,118 @@ test("display clocks stop off-screen and in the background, then catch up from w
     now = 9000;
     focused = true;
     assert.equal(read(), 9000);
+  } finally {
+    host.unmount();
+  }
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+});
+
+test("an inactive mobile clock reader starts at mount time even if the shared snapshot is old", () => {
+  const host = hookHost({ effects: true });
+  let subscriptions = 0;
+  const clock = load("display-clock.ts", {
+    react: {
+      ...host,
+      useSyncExternalStore(subscribe, snapshot) {
+        host.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
+    },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "expo-router": { useIsFocused: () => true },
+    "@milagre/shared/display-clock": {
+      createDisplayClock: () => ({
+        snapshot: () => 1000,
+        subscribe: () => {
+          subscriptions++;
+          return () => subscriptions--;
+        },
+      }),
+    },
+  });
+  const before = Date.now();
+  const value = clock.useDisplayNow(1000, false);
+  assert.ok(value >= before && value <= Date.now(), "a disabled reader uses a stable current mount time");
+  assert.equal(subscriptions, 0);
+  host.begin();
+  assert.equal(clock.useDisplayNow(1000, false), value, "the mount-time fallback stays stable across renders");
+  host.unmount();
+});
+
+test("formatted display clocks stop off-screen and in the background, then catch up from wall time", () => {
+  const host = hookHost({ effects: true });
+  let focused = true,
+    now = 1000;
+  const listeners = new Set(),
+    timers = new Set();
+  const AppState = {
+    currentState: "active",
+    addEventListener(_event, fn) {
+      listeners.add(fn);
+      return { remove: () => listeners.delete(fn) };
+    },
+  };
+  const react = {
+    ...host,
+    useSyncExternalStore(subscribe, snapshot) {
+      host.useEffect(() => subscribe(() => {}), [subscribe]);
+      return snapshot();
+    },
+  };
+  const real = require("@milagre/shared/display-clock");
+  const clock = load("display-clock.ts", {
+    react,
+    "react-native": { AppState },
+    "expo-router": { useIsFocused: () => focused },
+    "@milagre/shared/display-clock": {
+      createDisplayClock(options) {
+        return real.createDisplayClock({
+          ...options,
+          now: () => now,
+          setInterval: (fn) => {
+            timers.add(fn);
+            return fn;
+          },
+          clearInterval: (fn) => timers.delete(fn),
+        });
+      },
+    },
+  });
+  let enabled = true;
+  const read = () => {
+    host.begin();
+    return clock.useDisplayValue(250, (value) => real.formatElapsed(value - 1000), enabled);
+  };
+  try {
+    assert.equal(read(), "0s");
+    assert.equal(timers.size, 1);
+    now = 1250;
+    for (const fn of timers) fn();
+    assert.equal(read(), "0s", "250 ms ticks keep the snapshot unchanged within a second");
+    now = 2000;
+    for (const fn of timers) fn();
+    assert.equal(read(), "1s");
+    AppState.currentState = "background";
+    for (const fn of Array.from(listeners)) fn();
+    read();
+    assert.equal(timers.size, 0);
+    now = 5000;
+    AppState.currentState = "active";
+    for (const fn of Array.from(listeners)) fn();
+    assert.equal(read(), "4s");
+    focused = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 9000;
+    focused = true;
+    assert.equal(read(), "8s");
+    enabled = false;
+    read();
+    assert.equal(timers.size, 0);
+    now = 12_000;
+    enabled = true;
+    assert.equal(read(), "11s");
   } finally {
     host.unmount();
   }
@@ -8767,6 +8880,7 @@ test("mobile usage identifies the account by email, falls back to its label, and
 function subagentGlance() {
   const react = hookHost();
   const glance = load("subagent-glance.tsx", {
+    "./display-clock": { useDisplayNow: () => 0 },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
@@ -8818,7 +8932,7 @@ test("mobile subagent rows say what it does now and how far it got, and a finish
   const { SubagentRow, render } = subagentGlance();
   const row = render(SubagentRow, { agent: glanceAgent, provider: "claude", now: 66000, onPress() {} });
   const shown = texts(row);
-  for (const text of ["Review authentication", "1m 5s", "Now running the auth suite.", "Step 2 · 3 files read · 1 command"])
+  for (const text of ["Review authentication", "1m 05s", "Now running the auth suite.", "Step 2 · 3 files read · 1 command"])
     assert.ok(shown.includes(text), text);
   const planned = texts(
     render(SubagentRow, {
@@ -8882,6 +8996,7 @@ test("mobile subagent detail shows its plan with what it does now, else its step
 test("mobile subagent detail reads the whole transcript when the host sent only its end", async () => {
   const react = hookHost({ effects: true });
   const { WholeSubagentDetail } = load("subagent-glance.tsx", {
+    "./display-clock": { useDisplayNow: () => 0 },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
