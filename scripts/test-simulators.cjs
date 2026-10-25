@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const fs = require("node:fs");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -373,7 +374,7 @@ async function main() {
           if (id === "/__simulators_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (req, res, next) => {
+          useAsyncMiddleware(server.middlewares, async (req, res, next) => {
             if (req.url !== "/__simulators__") return next();
             res.setHeader("Content-Type", "text/html");
             res.end(

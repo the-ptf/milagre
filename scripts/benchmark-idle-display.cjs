@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn, execFileSync } = require("node:child_process");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const baseline = process.env.MILAGRE_IDLE_BASELINE === "1";
 const baselineRef = process.env.MILAGRE_IDLE_BASELINE_REF || "691c2d47";
 const fixture = `
@@ -91,7 +92,7 @@ async function main() {
           }
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__idle_display__") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

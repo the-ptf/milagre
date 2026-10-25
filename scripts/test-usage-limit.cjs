@@ -9,6 +9,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
 // This fixture exercises a device that has already accepted AI sharing: a switch continues the Chat.
@@ -237,7 +238,7 @@ async function main() {
           if (id === "/__usage_limit_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url?.split("?")[0] !== "/__usage_limit__") return next();
             const html = await server.transformIndexHtml(
               request.url,

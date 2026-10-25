@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const capture = Boolean(process.env.MILAGRE_SCREENSHOT_DIR);
 const fixture = `
 import React, { useState } from "react";
@@ -158,7 +159,7 @@ async function main() {
           if (id === "/__chat_title_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__chat_title__") return next();
             const html = await server.transformIndexHtml(
               request.url,

@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const long = "fix/a-very-long-branch-name-with-a-common-prefix-but-a-different-ending";
 const fixture = `
 import React, { useState } from 'react';
@@ -114,7 +115,7 @@ async function main() {
           if (id === "/__branch_picker_fixture.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__branch_picker__") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(

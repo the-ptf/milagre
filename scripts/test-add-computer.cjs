@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
+const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const LINK = "milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=hhhhhhhhhhhhhhhhhhhhhh&key=k&token=t&name=studio";
 const OWN = "milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=oooooooooooooooooooooo&key=k&token=t&name=desk";
@@ -203,7 +204,7 @@ async function main() {
           if (id === "/__add-computer.tsx") return fixture;
         },
         configureServer(server) {
-          server.middlewares.use(async (request, response, next) => {
+          useAsyncMiddleware(server.middlewares, async (request, response, next) => {
             if (request.url !== "/__add-computer") return next();
             response.setHeader("Content-Type", "text/html");
             response.end(
