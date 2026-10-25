@@ -594,7 +594,7 @@ export default memo(function SidebarNav({
     const offline = id !== LOCAL_COMPUTER && isDimmed(view);
     const cacheKey = `${id}\n${name}\n${offline}`;
     let made = rowComputers.current.get(cacheKey);
-    if (!made) rowComputers.current.set(cacheKey, (made = { name, offline }));
+    if (!made) rowComputers.current.set(cacheKey, (made = { name, offline, local: id === LOCAL_COMPUTER }));
     return made;
   };
   const [listsChanged, setListsChanged] = useState(0);
@@ -845,12 +845,29 @@ export default memo(function SidebarNav({
         };
       })
     : [];
+  // A Link's icon is its first Project's.
+  const linkFirstProject = (scope: (typeof scopes)[number], link: NamedProjectLink, current: boolean) => {
+    const firstId = link.projectIds[0];
+    return (
+      (firstId ? registeredProjects.find((project) => project.id === firstId) : undefined) ??
+      (current ? selectedLink?.projects[0] : undefined) ?? { path: "", name: scope.name || "Project" }
+    );
+  };
+  // The One list's rows: each scope's icon.
+  const scopeBadge = (scope: (typeof scopes)[number], current: boolean): ScopeBadge => {
+    if (scope.link) {
+      const first = linkFirstProject(scope, scope.link, current);
+      return { projectImage: scopeImage(first.path) ?? null, projectInitial: first.name, linkProjects: scope.link.projectIds.length };
+    }
+    return {
+      projectImage: (current && !selectedLink ? workspace.image : scopeImage(scope.key)) ?? null,
+      projectInitial: scope.initial || scope.name,
+    };
+  };
   // Collapsed with two or more scopes: one icon per scope instead of the open one's chat initials.
   const scopeIcon = (scope: (typeof scopes)[number], current: boolean) => {
     if (scope.link) {
-      const firstId = scope.link.projectIds[0];
-      const first = (firstId ? registeredProjects.find((project) => project.id === firstId) : undefined) ??
-        (current ? selectedLink?.projects[0] : undefined) ?? { path: "", name: scope.name || "Project" };
+      const first = linkFirstProject(scope, scope.link, current);
       const fallback = (first.name.trim().slice(0, 1) || scope.name.trim().slice(0, 1) || "P").toUpperCase();
       return (
         <span
@@ -1066,7 +1083,12 @@ export default memo(function SidebarNav({
 
   // One list: the unpinned rows of every scope in one column. The pinned ones stay in their scope's slot of the Pinned
   // section, where they still drag; each scope's list renders just those.
-  const flatScopes = new Map(groups.map(({ scope, list, pinned, rest }) => [scope.key, { name: scope.name, list, rows: [...pinned, ...rest] }]));
+  const flatScopes = new Map(
+    groups.map(({ scope, current, list, pinned, rest }) => [
+      scope.key,
+      { name: scope.name, badge: scopeBadge(scope, current), list, rows: [...pinned, ...rest] },
+    ]),
+  );
   const flatChats = oneList
     ? mergeScopeChats(
         groups.map(({ scope, rest }) => ({ key: scope.key, rows: rest })),
@@ -1076,9 +1098,10 @@ export default memo(function SidebarNav({
   const loadingScopes = groups.some(({ scope, state, current }) => !state && !current && !failedScopes.has(scope.key));
   const flatBody = (
     <>
-      {groups.map(({ scope, pinned, list }) =>
+      {groups.map(({ scope, current, pinned, list }) =>
         pinned.length > 0 ? (
           <ChatList
+            {...scopeBadge(scope, current)}
             key={scope.key}
             recents={pinned}
             scopeKey={scope.key}
@@ -1547,9 +1570,14 @@ function chatRowActions(
   };
 }
 
+/** An inbox row's Project icon, as ChatRow's props: plain values, so memo'd rows keep them. */
+type ScopeBadge = { projectImage: string | null; projectInitial: string; linkProjects?: number };
+
 /** What the one-list sidebar knows of a scope: the props its ChatList would get, and all its rows. */
 type FlatScope = {
   name: string;
+  /** The rows' Project icon. */
+  badge: ScopeBadge;
   list: {
     isActive: (item: SidebarRecent) => boolean;
     actions: ChatRowActions;
@@ -1620,6 +1648,7 @@ function FlatChatList({ chats, scopes }: { chats: FlatChat[]; scopes: Map<string
             linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
             bot={botMarks.get(`${scopeKey}#${row.id}`)}
             project={scope.name}
+            {...scope.badge}
           />
         );
       })}
@@ -1646,6 +1675,9 @@ function ChatList({
   pinnedTarget,
   anyPinned = false,
   projectName,
+  projectImage,
+  projectInitial,
+  linkProjects,
 }: {
   recents: SidebarRecent[];
   /** The Project path or Link key the chats belong to. */
@@ -1675,6 +1707,10 @@ function ChatList({
   anyPinned?: boolean;
   /** The one-list sidebar has no Project header: each row says its Project on its second line. */
   projectName?: string;
+  /** With `projectName`: the rows' Project icon, see ChatRow. */
+  projectImage?: string | null;
+  projectInitial?: string;
+  linkProjects?: number;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
@@ -2043,6 +2079,9 @@ function ChatList({
       linked={linkProjectId ? sidebarLinks.endsFor(scopeKey, item) : undefined}
       bot={botMarks.get(`${scopeKey}#${item.id}`)}
       project={projectName}
+      projectImage={projectImage}
+      projectInitial={projectInitial}
+      linkProjects={linkProjects}
     />
   );
 

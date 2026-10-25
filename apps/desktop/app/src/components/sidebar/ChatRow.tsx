@@ -13,6 +13,8 @@ import {
   EthernetPortIcon,
   CircleDotIcon,
   CircleIcon,
+  CloudOffIcon,
+  ComputerIcon,
   Copy01Icon,
   FileEditIcon,
   Folder01Icon,
@@ -54,6 +56,7 @@ import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/s
 import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
+import { WorkspaceIcon } from "../WorkspaceIcon";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -94,8 +97,8 @@ type ChatDetails = {
   firstAt?: number;
 };
 
-/** The computer a row's chat lives on, shown on its second line once there are two or more computers. */
-export type RowComputer = { name: string; offline: boolean };
+/** The computer a row's chat lives on, shown on its second line once there are two or more computers. `local`: this Mac. */
+export type RowComputer = { name: string; offline: boolean; local?: boolean };
 
 export type SidebarRecent = {
   id: string;
@@ -256,6 +259,238 @@ function recentInitials(label: string) {
   return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
+/* ─────────────────────────────────────────────────────────
+ * INBOX ROW
+ * The One list's row: the Project's icon, then the title with its
+ * last activity on the right (a spinner while it runs, a dot when
+ * unread), then one line naming the Project, its pull requests and
+ * Linear issue, what the chat is doing, the diff, and the computer
+ * when it isn't this Mac. Its menu opens on a right-click.
+ * ───────────────────────────────────────────────────────── */
+/** What an inbox row's second line says the chat is doing, in its mark's color. Unread says it with the dot instead. */
+const INBOX_STATUS: Record<Exclude<ChatMark, "idle" | "unread">, string> = {
+  question: "Needs reply",
+  waiting: "Needs approval",
+  delegated: "On a Delegation",
+  running: "Running",
+  background: "In the background",
+};
+
+function inboxStatus(item: SidebarRecent): { label: string; tone: string } | null {
+  const mark = item.mark ?? "idle";
+  if (mark === "idle") return item.details?.failed ? { label: "Failed", tone: "text-red" } : null;
+  if (mark === "unread") return null;
+  return { label: INBOX_STATUS[mark], tone: markToneClass[chatMarkTone(mark)] };
+}
+
+function RowProjectIcon({ image, initial = "" }: { image?: string | null; initial?: string }) {
+  const letter = initial.trim().slice(0, 1).toUpperCase() || "P";
+  return (
+    <span
+      aria-hidden
+      data-chat-project-icon
+      className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface"
+    >
+      <WorkspaceIcon src={image} fallback={letter} />
+    </span>
+  );
+}
+
+/** Line one: pin, title, Link and heartbeat icons, then the time, a spinner while it runs, and the unread dot. */
+function InboxTitleLine({
+  item,
+  linked,
+  lastAt,
+  now,
+  hideTime,
+}: {
+  item: SidebarRecent;
+  linked: LinkedEnd[];
+  lastAt?: number;
+  now: number;
+  /** The ⌘1–9 hint or the open menu sits where the time goes. */
+  hideTime: boolean;
+}) {
+  const mark = item.mark ?? "idle";
+  const running = mark === "running" || mark === "background";
+  const status = inboxStatus(item);
+  return (
+    <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
+      <span className="flex h-[18px] min-w-0 items-center gap-1.5">
+        {item.pinned && (
+          <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-3">
+            <HugeiconsIcon icon={PinIcon} size={12} strokeWidth={2} color="currentColor" />
+          </span>
+        )}
+        <span
+          className={`min-w-0 truncate text-[length:calc(13px+var(--sidebar-delta))] leading-[18px] text-ink ${item.unread ? "font-semibold" : "font-medium"}`}
+        >
+          <ChatTitle label={item.label} />
+        </span>
+        {linked.length > 0 && (
+          <span
+            data-chat-linked
+            role="img"
+            aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+            title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+            className="flex shrink-0 text-ink-3"
+          >
+            <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
+          </span>
+        )}
+        {item.heartbeat && (
+          <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 text-ink-3">
+            <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
+          </span>
+        )}
+        <span data-chat-time className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : ""}`}>
+          {running ? (
+            <span data-slot="chat-mark" data-mark={mark} className="flex">
+              <SpinnerRing size={12} color="var(--accent)" />
+            </span>
+          ) : (
+            <>
+              {lastAt !== undefined && (
+                <span
+                  data-chat-ago
+                  title={new Date(lastAt).toLocaleString()}
+                  className={`text-[length:calc(11.5px+var(--sidebar-delta))] tabular-nums ${item.unread ? "font-semibold text-accent" : "text-ink-3"}`}
+                >
+                  {activityAgo(lastAt, now)}
+                </span>
+              )}
+              {item.unread && <span data-slot="chat-mark" data-mark="unread" className="size-2 rounded-full bg-accent" />}
+            </>
+          )}
+        </span>
+      </span>
+      {/* Read with the row's name; the second line beside it is outside the button and shown, not read. */}
+      {(status || item.unread) && <span className="sr-only">{[status?.label, item.unread ? "Unread" : ""].filter(Boolean).join(", ")}</span>}
+    </span>
+  );
+}
+
+/**
+ * Line two, over the row's button: Project (or a Link Chat's Projects) · Linear issue · pull requests · status · diff ·
+ * computer. Only the issue and pull request links take the pointer; the rest lets a click through to the row.
+ */
+function InboxLine({
+  item,
+  project,
+  linkProjects,
+  bot,
+  pullRequests,
+  linearIssue,
+  diff,
+  computer,
+  archiving,
+}: {
+  item: SidebarRecent;
+  project: string;
+  linkProjects?: number;
+  bot?: BotMark;
+  pullRequests: PullRequest[];
+  linearIssue?: LinearIssue;
+  diff?: DiffStat;
+  computer?: RowComputer;
+  archiving: boolean;
+}) {
+  const status = inboxStatus(item);
+  const shown = pullRequests.slice(0, ROW_PR_LIMIT);
+  const hidden = pullRequests.length - shown.length;
+  const parts: Array<{ key: string; node: ReactNode; shrink?: boolean }> = [];
+  parts.push({
+    key: "project",
+    shrink: true,
+    node:
+      linkProjects !== undefined && item.worktreeCount !== undefined ? (
+        <span data-chat-project data-chat-link-projects className="flex min-w-0 items-center gap-1">
+          <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" className="shrink-0 text-ink-3" />
+          <span className="truncate">{linkProjects === 1 ? "1 Project" : `${linkProjects} Projects`}</span>
+        </span>
+      ) : (
+        <span data-chat-project className="truncate">
+          {project}
+        </span>
+      ),
+  });
+  if (bot)
+    parts.push({
+      key: "bot",
+      node: (
+        <span data-bot-mark={bot.id} className="flex shrink-0 items-center gap-1">
+          <BotAvatar color={bot.color} body={bot.body} size={14} />
+          from {bot.name}
+        </span>
+      ),
+    });
+  if (linearIssue) parts.push({ key: "linear", node: <LinearIssueChip issue={linearIssue} inbox /> });
+  shown.forEach((pr) => parts.push({ key: pr.url, node: <PullRequestChip pr={pr} labelled={false} inbox /> }));
+  if (hidden > 0)
+    parts.push({
+      key: "pr-more",
+      node: (
+        <span data-chat-pr-more aria-label={`${hidden} more pull request${hidden === 1 ? "" : "s"}`} className="shrink-0 tabular-nums text-ink-3">
+          +{hidden}
+        </span>
+      ),
+    });
+  if (status)
+    parts.push({
+      key: "status",
+      shrink: true,
+      node: (
+        <span data-chat-status className={`truncate ${status.tone}`}>
+          {status.label}
+        </span>
+      ),
+    });
+  if (diff)
+    parts.push({
+      key: "diff",
+      node: (
+        <span data-chat-diff className="shrink-0 tabular-nums">
+          <span className="text-diff-add">+{formatLineCount(diff.added)}</span> <span className="text-diff-remove">−{formatLineCount(diff.removed)}</span>
+        </span>
+      ),
+    });
+  if (computer)
+    parts.push({
+      key: "computer",
+      shrink: true,
+      node: (
+        <span data-chat-computer className={`flex min-w-0 items-center gap-1 ${computer.offline ? "text-orange" : ""}`}>
+          <HugeiconsIcon
+            icon={computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon}
+            size={12}
+            strokeWidth={2}
+            color="currentColor"
+            className={`shrink-0 ${computer.offline ? "" : "text-ink-3"}`}
+          />
+          <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
+        </span>
+      ),
+    });
+  return (
+    <div
+      data-chat-prs
+      data-chat-line
+      className={`sidebar-copy pointer-events-none absolute left-[50px] right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
+    >
+      {parts.map((part, index) => (
+        <Fragment key={part.key}>
+          {index > 0 && (
+            <span aria-hidden className="shrink-0 px-1 text-ink-3">
+              ·
+            </span>
+          )}
+          {part.shrink ? <span className="flex min-w-0 shrink items-center">{part.node}</span> : part.node}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
 // memo: the sidebar rebuilds on streamed batches, and a row only needs to render when its own item changes.
 export const ChatRow = memo(function ChatRow({
   item,
@@ -272,6 +507,9 @@ export const ChatRow = memo(function ChatRow({
   linked = NO_LINKS,
   bot,
   project,
+  projectImage,
+  projectInitial,
+  linkProjects,
 }: {
   item: SidebarRecent;
   active: boolean;
@@ -292,8 +530,16 @@ export const ChatRow = memo(function ChatRow({
   linked?: LinkedEnd[];
   /** The bot that opened the chat and still runs it: "from <Bot name>" leads the second line. */
   bot?: BotMark;
-  /** The Project (or Link) the chat belongs to, when the list has no Project header to say so: it leads the second line. */
+  /**
+   * The Project (or Link) the chat belongs to, when the list has no Project header to say so. Only the One list sets it,
+   * and its rows are inbox rows: the Project's icon, the title with its time, and one line of what the chat is about.
+   */
   project?: string;
+  /** The inbox row's Project icon (a Link's first Project's), and the letter shown without one. */
+  projectImage?: string | null;
+  projectInitial?: string;
+  /** A shared Link Chat's Projects: "3 Projects" stands in for the Project's name. */
+  linkProjects?: number;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -327,6 +573,8 @@ export const ChatRow = memo(function ChatRow({
       </span>,
     );
   const projectName = collapsed ? undefined : project;
+  // The One list's rows: see `project`.
+  const inbox = projectName !== undefined;
   const factLine = Boolean(projectName) || facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
@@ -441,7 +689,19 @@ export const ChatRow = memo(function ChatRow({
           openMenu(event.clientX, event.clientY);
         }}
       >
-        {renaming ? (
+        {renaming && inbox ? (
+          <div data-row className="sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-[8px] bg-hover-2 px-2 py-[7px]">
+            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
+            <RenameField
+              inbox
+              initial={item.label}
+              onDone={(title) => {
+                setRenaming(false);
+                if (title !== null && title !== item.label) actions.onRename?.(item.id, title);
+              }}
+            />
+          </div>
+        ) : renaming ? (
           <div data-row className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-[8px] bg-hover-2 px-2">
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} />
             <RenameField
@@ -452,6 +712,30 @@ export const ChatRow = memo(function ChatRow({
               }}
             />
           </div>
+        ) : inbox ? (
+          <button
+            data-row
+            data-inbox-row
+            type="button"
+            onClick={() => onPick(item)}
+            onKeyDown={(event) => {
+              // The inbox row has no ⋯ button: the context menu key (or Shift-F10) opens its menu from the keyboard.
+              if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+              event.preventDefault();
+              const rect = event.currentTarget.getBoundingClientRect();
+              openMenu(rect.left + 24, rect.bottom + 4);
+            }}
+            disabled={archiving}
+            aria-busy={archiving || undefined}
+            aria-label={archiving ? `Archiving ${item.label}` : undefined}
+            aria-current={active ? "page" : undefined}
+            className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-[8px] px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
+              active ? "bg-hover-2" : "hover:bg-hover-2"
+            } ${archiving ? "opacity-30" : ""}`}
+          >
+            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
+            <InboxTitleLine item={item} linked={linked} lastAt={lastAt} now={now} hideTime={Boolean(shortcutHint) || Boolean(menu)} />
+          </button>
         ) : (
           <button
             data-row
@@ -519,7 +803,21 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
 
-        {factLine && !renaming && (
+        {inbox && !renaming && (
+          <InboxLine
+            item={item}
+            project={projectName}
+            linkProjects={linkProjects}
+            bot={bot}
+            pullRequests={pullRequests}
+            linearIssue={linearIssue}
+            diff={diff}
+            computer={rowComputer && (!rowComputer.local || rowComputer.offline) ? rowComputer : undefined}
+            archiving={archiving}
+          />
+        )}
+
+        {!inbox && factLine && !renaming && (
           <div
             data-chat-prs
             className={`sidebar-copy absolute bottom-1 left-9 z-20 flex max-w-[calc(100%-72px)] min-w-0 items-center gap-2 ${archiving ? "opacity-30" : ""}`}
@@ -559,7 +857,7 @@ export const ChatRow = memo(function ChatRow({
           <ShortcutKeys
             shortcut={shortcutHint}
             aria-hidden="true"
-            className={`pointer-events-none absolute top-1.5 z-30 ${collapsed ? "right-1" : "right-3"}`}
+            className={`pointer-events-none absolute z-30 ${inbox ? "right-4 top-2" : `top-1.5 ${collapsed ? "right-1" : "right-3"}`}`}
           />
         )}
         {archiving && (
@@ -571,7 +869,7 @@ export const ChatRow = memo(function ChatRow({
             </span>
           </div>
         )}
-        {!item.pending && !collapsed && !renaming && !shortcutHint && (
+        {!item.pending && !collapsed && !inbox && !renaming && !shortcutHint && (
           <button
             ref={triggerRef}
             type="button"
@@ -655,26 +953,26 @@ const isReadyToMerge = (pr: PullRequest) => pullRequestPresentation(pr).ready;
 const isChecking = (pr: PullRequest) => pullRequestPresentation(pr).checking;
 
 /** One PR under the chat's title. Only a chat's single PR has room to spell out its blocker or "Ready". */
-function LinearIssueChip({ issue }: { issue: LinearIssue }) {
+function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?: boolean }) {
   return (
     <button
       type="button"
       data-linear-issue-chip
-      title={issue.title}
+      title={inbox ? `${issueChipLabel(issue)} · ${issue.title}` : issue.title}
       aria-label={`Open Linear issue ${issue.key}: ${issue.title}`}
       onClick={(event) => {
         event.stopPropagation();
         window.open(issue.url, "_blank", "noopener,noreferrer");
       }}
-      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums text-ink-3 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+      className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "pointer-events-auto shrink-0 text-ink-2" : "text-ink-3"}`}
     >
       <LinearLogo size={11} />
-      <span className="truncate">{issueChipLabel(issue)}</span>
+      <span className="truncate">{inbox ? issue.key : issueChipLabel(issue)}</span>
     </button>
   );
 }
 
-function PullRequestChip({ pr, labelled }: { pr: PullRequest; labelled: boolean }) {
+function PullRequestChip({ pr, labelled, inbox = false }: { pr: PullRequest; labelled: boolean; inbox?: boolean }) {
   const blocker = pullRequestBlockers(pr)[0];
   const readyToMerge = isReadyToMerge(pr);
   const checking = isChecking(pr);
@@ -690,7 +988,7 @@ function PullRequestChip({ pr, labelled }: { pr: PullRequest; labelled: boolean 
               : `${pr.state === "MERGED" ? "Merged" : "Open"} pull request #${pr.number}`
       }
       side="bottom"
-      className="min-w-0"
+      className={inbox ? "pointer-events-auto shrink-0" : "min-w-0"}
     >
       <a
         href={pr.url}
@@ -698,7 +996,7 @@ function PullRequestChip({ pr, labelled }: { pr: PullRequest; labelled: boolean 
         rel="noopener noreferrer"
         aria-label={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : readyToMerge ? ", ready to merge" : checking ? ", CI running" : ""}`}
         data-chat-pr
-        className="group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums text-ink-3 no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
         onClick={(event) => event.stopPropagation()}
       >
         <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${prTone(pr)}`}>
@@ -716,7 +1014,7 @@ function PullRequestChip({ pr, labelled }: { pr: PullRequest; labelled: boolean 
   );
 }
 
-function RenameField({ initial, onDone }: { initial: string; onDone: (title: string | null) => void }) {
+function RenameField({ initial, onDone, inbox = false }: { initial: string; onDone: (title: string | null) => void; inbox?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const done = useRef(false);
   const finish = (title: string | null) => {
@@ -747,7 +1045,7 @@ function RenameField({ initial, onDone }: { initial: string; onDone: (title: str
         }
       }}
       onBlur={(event) => finish(event.currentTarget.value.trim())}
-      className="sidebar-copy min-w-0 flex-1 bg-transparent text-[length:calc(14px+var(--sidebar-delta))] font-medium text-ink outline-none"
+      className={`sidebar-copy min-w-0 flex-1 bg-transparent font-medium text-ink outline-none ${inbox ? "h-[18px] text-[length:calc(13px+var(--sidebar-delta))] leading-[18px]" : "text-[length:calc(14px+var(--sidebar-delta))]"}`}
     />
   );
 }

@@ -334,8 +334,13 @@ async function browserChecks() {
     await key("1", modifier);
     await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
     await evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
-    await waitFor(`!!document.querySelector('[aria-label="Chat actions"]')`);
-    await evaluate(`document.querySelector('[aria-label="Chat actions"]').click()`);
+    // One list rows have no ⋯ button: their menu opens on a right-click.
+    await waitFor(`!!document.querySelector("[data-chat-id] [data-row]")`);
+    await evaluate(`(() => {
+      const row = document.querySelector("[data-chat-id]");
+      const rect = row.querySelector("[data-row]").getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: rect.left + 20, clientY: rect.top + 10 }));
+    })()`);
     await waitFor('!!document.querySelector("[data-chat-menu]")');
     await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.includes('Mark as unread')).click()`);
     await waitFor(`document.body.textContent.includes('Could not update Chat: Chat could not be saved: disk full')`);
