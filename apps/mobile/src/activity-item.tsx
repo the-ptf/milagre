@@ -2,8 +2,10 @@ import { useState, type ReactNode } from "react";
 import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { titleSpans } from "@milagre/shared/reply-parts";
+import { useStepSweep } from "@milagre/shared/use-step-sweep";
 import { Icon, type IconData } from "./icons";
-import { ShimmerText } from "./running-logo";
+import { ShimmerText, useShimmerReducedMotion } from "./running-logo";
+import { useScreenActive } from "./display-clock";
 import { fonts, useTheme } from "./theme";
 import { PageScroll, useStyles } from "./ui";
 
@@ -13,35 +15,47 @@ type ActivityState = "idle" | "running" | "waiting" | "failed";
 export function ActivityTitle({
   title,
   shimmer,
+  startedAt,
   numberOfLines = 1,
   style: styleProp,
 }: {
   title: string;
   shimmer: boolean;
+  startedAt?: number;
   numberOfLines?: number;
   style?: TextStyle;
 }) {
   const { colors } = useTheme();
+  const active = useScreenActive();
+  const reduced = useShimmerReducedMotion(active && shimmer);
+  const remaining = useStepSweep(startedAt, shimmer && active && !reduced);
+  const sweeping = remaining > 0;
   const style = styleProp ?? { color: colors.ink2, fontSize: 14 };
-  const spans = titleSpans(title).map((span, index) =>
-    span.code ? (
-      <Text
-        key={index}
-        style={{ fontFamily: fonts.mono, fontSize: (style.fontSize || 14) * 0.92, backgroundColor: shimmer ? undefined : colors.field, color: colors.ink }}
-      >
-        {span.text}
-      </Text>
-    ) : (
-      span.text
-    ),
-  );
-  return shimmer ? (
-    <ShimmerText style={style} numberOfLines={numberOfLines}>
-      {spans}
+  const spans = (moving: boolean) =>
+    titleSpans(title).map((span, index) =>
+      span.code ? (
+        <Text
+          key={index}
+          style={{
+            fontFamily: fonts.mono,
+            fontSize: (style.fontSize || 14) * 0.92,
+            backgroundColor: moving ? undefined : colors.field,
+            color: shimmer ? colors.ink3 : colors.ink,
+          }}
+        >
+          {span.text}
+        </Text>
+      ) : (
+        span.text
+      ),
+    );
+  return sweeping ? (
+    <ShimmerText startedAt={startedAt!} settledChildren={spans(false)} style={style} numberOfLines={numberOfLines}>
+      {spans(true)}
     </ShimmerText>
   ) : (
-    <Text selectable numberOfLines={numberOfLines} style={style}>
-      {spans}
+    <Text selectable numberOfLines={numberOfLines} style={[style, shimmer && { color: colors.ink3 }]}>
+      {spans(false)}
     </Text>
   );
 }
@@ -49,6 +63,7 @@ export function ActivityTitle({
 /** Shared tool/subagent disclosure. Adapters supply their data and output; presentation lives here. */
 export function ActivityItem({
   title,
+  startedAt,
   icon,
   state = "idle",
   status,
@@ -60,6 +75,7 @@ export function ActivityItem({
   expanded: expandedByDefault = false,
 }: {
   title: string;
+  startedAt?: number;
   icon: IconData;
   state?: ActivityState;
   status?: string;
@@ -88,6 +104,7 @@ export function ActivityItem({
       <View style={{ flex: 1, gap: 2 }}>
         <ActivityTitle
           title={title}
+          startedAt={startedAt}
           shimmer={state === "running"}
           numberOfLines={disclosureOnly && expanded ? 0 : 1}
           style={{ color: failed ? colors.red : colors.ink2, fontSize: 14 }}

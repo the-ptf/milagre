@@ -7,6 +7,7 @@ import { activitySummary, titleSpans } from "../../lib/reply-parts";
 import type { ActivityEntry } from "../../lib/reply-parts";
 import { activityBoundary, earlierStepsLabel } from "../../lib/activity-window";
 import { useSettings } from "../../lib/settings";
+import { useStepTitleSweep } from "../../lib/step-sweep";
 import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
 
@@ -18,16 +19,17 @@ function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-function Title({ title, shimmer }: { title: string; shimmer: boolean }) {
+function Title({ step, running }: { step: ChatStep; running: boolean }) {
+  const sweep = useStepTitleSweep(step, running);
   return (
     <>
-      {titleSpans(title).map((span, index) =>
+      {titleSpans(step.title).map((span, index) =>
         span.code ? (
-          <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${shimmer ? "step-shimmer" : ""}`}>
+          <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`} style={sweep.style}>
             {span.text}
           </code>
         ) : (
-          <span key={index} className={shimmer ? "step-shimmer" : undefined}>
+          <span key={index} {...sweep}>
             {span.text}
           </span>
         ),
@@ -75,7 +77,7 @@ export function ActivityBlock({
       </div>
     );
   const first = entries[0];
-  if (entries.length === 1 && first?.type === "step") return <StepRow step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
+  if (entries.length === 1 && first?.type === "step") return <StepRow key={first.step.id} step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
 
   const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
   const current = streaming ? steps.findLast((step) => step.status === "running") : undefined;
@@ -97,7 +99,7 @@ export function ActivityBlock({
           <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
         </svg>
         <span role="status" className="min-w-0 truncate">
-          {current ? <Title title={current.title} shimmer={!waiting} /> : summary.text}
+          {current ? <Title key={current.id} step={current} running={!waiting} /> : summary.text}
         </span>
         {waiting && <span className="shrink-0 text-[11.5px] text-ink-3">Waiting for approval</span>}
         {!current && summary.failed > 0 && (

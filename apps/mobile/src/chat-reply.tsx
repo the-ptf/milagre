@@ -185,7 +185,7 @@ function ActivityRow({ steps, live, waiting, onPress }: { steps: ChatStep[]; liv
       </Svg>
       <View style={{ flexShrink: 1 }}>
         {current ? (
-          <ActivityTitle title={current.title} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
+          <ActivityTitle key={current.id} title={current.title} startedAt={current.startedAt} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
         ) : (
           <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 14 }}>
             {label}
@@ -413,7 +413,7 @@ export const ChatReply = memo(function ChatReply({
           ),
         )
       ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
-        <ToolRow step={reply.activity[0].step} live={!!run} waiting={waiting} onPress={openActivity} />
+        <ToolRow key={reply.activity[0].step.id} step={reply.activity[0].step} live={!!run} waiting={waiting} onPress={openActivity} />
       ) : (
         reply.activity.length > 0 && (
           <ActivityRow
