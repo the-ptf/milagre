@@ -23,3 +23,14 @@ export function subscribeNavigation(listener: () => void) {
     listeners.delete(listener);
   };
 }
+
+/** The Chat a screen shows, by its computer, Project and id. */
+export type OpenChat = { hostId?: string; projectPath?: string; chatId?: number };
+
+/** Whether `href` goes to the Chat already open, so following it would only remount that Chat. */
+export function isOpenChat(href: unknown, open: OpenChat) {
+  if (!href || typeof href !== "object" || open.chatId === undefined) return false;
+  const { pathname, params } = href as { pathname?: string; params?: Record<string, unknown> };
+  if (pathname !== "/chat" || !params) return false;
+  return params.id === String(open.chatId) && params.projectPath === open.projectPath && params.hostId === open.hostId;
+}

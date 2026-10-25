@@ -1,4 +1,5 @@
 #import "MilagreKeysHook.h"
+#import <React/RCTConstants.h>
 #import <React/RCTUITextView.h>
 #import <objc/runtime.h>
 
@@ -53,6 +54,19 @@ static BOOL isPlainReturn(UITextView *view, NSSet<UIPress *> *presses)
 {
   if (isPlainReturn(self, presses)) return;
   [self milagre_pressesEnded:presses withEvent:event];
+}
+@end
+
+// Fabric creates its pointer handler, and with it the hover recognizer, only when W3C pointer events are on when a
+// surface's touch handler starts. Turn them on as the binary loads, before any surface exists, so an iPad's trackpad
+// or mouse hovers. Touches keep their own events; pointer handlers also see them, as pointerType "touch".
+@interface MilagrePointerEvents : NSObject
+@end
+
+@implementation MilagrePointerEvents
++ (void)load
+{
+  RCTSetDispatchW3CPointerEvents(YES);
 }
 @end
 

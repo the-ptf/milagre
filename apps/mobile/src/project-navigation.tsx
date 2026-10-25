@@ -227,7 +227,7 @@ type NavigationProps = {
   activeChatId?: number;
   /** False while the sidebar is mounted but off screen: nothing is read from the computers then. */
   visible?: boolean;
-  /** Pinned beside the Chat on a wide iPad: it never closes, and picking the open Chat leaves it be. */
+  /** Pinned beside the Chat on a wide iPad: it never closes, and its `onNavigate` skips the Chat already open. */
   docked?: boolean;
   /** Drawn on a card's surface color (the pinned sidebar and the one sliding over) instead of the page's. */
   surface?: boolean;
@@ -546,7 +546,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat) {
     const params = { projectPath, hostId };
     if (chatId === undefined) onNavigate({ pathname: "/chat", params });
-    else if (hostId === currentHostId && projectPath === currentPath && chatId === activeChatId && (onClose || docked)) onClose?.();
+    else if (hostId === currentHostId && projectPath === currentPath && chatId === activeChatId && onClose) onClose();
     else if (pending?.accepted && pending.preview.targetSessionId !== null)
       onNavigate({ pathname: "/chat", params: { ...params, id: String(pending.preview.targetSessionId) } });
     else if (pending)
