@@ -20,20 +20,66 @@ async function check() {
     show: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
   });
+  let frame;
   try {
     await window.loadFile(path.join(process.argv[2], "index.html"));
     // Opaque frame pointer routing needs a composited surface, even in this isolated check.
     window.showInactive();
-    await delay(100);
-    const frame = window.webContents.mainFrame.frames.find((item) => item.url === "about:srcdoc");
+    frame = window.webContents.mainFrame.frames.find((item) => item.url === "about:srcdoc");
     assert.ok(frame, "the preview is an opaque srcdoc iframe");
     assert.equal(await frame.executeJavaScript("!!document.getElementById('design-guides')"), true, "the controller runs under the built renderer CSP");
     assert.equal(await frame.executeJavaScript("typeof window.untrustedScriptRan"), "undefined", "unapproved inline scripts remain blocked");
     assert.equal(await frame.executeJavaScript("!!window.require || !!window.milagre"), false, "the frame has no host bridge");
     await window.webContents.executeJavaScript("window.designMessages=[];addEventListener('message',event=>window.designMessages.push(event.data))");
     window.webContents.debugger.attach("1.3");
-    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: 60, y: 125, button: "left", clickCount: 1 });
-    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: 60, y: 125, button: "left", clickCount: 1 });
+    const child = await frame.executeJavaScript(`(() => {
+      const r = document.querySelector('[data-design-node=heading]').getBoundingClientRect();
+      const point = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      window.pointerEvents = [];
+      for (const type of ['pointermove', 'pointerdown', 'pointerup']) addEventListener(type, event => {
+        window.pointerEvents.push({ type, trusted: event.isTrusted, id: event.target.closest?.('[data-design-node]')?.getAttribute('data-design-node') });
+      }, { capture: true, passive: true });
+      return { ...point, width: innerWidth, height: innerHeight, hit: document.elementFromPoint(point.x, point.y)?.closest('[data-design-node]')?.getAttribute('data-design-node') };
+    })()`);
+    assert.equal(child.hit, "heading", "the child hit test finds the heading");
+    const parent = await window.webContents.executeJavaScript(`(() => {
+      const iframe = document.querySelector('iframe'); const r = iframe.getBoundingClientRect();
+      const x = r.left + ${child.x} * r.width / ${child.width};
+      const y = r.top + ${child.y} * r.height / ${child.height};
+      return { x, y, hit: document.elementFromPoint(x, y) === iframe };
+    })()`);
+    assert.equal(parent.hit, true, "the parent hit test finds the iframe");
+    // DOM readiness alone does not guarantee compositor hit-test routing. Probe the real path without selecting.
+    const deadline = Date.now() + 3000;
+    let routed = false;
+    for (let attempt = 0; Date.now() < deadline; attempt++) {
+      await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: parent.x + (attempt % 2),
+        y: parent.y,
+        buttons: 0,
+      });
+      routed = await frame.executeJavaScript("window.pointerEvents.some(event=>event.type==='pointermove'&&event.trusted&&event.id==='heading')");
+      if (routed) break;
+      await delay(20);
+    }
+    assert.equal(routed, true, "trusted pointer input reaches the heading before clicking");
+    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: parent.x,
+      y: parent.y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
+    await window.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: parent.x,
+      y: parent.y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
     for (let tries = 0; tries < 50; tries++) {
       if (await window.webContents.executeJavaScript("window.designMessages.some(message=>message.type==='milagre:design-select'&&message.id==='heading')"))
         break;
@@ -82,6 +128,23 @@ async function check() {
     previews.clear(window.webContents.id);
     window.webContents.debugger.detach();
     console.log("PASS: production CSP isolates interactive HTML artifacts and permits trusted design controllers");
+  } catch (error) {
+    console.error("CSP pointer diagnostics", {
+      parent: await window.webContents
+        .executeJavaScript(`(() => { const r=document.querySelector('iframe')?.getBoundingClientRect(); return {
+        rect:r?.toJSON(), visibility:document.visibilityState, focus:document.hasFocus(), dpr:devicePixelRatio, messages:window.designMessages,
+      }; })()`)
+        .catch(() => null),
+      child: await frame
+        ?.executeJavaScript(`({ events:window.pointerEvents, visibility:document.visibilityState, focus:document.hasFocus(), dpr:devicePixelRatio })`)
+        .catch(() => null),
+      zoom: window.webContents.getZoomFactor(),
+    });
+    if (process.env.MILAGRE_SCREENSHOT_DIR) {
+      await fs.mkdir(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+      await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "design-csp-failure.png"), (await window.webContents.capturePage()).toPNG());
+    }
+    throw error;
   } finally {
     window.destroy();
     app.quit();
