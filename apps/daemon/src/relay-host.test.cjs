@@ -257,6 +257,18 @@ test("a connection is limited to 8 live sockets and 16 requests in flight, with 
   assert.deepEqual(new Set(statuses.values()), new Set([200]));
 });
 
+test("a request that waited too long on the Mac is refused unread, never run late", async (t) => {
+  const { bridge, connect } = await paired(t, { mac: { timing: { queueWaitMs: 150 } } });
+  const phone = await connect();
+  for (let id = 1; id <= 17; id++) phone.request(id, { path: "/slow" });
+  await until(() => bridge.waiting() === 16, "16 requests to reach the bridge");
+  const late = await phone.response(17);
+  assert.equal(late.status, 429, "the phone can't cancel it, so the Mac turns it away instead of running it later");
+  bridge.release();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(bridge.waiting(), 0, "the refused request never reached the bridge");
+});
+
 test("a bad frame closes only that phone", async (t) => {
   const { connect } = await paired(t);
   const a = await connect();

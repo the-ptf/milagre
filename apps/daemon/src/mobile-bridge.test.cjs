@@ -747,6 +747,37 @@ test("a busy daemon's requests wait their turn at the bridge, and only a flood p
   assert.deepEqual(new Set(answered.map((response) => response.status)), new Set([200]), "every waiting request was answered");
 });
 
+test("a request that waited too long at the bridge is refused unread, never run late", async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
+  const dataDir = path.join(root, "profile");
+  const host = await ensureDaemon({ dataDir, version: "test", cwd: root });
+  const { pid } = host.status;
+  host.close();
+  const token = randomBytes(32).toString("hex");
+  const bridge = await startMobileBridge({ dataDir, port: 0, token, queueWaitMs: 150 });
+  t.after(async () => {
+    process.kill(pid, "SIGCONT");
+    await bridge.close();
+    const client = await connect({ dataDir });
+    await client.call("daemon:stop").catch(() => {});
+    client.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const status = () =>
+    fetch(bridge.url + "/rpc", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ v: 1, method: "daemon:status", args: [] }),
+    });
+  process.kill(pid, "SIGSTOP");
+  const running = Array.from({ length: 16 }, () => status());
+  await delay(100);
+  const late = await status();
+  assert.equal(late.status, 429, "a relayed request keeps its socket open after the phone gave up, so it leaves the line");
+  process.kill(pid, "SIGCONT");
+  assert.deepEqual(new Set((await Promise.all(running)).map((response) => response.status)), new Set([200]));
+});
+
 test("snapshots carry an ETag, an unchanged one is a 304, and large bodies are gzipped", async (t) => {
   const { project, rpc, request, token, dataDir } = await fixture(t);
   await rpc("project:open", [project]);
