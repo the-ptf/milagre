@@ -32,13 +32,13 @@ export default function ChooseProjects() {
   const styles = useStyles();
   const session = useSession();
   const views = useComputerViews();
-  const currentHostId = session.client?.url;
-  // The session's own computer lists from its live Project list; the others as the sidebar last read them.
+  // "" before the session has a client: its own Projects still list, and save through the session.
+  const currentHostId = session.client?.url ?? "";
+  // The session's own computer lists from its live Project list, even before the sidebar's store has it; the others as
+  // the sidebar last read them.
   const own = (hostId: string, name: string): Computer => ({ hostId, name, projects: byName(session.recent) });
-  const computers =
-    views.some((view) => view.hostId === currentHostId) || !currentHostId
-      ? views.map((view) => (view.hostId === currentHostId ? own(view.hostId, view.name) : listed(view)))
-      : [own(currentHostId, session.hostName || "Computer"), ...views.map(listed)];
+  const computers = views.map((view) => (view.hostId === currentHostId ? own(view.hostId, view.name) : listed(view)));
+  if (!views.some((view) => view.hostId === currentHostId)) computers.unshift(own(currentHostId, session.hostName || "Computer"));
   const grouped = computers.length > 1;
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
@@ -122,7 +122,7 @@ export default function ChooseProjects() {
           ? "No Projects on this computer yet."
           : "Open a Project on your Mac to list it here.";
   const list = (projects: Computer) => (
-    <View style={{ borderRadius: 12, backgroundColor: colors.surface, padding: 4 }}>
+    <View key={projects.hostId} style={{ borderRadius: 12, backgroundColor: colors.surface, padding: 4 }}>
       {projects.projects.map((project) => row(projects.hostId, project))}
       {!projects.projects.length && <Text style={[styles.muted, { padding: 16 }]}>{empty(projects)}</Text>}
     </View>
@@ -144,22 +144,16 @@ export default function ChooseProjects() {
       </View>
       <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
       {/* With two or more computers, each one's Projects sit under its name, as in desktop's Filters › Projects. */}
-      {grouped ? (
-        computers.map((computer) => (
-          <View key={computer.hostId} style={{ gap: 8 }}>
-            <Text accessibilityRole="header" numberOfLines={1} style={styles.section}>
-              {computer.name}
-            </Text>
-            {list(computer)}
-          </View>
-        ))
-      ) : computers[0] ? (
-        list(computers[0])
-      ) : (
-        <View style={{ borderRadius: 12, backgroundColor: colors.surface, padding: 4 }}>
-          <Text style={[styles.muted, { padding: 16 }]}>Open a Project on your Mac to list it here.</Text>
-        </View>
-      )}
+      {grouped
+        ? computers.map((computer) => (
+            <View key={computer.hostId} style={{ gap: 8 }}>
+              <Text accessibilityRole="header" numberOfLines={1} style={styles.section}>
+                {computer.name}
+              </Text>
+              {list(computer)}
+            </View>
+          ))
+        : computers.map((computer) => list(computer))}
       {all.length > 0 && <Text style={styles.caption}>{hiddenCount ? `${hiddenCount} hidden.` : "All Projects and Links are shown."}</Text>}
       {error ? <ErrorNotice message={error} /> : null}
     </PageScroll>
