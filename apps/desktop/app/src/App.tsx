@@ -102,9 +102,10 @@ import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
-import { activeChatKeys, gridChats, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
+import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
 import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
-import { ChatGrid } from "./components/ChatGrid";
+import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
+import { dropSide, gridDrop, placeDropped, readGridPins, saveGridPins, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
@@ -359,6 +360,8 @@ function App() {
   };
   const selectedCapability = capabilityFor(selectedModel, capabilities);
   const [view, setView] = useState<"chat" | "canvas" | "settings" | "routines">("chat");
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const bots = useBots();
   const botsRef = useRef(bots.snapshot);
   botsRef.current = bots.snapshot;
@@ -413,10 +416,25 @@ function App() {
   const runPaneRef = useRef<string | null>(null);
   runPaneRef.current = runPane;
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const toggleLayout = () =>
     setLayout((current) => {
       const next = current === "grid" ? "single" : "grid";
       saveChatLayout(localStorage, next);
+      return next;
+    });
+  const showGrid = () =>
+    setLayout(() => {
+      saveChatLayout(localStorage, "grid");
+      return "grid";
+    });
+  // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
+  const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
+  const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
+    setGridPins((current) => {
+      const next = change(current);
+      saveGridPins(localStorage, next);
       return next;
     });
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -925,18 +943,75 @@ function App() {
   const focusedChatKey = project && selectedSession && selectedSession.id > 0 ? chatKey(project.path, selectedSession.id) : null;
   // A Run's Chat beside its Routine's page: the window's Chat pane, moved next to the Runs, once that Chat is the open one.
   const runPaneOpen = view === "routines" && routineId !== null && runPane !== null && runPane === focusedChatKey;
-  const activeKeys = useMemo(
-    () => (gridOn ? activeChatKeys(agentRuns.runs, linkedWork, gridStates) : NO_KEYS),
-    [gridOn, agentRuns.runs, linkedWork, gridStates],
+  // A pin whose Chat was archived or left with its Worktree drops out; one in a Project not read yet stays.
+  const livePins = useMemo(
+    () =>
+      gridPins.filter((key) => {
+        const state = gridStates[projectOfKey(key)];
+        const session = state?.sessions?.[sessionIdFromKey(key)];
+        return !state || Boolean(session && !session.archived);
+      }),
+    [gridPins, gridStates],
   );
+  const activeKeys = useMemo(
+    () => (gridOn ? [...activeChatKeys(agentRuns.runs, linkedWork, gridStates), ...livePins] : NO_KEYS),
+    [gridOn, agentRuns.runs, linkedWork, gridStates, livePins],
+  );
+  const pinnedTiles = useMemo(() => new Set(livePins), [livePins]);
+  const toggleGridPin = useEvent((key: string) => changeGridPins((pins) => (pins.includes(key) ? pins.filter((item) => item !== key) : [...pins, key])));
+  // A new Chat not saved yet keeps the grid as a draft tile, whose slot the Chat takes once it is saved.
+  const gridFocusKey = focusedChatKey ?? (project && !selectedLink ? draftTileKey(project.path) : null);
   const [gridTiles, setGridTiles] = useState<readonly string[]>(NO_KEYS);
-  const nextGridTiles = gridChats(gridTiles, activeKeys, gridOn ? focusedChatKey : null);
+  const nextGridTiles = gridChats(gridTiles, activeKeys, gridOn ? gridFocusKey : null);
   if (nextGridTiles !== gridTiles) setGridTiles(nextGridTiles);
-  const shownTiles = gridOn && focusedChatKey ? gridTiles : NO_KEYS;
+  const shownTiles = gridOn && gridFocusKey ? gridTiles : NO_KEYS;
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
   const focusedChatKeyRef = useRef(focusedChatKey);
   focusedChatKeyRef.current = focusedChatKey;
+  const gridFocusKeyRef = useRef(gridFocusKey);
+  gridFocusKeyRef.current = gridFocusKey;
+  // A Chat dropped from the sidebar is kept in the grid where it was dropped. Dropped beside the one Chat on screen, it
+  // turns the view into a grid of the two, and keeps that Chat too, so focusing either leaves both.
+  const dropOnGrid = useEvent((key: string, target: GridDropTarget) => {
+    const focused = focusedChatKeyRef.current;
+    const grid = layoutRef.current === "grid";
+    changeGridPins((pins) => {
+      const next = pins.filter((item) => item !== key);
+      if (!grid && focused && !next.includes(focused)) next.push(focused);
+      return [...next, key];
+    });
+    setGridTiles((tiles) => placeDropped(grid ? tiles : NO_KEYS, key, target, focused));
+    if (!grid) showGrid();
+  });
+  useEffect(
+    () =>
+      gridDrop.register({
+        hit: (x, y, key) => {
+          if (viewRef.current !== "chat" || selectedLinkRef.current || !projectRef.current) return null;
+          const under = document.elementFromPoint(x, y);
+          const tile = under?.closest<HTMLElement>("[data-chat-tile]");
+          if (tile) {
+            const tileKey = tile.dataset.chatTile ?? "";
+            return tileKey === key ? null : { tile: tileKey, ...dropSide(tile.getBoundingClientRect(), x, 12) };
+          }
+          const focused = focusedChatKeyRef.current;
+          if (shownTilesRef.current.length || !focused || focused === key) return null;
+          const pane = under?.closest<HTMLElement>("[data-chat-pane]");
+          return pane ? { tile: null, ...dropSide(pane.getBoundingClientRect(), x, 0) } : null;
+        },
+        drop: dropOnGrid,
+      }),
+    [],
+  );
+  const dismissTile = useEvent(
+    (key: string) =>
+      void reportChatAction(
+        bridgeForKey(projectOfKey(key)).patchChat(projectOfKey(key), sessionIdFromKey(key), { unread: false }),
+        "Could not mark Chat read",
+        setNotice,
+      ),
+  );
   const delegatedKeys = useMemo(() => new Set(linkedWork.delegations.flatMap((item) => (item.to_chat ? [item.to_chat] : []))), [linkedWork]);
   // Chats carry a summary of their messages; only an older host's state, without one, is grouped message by message.
   const messagesBySession = useMemo(() => {
@@ -1426,7 +1501,12 @@ function App() {
   // Switching projects leaves the other project's turns running; their marks come back with it.
   // `keepView` leaves the view as it is: a Run Chat opening beside its Routine's page, or the Chat it replaced coming back.
   // `forgetChat` doesn't remember the Chat on screen for the Project being left (a Run Chat the pane had).
-  function adoptProject(nextProject: OpenProject, { keepView = false, forgetChat = false } = {}) {
+  // `sessionId` is the Chat to open there, picked in the same render as the Project, so the one it remembered is never
+  // put on screen (which would mark it read) on the way.
+  function adoptProject(
+    nextProject: OpenProject,
+    { keepView = false, forgetChat = false, sessionId }: { keepView?: boolean; forgetChat?: boolean; sessionId?: number } = {},
+  ) {
     if (!selectedLinkRef.current && projectRef.current)
       scopeDrafts.save(
         { kind: "project", projectPath: projectRef.current.path },
@@ -1446,7 +1526,8 @@ function App() {
       setProject(nextProject);
       selectInitialChat(nextProject.state, nextProject.path);
       const remembered = scopeDrafts.read({ kind: "project", projectPath: nextProject.path });
-      if (remembered.sessionId !== null && nextProject.state.sessions[remembered.sessionId]) setSelectedSessionId(remembered.sessionId);
+      const target = sessionId !== undefined && nextProject.state.sessions[sessionId] ? sessionId : remembered.sessionId;
+      if (target !== null && nextProject.state.sessions[target]) setSelectedSessionId(target);
       setGitDialog(null);
       if (!keepView) setView("chat");
     });
@@ -1538,7 +1619,7 @@ function App() {
     const seen = projectsSeen.current.get(projectPath);
     const instant = cachedState && seen ? { ...seen, state: cachedState } : cachedProjectCopy(projectPath);
     if (instant) {
-      adoptProject(instant, adopt);
+      adoptProject(instant, { ...adopt, sessionId });
       openChat(sessionId);
     }
     const adopted = statesRef.current[projectPath];
@@ -1546,7 +1627,7 @@ function App() {
       const next = await (isRemoteKey(projectPath) ? bridgeForKey(projectPath).switchProject(projectPath) : window.milagre.openCanvasProject(projectPath));
       if (navigation !== projectNavigation.current) return;
       if (!instant || next.path !== projectRef.current?.path || selectedLinkRef.current) {
-        adoptProject(next, adopt);
+        adoptProject(next, { ...adopt, sessionId });
         openChat(sessionId);
         return;
       }
@@ -2005,9 +2086,12 @@ function App() {
         const step = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
         if (!step || tiles.length < 2 || event.shiftKey) return;
         event.preventDefault();
-        const at = tiles.indexOf(focusedChatKeyRef.current ?? "");
-        const next = tiles[(at + step + tiles.length) % tiles.length];
-        if (next) openLinkedChat(next);
+        const at = tiles.indexOf(gridFocusKeyRef.current ?? "");
+        // A new Chat's draft tile is left, never landed on: it has no Chat to open.
+        const others = tiles.filter((key, index) => index === at || !isDraftTileKey(key));
+        const from = others.indexOf(gridFocusKeyRef.current ?? "");
+        const next = others[(from + step + others.length) % others.length];
+        if (next && next !== gridFocusKeyRef.current) openLinkedChat(next);
         return;
       }
       if (event.shiftKey) {
@@ -2023,7 +2107,13 @@ function App() {
           setView("canvas");
         } else if (event.key.toLowerCase() === "m") {
           event.preventDefault();
-          toggleLayout();
+          // Away from the Chat view the grid has nothing to toggle: the shortcut shows it there instead.
+          if (viewRef.current === "chat") toggleLayout();
+          else {
+            changes.closeDiff();
+            setView("chat");
+            showGrid();
+          }
         }
         return;
       }
@@ -3001,20 +3091,16 @@ function App() {
                   )}
                   <ChatGrid
                     keys={shownTiles}
-                    focused={focusedChatKey}
+                    focused={gridFocusKey}
                     states={gridStates}
                     runs={agentRuns.runs}
                     delegated={delegatedKeys}
                     models={models}
                     onFocus={openLinkedChat}
                     onOpenRoutine={openRoutine}
-                    onDismiss={(key) =>
-                      void reportChatAction(
-                        bridgeForKey(projectOfKey(key)).patchChat(projectOfKey(key), sessionIdFromKey(key), { unread: false }),
-                        "Could not mark Chat read",
-                        setNotice,
-                      )
-                    }
+                    onDismiss={dismissTile}
+                    pinned={pinnedTiles}
+                    onTogglePin={toggleGridPin}
                   >
                     <EditorLinks
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}
@@ -3203,6 +3289,7 @@ function App() {
                       />
                     </EditorLinks>
                   </ChatGrid>
+                  <GridDropOverlay />
                   <TerminalPanel chatId={terminalChatId} notify={setNotice} />
                 </div>
               </div>

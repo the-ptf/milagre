@@ -33,14 +33,20 @@ export function activeChatKeys(runs: AgentRuns, work: LinkedWork, states: Record
   return [...keys].filter((key) => !key.startsWith("milagre-link:") && !isHiddenRunChat(sessions.get(key), waiting(key)));
 }
 
+/** The focused tile's key while the window shows a new Chat not saved yet: Chat ids start at 1. */
+export const draftTileKey = (projectPath: string) => `${projectPath}#0`;
+export const isDraftTileKey = (key: string) => key.endsWith("#0");
+
 /**
  * The grid's tiles in order. A Chat keeps its slot while it stays active or focused, so a status change never moves
- * a tile; new ones join at the end. Returns `previous` itself when nothing changed.
+ * a tile; new ones join at the end, except a new Chat's first save, which takes its draft tile's slot. Returns
+ * `previous` itself when nothing changed.
  */
 export function gridChats(previous: readonly string[], active: readonly string[], focused: string | null): readonly string[] {
   const wanted = new Set(active);
   if (focused) wanted.add(focused);
-  const kept = previous.filter((key) => wanted.has(key));
+  const draft = previous.findIndex((key) => isDraftTileKey(key) && !wanted.has(key));
+  const kept = previous.flatMap((key, index) => (wanted.has(key) ? [key] : index === draft && focused && !previous.includes(focused) ? [focused] : []));
   const next = [...kept, ...[...wanted].filter((key) => !kept.includes(key))];
   return next.length === previous.length && next.every((key, index) => key === previous[index]) ? previous : next;
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import type { CoordinatorState } from "../model";
-import { activeChatKeys, gridChats } from "./chat-grid.ts";
+import { activeChatKeys, draftTileKey, gridChats } from "./chat-grid.ts";
 
 const NO_WORK = { delegations: [], negotiations: [], receiveOnly: [] };
 
@@ -60,4 +60,12 @@ test("gridChats: tiles keep their slot, new ones join at the end, the focused on
 test("gridChats: nothing changed returns the same array", () => {
   const previous = ["/a#1", "/a#2"];
   assert.equal(gridChats(previous, ["/a#2", "/a#1"], "/a#1"), previous);
+});
+
+test("gridChats: a new Chat's draft tile keeps its slot, and the saved Chat takes it", () => {
+  const draft = draftTileKey("/a");
+  assert.deepEqual(gridChats(["/a#1", "/a#2"], ["/a#2"], draft), ["/a#2", draft]);
+  assert.deepEqual(gridChats(["/a#2", draft, "/a#3"], ["/a#2", "/a#3"], "/a#4"), ["/a#2", "/a#4", "/a#3"]);
+  // Leaving the draft for a tile already there drops the draft, nothing takes its slot.
+  assert.deepEqual(gridChats(["/a#2", draft, "/a#3"], ["/a#2", "/a#3"], "/a#3"), ["/a#2", "/a#3"]);
 });
