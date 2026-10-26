@@ -7,7 +7,7 @@ import type { DiffMode } from "@milagre/shared/git-diff";
  * One of the Chat's PRs, as its row lists them: what the PR menu offers. A Link Chat's PRs each come from one of its
  * Projects: `cwd` is that Project's Worktree, `project` its name.
  */
-export type PrChoice = { number: number; title: string; state: "OPEN" | "MERGED"; cwd?: string; project?: string };
+export type PrChoice = { number: number; title: string; state: "OPEN" | "MERGED"; cwd?: string; project?: string; projectPath?: string };
 
 /** Tells apart PRs with the same number in two of a Link Chat's repositories. */
 export const prChoiceKey = (choice: Pick<PrChoice, "number" | "cwd">) => `${choice.cwd ?? ""}#${choice.number}`;

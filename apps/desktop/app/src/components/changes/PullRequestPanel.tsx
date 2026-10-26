@@ -42,6 +42,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 import Tooltip from "../primitives/Tooltip";
 import { Counts } from "./ChangesPanel";
+import { ProjectAvatarStack } from "../ProjectAvatarStack";
 import { providerName } from "@milagre/shared/providers";
 import type { ModelProvider } from "../../model";
 import type { PullRequestReview, ReviewGuideState } from "./usePullRequest";
@@ -93,6 +94,7 @@ export function PullRequestPanelBody({
   guideOpen,
   guideStop,
   local,
+  project,
 }: {
   review: PullRequestReview;
   guide: ReviewGuideState;
@@ -102,6 +104,8 @@ export function PullRequestPanelBody({
   guideStop: number;
   /** The Worktree's uncommitted files, which the PR doesn't have yet, and what shows them (Committed when only commits are missing). */
   local?: { count: number; onOpen: (mode: "uncommitted" | "committed") => void };
+  /** A Link Chat's PR names the Project it belongs to. */
+  project?: { name: string; path: string };
 }) {
   const { state, pr } = review;
   if (!pr) {
@@ -114,7 +118,7 @@ export function PullRequestPanelBody({
   if (guideOpen && guide.guide) return <GuideStops pr={pr} guide={guide} current={guideStop} onOpen={actions.openGuide} onRewrite={actions.writeGuide} />;
   return (
     <ScrollArea data-pr-panel className="flex-1 pb-3">
-      <Identity pr={pr} />
+      <Identity pr={pr} project={project} />
       <MergeCard pr={pr} review={review} />
       <div className="flex flex-col px-1">
         <ChecksRow pr={pr} onFix={() => actions.fixChecks(pr)} />
@@ -140,10 +144,16 @@ export function PullRequestPanelBody({
   );
 }
 
-function Identity({ pr }: { pr: PullRequestDetail }) {
+function Identity({ pr, project }: { pr: PullRequestDetail; project?: { name: string; path: string } }) {
   const pill = STATE_PILL[pr.state];
   return (
     <div data-pr-identity className="flex flex-col gap-2 px-4 pt-3.5 pb-2">
+      {project && (
+        <div data-pr-project={project.name} className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-ink-2">
+          <ProjectAvatarStack projects={[project]} />
+          <span className="truncate">{project.name}</span>
+        </div>
+      )}
       <h2 className="text-[14px] leading-[19px] font-semibold text-ink">{pr.title}</h2>
       <div className="flex min-w-0 items-center gap-2 text-[11.5px]">
         <span

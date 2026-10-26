@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Keyboard, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -514,7 +514,10 @@ export function SidePanelsHost() {
     ({ accessibilityElementsHidden: open !== side, importantForAccessibility: open === side ? "auto" : "no-hide-descendants" }) as const;
   return (
     <View pointerEvents={open ? "auto" : "none"} accessibilityViewIsModal={!!open} style={StyleSheet.absoluteFill}>
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, shade]} />
+      {/* Outside a card (an iPad's panels), a tap on the dimmed screen closes the panel, as a sheet's backdrop does. */}
+      <Animated.View pointerEvents={open && card ? "auto" : "none"} style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, shade]}>
+        <Pressable accessibilityLabel="Close panel" accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => show(null)} />
+      </Animated.View>
       <GestureDetector gesture={close}>
         <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
           {/* A card sits clear of the status bar already, so what it holds lays out with no safe area of its own, but for
@@ -592,6 +595,8 @@ function ChangesPanel({
   const pr = tab === "pr" && pullRequest && number ? { number, chatKey: pullRequest.chatKey } : undefined;
   // A Link Chat's PR is read in its own Project's Worktree; a Project's Chat, in the Chat's Worktree.
   const prCwd = picked ? picked.cwd : pullRequest?.cwd;
+  const shown = picked ?? choices.find((choice) => choice.number === number && choice.cwd === prCwd);
+  const prProject = shown?.project && shown.projectPath ? { name: shown.project, path: shown.projectPath } : undefined;
   const cwd = prCwd ?? session.snapshot?.project.state.worktrees[worktreeId]?.path;
   const chatId = pullRequest ? Number(pullRequest.chatKey.slice(pullRequest.chatKey.lastIndexOf("#") + 1)) : NaN;
   const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
@@ -636,6 +641,7 @@ function ChangesPanel({
           provider={provider}
           onClose={onClose}
           choices={choices}
+          project={prProject}
           onPick={(next) => {
             setPrFiles(false);
             onPick(next);
