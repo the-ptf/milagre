@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dropSide, placeDropped, readGridPins, saveGridPins } from "./grid-drop.ts";
+import { dropSide, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats } from "./grid-drop.ts";
 
 test("dropSide: the left half drops before, the right half after, with the bar on that edge", () => {
   const box = { left: 100, top: 40, width: 400, height: 300 };
@@ -35,4 +35,12 @@ test("grid pins round-trip and ignore what isn't a list of keys", () => {
   assert.deepEqual(readGridPins(storage), []);
   store.set("milagre.chatGridPins", '["/a#1", 3]');
   assert.deepEqual(readGridPins(storage), ["/a#1"]);
+});
+
+test("saveSplitChats: keeps the order and leaves a new Chat's draft tile out", () => {
+  const items = new Map<string, string>();
+  const storage = { getItem: (name: string) => items.get(name) ?? null, setItem: (name: string, value: string) => void items.set(name, value) };
+  assert.deepEqual(readSplitChats(storage), []);
+  saveSplitChats(storage, ["/b#2", "/a#0", "/a#1"]);
+  assert.deepEqual(readSplitChats(storage), ["/b#2", "/a#1"]);
 });

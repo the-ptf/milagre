@@ -103,10 +103,10 @@ import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
-import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
+import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, splitChats, type ChatLayout } from "./lib/chat-grid";
 import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
-import { dropSide, gridDrop, placeDropped, readGridPins, saveGridPins, type GridDropTarget } from "./lib/grid-drop";
+import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
@@ -425,11 +425,12 @@ function App() {
       saveChatLayout(localStorage, next);
       return next;
     });
-  const showGrid = () =>
+  const showLayout = (next: ChatLayout) =>
     setLayout(() => {
-      saveChatLayout(localStorage, "grid");
-      return "grid";
+      saveChatLayout(localStorage, next);
+      return next;
     });
+  const showGrid = () => showLayout("grid");
   // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
   const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
   const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
@@ -438,6 +439,12 @@ function App() {
       saveGridPins(localStorage, next);
       return next;
     });
+  // The split view's Chats, in order: the open one and the ones dragged beside it from the sidebar.
+  const [splitKeys, setSplitKeys] = useState<readonly string[]>(() => readSplitChats(localStorage));
+  const changeSplit = (next: readonly string[]) => {
+    saveSplitChats(localStorage, next);
+    setSplitKeys(next);
+  };
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   useEffect(() => {
@@ -977,25 +984,54 @@ function App() {
   const [gridTiles, setGridTiles] = useState<readonly string[]>(NO_KEYS);
   const nextGridTiles = gridChats(gridTiles, activeKeys, gridOn ? gridFocusKey : null);
   if (nextGridTiles !== gridTiles) setGridTiles(nextGridTiles);
-  const shownTiles = gridOn && gridFocusKey ? gridTiles : NO_KEYS;
+  // In the split view a Chat opened from the sidebar takes the focused tile's place, so the split keeps its size.
+  const [splitFocus, setSplitFocus] = useState(gridFocusKey);
+  if (splitFocus !== gridFocusKey) {
+    setSplitFocus(gridFocusKey);
+    const nextSplit = layout === "split" ? splitChats(splitKeys, splitFocus, gridFocusKey) : splitKeys;
+    if (nextSplit !== splitKeys) changeSplit(nextSplit);
+  }
+  // A split Chat archived or gone with its Worktree drops out, as a pin does; the focused draft tile stays.
+  const liveSplit = useMemo(
+    () =>
+      splitKeys.filter((key) => {
+        if (key === gridFocusKey) return true;
+        const state = gridStates[projectOfKey(key)];
+        const session = state?.sessions?.[sessionIdFromKey(key)];
+        return !isDraftTileKey(key) && (!state || Boolean(session && !session.archived));
+      }),
+    [splitKeys, gridStates, gridFocusKey],
+  );
+  const splitOn = layout === "split" && view === "chat" && gridFocusKey !== null && liveSplit.length > 1 && liveSplit.includes(gridFocusKey);
+  const shownTiles = splitOn ? liveSplit : gridOn && gridFocusKey ? gridTiles : NO_KEYS;
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
   const focusedChatKeyRef = useRef(focusedChatKey);
   focusedChatKeyRef.current = focusedChatKey;
   const gridFocusKeyRef = useRef(gridFocusKey);
   gridFocusKeyRef.current = gridFocusKey;
-  // A Chat dropped from the sidebar is kept in the grid where it was dropped. Dropped beside the one Chat on screen, it
-  // turns the view into a grid of the two, and keeps that Chat too, so focusing either leaves both.
+  // A Chat dropped on the grid is kept there where it was dropped. Dropped beside the one Chat on screen, or on a split's
+  // tile, it joins a split view of only those Chats: the other active Chats stay out of it.
   const dropOnGrid = useEvent((key: string, target: GridDropTarget) => {
     const focused = focusedChatKeyRef.current;
-    const grid = layoutRef.current === "grid";
-    changeGridPins((pins) => {
-      const next = pins.filter((item) => item !== key);
-      if (!grid && focused && !next.includes(focused)) next.push(focused);
-      return [...next, key];
-    });
-    setGridTiles((tiles) => placeDropped(grid ? tiles : NO_KEYS, key, target, focused));
-    if (!grid) showGrid();
+    if (layoutRef.current === "grid") {
+      changeGridPins((pins) => [...pins.filter((item) => item !== key), key]);
+      setGridTiles((tiles) => placeDropped(tiles, key, target, focused));
+      return;
+    }
+    changeSplit(placeDropped(shownTilesRef.current, key, target, focused));
+    showLayout("split");
+  });
+  // Closing a split tile leaves the others; the last one left shows alone. Closing the focused tile focuses its neighbour.
+  const closeSplitTile = useEvent((key: string) => {
+    const tiles = shownTilesRef.current;
+    const next = tiles.filter((item) => item !== key);
+    changeSplit(next);
+    if (next.length < 2) showLayout("single");
+    if (key !== gridFocusKeyRef.current) return;
+    const at = tiles.indexOf(key);
+    const neighbour = [...next.slice(at), ...next.slice(0, at).toReversed()].find((item) => !isDraftTileKey(item));
+    if (neighbour) openLinkedChat(neighbour);
   });
   useEffect(
     () =>
@@ -3128,6 +3164,7 @@ function App() {
                     onDismiss={dismissTile}
                     pinned={pinnedTiles}
                     onTogglePin={toggleGridPin}
+                    onClose={splitOn ? closeSplitTile : undefined}
                   >
                     <EditorLinks
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}

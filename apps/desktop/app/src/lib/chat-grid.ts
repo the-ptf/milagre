@@ -2,13 +2,17 @@ import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isHiddenRunChat } from "@milagre/shared/chats";
 import type { CoordinatorState, LinkState, LinkedWork } from "../model";
 
-/** How the Chat view shows Chats: the open one alone, or every active one side by side. */
-export type ChatLayout = "single" | "grid";
+/**
+ * How the Chat view shows Chats: the open one alone, every active one side by side (`grid`), or only the ones dragged
+ * beside it from the sidebar (`split`).
+ */
+export type ChatLayout = "single" | "grid" | "split";
 
 const LAYOUT_KEY = "milagre.chatLayout";
 
 export function readChatLayout(storage: Pick<Storage, "getItem">): ChatLayout {
-  return storage.getItem(LAYOUT_KEY) === "grid" ? "grid" : "single";
+  const value = storage.getItem(LAYOUT_KEY);
+  return value === "grid" || value === "split" ? value : "single";
 }
 
 export function saveChatLayout(storage: Pick<Storage, "setItem">, layout: ChatLayout) {
@@ -49,4 +53,15 @@ export function gridChats(previous: readonly string[], active: readonly string[]
   const kept = previous.flatMap((key, index) => (wanted.has(key) ? [key] : index === draft && focused && !previous.includes(focused) ? [focused] : []));
   const next = [...kept, ...[...wanted].filter((key) => !kept.includes(key))];
   return next.length === previous.length && next.every((key, index) => key === previous[index]) ? previous : next;
+}
+
+/**
+ * The split's Chats after focus moves from `previous` to `focused`: a Chat opened from outside the split takes the slot
+ * of the one focused before it, as in a browser's split view, so the split keeps its size. Returns `split` itself when
+ * nothing changes.
+ */
+export function splitChats(split: readonly string[], previous: string | null, focused: string | null): readonly string[] {
+  if (!focused || !previous || split.includes(focused)) return split;
+  const at = split.indexOf(previous);
+  return at < 0 ? split : split.map((key, index) => (index === at ? focused : key));
 }
