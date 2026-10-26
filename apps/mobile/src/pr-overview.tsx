@@ -44,7 +44,7 @@ import { confirm } from "./confirm-store";
 import { ErrorNotice, PageScroll, PullDown, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { usePrDetail, usePrGuide, writePr } from "./pr-store";
-import { prefillChat, sendToChat, type PrChoice } from "./pr-chat";
+import { prChoiceKey, prefillChat, sendToChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
 import { useRpc } from "./use-rpc";
 import type { PrPage } from "./pr-nav";
@@ -94,6 +94,7 @@ function PrStatePill({ pr }: { pr: PullRequestDetail }) {
  */
 function PrSwitcher({
   number,
+  cwd,
   choices,
   onPick,
   local,
@@ -101,7 +102,9 @@ function PrSwitcher({
 }: {
   number: number;
   choices: PrChoice[];
-  onPick?: (number: number) => void;
+  onPick?: (key: string) => void;
+  /** The folder the PR is read in, which tells a Link Chat's PRs with the same number apart. */
+  cwd?: string;
   /** What isn't in a PR yet ("2 files · 1 commit"); empty when nothing. */
   local: string;
   onChanges?: () => void;
@@ -114,11 +117,12 @@ function PrSwitcher({
       title="This Chat's PRs"
       sections={[
         {
-          items: choices.map((choice) => ({
-            id: `pr:${choice.number}`,
+          items: choices.map((choice, index) => ({
+            id: `pr:${index}`,
             title: `#${choice.number} · ${choice.state === "MERGED" ? "Merged" : "Open"}`,
-            subtitle: choice.title,
-            checked: choice.number === number,
+            // A Link Chat's PRs come from different Projects: each says which.
+            subtitle: choice.project ? `${choice.project} · ${choice.title}` : choice.title,
+            checked: choice.number === number && (!choice.cwd || choice.cwd === cwd),
           })),
         },
         ...(local && onChanges
@@ -138,7 +142,10 @@ function PrSwitcher({
       ]}
       onSelect={(id) => {
         if (id === "changes") onChanges?.();
-        else if (id.startsWith("pr:")) onPick(Number(id.slice(3)));
+        else if (id.startsWith("pr:")) {
+          const choice = choices[Number(id.slice(3))];
+          if (choice) onPick(prChoiceKey(choice));
+        }
       }}
     >
       <View
@@ -199,7 +206,7 @@ export type PrOverviewProps = {
   onClose?: () => void;
   /** The Chat's PRs; with more than one, the number opens a menu to switch between them. */
   choices?: PrChoice[];
-  onPick?: (number: number) => void;
+  onPick?: (key: string) => void;
   /** Shows the Worktree's changes that aren't in the PR yet, uncommitted ones first; without it there is no such row. */
   onChanges?: (mode: DiffMode) => void;
 };
@@ -226,7 +233,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
   const commits = pr?.state === "OPEN" ? (pr.localCommits ?? 0) : 0;
   const localText = onChanges ? notInPrLabel(localCount, commits) : "";
   const openChanges = onChanges ? () => onChanges(localCount > 0 ? "uncommitted" : "committed") : undefined;
-  const switcher = <PrSwitcher number={number} choices={choices} onPick={onPick} local={localText} onChanges={openChanges} />;
+  const switcher = <PrSwitcher number={number} cwd={cwd} choices={choices} onPick={onPick} local={localText} onChanges={openChanges} />;
   const close = onClose ? <RoundButton label="Close" icon={Cancel01Icon} onPress={onClose} /> : null;
 
   async function toChat(body: string) {

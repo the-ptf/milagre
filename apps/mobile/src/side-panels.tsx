@@ -14,7 +14,7 @@ import { IconButton } from "./ui";
 import { PrOverview } from "./pr-overview";
 import { PrFiles } from "./pr-lists";
 import { openPrFile, openPrPage } from "./pr-nav";
-import type { PrChoice } from "./pr-chat";
+import { prChoiceKey, type PrChoice } from "./pr-chat";
 import type { DiffMode } from "@milagre/shared/git-diff";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
@@ -26,7 +26,7 @@ type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
 type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest?: ScreenPullRequest };
 /** The Chat's PR the panel opens on, and every PR its row lists for the PR menu. */
-type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[] };
+type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[]; cwd?: string };
 /** What the right panel shows: the PR (when the Chat has one), or the Worktree's Changes. */
 type RightTab = "changes" | "pr";
 type Panels = {
@@ -46,8 +46,8 @@ type Panels = {
   changesMode: { mode: DiffMode; nonce: number };
   setChangesMode: (mode: DiffMode) => void;
   /** The PR picked in the PR menu (or opened from a link), over the one the Chat's row shows first. */
-  pick: number | null;
-  setPick: (number: number | null) => void;
+  pick: string | null;
+  setPick: (key: string | null) => void;
   pull: (side: Side) => void;
   settled: (to: number) => void;
   navigate: (href?: Href, secondary?: boolean | "sheet") => void;
@@ -89,7 +89,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const [screen, setScreen] = useState<Screen | null>(null);
   const [open, setOpen] = useState<Side | null>(null);
   const [tab, setTab] = useState<RightTab>("pr");
-  const [pick, setPick] = useState<number | null>(null);
+  const [pick, setPick] = useState<string | null>(null);
   const [changesMode, setChangesModeState] = useState<{ mode: DiffMode; nonce: number }>({ mode: "uncommitted", nonce: 0 });
   const setChangesMode = useCallback((mode: DiffMode) => setChangesModeState((previous) => ({ mode, nonce: previous.nonce + 1 })), []);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
@@ -332,6 +332,7 @@ export function useSidePanels({
   const prNumber = pullRequest?.number;
   const prChat = pullRequest?.chatKey;
   const prChoices = pullRequest?.choices;
+  const prCwd = pullRequest?.cwd;
   // Focus gives the panels to this screen; what it offers is updated in place.
   const offer = useRef<Screen>({ token, chatId, worktreeId, pullRequest });
   useEffect(() => {
@@ -340,10 +341,12 @@ export function useSidePanels({
       token,
       chatId,
       worktreeId,
-      ...(prNumber && prChat ? { pullRequest: { number: prNumber, chatKey: prChat, ...(prChoices ? { choices: prChoices } : {}) } } : {}),
+      ...(prNumber && prChat
+        ? { pullRequest: { number: prNumber, chatKey: prChat, ...(prChoices ? { choices: prChoices } : {}), ...(prCwd ? { cwd: prCwd } : {}) } }
+        : {}),
     };
     update(offer.current);
-  }, [passive, update, token, chatId, worktreeId, prNumber, prChat, prChoices]);
+  }, [passive, update, token, chatId, worktreeId, prNumber, prChat, prChoices, prCwd]);
   useFocusEffect(
     useCallback(() => {
       if (!passive) attach(offer.current);
@@ -378,9 +381,9 @@ export function useSidePanels({
   );
   // The right panel opened on a PR (its pill on an iPad, a row's PR link) or on Changes (View changes).
   const showPullRequest = useCallback(
-    (number?: number) => {
+    (key?: string) => {
       setTab("pr");
-      setPick(number ?? null);
+      setPick(key ?? null);
       show("right");
     },
     [setTab, setPick, show],
@@ -570,8 +573,8 @@ function ChangesPanel({
   pullRequest?: ScreenPullRequest;
   tab: RightTab;
   onTab: (tab: RightTab) => void;
-  pick: number | null;
-  onPick: (number: number | null) => void;
+  pick: string | null;
+  onPick: (key: string | null) => void;
   changesMode: { mode: DiffMode; nonce: number };
   onChangesMode: (mode: DiffMode) => void;
   card: boolean;
@@ -584,12 +587,15 @@ function ChangesPanel({
   const [prFiles, setPrFiles] = useState(false);
   const choices = pullRequest?.choices ?? [];
   // The picked PR while the Chat still lists it, else the one its row shows first.
-  const number = pick !== null && choices.some((choice) => choice.number === pick) ? pick : pullRequest?.number;
+  const picked = pick !== null ? choices.find((choice) => prChoiceKey(choice) === pick) : undefined;
+  const number = picked?.number ?? pullRequest?.number;
   const pr = tab === "pr" && pullRequest && number ? { number, chatKey: pullRequest.chatKey } : undefined;
-  const cwd = session.snapshot?.project.state.worktrees[worktreeId]?.path;
+  // A Link Chat's PR is read in its own Project's Worktree; a Project's Chat, in the Chat's Worktree.
+  const prCwd = picked ? picked.cwd : pullRequest?.cwd;
+  const cwd = prCwd ?? session.snapshot?.project.state.worktrees[worktreeId]?.path;
   const chatId = pullRequest ? Number(pullRequest.chatKey.slice(pullRequest.chatKey.lastIndexOf("#") + 1)) : NaN;
   const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
-  const route = pr ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey } : null;
+  const route = pr ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey, ...(prCwd ? { cwd: prCwd } : {}) } : null;
   // Back from a PR's files to the PR, from a diff to Changes, from Changes to the PR.
   const back = pr ? () => setPrFiles(false) : file ? () => setFile(null) : pullRequest ? () => onTab("pr") : null;
   const name = pr ? "Files" : file ? file.path.split("/").pop() || file.path : "Changes";
@@ -622,7 +628,7 @@ function ChangesPanel({
       )}
       {overview && route && cwd && session.client && pr && (
         <PrOverview
-          key={pr.number}
+          key={`${cwd}#${pr.number}`}
           client={session.client}
           cwd={cwd}
           number={pr.number}
