@@ -1,11 +1,18 @@
 // "Fix in Chat", "Ask in Chat" and "Send to Chat" from the PR sheet reach the Chat screen under it through this: the open
 // Chat registers how it sends and how it fills its composer, keyed like its drafts (`projectPath#id`).
 
+/** One of the Chat's PRs, as its row lists them: what the PR menu offers. */
+export type PrChoice = { number: number; title: string; state: "OPEN" | "MERGED" };
+
 type ChatHandle = {
   /** Sends as the composer would; "busy" when a send was already going. */
   send: (body: string) => Promise<boolean | "busy">;
   /** Puts text in the composer, for the user to finish. */
   prefill: (text: string) => void;
+  /** The Chat's PRs, in its row's order. */
+  pullRequests?: () => PrChoice[];
+  /** Shows the Worktree's Changes beside the Chat. */
+  changes?: () => void;
 };
 
 const handles = new Map<string, ChatHandle>();
@@ -26,6 +33,19 @@ export async function sendToChat(chatKey: string | undefined, body: string): Pro
   } catch {}
   handle.prefill(body);
   return "drafted";
+}
+
+/** The Chat's PRs, for the PR sheet's menu; none when its screen isn't open. */
+export function chatPullRequestChoices(chatKey: string | undefined): PrChoice[] {
+  return (chatKey ? handles.get(chatKey)?.pullRequests?.() : undefined) ?? [];
+}
+
+/** Shows the Chat's Changes; false when its screen isn't open. */
+export function showChatChanges(chatKey: string | undefined) {
+  const handle = chatKey ? handles.get(chatKey) : undefined;
+  if (!handle?.changes) return false;
+  handle.changes();
+  return true;
 }
 
 export function prefillChat(chatKey: string | undefined, text: string) {
