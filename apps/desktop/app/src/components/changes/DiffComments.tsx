@@ -81,7 +81,18 @@ export function CommentCard({ comment, onEdit, onDelete }: { comment: CommentVie
   );
 }
 
-export function CommentEditor({ text, onSave, onCancel }: { text: MutableRefObject<string>; onSave: (body: string) => void; onCancel: () => void }) {
+/** `onAddToReview` is a PR's diff: the comment can join the GitHub review, or (Send to Chat) wait for the Chat like any other. */
+export function CommentEditor({
+  text,
+  onSave,
+  onCancel,
+  onAddToReview,
+}: {
+  text: MutableRefObject<string>;
+  onSave: (body: string) => void;
+  onCancel: () => void;
+  onAddToReview?: (body: string) => void;
+}) {
   const [value, setValue] = useState(text.current);
   const field = useRef<HTMLTextAreaElement>(null);
   const body = value.trim();
@@ -122,7 +133,7 @@ export function CommentEditor({ text, onSave, onCancel }: { text: MutableRefObje
           } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             event.stopPropagation();
-            if (body) onSave(body);
+            if (body) (onAddToReview ?? onSave)(body);
           }
         }}
         className="block w-full resize-none rounded-control border border-line bg-page px-2.5 py-2 text-[12.5px] leading-[18px] text-ink outline-none placeholder:text-ink-3 focus:border-ink"
@@ -136,14 +147,25 @@ export function CommentEditor({ text, onSave, onCancel }: { text: MutableRefObje
         >
           Cancel
         </button>
+        {onAddToReview && (
+          <button
+            type="button"
+            data-diff-comment-chat
+            disabled={!body}
+            onClick={() => onSave(body)}
+            className="h-7 rounded-control border border-line px-3 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40"
+          >
+            Send to Chat
+          </button>
+        )}
         <button
           type="button"
           data-diff-comment-save
           disabled={!body}
-          onClick={() => onSave(body)}
+          onClick={() => (onAddToReview ?? onSave)(body)}
           className="inline-flex h-7 items-center gap-1.5 rounded-control bg-ink px-3 text-[12px] font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
         >
-          Comment
+          {onAddToReview ? "Add to review" : "Comment"}
           <kbd className="font-sans text-[11px] opacity-60">⌘↵</kbd>
         </button>
       </div>

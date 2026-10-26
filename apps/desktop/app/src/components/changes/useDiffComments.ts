@@ -155,4 +155,6 @@ export type CommentActions = {
   cancel: () => void;
   save: (selection: DiffSelection | undefined, path: string, body: string, editing: string | undefined) => void;
   remove: (id: string) => void;
+  /** On a PR's diff: the comment goes to the viewer's pending review on GitHub instead of the Chat. */
+  addToReview?: (selection: DiffSelection, path: string, body: string) => void;
 };

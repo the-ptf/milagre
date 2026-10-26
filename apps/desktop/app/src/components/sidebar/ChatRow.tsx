@@ -4,7 +4,19 @@ import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/
 import { LinearLogo } from "../ProviderLogo";
 import { LinearIssuePicker } from "../LinearIssuePicker";
 import { SpinnerRing } from "../primitives/SpinnerRing";
-import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
+import {
+  createContext,
+  Fragment,
+  memo,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -148,6 +160,12 @@ export type ChatRowActions = {
 };
 
 const NO_LINKS: LinkedEnd[] = [];
+
+/**
+ * Opens a row's PR in its Chat's Changes panel; false when it can't (another computer's Chat, or a PR the branch
+ * didn't open), and the chip opens GitHub instead.
+ */
+export const PullRequestOpenContext = createContext<((item: SidebarRecent, pr: PullRequest) => boolean) | null>(null);
 
 /** What the confirm step offers when nothing is known about the worktree: only hide the chat. */
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
@@ -425,7 +443,7 @@ function InboxLine({
       ),
     });
   if (linearIssue) parts.push({ key: "linear", node: <LinearIssueChip issue={linearIssue} inbox /> });
-  shown.forEach((pr) => parts.push({ key: pr.url, node: <PullRequestChip pr={pr} labelled={false} inbox /> }));
+  shown.forEach((pr) => parts.push({ key: pr.url, node: <PullRequestChip pr={pr} item={item} labelled={false} inbox /> }));
   if (hidden > 0)
     parts.push({
       key: "pr-more",
@@ -839,7 +857,7 @@ export const ChatRow = memo(function ChatRow({
             )}
             {linearIssue && <LinearIssueChip issue={linearIssue} />}
             {shownPullRequests.map((pr) => (
-              <PullRequestChip key={pr.url} pr={pr} labelled={pullRequests.length === 1} />
+              <PullRequestChip key={pr.url} pr={pr} item={item} labelled={pullRequests.length === 1} />
             ))}
             {hiddenPullRequests > 0 && (
               <span
@@ -972,7 +990,8 @@ function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?:
   );
 }
 
-function PullRequestChip({ pr, labelled, inbox = false }: { pr: PullRequest; labelled: boolean; inbox?: boolean }) {
+function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullRequest; item: SidebarRecent; labelled: boolean; inbox?: boolean }) {
+  const openInPanel = useContext(PullRequestOpenContext);
   const blocker = pullRequestBlockers(pr)[0];
   const readyToMerge = isReadyToMerge(pr);
   const checking = isChecking(pr);
@@ -997,7 +1016,11 @@ function PullRequestChip({ pr, labelled, inbox = false }: { pr: PullRequest; lab
         aria-label={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : readyToMerge ? ", ready to merge" : checking ? ", CI running" : ""}`}
         data-chat-pr
         className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          // A plain click on the Chat's own PR opens its panel; ⌘-click still opens GitHub.
+          if (!event.metaKey && openInPanel?.(item, pr)) event.preventDefault();
+        }}
       >
         <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${prTone(pr)}`}>
           <HugeIcon icon={prIcon(pr)} size={12} />

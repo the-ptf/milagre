@@ -10,6 +10,7 @@ const PILL_IN: Transition = { duration: 0.26, ease: EASE_OUT };
 export const PILL_TONES = {
   ink: "text-ink-2",
   orange: "text-orange [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)] focus-visible:outline-orange",
+  green: "text-green [--status-pill-tint:var(--green)] [--status-pill-ring:color-mix(in_oklab,var(--green)_25%,transparent)] focus-visible:outline-green",
   red: "text-red [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)] focus-visible:outline-red",
 } as const;
 

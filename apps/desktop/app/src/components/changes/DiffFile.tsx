@@ -8,6 +8,9 @@ import { resolveCodeLanguage } from "../../lib/code-languages";
 import { splitRows, wordChanges, type Range } from "../../lib/diff-layout";
 import { extensionOf, locateComment, onSide, selectionFromRows, type DiffSide } from "../../lib/diff-comments";
 import type { DiffHunk, DiffLine } from "../../lib/diff-parse";
+import type { PullRequestFile, PullRequestThread } from "@milagre/shared/pull-request-review";
+import { ViewedToggle } from "./PullRequestReview";
+import { threadsOnLine, unplacedThreads } from "../../lib/pull-request-view";
 import { highlight, isLanguageReady, loadLanguage } from "../markdown/highlighter";
 import { Counts, StatusBox } from "./ChangesPanel";
 import { CommentCard, CommentEditor, CommentSlot } from "./DiffComments";
@@ -102,6 +105,8 @@ type Commenting = {
   selected: (hunk: number, line: number, side?: DiffSide) => boolean;
   slot: (hunk: number, line: number) => ReactNode;
   actions: CommentActions;
+  /** A PR's review threads on a line, under it. */
+  threads: (line: DiffLine) => ReactNode;
 };
 
 function AddButton({ commenting, hunk, line, side }: { commenting: Commenting; hunk: number; line: number; side?: DiffSide }) {
@@ -169,6 +174,7 @@ function Unified({
                   <AddButton commenting={commenting} hunk={index} line={lineIndex} />
                   {selected && <Selected />}
                 </div>
+                {commenting.threads(line)}
                 {commenting.slot(index, lineIndex)}
               </Fragment>
             );
@@ -229,6 +235,8 @@ function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorati
               const left = row.left && indexes.get(row.left);
               const right = row.right && indexes.get(row.right);
               const slots = [left, right !== left ? right : undefined].map((line) => (line === undefined ? null : commenting.slot(index, line)));
+              // A context row is the same line in both halves: its threads come once.
+              const threads = [row.left, row.right !== row.left ? row.right : undefined].map((line) => (line ? commenting.threads(line) : null));
               return (
                 <Fragment key={rowIndex}>
                   <Half line={row.left} side="left" decoration={row.left && decorations.get(row.left)} commenting={commenting} hunk={index} index={left ?? 0} />
@@ -240,6 +248,14 @@ function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorati
                     hunk={index}
                     index={right ?? 0}
                   />
+                  {threads.map(
+                    (thread, at) =>
+                      thread && (
+                        <div key={`thread-${at}`} className="col-span-2">
+                          {thread}
+                        </div>
+                      ),
+                  )}
                   {/* A context row is one line in both halves; its slot comes once. */}
                   {slots.map(
                     (slot, at) =>
@@ -281,6 +297,10 @@ export const DiffFile = memo(function DiffFile({
   onToggle,
   onVisible,
   onShowLarge,
+  threads,
+  renderThreads,
+  viewed,
+  onToggleViewed,
 }: {
   file: DiffFileEntry;
   patch: PatchState | undefined;
@@ -295,6 +315,12 @@ export const DiffFile = memo(function DiffFile({
   onToggle: (path: string) => void;
   onVisible: (file: DiffFileEntry) => void;
   onShowLarge: (file: DiffFileEntry) => void;
+  /** A PR's review threads on this file, drawn by `renderThreads` (stable) under their lines. */
+  threads?: PullRequestThread[];
+  renderThreads?: (threads: PullRequestThread[]) => ReactNode;
+  /** A PR file's viewed state for its header's toggle, with the (stable) handler. */
+  viewed?: PullRequestFile["viewed"];
+  onToggleViewed?: (path: string) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [, setLoadedCount] = useState(0);
@@ -374,9 +400,17 @@ export const DiffFile = memo(function DiffFile({
       }
     }
   }
+  const lines = useMemo(() => hunks.flatMap((hunk) => hunk.lines), [hunks]);
+  const looseThreads = useMemo(() => (threads?.length && hunks.length ? unplacedThreads(threads, lines) : []), [threads, lines, hunks.length]);
   const commenting: Commenting = {
     path: file.path,
     actions,
+    // oxlint-disable-next-line react/no-unstable-nested-components -- render callback for the rows, not a component
+    threads: (line) => {
+      if (!threads?.length || !renderThreads) return null;
+      const found = threadsOnLine(threads, line);
+      return found.length ? <CommentSlot>{renderThreads(found)}</CommentSlot> : null;
+    },
     selected: (h, line, side) => draft !== null && draft.hunk === h && line >= lo && line <= hi && draft.side === side,
     // oxlint-disable-next-line react/no-unstable-nested-components -- slot is a render callback invoked by the diff library, not a component
     slot: (h, line) => {
@@ -405,6 +439,15 @@ export const DiffFile = memo(function DiffFile({
                 const target = hunks[editing.hunk];
                 if (target) actions.save(selectionFromRows(target, editing.anchor, editing.head, editing.side), file.path, text, editing.editing);
               }}
+              onAddToReview={
+                actions.addToReview && !editing.editing
+                  ? (text) => {
+                      const target = hunks[editing.hunk];
+                      const selection = target && selectionFromRows(target, editing.anchor, editing.head, editing.side);
+                      if (selection) actions.addToReview?.(selection, file.path, text);
+                    }
+                  : undefined
+              }
             />
           )}
         </CommentSlot>
@@ -451,6 +494,7 @@ export const DiffFile = memo(function DiffFile({
             ))}
           </CommentSlot>
         )}
+        {looseThreads.length > 0 && renderThreads && <CommentSlot>{renderThreads(looseThreads)}</CommentSlot>}
       </>
     );
 
@@ -483,6 +527,9 @@ export const DiffFile = memo(function DiffFile({
           {!folder && <span className="flex-1" />}
           {!file.binary && <Counts added={file.added} removed={file.removed} />}
           <StatusBox status={file.status} />
+          {viewed && onToggleViewed && (
+            <ViewedToggle viewed={viewed === "VIEWED"} changed={viewed === "DISMISSED"} onToggle={() => onToggleViewed(file.path)} />
+          )}
         </header>
       </div>
       {!collapsed && (

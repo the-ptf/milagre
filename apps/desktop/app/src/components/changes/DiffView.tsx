@@ -8,13 +8,37 @@ import { DiffFile } from "./DiffFile";
 import { useCommentDraft, type CommentActions, type CommentStore, type CommentView } from "./useDiffComments";
 import type { Changes } from "./useChanges";
 import type { useDiffPreferences } from "./DiffPrefs";
+import type { PullRequestDetail, PullRequestFile, PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
+import type { DiffSelection } from "../../lib/diff-comments";
+import { threadsByPath, threadsFor, viewedCount } from "../../lib/pull-request-view";
+import { ReviewBar, ThreadCard, type ThreadActions } from "./PullRequestReview";
+
+/** A PR's diff: GitHub's threads and viewed state on its files, and its review's writes. Every function is stable. */
+export type PrDiffReview = {
+  pr: PullRequestDetail;
+  threadActions: ThreadActions;
+  addToReview: (selection: DiffSelection, path: string, body: string) => void;
+  toggleViewed: (path: string) => void;
+  submit: (event: ReviewEvent, body: string) => Promise<boolean>;
+  error: string | null;
+};
 
 // The toolbar, preferences and presence live in DiffPrefs, which the app loads up front; this file is its own chunk.
 export { DiffToolbar, useDiffPreferences, useDiffPresence } from "./DiffPrefs";
 
 const NO_COMMENTS: CommentView[] = [];
 
-export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs: ReturnType<typeof useDiffPreferences>; comments: CommentStore }) {
+export function DiffView({
+  changes,
+  prefs,
+  comments,
+  review,
+}: {
+  changes: Changes;
+  prefs: ReturnType<typeof useDiffPreferences>;
+  comments: CommentStore;
+  review?: PrDiffReview;
+}) {
   const reduced = useReducedMotion();
   const { list, load, patchFor, scrollTarget } = changes;
   const scroller = useRef<HTMLDivElement>(null);
@@ -45,6 +69,7 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
 
   const { draft, text, start, over, edit, cancel } = useCommentDraft();
   const { add, update, remove } = comments;
+  const addToReview = review?.addToReview;
   // The rows a selection points at mean something else in the other layout.
   useEffect(() => cancel(), [prefs.layout, cancel]);
   const actions = useMemo<CommentActions>(
@@ -62,8 +87,27 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
         remove(id);
         cancel();
       },
+      ...(addToReview && {
+        addToReview: (selection, path, body) => {
+          addToReview(selection, path, body);
+          cancel();
+        },
+      }),
     }),
-    [start, over, edit, cancel, add, update, remove],
+    [start, over, edit, cancel, add, update, remove, addToReview],
+  );
+
+  // The PR's threads per file, the same arrays while they don't change, so untouched files don't re-render.
+  const threadGroups = useRef<Map<string, PullRequestThread[]>>(undefined);
+  const prThreads = useMemo(() => (threadGroups.current = threadsByPath(review?.pr.threads ?? [], threadGroups.current)), [review?.pr.threads, threadGroups]);
+  const viewedByPath = useMemo(
+    () => new Map<string, PullRequestFile["viewed"]>(review?.pr.files.map((file) => [file.path, file.viewed]) ?? []),
+    [review?.pr.files],
+  );
+  const threadActions = review?.threadActions;
+  const renderThreads = useCallback(
+    (threads: PullRequestThread[]) => (threadActions ? threads.map((thread) => <ThreadCard key={thread.id} thread={thread} actions={threadActions} />) : null),
+    [threadActions],
   );
 
   // A file whose comments haven't changed gets the same array back, so it doesn't re-render.
@@ -126,10 +170,25 @@ export function DiffView({ changes, prefs, comments }: { changes: Changes; prefs
               onToggle={toggle}
               onVisible={load}
               onShowLarge={showLarge}
+              threads={review ? threadsFor(prThreads, file.path) : undefined}
+              renderThreads={review ? renderThreads : undefined}
+              viewed={viewedByPath.get(file.path)}
+              onToggleViewed={review?.toggleViewed}
             />
           ))}
         </div>
+        {/* Room under the last file for the review bar that floats over it. */}
+        {review && <div aria-hidden className="h-20" />}
       </ScrollArea>
+      {review && (
+        <ReviewBar
+          pending={review.pr.pendingReview?.count ?? 0}
+          {...viewedCount(review.pr)}
+          canApprove={!review.pr.viewerIsAuthor}
+          error={review.error}
+          onSubmit={review.submit}
+        />
+      )}
     </motion.div>
   );
 }

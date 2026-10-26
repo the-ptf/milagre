@@ -81,6 +81,15 @@ import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
 import { DiffToolbar, useDiffPreferences, useDiffPresence } from "./components/changes/DiffPrefs";
 import { useChanges } from "./components/changes/useChanges";
+import { usePullRequest, useReviewGuide } from "./components/changes/usePullRequest";
+import { PullRequestPanelBody, type PullRequestPanelActions } from "./components/changes/PullRequestPanel";
+import { ReviewGuideView } from "./components/changes/ReviewGuideView";
+import type { ThreadActions } from "./components/changes/PullRequestReview";
+import type { PrDiffReview } from "./components/changes/DiffView";
+import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
+import { checksFixMessage, prRange, stopAskMessage, threadFixMessage } from "./lib/pull-request-view";
+import type { DiffSelection } from "./lib/diff-comments";
+import type { PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
 import { gitChatContext, type GitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
@@ -693,15 +702,26 @@ function App() {
   const linear = useLinear();
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
   const sidePanels = useSidePanels();
+  // The PR the open Chat's branch opened: the Changes panel's "PR #n" mode, its diff and its review guide.
+  const branchPr = selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
+  const prChatKey = project && selectedSession ? chatKey(project.path, selectedSession.id) : null;
+  const [prWanted, setPrWanted] = useState(false);
+  const prReview = usePullRequest({ cwd: selectedWorktree?.path, number: branchPr?.number, active: prWanted, bridge: bridgeForKey(prChatKey) });
   const changes = useChanges({
     cwd: selectedWorktree?.path,
     base: selectedWorktree?.base,
-    chatId: project && selectedSession ? chatKey(project.path, selectedSession.id) : null,
+    chatId: prChatKey,
     available: view === "chat" && Boolean(selectedSession && selectedWorktree),
+    pullRequest: branchPr ? { number: branchPr.number, range: prRange(prReview.pr) } : undefined,
   });
+  const prShown = changes.open && changes.mode === "pr";
+  useEffect(() => setPrWanted(prShown), [prShown]);
+  const prGuide = useReviewGuide({ cwd: selectedWorktree?.path, pr: prReview.pr, active: prShown, bridge: bridgeForKey(prChatKey) });
+  const [guideStop, setGuideStop] = useState(0);
+  const guideShowing = changes.guideOpen && Boolean(prReview.pr && prGuide.guide);
   const diffComments = useDiffComments(project && selectedSession ? chatKey(project.path, selectedSession.id) : null, changes);
   const diffPrefs = useDiffPreferences();
-  const diffShowing = changes.diffOpen;
+  const diffShowing = changes.diffOpen || guideShowing;
   const diffPresence = useDiffPresence(diffShowing);
   const changesAvailable = view === "chat" && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
@@ -1728,12 +1748,126 @@ function App() {
   async function sendDiffComments() {
     const sent = diffComments.sendable;
     if (sent.length === 0) return;
-    const base = changes.list.state === "ready" && changes.list.isRepo ? changes.list.base : null;
+    const base =
+      changes.mode === "pr" && prReview.pr ? `PR #${prReview.pr.number}` : changes.list.state === "ready" && changes.list.isRepo ? changes.list.base : null;
     // Back to the chat first, so the message shows up as it lands.
     changes.closeDiff();
-    if (await executeSend(formatCommentsMessage(sent, { mode: changes.mode, base }), permissionMode, [], [], true))
+    if (
+      await executeSend(formatCommentsMessage(sent, { mode: changes.mode === "uncommitted" ? "uncommitted" : "committed", base }), permissionMode, [], [], true)
+    )
       diffComments.removeMany(sent.map((comment) => comment.id));
   }
+
+  // "Fix in Chat" on a PR's thread or failing checks: back to the Chat, and the ask goes out like any send.
+  const sendPrToChat = useEvent((text: string) => {
+    changes.closeDiff();
+    void executeSend(text, permissionMode, [], [], true);
+  });
+  const prThreadActions = useMemo<ThreadActions>(
+    () => ({
+      reply: async (thread, body) => (await latestPr.current.write("reply", (pr, cwd, number) => pr.reply({ cwd, number, threadId: thread.id, body }))).ok,
+      resolve: (thread, resolved) =>
+        void latestPr.current.write(
+          "resolve",
+          (pr, cwd) => pr.resolveThread({ cwd, threadId: thread.id, resolved }),
+          (current) => ({ ...current, threads: current.threads.map((entry) => (entry.id === thread.id ? { ...entry, resolved } : entry)) }),
+        ),
+      deleteComment: (commentId) =>
+        void latestPr.current.write(
+          "delete",
+          (pr, cwd) => pr.deleteComment({ cwd, commentId }),
+          (current) => ({
+            ...current,
+            threads: current.threads
+              .map((thread) => ({ ...thread, comments: thread.comments.filter((comment) => comment.id !== commentId) }))
+              .filter((thread) => thread.comments.length > 0),
+          }),
+        ),
+      fixInChat: (thread: PullRequestThread) => {
+        const pr = latestPr.current.pr;
+        if (pr) sendPrToChat(threadFixMessage(pr, thread));
+      },
+    }),
+    [sendPrToChat],
+  );
+  const latestPr = useRef(prReview);
+  latestPr.current = prReview;
+  const addToReview = useEvent(
+    (selection: DiffSelection, path: string, body: string) =>
+      void prReview.write("comment", (pr, cwd, number) =>
+        pr.comment({
+          cwd,
+          number,
+          path,
+          line: selection.end,
+          startLine: selection.start < selection.end ? selection.start : undefined,
+          side: selection.side === "old" ? "LEFT" : "RIGHT",
+          body,
+        }),
+      ),
+  );
+  const togglePrViewed = useEvent((path: string) => {
+    const file = prReview.pr?.files.find((entry) => entry.path === path);
+    if (!file) return;
+    const viewed = file.viewed !== "VIEWED";
+    void prReview.write(
+      "viewed",
+      (pr, cwd, number) => pr.fileViewed({ cwd, number, path, viewed }),
+      (current) => ({ ...current, files: current.files.map((entry) => (entry.path === path ? { ...entry, viewed: viewed ? "VIEWED" : "UNVIEWED" } : entry)) }),
+    );
+  });
+  const submitPrReview = useEvent(
+    async (event: ReviewEvent, body: string) => (await prReview.write("submit", (pr, cwd, number) => pr.submitReview({ cwd, number, event, body }))).ok,
+  );
+  const prDiffReview: PrDiffReview | undefined =
+    changes.mode === "pr" && prReview.pr
+      ? { pr: prReview.pr, threadActions: prThreadActions, addToReview, toggleViewed: togglePrViewed, submit: submitPrReview, error: prReview.writeError }
+      : undefined;
+  const openGuideStop = useEvent((stop: number) => {
+    const guide = prGuide.guide;
+    if (!guide) return;
+    // Moving on from a stop marks it read; past the last one the tour ends, back on the Chat.
+    if (guideShowing && stop > guideStop) void prGuide.markRead(guideStop);
+    if (stop >= guide.stops.length) {
+      changes.closeDiff();
+      return;
+    }
+    setGuideStop(stop);
+    changes.openGuide();
+  });
+  const prPanelActions = useMemo<PullRequestPanelActions>(
+    () => ({
+      openFile: (path) => changes.selectFile(path),
+      fixChecks: (pr) => sendPrToChat(checksFixMessage(pr, pr.checks)),
+      fixThread: (pr, thread) => sendPrToChat(threadFixMessage(pr, thread)),
+      openGuide: openGuideStop,
+      writeGuide: () => void prGuideRef.current.write(selectedProviderRef.current),
+    }),
+    [changes.selectFile, sendPrToChat, openGuideStop],
+  );
+  const prGuideRef = useRef(prGuide);
+  prGuideRef.current = prGuide;
+  const selectedProviderRef = useRef(selectedSession?.provider);
+  selectedProviderRef.current = selectedSession?.provider;
+  // "Ask in Chat" on a guide stop: the stop goes into the composer, for the question to follow.
+  const askAboutStop = useEvent((stop: number) => {
+    const guide = prGuide.guide;
+    const pr = prReview.pr;
+    const entry = guide?.stops[stop];
+    if (!pr || !entry) return;
+    changes.closeDiff();
+    setDraft([draftStore.get(), stopAskMessage(pr, entry, stop)].filter(Boolean).join("\n\n"));
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
+  });
+  // A sidebar row's PR chip: the Chat's own PR opens in its panel; any other PR (or another computer's) on GitHub.
+  const openRowPullRequest = useEvent((item: { id: string; details?: { path?: string } }, pr: { number: number }) => {
+    const path = item.details?.path;
+    const session = state?.sessions[Number(item.id)];
+    if (!project || !path || !session || pullRequests[path]?.number !== pr.number || state?.worktrees[session.worktree_id]?.path !== path) return false;
+    openChatByKey(chatKey(project.path, session.id));
+    changes.showPullRequest();
+    return true;
+  });
 
   // The new chat starts at once from an issue: its first message is the issue, then whatever the user typed.
   function startFromIssue(issue: LinearIssue) {
@@ -2691,56 +2825,58 @@ function App() {
             <div
               className={`min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 ${view === "chat" || view === "canvas" || view === "routines" ? "flex" : "hidden"}`}
             >
-              <SidebarNav
-                fill
-                workspaceName={project.name}
-                workspaceImage={projectImage(project.path)}
-                onSwitchLink={(id) => void selectLink(id)}
-                onLinkProject={() => setLinkDialogOpen(true)}
-                onAddComputer={() => setAddComputerOpen(true)}
-                onOpenComputerSettings={openComputerSettings}
-                onEditLink={(id) => void editLink(id)}
-                onOpenProject={openProjectFromSidebar}
-                recents={chats}
-                activeId={
-                  view === "chat"
-                    ? pendingHere && pendingSend
-                      ? String(pendingCanonicalId ?? pendingSend.session.id)
-                      : selectedSession
-                        ? String(selectedSession.id)
-                        : null
-                    : null
-                }
-                onPick={pickChat}
-                chatActions={chatActions}
-                onNewChat={startNewChatFromSidebar}
-                onOpenSettings={openSettings}
-                onOpenCanvas={openCanvas}
-                canvasActive={view === "canvas"}
-                onOpenRoutines={openRoutines}
-                routinesActive={view === "routines"}
-                routinesUnread={unreadRunRoutineIds.size > 0}
-                onOpenCommands={openCommandPalette}
-                hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
-                projectPath={project.path}
-                onSwitchProject={switchProjectFromSidebar}
-                attentionPaths={attentionPaths}
-                onOpenProjectSettings={openProjectSettings}
-                onNewChatInScope={newChatInScope}
-                usage={sidebarUsage}
-                runningKeys={sidebarRunKeys.running}
-                waitingKeys={sidebarRunKeys.waiting}
-                askingKeys={sidebarRunKeys.asking}
-                onOpenScopeChat={openScopeChat}
-                onHoverChat={hoverChat}
-                onAskChat={askLinkedChat}
-                sidebarMode={sidebarMode}
-                onSidebarMode={setSidebarMode}
-                selectedBotId={selectedBotId}
-                onPickBot={pickBot}
-                models={models}
-                defaultModel={selectedModel}
-              />
+              <PullRequestOpenContext.Provider value={openRowPullRequest}>
+                <SidebarNav
+                  fill
+                  workspaceName={project.name}
+                  workspaceImage={projectImage(project.path)}
+                  onSwitchLink={(id) => void selectLink(id)}
+                  onLinkProject={() => setLinkDialogOpen(true)}
+                  onAddComputer={() => setAddComputerOpen(true)}
+                  onOpenComputerSettings={openComputerSettings}
+                  onEditLink={(id) => void editLink(id)}
+                  onOpenProject={openProjectFromSidebar}
+                  recents={chats}
+                  activeId={
+                    view === "chat"
+                      ? pendingHere && pendingSend
+                        ? String(pendingCanonicalId ?? pendingSend.session.id)
+                        : selectedSession
+                          ? String(selectedSession.id)
+                          : null
+                      : null
+                  }
+                  onPick={pickChat}
+                  chatActions={chatActions}
+                  onNewChat={startNewChatFromSidebar}
+                  onOpenSettings={openSettings}
+                  onOpenCanvas={openCanvas}
+                  canvasActive={view === "canvas"}
+                  onOpenRoutines={openRoutines}
+                  routinesActive={view === "routines"}
+                  routinesUnread={unreadRunRoutineIds.size > 0}
+                  onOpenCommands={openCommandPalette}
+                  hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
+                  projectPath={project.path}
+                  onSwitchProject={switchProjectFromSidebar}
+                  attentionPaths={attentionPaths}
+                  onOpenProjectSettings={openProjectSettings}
+                  onNewChatInScope={newChatInScope}
+                  usage={sidebarUsage}
+                  runningKeys={sidebarRunKeys.running}
+                  waitingKeys={sidebarRunKeys.waiting}
+                  askingKeys={sidebarRunKeys.asking}
+                  onOpenScopeChat={openScopeChat}
+                  onHoverChat={hoverChat}
+                  onAskChat={askLinkedChat}
+                  sidebarMode={sidebarMode}
+                  onSidebarMode={setSidebarMode}
+                  selectedBotId={selectedBotId}
+                  onPickBot={pickBot}
+                  models={models}
+                  defaultModel={selectedModel}
+                />
+              </PullRequestOpenContext.Provider>
             </div>
             {view === "settings" && (
               <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
@@ -2764,11 +2900,22 @@ function App() {
               <DiffBar
                 open={diffShowing}
                 onBack={changes.closeDiff}
-                send={{ count: diffComments.sendable.length, onSend: () => void sendDiffComments() }}
-                trailing={<DiffToolbar changes={changes} prefs={diffPrefs} />}
+                send={guideShowing ? undefined : { count: diffComments.sendable.length, onSend: () => void sendDiffComments() }}
+                trailing={guideShowing ? undefined : <DiffToolbar changes={changes} prefs={diffPrefs} />}
               />
               <AnimatePresence initial={false} onExitComplete={diffPresence.onExitComplete}>
-                {diffShowing && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} />}
+                {changes.diffOpen && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} review={prDiffReview} />}
+                {guideShowing && prReview.pr && prGuide.guide && (
+                  <ReviewGuideView
+                    key="guide"
+                    pr={prReview.pr}
+                    guide={prGuide.guide}
+                    stop={guideStop}
+                    onStop={openGuideStop}
+                    onOpenFile={changes.selectFile}
+                    onAsk={askAboutStop}
+                  />
+                )}
               </AnimatePresence>
               {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles show theirs in their headers. */}
               {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && (
@@ -2904,7 +3051,10 @@ function App() {
                                   void executeSend(pullRequestActionBody(pullRequestActionRequest), permissionMode, [], [], true, pullRequestActionRequest);
                                 },
                               }
-                            : undefined
+                            : selectedSession && branchPr?.state === "OPEN" && branchPr.readyToMerge && !prShown
+                              ? // Nothing blocks the Chat's PR: the pill opens its panel, where it merges.
+                                { label: `Merge #${branchPr.number}`, tone: "green", onRun: changes.showPullRequest }
+                              : undefined
                         }
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
@@ -3077,10 +3227,35 @@ function App() {
                 list={changes.list}
                 mode={changes.mode}
                 onModeChange={changes.setMode}
-                onRefresh={() => void changes.refresh()}
+                onRefresh={() => {
+                  void changes.refresh();
+                  if (changes.mode === "pr") {
+                    void prReview.refresh();
+                    void prGuide.refresh();
+                  }
+                }}
                 onSelectFile={changes.selectFile}
                 activePath={changes.activePath}
                 commentCounts={diffComments.counts}
+                pullRequest={
+                  branchPr
+                    ? {
+                        number: branchPr.number,
+                        totals: prReview.pr ? { added: prReview.pr.additions, removed: prReview.pr.deletions } : undefined,
+                        loading: prReview.state.status === "loading" || prReview.busy !== null,
+                        body: (
+                          <PullRequestPanelBody
+                            review={prReview}
+                            guide={prGuide}
+                            actions={prPanelActions}
+                            activePath={changes.activePath}
+                            guideOpen={guideShowing}
+                            guideStop={guideStop}
+                          />
+                        ),
+                      }
+                    : undefined
+                }
               />
             </ChangesPanelSlot>
           </div>
