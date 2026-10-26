@@ -27,7 +27,6 @@ function codex(
     scenario = "reply",
     resumeId,
     tldrEnabled,
-    designsEnabled,
     analysisOnly,
     executionAdvisor,
     linked,
@@ -43,7 +42,6 @@ function codex(
     cwd: os.tmpdir(),
     resumeId,
     tldrEnabled,
-    designsEnabled,
     analysisOnly,
     executionAdvisor,
     linked,
@@ -966,18 +964,6 @@ test("TLDR can be disabled when starting or resuming Codex", async (t) => {
     const params = calls.find((call) => call.method === (resumeId ? "thread/resume" : "thread/start")).params;
     assert.ok(!params.developerInstructions.includes("# tldr eval"));
     assert.match(params.developerInstructions, /TLDR.*disabled/);
-  }
-});
-
-test("Designs can be disabled when starting or resuming Codex", async (t) => {
-  for (const resumeId of [undefined, "thread-existing"]) {
-    const { session, events } = codex(t, { designsEnabled: false, resumeId });
-    await session.startTurn(TURN);
-    await ended(events);
-    const calls = await received(session);
-    const params = calls.find((call) => call.method === (resumeId ? "thread/resume" : "thread/start")).params;
-    assert.match(params.developerInstructions, /Designs are off/);
-    assert.doesNotMatch(params.developerInstructions, /design_show|design_read|design_apply/);
   }
 });
 

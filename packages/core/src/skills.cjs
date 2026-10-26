@@ -48,7 +48,7 @@ function metadata(content, file) {
 }
 
 // `projectPath` null lists the user and bundled skills only (no open Project).
-async function discoverSkills(projectPath, { home = os.homedir(), bundledDirectory = BUNDLED_SKILLS_DIRECTORY, designsEnabled = true } = {}) {
+async function discoverSkills(projectPath, { home = os.homedir(), bundledDirectory = BUNDLED_SKILLS_DIRECTORY } = {}) {
   if (projectPath !== null && (typeof projectPath !== "string" || !path.isAbsolute(projectPath))) throw new Error("An absolute workspace path is required");
   const skills = new Map();
   // Same-named skills found after the winner: the `/` menu ignores them, Settings shows them.
@@ -79,7 +79,6 @@ async function discoverSkills(projectPath, { home = os.homedir(), bundledDirecto
       const file = path.join(directory, "SKILL.md");
       try {
         const info = metadata(await readSkill(file), file);
-        if (scope === "bundled" && info.name === "design" && !designsEnabled) return;
         const key = info.name.toLowerCase();
         const winner = skills.get(key);
         if (winner) shadowed.push({ ...info, path: file, scope, provider, shadowedBy: winner.path });

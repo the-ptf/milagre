@@ -85,7 +85,6 @@ class SessionManager {
     const { chatId, provider, cwd } = request;
     const existing = this.sessions.get(chatId);
     const tldrEnabled = request.tldrEnabled !== false;
-    const designsEnabled = request.designsEnabled !== false;
     const accountId = request.accountId ?? "default";
     const workspaceRoots = [...new Set(request.workspaceRoots ?? [])].sort();
     const sameChat =
@@ -99,9 +98,7 @@ class SessionManager {
     if (
       sameChat &&
       !existing.session.closed &&
-      ((existing.tldrEnabled === tldrEnabled && existing.designsEnabled === designsEnabled && existing.accountId === accountId) ||
-        existing.session.turnActive ||
-        busyWithoutTurn(existing))
+      ((existing.tldrEnabled === tldrEnabled && existing.accountId === accountId) || existing.session.turnActive || busyWithoutTurn(existing))
     )
       return existing;
     // Background work lives in the agent process: replacing it would stop that work (T3 #16000). The same provider in
@@ -115,7 +112,6 @@ class SessionManager {
       provider,
       cwd,
       tldrEnabled,
-      designsEnabled,
       accountId,
       command: request.command,
       env: request.env,
@@ -136,7 +132,6 @@ class SessionManager {
       ...(request.sharedLink ? { sharedLink: true } : {}),
       resumeId,
       tldrEnabled,
-      designsEnabled,
       accountId,
       command: request.command,
       ...(request.env ? { env: request.env } : {}),

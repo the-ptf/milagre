@@ -303,17 +303,6 @@
     "designs:enabled:read": {
       "parameters": []
     },
-    "designs:enabled:save": {
-      "parameters": [
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "enum": [false, true]
-          }
-        }
-      ]
-    },
     "bots:enabled:read": {
       "parameters": []
     },

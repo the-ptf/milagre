@@ -72,8 +72,5 @@ export function useDesigns(client: Client | null, projectPath?: string, availabl
   useEffect(() => {
     if (client && state.enabled === false) clearDesignMessages(client.url);
   }, [client, state.enabled]);
-  return useMemo(
-    () => ({ ...state, refresh: setting?.refresh ?? noChange, save: setting?.save ?? noChange, connectionChanged: connection?.change ?? noStatus }),
-    [state, setting, connection],
-  );
+  return useMemo(() => ({ ...state, refresh: setting?.refresh ?? noChange, connectionChanged: connection?.change ?? noStatus }), [state, setting, connection]);
 }

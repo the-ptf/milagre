@@ -21,8 +21,8 @@ async function fixture(t) {
   return { api, url };
 }
 
-test("the live MCP endpoint removes Designs tools while off and never exposes retired HTML tools", async (t) => {
-  const { api, url } = await fixture(t);
+test("the live MCP endpoint lists Designs tools and never exposes retired HTML tools", async (t) => {
+  const { url } = await fixture(t);
   let id = 0;
   const request = async (method, params = {}) => {
     const response = await fetch(url, {
@@ -56,15 +56,11 @@ test("the live MCP endpoint removes Designs tools while off and never exposes re
   const shown = await call("design_show", { id: "welcome", title: "Welcome", document });
   assert.equal(shown.isError, false);
   assert.equal(JSON.parse(shown.content[0].text.split("\n", 1)[0]).format, "design");
-  await api.setEnabled(false);
-  assert.deepEqual(names(await list()), []);
-  for (const name of ["design_show", "design_read", "design_apply", "artifact_show", "artifact_read"]) {
-    const rejected = await call(name, { id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] });
+  for (const name of ["artifact_show", "artifact_read"]) {
+    const rejected = await call(name, { id: "welcome" });
     assert.equal(rejected.isError, true);
     assert.match(rejected.content[0].text, /Unknown tool/);
   }
-  await api.setEnabled(true);
-  assert.equal(names(await list()).length, 7);
   const read = await call("design_read", { id: "welcome" });
   assert.equal(read.isError, false);
   const source = JSON.parse(read.content[0].text);

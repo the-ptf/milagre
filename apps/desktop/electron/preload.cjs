@@ -98,7 +98,6 @@ function makeBridge(invoke, listen, send) {
     setTerminalFocused: (focused) => send("app:terminal-focused", focused === true),
     onCloseFocusedTerminal: (callback) => listen("app:close-focused-terminal", () => callback()),
     readDesignsEnabled: () => invoke("designs:enabled:read"),
-    saveDesignsEnabled: (value) => invoke("designs:enabled:save", value),
     onDesignsEnabledChanged: (callback) => listen("designs:enabled-changed", callback),
     readBotsEnabled: () => invoke("bots:enabled:read"),
     saveBotsEnabled: (value) => invoke("bots:enabled:save", value),

@@ -83,19 +83,17 @@ test("a null Project lists user skills only", async (t) => {
   );
 });
 
-test("Designs off removes only the bundled skill from discovery, reads and prompt expansion", async (t) => {
+test("the bundled design skill is always listed and readable, and an external design skill shadows it", async (t) => {
   const { project, home, skill } = await fixture(t);
-  const on = await discoverSkills(project, { home });
-  const bundled = on.skills.find((entry) => entry.name === "design" && entry.scope === "bundled");
+  const options = { home };
+  const found = await discoverSkills(project, options);
+  const bundled = found.skills.find((entry) => entry.name === "design" && entry.scope === "bundled");
   assert.ok(bundled);
-  const options = { home, designsEnabled: false };
-  assert.ok(!(await discoverSkills(project, options)).skills.some((entry) => entry.name === "design"));
-  assert.equal(await expandSkillPrompt(project, "/design a welcome screen", options), "/design a welcome screen");
-  await assert.rejects(readDiscoveredSkill(project, bundled.path, options), /no longer there/);
+  assert.match(await readDiscoveredSkill(project, bundled.path, options), /design/i);
   const external = await skill(project, ".agents", "design", "Use my external design tool.");
-  const off = await discoverSkills(project, options);
-  assert.equal(off.skills.find((entry) => entry.name === "design").path, external);
-  assert.ok(!off.shadowed.some((entry) => entry.path === bundled.path));
+  const shadowing = await discoverSkills(project, options);
+  assert.equal(shadowing.skills.find((entry) => entry.name === "design").path, external);
+  assert.ok(shadowing.shadowed.some((entry) => entry.path === bundled.path));
   assert.match(await expandSkillPrompt(project, "/design a welcome screen", options), /Use my external design tool/);
   assert.equal(await readDiscoveredSkill(project, external, options), "Use my external design tool.");
 });

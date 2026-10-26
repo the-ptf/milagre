@@ -17,11 +17,12 @@ const {
   failedWith,
 } = require("./events.cjs");
 
-test("disabled Designs instructions omit design tools while preserving explanatory artifacts", () => {
-  const instructions = milagreInstructions(true, "Project context", false);
-  assert.match(instructions, /Designs are off/);
-  assert.match(instructions, /Do not attempt to create, read or revise/);
-  assert.doesNotMatch(instructions, /design_show|design_read|design_apply|bundled design skill/);
+test("the instructions always carry the Designs paragraph next to the explanatory Artifacts one", () => {
+  const instructions = milagreInstructions(true, "Project context");
+  assert.match(instructions, /Designs: when the user asks to see a UI, screen, mockup or visual design, create an editable document with milagre design_show/);
+  assert.match(instructions, /design_read|design_apply|bundled design skill/);
+  assert.match(instructions, /Artifacts: when the user wants a page explaining something/);
+  assert.doesNotMatch(instructions, /Designs are off|when Designs is off/);
   assert.match(instructions, /Project context/);
 });
 
@@ -648,7 +649,7 @@ test("the task instructions keep one list and name every phase", () => {
 });
 
 test("a shared Link Chat is told how its delegate differs, and never about Negotiations", () => {
-  const text = milagreInstructions(true, "", true, { sharedLink: true });
+  const text = milagreInstructions(true, "", { sharedLink: true });
   for (const sentence of [/Read the linked side with the milagre tools: linked_overview/, /Ask for changes with delegate/, /worktree_link/])
     assert.match(text, sentence);
   assert.match(

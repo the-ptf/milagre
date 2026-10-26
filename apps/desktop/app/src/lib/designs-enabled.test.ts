@@ -19,7 +19,6 @@ function bridge(answers: (boolean | Error)[]) {
       if (answer instanceof Error) throw answer;
       return { enabled: answer };
     },
-    saveDesignsEnabled: async (enabled: boolean) => ({ enabled }),
     onDesignsEnabledChanged: () => () => {},
   } as unknown as MilagreBridge;
   return { fake, reads };

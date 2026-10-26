@@ -265,7 +265,6 @@ function claude(
     script = scripts.reply,
     resumeId,
     tldrEnabled,
-    designsEnabled,
     analysisOnly,
     executionAdvisor,
     env = process.env,
@@ -281,7 +280,6 @@ function claude(
     cwd: "/repo",
     resumeId,
     tldrEnabled,
-    designsEnabled,
     analysisOnly,
     executionAdvisor,
     env,
@@ -1226,17 +1224,6 @@ test("TLDR can be disabled when starting or resuming Claude", async (t) => {
   }
 });
 
-test("Designs can be disabled when starting or resuming Claude", async (t) => {
-  for (const resumeId of [undefined, "session-existing"]) {
-    const { session, events, calls } = claude(t, { designsEnabled: false, resumeId });
-    await session.startTurn(TURN);
-    await ended(events);
-    assert.match(calls.options.systemPrompt.append, /Designs are off/);
-    assert.doesNotMatch(calls.options.systemPrompt.append, /design_show|design_read|design_apply/);
-    assert.equal(calls.options.resume, resumeId);
-  }
-});
-
 test("only the read, plan, own-canvas and self-gated Milagre tools skip Claude's approval; the rest follow the Chat's mode", async (t) => {
   const tool = (name, readOnly) => ({ name, description: name, input: {}, readOnly, run: async () => `${name} ran` });
   const tools = [
@@ -1378,13 +1365,12 @@ test("analysis-only Claude gets no Everywhere servers, and a failing mcpExtras s
   assert.match(String(warn.mock.calls[0].arguments.join(" ")), /boom/);
 });
 
-test("Claude's subagents are told to keep a to-do list as they start, and to design on the Chat's canvas with Designs on", async (t) => {
+test("Claude's subagents are told to keep a to-do list as they start, and to design on the Chat's canvas when design tools are linked", async (t) => {
   const { SUBAGENT_DESIGN_INSTRUCTIONS, SUBAGENT_PLAN_INSTRUCTIONS } = require("./events.cjs");
   const design = { name: "design_show", description: "Show", input: {}, readOnly: false, run: async () => "" };
-  for (const [designsEnabled, tools, designs] of [
-    [true, [design], true],
-    [false, [design], false],
-    [true, [], false],
+  for (const [tools, designs] of [
+    [[design], true],
+    [[], false],
   ]) {
     const sdk = fakeSdk(scripts.reply);
     const loadSdk = async () => ({
@@ -1396,7 +1382,6 @@ test("Claude's subagents are told to keep a to-do list as they start, and to des
     const session = new ClaudeSession({
       cwd: "/repo",
       command: "/usr/local/bin/claude",
-      designsEnabled,
       linked: { tools },
       emit: (event) => events.push(event),
       loadSdk,
@@ -1539,7 +1524,6 @@ test("the design SubagentStart hook and the gate hook coexist", async (t) => {
   const session = new ClaudeSession({
     cwd: "/repo",
     command: "/usr/local/bin/claude",
-    designsEnabled: true,
     linked: { tools: [design] },
     permissionPolicy: mergePolicy,
     emit: (event) => events.push(event),

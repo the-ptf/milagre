@@ -22,6 +22,8 @@ module.exports = {
   "chat:send-status": [p("projectPath"), p("clientMessageId")],
   "attachment:upload": request({ projectPath: s, name: s, base64: s, reuse: s, quota: n, transferId: s, offset: n, totalBytes: n }, ["projectPath"]),
   "chat:inbox": [],
+  // Designs are always on; older apps still save the old switch, which changes nothing.
+  "designs:enabled:save": [p("value", b)],
   // What a restart to install an app update would stop; the desktop's updater asks (app-auto-update.cjs).
   "app-update:activity": [],
   "link:workspace-roots": [p("requested")],

@@ -229,7 +229,6 @@ test("saved publication capabilities survive Chat deletion and remain revocable 
   await restarted.revokeSaved({ id: share.id });
   assert.equal((await restarted.listAll())[0].revoked, true);
   await assert.rejects(restarted.revokeSaved({ id: "z".repeat(43) }), /not in this computer/);
-  await artifacts.setEnabled(false);
   assert.equal((await restarted.listAll())[0].revoked, true);
   await restarted.revokeSaved({ id: share.id });
 });
@@ -385,15 +384,13 @@ test("lost upload acknowledgement remains revocable and retries the same ID afte
   await restarted.revoke({ chatId: CHAT, id: result.id });
   assert.equal(calls.length, count);
 });
-test("consent, Chat scope and Designs OFF are enforced before any public request", async (t) => {
-  const { api, artifacts, calls, request } = await fixture(t);
+test("consent, Chat scope and page kind are enforced before any public request", async (t) => {
+  const { api, calls, request } = await fixture(t);
   await assert.rejects(api.publish({ ...request, acknowledgePublic: false }), /Confirm/);
   await assert.rejects(api.publish({ ...request, chatId: "/other#1" }), /Unknown Chat/);
   await assert.rejects(api.revoke({ chatId: CHAT, id: "x".repeat(43) }), /does not belong/);
-  await artifacts.setEnabled(false);
-  await assert.rejects(api.publish(request), /Designs are off/);
-  await assert.rejects(api.list({ chatId: CHAT }), /Designs are off/);
-  await assert.rejects(artifacts.pageSnapshot(request), /Designs are off/);
+  await assert.rejects(api.publish({ ...request, kind: "other" }), /Choose Designs or Artifacts/);
+  await assert.rejects(api.list({ chatId: CHAT, kind: "other" }), /Choose Designs or Artifacts/);
   assert.equal(calls.length, 0);
 });
 test("page capture is ordered with edits", async (t) => {
@@ -564,12 +561,11 @@ test("embedding honors the case-insensitive HTTPS schemes accepted by designs", 
   assert.match(result.designs[0].document.nodes[0].src, /^data:image\/png/);
 });
 
-test("Artifact sharing keeps one link per page, separate from Designs, and works while Designs is off", async (t) => {
+test("Artifact sharing keeps one link per page, separate from Designs", async (t) => {
   const { api, artifacts, calls, request, options } = await fixture(t);
   const designShare = await api.publish(request);
   await artifacts.show({ chatId: CHAT, title: "Explanation", html: "<h1>First explanation</h1>", width: 1280, height: 800 });
-  await artifacts.setEnabled(false);
-  assert.equal((await api.status()).available, false);
+  assert.equal((await api.status()).available, true);
   assert.equal((await api.status({ kind: "artifacts" })).available, true);
   const artifactRequest = { ...request, kind: "artifacts" };
   const first = await api.publish(artifactRequest);
@@ -589,13 +585,11 @@ test("Artifact sharing keeps one link per page, separate from Designs, and works
     (await api.list({ chatId: CHAT, kind: "artifacts" })).map((item) => item.id),
     [first.id],
   );
-  await artifacts.setEnabled(true);
   assert.deepEqual(
     (await api.list({ chatId: CHAT })).map((item) => item.id),
     [designShare.id],
   );
   await assert.rejects(api.revoke({ chatId: CHAT, id: first.id }), /does not belong/);
-  await artifacts.setEnabled(false);
   await api.revoke({ chatId: CHAT, id: first.id, kind: "artifacts" });
   assert.deepEqual(await api.list({ chatId: CHAT, kind: "artifacts" }), []);
   await api.revokeSaved({ id: designShare.id });

@@ -90,8 +90,7 @@ const readVersionFile = (file) =>
     throw error;
   });
 
-function createChatArtifacts({ directory, validateChat, settingsFile = path.join(directory, ".designs-enabled.json") }) {
-  const settings = require("./design-settings.cjs").createDesignSettings(settingsFile);
+function createChatArtifacts({ directory, validateChat }) {
   let queue = Promise.resolve();
   const serial = (fn) => {
     const result = queue.then(fn);
@@ -99,12 +98,8 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
     return result;
   };
   const chatDirectory = (chatId) => path.join(directory, createHash("sha256").update(chatId).digest("hex").slice(0, 32));
-  function requireDesigns() {
-    if (!settings.enabled()) throw Error("Designs are off in Settings > Milagre. Turn Designs on before using design tools.");
-  }
   function checkFormat(format) {
     if (format !== undefined && format !== "design" && format !== "html") throw Error("Choose design or html format.");
-    if (format === "design") requireDesigns();
   }
   async function chat(chatId) {
     if (typeof chatId !== "string" || !chatId || chatId.length > 8192) throw Error("An existing Chat is required.");
@@ -157,7 +152,6 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
     return artifact;
   }
   function editable(artifact, format = "design") {
-    if (format === "design") requireDesigns();
     if (artifact && formatOf(artifact.versions.at(-1)) !== format) throw Error(FORMAT_MISMATCH);
   }
   async function writeVersion(folder, id, previous, entry, html, document, assertActive) {
@@ -186,7 +180,6 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   async function readVersion(folder, artifact, version) {
     const entry = version === undefined ? artifact.versions.at(-1) : artifact.versions.find((item) => item.version === version);
     if (!entry) throw Error(`Version ${version} of this design is no longer kept.`);
-    if (formatOf(entry) === "design") requireDesigns();
     const html = await readVersionFile(htmlFile(folder, artifact.id, entry.version));
     const document = formatOf(entry) === "design" ? JSON.parse(await readVersionFile(documentFile(folder, artifact.id, entry.version))) : undefined;
     return { ...summary(artifact, entry), latest: artifact.versions.at(-1).version, html, ...(document ? { document } : {}) };
@@ -195,10 +188,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
     const names = await fs.readdir(folder).catch((error) => (error.code === "ENOENT" ? [] : Promise.reject(error)));
     const ids = new Set(names.map((name) => (name.endsWith(".json") ? name.slice(0, -5) : name)).filter((name) => ID.test(name) && name !== COMMENTS));
     const entries = await Promise.all([...ids].map((id) => load(folder, id)));
-    const visible = entries.filter(
-      (entry) =>
-        entry?.versions.length && (!format || formatOf(entry.versions.at(-1)) === format) && (settings.enabled() || formatOf(entry.versions.at(-1)) === "html"),
-    );
+    const visible = entries.filter((entry) => entry?.versions.length && (!format || formatOf(entry.versions.at(-1)) === format));
     const html = visible
       .filter((entry) => formatOf(entry.versions.at(-1)) === "html")
       .toSorted((a, b) => (b.versions.at(-1).createdAt ?? 0) - (a.versions.at(-1).createdAt ?? 0) || a.id.localeCompare(b.id))[0];
@@ -208,9 +198,6 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   }
 
   return {
-    enabled: settings.enabled,
-    // This shares the artifact queue: OFF cannot race an accepted revision or comment write.
-    setEnabled: (value) => serial(() => settings.save(value)),
     // Capture every latest version under one store lock. No private Chat or comment fields leave the store.
     pageSnapshot: (request) =>
       serial(async () => {
@@ -464,7 +451,6 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
     if (!artifact) throw Error("This comment's design is no longer available.");
     checkFormat(format);
     if (format && formatOf(artifact.versions.at(-1)) !== format) throw Error(FORMAT_MISMATCH);
-    if (formatOf(artifact.versions.at(-1)) === "design") requireDesigns();
     if (!Number.isSafeInteger(comment.design.version) || comment.design.version < 1 || comment.design.version > artifact.versions.at(-1).version)
       throw Error("This comment's design version is not available.");
     // HTML is one live page: an edit may land while the user is composing feedback.
@@ -575,7 +561,6 @@ async function designFeedback(saved, document, { renderPng, warnings: findWarnin
 }
 
 function artifactToolDefinitions(chatId, api, authorization, { renderPng = renderDesignPng, warnings = designWarnings } = {}) {
-  if (!api.enabled()) return [];
   const feedback = { renderPng, warnings };
   return [
     {

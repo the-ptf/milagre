@@ -184,7 +184,6 @@ function createRuntime(options) {
   const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
   const artifacts = createChatArtifacts({
     directory: path.join(dataDir, "artifacts"),
-    settingsFile: path.join(dataDir, "designs.json"),
     validateChat: existingChat("showing a design"),
   });
   const designPageSharing = require("./design-page-sharing.cjs").createDesignPageSharing({
@@ -203,12 +202,9 @@ function createRuntime(options) {
   commands.handle("artifact:revoke-saved-page-share", (_context, request) => designPageSharing.revokeSaved(request));
   commands.handle("artifact:share-page", (_context, request) => designPageSharing.publish(request));
   commands.handle("artifact:revoke-page-share", (_context, request) => designPageSharing.revoke(request));
-  commands.handle("designs:enabled:read", () => ({ enabled: artifacts.enabled() }));
-  commands.handle("designs:enabled:save", async (_context, value) => {
-    const result = await artifacts.setEnabled(value);
-    emit("designs:enabled-changed", result);
-    return result;
-  });
+  // Designs are always on. Older apps and paired computers still read the switch, and saving it changes nothing.
+  commands.handle("designs:enabled:read", () => ({ enabled: true }));
+  commands.handle("designs:enabled:save", () => ({ enabled: true }));
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
   commands.handle("artifact:list", (_context, request) => artifacts.list(request));
   commands.handle("artifact:apply", (_context, request) => artifacts.apply(request));
@@ -585,11 +581,11 @@ function createRuntime(options) {
   // A null Project lists the user's skills only.
   commands.handle("skills:list", async (_event, projectPath) => {
     if (projectPath !== null) await knownFolder(projectPath);
-    return discoverSkills(projectPath, { designsEnabled: artifacts.enabled() });
+    return discoverSkills(projectPath);
   });
   commands.handle("skills:read", async (_event, projectPath, file) => {
     if (projectPath !== null) await knownFolder(projectPath);
-    return readDiscoveredSkill(projectPath, file, { designsEnabled: artifacts.enabled() });
+    return readDiscoveredSkill(projectPath, file);
   });
   commands.handle("project:branches", async (_event, projectPath) => {
     await knownFolder(projectPath);
@@ -1067,8 +1063,7 @@ function createRuntime(options) {
     const linkedContext = agents.isTurnActive(request.chatId) ? Promise.resolve("") : linked.context(request.chatId);
     const images = decodeImages(request.images);
     // expandSkills: false (the review demo) sends `/skill` as typed: the skills on this Mac are the owner's own.
-    const prompt =
-      options.expandSkills === false ? request.prompt : await expandSkillPrompt(request.cwd, request.prompt, { designsEnabled: artifacts.enabled() });
+    const prompt = options.expandSkills === false ? request.prompt : await expandSkillPrompt(request.cwd, request.prompt);
     const cli = agents.activeAccount(request.chatId, request.provider) ?? (await agentCli(request.provider, projectOfKey(request.chatId)));
     // A CLI that is missing, too old or doesn't start fails the turn like any other failure, with its own message.
     if (cli.problem) {
@@ -1105,7 +1100,6 @@ function createRuntime(options) {
       }
       const started = await agents.startTurn({
         ...request,
-        designsEnabled: artifacts.enabled(),
         prompt: text,
         images,
         command: cli.command,
@@ -2062,7 +2056,7 @@ function createRuntime(options) {
       return { output: body, images: captured.images ?? [] };
     },
     launch: async ({ record, context, provider, emit: send }) => {
-      const { skills } = await discoverSkills(context.cwd, { designsEnabled: artifacts.enabled() });
+      const { skills } = await discoverSkills(context.cwd);
       const referenceRoots = [...new Set(skills.map((skill) => path.dirname(skill.path)))];
       const canvasReads = linked
         .forChat(record.chatId)
@@ -2080,7 +2074,6 @@ function createRuntime(options) {
         sharedLink: context.sharedLink,
         // Its system prompt is the advisor's own (events.cjs advisorInstructions): the Chat's writing setting, its read tools.
         tldrEnabled: context.settings?.tldrEnabled !== false,
-        designsEnabled: artifacts.enabled(),
         analysisOnly: !executionAdvisor,
         executionAdvisor,
         ...(executionAdvisor ? { mcpExtras: () => mcp.forSession(record.provider, record.launchIdentity.accountId ?? "default") } : {}),

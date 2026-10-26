@@ -1,6 +1,5 @@
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
-import { useDesignsEnabled } from "../lib/designs-enabled";
 import { useBots } from "../lib/bots-store";
 import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
@@ -571,25 +570,17 @@ function NotificationChimeSetting() {
   );
 }
 
-export function DesignsSettings() {
-  const designs = useDesignsEnabled();
+/** Every public link to a design or artifact this computer published, revocable even after its Chat is deleted. */
+function PublishedPagesSettings() {
   const [publishedPages, setPublishedPages] = useState(false);
   return (
-    <div data-slot="designs-setting">
-      <Row label="Designs" description="Create editable designs in Chat.">
-        <Switch label="Designs" checked={designs.enabled} disabled={!designs.ready || designs.saving} onChange={(enabled) => void designs.save(enabled)} />
-      </Row>
+    <div data-slot="published-pages-setting">
       <Row label="Published pages" description="Manage public links to designs and artifacts, including pages from deleted Chats.">
         <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
           Manage
         </button>
       </Row>
       {publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
-      {designs.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
-          {designs.error}
-        </p>
-      )}
     </div>
   );
 }
@@ -2367,7 +2358,7 @@ export function SettingsPanel({
         {section === "local-mcp" && (
           <>
             <Group title="Designs and artifacts">
-              <DesignsSettings />
+              <PublishedPagesSettings />
             </Group>
             <h2 className="mt-6 px-1 text-[12px] font-medium text-ink-3">Milagre MCP</h2>
             <LocalMcpSettings bridge={window.milagre} />

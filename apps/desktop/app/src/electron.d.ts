@@ -334,9 +334,8 @@ export type MilagreBridge = {
   saveMainSyncDefault: (value: boolean) => Promise<{ syncMain: boolean }>;
   /** A main branch sync finished, before a new Worktree. */
   onMainSyncStatus: (callback: (status: MainSyncStatus) => void) => () => void;
-  /** The host's default-on Designs switch (Settings › Milagre), shared with its phones and paired computers. */
+  /** Whether the host has Designs. Always on now; a paired computer on an older Milagre may still report it off. */
   readDesignsEnabled: () => Promise<{ enabled: boolean }>;
-  saveDesignsEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onDesignsEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   /** This Mac's default-off Experimental Bots switch. Bots stay on this Mac: a paired computer's bridge refuses them. */
   readBotsEnabled: () => Promise<{ enabled: boolean }>;

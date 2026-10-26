@@ -253,9 +253,6 @@ test("design-only configuration never exposes management or public publishing", 
   });
   assert.equal(edited.version, 2);
   assert.equal((await call(connection, "design_read", { id: "page" })).document.nodes[0].id, "box");
-  await f.runtime.invoke("designs:enabled:save", [false]);
-  await assert.rejects(call(connection, "design_list"), /unavailable/);
-  await f.runtime.invoke("designs:enabled:save", [true]);
   assert.equal((await call(connection, "design_list"))[0].version, 2);
   await f.runtime.invoke("local-mcp:revoke", [connection.connection.id]);
   assert.equal((await fetch(connection.url, { headers: { authorization: `Bearer ${connection.token}` } })).status, 401);

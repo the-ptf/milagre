@@ -68,11 +68,8 @@ function createDesignPageSharing({
     if (kind !== "designs" && kind !== "artifacts") throw Error("Choose Designs or Artifacts to share.");
     return kind;
   };
-  const checkEnabled = (kind) => {
-    if (pageKind(kind) === "designs" && !artifacts.enabled()) throw Error("Designs are off in Settings > Milagre. Turn Designs on before sharing.");
-  };
   const check = async (chatId, kind) => {
-    checkEnabled(kind);
+    pageKind(kind);
     if (typeof chatId !== "string" || !chatId || chatId.length > 8192) throw Error("An existing Chat is required.");
     await validateChat(chatId);
   };
@@ -140,7 +137,7 @@ function createDesignPageSharing({
     }
   };
   const status = async (request = {}) => {
-    if (pageKind(request.kind) === "designs" && !artifacts.enabled()) return { available: false, reason: "Designs are off in Settings > Milagre." };
+    pageKind(request.kind);
     try {
       const response = await fetcher(`${endpoint.origin}/health`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
       if (response.status === 200 && (await boundedResponseText(response, 64)).trim() === "ok") return { available: true };

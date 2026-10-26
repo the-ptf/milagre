@@ -138,7 +138,6 @@ class ClaudeSession {
     access = new WorkspaceAccess({ cwd, workspaceRoots, readOnlyRoots }),
     workspaceInstructions,
     tldrEnabled = true,
-    designsEnabled = true,
     sharedLink = false,
     analysisOnly = false,
     executionAdvisor = false,
@@ -160,7 +159,6 @@ class ClaudeSession {
       access,
       workspaceInstructions,
       tldrEnabled,
-      designsEnabled,
       sharedLink,
       analysisOnly,
       executionAdvisor,
@@ -360,7 +358,7 @@ class ClaudeSession {
                 hookEventName: "SubagentStart",
                 additionalContext: [
                   SUBAGENT_PLAN_INSTRUCTIONS,
-                  this.designsEnabled && this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
+                  this.linked?.tools.some((tool) => tool.name === "design_show") ? SUBAGENT_DESIGN_INSTRUCTIONS : "",
                 ]
                   .filter(Boolean)
                   .join("\n\n"),

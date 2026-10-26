@@ -463,7 +463,7 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
           <View style={{ padding: 20, gap: 16 }}>
             <Text style={styles.muted}>
               {feature.enabled === false
-                ? "Designs is off for this Mac. Turn it on in Settings > Milagre."
+                ? "Designs is off for this Mac. Update Milagre on the Mac to use Designs."
                 : feature.error || "Checking whether Designs is available..."}
             </Text>
             {feature.error && <PillButton title="Retry" onPress={() => void feature.refresh()} />}
