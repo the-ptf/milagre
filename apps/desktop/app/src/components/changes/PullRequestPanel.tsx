@@ -4,6 +4,7 @@ import type { IconSvgElement } from "@hugeicons/react";
 import {
   AlertCircleIcon,
   ArrowDown01Icon,
+  CloudUploadIcon,
   ArrowRight01Icon,
   CancelCircleIcon,
   CheckmarkCircle02Icon,
@@ -90,6 +91,7 @@ export function PullRequestPanelBody({
   activePath,
   guideOpen,
   guideStop,
+  local,
 }: {
   review: PullRequestReview;
   guide: ReviewGuideState;
@@ -97,6 +99,8 @@ export function PullRequestPanelBody({
   activePath?: string;
   guideOpen: boolean;
   guideStop: number;
+  /** The Worktree's uncommitted files, which the PR doesn't have yet, and what shows them. */
+  local?: { count: number; onOpen: () => void };
 }) {
   const { state, pr } = review;
   if (!pr) {
@@ -115,6 +119,21 @@ export function PullRequestPanelBody({
         <ChecksRow pr={pr} onFix={() => actions.fixChecks(pr)} />
         <ReviewsRow pr={pr} onOpenFile={actions.openFile} onFix={(thread) => actions.fixThread(pr, thread)} />
         <DescriptionRow pr={pr} />
+        {local && local.count > 0 && pr.state === "OPEN" && (
+          <button
+            type="button"
+            data-pr-local={local.count}
+            onClick={local.onOpen}
+            className="flex h-9 w-full items-center gap-2.5 rounded-control px-3 text-left transition-colors hover:bg-hover"
+          >
+            <span className="flex shrink-0 text-orange">{icon(CloudUploadIcon, 15)}</span>
+            <span className="shrink-0 text-[12.5px] font-medium text-ink">Not in the PR yet</span>
+            <span className="min-w-0 flex-1 truncate text-right text-[11.5px] text-ink-2">
+              {local.count} {local.count === 1 ? "file" : "files"}
+            </span>
+            <span className="shrink-0 text-ink-3">{icon(ArrowRight01Icon, 13)}</span>
+          </button>
+        )}
       </div>
       <GuideCard pr={pr} guide={guide} onOpen={actions.openGuide} onWrite={actions.writeGuide} />
       <Files pr={pr} review={review} activePath={activePath} onOpenFile={actions.openFile} />

@@ -91,9 +91,10 @@ function Fixture() {
     </main>
     <ChangesPanelSlot open={changes.open}>
       <ChangesPanel list={changes.list} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void review.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath}
-        pullRequest={{ number: 673, totals: { added: 3, removed: 1 }, loading: false, body: <PullRequestPanelBody review={review} guide={guideState}
+        pullRequest={{ number: 673, choices: [{ number: 673, state: "OPEN" }, { number: 650, state: "MERGED" }], onPick: (number) => { window.picked = number; },
+          totals: { added: 3, removed: 1 }, loading: false, body: <PullRequestPanelBody review={review} guide={guideState}
           actions={{ openFile: changes.selectFile, fixChecks: () => {}, fixThread: (p, thread) => toChat(threadFixMessage(p, thread)), openGuide, writeGuide: () => void guideState.write("claude") }}
-          activePath={changes.activePath} guideOpen={guideShowing} guideStop={stop} /> }} />
+          activePath={changes.activePath} guideOpen={guideShowing} guideStop={stop} local={{ count: 2, onOpen: () => changes.setMode("uncommitted") }} /> }} />
     </ChangesPanelSlot>
   </div>;
 }
@@ -204,7 +205,14 @@ async function browserChecks() {
     await click("[data-diff-back]");
     await waitFor('!document.querySelector("[data-guide-view]")');
 
-    console.log("PASS: PR panel merge card and confirm, files and viewed count, PR diff with thread, add to review, submit review, Fix in Chat, review guide");
+    // Uncommitted files show as "Not in the PR yet", which switches the panel to them.
+    assert.match(await text("[data-pr-local]"), /Not in the PR yet\s*2 files/);
+    await click("[data-pr-local]");
+    await waitFor('document.querySelector("[data-changes-panel]")?.getAttribute("aria-label") === "Changes"');
+
+    console.log(
+      "PASS: PR panel merge card and confirm, files and viewed count, PR diff with thread, add to review, submit review, Fix in Chat, review guide, local changes row",
+    );
     app.exit(0);
   } catch (error) {
     console.error(error);
