@@ -152,10 +152,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
       if (/^\.\/use-skill-names$/.test(id) && !(id in modules)) return { useSkillNames: () => [] };
       // The chips draw as named elements, like the other components these tests do not render.
-      if (/^\.\/prompt-chip$/.test(id) && !(id in modules)) return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip" };
+      if (/^\.\/prompt-chip$/.test(id) && !(id in modules))
+        return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip", ChatMentionChip: "ChatMentionChip" };
       if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
       if (
-        (id === "@milagre/shared/prompt-parts" ||
+        (id === "@milagre/shared/agent-runs" ||
+          id === "@milagre/shared/prompt-parts" ||
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
           id === "@milagre/shared/themes" ||
@@ -14009,4 +14011,139 @@ test("mobile simulator relayed frames stay in two cache files and never enter in
   assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2, "reset frame sequences must not evict the newly written file");
   h.cleanup();
   assert.equal(h.files.size, 0);
+});
+
+test("phone Chat mentions work without a Worktree and never search or attach files", async () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const calls = [];
+  const client = {
+    call: (...args) => {
+      calls.push(args);
+      return Promise.resolve([]);
+    },
+  };
+  let draft = "@Plan";
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+  });
+  const chats = [
+    { id: 12, title: "Plan review", branch: "feature", at: 12, available: true },
+    { id: 13, title: "Plan self", branch: "main", at: 13, available: true },
+  ];
+  const render = () => {
+    react.begin();
+    const tree = PromptField({
+      client,
+      projectPath: "/project",
+      draft,
+      chats,
+      currentId: 13,
+      onChangeText: (value) => {
+        draft = value;
+      },
+    });
+    react.flush();
+    return tree;
+  };
+  try {
+    let field = find(render(), (node) => node.type === "Field");
+    field.props.onFocus();
+    field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
+    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    assert.ok(row);
+    assert.equal(
+      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      undefined,
+    );
+    row.props.onPress();
+    assert.equal(draft, "@chat:12 ");
+    render();
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");
+  } finally {
+    react.cleanup();
+  }
+});
+
+const chip = (tree) => find(tree, (node) => node.type === "Pressable" && node.props.accessibilityLabel === "Use suggested prompt: Add tests");
+
+test("phone suggestion fills and focuses the draft without sending, and hides behind typing or menus", () => {
+  const react = hookHost();
+  let draft = "";
+  let focus = 0;
+  let accepted = 0;
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+    "./use-rpc": { useRpc: () => ({ data: { skills: [{ name: "tests", description: "Test" }] } }) },
+    "./use-image-paste": { useImagePaste: () => ({ ref: { current: { focus: () => focus++ } }, onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./theme": { useTheme: () => ({ colors: fakePalette, motionScale: 0, typeScale: 1 }) },
+  });
+  const render = () => {
+    react.begin();
+    return PromptField({
+      client: {},
+      projectPath: "/project",
+      draft,
+      suggestion: "Add tests",
+      onChangeText: (value) => {
+        draft = value;
+      },
+      onAcceptSuggestion: (value) => {
+        accepted++;
+        if (!draft) draft = value;
+      },
+    });
+  };
+
+  const tree = render();
+  assert.ok(chip(tree));
+  chip(tree).props.onPress();
+  assert.equal(draft, "Add tests");
+  assert.equal(focus, 1);
+  assert.equal(accepted, 1);
+  assert.equal(chip(render()), undefined);
+  for (const value of [" ", "already typing", "/tests", "@file"]) {
+    draft = value;
+    assert.equal(chip(render()), undefined);
+  }
+  draft = "";
+  const stale = chip(render());
+  draft = "typed before the tap arrived";
+  stale.props.onPress();
+  assert.equal(draft, "typed before the tap arrived", "a delayed tap preserves new input");
+});
+
+test("the phone screen offers suggestions only for idle Claude Chats without attachments or a send in progress", () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  const chat = state.sessions[7];
+  chat.provider = "claude";
+  chat.suggestion = { text: "Add tests", turnId: "t" };
+  for (const message of state.messages) message.model = "claude-opus-5-5";
+  screen.session.drafts["/p#7"] = "";
+  assert.equal(screen.field().suggestion, "Add tests");
+  screen.session.attachments["/p#7"] = [{ id: "file", name: "notes.txt", uri: "file:///notes.txt" }];
+  assert.equal(screen.field().suggestion, undefined);
+  screen.session.attachments["/p#7"] = [];
+  screen.session.snapshot.runs.runs["/p#7"] = { text: "", model: "claude-opus-5-5", steps: [], approvals: [], questions: [], answered: {} };
+  assert.equal(screen.field().suggestion, undefined);
+  delete screen.session.snapshot.runs.runs["/p#7"];
+  chat.backgroundTasks = [{ id: "server", kind: "command", title: "Server", status: "running", startedAt: 1 }];
+  assert.equal(screen.field().suggestion, undefined);
+  delete chat.backgroundTasks;
+  chat.provider = "codex";
+  assert.equal(screen.field().suggestion, undefined);
 });

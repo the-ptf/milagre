@@ -14,6 +14,8 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import Tooltip from "./primitives/Tooltip";
 import { ChatMarkDot } from "./sidebar/ChatRow";
 import { chatActivity } from "@milagre/shared/chat-activity";
+import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
+import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { ChatTranscript } from "./ChatComposer";
 import { RoutineChip } from "./routines/RoutineChip";
 import { isDraftTileKey } from "../lib/chat-grid";
@@ -167,6 +169,9 @@ const ChatTile = memo(function ChatTile({
     () => (focused || !state ? NO_MESSAGES : lean ? page.messages : state.messages.filter((message) => message.session_id === id)),
     [focused, state, lean, page.messages, id],
   );
+  const mentionKey = JSON.stringify(state && !isLinkScopeKey(scope) ? chatMentionChoices(state as CoordinatorState) : []);
+  const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
+  const mentionContext = useMemo(() => ({ chats: mentionChats, project: scope, currentId: id, onOpen: onFocus }), [mentionChats, scope, id, onFocus]);
   const activity = chatActivity(session, run);
   const mark: ChatMark = chatMark({
     asking: Boolean(run && !run.approvals.length && run.questions.length),
@@ -257,6 +262,7 @@ const ChatTile = memo(function ChatTile({
               <EditorLinks root={remote ? "" : (worktree?.path ?? scope)} files={remote ? "" : (worktree?.path ?? scope)}>
                 <ChatTranscript
                   chatKey={chatKey}
+                  mentionContext={mentionContext}
                   messages={messages}
                   messageScope={scope}
                   earlier={earlier}

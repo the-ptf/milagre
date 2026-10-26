@@ -20,13 +20,15 @@ import { Attachments } from "./Attachments";
 import { useProjectFiles } from "./useProjectFiles";
 import { promptToken, fileMentionPath, insertImageMentions, insertPromptToken } from "../lib/file-mentions";
 import { mentionedImages, shiftImageMentions } from "../lib/prompt-mentions";
-import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { formatChatMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { rankSkillMatches } from "@milagre/shared/skill-catalog";
 import { useSkills } from "./useSkills";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
+import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
+import { useChatMentions } from "./ChatMentions";
 import { offlinePlaceholder } from "../lib/computers";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
@@ -35,7 +37,7 @@ function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string };
+type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number };
 
 type Source = { key: string; name: string; desc: string; icon: IconData };
 
@@ -67,6 +69,8 @@ interface PromptComposerProps {
   sendBlocked: boolean;
   /** A turn is running in this chat; a message sent now steers it. */
   running?: boolean;
+  /** A predicted follow-up, offered only in an empty, idle composer. */
+  suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
   /** The models each agent offers, or the maintained list until it reports them. */
@@ -135,6 +139,7 @@ export function PromptComposer({
   onStop,
   sendBlocked,
   running = false,
+  suggestion,
   onCompact,
   models,
   cliStatus,
@@ -157,6 +162,7 @@ export function PromptComposer({
   contextUsage,
   canUndo = false,
 }: PromptComposerProps) {
+  const mentions = useChatMentions();
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -249,9 +255,15 @@ export function PromptComposer({
   const { known, version: knownVersion, markKnown } = useKnownFiles(projectPath, draft, typing);
   const imageCount = imageDraft.images.length;
   const parts = useMemo(
-    () => promptParts(draft, { skills: skillKey ? skillKey.split("\n") : [], files: (path) => known.has(path), images: imageCount }),
+    () =>
+      promptParts(draft, {
+        skills: skillKey ? skillKey.split("\n") : [],
+        files: (path) => known.has(path),
+        images: imageCount,
+        chats: (id) => mentions.chats.some((chat) => chat.id === id && chat.available),
+      }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `known` is a Set that grows in place; `knownVersion` counts its growth.
-    [draft, skillKey, known, knownVersion, imageCount],
+    [draft, skillKey, known, knownVersion, imageCount, mentions.chats],
   );
   // The @ menu searched the mention being typed: an exact match is a file too.
   const typedFound = typing !== null && fileSearch.files.includes(typing) ? typing : null;
@@ -295,7 +307,18 @@ export function PromptComposer({
     menu === "at"
       ? plusOpen
         ? SOURCES
-        : fileSearch.files.map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path }))
+        : [
+            ...fileSearch.files
+              .slice(0, matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).length ? 3 : undefined)
+              .map((path) => ({ key: `file:${path}`, name: path.split("/").at(-1) || path, desc: path, path, group: "Files" })),
+            ...matchingMentionChats(mentions.chats, tokenQuery, mentions.currentId).map((chat) => ({
+              key: `chat:${chat.id}`,
+              name: chat.title,
+              desc: chat.branch,
+              chatId: chat.id,
+              group: "Chats",
+            })),
+          ]
       : menu === "slash"
         ? rankSkillMatches(commands, tokenQuery, (command) => ({ name: command.name, description: command.desc }))
         : [];
@@ -304,6 +327,21 @@ export function PromptComposer({
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
   const canStop = running && Boolean(onStop);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const visibleSuggestion =
+    suggestion &&
+    !draft &&
+    !running &&
+    !sendBlocked &&
+    !offlineName &&
+    selectedModel.provider === "claude" &&
+    !imageDraft.images.length &&
+    !imageDraft.files.length &&
+    !imageDraft.loading &&
+    !menu &&
+    !modelOpen &&
+    !permissionOpen
+      ? suggestion
+      : undefined;
 
   useEffect(() => {
     setActive(0);
@@ -466,7 +504,11 @@ export function PromptComposer({
     } else if (source?.key === "paste") {
       insertImages(imageDraft.pasteImage());
     } else if (menu === "at") {
-      if (token && row.path) {
+      if (token && row.chatId !== undefined) {
+        const mention = formatChatMention(row.chatId);
+        onDraftChange(insertPromptToken(draft, token, mention));
+        inputRef.current?.setSelection(token.start + mention.length + 1);
+      } else if (token && row.path) {
         const path = fileMentionPath(projectPath, row.path);
         if (!path) return;
         markKnown(row.path);
@@ -536,10 +578,21 @@ export function PromptComposer({
         return;
       }
     }
+    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "Tab" || event.key === "ArrowRight")) {
+      const selection = inputRef.current?.getSelection();
+      if (selection?.start === 0 && selection.end === 0) {
+        event.preventDefault();
+        onDraftChange(visibleSuggestion);
+        inputRef.current?.setSelection(visibleSuggestion.length);
+        return;
+      }
+    }
     if (recall(event)) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      send();
+      // An unaccepted suggestion is never sent. Otherwise the parent checks its live draft, which a render-time
+      // `canSend` can trail when Enter follows the edit in the same task.
+      if (canSend || !visibleSuggestion) send();
     }
   }
 
@@ -553,7 +606,7 @@ export function PromptComposer({
             className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-[10px] border border-line bg-surface p-1 shadow-raised"
             style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "bottom center" }}
           >
-            <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files"}>
+            <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
               <span
                 aria-hidden
                 className="pointer-events-none absolute inset-x-1 rounded-[6px] bg-hover"
@@ -567,7 +620,7 @@ export function PromptComposer({
               {rows.map((row, index) => {
                 const source = menu === "at" ? SOURCES.find((item) => item.key === row.key) : undefined;
                 // A search lists its matches best first across the groups, so it carries no group headings.
-                const showGroup = !tokenQuery && row.group && row.group !== rows[index - 1]?.group;
+                const showGroup = (menu === "at" || !tokenQuery) && row.group && row.group !== rows[index - 1]?.group;
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
@@ -618,7 +671,7 @@ export function PromptComposer({
               </div>
             )}
             <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-[11px] text-ink-3">
-              {menu === "at" ? "Type to search files" : skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
+              {menu === "at" ? "Type to search files and Chats" : skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
             </div>
           </div>
         )}
@@ -776,13 +829,14 @@ export function PromptComposer({
                 onKeyDown={handleKeyDown}
                 disabled={Boolean(offlineName)}
                 maxHeight={100}
+                suggestion={visibleSuggestion}
                 placeholder={
                   (running
                     ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
                       providerCapabilities(provider).steer
                       ? "Steer the agent…"
                       : "Queue a message for the next turn…"
-                    : "Prompt or mention a file with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
+                    : "Prompt or mention a file or Chat with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}

@@ -17,7 +17,8 @@ import {
   type EditKind,
   type EditResult,
 } from "../lib/editor-model";
-import { FileChip, ImageChip, SkillChip } from "./PromptChip";
+import { useChatMentions } from "./ChatMentions";
+import { ChatChip, FileChip, ImageChip, SkillChip } from "./PromptChip";
 
 export type PromptEditorHandle = {
   focus(): void;
@@ -35,6 +36,7 @@ interface PromptEditorProps {
   /** `value` split into text, skills and files; chips render for the skills and files. Parts that don't spell `value` are ignored. */
   parts: PromptPart[];
   placeholder: string;
+  suggestion?: string;
   disabled: boolean;
   maxHeight: number;
   onKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
@@ -91,6 +93,7 @@ export function PromptEditor({
   onChange,
   parts,
   placeholder,
+  suggestion,
   disabled,
   maxHeight,
   onKeyDown,
@@ -104,6 +107,7 @@ export function PromptEditor({
   placeholderClassName = "",
   ref,
 }: PromptEditorProps) {
+  const mentions = useChatMentions();
   const rootRef = useRef<HTMLDivElement>(null);
   const [history] = useState(() => createEditHistory());
   const [chips, setChips] = useState<Chip[]>([]);
@@ -455,7 +459,7 @@ export function PromptEditor({
         role="textbox"
         aria-multiline="true"
         aria-label={label}
-        aria-placeholder={placeholder}
+        aria-placeholder={suggestion ? `Suggested: ${suggestion}. Tab to use it.` : placeholder}
         aria-disabled={disabled || undefined}
         contentEditable={!disabled}
         spellCheck
@@ -480,14 +484,20 @@ export function PromptEditor({
         className={`${className} relative block min-w-0 w-full whitespace-pre-wrap text-ink caret-ink outline-none [overflow-wrap:anywhere]`}
       />
       {!value && !composing && (
-        <div aria-hidden className={`${className} ${placeholderClassName} pointer-events-none absolute inset-0 overflow-hidden text-ink-3`}>
-          {placeholder}
+        <div
+          data-prompt-suggestion={suggestion ? "" : undefined}
+          aria-hidden
+          className={`${className} ${placeholderClassName} pointer-events-none absolute inset-0 overflow-hidden text-ink-3`}
+        >
+          {suggestion ?? placeholder}
         </div>
       )}
       {chips.map((chip) =>
         createPortal(
           chip.part.kind === "skill" ? (
             <SkillChip name={chip.part.name} description={skillDescriptions.get(chip.part.name.toLowerCase())} />
+          ) : chip.part.kind === "chat" ? (
+            <ChatChip title={mentions.chats.find((chat) => chat.id === (chip.part.kind === "chat" ? chip.part.id : 0))?.title ?? "Chat"} />
           ) : chip.part.kind === "image" ? (
             <ImageChip index={chip.part.index} onOpen={onOpenImage?.bind(null, chip.part.index)} />
           ) : (

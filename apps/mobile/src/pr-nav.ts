@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback } from "react";
+import { projectOfKey } from "@milagre/shared/agent-runs";
 import { useSession } from "./session";
 
 /** What every PR page needs in its address: the Chat's Worktree, the PR number and the Chat to send to. */
@@ -41,7 +42,20 @@ export function usePrRoute() {
   const chatId = params.chat ? Number(params.chat.slice(params.chat.lastIndexOf("#") + 1)) : NaN;
   const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
   const route: PrRoute = { worktreeId: String(params.worktreeId ?? ""), number: String(params.number ?? ""), ...(params.chat ? { chat: params.chat } : {}) };
-  return { params, route, cwd: worktree?.path, number, client: session.client, provider, valid: !!worktree && Number.isSafeInteger(number) && number > 0 };
+  // The sheet can open before its Chat's Project is here (a row's PR link switches Project first) or while the phone
+  // reconnects; it waits for them rather than giving up.
+  const project = params.chat ? projectOfKey(params.chat) : undefined;
+  const waiting = !session.client || !session.snapshot || (!!project && session.snapshot.project.path !== project);
+  return {
+    params,
+    route,
+    cwd: worktree?.path,
+    number,
+    client: session.client,
+    provider,
+    valid: !!worktree && Number.isSafeInteger(number) && number > 0,
+    waiting,
+  };
 }
 
 /** Closes the whole PR sheet from any page in it, back to the Chat. */

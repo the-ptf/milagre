@@ -573,6 +573,7 @@ export function LinkWorkspace({
                         sessionProvider={session?.provider}
                         plan={session?.plan}
                         contextUsage={run?.contextUsage ?? session?.contextUsage}
+                        suggestion={session?.provider === "claude" ? session.suggestion?.text : undefined}
                         subagents={session?.subagents?.filter((agent) => agent.id !== session.native_session_id)}
                         backgroundTasks={session?.backgroundTasks}
                         ports={chatId ? ports[chatId] : undefined}

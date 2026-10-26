@@ -37,3 +37,27 @@ test("Link persistence failures publish, survive reads, retry current state and 
   assert.equal(saved.next_id, 3);
   assert.equal(saved.persistence, undefined);
 });
+
+test("Link suggestions survive a live reconnect but not a store restart", async (t) => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-link-suggestion-"));
+  const id = "11111111-1111-4111-8111-111111111111";
+  const store = createLinkStore({ dataDir });
+  const restarted = createLinkStore({ dataDir });
+  t.after(async () => {
+    await store.close();
+    await restarted.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+  await store.update(id, (state) => ({
+    ...state,
+    sessions: {
+      1: { id: 1, provider: "claude", native_session_id: "native", suggestion: { text: "Continue", turnId: "t" }, suggestionTurnId: "t", worktrees: [] },
+    },
+  }));
+  await store.flush(id);
+  assert.equal((await store.get(id)).sessions[1].suggestion.text, "Continue");
+  const session = (await restarted.get(id)).sessions[1];
+  assert.equal(session.suggestion, undefined);
+  assert.equal(session.suggestionTurnId, undefined);
+  assert.equal(session.native_session_id, "native");
+});

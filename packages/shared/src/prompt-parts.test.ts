@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  chatMentionTokens,
+  formatChatMention,
   promptParts,
   promptImageBlocks,
   formatFileMention,
@@ -130,4 +132,42 @@ test("promptTitle drops attached image tokens and names an image-only line", () 
   assert.equal(promptTitle("[Image #4]"), "Image");
   assert.equal(promptTitle("Fix the login", 0), "Fix the login");
   assert.equal(promptTitle("", 1), "");
+});
+
+test("Chat mentions preserve text, take precedence over files, and use complete safe tokens in prose", () => {
+  const prompt =
+    "Read @chat:12, then @chat:12 and @chat:7. `@chat:8` " +
+    "\n```\n@chat:9\n```\n" +
+    "@chat:0 @chat:01 @chat:9007199254740992 @chat:12/foo @chat:12-other @chat:12.5";
+  assert.deepEqual(
+    chatMentionTokens(prompt).map((token) => token.id),
+    [12, 12, 7],
+  );
+  const parts = promptParts(prompt, { skills: [], files: () => false, chats: (id) => id === 12 });
+  assert.deepEqual(
+    parts.filter((part) => part.kind === "chat").map((part) => part.id),
+    [12, 12],
+  );
+  assert.equal(parts.map((part) => part.text).join(""), prompt);
+  assert.equal(formatChatMention(12), "@chat:12");
+  assert.deepEqual(promptParts("@chat:12", { skills: [], files: () => true }), [{ kind: "text", text: "@chat:12" }]);
+  assert.deepEqual(promptParts('@"chat:12"', { skills: [], files: () => true, chats: () => true }), [{ kind: "file", text: '@"chat:12"', path: "chat:12" }]);
+  assert.equal(formatFileMention("chat:12"), '@"chat:12"');
+});
+
+test("Chat scanner shields complete filenames and quoted paths even when a Chat id exists", () => {
+  for (const token of ["@chat:12.txt", "@chat:12.5", "@chat:12-other", '@"notes @chat:12 plan.txt"']) {
+    assert.deepEqual(chatMentionTokens(token), []);
+    const parts = promptParts(token, { skills: [], files: () => true, chats: () => true });
+    assert.equal(parts[0]?.kind, "file");
+    assert.equal(parts.map((part) => part.text).join(""), token);
+  }
+  for (const path of ["chat:12", "chat:12!", "chat:12."]) {
+    assert.equal(formatFileMention(path), `@"${path}"`);
+    assert.deepEqual(chatMentionTokens(formatFileMention(path)), []);
+  }
+  assert.deepEqual(
+    chatMentionTokens("See @chat:12). Then @chat:5!").map((token) => token.id),
+    [12, 5],
+  );
 });

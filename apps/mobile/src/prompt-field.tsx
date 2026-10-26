@@ -3,8 +3,8 @@ import * as Font from "expo-font";
 import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
 import type { SkillCatalog } from "@milagre/shared/model";
-import { formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
-import { editImageMentions } from "@milagre/shared/prompt-mentions";
+import { formatChatMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
+import { matchingMentionChats, type MentionChat, editImageMentions } from "@milagre/shared/prompt-mentions";
 import { withAlpha } from "@milagre/shared/themes";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
@@ -20,6 +20,7 @@ import { insertDictation } from "./voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { VoiceMicButton } from "./voice-mic-button";
 
+const NO_CHATS: readonly MentionChat[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 // Desktop's chip icons as glyphs (scripts/build-chip-glyphs.py): a mention's first character draws its icon and `]` draws
 // nothing, so `[Image #1]` reads as an image chip in a field that can only style its own characters. Loaded at runtime,
@@ -62,6 +63,8 @@ const openSkills = (scale: number) =>
 /** Native attributed text keeps skill colors in the editable input, including wrapped/scrolled lines. */
 export function PromptField({
   client,
+  chats = NO_CHATS,
+  currentId,
   projectPath,
   draft,
   onChangeText,
@@ -73,7 +76,11 @@ export function PromptField({
   onSubmit,
   onFocus,
   placeholder = "Message the agent",
+  suggestion,
+  onAcceptSuggestion,
 }: {
+  chats?: readonly MentionChat[];
+  currentId?: number;
   client: Client;
   projectPath: string;
   draft: string;
@@ -92,6 +99,8 @@ export function PromptField({
   /** The field took the keyboard (an iPad split gives the keyboard to this pane). */
   onFocus?: () => void;
   placeholder?: string;
+  suggestion?: string;
+  onAcceptSuggestion?: (text: string) => void;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
   // Text size scales the composer too; 16 stays 16 at the default step.
@@ -114,11 +123,21 @@ export function PromptField({
   );
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [focused, setFocused] = useState(false);
-  const typing = onMention && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
+  const typing = (onMention || chats.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
   const { parts: marks } = useMemo(
-    () => readMarks(draft, { skills: (skills ?? []).map((item) => item.name), files: (path) => !!known?.has(projectPath, path), images }, lookups),
-    [draft, skills, known, projectPath, lookups, images],
+    () =>
+      readMarks(
+        draft,
+        {
+          skills: (skills ?? []).map((item) => item.name),
+          files: (path) => !!known?.has(projectPath, path),
+          images,
+          chats: (id) => chats.some((chat) => chat.id === id && chat.available),
+        },
+        lookups,
+      ),
+    [draft, skills, known, projectPath, lookups, images, chats],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
   // Until the field has reported a caret, `selection` is the initial 0 and says nothing about where the user means to dictate.
@@ -157,11 +176,11 @@ export function PromptField({
         .filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.query))
         .sort((a, b) => Number(b.name.toLowerCase().startsWith(query.query)) - Number(a.name.toLowerCase().startsWith(query.query)))
     : [];
-  const fileToken = focused && onMention && !query ? fileQueryAt(draft, selection.start) : null;
-  const files = useFileSearch(client, projectPath, fileToken?.query ?? null);
-  const chooseFile = (path: string) => {
+  const fileToken = focused && (onMention || chats.length) && !query ? fileQueryAt(draft, selection.start) : null;
+  const files = useFileSearch(client, projectPath, onMention ? (fileToken?.query ?? null) : null);
+  const chatRows = fileToken ? matchingMentionChats(chats, fileToken.query, currentId) : [];
+  const chooseMention = (mention: string, path?: string) => {
     if (!fileToken) return;
-    const mention = formatFileMention(path);
     const suffix = draft.slice(fileToken.end);
     const gap = suffix.startsWith(" ") ? "" : " ";
     const next = `${draft.slice(0, fileToken.start)}${mention}${gap}${suffix}`;
@@ -169,7 +188,7 @@ export function PromptField({
     const selection = { start: caret, end: caret };
     setRequested({ draft: next, selection });
     setSelection(selection);
-    onMention?.(path);
+    if (path) onMention?.(path);
     onChangeText(next);
   };
   const choose = (name: string) => {
@@ -188,6 +207,32 @@ export function PromptField({
 
   return (
     <View>
+      {suggestion && !draft && !query && !fileToken && onAcceptSuggestion && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Use suggested prompt: ${suggestion}`}
+          accessibilityHint="Puts the suggestion in the message field without sending it"
+          onPress={() => {
+            const end = { start: suggestion.length, end: suggestion.length };
+            setRequested({ draft: suggestion, selection: end });
+            setSelection(end);
+            onAcceptSuggestion(suggestion);
+            paste.ref.current?.focus();
+          }}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            justifyContent: "center",
+            paddingHorizontal: 10,
+            marginBottom: 4,
+            borderRadius: 12,
+            backgroundColor: pressed ? colors.hover : colors.surface,
+          })}
+        >
+          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: inputSize }}>
+            {suggestion}
+          </Text>
+        </Pressable>
+      )}
       {query ? (
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
@@ -212,25 +257,31 @@ export function PromptField({
       {fileToken ? (
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll
-            accessibilityLabel="Files"
+            accessibilityLabel="Files and Chats"
             style={menuStyle}
             contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
             keyboardShouldPersistTaps="always"
           >
-            {files.items.map((path) => (
-              <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseFile(path)} />
+            {(onMention ? files.items : []).slice(0, chatRows.length ? 1 : 40).map((path) => (
+              <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            {files.error ? (
-              isOldMacError(files.error) ? (
-                <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
-              ) : (
-                <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
-              )
-            ) : files.loading && !files.items.length ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>Loading files...</Text>
-            ) : !files.items.length ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>No matching files</Text>
-            ) : null}
+            {chatRows.length > 0 && <Text style={{ paddingHorizontal: 12, paddingVertical: 6, color: colors.ink2 }}>Chats</Text>}
+            {chatRows.map((chat) => (
+              <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
+            ))}
+            {!onMention && !chatRows.length && <Text style={{ padding: 12, color: colors.ink2 }}>No matching Chats</Text>}
+            {onMention &&
+              (files.error ? (
+                isOldMacError(files.error) ? (
+                  <ListRow title={OLD_MAC_ROW} onPress={files.retry} />
+                ) : (
+                  <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
+                )
+              ) : files.loading && !files.items.length ? (
+                <Text style={{ padding: 12, color: colors.ink2 }}>Loading files...</Text>
+              ) : !files.items.length && !chatRows.length ? (
+                <Text style={{ padding: 12, color: colors.ink2 }}>No matching files or Chats</Text>
+              ) : null)}
           </PageScroll>
         </Animated.View>
       ) : null}

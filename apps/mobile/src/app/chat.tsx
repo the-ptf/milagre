@@ -45,7 +45,7 @@ import { useComposer, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
-import { shiftImageMentions } from "@milagre/shared/prompt-mentions";
+import { chatMentionChoices, shiftImageMentions } from "@milagre/shared/prompt-mentions";
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, SubagentChip } from "../status-indicators";
 import { openPullRequest } from "../pr-nav";
@@ -392,6 +392,10 @@ function ChatPane({
   // Stable props keep each memoized ChatReply from re-rendering on every keystroke and poll tick.
   const connected = session.client;
   const projectPath = session.snapshot?.project.path;
+  const mentionState = session.snapshot?.project.state;
+  const mentionLink = session.snapshot?.project.link;
+  const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
+  const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
   const { active: linearActive } = useLinear(connected);
   // The Mac's Routines, for this Chat's Heartbeat: the header button and the Next check line.
@@ -1737,6 +1741,7 @@ function ChatPane({
                             {issueRunDivider(message, merged)}
                             <ChatReply
                               message={message}
+                              chats={mentionChats}
                               media={media}
                               basePath={worktree?.path || project.path}
                               chatId={chatId}
@@ -2181,9 +2186,23 @@ function ChatPane({
                       )}
                       <PromptField
                         key={chatId}
+                        chats={mentionChats}
+                        currentId={chat?.id}
                         client={client}
                         projectPath={worktree?.path || (project.link ? "" : project.path)}
                         draft={draft}
+                        suggestion={
+                          !run &&
+                          !busy &&
+                          !picking &&
+                          !attachments.length &&
+                          activity?.activity === "idle" &&
+                          chat?.provider === "claude" &&
+                          actualProvider === "claude"
+                            ? chat.suggestion?.text
+                            : undefined
+                        }
+                        onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
                         images={attachments.filter((item) => item.image).length}
                         onImagePaste={(image) => void pasteImage(image)}
                         known={knownFiles.current}
