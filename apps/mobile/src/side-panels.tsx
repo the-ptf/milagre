@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, Keyboard, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { router, useFocusEffect, type Href } from "expo-router";
+import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
@@ -34,6 +34,7 @@ type Panels = {
   attach: (screen: Screen) => void;
   update: (screen: Screen) => void;
   detach: (token: object) => void;
+  arrived: (token: object) => void;
   show: (side: Side | null) => void;
   tab: RightTab;
   setTab: (tab: RightTab) => void;
@@ -46,8 +47,24 @@ const SPRING = { damping: 32, stiffness: 320, mass: 0.9, reduceMotion: ReduceMot
 // Points a finger travels sideways before a drag takes over, and up or down before it gives way to scrolling.
 const SLOP_X = 16;
 const SLOP_Y = 14;
+// How long the open navigation waits for the Chat it opened to be on screen before sliding away regardless.
+const HANDOFF_MS = 1000;
 const PanelsContext = createContext<Panels | null>(null);
 const sideOf = (to: number): Side | null => (to > 0 ? "left" : to < 0 ? "right" : null);
+/** The native stack's end-of-transition event, which expo-router's navigation types leave out. */
+type TransitionEvents = { addListener(event: "transitionEnd", listener: (event: { data: { closing: boolean } }) => void): () => void };
+
+// A Chat opened from the open navigation replaces the screen under it with no animation of its own; the navigation then
+// slides off it. The Chat screen's options ask by route: a route rendered during the swap keeps "no animation" until the
+// slide ends, since the navigator renders again (the Chat taking the panels) before the native push starts.
+let replacingUnderPanel = false;
+const enteringUnderPanel = new Set<string>();
+export function enterUnderPanel(routeKey: string | undefined) {
+  if (routeKey === undefined) return replacingUnderPanel;
+  if (replacingUnderPanel) enteringUnderPanel.add(routeKey);
+  return enteringUnderPanel.has(routeKey);
+}
+const forgetEntered = () => enteringUnderPanel.clear();
 
 /**
  * Paseo's panels on a phone: the project navigation on the left of a screen and its Changes on the right, each a
@@ -64,17 +81,68 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const [tab, setTab] = useState<RightTab>("changes");
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
+  const openSide = useRef<Side | null>(null);
+  // While a Chat picked in the open navigation replaces the screen under it: the timer that slides the navigation away
+  // regardless, and the screen that took the panels, until its own transition ends.
+  const handoff = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const arriving = useRef<object | null>(null);
   const reset = useCallback(() => {
     progress.set(0);
     setOpen(null);
   }, [progress]);
+  const slideAway = useCallback(
+    (then?: () => void) => {
+      setOpen(null);
+      progress.set(
+        withTiming(0, scaledTiming({ duration: 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, getMotionScale()), () => {
+          if (then) scheduleOnRN(then);
+        }),
+      );
+    },
+    [progress],
+  );
+  const endHandoff = useCallback(() => {
+    if (handoff.current) clearTimeout(handoff.current);
+    handoff.current = null;
+    arriving.current = null;
+    replacingUnderPanel = false;
+  }, []);
+  const clear = useCallback(() => {
+    reset();
+    setScreen(null);
+    setMounted({ left: false, right: false });
+  }, [reset]);
+  // The navigation slides off the Chat it opened once that Chat is drawn: sliding while it still mounts would spend the
+  // slide on frames the phone never shows.
+  const finishHandoff = useCallback(() => {
+    endHandoff();
+    if (current.current) slideAway(forgetEntered);
+    else {
+      forgetEntered();
+      clear();
+    }
+  }, [endHandoff, slideAway, clear]);
   const attach = useCallback(
     (next: Screen) => {
+      if (handoff.current && !arriving.current && current.current?.token !== next.token) {
+        arriving.current = next.token;
+        replacingUnderPanel = false;
+        current.current = next;
+        setScreen(next);
+        setMounted((previous) => (previous.right ? { ...previous, right: false } : previous));
+        return;
+      }
       if (current.current?.token !== next.token) reset();
       current.current = next;
       setScreen(next);
     },
     [reset],
+  );
+  const arrived = useCallback(
+    (token: object) => {
+      if (arriving.current === token) finishHandoff();
+    },
+    [finishHandoff],
   );
   // A focused screen's Chat or Worktree can change under an open panel (a first send, a Project loading); that only
   // swaps what the panels show.
@@ -84,16 +152,15 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     setScreen(next);
   }, []);
   // Blurring keeps the panels: a confirmation or update sheet opens over an open panel and returns to it, and
-  // everything the panels navigate to closes them first.
+  // everything the panels navigate to closes them first. A screen the navigation is replacing leaves them up for the
+  // Chat that replaces it.
   const detach = useCallback(
     (token: object) => {
       if (current.current?.token !== token) return;
       current.current = null;
-      reset();
-      setScreen(null);
-      setMounted({ left: false, right: false });
+      if (!handoff.current) clear();
     },
-    [reset],
+    [clear],
   );
   const show = useCallback(
     (side: Side | null) => {
@@ -122,9 +189,10 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     if (router.canDismiss()) router.dismissAll();
     router.replace(href);
   }, []);
-  // The navigation slides away before the next screen replaces this one, and whatever was still opening is dropped.
-  // The navigation goes ahead even when something else stops the slide early (a screen resetting the panels).
-  // A sheet opens over the navigation instead, which is still there when the sheet closes.
+  // A Chat picked in the open navigation replaces the screen behind it first, and the navigation then slides off the
+  // new Chat, so the Chat that was open never shows on the way. Anything else slides the navigation away first, and
+  // whatever was still opening is dropped; the navigation goes ahead even when something else stops the slide early
+  // (a screen resetting the panels). A sheet opens over the navigation instead, which is still there when it closes.
   const navigate = useCallback(
     (href?: Href, secondary: boolean | "sheet" = false) => {
       if (secondary === "sheet") {
@@ -133,15 +201,22 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       }
       Keyboard.dismiss();
       cancelNavigation();
-      setOpen(null);
-      progress.set(
-        withTiming(0, scaledTiming({ duration: 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, getMotionScale()), () => {
-          if (href) scheduleOnRN(go, href, secondary);
-        }),
-      );
+      if (href && !secondary && openSide.current === "left") {
+        endHandoff();
+        replacingUnderPanel = true;
+        // A screen that never shows (the navigation failed) or never reports its transition still gets the navigation off it.
+        handoff.current = setTimeout(finishHandoff, HANDOFF_MS);
+        go(href, false);
+        return;
+      }
+      slideAway(href ? () => go(href, secondary) : undefined);
     },
-    [progress, go, cancelNavigation],
+    [go, cancelNavigation, endHandoff, finishHandoff, slideAway],
   );
+  useEffect(() => {
+    openSide.current = open;
+  }, [open]);
+  useEffect(() => endHandoff, [endHandoff]);
   useEffect(() => {
     if (!open) return;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -151,8 +226,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     return () => back.remove();
   }, [open, show]);
   const value = useMemo(
-    () => ({ screen, open, mounted, progress, from, attach, update, detach, show, tab, setTab, pull, settled, navigate }),
-    [screen, open, mounted, progress, from, attach, update, detach, show, tab, setTab, pull, settled, navigate],
+    () => ({ screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pull, settled, navigate }),
+    [screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pull, settled, navigate],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
 }
@@ -192,7 +267,8 @@ export function useSidePanels({
 }) {
   const panels = usePanels();
   const [token] = useState(() => ({}));
-  const { attach, update, detach, show, pull, settled, progress, from, setTab } = panels;
+  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab } = panels;
+  const navigation = useNavigation() as unknown as TransitionEvents;
   const prNumber = pullRequest?.number;
   const prChat = pullRequest?.chatKey;
   // Focus gives the panels to this screen; what it offers is updated in place.
@@ -207,6 +283,8 @@ export function useSidePanels({
     }, [attach]),
   );
   useEffect(() => () => detach(token), [detach, token]);
+  // Drawn and in place: the navigation that opened this screen can slide off it now.
+  useEffect(() => navigation.addListener("transitionEnd", (event) => !event.data.closing && arrived(token)), [navigation, arrived, token]);
   const { width } = useWindowDimensions();
   const travel = panelTravel(width);
   // Where the sidebar is pinned beside the Chat, a drag only reaches Changes.
