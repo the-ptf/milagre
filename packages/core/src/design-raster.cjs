@@ -1,5 +1,6 @@
 const path = require("node:path");
 const { Worker } = require("node:worker_threads");
+const { designImageDocument } = require("@milagre/shared/design-preview");
 
 // The agent's view of a design: the shared SVG, drawn by resvg in WebAssembly so it works on any daemon, headless too.
 // resvg reads fonts from buffers, not @font-face, so the SVG is built without embedded fonts and Inter, plus the catalog
@@ -58,14 +59,7 @@ function oversized(src) {
 
 /** A copy of the document in which every image resvg cannot honestly draw shows the grey placeholder instead. */
 function rasterDocument(document) {
-  return {
-    ...document,
-    nodes: document.nodes.map((node) => {
-      if (node.type !== "image" || !node.src || (node.src.startsWith("data:") && !oversized(node.src))) return node;
-      const { src: _src, fill: _fill, ...placeholder } = node;
-      return placeholder;
-    }),
-  };
+  return designImageDocument(document, (src) => src.startsWith("data:") && !oversized(src));
 }
 
 function retire() {

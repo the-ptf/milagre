@@ -244,7 +244,7 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor('document.querySelector("[data-slot=artifact-card] button")?.textContent === "Open"');
     await evaluate('[...document.querySelectorAll("[data-slot=artifact-card] button")].find((b) => b.textContent === "Open").click()');
-    await waitFor(`${frame("login")}?.querySelector("[data-design-body] iframe") && ${frame("login")}.dataset.version === "1"`);
+    await waitFor(`${frame("login")}?.querySelector("[data-design-body][data-painted]") && ${frame("login")}.dataset.version === "1"`);
     await delay(400);
 
     // 1. Claude writes a design_apply: the edit builds over the frame, with Claude's cursor on the last layer it touched.
@@ -297,7 +297,7 @@ async function browserChecks() {
     await evaluate(
       `window.homeShown = true; window.emit({ type: "step-completed", id: "toolu_show", status: "done", artifact: { id: "home", version: 1, title: "Home", format: "design" } }); window.reply("And a home screen.", [window.step("toolu_show", { id: "home", version: 1, title: "Home" })])`,
     );
-    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body] iframe") && !${draft}`);
+    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body][data-painted]") && !${draft}`);
     assert.equal(await evaluate(`!!${live("home")}`), false, "the new design doesn't replay either");
     await screenshot("4-show-settled");
 
@@ -367,7 +367,7 @@ async function browserChecks() {
       `${drafts}.every((d) => { const f = ${dock}.querySelector('[data-slot=artifact-frame][data-artifact="' + (d.dataset.draft === "toolu_settings" ? "settings" : "profile") + '"]'); if (!f) return true; const a = d.querySelector("[data-draft-body]").getBoundingClientRect(), b = f.querySelector("[data-design-body]").getBoundingClientRect(); return Math.abs(a.left - b.left) < 2 && Math.abs(a.top - b.top) < 2; })`,
     );
     await waitFor(
-      `!!${frame("settings")}?.querySelector("[data-design-body] iframe") && !!${frame("profile")}?.querySelector("[data-design-body] iframe") && ${drafts}.length === 0`,
+      `!!${frame("settings")}?.querySelector("[data-design-body][data-painted]") && !!${frame("profile")}?.querySelector("[data-design-body][data-painted]") && ${drafts}.length === 0`,
     );
     await screenshot("6c-two-agents-settled");
 
@@ -417,7 +417,7 @@ async function browserChecks() {
     await evaluate(
       `window.homeShown = true; window.emit({ type: "step-completed", id: "toolu_first", status: "done", artifact: { id: "home", version: 1, title: "Home", format: "design" } }); window.reply("A home screen.", [window.step("toolu_first", { id: "home", version: 1, title: "Home" })]); window.emit({ type: "turn-completed" })`,
     );
-    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body] iframe") && !${draft}`);
+    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body][data-painted]") && !${draft}`);
     await screenshot("8-fresh-settled");
 
     // 5. Closed by the user, the Designs open again for the next design call. Closed and opened again mid-call, the
