@@ -638,6 +638,31 @@
         }
       ]
     },
+    "attachment:read": {
+      "parameters": [
+        {
+          "name": "file",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "offset",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "version",
+          "optional": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "project:files": {
       "parameters": [
         {

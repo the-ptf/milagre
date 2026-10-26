@@ -284,6 +284,7 @@ export type MilagreBridge = {
   }) => Promise<{ file?: { id: string; path: string } | null; error?: { status: number; message: string } }>;
   getPathForFile: (file: File) => string;
   readAttachment: (file: string) => Promise<{ text: string; binary: boolean; truncated: boolean }>;
+  readAttachmentChunk: (file: string, offset: number, version?: string) => Promise<import("@milagre/shared/attachment-download").AttachmentChunk>;
   searchProjectFiles: (root: string, query: string) => Promise<string[]>;
   listSkills: (projectPath: string) => Promise<SkillCatalog>;
   /** The text of a SKILL.md the catalog listed (a shadowed one included), up to 256 KiB. */

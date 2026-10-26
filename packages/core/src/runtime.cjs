@@ -535,12 +535,35 @@ function createRuntime(options) {
     if (!scopeStates.has(owner) || typeof clientMessageId !== "string" || !clientMessageId) throw new Error("Choose an open Chat and message identity.");
     return chats.sendStatus(owner, clientMessageId);
   });
+  async function attachmentAccess(file) {
+    if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("Choose an attached file or a file in an open Worktree.");
+    const { sharedFilePaths, chatFolder } = require("./chat-files.cjs");
+    // Search by basename too: a shared link may be relative, URL-encoded or have a line suffix. Unloaded Chats
+    // stay unloaded; only candidate rows are read, and the parsed link must name this exact file.
+    const name = path.basename(file);
+    const needles = [...new Set([JSON.stringify(name).slice(1, -1), encodeURIComponent(name), encodeURI(name)])];
+    const attached = [];
+    for (const project of scopeStates.projects()) {
+      const state = await scopeStates.get(project);
+      const messages = await scopeStates.messagesContaining(project, needles);
+      const streaming = Object.entries(chats.snapshot().runs)
+        .filter(([key]) => projectOfKey(key) === project)
+        .map(([key, run]) => Object.assign({}, run, { role: "assistant", session_id: sessionIdFromKey(key) }));
+      for (const message of [...(messages || []), ...streaming]) {
+        attached.push(...(message.files || []));
+        const body = JSON.stringify(message.body || message.text || "");
+        if (needles.some((needle) => body.includes(needle)) && sharedFilePaths(message, chatFolder(state, message, project)).has(file)) attached.push(file);
+      }
+    }
+    return { roots: scopeStates.worktreePaths(), attached };
+  }
   commands.handle("attachment:preview", async (_event, file) => {
-    // An unloaded Chat's messages (see message-store.cjs) are looked at only where their saved JSON names the file.
-    const needles = typeof file === "string" ? [JSON.stringify(file).slice(1, -1)] : [];
-    const scopes = await Promise.all(scopeStates.projects().map((project) => scopeStates.messagesContaining(project, needles)));
-    const attached = scopes.flatMap((messages) => (messages || []).flatMap((message) => message.files || []));
-    return require("./attachment-preview.cjs").readAttachment(file, scopeStates.worktreePaths(), attached);
+    const { roots, attached } = await attachmentAccess(file);
+    return require("./attachment-preview.cjs").readAttachment(file, roots, attached);
+  });
+  commands.handle("attachment:read", async (_event, file, offset = 0, version) => {
+    const { roots, attached } = await attachmentAccess(file);
+    return require("./attachment-download.cjs").readAttachmentChunk(file, offset, version || undefined, roots, attached);
   });
   commands.handle("project:files", async (_event, root, query) => {
     if (!scopeStates.worktreePaths().includes(root) && !scopeStates.workspacePaths().includes(root)) throw new Error("Choose an open project's worktree.");

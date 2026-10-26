@@ -137,6 +137,7 @@ function makeBridge(invoke, listen, send) {
     onRuntimeSnapshot: (callback) => listen("runtime:snapshot", callback),
     getPathForFile: (file) => webUtils.getPathForFile(file),
     readAttachment: (file) => invoke("attachment:preview", file),
+    readAttachmentChunk: (file, offset, version = "") => invoke("attachment:read", file, offset, version),
     searchProjectFiles: (root, query) => invoke("project:files", root, query),
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),

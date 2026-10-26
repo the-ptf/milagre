@@ -167,6 +167,7 @@ const METHODS = new Set([
   // The end of a background command's output, for the Chat's background line.
   "chat:task-output",
   "attachment:preview",
+  "attachment:read",
   "worktree:pull-request",
   "worktree:pull-requests",
   "project:branches",
