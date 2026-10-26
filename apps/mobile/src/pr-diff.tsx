@@ -57,7 +57,7 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
   const file = pr?.files.find((entry) => entry.path === path);
   const commits = pr ? { base: pr.baseRefOid, head: pr.headRefOid } : null;
   const large = !!file && file.additions + file.deletions > LARGE_DIFF_LINES && !forced;
-  const { data: listed } = useRpc<DiffFilesResult | { ok: false; message: string }>(commits ? client : null, "pr:diff-files", [{ cwd, ...commits }], false);
+  const { data: listed } = useRpc<DiffFilesResult | { ok: false; message: string }>(commits ? client : null, "pr:diff-files", [{ cwd, ...commits }]);
   const entry = listed && "isRepo" in listed && listed.isRepo ? listed.files.find((item) => item.path === path) : undefined;
   const listedDone = !!listed;
   const {

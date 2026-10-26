@@ -187,7 +187,12 @@ function MergeCard({ pr, review }: { pr: PullRequestDetail; review: PullRequestR
           data-pr-merge
           disabled={busy}
           onClick={() => merge()}
-          className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-control bg-green px-3 text-[12.5px] font-semibold text-page transition-opacity hover:opacity-90 disabled:opacity-50"
+          // GitHub lets an UNSTABLE PR merge past failing optional checks; only a ready PR gets the green button.
+          className={
+            status.tone === "ready"
+              ? "inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-control bg-green px-3 text-[12.5px] font-semibold text-page transition-opacity hover:opacity-90 disabled:opacity-50"
+              : `${secondary} flex-1`
+          }
         >
           {icon(GitMergeIcon)}
           <span className="truncate">{review.busy === "merge" ? "Merging…" : confirming === "merge" ? "Confirm merge" : action.action}</span>

@@ -381,7 +381,7 @@ function MergeCard({
       {open && pr.isDraft && <WideButton title="Ready for review" disabled={busy} onPress={() => void run({ draft: false }, "pr:ready")} />}
       {open && !pr.isDraft && now && (
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <WideButton title={mergeLabel(method)} icon={GitMergeIcon} green busy={busy} onPress={() => void merge()} />
+          <WideButton title={mergeLabel(method)} icon={GitMergeIcon} green={status.tone === "ready"} busy={busy} onPress={() => void merge()} />
           <PullDown
             label="Merge method"
             title="Merge method"
