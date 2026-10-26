@@ -230,6 +230,7 @@ export type ComputersApi = {
 };
 
 import type { DiffMode, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
+import type { MergeMethod, PullRequestDetailResult, PullRequestWriteResult, ReviewEvent, ReviewGuideResult } from "@milagre/shared/pull-request-review";
 export type { DiffMode, DiffFileEntry, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
 
 /** `hostOutdated`: connected to a host from before result pages, which can't load very large Projects.
@@ -440,6 +441,55 @@ export type MilagreBridge = {
     commit: (request: { cwd: string; message: string }) => Promise<GitCommitResult>;
     push: (request: { cwd: string }) => Promise<GitPushResult>;
     openPr: (request: { cwd: string; base?: string; title: string; body: string }) => Promise<GitPrResult>;
+  };
+  /** The PR a Chat's branch opened, read and reviewed through gh in the Chat's folder (`cwd`). Writes never reject: `ok: false` carries GitHub's reason. */
+  pr: {
+    detail: (request: { cwd: string; number: number }) => Promise<PullRequestDetailResult>;
+    /** The PR's files as GitHub diffs them, merge-base(base, head)..head; both are commit ids from the detail. */
+    diffFiles: (request: { cwd: string; base: string; head: string }) => Promise<DiffFilesResult | { ok: false; message: string }>;
+    diffFile: (request: {
+      cwd: string;
+      base: string;
+      head: string;
+      path: string;
+      oldPath?: string;
+    }) => Promise<DiffFileResult | { ok: false; message: string }>;
+    /** A draft comment on `line` (or `startLine`..`line`), added to the viewer's pending review. */
+    comment: (request: {
+      cwd: string;
+      number: number;
+      path: string;
+      line: number;
+      startLine?: number;
+      side?: "LEFT" | "RIGHT";
+      body: string;
+    }) => Promise<PullRequestWriteResult>;
+    /** A draft reply in a thread, added to the viewer's pending review. */
+    reply: (request: { cwd: string; number: number; threadId: string; body: string }) => Promise<PullRequestWriteResult>;
+    deleteComment: (request: { cwd: string; commentId: string }) => Promise<PullRequestWriteResult>;
+    submitReview: (request: { cwd: string; number: number; event: ReviewEvent; body: string }) => Promise<PullRequestWriteResult>;
+    resolveThread: (request: { cwd: string; threadId: string; resolved: boolean }) => Promise<PullRequestWriteResult>;
+    fileViewed: (request: { cwd: string; number: number; path: string; viewed: boolean }) => Promise<PullRequestWriteResult>;
+    /** Merges now, turns auto-merge on (`auto`) or off (`disableAuto`); `admin` bypasses unmet requirements where allowed. */
+    merge: (request: {
+      cwd: string;
+      number: number;
+      method: MergeMethod;
+      auto?: boolean;
+      admin?: boolean;
+      disableAuto?: boolean;
+    }) => Promise<PullRequestWriteResult>;
+    /** Marks a draft ready for review, or turns it back into a draft (`draft`). */
+    ready: (request: { cwd: string; number: number; draft?: boolean }) => Promise<PullRequestWriteResult>;
+    guide: (request: { cwd: string; url: string }) => Promise<ReviewGuideResult>;
+    /** Starts writing the guide with the Chat's provider first; `guide` reports `writing` until it is saved. */
+    writeGuide: (request: {
+      cwd: string;
+      number: number;
+      url: string;
+      provider?: ModelProvider;
+    }) => Promise<{ ok: true; writing: true } | { ok: false; message: string }>;
+    guideRead: (request: { cwd: string; url: string; stop: number; read: boolean }) => Promise<PullRequestWriteResult>;
   };
   /** Code editors found on this Mac, in the order the first becomes the default. */
   listEditors: () => Promise<EditorInfo[]>;

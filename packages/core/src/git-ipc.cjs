@@ -4,6 +4,12 @@ const { PROVIDERS } = require("@milagre/shared/providers");
 const { createGitActions } = require("./git-actions.cjs");
 const { createGitDiff } = require("./git-diff.cjs");
 const { GENERATION_FAILED, claudeModel, codexModel, generateGitText, antigravityModel } = require("./git-text.cjs");
+const { createPullRequestReview } = require("./pull-request-review.cjs");
+const { createPrGuides, GUIDE_SCHEMA } = require("./pr-guide.cjs");
+
+// The guide is a longer read than a commit message: a larger model, more effort.
+const GUIDE_CLAUDE_MODEL = "claude-sonnet-5-5";
+const GUIDE_CODEX_EFFORT = "medium";
 
 const NOT_A_CHAT_FOLDER = "This folder isn't one of the open project's chats.";
 
@@ -40,6 +46,9 @@ function registerGitHandlers(
     diff = createGitDiff({ env }),
     models,
     knownFolders,
+    review = createPullRequestReview({ env }),
+    guidesDirectory,
+    guideModels,
   } = {},
 ) {
   const command = (name, cwd) => async () => {
@@ -52,6 +61,20 @@ function registerGitHandlers(
       codex: codexModel({ getCommand: command("codex", cwd), clientVersion }),
       antigravity: antigravityModel({ getCommand: command("antigravity", cwd), clientVersion }),
     };
+
+  const guides = guidesDirectory
+    ? createPrGuides({
+        review,
+        directory: guidesDirectory,
+        env,
+        models: (cwd) =>
+          guideModels ?? {
+            claude: claudeModel({ getCommand: command("claude", cwd), model: GUIDE_CLAUDE_MODEL }),
+            codex: codexModel({ getCommand: command("codex", cwd), clientVersion, outputSchema: GUIDE_SCHEMA, effort: GUIDE_CODEX_EFFORT }),
+            antigravity: antigravityModel({ getCommand: command("antigravity", cwd), clientVersion, outputSchema: GUIDE_SCHEMA }),
+          },
+      })
+    : null;
 
   async function folder(cwd) {
     if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("The chat's folder must be an absolute path.");
@@ -69,6 +92,38 @@ function registerGitHandlers(
   ipcMain.handle("git:diff-file", async (_event, { cwd, base, mode, path: file, oldPath, untracked } = {}) =>
     diff.readDiffFile({ cwd: await folder(cwd), base, mode, path: file, oldPath, untracked }),
   );
+  // The PR a Chat's branch opened: its detail, its diff, and every review write, all through gh in the Chat's folder.
+  ipcMain.handle("pr:detail", async (_event, { cwd, number } = {}) => review.detail({ cwd: await folder(cwd), number }));
+  ipcMain.handle("pr:diff-files", async (_event, { cwd, base, head } = {}) => review.diffFiles({ cwd: await folder(cwd), base, head }));
+  ipcMain.handle("pr:diff-file", async (_event, { cwd, base, head, path: file, oldPath } = {}) =>
+    review.diffFile({ cwd: await folder(cwd), base, head, path: file, oldPath }),
+  );
+  ipcMain.handle("pr:comment", async (_event, { cwd, number, path: file, line, startLine, side, body } = {}) =>
+    review.comment({ cwd: await folder(cwd), number, path: file, line, startLine, side, body }),
+  );
+  ipcMain.handle("pr:reply", async (_event, { cwd, number, threadId, body } = {}) => review.reply({ cwd: await folder(cwd), number, threadId, body }));
+  ipcMain.handle("pr:delete-comment", async (_event, { cwd, commentId } = {}) => review.deleteComment({ cwd: await folder(cwd), commentId }));
+  ipcMain.handle("pr:submit-review", async (_event, { cwd, number, event, body } = {}) => review.submit({ cwd: await folder(cwd), number, event, body }));
+  ipcMain.handle("pr:resolve-thread", async (_event, { cwd, threadId, resolved } = {}) => review.resolve({ cwd: await folder(cwd), threadId, resolved }));
+  ipcMain.handle("pr:file-viewed", async (_event, { cwd, number, path: file, viewed } = {}) =>
+    review.viewed({ cwd: await folder(cwd), number, path: file, viewed }),
+  );
+  ipcMain.handle("pr:merge", async (_event, { cwd, number, method, auto, admin, disableAuto } = {}) =>
+    review.merge({ cwd: await folder(cwd), number, method, auto, admin, disableAuto }),
+  );
+  ipcMain.handle("pr:ready", async (_event, { cwd, number, draft } = {}) => review.ready({ cwd: await folder(cwd), number, draft }));
+  ipcMain.handle("pr:guide", async (_event, { cwd, url } = {}) => {
+    await folder(cwd);
+    return guides ? guides.read({ url }) : { ok: false, message: "Review guides aren't available here." };
+  });
+  ipcMain.handle("pr:write-guide", async (_event, { cwd, number, url, provider } = {}) => {
+    const checked = await folder(cwd);
+    return guides ? guides.write({ cwd: checked, number, url, provider }) : { ok: false, message: "Review guides aren't available here." };
+  });
+  ipcMain.handle("pr:guide-read", async (_event, { cwd, url, stop, read } = {}) => {
+    await folder(cwd);
+    return guides ? guides.markRead({ url, stop, read }) : { ok: false, message: "Review guides aren't available here." };
+  });
   ipcMain.handle("git:generate", async (_event, { cwd, base, provider, chat } = {}) => {
     const checked = await folder(cwd);
     try {

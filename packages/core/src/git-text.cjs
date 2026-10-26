@@ -209,7 +209,7 @@ async function generateGitText(input, { provider = "claude", models = {}, timeou
 }
 
 /** One Haiku 4.5 turn through the Agent SDK, with no tools, settings or saved session (as #37's naming call). */
-function claudeModel({ getCommand, loadSdk = () => import("@anthropic-ai/claude-agent-sdk") }) {
+function claudeModel({ getCommand, loadSdk = () => import("@anthropic-ai/claude-agent-sdk"), model = CLAUDE_MODEL }) {
   return async ({ system, prompt, signal }) => {
     const resolved = await getCommand();
     const command = typeof resolved === "string" ? resolved : resolved?.command;
@@ -225,7 +225,7 @@ function claudeModel({ getCommand, loadSdk = () => import("@anthropic-ai/claude-
       const run = query({
         prompt,
         options: {
-          model: CLAUDE_MODEL,
+          model,
           systemPrompt: system,
           tools: [],
           maxTurns: 1,
@@ -261,7 +261,14 @@ const OUTPUT_SCHEMA = {
 const antigravityModel = (options) => acpModel({ outputSchema: OUTPUT_SCHEMA, ...options });
 
 /** One GPT-6 Luna turn in a short-lived, ephemeral, read-only `codex app-server` thread. */
-function codexModel({ getCommand, createRpc = (options) => new CodexRpc(options), clientVersion = "0.0.0", outputSchema = OUTPUT_SCHEMA }) {
+function codexModel({
+  getCommand,
+  createRpc = (options) => new CodexRpc(options),
+  clientVersion = "0.0.0",
+  outputSchema = OUTPUT_SCHEMA,
+  model = CODEX_MODEL,
+  effort = CODEX_EFFORT,
+}) {
   return async ({ system, prompt, signal }) => {
     const resolved = await getCommand();
     const command = typeof resolved === "string" ? resolved : resolved?.command;
@@ -304,7 +311,7 @@ function codexModel({ getCommand, createRpc = (options) => new CodexRpc(options)
       // gets none of them, as an advisor does, so the repository text it reads can't make it run anything.
       const inherited = (await rpc.request("config/read", { cwd: os.tmpdir() })).config;
       const { thread } = await rpc.request("thread/start", {
-        model: CODEX_MODEL,
+        model,
         cwd: os.tmpdir(),
         approvalPolicy: "never",
         sandbox: "read-only",
@@ -317,7 +324,7 @@ function codexModel({ getCommand, createRpc = (options) => new CodexRpc(options)
         threadId: thread?.id,
         input: [{ type: "text", text: prompt, text_elements: [] }],
         outputSchema,
-        effort: CODEX_EFFORT,
+        effort,
         environments: [],
       });
       await finished;
@@ -342,4 +349,5 @@ module.exports = {
   generateGitText,
   parseGitText,
   repeatsSubject,
+  withTimeout,
 };
