@@ -14,9 +14,10 @@ const view = (hostId: string, state: HostView["state"], paths: string[], hidden:
   errors: new Map(),
 });
 
-test("New Chat lists every shown Project, named by its folder when unnamed", () => {
+test("New Chat includes sidebar-hidden Projects, named by their folder when unnamed", () => {
   assert.deepEqual(newChatProjects([view("mac", "online", ["/code/a"], ["/code/secret"]), view("deer", "offline", ["/code/b"])]), [
     { hostId: "mac", hostName: "MAC", offline: false, path: "/code/a", name: "a" },
+    { hostId: "mac", hostName: "MAC", offline: false, path: "/code/secret", name: "secret" },
     { hostId: "deer", hostName: "DEER", offline: true, path: "/code/b", name: "b" },
   ]);
 });
