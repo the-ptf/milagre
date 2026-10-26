@@ -5,6 +5,8 @@ import * as Linking from "expo-linking";
 import {
   Alert02Icon,
   ArrowDown01Icon,
+  Cancel01Icon,
+  CloudUploadIcon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
   CancelCircleIcon,
@@ -23,6 +25,7 @@ import {
   SparklesIcon,
   Tick02Icon,
   BubbleChatIcon,
+  UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import {
   canMergeNow,
@@ -40,10 +43,11 @@ import { confirm } from "./confirm-store";
 import { ErrorNotice, PageScroll, PullDown, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { usePrDetail, usePrGuide, writePr } from "./pr-store";
-import { prefillChat, sendToChat } from "./pr-chat";
+import { prefillChat, sendToChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
 import { useRpc } from "./use-rpc";
 import type { PrPage } from "./pr-nav";
+import type { DiffFilesResult } from "@milagre/shared/git-diff";
 import {
   MERGE_METHODS,
   ago,
@@ -75,11 +79,87 @@ function PrStatePill({ pr }: { pr: PullRequestDetail }) {
   return (
     <View
       accessibilityLabel={state.label}
-      style={{ height: 26, paddingHorizontal: 10, borderRadius: 13, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: colors[state.tint] }}
+      style={{ height: 34, paddingHorizontal: 12, borderRadius: 17, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors[state.tint] }}
     >
-      <Icon icon={state.icon} tone={state.tone} size={13} strokeWidth={2} />
-      <Text style={{ color: colors[state.tone], fontSize: 13, fontWeight: "600" }}>{state.label}</Text>
+      <Icon icon={state.icon} tone={state.tone} size={14} strokeWidth={2} />
+      <Text style={{ color: colors[state.tone], fontSize: 15, fontWeight: "600" }}>{state.label}</Text>
     </View>
+  );
+}
+
+/**
+ * The PR's number; when the Chat has opened more than one PR, a menu listing each (and the changes not in a PR yet) that
+ * switches the panel to another.
+ */
+function PrSwitcher({
+  number,
+  choices,
+  onPick,
+  local,
+  onChanges,
+}: {
+  number: number;
+  choices: PrChoice[];
+  onPick?: (number: number) => void;
+  local: number;
+  onChanges?: () => void;
+}) {
+  const { colors } = useTheme();
+  if (choices.length < 2 || !onPick) return <Text style={{ color: colors.ink2, fontSize: 15, fontFamily: fonts.mono }}>#{number}</Text>;
+  return (
+    <PullDown
+      label="Switch PR"
+      title="This Chat's PRs"
+      sections={[
+        {
+          items: choices.map((choice) => ({
+            id: `pr:${choice.number}`,
+            title: `#${choice.number} · ${choice.state === "MERGED" ? "Merged" : "Open"}`,
+            subtitle: choice.title,
+            checked: choice.number === number,
+          })),
+        },
+        ...(local && onChanges
+          ? [
+              {
+                items: [
+                  {
+                    id: "changes",
+                    title: "Local changes",
+                    subtitle: `${local} ${local === 1 ? "file" : "files"} not in a PR yet`,
+                    systemImage: "doc.badge.plus",
+                  },
+                ],
+              },
+            ]
+          : []),
+      ]}
+      onSelect={(id) => {
+        if (id === "changes") onChanges?.();
+        else if (id.startsWith("pr:")) onPick(Number(id.slice(3)));
+      }}
+    >
+      <View
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`PR #${number}, ${choices.length} PRs`}
+        style={{
+          height: 34,
+          paddingHorizontal: 12,
+          borderRadius: 17,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 5,
+          backgroundColor: colors.surface,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.lineStrong,
+        }}
+      >
+        <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "600" }}>#{number}</Text>
+        <Text style={{ color: colors.ink2, fontSize: 13 }}>of {choices.length}</Text>
+        <Icon icon={UnfoldMoreIcon} tone="ink2" size={13} />
+      </View>
+    </PullDown>
   );
 }
 
@@ -101,6 +181,8 @@ const CHECK_ICON = {
   none: { icon: CircleIcon, tone: "ink3" },
 } as const;
 
+const NO_CHOICES: PrChoice[] = [];
+
 export type PrOverviewProps = {
   client: Client;
   cwd: string;
@@ -111,12 +193,17 @@ export type PrOverviewProps = {
   /** After a message went to the Chat (or waits in its composer): the sheet closes so the Chat shows. */
   onChat: () => void;
   provider?: string;
-  /** Drawn above the PR's state row: the iPad panel's mode switch. */
-  header?: React.ReactNode;
+  /** Closes the panel or sheet: the X in the top row. */
+  onClose?: () => void;
+  /** The Chat's PRs; with more than one, the number opens a menu to switch between them. */
+  choices?: PrChoice[];
+  onPick?: (number: number) => void;
+  /** Shows the Worktree's changes that aren't in the PR yet; without it there is no such row. */
+  onChanges?: () => void;
 };
 
 /** The PR sheet's first page, and the iPad panel's PR mode: what the PR is, whether it can merge, and where to go next. */
-export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provider, header }: PrOverviewProps) {
+export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provider, onClose, choices = NO_CHOICES, onPick, onChanges }: PrOverviewProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { pr, error, loading, refresh } = usePrDetail(client, cwd, number);
@@ -127,6 +214,14 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
   const [notice, setNotice] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  // The Worktree's uncommitted files: changes the PR doesn't have yet.
+  const local = useRpc<DiffFilesResult>(onChanges ? client : null, "git:diff-files", [{ cwd, mode: "uncommitted" }]);
+  const [localCount, setLocalCount] = useState(0);
+  const counted = local.data?.isRepo ? local.data.files.length : null;
+  // A refresh reads the list again; the row keeps the last count meanwhile.
+  if (counted !== null && counted !== localCount) setLocalCount(counted);
+  const switcher = <PrSwitcher number={number} choices={choices} onPick={onPick} local={onChanges && localCount ? localCount : 0} onChanges={onChanges} />;
+  const close = onClose ? <RoundButton label="Close" icon={Cancel01Icon} onPress={onClose} /> : null;
 
   async function toChat(body: string) {
     const outcome = await sendToChat(chatKey, body);
@@ -137,7 +232,13 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
   if (!pr)
     return (
       <View style={{ flex: 1 }}>
-        {header}
+        {(close || choices.length > 1) && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>
+            {switcher}
+            <View style={{ flex: 1 }} />
+            {close}
+          </View>
+        )}
         {oldMac ? (
           <View style={{ padding: 20, gap: 14 }}>
             <Text style={[styles.label, { fontSize: 16 }]}>Update Milagre on this Mac to review PR #{number} here.</Text>
@@ -184,22 +285,28 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
             onRefresh={() => {
               setRefreshing(true);
               refresh();
+              local.refresh();
               setTimeout(() => setRefreshing(false), 500);
             }}
           />
         }
-        contentContainerStyle={{ gap: 14, paddingBottom: 110 }}
+        contentContainerStyle={{ gap: 14, paddingBottom: 40 }}
       >
-        {header}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <PrStatePill pr={pr} />
-          <Text style={{ color: colors.ink2, fontSize: 15, fontFamily: fonts.mono }}>#{pr.number}</Text>
+          {switcher}
           <View style={{ flex: 1 }} />
           <RoundButton label="Open on GitHub" icon={LinkSquare02Icon} onPress={() => void Linking.openURL(pr.url).catch(() => {})} />
           <PullDown
             label="PR actions"
             title={`PR #${pr.number}`}
             sections={[
+              {
+                items: [
+                  { id: "ask", title: "Ask Chat", systemImage: "sparkles" },
+                  ...(pr.state === "OPEN" ? [{ id: "review", title: pending ? `Submit review (${pending})` : "Review", systemImage: "text.bubble" }] : []),
+                ],
+              },
               {
                 items: [
                   { id: "copy", title: "Copy link", systemImage: "link" },
@@ -220,7 +327,11 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
                 : []),
             ]}
             onSelect={(id) => {
-              if (id === "copy") void Clipboard.setStringAsync(pr.url);
+              if (id === "ask") {
+                if (prefillChat(chatKey, askPrefill(pr))) onChat();
+                else setNotice("Open this PR's Chat to ask about it.");
+              } else if (id === "review") onOpen("review");
+              else if (id === "copy") void Clipboard.setStringAsync(pr.url);
               else if (id === "refresh") refresh();
               else if (id === "rewrite") void guide.write(pr.number, provider);
               else if (id === "ready" || id === "draft")
@@ -229,6 +340,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
           >
             <RoundButton label="PR actions" icon={MoreHorizontalIcon} />
           </PullDown>
+          {close}
         </View>
         <Text selectable accessibilityRole="header" style={{ color: colors.ink, fontSize: 20, fontWeight: "700", lineHeight: 26 }}>
           {pr.title}
@@ -280,6 +392,18 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
             onPress={() => onOpen("threads")}
             trailing={open.length ? <FixButton onPress={() => void toChat(threadsMessage(pr, open))} /> : undefined}
           />
+          {pending > 0 && pr.state === "OPEN" && (
+            <>
+              <Separator />
+              <GroupRow
+                icon={MessageAdd01Icon}
+                tone="accent"
+                title={`${pending} draft ${pending === 1 ? "comment" : "comments"}`}
+                onPress={() => onOpen("review")}
+                trailing={<SmallButton title="Submit" onPress={() => onOpen("review")} />}
+              />
+            </>
+          )}
           <Separator />
           <GroupRow
             icon={SparklesIcon}
@@ -298,6 +422,18 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
           )}
           <Separator />
           <GroupRow icon={FileDiffIcon} tone="ink2" title="Files" value={`${viewed.viewed} of ${viewed.total} viewed`} onPress={() => onOpen("files")} />
+          {onChanges && localCount > 0 && pr.state === "OPEN" && (
+            <>
+              <Separator />
+              <GroupRow
+                icon={CloudUploadIcon}
+                tone="orange"
+                title="Not in the PR yet"
+                value={`${localCount} ${localCount === 1 ? "file" : "files"}`}
+                onPress={onChanges}
+              />
+            </>
+          )}
         </View>
         {!!description && (
           <View style={{ gap: 6 }}>
@@ -313,34 +449,6 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
           </View>
         )}
       </PageScroll>
-      <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: 20 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            gap: 8,
-            padding: 6,
-            borderRadius: 28,
-            borderCurve: "continuous",
-            backgroundColor: colors.surface,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.lineStrong,
-            shadowColor: "#000",
-            shadowOpacity: 0.25,
-            shadowRadius: 18,
-            shadowOffset: { width: 0, height: 6 },
-          }}
-        >
-          <BarButton
-            title="Ask Chat"
-            icon={SparklesIcon}
-            onPress={() => {
-              if (prefillChat(chatKey, askPrefill(pr))) onChat();
-              else setNotice("Open this PR's Chat to ask about it.");
-            }}
-          />
-          <BarButton title="Review" icon={MessageAdd01Icon} badge={pending} filled onPress={() => onOpen("review")} />
-        </View>
-      </View>
     </View>
   );
 }
@@ -665,61 +773,6 @@ export function WideButton({
     >
       {busy ? <ActivityIndicator color={ink} /> : icon ? <Icon icon={icon} color={ink} size={17} strokeWidth={2} /> : null}
       <Text style={{ color: ink, fontSize: 17, fontWeight: "600" }}>{title}</Text>
-    </Pressable>
-  );
-}
-
-function BarButton({
-  title,
-  icon,
-  onPress,
-  badge = 0,
-  filled = false,
-}: {
-  title: string;
-  icon: IconData;
-  onPress: () => void;
-  badge?: number;
-  filled?: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={badge ? `${title}, ${badge} pending` : title}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        flex: 1,
-        height: 44,
-        borderRadius: 22,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        backgroundColor: filled ? colors.hover2 : "transparent",
-        opacity: pressed ? 0.6 : 1,
-      })}
-    >
-      <Icon icon={icon} tone="ink" size={17} />
-      <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>{title}</Text>
-      {badge > 0 && (
-        <View
-          style={{
-            minWidth: 20,
-            height: 20,
-            paddingHorizontal: 5,
-            borderRadius: 10,
-            backgroundColor: colors.accent,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ color: colors.page, fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{badge}</Text>
-        </View>
-      )}
     </Pressable>
   );
 }

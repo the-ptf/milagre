@@ -8,6 +8,31 @@ export type PrState = { status: "idle" | "loading" } | { status: "error"; messag
 
 type PrBridge = MilagreBridge["pr"];
 
+/** How many uncommitted files the Worktree has (changes its PR doesn't have yet), read while `active`, as the PR is. */
+export function useLocalChanges({ cwd, active, bridge }: { cwd: string | undefined; active: boolean; bridge: MilagreBridge }) {
+  const [count, setCount] = useState<{ cwd: string; count: number } | null>(null);
+  const lastRead = useRef(0);
+  const read = useRef<() => Promise<void>>(async () => {});
+  read.current = async () => {
+    if (!cwd) return;
+    lastRead.current = Date.now();
+    try {
+      const result = await bridge.git.diffFiles({ cwd, mode: "uncommitted" });
+      setCount({ cwd, count: result.isRepo ? result.files.length : 0 });
+    } catch {}
+  };
+  useEffect(() => {
+    if (!active || !cwd) return;
+    void read.current();
+    return pollWhileActive(
+      () => void read.current(),
+      () => lastRead.current,
+    );
+  }, [active, cwd]);
+  const refresh = useCallback(() => void read.current(), []);
+  return { count: count && count.cwd === cwd ? count.count : 0, refresh };
+}
+
 // The detail of the PR a Chat's branch opened, kept per PR so switching Chats and back shows it at once.
 const lastDetail = new Map<string, PullRequestDetail>();
 const GUIDE_POLL_MS = 3000;

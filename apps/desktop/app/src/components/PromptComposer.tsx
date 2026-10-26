@@ -69,6 +69,8 @@ interface PromptComposerProps {
   sendBlocked: boolean;
   /** A turn is running in this chat; a message sent now steers it. */
   running?: boolean;
+  /** A predicted follow-up, offered only in an empty, idle composer. */
+  suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
   /** The models each agent offers, or the maintained list until it reports them. */
@@ -137,6 +139,7 @@ export function PromptComposer({
   onStop,
   sendBlocked,
   running = false,
+  suggestion,
   onCompact,
   models,
   cliStatus,
@@ -324,6 +327,21 @@ export function PromptComposer({
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
   const canStop = running && Boolean(onStop);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
+  const visibleSuggestion =
+    suggestion &&
+    !draft &&
+    !running &&
+    !sendBlocked &&
+    !offlineName &&
+    selectedModel.provider === "claude" &&
+    !imageDraft.images.length &&
+    !imageDraft.files.length &&
+    !imageDraft.loading &&
+    !menu &&
+    !modelOpen &&
+    !permissionOpen
+      ? suggestion
+      : undefined;
 
   useEffect(() => {
     setActive(0);
@@ -560,10 +578,21 @@ export function PromptComposer({
         return;
       }
     }
+    if (visibleSuggestion && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "Tab" || event.key === "ArrowRight")) {
+      const selection = inputRef.current?.getSelection();
+      if (selection?.start === 0 && selection.end === 0) {
+        event.preventDefault();
+        onDraftChange(visibleSuggestion);
+        inputRef.current?.setSelection(visibleSuggestion.length);
+        return;
+      }
+    }
     if (recall(event)) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      send();
+      // An unaccepted suggestion is never sent. Otherwise the parent checks its live draft, which a render-time
+      // `canSend` can trail when Enter follows the edit in the same task.
+      if (canSend || !visibleSuggestion) send();
     }
   }
 
@@ -800,6 +829,7 @@ export function PromptComposer({
                 onKeyDown={handleKeyDown}
                 disabled={Boolean(offlineName)}
                 maxHeight={100}
+                suggestion={visibleSuggestion}
                 placeholder={
                   (running
                     ? // A provider that can't steer mid-turn takes the message at the start of the next turn.

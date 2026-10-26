@@ -61,8 +61,15 @@ export function ChangesPanel({
   activePath?: string;
   /** Diff comments per file path. */
   commentCounts?: Record<string, number>;
-  /** The PR the Chat's branch opened: its mode in the menu, and what the panel shows in that mode. */
-  pullRequest?: { number: number; totals?: { added: number; removed: number }; loading: boolean; body: ReactNode };
+  /** The Chat's PR the panel shows in "pr" mode, every PR it opened for the menu, and what the panel shows in that mode. */
+  pullRequest?: {
+    number: number;
+    choices?: { number: number; state: "OPEN" | "MERGED" }[];
+    onPick?: (number: number) => void;
+    totals?: { added: number; removed: number };
+    loading: boolean;
+    body: ReactNode;
+  };
 }) {
   if (mode === "pr" && pullRequest) {
     return (
@@ -79,6 +86,8 @@ export function ChangesPanel({
           loading={pullRequest.loading}
           totals={pullRequest.totals}
           prNumber={pullRequest.number}
+          prChoices={pullRequest.choices}
+          onPickPr={pullRequest.onPick}
         />
         {pullRequest.body}
       </aside>
@@ -102,6 +111,8 @@ export function ChangesPanel({
         loading={list.state === "loading"}
         totals={files?.length ? { added, removed } : undefined}
         prNumber={pullRequest?.number}
+        prChoices={pullRequest?.choices}
+        onPickPr={pullRequest?.onPick}
       >
         {mode === "committed" && base && (
           <span data-diff-base className="truncate px-0.5 text-[11px] text-ink-3">
@@ -124,6 +135,8 @@ export function ChangesHeader<M extends ChangesMode>({
   loading,
   totals,
   prNumber,
+  prChoices,
+  onPickPr,
   children,
 }: {
   mode: M;
@@ -133,13 +146,34 @@ export function ChangesHeader<M extends ChangesMode>({
   totals?: { added: number; removed: number };
   /** Offers the Chat's PR as a third mode. */
   prNumber?: number;
+  /** Every PR the Chat opened, each its own entry, when there is more than one. */
+  prChoices?: { number: number; state: "OPEN" | "MERGED" }[];
+  onPickPr?: (number: number) => void;
   children?: ReactNode;
 }) {
-  const options = (prNumber ? [...MODES, { value: "pr" as const, label: `PR #${prNumber}` }] : MODES) as { value: M; label: string }[];
+  const several = prChoices && prChoices.length > 1 && onPickPr;
+  const prOptions = several
+    ? prChoices.map((choice) => ({ value: `pr:${choice.number}`, label: `PR #${choice.number}${choice.state === "MERGED" ? " · Merged" : ""}` }))
+    : prNumber
+      ? [{ value: "pr", label: `PR #${prNumber}` }]
+      : [];
+  const options = [...MODES, ...prOptions];
+  const value = mode === "pr" && several ? `pr:${prNumber}` : mode;
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-b border-line px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <Select label="Changes mode" value={mode} options={options} onChange={onModeChange} width={180} />
+        <Select
+          label="Changes mode"
+          value={value}
+          options={options}
+          onChange={(next: string) => {
+            if (next.startsWith("pr:")) {
+              onPickPr?.(Number(next.slice(3)));
+              onModeChange("pr" as M);
+            } else onModeChange(next as M);
+          }}
+          width={180}
+        />
         <span className="flex-1" />
         {totals && <Counts total {...totals} className="text-[12px]" />}
         <Tooltip label={mode === "pr" ? "Refresh the PR" : "Refresh changes"} side="bottom" align="end">

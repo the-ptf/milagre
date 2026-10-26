@@ -26,15 +26,18 @@ function Fixture() {
   const [draft, setDraft] = useState('');
   const [root, setRoot] = useState('/fixture');
   const [expanded, setExpanded] = useState(false);
+  const [suggestOptions, setSuggestOptions] = useState({});
+  window.setSuggestOptions = setSuggestOptions;
   window.setDraft = setDraft;
   window.setProject = setRoot;
   window.setExpanded = setExpanded;
-  const model = MODEL_CATALOG[0];
+  const model = suggestOptions.provider ? MODEL_CATALOG.find(item => item.provider === suggestOptions.provider) : MODEL_CATALOG[0];
   const chats = root === '/other' ? [] : [{id: 12, title: 'Plan review', branch: 'feature', at: 12, available: true}, {id: 13, title: 'Current review', branch: 'main', at: 13, available: true}, {id: 14, title: 'Chat', branch: 'old', at: 14, available: false}];
   return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
     <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
-      onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={false}
+      onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={!!suggestOptions.blocked}
+      suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop} alwaysExpanded={expanded} />
@@ -212,6 +215,35 @@ async function browserChecks() {
     await screenshot("chat-mentions");
     await evaluate(`window.setProject('/other')`);
     await waitFor(`!${editor}.querySelector('[data-chip="chat"]')`);
+    await type("");
+    await evaluate(`window.setProject('/fixture'); window.setSuggestOptions({ provider: 'claude', text: 'Add tests' });`);
+    const suggestion = `document.querySelector('[data-prompt-suggestion]')`;
+    await waitFor(`!!${suggestion}`);
+    const key = (name, extra = "") =>
+      evaluate(`${editor}.dispatchEvent(new KeyboardEvent('keydown', { key: '${name}', bubbles: true, cancelable: true ${extra} }))`);
+    const sentBefore = await evaluate("window.sent.length");
+    await key("Enter");
+    assert.equal(await evaluate("window.sent.length"), sentBefore, "an unaccepted suggestion is never sent");
+    assert.equal(await key("Tab", ", shiftKey: true"), true, "Shift+Tab keeps its focus behavior");
+    await key("Tab");
+    await waitFor(`${editor}.value === 'Add tests'`);
+    assert.equal(await evaluate("window.sent.length"), sentBefore, "Tab only fills the draft");
+    assert.equal(await evaluate("getSelection().anchorOffset"), 9, "acceptance places the caret at the end");
+    await type("");
+    await waitFor(`!!${suggestion}`);
+    await key("ArrowRight");
+    await waitFor(`${editor}.value === 'Add tests'`);
+    for (const draft of [" ", "typing", "/tl"]) {
+      await type(draft);
+      await waitFor(`!${suggestion}`);
+    }
+    await key("Tab");
+    await waitFor(`${editor}.value === '/tldr '`);
+    for (const options of [{ running: true }, { blocked: true }, { offline: "QA Mac" }, { provider: "codex" }]) {
+      await type("");
+      await evaluate(`window.setSuggestOptions(${JSON.stringify({ provider: "claude", text: "Add tests", ...options })})`);
+      await waitFor(`!${suggestion}`);
+    }
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",

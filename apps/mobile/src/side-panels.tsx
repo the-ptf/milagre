@@ -10,10 +10,11 @@ import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { IconButton, Segmented } from "./ui";
+import { IconButton } from "./ui";
 import { PrOverview } from "./pr-overview";
 import { PrFiles } from "./pr-lists";
 import { openPrFile, openPrPage } from "./pr-nav";
+import type { PrChoice } from "./pr-chat";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
@@ -22,8 +23,10 @@ import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-w
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
-type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest?: { number: number; chatKey: string } };
-/** What the right panel shows: the Worktree's Changes, or the PR its branch opened. */
+type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest?: ScreenPullRequest };
+/** The Chat's PR the panel opens on, and every PR its row lists for the PR menu. */
+type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[] };
+/** What the right panel shows: the PR (when the Chat has one), or the Worktree's Changes. */
 type RightTab = "changes" | "pr";
 type Panels = {
   screen: Screen | null;
@@ -38,6 +41,9 @@ type Panels = {
   show: (side: Side | null) => void;
   tab: RightTab;
   setTab: (tab: RightTab) => void;
+  /** The PR picked in the PR menu (or opened from a link), over the one the Chat's row shows first. */
+  pick: number | null;
+  setPick: (number: number | null) => void;
   pull: (side: Side) => void;
   settled: (to: number) => void;
   navigate: (href?: Href, secondary?: boolean | "sheet") => void;
@@ -78,7 +84,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const from = useSharedValue(0);
   const [screen, setScreen] = useState<Screen | null>(null);
   const [open, setOpen] = useState<Side | null>(null);
-  const [tab, setTab] = useState<RightTab>("changes");
+  const [tab, setTab] = useState<RightTab>("pr");
+  const [pick, setPick] = useState<number | null>(null);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
@@ -173,6 +180,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   );
   const pull = useCallback((side: Side) => {
     Keyboard.dismiss();
+    // A drag opens the panel on the Chat's PR when it has one, its Changes otherwise.
+    if (side === "right") setTab("pr");
     setMounted((previous) => (previous[side] ? previous : { ...previous, [side]: true }));
   }, []);
   // A panel that opens is drawn, whatever the drag pulled on the way; open over nothing, the shade would block every tap.
@@ -226,8 +235,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     return () => back.remove();
   }, [open, show]);
   const value = useMemo(
-    () => ({ screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pull, settled, navigate }),
-    [screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pull, settled, navigate],
+    () => ({ screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pick, setPick, pull, settled, navigate }),
+    [screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pick, setPick, pull, settled, navigate],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
 }
@@ -256,27 +265,25 @@ function panelTravel(width: number) {
 const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** Offers the panels while this screen is focused. A rightward drag opens the left one, a leftward drag Changes. */
-export function useSidePanels({
-  chatId,
-  worktreeId,
-  pullRequest,
-}: {
-  chatId?: number;
-  worktreeId?: number;
-  pullRequest?: { number: number; chatKey: string };
-}) {
+export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: number; worktreeId?: number; pullRequest?: ScreenPullRequest }) {
   const panels = usePanels();
   const [token] = useState(() => ({}));
-  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab } = panels;
+  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab, setPick } = panels;
   const navigation = useNavigation() as unknown as TransitionEvents;
   const prNumber = pullRequest?.number;
   const prChat = pullRequest?.chatKey;
+  const prChoices = pullRequest?.choices;
   // Focus gives the panels to this screen; what it offers is updated in place.
   const offer = useRef<Screen>({ token, chatId, worktreeId, pullRequest });
   useEffect(() => {
-    offer.current = { token, chatId, worktreeId, ...(prNumber && prChat ? { pullRequest: { number: prNumber, chatKey: prChat } } : {}) };
+    offer.current = {
+      token,
+      chatId,
+      worktreeId,
+      ...(prNumber && prChat ? { pullRequest: { number: prNumber, chatKey: prChat, ...(prChoices ? { choices: prChoices } : {}) } } : {}),
+    };
     update(offer.current);
-  }, [update, token, chatId, worktreeId, prNumber, prChat]);
+  }, [update, token, chatId, worktreeId, prNumber, prChat, prChoices]);
   useFocusEffect(
     useCallback(() => {
       attach(offer.current);
@@ -306,11 +313,15 @@ export function useSidePanels({
       }).enabled(ours && !panels.open),
     [progress, from, travel, worktreeId, dockable, pull, settled, ours, panels.open, scale],
   );
-  // The right panel opened on the PR (its pill on an iPad) or on Changes (View changes, a drag).
-  const showPullRequest = useCallback(() => {
-    setTab("pr");
-    show("right");
-  }, [setTab, show]);
+  // The right panel opened on a PR (its pill on an iPad, a row's PR link) or on Changes (View changes).
+  const showPullRequest = useCallback(
+    (number?: number) => {
+      setTab("pr");
+      setPick(number ?? null);
+      show("right");
+    },
+    [setTab, setPick, show],
+  );
   const showChanges = useCallback(() => {
     setTab("changes");
     show("right");
@@ -385,7 +396,7 @@ function swipe({
 export function SidePanelsHost() {
   const { colors } = useTheme();
   const session = useSession();
-  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab } = usePanels();
+  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab, pick, setPick } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cardTop = useCardTop();
@@ -454,6 +465,8 @@ export function SidePanelsHost() {
                   pullRequest={screen.pullRequest}
                   tab={screen.pullRequest ? tab : "changes"}
                   onTab={setTab}
+                  pick={pick}
+                  onPick={setPick}
                   card={card}
                   onClose={() => show(null)}
                 />
@@ -467,22 +480,27 @@ export function SidePanelsHost() {
 }
 
 /**
- * Changes, and a file's diff in place of the list, so reading one never leaves the panel. When the Chat's branch opened a
- * PR, a switch at the top shows the PR instead: its overview, then its files in place; a PR file opens across the whole
- * window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
+ * The Chat's PR when its branch opened one, else the Worktree's Changes. The PR opens on its overview with no header of its
+ * own (its top row has the X); its files, the Changes not in it yet and a file's diff open in place with a Back button, so
+ * reading one never leaves the panel. A PR file opens across the whole window on an iPad (wide enough to show it side by
+ * side), in the PR sheet on a phone.
  */
 function ChangesPanel({
   worktreeId,
   pullRequest,
   tab,
   onTab,
+  pick,
+  onPick,
   card,
   onClose,
 }: {
   worktreeId: number;
-  pullRequest?: { number: number; chatKey: string };
+  pullRequest?: ScreenPullRequest;
   tab: RightTab;
   onTab: (tab: RightTab) => void;
+  pick: number | null;
+  onPick: (number: number | null) => void;
   card: boolean;
   onClose: () => void;
 }) {
@@ -491,61 +509,62 @@ function ChangesPanel({
   const session = useSession();
   const [file, setFile] = useState<DiffTarget | null>(null);
   const [prFiles, setPrFiles] = useState(false);
-  const pr = tab === "pr" && pullRequest ? pullRequest : undefined;
+  const choices = pullRequest?.choices ?? [];
+  // The picked PR while the Chat still lists it, else the one its row shows first.
+  const number = pick !== null && choices.some((choice) => choice.number === pick) ? pick : pullRequest?.number;
+  const pr = tab === "pr" && pullRequest && number ? { number, chatKey: pullRequest.chatKey } : undefined;
   const cwd = session.snapshot?.project.state.worktrees[worktreeId]?.path;
   const chatId = pullRequest ? Number(pullRequest.chatKey.slice(pullRequest.chatKey.lastIndexOf("#") + 1)) : NaN;
   const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
-  const route = pullRequest ? { worktreeId: String(worktreeId), number: String(pullRequest.number), chat: pullRequest.chatKey } : null;
-  const back = pr ? prFiles : !!file;
-  const name = pr ? (prFiles ? "Files" : `PR #${pr.number}`) : file ? file.path.split("/").pop() || file.path : "Changes";
-  const switcher = pullRequest ? (
-    <Segmented
-      label="Right panel"
-      value={tab}
-      options={[
-        { value: "changes", title: "Changes" },
-        { value: "pr", title: `#${pullRequest.number}` },
-      ]}
-      onChange={(value) => onTab(value as RightTab)}
-    />
-  ) : null;
+  const route = pr ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey } : null;
+  // Back from a PR's files to the PR, from a diff to Changes, from Changes to the PR.
+  const back = pr ? () => setPrFiles(false) : file ? () => setFile(null) : pullRequest ? () => onTab("pr") : null;
+  const name = pr ? "Files" : file ? file.path.split("/").pop() || file.path : "Changes";
+  const overview = !!(pr && route && cwd && session.client && !prFiles);
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-        {back && (
-          <IconButton
-            label={pr ? "Back to the PR" : "Back to Changes"}
-            icon={ArrowLeft01Icon}
-            size={44}
-            onPress={() => (pr ? setPrFiles(false) : setFile(null))}
-          />
-        )}
-        <Text
-          accessibilityRole="header"
-          numberOfLines={1}
-          style={{ flex: 1, paddingLeft: back ? 0 : 12, color: colors.ink, fontSize: back ? 17 : 22, fontWeight: back ? "600" : "700" }}
-        >
-          {name}
-        </Text>
-        <IconButton label={pr ? "Close the PR" : "Close Changes"} icon={Cancel01Icon} size={44} onPress={onClose} />
-      </View>
+      {overview ? (
+        <View style={{ height: insets.top + 8 }} />
+      ) : (
+        <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
+          {back && <IconButton label={pr || !file ? "Back to the PR" : "Back to Changes"} icon={ArrowLeft01Icon} size={44} onPress={back} />}
+          <Text
+            accessibilityRole="header"
+            numberOfLines={1}
+            style={{ flex: 1, paddingLeft: back ? 0 : 12, color: colors.ink, fontSize: back ? 17 : 22, fontWeight: back ? "600" : "700" }}
+          >
+            {name}
+          </Text>
+          <IconButton label={pr ? "Close the PR" : "Close Changes"} icon={Cancel01Icon} size={44} onPress={onClose} />
+        </View>
+      )}
       {/* The list stays mounted under a diff, so going back keeps its mode, folders and scroll. */}
       <View style={{ flex: 1, display: file || pr ? "none" : "flex" }}>
-        <ChangesView worktreeId={worktreeId} onOpen={setFile} header={switcher} />
+        <ChangesView worktreeId={worktreeId} onOpen={setFile} />
       </View>
       {file && !pr && (
         <View style={{ flex: 1 }}>
           <DiffView target={file} />
         </View>
       )}
-      {pr && route && cwd && session.client && !prFiles && (
+      {overview && route && cwd && session.client && pr && (
         <PrOverview
+          key={pr.number}
           client={session.client}
           cwd={cwd}
           number={pr.number}
           chatKey={pr.chatKey}
           provider={provider}
-          header={switcher}
+          onClose={onClose}
+          choices={choices}
+          onPick={(next) => {
+            setPrFiles(false);
+            onPick(next);
+          }}
+          onChanges={() => {
+            setFile(null);
+            onTab("changes");
+          }}
           onChat={onClose}
           onOpen={(page, extra) => {
             if (page === "files") setPrFiles(true);

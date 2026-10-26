@@ -235,12 +235,23 @@ test("turn-started opens a run for a turn this window didn't start", (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: 100_000 });
   const state = { ...base(), messages: [{ id: 5, session_id: 2, body: "One more thing", context: null, role: "user" as const, model: "claude-opus-5-5" }] };
   const opened = applyAgentEvent(state, {}, PROJECT, key(2), { type: "turn-started", turnId: "t-2" });
-  assert.deepEqual(opened.runs[key(2)], { text: "", model: "claude-opus-5-5", startedAt: 100_000, approvals: [], steps: [], questions: [], answered: {} });
+  assert.deepEqual(opened.runs[key(2)], {
+    text: "",
+    model: "claude-opus-5-5",
+    startedAt: 100_000,
+    approvals: [],
+    steps: [],
+    questions: [],
+    answered: {},
+    turnId: "t-2",
+  });
   assert.equal(opened.changed, false);
 
   const running = startRun({}, key(2), "claude-sonnet-5-5");
   const kept = applyAgentEvent(state, running, PROJECT, key(2), { type: "turn-started", turnId: "t-2" });
-  assert.equal(kept.runs, running);
+  assert.equal(kept.runs[key(2)].model, running[key(2)].model);
+  assert.equal(kept.runs[key(2)].turnId, "t-2");
+  assert.equal(applyAgentEvent(state, kept.runs, PROJECT, key(2), { type: "turn-started", turnId: "t-2" }).runs, kept.runs);
 });
 
 test("approval requests wait on the run, oldest first, until they're resolved", () => {
@@ -855,4 +866,52 @@ test("the plan outlives the turn", () => {
   const ended = applyAgentEvent(owned.state, owned.runs, PROJECT, key(1), { type: "turn-completed" });
   assert.deepEqual(ended.state.sessions["1"].plan, plan);
   assert.equal(ended.runs[key(1)], undefined);
+});
+
+test("suggestions belong only to the last completed Claude turn and clear on every input boundary", () => {
+  const chat = key(2);
+  let state = base();
+  let runs: AgentRuns = {};
+  const fold = (event: AgentEvent) => {
+    const result = applyAgentEvent(state, runs, PROJECT, chat, event);
+    ({ state, runs } = result);
+    return result;
+  };
+  const suggestion: AgentEvent = { type: "prompt-suggestion", text: "Add tests", turnId: "turn-a" };
+  assert.equal(fold(suggestion).changed, false);
+  fold({ type: "message-sent", model: "claude-opus-5-5" });
+  fold({ type: "turn-started", turnId: "turn-a" });
+  assert.equal(fold(suggestion).changed, false, "a running turn never accepts one");
+  fold({ type: "text-delta", messageId: "turn-a", text: "Done" });
+  fold({ type: "message-sent", model: "claude-opus-5-5" });
+  assert.equal(runs[chat].split, true);
+  assert.equal(fold({ type: "turn-completed" }).changed, true, "the empty split completion saves eligibility");
+  assert.equal(state.sessions[2].suggestionTurnId, "turn-a");
+  assert.equal(fold({ ...suggestion, turnId: "older" }).changed, false);
+  const count = state.messages.length;
+  assert.equal(fold(suggestion).changed, true);
+  assert.deepEqual(state.sessions[2].suggestion, { text: "Add tests", turnId: "turn-a" });
+  assert.equal(state.messages.length, count, "a suggestion writes no transcript message");
+  assert.equal(state.sessions[2].unread, undefined);
+  const accepted = state;
+  for (const event of [
+    { type: "message-sent", model: "claude-opus-5-5" },
+    { type: "turn-started", turnId: "new" },
+    { type: "session-reset" },
+  ] as AgentEvent[]) {
+    state = structuredClone(accepted);
+    delete state.sessions[2].native_session_id;
+    runs = {};
+    assert.equal(fold(event).changed, true);
+    assert.equal(state.sessions[2].suggestion, undefined);
+    assert.equal(state.sessions[2].suggestionTurnId, undefined);
+    assert.equal(fold(suggestion).changed, false);
+  }
+  for (const terminal of [{ type: "turn-cancelled" }, { type: "turn-failed", message: "Oops" }] as AgentEvent[]) {
+    state = base();
+    runs = {};
+    fold({ type: "turn-started", turnId: "turn-a" });
+    fold(terminal);
+    assert.equal(fold(suggestion).changed, false);
+  }
 });

@@ -47,7 +47,7 @@ import { chatMentionChoices, shiftImageMentions } from "@milagre/shared/prompt-m
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
 import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, SubagentChip } from "../status-indicators";
 import { openPullRequest } from "../pr-nav";
-import { onPullRequestRequest, registerPrChat } from "../pr-chat";
+import { onPullRequestRequest, registerPrChat, type PrChoice } from "../pr-chat";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -408,7 +408,11 @@ export default function ChatScreen() {
   const prStatus = useChatPullRequests(session.client, prPath ? [{ path: prPath, refs: prRefs }] : []);
   const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, prStatus[prPath]?.branch) : [];
   // The header menu's PR is the one the row shows first.
-  const pr = rowPullRequests(chatPrs)[0] ?? null;
+  const rowPrs = rowPullRequests(chatPrs);
+  const pr = rowPrs[0] ?? null;
+  // Every PR the row shows, for the PR panel's menu; the list keeps one identity while it says the same.
+  const prChoicesJson = JSON.stringify(rowPrs.map(({ number, title, state }) => ({ number, title, state })));
+  const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
   const history = chatHistory(messages);
@@ -528,16 +532,24 @@ export default function ChatScreen() {
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
-    pullRequest: savedChatKey && pr && prPath ? { number: pr.number, chatKey: savedChatKey } : undefined,
+    pullRequest: savedChatKey && pr && prPath ? { number: pr.number, chatKey: savedChatKey, choices: prChoices } : undefined,
   });
   // The PR sheet and the iPad panel send to this Chat and fill its composer ("Fix in Chat", "Ask Chat"), and a Chat row's
   // PR link opens the PR here; they reach the latest send through these.
-  const prChat = useRef<{ send: (body: string) => Promise<boolean | "busy">; prefill: (text: string) => void; open: (number?: number) => void } | null>(null);
+  const prChat = useRef<{
+    send: (body: string) => Promise<boolean | "busy">;
+    prefill: (text: string) => void;
+    open: (number?: number) => void;
+    pullRequests: () => PrChoice[];
+    changes: () => void;
+  } | null>(null);
   useEffect(() => {
     if (!savedChatKey) return;
     const unregister = registerPrChat(savedChatKey, {
       send: (body) => prChat.current?.send(body) ?? Promise.resolve(false),
       prefill: (text) => prChat.current?.prefill(text),
+      pullRequests: () => prChat.current?.pullRequests() ?? [],
+      changes: () => prChat.current?.changes(),
     });
     const unsubscribe = onPullRequestRequest(savedChatKey, (number) => prChat.current?.open(number));
     return () => {
@@ -704,13 +716,15 @@ export default function ChatScreen() {
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
   function openPr(number = pr?.number) {
     if (!number || !params.id || !worktree || project.link) return;
-    if (widthClass(window.width) !== "compact") panels.showPullRequest();
+    if (widthClass(window.width) !== "compact") panels.showPullRequest(number);
     else openPullRequest({ worktreeId: String(worktreeId), number: String(number), chat: chatId });
   }
   prChat.current = {
     send: (body) => send(body, false),
     prefill: (text) => composer.setDrafts((current) => ({ ...current, [chatId]: text })),
     open: openPr,
+    pullRequests: () => prChoices,
+    changes: panels.showChanges,
   };
   const branches = branchList?.client === client && branchList.path === project.path ? branchList : null;
   // Until the branch list arrives a new Worktree starts from this checkout's branch, as on desktop, so a busy Mac
@@ -1979,6 +1993,18 @@ export default function ChatScreen() {
                         client={client}
                         projectPath={worktree?.path || (project.link ? "" : project.path)}
                         draft={draft}
+                        suggestion={
+                          !run &&
+                          !busy &&
+                          !picking &&
+                          !attachments.length &&
+                          activity?.activity === "idle" &&
+                          chat?.provider === "claude" &&
+                          actualProvider === "claude"
+                            ? chat.suggestion?.text
+                            : undefined
+                        }
+                        onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
                         images={attachments.filter((item) => item.image).length}
                         onImagePaste={(image) => void pasteImage(image)}
                         known={knownFiles.current}

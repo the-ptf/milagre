@@ -836,3 +836,20 @@ test("an agent on a reachable computer is told to bind servers to all interfaces
   assert.equal(hostNetworkInstructions(), "");
   assert.doesNotMatch(MILAGRE_INSTRUCTIONS, /Network: this Chat runs on/);
 });
+
+test("Claude: a suggestion consumes only the completed parent turn's eligibility", () => {
+  const state = { ...claudeState(), sessionId: "s", turnId: "new", suggestionTurnId: "completed" };
+  const suggestion = { type: "prompt_suggestion", session_id: "s", suggestion: "Add tests" };
+  for (const invalid of [
+    { ...suggestion, parent_tool_use_id: "child" },
+    { ...suggestion, session_id: "other" },
+    { ...suggestion, suggestion: " " },
+    { ...suggestion, suggestion: null },
+  ])
+    assert.deepEqual(mapClaudeMessage(invalid, state), []);
+  assert.deepEqual(mapClaudeMessage(suggestion, state), [{ type: "prompt-suggestion", text: "Add tests", turnId: "completed" }]);
+  assert.deepEqual(mapClaudeMessage(suggestion, state), [], "duplicates cannot restore a suggestion");
+  state.suggestionTurnId = "completed";
+  mapClaudeMessage({ type: "system", subtype: "init", session_id: "s" }, state);
+  assert.deepEqual(mapClaudeMessage(suggestion, state), [], "an implicit init invalidates the completed turn");
+});

@@ -1,5 +1,8 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { ClaudeSession } = require("./claude-provider.cjs");
 const {
   MILAGRE_INSTRUCTIONS,
@@ -265,6 +268,8 @@ function claude(
     designsEnabled,
     analysisOnly,
     executionAdvisor,
+    env = process.env,
+    defaultConfigDir = "/missing-claude-settings",
     command = "/usr/local/bin/claude",
     interruptGraceMs,
     permissionPolicy,
@@ -279,6 +284,8 @@ function claude(
     designsEnabled,
     analysisOnly,
     executionAdvisor,
+    env,
+    defaultConfigDir,
     command,
     emit: (event) => events.push(event),
     loadSdk: sdk.loadSdk,
@@ -1550,5 +1557,113 @@ test("the design SubagentStart hook and the gate hook coexist", async (t) => {
     (await hooks.PreToolUse[0].hooks[0]({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" } }, "t5"))
       .hookSpecificOutput.permissionDecision,
     "ask",
+  );
+});
+
+const suggested = { type: "prompt_suggestion", session_id: "session-1", suggestion: "Add tests" };
+async function* suggests() {
+  yield init;
+  yield delta("Hello");
+  yield success;
+  yield suggested;
+}
+
+async function* overlap({ next }) {
+  yield init;
+  yield success;
+  await next();
+  yield suggested;
+  yield init;
+  yield delta("Second reply");
+  yield success;
+  yield init;
+  yield suggested;
+}
+
+async function* steered({ next }) {
+  yield init;
+  await next();
+  yield success;
+  yield suggested;
+}
+
+async function* cancelled({ interrupted }) {
+  yield init;
+  await interrupted;
+  yield success;
+  yield suggested;
+}
+
+test("Claude receives a suggestion after completion without starting another turn", async (t) => {
+  const { session, events, calls } = claude(t, { script: suggests });
+  const { turnId } = await session.startTurn(TURN);
+  await waitUntil(() => events.some((event) => event.type === "prompt-suggestion"));
+  assert.equal(calls.options.promptSuggestions, true);
+  assert.deepEqual(events.at(-1), { type: "prompt-suggestion", text: "Add tests", turnId });
+  assert.equal(session.turnActive, false);
+  assert.equal(events.filter((event) => event.type === "turn-started").length, 1);
+});
+
+test("Claude ignores old suggestions during the next turn and after an implicit init", async (t) => {
+  const { session, events } = claude(t, { script: overlap });
+  await session.startTurn(TURN);
+  await ended(events);
+  await session.startTurn({ ...TURN, prompt: "Second" });
+  await ended(events, 2);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events.filter((event) => event.type === "prompt-suggestion").length, 0);
+  assert.equal(events.filter((event) => event.type === "turn-started").length, 2);
+  assert.equal(session.turnActive, false);
+});
+
+test("Claude disables suggestion requests for either advisor mode, env off and the computer default settings", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-suggestions-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, "settings.json");
+  for (const configuration of [
+    { analysisOnly: true },
+    { executionAdvisor: true },
+    { env: { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "false" } },
+    { defaultConfigDir: directory, env: { CLAUDE_CONFIG_DIR: "/extra-account" } },
+  ]) {
+    fs.writeFileSync(file, JSON.stringify({ promptSuggestionEnabled: false }));
+    const { session, events, calls } = claude(t, { ...configuration, script: suggests });
+    await session.startTurn(TURN);
+    await ended(events);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls.options.promptSuggestions, false);
+    assert.equal(
+      events.some((event) => event.type === "prompt-suggestion"),
+      false,
+    );
+  }
+  for (const settings of ["{", "{}", '{"promptSuggestionEnabled":true}']) {
+    fs.writeFileSync(file, settings);
+    const { session, events, calls } = claude(t, { defaultConfigDir: directory, script: suggests });
+    await session.startTurn(TURN);
+    await ended(events);
+    assert.equal(calls.options.promptSuggestions, true);
+  }
+});
+
+test("Claude suppresses suggestions after a steer or cancellation", async (t) => {
+  const first = claude(t, { script: steered });
+  await first.session.startTurn(TURN);
+  await first.session.steer(TURN);
+  await ended(first.events);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    first.events.some((event) => event.type === "prompt-suggestion"),
+    false,
+  );
+
+  const second = claude(t, { script: cancelled });
+  await second.session.startTurn(TURN);
+  await second.session.interrupt();
+  await ended(second.events);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    second.events.some((event) => event.type === "prompt-suggestion"),
+    false,
   );
 });

@@ -18,6 +18,8 @@ export type SentAnswer = PermissionDecision | "answered" | "dismissed";
 
 /** A turn streaming in a chat, keyed by chat key (see `chatKey`). */
 export interface AgentRun {
+  /** The provider turn whose completion can supply a follow-up suggestion. */
+  turnId?: string | null;
   text: string;
   model: string;
   /** The permission mode the turn started in; a Chat started for another Chat (MCP, Delegation) has no saved pick of its own. */

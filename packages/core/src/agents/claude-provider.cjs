@@ -2,6 +2,9 @@ const { spawnCommand } = require("./command.cjs");
 const { readMcpExtras } = require("../mcp/extras.cjs");
 const { settleSubagents } = require("./subagents.cjs");
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
 const {
@@ -42,6 +45,16 @@ const CONCISE_STYLE = "Concise";
 
 // Claude Code prints this when --resume names a session it no longer has.
 const MISSING_CONVERSATION = /No conversation found/i;
+
+// Read the computer default, even when this query uses an extra Account's config directory.
+function promptSuggestionsEnabled(directory, env) {
+  if (env.CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION === "false") return false;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8"))?.promptSuggestionEnabled !== false;
+  } catch {
+    return true;
+  }
+}
 
 // User messages for a running query: the SDK's streaming-input mode reads this until it ends.
 class Inbox {
@@ -117,6 +130,7 @@ class ClaudeSession {
     resumeId,
     command,
     env,
+    defaultConfigDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"),
     emit,
     workspaceRoots,
     readOnlyRoots,
@@ -141,6 +155,7 @@ class ClaudeSession {
       resumeId,
       command,
       env,
+      defaultConfigDir,
       emit,
       access,
       workspaceInstructions,
@@ -195,6 +210,7 @@ class ClaudeSession {
     }
     this.turnActive = true;
     this.implicitTurn = false;
+    this.steeredTurn = false;
     this.hookAsked.clear();
     // Whether this turn's init announced a session id (session-started); see readMessages.
     this.announcedId = false;
@@ -215,7 +231,7 @@ class ClaudeSession {
 
   async beginTurn({ prompt, images = [], model, permissionMode, effort, ultracode = false, fastMode = false, replies }) {
     const turnId = randomUUID();
-    Object.assign(this.state, { turnId, hasText: false });
+    Object.assign(this.state, { turnId, hasText: false, suggestionTurnId: null });
     this.permissions.setMode(permissionMode);
     try {
       if (!this.query) await this.start(model, this.analysisOnly ? "dontAsk" : (CLAUDE_MODES[permissionMode] ?? "default"), effort, ultracode, fastMode);
@@ -290,6 +306,7 @@ class ClaudeSession {
     // Claude Code holds a message until the question it waits on is settled. The message is the user's
     // reply, so the question is dismissed and the message reaches Claude right away.
     this.questions.dismissAll();
+    this.steeredTurn = true;
     if (request.permissionMode) await this.setPermissionMode(request.permissionMode);
     this.inbox.push(userMessage(request.prompt, request.images));
     return { turnId: this.state.turnId, steered: true };
@@ -321,6 +338,7 @@ class ClaudeSession {
     this.ultracode = ultracode;
     this.fastMode = fastMode;
     this.outputStyle = null;
+    this.promptSuggestions = !this.analysisOnly && !this.executionAdvisor && promptSuggestionsEnabled(this.defaultConfigDir, this.env ?? process.env);
     // Claude Code takes every owned root as its own directory; one made later reaches it through askPermission.
     this.access.learned();
     // Settings › MCP: Everywhere servers join the Chat's servers; off servers are switched off once Claude Code has started.
@@ -368,6 +386,7 @@ class ClaudeSession {
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
         forwardSubagentText: true,
+        promptSuggestions: this.promptSuggestions,
         pathToClaudeCodeExecutable: this.command,
         settingSources: ["user", "project", "local"],
         systemPrompt: {
@@ -522,6 +541,12 @@ class ClaudeSession {
   async readMessages(query) {
     try {
       for await (const message of query) {
+        // A suggestion is idle metadata, never the first event of an implicit turn.
+        if (message.type === "prompt_suggestion") {
+          if (this.promptSuggestions && !this.closed && !this.turnActive && !this.cancelRequested && !this.implicitTurn)
+            for (const event of mapClaudeMessage(message, this.state)) this.emit(event);
+          continue;
+        }
         // Claude Code opens every turn with init. One arriving while no turn runs is a turn Claude Code
         // started by itself, for a steering message that came in just as the last turn ended. It starts
         // with its first event, so a turn that only records a task notification never shows.
@@ -582,6 +607,7 @@ class ClaudeSession {
 
   finishTurn(event) {
     if (!this.turnActive) return;
+    this.state.suggestionTurnId = event.type === "turn-completed" && !this.steeredTurn ? this.state.turnId : null;
     this.turnActive = false;
     this.lastTurnId = this.state.turnId;
     const markEnded = this.markEnded;
