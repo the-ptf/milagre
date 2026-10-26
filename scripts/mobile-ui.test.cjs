@@ -214,7 +214,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
-      if (base === "split-context" && !(id in modules)) return { useSplit: () => phoneSplit, SplitProvider: ({ children }) => children };
+      if (base === "split-context" && !(id in modules))
+        return { useSplit: () => phoneSplit, useSplitLayout: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
       // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
       if (base === "split-chats" && !(id in modules))
@@ -13476,7 +13477,9 @@ test("the phone Chat header keeps its title on one line with an ellipsis, clear 
     const tree = chat.render();
     const screen = find(tree, (node) => node.type === "Screen");
     const element = screen.props.options.headerTitle();
-    const box = find(element, (node) => node.type === "View" && node.props.style?.maxWidth !== undefined);
+    // The box reads whether the sidebar is pinned itself, so the Chat doesn't render again as it shows or hides.
+    const titleBox = find(element, (node) => typeof node.type === "function" && "routineButton" in node.props);
+    const box = titleBox.type(titleBox.props);
     const text = find(element, (node) => node.type === "Text" && textOf(node) === title);
     assert.ok(text, "the title is in the header");
     assert.equal(text.props.numberOfLines, 1);
@@ -14038,7 +14041,8 @@ function splitShellHost() {
     replace: (href) => calls.push(["replace", href]),
     push: (href) => calls.push(["push", href]),
   };
-  const shell = hookHost();
+  // Effects on: the slide's end (withTiming's callback) is what wakes and sleeps the list.
+  const shell = hookHost({ effects: true });
   const sidebar = hookHost();
   const { SplitShell } = load("split-layout.tsx", {
     react: shell,
@@ -14057,8 +14061,12 @@ function splitShellHost() {
       ReduceMotion: { System: "system" },
       useSharedValue: (value) => ({ get: () => value, set() {} }),
       useAnimatedStyle: (style) => style(),
-      withTiming: (value) => value,
+      withTiming: (value, _config, done) => {
+        done?.(true);
+        return value;
+      },
     },
+    "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
     "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
     "./split-context": { useSplit: () => split, useCardTop: () => ({ top: 24, controls: 0, content: {} }) },
     "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
@@ -14085,7 +14093,10 @@ test("the pinned sidebar stays mounted, hidden, when the window narrows, so a Ch
   const narrowed = sidebarOf(render());
   assert.ok(narrowed, "still mounted, so its open request isn't dropped");
   assert.equal(narrowed.element.props.shown, false);
-  assert.equal(find(narrowed.tree, (node) => node.type === "ProjectNavigation").props.visible, false, "reads nothing while hidden");
+  const visible = (sidebar) => find(sidebar.tree, (node) => node.type === "ProjectNavigation").props.visible;
+  // It reads on until it has slid out, so the renders that follow never land on the slide's frames.
+  assert.equal(visible(narrowed), true);
+  assert.equal(visible(sidebarOf(render())), false, "reads nothing once it has slid out");
   // Leaving the computer (back to the Computers list) is what unmounts it.
   split.available = false;
   render();

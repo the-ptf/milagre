@@ -1,6 +1,6 @@
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
@@ -94,7 +94,7 @@ import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turn
 import LINEAR_MARK from "../../assets/linear-mark.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
-import { useSplit } from "../split-context";
+import { useSplit, useSplitLayout } from "../split-context";
 import { chatAreaWidth, READING_WIDTH } from "../split-width";
 import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
@@ -165,6 +165,33 @@ function headerTitleWidth(screenWidth: number, routineButton: boolean) {
   return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
 }
 
+/** The header title's box, as wide as the room the pinned sidebar leaves. */
+function HeaderTitleBox({ routineButton, children }: { routineButton: boolean; children: ReactNode }) {
+  const window = useWindowDimensions();
+  const { pinned } = useSplit();
+  return <View style={{ alignItems: "center", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), routineButton) }}>{children}</View>;
+}
+
+/** The native header's sidebar button: shows or hides the pinned sidebar, or slides the navigation over on a narrower window. */
+function SidebarToolbar({ onOpenNavigation }: { onOpenNavigation: (side: "left") => void }) {
+  const split = useSplit();
+  return (
+    <Stack.Toolbar placement="left">
+      <Stack.Toolbar.Button
+        icon="sidebar.left"
+        accessibilityLabel={split.dockable ? (split.pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation"}
+        onPress={() => (split.dockable ? split.toggle() : onOpenNavigation("left"))}
+      />
+    </Stack.Toolbar>
+  );
+}
+
+/** The sidebar button of a Chat with another beside it, which draws its own header. */
+function SidebarButton() {
+  const { pinned, toggle } = useSplit();
+  return <GlassIconButton label={pinned ? "Hide sidebar" : "Show sidebar"} systemImage="sidebar.left" icon={SidebarLeftIcon} onPress={toggle} />;
+}
+
 // `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
 type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
@@ -179,7 +206,7 @@ export default function ChatScreen() {
   const { colors } = useTheme();
   const params = useLocalSearchParams<ChatParams>();
   const session = useSession();
-  const split = useSplit();
+  const split = useSplitLayout();
   const beside = useBesideChat();
   const sessions = session.snapshot?.project.state.sessions;
   const state = besideState(beside, {
@@ -211,13 +238,14 @@ export default function ChatScreen() {
   const besideTouched = useCallback(() => touchPane("beside"), []);
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
-      <View style={{ flex: 1 }} onTouchStart={routedTouched}>
+      {/* Each pane clips its edge fades, which are as wide as the window so that the sidebar's slide never resizes them. */}
+      <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={routedTouched}>
         <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
       </View>
       {shown && (
         <>
           <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />
-          <View style={{ flex: 1 }} onTouchStart={besideTouched}>
+          <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={besideTouched}>
             {/* A Chat of another Project or computer reads its own Project's session; one of the open Project shares it. */}
             <BesideSession key={`${shown.hostId}|${shown.projectPath}`} chat={shown}>
               <ChatPane
@@ -272,8 +300,9 @@ function ChatPane({
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
-  const split = useSplit();
-  const area = chatAreaWidth(window.width, split.pinned);
+  // Only the pieces that read whether the sidebar is pinned (SidebarToolbar, SidebarButton, HeaderTitleBox) re-render as it
+  // shows or hides; the Chat itself doesn't.
+  const split = useSplitLayout();
   // On a wide iPad the transcript and composer keep to a centered reading column. It is a max width, not padding
   // worked out from the window, so the column slides without reflowing while the sidebar opens or closes.
   const column = { width: "100%", maxWidth: READING_WIDTH, alignSelf: "center" } as const;
@@ -740,15 +769,7 @@ function ChatPane({
   const startLineStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: ownsKeyboard ? Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 : 0 }],
   }));
-  const sidebar = (
-    <Stack.Toolbar placement="left">
-      <Stack.Toolbar.Button
-        icon="sidebar.left"
-        accessibilityLabel={split.dockable ? (split.pinned ? "Hide sidebar" : "Show sidebar") : "Open navigation"}
-        onPress={() => (split.dockable ? split.toggle() : panels.show("left"))}
-      />
-    </Stack.Toolbar>
-  );
+  const sidebar = <SidebarToolbar onOpenNavigation={panels.show} />;
   // A comment or a choice from the design sheet is sent from here when the Chat comes back into view. Sent while the
   // Chat is busy, it waits and goes once it no longer is; one that fails waits for the Chat's next focus.
   // A Chat started from an issue: the choice sheet outlives this render, so it calls the latest send through this ref.
@@ -1475,7 +1496,7 @@ function ChatPane({
   }
   const header = (
     <>
-      <View style={{ alignItems: "center", maxWidth: headerTitleWidth(area, !!ownRoutine) }}>
+      <HeaderTitleBox routineButton={!!ownRoutine}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
           <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
             {title}
@@ -1512,7 +1533,7 @@ function ChatPane({
             {project.link && pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
           </View>
         )}
-      </View>
+      </HeaderTitleBox>
     </>
   );
   const prSubtitle = pr
@@ -1655,9 +1676,7 @@ function ChatPane({
         paddingHorizontal: 12,
       }}
     >
-      {!secondary && (
-        <GlassIconButton label={split.pinned ? "Hide sidebar" : "Show sidebar"} systemImage="sidebar.left" icon={SidebarLeftIcon} onPress={split.toggle} />
-      )}
+      {!secondary && <SidebarButton />}
       <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center" }}>
         {startingChat ? null : header}
       </View>
@@ -1905,7 +1924,7 @@ function ChatPane({
             {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. */}
-            <EdgeFade edge="top" height={insets.top + 84} />
+            <EdgeFade edge="top" height={insets.top + 84} width={window.width} />
             {paneHeader}
             {startingChat && (
               <Animated.View
@@ -1982,7 +2001,7 @@ function ChatPane({
               style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
             >
               {/* The transcript blurs and fades under the composer like desktop's. */}
-              <BottomFade height={dockHeight + 48} />
+              <BottomFade height={dockHeight + 48} width={window.width} />
               <View
                 onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                 style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}

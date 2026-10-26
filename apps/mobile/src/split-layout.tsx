@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { router, usePathname, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 import { ProjectNavigation } from "./project-navigation";
 import { usePanelScreen } from "./side-panels";
 import { useCardTop, useSplit } from "./split-context";
@@ -51,8 +52,15 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
   const scale = useMotionScale();
   // Hiding, the slot narrows as the card slides out past the left edge, and the Chat widens into the room it leaves.
   const progress = useSharedValue(shown ? 1 : 0);
+  // The list wakes (reloads its Projects, reads every computer) once it has slid in, and sleeps once it has slid out:
+  // the renders that follow would otherwise land on the slide's frames and stutter it.
+  const [awake, setAwake] = useState(shown);
   useEffect(() => {
-    progress.set(withTiming(shown ? 1 : 0, scaledTiming(SLIDE, scale)));
+    progress.set(
+      withTiming(shown ? 1 : 0, scaledTiming(SLIDE, scale), (finished) => {
+        if (finished) scheduleOnRN(setAwake, shown);
+      }),
+    );
   }, [shown, progress, scale]);
   const slot = useAnimatedStyle(() => ({ width: progress.get() * SLOT }));
   const slide = useAnimatedStyle(() => ({ transform: [{ translateX: (progress.get() - 1) * SLOT }] }));
@@ -74,6 +82,10 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
     },
     [hostId, projectPath, chatId],
   );
+  // Made once per change of what it shows, so showing or hiding the sidebar doesn't render the list again on the slide's
+  // first frame.
+  const activeChatId = pathname === "/chat" ? chatId : undefined;
+  const list = useMemo(() => <ProjectNavigation docked visible={awake} activeChatId={activeChatId} onNavigate={navigate} />, [awake, activeChatId, navigate]);
   return (
     <Animated.View
       pointerEvents={shown ? "auto" : "none"}
@@ -94,9 +106,7 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
         ]}
       >
         {/* The card sits clear of the status bar already, so the list inside keeps only below a window's controls. */}
-        <SafeAreaInsetsContext.Provider value={top.content}>
-          <ProjectNavigation docked visible={shown} activeChatId={pathname === "/chat" ? chatId : undefined} onNavigate={navigate} />
-        </SafeAreaInsetsContext.Provider>
+        <SafeAreaInsetsContext.Provider value={top.content}>{list}</SafeAreaInsetsContext.Provider>
       </Animated.View>
     </Animated.View>
   );
