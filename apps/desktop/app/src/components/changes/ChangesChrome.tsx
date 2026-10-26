@@ -147,19 +147,24 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
       data-attention
       className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]"
       // Left of the buttons in the corner: `offset` is how many there are, 40px each (PanelToggles' CORNER_PITCH).
-      style={{ right: 12 + chrome.rightInset + offset * 40, animation: "fade-in 160ms ease-out" }}
+      style={{
+        right: 12 + chrome.rightInset + offset * 40,
+        maxWidth: `max(0px, calc(100vw - ${chrome.controlsEnd + 12 + chrome.rightInset + offset * 40}px))`,
+        animation: "fade-in 160ms ease-out",
+      }}
     >
       <button
         ref={trigger}
         type="button"
         data-attention-button
+        title={label}
         aria-haspopup={many ? "menu" : undefined}
         aria-expanded={many ? open : undefined}
         onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] font-medium text-orange transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
+        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-[13px] font-medium text-orange transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
       >
-        <span className="max-w-80 truncate">{label}</span>
-        <HugeiconsIcon icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />
+        <span className="min-w-0 max-w-80 truncate">{label}</span>
+        <HugeiconsIcon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />
       </button>
       {open && many && (
         <div

@@ -2,7 +2,7 @@ import { providerName } from "./providers.mjs";
 // System notifications for chats that wait on the user, built by the main process, which sees every
 // project's chats (see notifications.cjs). Types: attention.d.mts.
 import { chatTitle } from "./chats.mjs";
-import { chatInProject, projectOfKey } from "./agent-runs.mjs";
+import { projectOfKey } from "./agent-runs.mjs";
 import { activityBusy, chatActivity } from "./chat-activity.mjs";
 import { isLinkScopeKey } from "./chat-scopes.mjs";
 
@@ -67,25 +67,21 @@ export function attentionContext(state, projectName, sessionId) {
 
 const NO_HIDDEN = new Set();
 
-/** Chat keys outside `currentPath` whose turn waits on an approval or question, oldest key first. Link Chats and the
+/** Chat keys other than `currentChat` whose turn waits on an approval or question, oldest key first. Link Chats and the
  * Projects in `hidden` (hidden from the sidebar and the phone's list) are left out. */
-export function chatsNeedingAttention(runs, currentPath = "", hidden = NO_HIDDEN) {
+export function chatsNeedingAttention(runs, currentChat = "", hidden = NO_HIDDEN) {
   return Object.entries(runs ?? {})
     .filter(
       ([key, run]) =>
-        (run?.approvals?.length || run?.questions?.length) &&
-        !isLinkScopeKey(projectOfKey(key)) &&
-        !hidden.has(projectOfKey(key)) &&
-        !chatInProject(currentPath, key),
+        (run?.approvals?.length || run?.questions?.length) && !isLinkScopeKey(projectOfKey(key)) && !hidden.has(projectOfKey(key)) && key !== currentChat,
     )
     .map(([key]) => key);
 }
 
-/** The attention button's words for the projects waiting, by name: "shop needs attention", "shop and api need attention", "shop and 2 more need attention". */
-export function attentionLabel(names) {
-  if (names.length <= 1) return `${names[0] ?? "A project"} needs attention`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} need attention`;
-  return `${names[0]} and ${names.length - 1} more need attention`;
+/** Name the waiting Chat, or count Chats when the button opens a menu. */
+export function attentionLabel(titles) {
+  if (titles.length <= 1) return `${titles[0]?.trim() || "Chat"} needs attention`;
+  return `${titles.length} Chats need attention`;
 }
 
 /** What a waiting run asks for, in one line: the approval's command or title, or its first question. */
