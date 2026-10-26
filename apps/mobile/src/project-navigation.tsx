@@ -292,7 +292,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   const { reloadProjects, cachedProject } = session;
   const currentPath = session.snapshot?.project.path;
   const currentHostId = session.client?.url;
-  // A wide iPad can open another Chat of the open Project beside the open one.
+  // A wide iPad can open another Chat, of any Project on any computer that answers, beside the open one.
   const wide = useSplit().widthClass === "wide";
   const beside = useBesideChat();
   const [chatList] = useChatList();
@@ -1162,7 +1162,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
               </Pressable>
             );
           const title = item.title;
-          const besideRow = { hostId: item.hostId, projectPath: item.path, chatId: item.chat.id, archived: item.chat.archived };
+          const besideRow = { hostId: item.hostId, projectPath: item.path, chatId: item.chat.id, archived: item.chat.archived, offline };
           const offerBeside = canOpenBeside(besideRow, { wide, hostId: currentHostId, projectPath: currentPath, chatId: activeChatId }, beside);
           // The Chat open beside the open one is selected too.
           const isBeside =

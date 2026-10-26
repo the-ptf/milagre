@@ -10,7 +10,7 @@ import { pinPatch } from "./pins";
 /**
  * Desktop's ⋯ menu for a Chat, less what only makes sense at the Mac (Finder, editor, commit). `links` is the Link
  * section (chat-links.ts `linkMenuSection`), which goes after the pins when the Chat can be linked. `beside` leads with
- * "Open beside", which a wide iPad offers for another Chat of the open Project (split-chats.ts).
+ * "Open beside", which a wide iPad offers for another Chat on a computer that answers (split-chats.ts).
  */
 export function chatMenu(chat: AgentSession, worktree?: { path?: string; name?: string }, links?: MenuSection | null, beside = false): MenuSection[] {
   return [

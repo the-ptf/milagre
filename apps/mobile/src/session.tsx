@@ -548,10 +548,9 @@ type PendingChats = {
   setPendingChats: React.Dispatch<React.SetStateAction<Record<string, MobilePendingChat>>>;
 };
 const PendingChatsContext = createContext<PendingChats | null>(null);
-function PendingChatsProvider({ children, snapshot, hostId }: { children: React.ReactNode; snapshot: Snapshot | null; hostId?: string }) {
-  const [pendingChats, setPendingChats] = useState<Record<string, MobilePendingChat>>({});
-  // Retire acknowledged previews as the live snapshot catches up, before children render the new state.
-  const accepted = snapshot
+/** The previews of sends the computer took that `snapshot`, of `hostId`, now holds itself: they can go. */
+function caughtUp(pendingChats: Record<string, MobilePendingChat>, snapshot: Snapshot | null, hostId?: string) {
+  return snapshot
     ? Object.entries(pendingChats)
         .filter(
           ([, pending]) =>
@@ -563,9 +562,25 @@ function PendingChatsProvider({ children, snapshot, hostId }: { children: React.
         )
         .map(([key]) => key)
     : [];
-  if (accepted.length) setPendingChats((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !accepted.includes(key))));
+}
+const without = (keys: string[]) => (current: Record<string, MobilePendingChat>) =>
+  Object.fromEntries(Object.entries(current).filter(([key]) => !keys.includes(key)));
+function PendingChatsProvider({ children, snapshot, hostId }: { children: React.ReactNode; snapshot: Snapshot | null; hostId?: string }) {
+  const [pendingChats, setPendingChats] = useState<Record<string, MobilePendingChat>>({});
+  // Retire acknowledged previews as the live snapshot catches up, before children render the new state.
+  const accepted = caughtUp(pendingChats, snapshot, hostId);
+  if (accepted.length) setPendingChats(without(accepted));
   const value = useMemo(() => ({ pendingChats, setPendingChats }), [pendingChats]);
   return <PendingChatsContext.Provider value={value}>{children}</PendingChatsContext.Provider>;
+}
+/** Retires previews as another Project's snapshot catches up, as the provider does for the open one (the Chat beside it). */
+export function useRetireCaughtUp(snapshot: Snapshot | null, hostId?: string) {
+  const { pendingChats, setPendingChats } = usePendingChats();
+  const accepted = caughtUp(pendingChats, snapshot, hostId);
+  const key = accepted.join("\n");
+  useEffect(() => {
+    if (key) setPendingChats(without(key.split("\n")));
+  }, [key, setPendingChats]);
 }
 export function usePendingChats() {
   const pending = useContext(PendingChatsContext);
@@ -577,7 +592,10 @@ export function useComposer() {
   if (!composer) throw new Error("SessionProvider is required");
   return composer;
 }
-const SessionContext = createContext<ReturnType<typeof useSessionState> | null>(null);
+export type Session = ReturnType<typeof useSessionState>;
+const SessionContext = createContext<Session | null>(null);
+/** A Chat of another Project or computer than the open one (the Chat beside it) reads its own Project's session here. */
+const ScopedSessionContext = createContext<Session | null>(null);
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const session = useSessionState();
   return (
@@ -588,8 +606,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     </SessionContext.Provider>
   );
 }
+/** The connection and Project this screen works with: the open one, or the one a SessionScope above it names. */
 export function useSession() {
+  const scoped = useContext(ScopedSessionContext);
+  const session = useContext(SessionContext);
+  if (!session) throw new Error("SessionProvider is required");
+  return scoped ?? session;
+}
+/** The open computer and Project, whatever SessionScope is above. */
+export function useMainSession() {
   const session = useContext(SessionContext);
   if (!session) throw new Error("SessionProvider is required");
   return session;
+}
+/** Everything under it reads `session` from useSession instead of the open one; null leaves the open one. */
+export function SessionScope({ session, children }: { session: Session | null; children: React.ReactNode }) {
+  return <ScopedSessionContext.Provider value={session}>{children}</ScopedSessionContext.Provider>;
 }

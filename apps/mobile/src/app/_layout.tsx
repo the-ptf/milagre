@@ -18,6 +18,7 @@ import { setChoicePresenter } from "../choice-store";
 import { setLinkPresenter } from "../link-chat-store";
 import { SplitProvider } from "../split-context";
 import { HardwareShortcuts, SplitShell } from "../split-layout";
+import { paneScreenLayout } from "../beside-session";
 
 // Confirmations open as a bottom sheet over whatever is showing, the side panels included.
 setConfirmPresenter(() => router.push("/confirm-sheet"));
@@ -52,7 +53,8 @@ export default function Layout() {
                     <UpdateShell>
                       {/* On a wide iPad the Chats list is pinned beside the screen; narrower, it slides over it. */}
                       <SplitShell>
-                        <Stack screenOptions={stackScreenOptions(palette)}>
+                        {/* A sheet opened from the Chat beside reads that Chat's Project (beside-session.tsx). */}
+                        <Stack screenOptions={stackScreenOptions(palette)} screenLayout={paneScreenLayout}>
                           <Stack.Screen name="index" options={{ title: "Computers" }} />
                           {/* Settings: one sheet holding a Stack of its own (app/(settings)/_layout.tsx), so its pages open inside it. */}
                           <Stack.Screen name="(settings)" options={{ ...sheet, sheetAllowedDetents: [1] }} />
