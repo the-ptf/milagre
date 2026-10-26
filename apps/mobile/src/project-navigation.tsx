@@ -52,7 +52,7 @@ import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./n
 import { ProjectIcon, ProjectIcons } from "./project-icon";
 import { ProjectSearch } from "./project-search";
 import { chatMenu, runChatAction } from "./chat-actions";
-import { useSplit } from "./split-context";
+import { useSplitLayout } from "./split-context";
 import { canOpenBeside, openBeside, useBesideChat } from "./split-chats";
 import { confirm } from "./confirm-store";
 import { showChoiceSheet } from "./choice-store";
@@ -293,7 +293,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   const currentPath = session.snapshot?.project.path;
   const currentHostId = session.client?.url;
   // A wide iPad can open another Chat, of any Project on any computer that answers, beside the open one.
-  const wide = useSplit().widthClass === "wide";
+  const wide = useSplitLayout().widthClass === "wide";
   const beside = useBesideChat();
   const [chatList] = useChatList();
   const [query, setQuery] = useState("");

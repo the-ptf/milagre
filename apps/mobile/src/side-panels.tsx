@@ -3,7 +3,7 @@ import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDime
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
@@ -19,7 +19,7 @@ import type { DiffMode } from "@milagre/shared/git-diff";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
-import { useCardTop, useSplit } from "./split-context";
+import { useCardTop, useSplitLayout } from "./split-context";
 import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-width";
 
 type Side = "left" | "right";
@@ -361,7 +361,7 @@ export function useSidePanels({
   const { width } = useWindowDimensions();
   const travel = panelTravel(width);
   // Where the sidebar is pinned beside the Chat, a drag only reaches Changes.
-  const { dockable } = useSplit();
+  const { dockable } = useSplitLayout();
   const ours = panels.screen?.token === token;
   const scale = useMotionScale();
   const gesture = useMemo(
@@ -478,6 +478,23 @@ export function SidePanelsHost() {
   const left = useAnimatedStyle(() => ({ transform: [{ translateX: (Math.max(progress.get(), 0) - 1) * travel }] }));
   const right = useAnimatedStyle(() => ({ transform: [{ translateX: (1 + Math.min(progress.get(), 0)) * rightTravel }] }));
   const shade = useAnimatedStyle(() => ({ opacity: Math.abs(progress.get()) }));
+  // The navigation wakes (reloads its Projects, reads every computer) once it has slid all the way in, and sleeps once it
+  // has slid all the way out: the renders that follow would otherwise land on the slide's frames and stutter it.
+  const [leftAwake, setLeftAwake] = useState(false);
+  useAnimatedReaction(
+    () => (progress.get() >= 0.99 ? true : progress.get() <= 0.01 ? false : null),
+    (now, before) => {
+      if (now !== null && now !== before) scheduleOnRN(setLeftAwake, now);
+    },
+  );
+  // Made once per change of what it shows, so opening or closing the panel doesn't render the list again on the slide's
+  // first frame.
+  const activeChatId = screen?.chatId;
+  const closePanel = useCallback(() => show(null), [show]);
+  const navigation = useMemo(
+    () => <ProjectNavigation visible={leftAwake} activeChatId={activeChatId} surface={card} onClose={closePanel} onNavigate={navigate} />,
+    [leftAwake, activeChatId, card, closePanel, navigate],
+  );
   // Open, only a drag back toward the screen closes it.
   const close = useMemo(
     () =>
@@ -525,9 +542,7 @@ export function SidePanelsHost() {
           <SafeAreaInsetsContext.Provider value={card ? NO_INSETS : insets}>
             {mounted.left && (
               <Animated.View {...hidden("left")} style={[frame("left"), left]}>
-                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>
-                  <ProjectNavigation visible={open === "left"} activeChatId={screen.chatId} surface={card} onClose={() => show(null)} onNavigate={navigate} />
-                </SafeAreaInsetsContext.Provider>
+                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>{navigation}</SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
             {mounted.right && screen.worktreeId !== undefined && (
