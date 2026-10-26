@@ -32,6 +32,7 @@ import {
   checksOutcome,
   checksSummary,
   mergeStatus,
+  notInPrLabel,
   type MergeMethod,
   type MergeStatus,
   type PullRequestDetail,
@@ -47,7 +48,7 @@ import { prefillChat, sendToChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
 import { useRpc } from "./use-rpc";
 import type { PrPage } from "./pr-nav";
-import type { DiffFilesResult } from "@milagre/shared/git-diff";
+import type { DiffFilesResult, DiffMode } from "@milagre/shared/git-diff";
 import {
   MERGE_METHODS,
   ago,
@@ -101,7 +102,8 @@ function PrSwitcher({
   number: number;
   choices: PrChoice[];
   onPick?: (number: number) => void;
-  local: number;
+  /** What isn't in a PR yet ("2 files · 1 commit"); empty when nothing. */
+  local: string;
   onChanges?: () => void;
 }) {
   const { colors } = useTheme();
@@ -126,7 +128,7 @@ function PrSwitcher({
                   {
                     id: "changes",
                     title: "Local changes",
-                    subtitle: `${local} ${local === 1 ? "file" : "files"} not in a PR yet`,
+                    subtitle: `${local} not in a PR yet`,
                     systemImage: "doc.badge.plus",
                   },
                 ],
@@ -198,8 +200,8 @@ export type PrOverviewProps = {
   /** The Chat's PRs; with more than one, the number opens a menu to switch between them. */
   choices?: PrChoice[];
   onPick?: (number: number) => void;
-  /** Shows the Worktree's changes that aren't in the PR yet; without it there is no such row. */
-  onChanges?: () => void;
+  /** Shows the Worktree's changes that aren't in the PR yet, uncommitted ones first; without it there is no such row. */
+  onChanges?: (mode: DiffMode) => void;
 };
 
 /** The PR sheet's first page, and the iPad panel's PR mode: what the PR is, whether it can merge, and where to go next. */
@@ -220,7 +222,11 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
   const counted = local.data?.isRepo ? local.data.files.length : null;
   // A refresh reads the list again; the row keeps the last count meanwhile.
   if (counted !== null && counted !== localCount) setLocalCount(counted);
-  const switcher = <PrSwitcher number={number} choices={choices} onPick={onPick} local={onChanges && localCount ? localCount : 0} onChanges={onChanges} />;
+  // And the commits made here that the open PR's head doesn't have.
+  const commits = pr?.state === "OPEN" ? (pr.localCommits ?? 0) : 0;
+  const localText = onChanges ? notInPrLabel(localCount, commits) : "";
+  const openChanges = onChanges ? () => onChanges(localCount > 0 ? "uncommitted" : "committed") : undefined;
+  const switcher = <PrSwitcher number={number} choices={choices} onPick={onPick} local={localText} onChanges={openChanges} />;
   const close = onClose ? <RoundButton label="Close" icon={Cancel01Icon} onPress={onClose} /> : null;
 
   async function toChat(body: string) {
@@ -277,7 +283,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View collapsable={false} style={{ flex: 1 }}>
       <PageScroll
         refreshControl={
           <RefreshControl
@@ -422,16 +428,10 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
           )}
           <Separator />
           <GroupRow icon={FileDiffIcon} tone="ink2" title="Files" value={`${viewed.viewed} of ${viewed.total} viewed`} onPress={() => onOpen("files")} />
-          {onChanges && localCount > 0 && pr.state === "OPEN" && (
+          {openChanges && !!localText && pr.state === "OPEN" && (
             <>
               <Separator />
-              <GroupRow
-                icon={CloudUploadIcon}
-                tone="orange"
-                title="Not in the PR yet"
-                value={`${localCount} ${localCount === 1 ? "file" : "files"}`}
-                onPress={onChanges}
-              />
+              <GroupRow icon={CloudUploadIcon} tone="orange" title="Not in the PR yet" value={localText} onPress={openChanges} />
             </>
           )}
         </View>

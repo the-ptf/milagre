@@ -94,6 +94,22 @@ export function PullRequestMerge({ pr, onOpen }: { pr: PullRequest; onOpen: () =
   return <StatusPill label={`Merge #${pr.number}`} icon={GitMergeIcon} tone="green" tint={colors.greenTint} onPress={onOpen} />;
 }
 
+/** The PR's unresolved review threads: the pill opens them. */
+export function PullRequestReview({ count, onOpen }: { count: number; onOpen: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <StatusPill
+      label="Review"
+      count={count}
+      icon={BubbleChatIcon}
+      tone="orange"
+      tint={colors.orangeTint}
+      accessibilityLabel={`Review, ${count} open ${count === 1 ? "thread" : "threads"}`}
+      onPress={onOpen}
+    />
+  );
+}
+
 const PR_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
 /** The Chat header's PR: its state and number, under the title; a tap opens the PR. */

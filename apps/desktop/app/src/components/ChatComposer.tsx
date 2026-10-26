@@ -29,6 +29,7 @@ import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slot
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
+  Comment01Icon,
   Folder01Icon,
   GitBranchIcon,
   GitForkIcon,
@@ -721,6 +722,8 @@ interface ChatComposerProps {
   /** One-click fix for whatever blocks the chat's PR from merging (conflicts, an outdated branch, requested changes). */
   /** The PR's next step: a blocker the agent can fix (red, orange), or a ready PR to merge (green, opens its panel). */
   pullRequestAction?: { label: string; tone: "red" | "orange" | "green"; onRun: () => void };
+  /** The PR's unresolved review threads, beside the PR action: opens them in the PR panel. */
+  pullRequestReview?: { count: number; onOpen: () => void };
   isSending: boolean;
   /** Sending is briefly blocked while a message is being prepared; a running turn doesn't block it. */
   sendBlocked: boolean;
@@ -1049,6 +1052,7 @@ export function ChatComposer({
   onStop,
   onCompact,
   pullRequestAction,
+  pullRequestReview,
   isSending,
   sendBlocked,
   streamingText,
@@ -1127,6 +1131,7 @@ export function ChatComposer({
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
   const isNewChat = messages.length === 0 && !loading;
+  const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
   // bot's new Chat keeps the composer centred.
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
@@ -1404,7 +1409,7 @@ export function ChatComposer({
           <LayoutGroup>
             <AnimatePresence initial={false}>
               {!isNewChat && pullRequestAction && (
-                <PillSlot key="pr-action" slot="pr-action" className="mr-auto flex">
+                <PillSlot key="pr-action" slot="pr-action" className={reviewPill ? "flex" : "mr-auto flex"}>
                   <StatusPill
                     onClick={pullRequestAction.onRun}
                     disabled={sendBlocked || isSending || imageDraft.loading}
@@ -1413,6 +1418,11 @@ export function ChatComposer({
                     tone={pullRequestAction.tone}
                     className="font-medium"
                   />
+                </PillSlot>
+              )}
+              {reviewPill && (
+                <PillSlot key="pr-review" slot="pr-review" className="mr-auto flex">
+                  <StatusPill onClick={reviewPill.onOpen} icon={Comment01Icon} label={`Review ${reviewPill.count}`} tone="orange" className="font-medium" />
                 </PillSlot>
               )}
             </AnimatePresence>

@@ -84,6 +84,8 @@ export type PullRequestDetail = {
   comments: PullRequestComment[];
   /** The viewer's draft review: its id and how many comments it holds, null when there is none. */
   pendingReview: { id: string; count: number } | null;
+  /** Commits on the Chat's folder that an open PR doesn't have yet; absent when none (or from a Mac that predates it). */
+  localCommits?: number;
 };
 
 export type PullRequestDetailResult = { ok: true; pr: PullRequestDetail } | { ok: false; message: string };
@@ -192,3 +194,10 @@ export function mergeStatus(pr: PullRequestDetail): MergeStatus {
   if (pr.mergeStateStatus === "BLOCKED") return { tone: "blocked", title: "Blocked", detail: "A branch rule blocks merging" };
   return { tone: "pending", title: "Checking", detail: "GitHub is checking if it can merge" };
 }
+
+/** "2 files · 1 commit": the Worktree's work an open PR doesn't have yet; empty when there is none. */
+export function notInPrLabel(files: number, commits: number) {
+  return [countOf(files, "file"), countOf(commits, "commit")].filter(Boolean).join(" · ");
+}
+
+const countOf = (count: number, one: string) => (count > 0 ? `${count} ${one}${count === 1 ? "" : "s"}` : "");

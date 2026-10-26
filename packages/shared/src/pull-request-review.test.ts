@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checksSummary, mergeStatus, openThreads, type PullRequestDetail } from "./pull-request-review.ts";
+import { checksSummary, mergeStatus, notInPrLabel, openThreads, type PullRequestDetail } from "./pull-request-review.ts";
 
 const base: PullRequestDetail = {
   number: 7,
@@ -69,4 +69,11 @@ test("checksSummary and openThreads", () => {
     }).map((thread) => thread.id),
     ["1"],
   );
+});
+
+test("notInPrLabel names the files and commits an open PR doesn't have", () => {
+  assert.equal(notInPrLabel(2, 1), "2 files · 1 commit");
+  assert.equal(notInPrLabel(0, 3), "3 commits");
+  assert.equal(notInPrLabel(1, 0), "1 file");
+  assert.equal(notInPrLabel(0, 0), "");
 });

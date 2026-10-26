@@ -90,7 +90,7 @@ import type { PrDiffReview } from "./components/changes/DiffView";
 import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
 import { checksFixMessage, prRange, stopAskMessage, threadFixMessage } from "./lib/pull-request-view";
 import type { DiffSelection } from "./lib/diff-comments";
-import type { PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
+import { openThreads, type PullRequestThread, type ReviewEvent } from "@milagre/shared/pull-request-review";
 import { gitChatContext, type GitChatContext } from "./lib/git-dialog";
 import { useWorktreePullRequests } from "./components/useWorktreePullRequests";
 import { useLinear } from "./components/useLinear";
@@ -727,8 +727,16 @@ function App() {
   const [prWanted, setPrWanted] = useState(false);
   // A PR picked in the panel's menu (or opened from a row's PR chip), over the branch's own, while its Chat is open.
   const [prPick, setPrPick] = useState<{ chat: string; number: number } | null>(null);
-  const prNumber = prPick && prPick.chat === prChatKey ? prPick.number : branchPr?.number;
-  const prReview = usePullRequest({ cwd: selectedWorktree?.path, number: prNumber, active: prWanted, bridge: bridgeForKey(prChatKey) });
+  // The PR the Chat's row shows first (its latest open PR), as the phone opens on; set below, where the row's PRs are read.
+  const [rowPr, setRowPr] = useState<{ chat: string; number: number } | null>(null);
+  const prNumber = prPick && prPick.chat === prChatKey ? prPick.number : rowPr && rowPr.chat === prChatKey ? rowPr.number : branchPr?.number;
+  // Read while the panel shows it, and while its Chat is open so the composer's Review pill counts open threads.
+  const prReview = usePullRequest({
+    cwd: selectedWorktree?.path,
+    number: prNumber,
+    active: prWanted || (view === "chat" && Boolean(selectedSession && selectedWorktree && prNumber)),
+    bridge: bridgeForKey(prChatKey),
+  });
   const changes = useChanges({
     cwd: selectedWorktree?.path,
     base: selectedWorktree?.base,
@@ -1043,6 +1051,12 @@ function App() {
         )
       : [];
   const pullRequestBlockerAction = pullRequestAction(selectedPullRequests, dismissedBlockers);
+  const firstRowPr = rowPullRequests(selectedPullRequests)[0]?.number;
+  useEffect(() => {
+    if (prChatKey) setRowPr(firstRowPr ? { chat: prChatKey, number: firstRowPr } : null);
+  }, [prChatKey, firstRowPr]);
+  // Unresolved review threads on the Chat's open PR: the composer's Review pill.
+  const prOpenThreads = prReview.pr?.state === "OPEN" && prReview.pr.number === prNumber ? openThreads(prReview.pr).length : 0;
   // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
   const pullRequestActionRequest = pullRequestBlockerAction
     ? pullRequestActionContext({ action: pullRequestBlockerAction.blocker, pr: pullRequestBlockerAction.pr.number, url: pullRequestBlockerAction.pr.url })
@@ -3156,6 +3170,7 @@ function App() {
                                 { label: `Merge #${branchPr.number}`, tone: "green", onRun: changes.showPullRequest }
                               : undefined
                         }
+                        pullRequestReview={selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined}
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
@@ -3356,7 +3371,7 @@ function App() {
                             activePath={changes.activePath}
                             guideOpen={guideShowing}
                             guideStop={guideStop}
-                            local={{ count: localChanges.count, onOpen: () => changes.setMode("uncommitted") }}
+                            local={{ count: localChanges.count, onOpen: changes.setMode }}
                           />
                         ),
                       }

@@ -270,7 +270,17 @@ function createPullRequestReview({ exec = defaultExec, env = process.env, diff =
       files.push(...(next?.nodes ?? []).filter(Boolean).map(toFile));
       page = next?.pageInfo;
     }
-    return toDetail(pr, files);
+    const detail = toDetail(pr, files);
+    const commits = detail.state === "OPEN" ? await localCommits(cwd, detail.headRefOid) : 0;
+    return commits ? { ...detail, localCommits: commits } : detail;
+  }
+
+  /** Commits on the folder's HEAD that the PR's head doesn't have: made here and not pushed to it yet. */
+  async function localCommits(cwd, head) {
+    if (!/^[0-9a-f]{40}$/.test(head)) return 0;
+    const counted = await git.read.run(cwd, ["rev-list", "--count", `${head}..HEAD`]);
+    const count = counted.ok ? Number(counted.stdout.trim()) : 0;
+    return Number.isSafeInteger(count) && count > 0 ? count : 0;
   }
 
   async function ids(cwd, prNumber) {

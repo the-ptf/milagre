@@ -30,7 +30,7 @@ export default function Changes() {
   );
 }
 
-export function ChangesView(props: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
+export function ChangesView(props: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void; initialMode?: DiffMode }) {
   const session = useSession();
   return session.snapshot?.project.link ? (
     <LinkChangesView chatId={props.worktreeId} header={props.header} onOpen={props.onOpen} />
@@ -40,11 +40,22 @@ export function ChangesView(props: { worktreeId: number; header?: React.ReactNod
 }
 
 /** The Worktree's changed files as a folder tree with counts and status boxes; a file opens its diff, as a page unless `onOpen` shows it. */
-function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
+function ProjectChangesView({
+  worktreeId,
+  header,
+  onOpen,
+  initialMode = "uncommitted",
+}: {
+  worktreeId: number;
+  header?: React.ReactNode;
+  onOpen?: (target: DiffTarget) => void;
+  /** The mode it opens in: Committed when a PR's "Not in the PR yet" has only commits to show. */
+  initialMode?: DiffMode;
+}) {
   const styles = useStyles();
   const session = useSession();
   const worktree = session.snapshot?.project.state.worktrees[worktreeId];
-  const [mode, setMode] = useState<DiffMode>("uncommitted");
+  const [mode, setMode] = useState<DiffMode>(initialMode);
   const [refreshing, setRefreshing] = useState(false);
   const active = useScreenActive();
   const {
