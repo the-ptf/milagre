@@ -1,16 +1,17 @@
 import { View } from "react-native";
-import { Redirect, router } from "expo-router";
+import { router } from "expo-router";
 import { PrOverview } from "../../pr-overview";
 import { openPrPage, useCloseSheet, usePrRoute } from "../../pr-nav";
+import { PrPending } from "../../pr-pending";
 import { chatPullRequestChoices, showChatChanges } from "../../pr-chat";
 import { useStyles } from "../../ui";
 
 /** The PR sheet's first page: the PR the Chat's branch opened, and its other PRs in the number's menu. */
 export default function PullRequestSheet() {
   const styles = useStyles();
-  const { route, cwd, number, client, valid, provider } = usePrRoute();
+  const { route, cwd, number, client, valid, provider, waiting } = usePrRoute();
   const close = useCloseSheet();
-  if (!valid || !client || !cwd) return <Redirect href="/" />;
+  if (!valid || !client || !cwd) return <PrPending number={number} waiting={waiting} onClose={close} />;
   return (
     <View style={[styles.screen, { paddingTop: 16 }]}>
       <PrOverview
