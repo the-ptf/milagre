@@ -98,14 +98,18 @@ function readKeys(storage: Pick<Storage, "getItem">, name: string): string[] {
 }
 
 /** The Chats kept in the grid on this Mac, by key (`<project>#<id>`), whether or not they are active. */
-export const readGridPins = (storage: Pick<Storage, "getItem">) => readKeys(storage, PINS_KEY);
+export function readGridPins(storage: Pick<Storage, "getItem">) {
+  return readKeys(storage, PINS_KEY);
+}
 
 export function saveGridPins(storage: Pick<Storage, "setItem">, pins: readonly string[]) {
   storage.setItem(PINS_KEY, JSON.stringify(pins));
 }
 
 /** The Chats of the split view on this Mac, in order: the ones dragged beside the open Chat. */
-export const readSplitChats = (storage: Pick<Storage, "getItem">) => readKeys(storage, SPLIT_KEY);
+export function readSplitChats(storage: Pick<Storage, "getItem">) {
+  return readKeys(storage, SPLIT_KEY);
+}
 
 /** A new Chat's draft tile is left out: it has no Chat to come back to. */
 export function saveSplitChats(storage: Pick<Storage, "setItem">, keys: readonly string[]) {
