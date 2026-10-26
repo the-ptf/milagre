@@ -1012,6 +1012,64 @@ function scriptedAgent() {
   };
   return { sessions, runtimeOptions: { createSession, agentCli: Object.assign(async () => ({ command: "/scripted/codex" }), { invalidate() {} }) } };
 }
+
+test("desktop and phone preview exact external files shared in streaming and saved assistant replies", async (t) => {
+  const agent = scriptedAgent();
+  const { project, dataDir, rpc } = await fixture(t, { runtimeOptions: agent.runtimeOptions });
+  const file = path.join(path.dirname(project), "shared report.md");
+  const privateFile = path.join(path.dirname(project), "private.txt");
+  await fs.writeFile(file, "Shared report contents");
+  await fs.writeFile(privateFile, "Private contents");
+  const desktop = await connect({ dataDir });
+  t.after(() => desktop.close());
+  const opened = await desktop.call("project:open", [project]);
+  const sessionId = Number(Object.keys(opened.state.sessions)[0]);
+  const preview = async (target) => await (await rpc("attachment:preview", [target])).json();
+  assert.ok((await preview(file)).error, "an unshared external file is refused");
+  assert.equal((await rpc("chat:send", [{ projectPath: project, sessionId, body: "Share the report", provider: "codex", model: "test" }])).status, 200);
+  for (let i = 0; i < 100 && !agent.sessions.length; i++) await delay(10);
+  const session = agent.sessions[0];
+  assert.ok(session, "the scripted agent started");
+  session.emit({ type: "text-delta", text: "Read the [report](../shared%20report.md:12)." });
+  // A command behind the event observes the updated streaming reply.
+  let streamed;
+  for (let i = 0; i < 100; i++) {
+    streamed = await preview(file);
+    if (streamed.result) break;
+    await delay(10);
+  }
+  assert.equal(streamed.result?.text, "Shared report contents");
+  assert.equal((await desktop.call("attachment:preview", [file])).text, streamed.result.text);
+  const downloaded = [];
+  await require("@milagre/shared/attachment-download").downloadAttachment(
+    async (offset, version) => (await (await rpc("attachment:read", version === undefined ? [file, offset] : [file, offset, version])).json()).result,
+    (bytes) => {
+      downloaded.push(Buffer.from(bytes));
+    },
+  );
+  assert.equal(Buffer.concat(downloaded).toString(), "Shared report contents");
+  assert.equal((await desktop.call("attachment:read", [file, 0])).size, Buffer.byteLength("Shared report contents"));
+  assert.equal(
+    (await desktop.call("chat:all-messages", [project])).some((message) => message.role === "assistant"),
+    false,
+    "reply is still streaming",
+  );
+  assert.ok((await preview(privateFile)).error, "a neighboring file stays private");
+  assert.equal((await rpc("attachment:read", [privateFile, 0])).status, 409, "downloads enforce the same access check");
+  session.turnActive = false;
+  session.emit({ type: "turn-completed" });
+  let saved;
+  for (let i = 0; i < 100; i++) {
+    const messages = await desktop.call("chat:all-messages", [project]);
+    saved = messages.find((message) => message.role === "assistant");
+    if (saved) break;
+    await delay(10);
+  }
+  assert.ok(saved, "reply is saved before previewing it again");
+  assert.equal((await preview(file)).result.text, "Shared report contents");
+  assert.equal((await desktop.call("attachment:preview", [file])).text, "Shared report contents");
+});
+
 function openLive(bridge, projectPath, headers, options = {}) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`${bridge.url.replace(/^http/, "ws")}/live?projectPath=${encodeURIComponent(projectPath)}`, { headers, ...options });

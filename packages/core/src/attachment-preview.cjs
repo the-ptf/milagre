@@ -3,8 +3,8 @@ const { constants } = require("node:fs");
 const path = require("node:path");
 const LIMIT = 256 * 1024;
 
-/** Read a bounded text preview from an open Worktree or an explicitly saved attachment. */
-async function readAttachment(file, roots, attached = []) {
+/** Both previews and downloads use the same file authorization and regular-file checks. Caller closes the handle. */
+async function openAttachment(file, roots, attached = []) {
   if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("Choose an attached file or a file in an open Worktree.");
   const real = await fs.realpath(file);
   const canonicalRoots = await Promise.all(roots.map((root) => fs.realpath(root).catch(() => null)));
@@ -16,6 +16,17 @@ async function readAttachment(file, roots, attached = []) {
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error("Only a regular file can be previewed.");
+    return { handle, stat };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+/** Read a bounded text preview from an open Worktree or an explicitly shared attachment. */
+async function readAttachment(file, roots, attached = []) {
+  const { handle, stat } = await openAttachment(file, roots, attached);
+  try {
     const buffer = Buffer.alloc(Math.min(stat.size, LIMIT + 1));
     let count = 0;
     while (count < buffer.length) {
@@ -36,4 +47,4 @@ async function readAttachment(file, roots, attached = []) {
     await handle.close();
   }
 }
-module.exports = { readAttachment };
+module.exports = { readAttachment, openAttachment };

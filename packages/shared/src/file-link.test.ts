@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isMarkdownFile, localFileLink } from "./file-link.ts";
+import { isMarkdownFile, localFileLink } from "./file-link.mjs";
 
 test("absolute paths open in the viewer", () => {
   assert.deepEqual(localFileLink("/Users/me/repo/docs/spec.md"), { path: "/Users/me/repo/docs/spec.md" });
