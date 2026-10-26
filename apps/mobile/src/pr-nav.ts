@@ -4,7 +4,7 @@ import { projectOfKey } from "@milagre/shared/agent-runs";
 import { useSession } from "./session";
 
 /** What every PR page needs in its address: the Chat's Worktree, the PR number and the Chat to send to. */
-export type PrRoute = { worktreeId: string; number: string; chat?: string };
+export type PrRoute = { worktreeId: string; number: string; chat?: string; cwd?: string };
 
 export type PrPage = "checks" | "threads" | "files" | "review" | "guide" | "diff";
 
@@ -36,12 +36,21 @@ export function openPrFile(route: PrRoute, path: string) {
 export function usePrRoute() {
   const params = useLocalSearchParams<PrRoute & Record<string, string>>();
   const session = useSession();
-  const worktree = session.snapshot?.project.state.worktrees[Number(params.worktreeId)];
+  // A Link Chat's PR lives in one of its Projects' Worktrees, which the route names; only a member's own folder is taken.
+  const link = session.snapshot?.project.link;
+  const linkChat = link && params.chat ? link.state.sessions[params.chat.slice(params.chat.lastIndexOf("#") + 1)] : undefined;
+  const member = linkChat?.worktrees.find((entry) => entry.worktreePath === params.cwd);
+  const worktree = link ? (member ? { path: member.worktreePath } : undefined) : session.snapshot?.project.state.worktrees[Number(params.worktreeId)];
   const number = Number(params.number);
   // The Chat's own agent writes the review guide first, as it writes commit messages.
   const chatId = params.chat ? Number(params.chat.slice(params.chat.lastIndexOf("#") + 1)) : NaN;
   const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
-  const route: PrRoute = { worktreeId: String(params.worktreeId ?? ""), number: String(params.number ?? ""), ...(params.chat ? { chat: params.chat } : {}) };
+  const route: PrRoute = {
+    worktreeId: String(params.worktreeId ?? ""),
+    number: String(params.number ?? ""),
+    ...(params.chat ? { chat: params.chat } : {}),
+    ...(member ? { cwd: member.worktreePath } : {}),
+  };
   // The sheet can open before its Chat's Project is here (a row's PR link switches Project first) or while the phone
   // reconnects; it waits for them rather than giving up.
   const project = params.chat ? projectOfKey(params.chat) : undefined;

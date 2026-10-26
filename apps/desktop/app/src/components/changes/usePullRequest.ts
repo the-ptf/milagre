@@ -1,12 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PullRequestDetail, PullRequestWriteResult, ReviewGuideResult } from "@milagre/shared/pull-request-review";
 import type { MilagreBridge } from "../../electron";
+import type { PullRequest } from "@milagre/shared/model";
 import type { ModelProvider } from "../../model";
 import { pollWhileActive } from "../useWorktreePullRequests";
 
 export type PrState = { status: "idle" | "loading" } | { status: "error"; message: string } | { status: "ready"; pr: PullRequestDetail };
 
 type PrBridge = MilagreBridge["pr"];
+
+/**
+ * The PR each Worktree's branch opened (a Link Chat's members, one per Project), read while `active` and every 30 s
+ * while the window is focused. A Worktree without one maps to null.
+ */
+export function useBranchPullRequests({ paths, active, bridge }: { paths: string[]; active: boolean; bridge: MilagreBridge }) {
+  const [found, setFound] = useState<Record<string, PullRequest | null>>({});
+  const key = paths.join("\n");
+  const lastRead = useRef(0);
+  useEffect(() => {
+    if (!active || !key) return;
+    let current = true;
+    const read = () => {
+      lastRead.current = Date.now();
+      const list = key.split("\n");
+      void Promise.all(list.map((path) => bridge.readPullRequest(path).catch(() => null))).then((prs) => {
+        if (current) setFound(Object.fromEntries(list.map((path, index) => [path, prs[index] ?? null])));
+      });
+    };
+    read();
+    const stop = pollWhileActive(read, () => lastRead.current);
+    return () => {
+      current = false;
+      stop();
+    };
+  }, [active, key, bridge]);
+  return found;
+}
 
 /** How many uncommitted files the Worktree has (changes its PR doesn't have yet), read while `active`, as the PR is. */
 export function useLocalChanges({ cwd, active, bridge }: { cwd: string | undefined; active: boolean; bridge: MilagreBridge }) {

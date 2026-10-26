@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -34,6 +34,7 @@ export function LinkChangesPanel({
   onCommit,
   onOpenEditor,
   onReveal,
+  pullRequest,
 }: {
   members: WorktreeBinding[];
   projects: Array<{ id: string; path: string; name: string }>;
@@ -50,6 +51,16 @@ export function LinkChangesPanel({
   /** Left out for a Link on another Mac: these only act on this one. */
   onOpenEditor?: (member: WorktreeBinding) => void;
   onReveal?: (member: WorktreeBinding) => void;
+  /** The Projects' PRs, one menu entry each; while one is picked the panel shows it instead of the changes. */
+  pullRequest?: {
+    options: { value: string; label: string }[];
+    value?: string;
+    onPick: (value: string) => void;
+    shown: boolean;
+    totals?: { added: number; removed: number };
+    loading: boolean;
+    body: ReactNode;
+  };
 }) {
   const totals = members.reduce(
     (sum, member) => {
@@ -69,42 +80,53 @@ export function LinkChangesPanel({
       aria-label="Changes"
       className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
     >
-      <ChangesHeader mode={mode} onModeChange={onModeChange} onRefresh={onRefresh} loading={loading} totals={totals} />
-      <ScrollArea className="flex-1 py-1.5">
-        {members.map((member) => (
-          <ProjectChanges
-            key={member.projectId}
-            member={member}
-            name={projects.find((project) => project.id === member.projectId)?.name ?? member.projectId}
-            list={lists[member.projectId] ?? { state: "loading" }}
-            mode={mode}
-            onSelectFile={(path) => onSelectFile(member, path)}
-            activePath={selectedProjectId === member.projectId ? activePath : undefined}
-            commentCounts={selectedProjectId === member.projectId ? commentCounts : undefined}
-            onCommit={() => onCommit(member)}
-            onOpenEditor={onOpenEditor && (() => onOpenEditor(member))}
-            onReveal={onReveal && (() => onReveal(member))}
-          />
-        ))}
-        {projects
-          .filter((project) => !members.some((member) => member.projectId === project.id))
-          .map((project) => (
-            <section
-              key={project.id}
-              data-link-changes-pending={project.id}
-              aria-label={project.name}
-              className="mx-2 mt-1 flex min-w-0 items-start gap-1.5 py-1 pl-4"
-            >
-              <ProjectAvatarStack projects={[{ path: project.path, name: project.name }]} />
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-[12px] font-medium" title={project.name}>
-                  {project.name}
-                </span>
-                <span className="text-[10px] text-ink-3">{LINK_PENDING_WORKTREE_TEXT}</span>
-              </span>
-            </section>
+      <ChangesHeader
+        mode={pullRequest?.shown ? "pr" : mode}
+        onModeChange={(next) => next !== "pr" && onModeChange(next)}
+        onRefresh={onRefresh}
+        loading={pullRequest?.shown ? pullRequest.loading : loading}
+        totals={pullRequest?.shown ? pullRequest.totals : totals}
+        prEntries={pullRequest && pullRequest.options.length ? pullRequest : undefined}
+      />
+      {pullRequest?.shown ? (
+        pullRequest.body
+      ) : (
+        <ScrollArea className="flex-1 py-1.5">
+          {members.map((member) => (
+            <ProjectChanges
+              key={member.projectId}
+              member={member}
+              name={projects.find((project) => project.id === member.projectId)?.name ?? member.projectId}
+              list={lists[member.projectId] ?? { state: "loading" }}
+              mode={mode}
+              onSelectFile={(path) => onSelectFile(member, path)}
+              activePath={selectedProjectId === member.projectId ? activePath : undefined}
+              commentCounts={selectedProjectId === member.projectId ? commentCounts : undefined}
+              onCommit={() => onCommit(member)}
+              onOpenEditor={onOpenEditor && (() => onOpenEditor(member))}
+              onReveal={onReveal && (() => onReveal(member))}
+            />
           ))}
-      </ScrollArea>
+          {projects
+            .filter((project) => !members.some((member) => member.projectId === project.id))
+            .map((project) => (
+              <section
+                key={project.id}
+                data-link-changes-pending={project.id}
+                aria-label={project.name}
+                className="mx-2 mt-1 flex min-w-0 items-start gap-1.5 py-1 pl-4"
+              >
+                <ProjectAvatarStack projects={[{ path: project.path, name: project.name }]} />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-[12px] font-medium" title={project.name}>
+                    {project.name}
+                  </span>
+                  <span className="text-[10px] text-ink-3">{LINK_PENDING_WORKTREE_TEXT}</span>
+                </span>
+              </section>
+            ))}
+        </ScrollArea>
+      )}
     </aside>
   );
 }

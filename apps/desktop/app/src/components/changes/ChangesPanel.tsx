@@ -137,6 +137,7 @@ export function ChangesHeader<M extends ChangesMode>({
   prNumber,
   prChoices,
   onPickPr,
+  prEntries,
   children,
 }: {
   mode: M;
@@ -149,16 +150,20 @@ export function ChangesHeader<M extends ChangesMode>({
   /** Every PR the Chat opened, each its own entry, when there is more than one. */
   prChoices?: { number: number; state: "OPEN" | "MERGED" }[];
   onPickPr?: (number: number) => void;
+  /** PR entries named by the caller (a Link Chat's PRs, one per Project): which one is shown, and what picking one does. */
+  prEntries?: { options: { value: string; label: string }[]; value?: string; onPick: (value: string) => void };
   children?: ReactNode;
 }) {
   const several = prChoices && prChoices.length > 1 && onPickPr;
-  const prOptions = several
-    ? prChoices.map((choice) => ({ value: `pr:${choice.number}`, label: `PR #${choice.number}${choice.state === "MERGED" ? " · Merged" : ""}` }))
-    : prNumber
-      ? [{ value: "pr", label: `PR #${prNumber}` }]
-      : [];
+  const prOptions = prEntries
+    ? prEntries.options
+    : several
+      ? prChoices.map((choice) => ({ value: `pr:${choice.number}`, label: `PR #${choice.number}${choice.state === "MERGED" ? " · Merged" : ""}` }))
+      : prNumber
+        ? [{ value: "pr", label: `PR #${prNumber}` }]
+        : [];
   const options = [...MODES, ...prOptions];
-  const value = mode === "pr" && several ? `pr:${prNumber}` : mode;
+  const value = mode === "pr" && prEntries?.value ? prEntries.value : mode === "pr" && several ? `pr:${prNumber}` : mode;
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-b border-line px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -167,7 +172,8 @@ export function ChangesHeader<M extends ChangesMode>({
           value={value}
           options={options}
           onChange={(next: string) => {
-            if (next.startsWith("pr:")) {
+            if (prEntries?.options.some((option) => option.value === next)) prEntries.onPick(next);
+            else if (next.startsWith("pr:")) {
               onPickPr?.(Number(next.slice(3)));
               onModeChange("pr" as M);
             } else onModeChange(next as M);

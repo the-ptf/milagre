@@ -27,7 +27,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
-import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext } from "@milagre/shared/model";
+import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs, withPreview } from "@milagre/shared/chats";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -51,7 +51,7 @@ import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMe
 import { usePrDetail } from "../pr-store";
 import { openThreads } from "@milagre/shared/pull-request-review";
 import { openPrPage, openPullRequest } from "../pr-nav";
-import { onPullRequestRequest, registerPrChat, type PrChoice } from "../pr-chat";
+import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
 import type { DiffMode } from "@milagre/shared/git-diff";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
@@ -172,6 +172,9 @@ type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; host
  * The routed Chat, and on a wide iPad a second Chat beside it, of any Project on any computer, opened from a sidebar
  * row's "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
  */
+const NO_MEMBERS: WorktreeBinding[] = [];
+const NO_REFS: string[] = [];
+
 export default function ChatScreen() {
   const { colors } = useTheme();
   const params = useLocalSearchParams<ChatParams>();
@@ -503,16 +506,36 @@ function ChatPane({
   const openChat = params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined;
   const savedPrRefs = openChat ? (openChat.summary?.pullRequests ?? session.snapshot?.project.pullRequestRefs?.[openChat.id]) : undefined;
   const prRefs = useMemo(() => (openChat ? (savedPrRefs ?? pullRequestRefs(messages)) : []), [openChat, savedPrRefs, messages]);
-  const prStatus = useChatPullRequests(session.client, prPath ? [{ path: prPath, refs: prRefs }] : []);
+  // A Link Chat's PRs are the ones its Projects' Worktree branches opened, each read in that Worktree.
+  const linkView = session.snapshot?.project.link;
+  const linkMembers = (linkView && params.id ? linkView.state.sessions[params.id]?.worktrees : undefined) ?? NO_MEMBERS;
+  const prStatus = useChatPullRequests(
+    session.client,
+    prPath ? [{ path: prPath, refs: prRefs }] : linkMembers.map((member) => ({ path: member.worktreePath, refs: NO_REFS })),
+  );
   const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, prStatus[prPath]?.branch) : [];
+  const linkPrs = linkMembers.flatMap((member) => {
+    const branch = prStatus[member.worktreePath]?.branch;
+    return branch ? [{ pr: branch, cwd: member.worktreePath, project: linkView?.projects.find((entry) => entry.id === member.projectId)?.name }] : [];
+  });
   // The header menu's PR is the one the row shows first.
-  const rowPrs = rowPullRequests(chatPrs);
+  const rowPrs = rowPullRequests(prPath ? chatPrs : linkPrs.map((entry) => entry.pr));
   const pr = rowPrs[0] ?? null;
+  // Each Link PR is the object its member's lookup returned, so it finds its own Worktree even when two share a number.
+  const placeOf = (entry: (typeof rowPrs)[number]) => linkPrs.find((place) => place.pr === entry);
+  // The folder the PR is read in: the Chat's Worktree, or the Link Chat's Project it came from.
+  const prCwd = pr ? (prPath ?? placeOf(pr)?.cwd) : undefined;
   // Every PR the row shows, for the PR panel's menu; the list keeps one identity while it says the same.
-  const prChoicesJson = JSON.stringify(rowPrs.map(({ number, title, state }) => ({ number, title, state })));
+  const prChoicesJson = JSON.stringify(
+    rowPrs.map((entry) => {
+      const place = prPath ? undefined : placeOf(entry);
+      const { number, title, state } = entry;
+      return { number, title, state, ...(place ? { cwd: place.cwd, ...(place.project ? { project: place.project } : {}) } : {}) };
+    }),
+  );
   const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);
   // The open PR's detail, read every 30 s while it's open, for the Review pill's count of unresolved threads.
-  const prDetail = usePrDetail(session.client, prPath, pr?.number ?? Number.NaN, pr?.state === "OPEN");
+  const prDetail = usePrDetail(session.client, prCwd, pr?.number ?? Number.NaN, pr?.state === "OPEN");
   const prOpenThreads = pr && prDetail.pr?.state === "OPEN" && prDetail.pr.number === pr.number ? openThreads(prDetail.pr).length : 0;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
@@ -637,7 +660,7 @@ function ChatPane({
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
-    pullRequest: savedChatKey && pr && prPath ? { number: pr.number, chatKey: savedChatKey, choices: prChoices } : undefined,
+    pullRequest: savedChatKey && pr && prCwd ? { number: pr.number, chatKey: savedChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
     passive: secondary,
   });
   // The PR sheet and the iPad panel send to this Chat and fill its composer ("Fix in Chat", "Ask Chat"), and a Chat row's
@@ -855,11 +878,15 @@ function ChatPane({
   const worktree = project.state.worktrees[worktreeId];
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
   function openPr(number = pr?.number, page?: "threads") {
-    if (!number || !params.id || !worktree || project.link) return;
+    if (!number || !params.id || !worktree) return;
+    // A Link Chat's PR is read in the Project it came from.
+    const cwd = project.link ? prChoices.find((choice) => choice.number === number)?.cwd : undefined;
+    if (project.link && !cwd) return;
+    const route = { worktreeId: String(worktreeId), number: String(number), chat: chatId, ...(cwd ? { cwd } : {}) };
     // The right panel shows the routed Chat's PR; the Chat beside it opens the PR sheet.
-    if (widthClass(window.width) !== "compact" && !secondary) panels.showPullRequest(number);
-    else if (page) openPrPage(page, { worktreeId: String(worktreeId), number: String(number), chat: chatId });
-    else openPullRequest({ worktreeId: String(worktreeId), number: String(number), chat: chatId });
+    if (widthClass(window.width) !== "compact" && !secondary) panels.showPullRequest(prChoiceKey({ number, cwd }));
+    else if (page) openPrPage(page, route);
+    else openPullRequest(route);
   }
   prChat.current = {
     send: (body) => send(body, false),
@@ -1440,7 +1467,7 @@ function ChatPane({
             {title}
           </Text>
         </View>
-        {(paired || !project.link) && (
+        {(paired || !project.link || (!!pr && !!chat)) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
             {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
             {paired && (
@@ -1467,6 +1494,8 @@ function ChatPane({
                 {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
               </View>
             )}
+            {/* A Link Chat has no branch of its own; its first PR (from one of its Projects) still shows. */}
+            {project.link && pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
           </View>
         )}
       </View>

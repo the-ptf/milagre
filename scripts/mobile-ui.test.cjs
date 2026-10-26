@@ -2399,8 +2399,8 @@ function chatHost({
     showChanges() {
       this.show("right");
     },
-    showPullRequest() {
-      this.show("right:pr");
+    showPullRequest(key) {
+      this.show(key ? `right:pr:${key}` : "right:pr");
     },
   };
   const params = { worktreeId: "1" };
@@ -2587,7 +2587,15 @@ function chatHost({
     },
     "../use-chat-pull-requests": {
       useChatPullRequests: (_client, targets) =>
-        Object.fromEntries(targets.map(({ path }) => [path, { branch: globalThis.chatPullRequest, found: globalThis.chatNamedPullRequests ?? {} }])),
+        Object.fromEntries(
+          targets.map(({ path }) => [
+            path,
+            {
+              branch: globalThis.branchPullRequests ? globalThis.branchPullRequests[path] : globalThis.chatPullRequest,
+              found: globalThis.chatNamedPullRequests ?? {},
+            },
+          ]),
+        ),
     },
     "../questions": { Approval: "Approval", Questions: "Questions" },
     "../chat-reply": { ChatReply: "ChatReply" },
@@ -2854,6 +2862,50 @@ test("a mobile Link draft sends through its canonical owner and retries the same
     false,
   );
   assert.equal(chat.params.id, "42");
+});
+
+test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Worktree", () => {
+  const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
+  const member = (projectId) => ({ projectId, projectPath: `/${projectId}`, worktreePath: `/wt/${projectId}`, branch: `milagre/${projectId}`, base: "main" });
+  const pr = (number, state) => ({ number, title: `Change ${number}`, url: `https://github.com/o/${number}/pull/${number}`, state, readyToMerge: false });
+  globalThis.branchPullRequests = { "/wt/api": pr(12, "MERGED"), "/wt/web": pr(12, "OPEN") };
+  globalThis.openedPullRequests = [];
+  try {
+    const chat = chatHost({ effects: true });
+    const link = {
+      link: { id, name: "Food", projectIds: ["api", "web"] },
+      projects: [
+        { id: "api", path: "/api", name: "API" },
+        { id: "web", path: "/web", name: "Web" },
+      ],
+      state: {
+        next_id: 43,
+        sessions: { 42: { id: 42, provider: "codex", workspacePath: "/links/food/42", worktrees: [member("api"), member("web")] } },
+        messages: [],
+        preparations: {},
+      },
+    };
+    chat.session.snapshot = require("../apps/mobile/src/chat-scope.ts").phoneSnapshot({ link, runs: { runs: {} } });
+    chat.params.id = "42";
+    const tree = chat.render();
+    const key = `${chat.session.snapshot.project.path}#42`;
+    // Both Projects opened a #12: the open one comes first, and each is read in its own Worktree.
+    const choices = globalThis.prChat.chatPullRequestChoices(key);
+    assert.equal(
+      JSON.stringify(choices.map(({ number, state, cwd, project }) => [number, state, cwd, project])),
+      JSON.stringify([
+        [12, "OPEN", "/wt/web", "Web"],
+        [12, "MERGED", "/wt/api", "API"],
+      ]),
+    );
+    // The header's PR chip opens the open one, in the web Project's Worktree.
+    const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
+    assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
+  } finally {
+    delete globalThis.branchPullRequests;
+    delete globalThis.openedPullRequests;
+  }
 });
 
 test("browsing another Project in the drawer leaves the current Chat selected", async () => {
@@ -4782,10 +4834,10 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
     screen.params.id = "42";
     screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
     find(screen.render(), (node) => node.type === "PullRequestMerge").props.onOpen();
-    assert.deepEqual(screen.panels.shown, ["right:pr"]);
+    assert.deepEqual(screen.panels.shown, ["right:pr:#91"]);
     assert.equal(globalThis.openedPullRequests.length, 0);
     find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "View changes").props.onPress();
-    assert.deepEqual(screen.panels.shown, ["right:pr", "right"]);
+    assert.deepEqual(screen.panels.shown, ["right:pr:#91", "right"]);
   } finally {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;

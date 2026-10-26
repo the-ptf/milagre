@@ -3,6 +3,11 @@ import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
+import { useBranchPullRequests, useLocalChanges, usePullRequest, useReviewGuide } from "./changes/usePullRequest";
+import { usePrReviewActions } from "./changes/usePrReviewActions";
+import { PullRequestPanelBody } from "./changes/PullRequestPanel";
+import { ReviewGuideView } from "./changes/ReviewGuideView";
+import { prRange } from "../lib/pull-request-view";
 import { LinkChangesPanel } from "./changes/LinkChangesPanel";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
 import { ChangesPanelSlot } from "./changes/ChangesPanelSlot";
@@ -67,6 +72,8 @@ type Preferences = Pick<
   /** Shows a model in the picker without counting as a pick. */
   showModel: (model: ModelOption) => void;
 };
+const NO_MEMBERS: WorktreeBinding[] = [];
+
 export function LinkWorkspace({
   opened,
   state,
@@ -123,6 +130,7 @@ export function LinkWorkspace({
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
   const bridge = bridgeForKey(owner);
+  // oxlint-disable-next-line react/use-memo -- one store per Link, made when the Link changes
   const draftStore = useMemo(createDraftStore, [owner]);
   const saved = drafts.read(scope);
   const [sessionId, setSessionId] = useState<number | null>(
@@ -175,8 +183,31 @@ export function LinkWorkspace({
   const terminalChatId = canvasOpen || session?.archived ? null : chatId;
   useTerminalSync(terminalChatId);
   const chosen = session?.worktrees.find((member) => member.projectId === memberId);
-  const changes = useChanges({ cwd: chosen?.worktreePath, base: chosen?.base, chatId, available: Boolean(session) });
-  // A Link has no PR mode; its changes are the members' own.
+  // Each Project's Worktree branch can have its own PR: the panel's menu lists them, open ones first.
+  const members = session?.worktrees ?? NO_MEMBERS;
+  const branchPrs = useBranchPullRequests({ paths: members.map((member) => member.worktreePath), active: Boolean(session), bridge });
+  const memberPrs = members
+    .flatMap((member) => {
+      const pr = branchPrs[member.worktreePath];
+      return pr ? [{ member, pr, name: opened.projects.find((project) => project.id === member.projectId)?.name ?? member.projectId }] : [];
+    })
+    .sort((a, b) => Number(a.pr.state === "MERGED") - Number(b.pr.state === "MERGED"));
+  // The PR shown is the chosen Project's; the panel reads it only while it shows it.
+  const prEntry = memberPrs.find((entry) => entry.member.projectId === memberId);
+  const [prWanted, setPrWanted] = useState(false);
+  const prReview = usePullRequest({ cwd: prEntry?.member.worktreePath, number: prEntry?.pr.number, active: prWanted, bridge });
+  const changes = useChanges({
+    cwd: chosen?.worktreePath,
+    base: chosen?.base,
+    chatId,
+    available: Boolean(session),
+    pullRequest: prEntry ? { number: prEntry.pr.number, range: prRange(prReview.pr) } : undefined,
+  });
+  const prShown = changes.open && changes.mode === "pr" && Boolean(prEntry);
+  useEffect(() => setPrWanted(prShown), [prShown]);
+  const prGuide = useReviewGuide({ cwd: prEntry?.member.worktreePath, pr: prReview.pr, active: prShown, bridge });
+  const prLocal = useLocalChanges({ cwd: prEntry?.member.worktreePath, active: prShown, bridge });
+  // The members' lists keep their own modes; the PR mode shows the PR instead.
   const linkMode = changes.mode === "uncommitted" ? "uncommitted" : "committed";
   const groupChanges = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: linkMode, active: changes.open });
   const diffPrefs = useDiffPreferences();
@@ -256,6 +287,7 @@ export function LinkWorkspace({
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
+        // oxlint-disable-next-line react/immutability -- pick is a function declaration, called from the key handler later
         pick(null);
         document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
       }
@@ -402,8 +434,29 @@ export function LinkWorkspace({
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
-    await Promise.all([groupChanges.refresh(), ...(chosen ? [changes.refresh()] : [])]);
+    if (prShown) prLocal.refresh();
+    await Promise.all([groupChanges.refresh(), ...(chosen ? [changes.refresh()] : []), ...(prShown ? [prReview.refresh(), prGuide.refresh()] : [])]);
   }
+  const prActions = usePrReviewActions({
+    review: prReview,
+    guide: prGuide,
+    changes,
+    provider: session?.provider,
+    send: (text) => void send(text, true, false),
+    draft: (text) => {
+      draftStore.set([draftStore.get(), text].filter(Boolean).join("\n\n"));
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
+    },
+  });
+  const pickPr = (projectId: string) => {
+    setMemberId(projectId);
+    changes.setMode("pr");
+  };
+  /** The Changes button: the panel opens on the Link Chat's first PR when one of its Projects has one. */
+  const toggleChanges = () => {
+    if (!changes.open && memberPrs[0]) pickPr(memberPrs[0].member.projectId);
+    changes.toggle();
+  };
   async function sendComments() {
     const entries = comments.sendable;
     if (!entries.length) return;
@@ -533,13 +586,32 @@ export function LinkWorkspace({
                   )}
 
                   <DiffBar
-                    open={changes.diffOpen}
+                    open={changes.diffOpen || prActions.guideShowing}
                     onBack={changes.closeDiff}
-                    send={{ count: comments.sendable.length, onSend: () => void sendComments() }}
-                    trailing={<DiffToolbar changes={{ ...changes, refresh: refreshChanges }} prefs={diffPrefs} />}
+                    send={prActions.guideShowing ? undefined : { count: comments.sendable.length, onSend: () => void sendComments() }}
+                    trailing={prActions.guideShowing ? undefined : <DiffToolbar changes={{ ...changes, refresh: refreshChanges }} prefs={diffPrefs} />}
                   />
-                  {changes.diffOpen && <DiffView key={`${chatId}:${memberId}:${changes.mode}`} changes={changes} prefs={diffPrefs} comments={comments} />}
-                  <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen ? "hidden" : "flex"}`}>
+                  {changes.diffOpen && (
+                    <DiffView
+                      key={`${chatId}:${memberId}:${changes.mode}`}
+                      changes={changes}
+                      prefs={diffPrefs}
+                      comments={comments}
+                      review={prActions.diffReview}
+                    />
+                  )}
+                  {prActions.guideShowing && prReview.pr && prGuide.guide && (
+                    <ReviewGuideView
+                      key="guide"
+                      pr={prReview.pr}
+                      guide={prGuide.guide}
+                      stop={prActions.guideStop}
+                      onStop={prActions.openGuideStop}
+                      onOpenFile={changes.selectFile}
+                      onAsk={prActions.askAboutStop}
+                    />
+                  )}
+                  <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen || prActions.guideShowing ? "hidden" : "flex"}`}>
                     <EditorLinks root={root}>
                       <DraftChatComposer
                         saveNotice={saveNotice}
@@ -672,11 +744,37 @@ export function LinkWorkspace({
                   onCommit={(member) => setGitDialog({ sessionId: session.id, member: memberWorktreeForAction(state, session.id, member.projectId) })}
                   onOpenEditor={isRemoteKey(owner) ? undefined : (member) => void openInEditor(member.worktreePath)}
                   onReveal={isRemoteKey(owner) ? undefined : (member) => void window.milagre.revealInFolder(member.worktreePath)}
+                  pullRequest={
+                    memberPrs.length
+                      ? {
+                          options: memberPrs.map(({ member, pr, name }) => ({
+                            value: `pr:${member.projectId}`,
+                            label: `${name} · PR #${pr.number}${pr.state === "MERGED" ? " · Merged" : ""}`,
+                          })),
+                          value: prEntry ? `pr:${prEntry.member.projectId}` : undefined,
+                          onPick: (value) => pickPr(value.slice(3)),
+                          shown: prShown,
+                          totals: prReview.pr ? { added: prReview.pr.additions, removed: prReview.pr.deletions } : undefined,
+                          loading: prReview.state.status === "loading" || prReview.busy !== null,
+                          body: (
+                            <PullRequestPanelBody
+                              review={prReview}
+                              guide={prGuide}
+                              actions={prActions.actions}
+                              activePath={changes.activePath}
+                              guideOpen={prActions.guideShowing}
+                              guideStop={prActions.guideStop}
+                              local={{ count: prLocal.count, onOpen: changes.setMode }}
+                            />
+                          ),
+                        }
+                      : undefined
+                  }
                 />
               )}
             </ChangesPanelSlot>
           </div>
-          {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
+          {!canvasOpen && session && <ChangesToggle open={changes.open} onToggle={toggleChanges} />}
           <PanelToggles right={!canvasOpen && session ? 12 + CORNER_PITCH : 12} />
           {showAttentionButton && !floatingInbox && attentionChats[0] && (
             <AttentionButton
