@@ -956,35 +956,37 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 22, fontWeight: "700" }}>
             Chats
           </Text>
-          {/* Settings opens over the sidebar, which stays where it was under it. Routines is a page, so the sidebar closes first. */}
-          <View>
-            <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
-            <UpdateSettingsBadge />
-          </View>
-          {routinesAvailable && (
+          {/* One glass capsule holds all three, as iOS groups toolbar buttons. Settings opens over the sidebar, which stays where it was under it. Routines is a page, so the sidebar closes first. */}
+          <View style={s.headerGroup}>
+            <HeaderGlass />
             <View>
-              <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
-              {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
+              <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
+              <UpdateSettingsBadge />
             </View>
-          )}
-          <PullDown
-            label="More"
-            sections={[
-              {
-                items: [
-                  { id: "add", title: "Add project", systemImage: "folder.badge.plus" },
-                  { id: "link", title: "Link projects", systemImage: "link" },
-                  { id: "canvas", title: "Canvas", systemImage: "square.grid.2x2" },
-                ],
-              },
-            ]}
-            onSelect={menuChoice}
-          >
-            <View style={s.headerButton}>
-              <HeaderGlass />
-              <Icon icon={MoreHorizontalIcon} tone="ink" size={20} />
-            </View>
-          </PullDown>
+            {routinesAvailable && (
+              <View>
+                <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
+                {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
+              </View>
+            )}
+            <PullDown
+              label="More"
+              sections={[
+                {
+                  items: [
+                    { id: "add", title: "Add project", systemImage: "folder.badge.plus" },
+                    { id: "link", title: "Link projects", systemImage: "link" },
+                    { id: "canvas", title: "Canvas", systemImage: "square.grid.2x2" },
+                  ],
+                },
+              ]}
+              onSelect={menuChoice}
+            >
+              <View style={s.headerButton}>
+                <Icon icon={MoreHorizontalIcon} tone="ink" size={20} />
+              </View>
+            </PullDown>
+          </View>
         </View>
         {error || archives.notice ? <ErrorNotice message={error || archives.notice} /> : null}
       </View>
@@ -1478,7 +1480,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   );
 }
 
-/** A round button in the list's header. */
+/** A button in the list's header capsule; the capsule draws the glass behind them all. */
 function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
   const s = useS();
   const { colors } = useTheme();
@@ -1496,7 +1498,6 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
     >
       {({ pressed }) => (
         <>
-          <HeaderGlass />
           {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.hover }]} />}
           <Icon icon={icon} tone="ink" size={20} />
         </>
@@ -1505,7 +1506,7 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
   );
 }
 
-/** The Liquid Glass behind a header button, as the list's floating controls have. */
+/** The Liquid Glass behind the header capsule, as the list's floating controls have. */
 function HeaderGlass() {
   const { colors } = useTheme();
   return (
@@ -1564,6 +1565,7 @@ const makeS = (colors: Palette) =>
   StyleSheet.create({
     secondary: { color: colors.ink2, fontSize: 15 },
     detail: { color: colors.ink2, fontSize: 12 },
+    headerGroup: { flexDirection: "row", alignItems: "center", height: 40, paddingHorizontal: 2, borderRadius: 20, borderCurve: "continuous" },
     headerButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
     startEmpty: { alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 80 },
     startTitle: { color: colors.ink, fontSize: 17, fontWeight: "600", textAlign: "center", marginBottom: 14 },
