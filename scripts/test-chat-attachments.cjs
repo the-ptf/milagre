@@ -386,7 +386,7 @@ async function browserChecks() {
     await waitFor(String.raw`!document.querySelector("dialog")`);
     assert.equal(await evaluate("window.interrupted"), undefined, "Preview Escape never stops active agent");
     await type("@src/");
-    await waitFor(String.raw`document.querySelector("[aria-label=\"Project files\"]")?.textContent.includes("my app.ts")`);
+    await waitFor(String.raw`document.querySelector("[aria-label=\"Project files and Chats\"]")?.textContent.includes("my app.ts")`);
     await screenshot("file-mentions");
     await key("Enter");
     // A picked file is a chip in the draft (its mention, quoted for the space) and an attachment.
@@ -401,11 +401,11 @@ async function browserChecks() {
     assert.equal(await evaluate("window.calls.length"), 1, "Choosing a file does not send the message");
     assert.equal(await evaluate("window.searches.at(-1).root"), "/fixture");
     await type('@"src/my app.ts" @photo');
-    await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('photo.png')`);
+    await waitFor(String.raw`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('photo.png')`);
     await key("Enter");
     await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 2`);
     await type('@"src/my app.ts" @media/photo.png @clip');
-    await waitFor(String.raw`document.querySelector('[aria-label="Project files"]')?.textContent.includes('clip.mp4')`);
+    await waitFor(String.raw`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('clip.mp4')`);
     await key("Enter");
     await waitFor(`document.querySelectorAll("[data-prompt-editor] [data-chip=file]").length === 3`);
     assert.equal(await evaluate('document.querySelector("[data-prompt-editor]").value'), mentions, "Picked media are mentioned like any file");
