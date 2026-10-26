@@ -899,41 +899,28 @@ function App() {
     () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
     [linkedWork, project, selectedSession],
   );
-  // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
+  // Other Chats that wait on an approval or question, except in Projects hidden from the sidebar. Joined, so a
   // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
-  const attentionKey = chatsNeedingAttention(agentRuns.runs, project?.path ?? "", hiddenProjects).join("\n");
+  const attentionKey = chatsNeedingAttention(
+    agentRuns.runs,
+    view === "chat" && project && selectedSession ? chatKey(project.path, selectedSession.id) : "",
+    hiddenProjects,
+  ).join("\n");
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
+  const { states: scopeStates } = useScopeStates(
+    true,
+    attentionPaths.filter((path) => path !== project?.path),
+  );
   const projectName = useCallback(
     (path: string) => recentProjects.find((recent) => recent.path === path)?.name ?? path.split("/").pop() ?? path,
     [recentProjects],
-  );
-  // Each waiting chat's project and title, for the attention menu. Titles change with state, not with each streamed batch.
-  const attentionTitles = useMemo(
-    () =>
-      attentionChats.map((key) => {
-        const path = projectOfKey(key);
-        const other = states[path];
-        const session = other?.sessions[sessionIdFromKey(key)];
-        return {
-          key,
-          project: projectName(path),
-          title: session
-            ? chatTitle(
-                session,
-                other.messages.filter((message) => message.session_id === session.id),
-              )
-            : undefined,
-        };
-      }),
-    [attentionChats, states, projectName],
   );
   const delegated = useStableSet(useMemo(() => delegatedChats(linkedWork, project?.path ?? ""), [linkedWork, project?.path]));
   // Every Project's state the window holds: the sidebar's reads of the ones not open, kept live, then this window's own on top.
   // The grid tiles its active Chats from them, and the Routines dot reads hidden Run Chats from them.
   const gridOn = layout === "grid" && view === "chat";
-  const { states: scopeStates } = useScopeStates(true, NO_KEYS);
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
   // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
@@ -1005,6 +992,28 @@ function App() {
   if (split !== splitKeys) setSplitKeys(split);
   const splitOn = splitShown && view === "chat";
   const shownTiles = splitOn ? liveSplit : gridOn && gridFocusKey ? gridTiles : NO_KEYS;
+  // Each waiting chat's project and title, for the attention menu. Titles change with state, not with each streamed batch.
+  const attentionTitles = useMemo(
+    () =>
+      attentionChats
+        .filter((key) => !shownTiles.includes(key))
+        .map((key) => {
+          const path = projectOfKey(key);
+          const other = path === project?.path ? state : (states[path] ?? scopeStates[path]);
+          const session = other?.sessions[sessionIdFromKey(key)];
+          return {
+            key,
+            project: projectName(path),
+            title: session
+              ? chatTitle(
+                  session,
+                  other.messages.filter((message) => message.session_id === session.id),
+                )
+              : undefined,
+          };
+        }),
+    [attentionChats, shownTiles, states, scopeStates, projectName, project?.path, state],
+  );
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
   const focusedChatKeyRef = useRef(focusedChatKey);
@@ -2961,9 +2970,9 @@ function App() {
           {view === "chat" && !botsShown && (
             <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
           )}
-          {showAttentionButton && !floatingInbox && !botsShown && attentionChats[0] && (
+          {showAttentionButton && !floatingInbox && !botsShown && attentionTitles[0] && (
             <AttentionButton
-              label={attentionLabel(attentionPaths.map(projectName))}
+              label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
               items={attentionTitles.map((item) => ({
                 ...item,
                 asking: !agentRuns.runs[item.key]?.approvals.length,

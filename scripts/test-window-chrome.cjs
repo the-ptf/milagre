@@ -51,7 +51,7 @@ function Fixture() {
     <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
     {!diff && !settings && <><ChangesToggle open={changes} onToggle={() => setChanges(v => !v)} />
     <PanelToggles right={52} />
-    <AttentionButton label="Review ready" items={[{ key: "1", project: "Layout", asking: false }]} offset={2} onOpen={() => window.attentionOpened = true} /></>}
+    <AttentionButton label="Review the notification toolbar layout and accessibility needs attention" items={[{ key: "1", project: "Layout", asking: false }]} offset={2} onOpen={() => window.attentionOpened = true} /></>}
     <div style={{ display: "flex", height: "100%", gap: 12 }}>
       <div data-sidebar-host className={"min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 " + (settings ? "hidden" : "flex")}>
         <SidebarNav fill workspaceName="Layout" recents={[{ id: "1", label: "Check window controls" }]} activeId="1" onOpenCanvas={() => {}} onOpenCommands={() => {}} />
@@ -151,6 +151,21 @@ async function browserChecks() {
           const safe = await evaluate("navigator.windowControlsOverlay.getTitlebarAreaRect().toJSON()");
           assert.ok(changes.right <= safe.x + safe.width, "Changes stays out of the native control area");
         }
+        win.setSize(640, 650);
+        await delay(200);
+        const attention = await bounds("[data-attention-button]");
+        assert.ok(attention.left >= (await evaluate("readChrome().controlsEnd")), "a long Chat title stays clear of the sidebar tools at narrow widths");
+        assert.ok(attention.right + 8 <= (await bounds("[data-panel-toggle=terminal]")).left, "attention reserves space for the panel icons");
+        assert.equal(
+          await evaluate(
+            `document.querySelector('[data-attention-button] span').scrollWidth > document.querySelector('[data-attention-button] span').clientWidth`,
+          ),
+          true,
+          "long Chat titles truncate to the available space",
+        );
+        await capture(integrated ? "integrated-narrow-attention" : "native-narrow-attention");
+        win.setSize(1100, 650);
+        await delay(200);
         await capture(integrated ? "integrated-expanded" : "native-expanded");
         await click("[data-sidebar-toggle] button");
         await waitFor('document.querySelector("aside").dataset.sidebarCollapsed === "true"');

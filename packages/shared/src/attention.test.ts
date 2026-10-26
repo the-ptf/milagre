@@ -69,19 +69,20 @@ test("the context names a chat's worktree, title and agent, or only its project 
   assert.deepEqual(attentionContext(state, "shop", 9), { projectName: "shop" });
 });
 
-test("other Projects' chats that wait on the user need attention; the open Project and Links don't", () => {
+test("waiting Chats need attention, including the same Project; the open Chat and Links do not", () => {
   const run = (approvals: number, questions: number) => ({
     approvals: Array.from({ length: approvals }, () => ({})),
     questions: Array.from({ length: questions }, () => ({})),
   });
   const runs = {
     "/a#1": run(1, 0),
+    "/a#6": run(0, 1),
     "/ab#2": run(0, 1),
     "/b#3": run(0, 0),
     "/c#4": run(1, 0),
     "milagre-link:12345678-1234-1234-1234-123456789abc#5": run(1, 0),
   } as never;
-  assert.deepEqual(chatsNeedingAttention(runs, "/a"), ["/ab#2", "/c#4"]);
+  assert.deepEqual(chatsNeedingAttention(runs, "/a#1"), ["/a#6", "/ab#2", "/c#4"]);
   assert.deepEqual(chatsNeedingAttention(undefined), []);
 });
 
@@ -90,10 +91,12 @@ test("a Project hidden from the sidebar never asks for attention", () => {
   assert.deepEqual(chatsNeedingAttention(runs, "", new Set(["/gym"])), ["/shop#1"]);
 });
 
-test("the attention button names one or two projects and counts the rest", () => {
-  assert.equal(attentionLabel(["shop"]), "shop needs attention");
-  assert.equal(attentionLabel(["shop", "api"]), "shop and api need attention");
-  assert.equal(attentionLabel(["shop", "api", "web", "docs"]), "shop and 3 more need attention");
+test("the attention button names one Chat and counts multiple Chats, even with duplicate titles", () => {
+  assert.equal(attentionLabel([]), "Chat needs attention");
+  assert.equal(attentionLabel([""]), "Chat needs attention");
+  assert.equal(attentionLabel(["Fix login"]), "Fix login needs attention");
+  assert.equal(attentionLabel(["Fix login", "Fix login"]), "2 Chats need attention");
+  assert.equal(attentionLabel(["Fix login", "Add API", "Update docs"]), "3 Chats need attention");
 });
 
 test("a waiting run reads as its command, its approval title, or its first question", () => {
