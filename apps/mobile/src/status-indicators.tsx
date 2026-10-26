@@ -1,8 +1,8 @@
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
-import { BubbleChatIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, CircleDotIcon, GitMergeIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { PullRequest, Subagent } from "@milagre/shared/model";
-import { BLOCKERS, pullRequestBlockers } from "@milagre/shared/pr-blockers";
+import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@milagre/shared/pr-blockers";
 import { chatMarkTone } from "@milagre/shared/chats";
 import { agentCounts, MARK_LABEL, type ChatMark } from "./indicators";
 import { Icon, SpinnerRing } from "./icons";
@@ -85,6 +85,32 @@ export function PullRequestAction({ pr, onRun, disabled }: { pr: PullRequest; on
       disabled={disabled}
       onPress={onRun}
     />
+  );
+}
+
+/** A PR ready to merge: the pill opens the PR sheet (the panel on an iPad), where the merge happens. */
+export function PullRequestMerge({ pr, onOpen }: { pr: PullRequest; onOpen: () => void }) {
+  const { colors } = useTheme();
+  return <StatusPill label={`Merge #${pr.number}`} icon={GitMergeIcon} tone="green" tint={colors.greenTint} onPress={onOpen} />;
+}
+
+const PR_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
+
+/** The Chat header's PR: its state and number, under the title; a tap opens the PR. */
+export function HeaderPullRequestChip({ pr, onPress }: { pr: PullRequest; onPress: () => void }) {
+  const { colors } = useTheme();
+  const { tone, icon, label } = pullRequestPresentation(pr);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 2, opacity: pressed ? 0.55 : 1 })}
+    >
+      <Icon icon={PR_ICONS[icon]} tone={tone} size={11} strokeWidth={2} />
+      <Text style={{ color: colors[tone], fontSize: 12, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+    </Pressable>
   );
 }
 

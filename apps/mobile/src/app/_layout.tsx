@@ -130,6 +130,9 @@ export default function Layout() {
                           <Stack.Screen name="changes" options={{ title: "Changes" }} />
                           <Stack.Screen name="file-preview" options={{ title: "File preview" }} />
                           <Stack.Screen name="diff" options={{ title: "Diff" }} />
+                          {/* The PR a Chat's branch opened: one sheet with a Stack of its own (app/(pr)/_layout.tsx), as Settings. */}
+                          <Stack.Screen name="(pr)" options={{ ...sheet, sheetAllowedDetents: [1] }} />
+                          <Stack.Screen name="pr-file" options={{ title: "" }} />
                         </Stack>
                       </SplitShell>
                       <SidePanelsHost />

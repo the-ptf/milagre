@@ -45,7 +45,10 @@ import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-re
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { shiftImageMentions } from "@milagre/shared/prompt-mentions";
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
-import { BackgroundRing, PullRequestAction, SubagentChip } from "../status-indicators";
+import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, SubagentChip } from "../status-indicators";
+import { openPullRequest } from "../pr-nav";
+import { onPullRequestRequest, registerPrChat } from "../pr-chat";
+import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
@@ -516,10 +519,28 @@ export default function ChatScreen() {
       if (canRemember) rememberChat(Number(params.id));
     }, [canRemember, params.id, rememberChat]),
   );
+  // A saved Chat's key, as its drafts and the PR sheet name it.
+  const savedChatKey = targetMatches && projectPath && params.id ? `${projectPath}#${params.id}` : undefined;
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
+    pullRequest: savedChatKey && pr && prPath ? { number: pr.number, chatKey: savedChatKey } : undefined,
   });
+  // The PR sheet and the iPad panel send to this Chat and fill its composer ("Fix in Chat", "Ask Chat"), and a Chat row's
+  // PR link opens the PR here; they reach the latest send through these.
+  const prChat = useRef<{ send: (body: string) => Promise<boolean | "busy">; prefill: (text: string) => void; open: (number?: number) => void } | null>(null);
+  useEffect(() => {
+    if (!savedChatKey) return;
+    const unregister = registerPrChat(savedChatKey, {
+      send: (body) => prChat.current?.send(body) ?? Promise.resolve(false),
+      prefill: (text) => prChat.current?.prefill(text),
+    });
+    const unsubscribe = onPullRequestRequest(savedChatKey, (number) => prChat.current?.open(number));
+    return () => {
+      unregister();
+      unsubscribe();
+    };
+  }, [savedChatKey]);
   useReadOpenChat(connected, projectPath, targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined, !!panels.open);
   // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
   const { wanted, error: openError, retry: retryOpen } = useOpenProject(params);
@@ -676,6 +697,17 @@ export default function ChatScreen() {
   const ultracodeOn = model.ultracode && !!preferences.ultracode;
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
+  /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
+  function openPr(number = pr?.number) {
+    if (!number || !params.id || !worktree || project.link) return;
+    if (widthClass(window.width) !== "compact") panels.showPullRequest();
+    else openPullRequest({ worktreeId: String(worktreeId), number: String(number), chat: chatId });
+  }
+  prChat.current = {
+    send: (body) => send(body, false),
+    prefill: (text) => composer.setDrafts((current) => ({ ...current, [chatId]: text })),
+    open: openPr,
+  };
   const branches = branchList?.client === client && branchList.path === project.path ? branchList : null;
   // Until the branch list arrives a new Worktree starts from this checkout's branch, as on desktop, so a busy Mac
   // never holds the send.
@@ -1097,13 +1129,11 @@ export default function ChatScreen() {
     }
   }
   function headerAction(id: string) {
-    if (id === "changes") panels.show("right");
+    if (id === "changes") panels.showChanges();
     else if (id === "undo" && chat) {
       setUndoIntent("Undo");
       void undo.open();
-    }
-    // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- pr comes unvalidated from the host's JSON response, so pr.url may be missing and startsWith would throw
-    else if (id === "pr" && pr && /^https:\/\//.test(pr.url)) void Linking.openURL(pr.url).catch(() => {});
+    } else if (id === "pr" && pr) openPr(pr.number);
     else if (id === "agents" && chat) router.push({ pathname: "/agents", params: { id: String(chat.id) } });
     else if (id === "rename" && chat)
       Alert.prompt(
@@ -1250,6 +1280,7 @@ export default function ChatScreen() {
               {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
               <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
             </Text>
+            {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
           </View>
         )}
       </View>
@@ -1287,7 +1318,7 @@ export default function ChatScreen() {
         {pr && (
           <Stack.Toolbar.MenuAction
             icon="arrow.triangle.pull"
-            subtitle={blockers.length ? blockers.join(", ").replace(/-/g, " ") : pr.state === "MERGED" ? "Merged" : "Open on GitHub"}
+            subtitle={blockers.length ? blockers.join(", ").replace(/-/g, " ") : pr.state === "MERGED" ? "Merged" : pr.readyToMerge ? "Ready to merge" : "Open"}
             onPress={() => headerAction("pr")}
           >{`Pull request #${pr.number}`}</Stack.Toolbar.MenuAction>
         )}
@@ -1650,6 +1681,7 @@ export default function ChatScreen() {
                         onRun={() => void send(pullRequestActionBody(prActionRequest), false, prActionRequest)}
                       />
                     )}
+                    {!prAction && chat && pr?.state === "OPEN" && pr.readyToMerge && <PullRequestMerge pr={pr} onOpen={() => openPr(pr.number)} />}
                     <View style={{ flex: 1 }} />
                     <BrowserChip chatId={params.id ? chatId : undefined} />
                     {params.id && Number(params.id) > 0 && chat && !chat.archived && (

@@ -1701,6 +1701,160 @@
         }
       ]
     },
+    "pr:detail": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T101"
+          }
+        }
+      ]
+    },
+    "pr:diff-files": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T102"
+          }
+        }
+      ]
+    },
+    "pr:diff-file": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T103"
+          }
+        }
+      ]
+    },
+    "pr:comment": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T104"
+          }
+        }
+      ]
+    },
+    "pr:reply": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T105"
+          }
+        }
+      ]
+    },
+    "pr:delete-comment": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T106"
+          }
+        }
+      ]
+    },
+    "pr:submit-review": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T107"
+          }
+        }
+      ]
+    },
+    "pr:resolve-thread": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T108"
+          }
+        }
+      ]
+    },
+    "pr:file-viewed": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T109"
+          }
+        }
+      ]
+    },
+    "pr:merge": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T110"
+          }
+        }
+      ]
+    },
+    "pr:ready": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T111"
+          }
+        }
+      ]
+    },
+    "pr:guide": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T112"
+          }
+        }
+      ]
+    },
+    "pr:write-guide": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T113"
+          }
+        }
+      ]
+    },
+    "pr:guide-read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T114"
+          }
+        }
+      ]
+    },
     "editor:list": {
       "parameters": []
     },
@@ -1710,7 +1864,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T101"
+            "$ref": "#/$defs/T115"
           }
         }
       ]
@@ -1737,7 +1891,7 @@
             "takeNotice": true
           },
           "schema": {
-            "$ref": "#/$defs/T102"
+            "$ref": "#/$defs/T116"
           }
         }
       ]
@@ -1748,7 +1902,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T103"
+            "$ref": "#/$defs/T117"
           }
         }
       ]
@@ -1759,7 +1913,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T104"
+            "$ref": "#/$defs/T118"
           }
         }
       ]
@@ -1852,7 +2006,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T105"
+            "$ref": "#/$defs/T119"
           }
         }
       ]
@@ -1863,7 +2017,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T106"
+            "$ref": "#/$defs/T120"
           }
         }
       ]
@@ -1896,7 +2050,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T107"
+            "$ref": "#/$defs/T121"
           }
         }
       ]
@@ -1917,7 +2071,7 @@
           "name": "position",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T111"
+            "$ref": "#/$defs/T125"
           }
         }
       ]
@@ -1931,14 +2085,14 @@
           "name": "a",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T112"
+            "$ref": "#/$defs/T126"
           }
         },
         {
           "name": "b",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T112"
+            "$ref": "#/$defs/T126"
           }
         }
       ]
@@ -1960,7 +2114,7 @@
           "name": "link",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T113"
+            "$ref": "#/$defs/T127"
           }
         }
       ]
@@ -2006,7 +2160,7 @@
           "name": "position",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T114"
+            "$ref": "#/$defs/T128"
           }
         }
       ]
@@ -2081,7 +2235,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T115"
+            "$ref": "#/$defs/T129"
           }
         }
       ]
@@ -2092,7 +2246,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T116"
+            "$ref": "#/$defs/T130"
           }
         }
       ]
@@ -2103,7 +2257,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T117"
+            "$ref": "#/$defs/T131"
           }
         }
       ]
@@ -2114,7 +2268,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T119"
+            "$ref": "#/$defs/T133"
           }
         }
       ]
@@ -2236,7 +2390,7 @@
           "name": "patch",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T120"
+            "$ref": "#/$defs/T134"
           }
         }
       ]
@@ -2379,7 +2533,7 @@
           "name": "options",
           "optional": true,
           "schema": {
-            "$ref": "#/$defs/T121"
+            "$ref": "#/$defs/T135"
           }
         }
       ]
@@ -2404,7 +2558,7 @@
           "name": "options",
           "optional": true,
           "schema": {
-            "$ref": "#/$defs/T122"
+            "$ref": "#/$defs/T136"
           }
         }
       ]
@@ -2601,7 +2755,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T123"
+            "$ref": "#/$defs/T137"
           }
         }
       ]
@@ -2612,7 +2766,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T124"
+            "$ref": "#/$defs/T138"
           }
         }
       ]
@@ -2623,7 +2777,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T126"
+            "$ref": "#/$defs/T140"
           }
         }
       ]
@@ -2934,7 +3088,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/$defs/T127"
+                "$ref": "#/$defs/T141"
               }
             ]
           }
@@ -2958,7 +3112,7 @@
           "name": "state",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T128"
+            "$ref": "#/$defs/T142"
           }
         }
       ]
@@ -3126,7 +3280,7 @@
           "name": "notice",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T129"
+            "$ref": "#/$defs/T143"
           }
         }
       ]
@@ -3137,7 +3291,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T130"
+            "$ref": "#/$defs/T144"
           }
         }
       ]
@@ -3195,7 +3349,7 @@
           "name": "options",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T131"
+            "$ref": "#/$defs/T145"
           }
         }
       ]
@@ -3258,10 +3412,10 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/T132"
+                "$ref": "#/$defs/T146"
               },
               {
-                "$ref": "#/$defs/T133"
+                "$ref": "#/$defs/T147"
               }
             ]
           }
@@ -3281,7 +3435,7 @@
           "name": "entry",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T135"
+            "$ref": "#/$defs/T149"
           }
         }
       ]
@@ -5333,6 +5487,263 @@
     "T101": {
       "type": "object",
       "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        }
+      },
+      "required": ["cwd", "number"],
+      "additionalProperties": false
+    },
+    "T102": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "base", "head"],
+      "additionalProperties": false
+    },
+    "T103": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "oldPath": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "base", "head", "path"],
+      "additionalProperties": false
+    },
+    "T104": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "startLine": {
+          "type": "number"
+        },
+        "side": {
+          "enum": ["LEFT", "RIGHT"]
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "number", "path", "line", "body"],
+      "additionalProperties": false
+    },
+    "T105": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "number", "threadId", "body"],
+      "additionalProperties": false
+    },
+    "T106": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "commentId": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "commentId"],
+      "additionalProperties": false
+    },
+    "T107": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "event": {
+          "enum": ["COMMENT", "APPROVE", "REQUEST_CHANGES"]
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "number", "event", "body"],
+      "additionalProperties": false
+    },
+    "T108": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "resolved": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "threadId", "resolved"],
+      "additionalProperties": false
+    },
+    "T109": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "viewed": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "number", "path", "viewed"],
+      "additionalProperties": false
+    },
+    "T110": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "method": {
+          "enum": ["squash", "merge", "rebase"]
+        },
+        "auto": {
+          "enum": [false, true]
+        },
+        "admin": {
+          "enum": [false, true]
+        },
+        "disableAuto": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "number", "method"],
+      "additionalProperties": false
+    },
+    "T111": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "draft": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "number"],
+      "additionalProperties": false
+    },
+    "T112": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd", "url"],
+      "additionalProperties": false
+    },
+    "T113": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "number": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": ["codex", "claude", "antigravity"]
+        }
+      },
+      "required": ["cwd", "number", "url"],
+      "additionalProperties": false
+    },
+    "T114": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "stop": {
+          "type": "number"
+        },
+        "read": {
+          "enum": [false, true]
+        }
+      },
+      "required": ["cwd", "url", "stop", "read"],
+      "additionalProperties": false
+    },
+    "T115": {
+      "type": "object",
+      "properties": {
         "root": {
           "type": "string"
         },
@@ -5349,7 +5760,7 @@
       "required": ["root"],
       "additionalProperties": false
     },
-    "T102": {
+    "T116": {
       "type": "object",
       "properties": {
         "takeNotice": {
@@ -5359,7 +5770,7 @@
       "required": ["takeNotice"],
       "additionalProperties": false
     },
-    "T103": {
+    "T117": {
       "type": "object",
       "properties": {
         "path": {
@@ -5368,7 +5779,7 @@
       },
       "additionalProperties": false
     },
-    "T104": {
+    "T118": {
       "type": "object",
       "properties": {
         "scope": {
@@ -5381,7 +5792,7 @@
       "required": ["scope", "path"],
       "additionalProperties": false
     },
-    "T105": {
+    "T119": {
       "type": "object",
       "properties": {
         "name": {
@@ -5400,7 +5811,7 @@
       "required": ["name", "projectIds"],
       "additionalProperties": false
     },
-    "T106": {
+    "T120": {
       "type": "object",
       "properties": {
         "id": {
@@ -5422,7 +5833,7 @@
       "required": ["id", "name", "projectIds"],
       "additionalProperties": false
     },
-    "T107": {
+    "T121": {
       "type": "object",
       "properties": {
         "prompt": {
@@ -5459,7 +5870,7 @@
         "images": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/T108"
+            "$ref": "#/$defs/T122"
           }
         },
         "files": {
@@ -5488,11 +5899,11 @@
           "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
         },
         "prAction": {
-          "$ref": "#/$defs/T109",
+          "$ref": "#/$defs/T123",
           "description": "A PR-blocker pill's action. Milagre checks it and writes the body, prompt and context itself, ignoring the ones sent."
         },
         "linearIssue": {
-          "$ref": "#/$defs/T110",
+          "$ref": "#/$defs/T124",
           "description": "The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself."
         },
         "compact": {
@@ -5509,7 +5920,7 @@
       "required": ["prompt", "provider", "model", "permissionMode", "sessionId", "body", "images", "files", "linkId", "operationId"],
       "additionalProperties": false
     },
-    "T108": {
+    "T122": {
       "type": "object",
       "properties": {
         "path": {
@@ -5533,7 +5944,7 @@
       "required": ["id", "name"],
       "additionalProperties": false
     },
-    "T109": {
+    "T123": {
       "type": "object",
       "properties": {
         "action": {
@@ -5549,7 +5960,7 @@
       "required": ["action", "pr", "url"],
       "additionalProperties": false
     },
-    "T110": {
+    "T124": {
       "type": "object",
       "properties": {
         "key": {
@@ -5565,7 +5976,7 @@
       "required": ["key"],
       "additionalProperties": false
     },
-    "T111": {
+    "T125": {
       "type": "object",
       "properties": {
         "x": {
@@ -5578,7 +5989,7 @@
       "required": ["x", "y"],
       "additionalProperties": false
     },
-    "T112": {
+    "T126": {
       "type": "object",
       "properties": {
         "project_id": {
@@ -5591,17 +6002,17 @@
       "required": ["project_id"],
       "additionalProperties": false
     },
-    "T113": {
+    "T127": {
       "type": "object",
       "properties": {
         "id": {
           "type": "string"
         },
         "a": {
-          "$ref": "#/$defs/T112"
+          "$ref": "#/$defs/T126"
         },
         "b": {
-          "$ref": "#/$defs/T112"
+          "$ref": "#/$defs/T126"
         },
         "created_at": {
           "type": "string"
@@ -5610,7 +6021,7 @@
       "required": ["id", "a", "b", "created_at"],
       "additionalProperties": false
     },
-    "T114": {
+    "T128": {
       "type": "object",
       "properties": {
         "x": {
@@ -5623,7 +6034,7 @@
       "required": ["x", "y"],
       "additionalProperties": false
     },
-    "T115": {
+    "T129": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5633,7 +6044,7 @@
       "required": ["chatId"],
       "additionalProperties": false
     },
-    "T116": {
+    "T130": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5646,7 +6057,7 @@
       "required": ["chatId", "id"],
       "additionalProperties": false
     },
-    "T117": {
+    "T131": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5656,7 +6067,7 @@
           "type": "string"
         },
         "decisions": {
-          "$ref": "#/$defs/T118"
+          "$ref": "#/$defs/T132"
         },
         "approved": {
           "enum": [false, true]
@@ -5665,14 +6076,14 @@
       "required": ["chatId", "token", "decisions", "approved"],
       "additionalProperties": false
     },
-    "T118": {
+    "T132": {
       "type": "object",
       "properties": {},
       "additionalProperties": {
         "enum": ["keep", "restore"]
       }
     },
-    "T119": {
+    "T133": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -5702,7 +6113,7 @@
         "images": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/T108"
+            "$ref": "#/$defs/T122"
           }
         },
         "files": {
@@ -5744,11 +6155,11 @@
           "description": "Apply bundled TLDR writing rules to both providers. Defaults to true."
         },
         "prAction": {
-          "$ref": "#/$defs/T109",
+          "$ref": "#/$defs/T123",
           "description": "A PR-blocker pill's action. Milagre checks it and writes the body, prompt and context itself, ignoring the ones sent."
         },
         "linearIssue": {
-          "$ref": "#/$defs/T110",
+          "$ref": "#/$defs/T124",
           "description": "The first message of a Chat started from an issue. Milagre reads the issue and writes the body, prompt and context itself."
         },
         "compact": {
@@ -5759,7 +6170,7 @@
       "required": ["projectPath", "sessionId", "worktreeId", "body", "images", "files", "prompt", "provider", "model", "permissionMode"],
       "additionalProperties": false
     },
-    "T120": {
+    "T134": {
       "type": "object",
       "properties": {
         "title": {
@@ -5785,7 +6196,7 @@
       },
       "additionalProperties": false
     },
-    "T121": {
+    "T135": {
       "type": "object",
       "properties": {
         "before": {
@@ -5800,7 +6211,7 @@
       },
       "additionalProperties": false
     },
-    "T122": {
+    "T136": {
       "type": "object",
       "properties": {
         "limit": {
@@ -5809,7 +6220,7 @@
       },
       "additionalProperties": false
     },
-    "T123": {
+    "T137": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5825,7 +6236,7 @@
       "required": ["chatId", "requestId", "decision"],
       "additionalProperties": false
     },
-    "T124": {
+    "T138": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5840,7 +6251,7 @@
               "type": "null"
             },
             {
-              "$ref": "#/$defs/T125"
+              "$ref": "#/$defs/T139"
             }
           ]
         },
@@ -5851,7 +6262,7 @@
       "required": ["chatId", "requestId", "answers"],
       "additionalProperties": false
     },
-    "T125": {
+    "T139": {
       "type": "object",
       "properties": {},
       "additionalProperties": {
@@ -5861,7 +6272,7 @@
         }
       }
     },
-    "T126": {
+    "T140": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5874,7 +6285,7 @@
       "required": ["chatId", "mode"],
       "additionalProperties": false
     },
-    "T127": {
+    "T141": {
       "type": "object",
       "properties": {
         "days": {
@@ -5896,7 +6307,7 @@
       "required": ["days", "start", "end", "timeZone"],
       "additionalProperties": false
     },
-    "T128": {
+    "T142": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -5928,7 +6339,7 @@
       "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],
       "additionalProperties": false
     },
-    "T129": {
+    "T143": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -5941,7 +6352,7 @@
       "required": ["chatId", "title"],
       "additionalProperties": false
     },
-    "T130": {
+    "T144": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -5969,7 +6380,7 @@
       "required": ["projectPath"],
       "additionalProperties": false
     },
-    "T131": {
+    "T145": {
       "type": "object",
       "properties": {
         "name": {
@@ -5978,7 +6389,7 @@
       },
       "additionalProperties": false
     },
-    "T132": {
+    "T146": {
       "type": "object",
       "properties": {
         "kind": {
@@ -5992,7 +6403,7 @@
       "required": ["kind", "scope", "state"],
       "additionalProperties": false
     },
-    "T133": {
+    "T147": {
       "type": "object",
       "properties": {
         "kind": {
@@ -6005,13 +6416,13 @@
           "type": "number"
         },
         "window": {
-          "$ref": "#/$defs/T134"
+          "$ref": "#/$defs/T148"
         }
       },
       "required": ["kind", "scope", "chatId", "window"],
       "additionalProperties": false
     },
-    "T134": {
+    "T148": {
       "type": "object",
       "properties": {
         "messages": {
@@ -6028,7 +6439,7 @@
       "required": ["messages", "hasMore", "total"],
       "additionalProperties": false
     },
-    "T135": {
+    "T149": {
       "type": "object",
       "properties": {
         "kind": {

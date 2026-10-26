@@ -176,7 +176,9 @@ export function LinkWorkspace({
   useTerminalSync(terminalChatId);
   const chosen = session?.worktrees.find((member) => member.projectId === memberId);
   const changes = useChanges({ cwd: chosen?.worktreePath, base: chosen?.base, chatId, available: Boolean(session) });
-  const groupChanges = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: changes.mode, active: changes.open });
+  // A Link has no PR mode; its changes are the members' own.
+  const linkMode = changes.mode === "uncommitted" ? "uncommitted" : "committed";
+  const groupChanges = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: linkMode, active: changes.open });
   const diffPrefs = useDiffPreferences();
   const comments = useDiffComments(chosen && chatId ? `${chatId}:${chosen.projectId}` : null, changes);
   useEffect(() => {
@@ -406,7 +408,7 @@ export function LinkWorkspace({
     const entries = comments.sendable;
     if (!entries.length) return;
     changes.closeDiff();
-    const body = formatCommentsMessage(entries, { mode: changes.mode, base: chosen?.base });
+    const body = formatCommentsMessage(entries, { mode: linkMode, base: chosen?.base });
     if (await send(`Project ${chosen?.projectId}:\n${body}`, true)) comments.removeMany(entries.map((entry) => entry.id));
   }
   const root = session?.workspacePath ?? "";
@@ -656,7 +658,7 @@ export function LinkWorkspace({
                   projects={opened.projects}
                   lists={groupChanges.lists}
                   loading={groupChanges.loading}
-                  mode={changes.mode}
+                  mode={linkMode}
                   onModeChange={changes.setMode}
                   onRefresh={() => void refreshChanges()}
                   onSelectFile={(member, path) => {

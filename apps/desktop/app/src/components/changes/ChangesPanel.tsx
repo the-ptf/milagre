@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowRight01Icon, Comment01Icon, File01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import type { DiffFileEntry, DiffMode } from "../../electron";
+import type { ChangesMode } from "../../lib/pull-request-view";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import Tooltip from "../primitives/Tooltip";
 import { Select } from "../primitives/Select";
@@ -50,16 +51,39 @@ export function ChangesPanel({
   onSelectFile,
   activePath,
   commentCounts,
+  pullRequest,
 }: {
   list: DiffList;
-  mode: DiffMode;
-  onModeChange: (mode: DiffMode) => void;
+  mode: ChangesMode;
+  onModeChange: (mode: ChangesMode) => void;
   onRefresh: () => void;
   onSelectFile: (path: string) => void;
   activePath?: string;
   /** Diff comments per file path. */
   commentCounts?: Record<string, number>;
+  /** The PR the Chat's branch opened: its mode in the menu, and what the panel shows in that mode. */
+  pullRequest?: { number: number; totals?: { added: number; removed: number }; loading: boolean; body: ReactNode };
 }) {
+  if (mode === "pr" && pullRequest) {
+    return (
+      <aside
+        data-changes-panel
+        data-changes-mode="pr"
+        aria-label="Pull request"
+        className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
+      >
+        <ChangesHeader
+          mode={mode}
+          onModeChange={onModeChange}
+          onRefresh={onRefresh}
+          loading={pullRequest.loading}
+          totals={pullRequest.totals}
+          prNumber={pullRequest.number}
+        />
+        {pullRequest.body}
+      </aside>
+    );
+  }
   const files = list.state === "ready" && list.isRepo ? list.files : undefined;
   const added = files?.reduce((sum, file) => sum + file.added, 0) ?? 0;
   const removed = files?.reduce((sum, file) => sum + file.removed, 0) ?? 0;
@@ -77,6 +101,7 @@ export function ChangesPanel({
         onRefresh={onRefresh}
         loading={list.state === "loading"}
         totals={files?.length ? { added, removed } : undefined}
+        prNumber={pullRequest?.number}
       >
         {mode === "committed" && base && (
           <span data-diff-base className="truncate px-0.5 text-[11px] text-ink-3">
@@ -85,38 +110,42 @@ export function ChangesPanel({
         )}
       </ChangesHeader>
       <ScrollArea className="flex-1 py-1.5">
-        <ChangeList list={list} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+        <ChangeList list={list} mode={mode as DiffMode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
       </ScrollArea>
     </aside>
   );
 }
 
 /** Shared chrome for a Project's changes and a named Link's grouped changes. */
-export function ChangesHeader({
+export function ChangesHeader<M extends ChangesMode>({
   mode,
   onModeChange,
   onRefresh,
   loading,
   totals,
+  prNumber,
   children,
 }: {
-  mode: DiffMode;
-  onModeChange: (mode: DiffMode) => void;
+  mode: M;
+  onModeChange: (mode: M) => void;
   onRefresh: () => void;
   loading: boolean;
   totals?: { added: number; removed: number };
+  /** Offers the Chat's PR as a third mode. */
+  prNumber?: number;
   children?: ReactNode;
 }) {
+  const options = (prNumber ? [...MODES, { value: "pr" as const, label: `PR #${prNumber}` }] : MODES) as { value: M; label: string }[];
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-b border-line px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <Select label="Changes mode" value={mode} options={MODES} onChange={onModeChange} width={180} />
+        <Select label="Changes mode" value={mode} options={options} onChange={onModeChange} width={180} />
         <span className="flex-1" />
         {totals && <Counts total {...totals} className="text-[12px]" />}
-        <Tooltip label="Refresh changes" side="bottom" align="end">
+        <Tooltip label={mode === "pr" ? "Refresh the PR" : "Refresh changes"} side="bottom" align="end">
           <button
             type="button"
-            aria-label="Refresh changes"
+            aria-label={mode === "pr" ? "Refresh the PR" : "Refresh changes"}
             data-diff-refresh
             onClick={onRefresh}
             className="flex size-7 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"

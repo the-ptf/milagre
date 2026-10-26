@@ -60,6 +60,7 @@ import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
 import { useChatPullRequests } from "./use-chat-pull-requests";
 import { ChatPullRequestChips, InlinePullRequestLinks } from "./chat-pull-request-chips";
+import { requestPullRequest } from "./pr-chat";
 import { useLinear } from "./use-linear";
 import { useWorktreeLinearIssues } from "./use-worktree-linear-issues";
 import { createStylesHook, useTheme, type Palette } from "./theme";
@@ -1180,6 +1181,14 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           ) : null;
           const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
           const markColor = tone === "accent" ? colors.accentInk : colors[tone];
+          // A PR link opens the Chat and then its PR there, for a Chat of this computer with a Worktree of its own.
+          const openPullRequest =
+            item.hostId === currentHostId && !copy?.project.link && !item.pending
+              ? (pr: PullRequest) => {
+                  requestPullRequest(`${item.path}#${item.chat.id}`, pr.number);
+                  void enter(item.hostId, item.path, item.chat.id);
+                }
+              : undefined;
           const menu = chatMenu(
             item.chat,
             copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -1234,7 +1243,20 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
                 ),
               },
               ...(hasChips
-                ? [{ key: "links", links: true, node: <InlinePullRequestLinks pullRequests={pullRequests} linearIssue={linearIssue} separator={separator} /> }]
+                ? [
+                    {
+                      key: "links",
+                      links: true,
+                      node: (
+                        <InlinePullRequestLinks
+                          pullRequests={pullRequests}
+                          linearIssue={linearIssue}
+                          separator={separator}
+                          onOpenPullRequest={openPullRequest}
+                        />
+                      ),
+                    },
+                  ]
                 : []),
               ...(word
                 ? [
@@ -1390,7 +1412,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
                   </PullDown>
                   {hasChips && (
                     <View>
-                      <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue}>
+                      <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue} onOpenPullRequest={openPullRequest}>
                         {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                         {linkedIcon}
                         {facts}

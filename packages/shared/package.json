@@ -15,6 +15,7 @@
     "src/use-checkpoints.ts",
     "src/model.ts",
     "src/git-diff.ts",
+    "src/pull-request-review.ts",
     "src/model-options.ts",
     "src/model-copy.ts",
     "src/provider-logos.ts",
@@ -140,6 +141,7 @@
       "default": "./src/chat-scopes.mjs"
     },
     "./git-diff": "./src/git-diff.ts",
+    "./pull-request-review": "./src/pull-request-review.ts",
     "./refresh-loop": {
       "types": "./src/refresh-loop.d.mts",
       "default": "./src/refresh-loop.mjs"

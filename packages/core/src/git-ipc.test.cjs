@@ -48,7 +48,15 @@ function register(overrides = {}) {
 
 test("the dialog's channels reach the git actions", async () => {
   const { handlers, calls, invoke } = register();
-  assert.deepEqual([...handlers.keys()].sort(), ["git:changes", "git:commit", "git:diff-file", "git:diff-files", "git:generate", "git:open-pr", "git:push"]);
+  assert.deepEqual([...handlers.keys()].filter((channel) => channel.startsWith("git:")).sort(), [
+    "git:changes",
+    "git:commit",
+    "git:diff-file",
+    "git:diff-files",
+    "git:generate",
+    "git:open-pr",
+    "git:push",
+  ]);
   await invoke("git:changes", { cwd: "/repo/wt", base: "main" });
   await invoke("git:commit", { cwd: "/repo/wt", message: "fix: x" });
   await invoke("git:push", { cwd: "/repo/wt" });
@@ -115,4 +123,34 @@ test("the channels only act in a chat's known folder", async (t) => {
     await assert.rejects(async () => invoke(channel, { cwd: elsewhere, message: "x", title: "x", body: "" }), new RegExp(NOT_A_CHAT_FOLDER));
   }
   assert.equal(calls.length, 1);
+});
+
+test("the PR channels reach the review in the Chat's folder, and only there", async () => {
+  const seen = [];
+  const review = new Proxy({}, { get: (_target, name) => async (request) => (seen.push({ name, request }), { ok: true }) });
+  const { invoke } = register({ review, knownFolders: async () => [] });
+  await assert.rejects(invoke("pr:detail", { cwd: "/repo/wt", number: 1 }), new RegExp(NOT_A_CHAT_FOLDER.replace(/[.']/g, "\\$&")));
+  assert.deepEqual(seen, []);
+
+  const folder = await fs.mkdtemp(path.join(os.tmpdir(), "pr-ipc-"));
+  const allowed = register({ review, knownFolders: async () => [folder] });
+  await allowed.invoke("pr:detail", { cwd: folder, number: 7 });
+  await allowed.invoke("pr:merge", { cwd: folder, number: 7, method: "squash", auto: true });
+  await allowed.invoke("pr:file-viewed", { cwd: folder, number: 7, path: "a.ts", viewed: false });
+  assert.deepEqual(
+    seen.map(({ name, request }) => [name, request.cwd, request.number]),
+    [
+      ["detail", folder, 7],
+      ["merge", folder, 7],
+      ["viewed", folder, 7],
+    ],
+  );
+  assert.equal(seen[1].request.auto, true);
+  assert.equal(seen[2].request.viewed, false);
+  // Without a guides directory the guide channels answer instead of throwing.
+  assert.deepEqual(await allowed.invoke("pr:guide", { cwd: folder, url: "https://github.com/a/b/pull/7" }), {
+    ok: false,
+    message: "Review guides aren't available here.",
+  });
+  await fs.rm(folder, { recursive: true, force: true });
 });

@@ -11,15 +11,21 @@ import { useTheme } from "./theme";
 
 const icons = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
-/** Desktop's two PR chips and overflow menu, with tap targets separate from the Chat title. The Worktree's Linear issue comes first. */
+/**
+ * Desktop's two PR chips and overflow menu, with tap targets separate from the Chat title. The Worktree's Linear issue comes
+ * first. A PR chip opens the PR in its Chat when the row can (the PR sheet), else on GitHub.
+ */
 export function ChatPullRequestChips({
   pullRequests,
   linearIssue,
   children,
+  onOpenPullRequest,
 }: {
   pullRequests: PullRequest[];
   linearIssue?: LinearIssue;
   children?: ReactNode;
+  /** Opens the PR in its Chat (the PR sheet); without it a PR opens on GitHub. */
+  onOpenPullRequest?: (pr: PullRequest) => void;
 }) {
   const { colors } = useTheme();
   if (!pullRequests.length && !linearIssue) return null;
@@ -27,6 +33,7 @@ export function ChatPullRequestChips({
   const open = (url: string) => {
     if (url.startsWith("https://")) void Linking.openURL(url).catch(() => {});
   };
+  const openPr = (pr: PullRequest) => (onOpenPullRequest ? onOpenPullRequest(pr) : open(pr.url));
   return (
     <View style={{ flexDirection: "row", alignItems: "center", columnGap: 8, paddingLeft: 42, paddingRight: 4 }}>
       {linearIssue && (
@@ -51,12 +58,12 @@ export function ChatPullRequestChips({
         return (
           <Pressable
             key={pr.url}
-            accessibilityRole="link"
+            accessibilityRole={onOpenPullRequest ? "button" : "link"}
             accessibilityLabel={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
             accessibilityHint={pr.title}
             onPress={(event) => {
               event.stopPropagation();
-              open(pr.url);
+              openPr(pr);
             }}
             style={({ pressed }) => ({ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
           >
@@ -75,7 +82,10 @@ export function ChatPullRequestChips({
           label={`${ordered.length - 2} more pull requests`}
           title="Pull requests"
           sections={[{ items: ordered.map((pr) => ({ id: pr.url, title: `#${pr.number} · ${pr.title}` })) }]}
-          onSelect={open}
+          onSelect={(url) => {
+            const pr = ordered.find((entry) => entry.url === url);
+            if (pr) openPr(pr);
+          }}
         >
           <View style={{ minHeight: 24, justifyContent: "center" }}>
             <Text style={{ color: colors.ink2, fontSize: 12 }}>+{ordered.length - 2}</Text>
@@ -96,16 +106,19 @@ export function InlinePullRequestLinks({
   linearIssue,
   separator,
   fontSize = 14,
+  onOpenPullRequest,
 }: {
   pullRequests: PullRequest[];
   linearIssue?: LinearIssue;
   separator: ReactNode;
   fontSize?: number;
+  onOpenPullRequest?: (pr: PullRequest) => void;
 }) {
   const { colors } = useTheme();
   const open = (url: string) => {
     if (url.startsWith("https://")) void Linking.openURL(url).catch(() => {});
   };
+  const openPr = (pr: PullRequest) => (onOpenPullRequest ? onOpenPullRequest(pr) : open(pr.url));
   const ordered = rowPullRequests(pullRequests);
   const links: ReactNode[] = [];
   if (linearIssue)
@@ -131,13 +144,13 @@ export function InlinePullRequestLinks({
     links.push(
       <Pressable
         key={pr.url}
-        accessibilityRole="link"
+        accessibilityRole={onOpenPullRequest ? "button" : "link"}
         accessibilityLabel={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
         accessibilityHint={pr.title}
         hitSlop={8}
         onPress={(event) => {
           event.stopPropagation();
-          open(pr.url);
+          openPr(pr);
         }}
         style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, opacity: pressed ? 0.55 : 1 })}
       >

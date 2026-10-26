@@ -27,7 +27,16 @@ import { createPortal } from "react-dom";
 import { commitChatSwitch } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, Folder01Icon, GitBranchIcon, GitForkIcon, GitPullRequestIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  Folder01Icon,
+  GitBranchIcon,
+  GitForkIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
+  LaptopIcon,
+  Undo02Icon,
+} from "@hugeicons/core-free-icons";
 import { LinearLogo } from "./ProviderLogo";
 import { FirstChatStarters, type Starter } from "./Onboarding";
 import type { LinearIssue } from "@milagre/shared/linear";
@@ -707,7 +716,8 @@ interface ChatComposerProps {
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
   /** One-click fix for whatever blocks the chat's PR from merging (conflicts, an outdated branch, requested changes). */
-  pullRequestAction?: { label: string; tone: "red" | "orange"; onRun: () => void };
+  /** The PR's next step: a blocker the agent can fix (red, orange), or a ready PR to merge (green, opens its panel). */
+  pullRequestAction?: { label: string; tone: "red" | "orange" | "green"; onRun: () => void };
   isSending: boolean;
   /** Sending is briefly blocked while a message is being prepared; a running turn doesn't block it. */
   sendBlocked: boolean;
@@ -1389,9 +1399,9 @@ export function ChatComposer({
                   <StatusPill
                     onClick={pullRequestAction.onRun}
                     disabled={sendBlocked || isSending || imageDraft.loading}
-                    icon={GitPullRequestIcon}
+                    icon={pullRequestAction.tone === "green" ? GitMergeIcon : GitPullRequestIcon}
                     label={pullRequestAction.label}
-                    tone={pullRequestAction.tone === "orange" ? "orange" : "red"}
+                    tone={pullRequestAction.tone}
                     className="font-medium"
                   />
                 </PillSlot>

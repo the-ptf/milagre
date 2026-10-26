@@ -30,7 +30,13 @@ function createGitDiff(options = {}) {
    * The refs `git diff` compares for a mode, or null when there is nothing to compare: uncommitted work
    * is against HEAD (the empty tree before the first commit); committed work is merge-base..HEAD.
    */
-  async function refsFor(cwd, base, mode) {
+  async function refsFor(cwd, base, mode, range) {
+    // A PR's commits, as GitHub diffs them: merge-base(base, head)..head. The caller checked both are commit ids.
+    if (mode === "range") {
+      if (!/^[0-9a-f]{40}$/.test(range?.base ?? "") || !/^[0-9a-f]{40}$/.test(range?.head ?? "")) return { name: null, refs: null };
+      const mergeBase = await gitOut(cwd, ["merge-base", range.base, range.head]);
+      return { name: null, refs: mergeBase ? [mergeBase, range.head] : null };
+    }
     const hasHead = await refExists(cwd, "HEAD");
     if (mode !== "committed") return { name: null, refs: [hasHead ? "HEAD" : EMPTY_TREE] };
     const resolved = await chatBase(cwd, base);
@@ -88,9 +94,9 @@ function createGitDiff(options = {}) {
     return { path: file, status: "added", added: binary ? 0 : Number(added) || 0, removed: 0, binary, untracked: true };
   }
 
-  async function listDiffFiles({ cwd, base, mode } = {}) {
+  async function listDiffFiles({ cwd, base, mode, range } = {}) {
     if (!(await run(cwd, ["rev-parse", "--is-inside-work-tree"])).ok) return { isRepo: false, message: NOT_REPO };
-    const { name, refs } = await refsFor(cwd, base, mode);
+    const { name, refs } = await refsFor(cwd, base, mode, range);
     if (!refs) {
       // A base that resolves but meets HEAD nowhere is not the same as having no base.
       return name ? { isRepo: true, base: name, files: [], message: `This branch shares no history with ${name}.` } : { isRepo: true, base: null, files: [] };
@@ -101,7 +107,7 @@ function createGitDiff(options = {}) {
     ]);
     const counts = parseNumstat(numstat.stdout);
     const files = parseNameStatus(status.stdout).map((entry) => ({ ...entry, ...(counts.get(entry.path) ?? { added: 0, removed: 0, binary: false }) }));
-    if (mode !== "committed") {
+    if (mode !== "committed" && mode !== "range") {
       const listed = await run(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...PATHSPEC]);
       const untracked = listed.stdout
         .split("\0")
@@ -126,18 +132,18 @@ function createGitDiff(options = {}) {
     }
   }
 
-  async function readDiffFile({ cwd, base, mode, path: file, oldPath, untracked } = {}) {
+  async function readDiffFile({ cwd, base, mode, range, path: file, oldPath, untracked } = {}) {
     checkPath(file);
     if (oldPath !== undefined && oldPath !== null) checkPath(oldPath);
     let result;
-    if (untracked && mode !== "committed") {
+    if (untracked && mode !== "committed" && mode !== "range") {
       if (!(await isUntrackedInside(cwd, file))) return { patch: "", binary: false, tooLarge: false };
       result = await run(cwd, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-index", "-U3", "--", "/dev/null", file]);
       if (result.overflow) return { patch: "", binary: false, tooLarge: true };
       // Exit code 1 means "differs"; only a missing file or a crash is a failure.
       if (!result.ok && result.code !== 1) return { patch: "", binary: false, tooLarge: false };
     } else {
-      const { refs } = await refsFor(cwd, base, mode);
+      const { refs } = await refsFor(cwd, base, mode, range);
       if (!refs) return { patch: "", binary: false, tooLarge: false };
       const specs = [`:(literal)${file}`, ...(oldPath && oldPath !== file ? [`:(literal)${oldPath}`] : [])];
       result = await run(cwd, ["diff", "--no-color", "--no-ext-diff", "--no-textconv", "-M", "-U3", ...refs, "--", ...specs]);
