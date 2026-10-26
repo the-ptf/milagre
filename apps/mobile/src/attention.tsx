@@ -84,18 +84,34 @@ export function AttentionDot() {
 }
 
 /** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
-export function AttentionPill({ projectPath, bottom }: { projectPath: string; bottom?: number }) {
+export function AttentionPill({ currentChat, visibleChat, bottom }: { currentChat?: string; visibleChat?: string; bottom?: number }) {
   const { colors } = useTheme();
-  const { client, recent, cachedProject } = useSession();
+  const { client, recent, cachedProject, snapshot } = useSession();
   const insets = useSafeAreaInsets();
   const [enabled] = useAttentionButton();
   const [floatingInbox] = useFloatingInbox();
-  // Not the open Project's, nor a Project hidden from the list.
-  const waiting = useAttention().filter((key) => projectOfKey(key) !== projectPath && !recent.find((item) => item.path === projectOfKey(key))?.hidden);
+  // Skip the open Chat and Projects hidden from the list.
+  const waiting = useAttention().filter((key) => key !== currentChat && key !== visibleChat && !recent.find((item) => item.path === projectOfKey(key))?.hidden);
   if (floatingInbox && client) return <FloatingInboxChip bottom={bottom} />;
   if (!enabled || !waiting.length || !client) return null;
   const name = (path: string) => recent.find((item) => item.path === path)?.name || path.split("/").at(-1) || "Project";
-  const label = attentionLabel([...new Set(waiting.map(projectOfKey))].map(name));
+  // A Project the phone hasn't loaded yet has no titles here, so its rows read "Chat".
+  const items = waiting.map((key) => {
+    const path = projectOfKey(key);
+    const state = (snapshot?.project.path === path ? snapshot : cachedProject(path))?.project.state;
+    const chat = state?.sessions[sessionIdFromKey(key)];
+    return {
+      id: key,
+      title: chat
+        ? chatTitle(
+            chat,
+            state?.messages.filter((message) => message.session_id === chat.id),
+          )
+        : "Chat",
+      subtitle: name(projectOfKey(key)),
+    };
+  });
+  const label = attentionLabel(items.map((item) => item.title));
   const open = (key: string) =>
     router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: client.url, id: String(sessionIdFromKey(key)) } });
   const pill = (
@@ -130,21 +146,6 @@ export function AttentionPill({ projectPath, bottom }: { projectPath: string; bo
         {pill}
       </Pressable>
     );
-  // A Project the phone hasn't loaded yet has no titles here, so its rows read "Chat".
-  const items = waiting.map((key) => {
-    const state = cachedProject(projectOfKey(key))?.project.state;
-    const chat = state?.sessions[sessionIdFromKey(key)];
-    return {
-      id: key,
-      title: chat
-        ? chatTitle(
-            chat,
-            state?.messages.filter((message) => message.session_id === chat.id),
-          )
-        : "Chat",
-      subtitle: name(projectOfKey(key)),
-    };
-  });
   return (
     <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} style={place}>
       {pill}

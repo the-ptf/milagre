@@ -240,7 +240,15 @@ export default function ChatScreen() {
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
       {/* Each pane clips its edge fades, which are as wide as the window so that the sidebar's slide never resizes them. */}
       <View style={{ flex: 1, overflow: "hidden" }} onTouchStart={routedTouched}>
-        <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
+        <ChatPane
+          key="routed"
+          visibleChat={shown && shown.hostId === (params.hostId || session.client?.url) ? `${shown.projectPath}#${shown.chatId}` : undefined}
+          params={params}
+          pane={shown ? "primary" : "single"}
+          keyboard={!besideTyping}
+          onTyping={routedTypes}
+          onClose={promote}
+        />
       </View>
       {shown && (
         <>
@@ -270,12 +278,14 @@ export default function ChatScreen() {
  * goes through useSession, which for a Chat beside of another Project is that Project's own (beside-session.tsx).
  */
 function ChatPane({
+  visibleChat,
   params,
   pane,
   keyboard: ownsKeyboard,
   onTyping,
   onClose,
 }: {
+  visibleChat?: string;
   params: ChatParams;
   pane: "single" | "primary" | "secondary";
   /** Whether this pane follows the keyboard: always alone, only the last touched one in a split. */
@@ -1973,7 +1983,7 @@ function ChatPane({
                 )}
               </Animated.View>
             )}
-            {!secondary && <AttentionPill projectPath={project.path} bottom={dockHeight + 12} />}
+            {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
             {toast ? (
               <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
                 <View
