@@ -20,7 +20,9 @@ import {
   GitForkIcon,
   LaptopIcon,
   Pulse01Icon,
+  MoreHorizontalIcon,
   RepeatIcon,
+  SidebarLeftIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
@@ -95,7 +97,7 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
-import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles } from "../ui";
+import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -117,6 +119,7 @@ import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, useNewChatProjects } from "../all-computers";
 import { ProjectIcon } from "../project-icon";
+import { besideState, closeBeside, useBesideChat } from "../split-chats";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -158,12 +161,66 @@ function headerTitleWidth(screenWidth: number, routineButton: boolean) {
   return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
 }
 
+// `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
+type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
+
+/**
+ * The routed Chat, and on a wide iPad a second Chat of the same Project beside it, opened from a sidebar row's
+ * "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
+ */
 export default function ChatScreen() {
+  const { colors } = useTheme();
+  const params = useLocalSearchParams<ChatParams>();
+  const session = useSession();
+  const split = useSplit();
+  const beside = useBesideChat();
+  const sessions = session.snapshot?.project.state.sessions;
+  const state = besideState(beside, {
+    wide: split.widthClass === "wide",
+    hostId: params.hostId || session.client?.url,
+    projectPath: params.projectPath || session.snapshot?.project.path,
+    chatId: params.id ? Number(params.id) : undefined,
+    loadedPath: session.snapshot?.project.path,
+    exists: (id) => !!sessions?.[id],
+  });
+  useEffect(() => {
+    if (state === "ended") closeBeside();
+  }, [state]);
+  const shown = state === "shown" && beside ? beside : null;
+  // Closing the routed Chat leaves the one beside it in its place.
+  const promote = useCallback(() => {
+    if (!shown) return;
+    router.setParams({ id: String(shown.chatId), worktreeId: undefined, draft: undefined, prefill: undefined });
+    closeBeside();
+  }, [shown]);
+  return (
+    <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
+      <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} onClose={promote} />
+      {shown && (
+        <>
+          <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />
+          <ChatPane
+            key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
+            params={{ id: String(shown.chatId), hostId: shown.hostId, projectPath: shown.projectPath }}
+            pane="secondary"
+            onClose={closeBeside}
+          />
+        </>
+      )}
+    </View>
+  );
+}
+
+/**
+ * One Chat: the routed one (`single`, or `primary` with another beside it), or the one beside it (`secondary`), which
+ * leaves the route, the native header, the side panels and the open Project to the routed one.
+ */
+function ChatPane({ params, pane, onClose }: { params: ChatParams; pane: "single" | "primary" | "secondary"; onClose: () => void }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const navigation = useNavigation<NavigationProp<{ chat: { worktreeId?: string } }, "chat">>();
-  // `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
-  const params = useLocalSearchParams<{ id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string }>();
+  const secondary = pane === "secondary";
+  const paired = pane !== "single";
   // This New Chat's own id; the drawer passes a sending one's back to reopen it (pending-chats.ts).
   const [ownDraft] = useState(() => randomUUID());
   const draftId = params.draft || ownDraft;
@@ -250,9 +307,10 @@ export default function ChatScreen() {
   const adoptChat = useCallback(
     (id: number) => {
       setScrollIdentity((current) => ({ ...current, route: `${scrollScope}|${id}`, key: scrollKey }));
-      router.setParams({ id: String(id) });
+      // The Chat beside the routed one never has a route of its own to change.
+      if (!secondary) router.setParams({ id: String(id) });
     },
-    [scrollScope, scrollKey],
+    [scrollScope, scrollKey, secondary],
   );
   const currentScrollKey = useRef(scrollKey);
   const [historyState, setHistoryState] = useState({ key: scrollKey, loading: false, error: "" });
@@ -513,7 +571,7 @@ export default function ChatScreen() {
     [targetHost],
   );
   const { rememberChat } = session;
-  const canRemember = !!params.id && !!session.snapshot?.project.state.sessions[Number(params.id)] && targetMatches;
+  const canRemember = !secondary && !!params.id && !!session.snapshot?.project.state.sessions[Number(params.id)] && targetMatches;
   useFocusEffect(
     useCallback(() => {
       if (canRemember) rememberChat(Number(params.id));
@@ -525,6 +583,7 @@ export default function ChatScreen() {
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
     worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
     pullRequest: savedChatKey && pr && prPath ? { number: pr.number, chatKey: savedChatKey } : undefined,
+    passive: secondary,
   });
   // The PR sheet and the iPad panel send to this Chat and fill its composer ("Fix in Chat", "Ask Chat"), and a Chat row's
   // PR link opens the PR here; they reach the latest send through these.
@@ -543,7 +602,8 @@ export default function ChatScreen() {
   }, [savedChatKey]);
   useReadOpenChat(connected, projectPath, targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined, !!panels.open);
   // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
-  const { wanted, error: openError, retry: retryOpen } = useOpenProject(params);
+  // The Chat beside is always of the open Project, and never opens another.
+  const { wanted, error: openError, retry: retryOpen } = useOpenProject(secondary ? {} : params);
   // A new Chat picked without a Worktree starts in the Project's own checkout once the Project is here.
   const loaded = targetMatches && !!session.snapshot;
   const needsWorktree = !params.id && !params.worktreeId;
@@ -604,6 +664,8 @@ export default function ChatScreen() {
   const compactSeen = useRef<Record<string, number> | null>(null);
   const compactRequests = composer.compactRequests;
   useEffect(() => {
+    // The routed Chat sends for every Chat of the Project, the one beside it included.
+    if (secondary) return;
     if (!compactSeen.current) {
       compactSeen.current = { ...compactRequests };
       return;
@@ -651,7 +713,7 @@ export default function ChatScreen() {
   if (!session.snapshot || !targetMatches || needsWorktree) {
     return (
       <View style={styles.screen}>
-        <Stack.Screen options={{ title: "", headerBackVisible: false, gestureEnabled: false }} />
+        <Stack.Screen options={{ title: "", headerShown: true, headerBackVisible: false, gestureEnabled: false }} />
         {sidebar}
         <PanelSwipe panels={panels}>
           <View
@@ -700,7 +762,8 @@ export default function ChatScreen() {
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
   function openPr(number = pr?.number) {
     if (!number || !params.id || !worktree || project.link) return;
-    if (widthClass(window.width) !== "compact") panels.showPullRequest();
+    // The right panel shows the routed Chat's PR; the Chat beside it opens the PR sheet.
+    if (widthClass(window.width) !== "compact" && !secondary) panels.showPullRequest();
     else openPullRequest({ worktreeId: String(worktreeId), number: String(number), chat: chatId });
   }
   prChat.current = {
@@ -1129,7 +1192,11 @@ export default function ChatScreen() {
     }
   }
   function headerAction(id: string) {
-    if (id === "changes") panels.showChanges();
+    if (id === "changes" && secondary) router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } });
+    else if (id === "changes") panels.showChanges();
+    else if (id === "linear" && linearIssue) openLinearIssue(linearIssue.url);
+    else if (id === "link-issue") linkIssue();
+    else if (id === "unlink-issue") void unlinkWorktreeIssue();
     else if (id === "undo" && chat) {
       setUndoIntent("Undo");
       void undo.open();
@@ -1165,8 +1232,10 @@ export default function ChatScreen() {
     let left = false;
     const leave = () => {
       left = true;
+      // The Chat beside the routed one closes; the routed one stays.
+      if (secondary) closeBeside();
       // The pinned sidebar is already there to pick the next Chat; narrower, it slides over the archived one.
-      if (split.dockable) router.replace("/projects");
+      else if (split.dockable) router.replace("/projects");
       else panels.show("left");
     };
     // By the time the archive ends the phone may show another Project, so the list's copy of this one is read too.
@@ -1286,6 +1355,15 @@ export default function ChatScreen() {
       </View>
     </>
   );
+  const prSubtitle = pr
+    ? blockers.length
+      ? blockers.join(", ").replace(/-/g, " ")
+      : pr.state === "MERGED"
+        ? "Merged"
+        : pr.readyToMerge
+          ? "Ready to merge"
+          : "Open"
+    : undefined;
   const more = (
     <Stack.Toolbar placement="right">
       {/* Shown for a Run Chat and while this Chat has a Heartbeat on; it opens that Routine's page. */}
@@ -1318,7 +1396,7 @@ export default function ChatScreen() {
         {pr && (
           <Stack.Toolbar.MenuAction
             icon="arrow.triangle.pull"
-            subtitle={blockers.length ? blockers.join(", ").replace(/-/g, " ") : pr.state === "MERGED" ? "Merged" : pr.readyToMerge ? "Ready to merge" : "Open"}
+            subtitle={prSubtitle}
             onPress={() => headerAction("pr")}
           >{`Pull request #${pr.number}`}</Stack.Toolbar.MenuAction>
         )}
@@ -1363,6 +1441,72 @@ export default function ChatScreen() {
       </Stack.Toolbar.Menu>
     </Stack.Toolbar>
   );
+  // Two Chats side by side share one native header, so each draws its own: title, the ⋯ menu (the header's, as a
+  // pull-down) and a close button. The routed one keeps the sidebar button at its left.
+  const paneMenu: MenuSection[] = [
+    {
+      items: [
+        { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
+        ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
+        ...(pr ? [{ id: "pr", title: `Pull request #${pr.number}`, systemImage: "arrow.triangle.pull", subtitle: prSubtitle }] : []),
+        ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
+        ...(agents.length > 0 ? [{ id: "agents", title: "Subagents", systemImage: "person.2", subtitle: String(agents.length) }] : []),
+      ],
+    },
+    ...(chat
+      ? [
+          {
+            items: [
+              { id: "rename", title: "Rename", systemImage: "pencil" },
+              { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
+              ...(canLink
+                ? [
+                    {
+                      id: storedIssue ? "unlink-issue" : "link-issue",
+                      title: storedIssue ? "Unlink issue" : "Link issue…",
+                      systemImage: "link",
+                      disabled: busy,
+                    },
+                  ]
+                : []),
+              {
+                id: "archive",
+                title: chat.archived ? "Restore" : "Archive",
+                systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox",
+                disabled: busy,
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+  const paneHeader = paired ? (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: "absolute",
+        top: insets.top,
+        left: 0,
+        right: 0,
+        height: 56,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 12,
+      }}
+    >
+      {!secondary && (
+        <GlassIconButton label={split.pinned ? "Hide sidebar" : "Show sidebar"} systemImage="sidebar.left" icon={SidebarLeftIcon} onPress={split.toggle} />
+      )}
+      <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center" }}>
+        {startingChat ? null : header}
+      </View>
+      <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
+        <GlassIconButton label="Chat actions" systemImage="ellipsis" icon={MoreHorizontalIcon} onPress={() => {}} />
+      </PullDown>
+      <GlassIconButton label="Close Chat" systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
+    </View>
+  ) : null;
   const question = run?.questions[0];
   const answering = !!question && sentAnswers?.requestId === question.requestId;
   // The host's message replaces the preview as soon as the transcript grows by it.
@@ -1389,12 +1533,21 @@ export default function ChatScreen() {
     <GenerativeUIProvider send={genuiSend}>
       <ReachableHostContext value={reachable}>
         <View style={[styles.screen, dots]}>
-          {/* A new Chat has no title until it has a name. */}
-          <Stack.Screen
-            options={{ title: startingChat ? "" : title, headerTitle: () => (startingChat ? null : header), headerBackVisible: false, gestureEnabled: false }}
-          />
-          {sidebar}
-          {more}
+          {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
+          {!paired && (
+            <Stack.Screen
+              options={{
+                title: startingChat ? "" : title,
+                headerTitle: () => (startingChat ? null : header),
+                headerShown: true,
+                headerBackVisible: false,
+                gestureEnabled: false,
+              }}
+            />
+          )}
+          {pane === "primary" && <Stack.Screen options={{ title, headerShown: false, headerBackVisible: false, gestureEnabled: false }} />}
+          {!paired && sidebar}
+          {!paired && more}
           <PanelSwipe panels={panels} covered={planPanel.phase !== "closed"}>
             {/* The header clearance is in paddingTop; an automatic iOS inset would add it a second time. */}
             <KeyboardChatScrollView
@@ -1591,6 +1744,7 @@ export default function ChatScreen() {
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. */}
             <EdgeFade edge="top" height={insets.top + 84} />
+            {paneHeader}
             {startingChat && (
               <Animated.View
                 pointerEvents="box-none"
@@ -1638,7 +1792,7 @@ export default function ChatScreen() {
                 )}
               </Animated.View>
             )}
-            <AttentionPill projectPath={project.path} bottom={dockHeight + 12} />
+            {!secondary && <AttentionPill projectPath={project.path} bottom={dockHeight + 12} />}
             {toast ? (
               <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
                 <View
