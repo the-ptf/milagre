@@ -139,6 +139,6 @@ Use `insert` with a `node` (the same fields as a `design_show` node) and optiona
 
 ## Availability
 
-Designs is enabled by default under Settings > Experimental. Turning it off removes the Designs interface and tools on this host. If a cached call reports that Designs is off, stop design work and continue other requested work; there is no HTML fallback. HTML Artifacts remain available as the Chat's single explanatory page through `artifact_read` and `artifact_show`. Use the artifacts skill for that purpose; do not use it to bypass a disabled Designs setting.
+Designs is enabled by default under Settings > Milagre. Turning it off removes the Designs interface and tools on this host. If a cached call reports that Designs is off, stop design work and continue other requested work; there is no HTML fallback. HTML Artifacts remain available as the Chat's single explanatory page through `artifact_read` and `artifact_show`. Use the artifacts skill for that purpose; do not use it to bypass a disabled Designs setting.
 
 Keep replies short: say what differs between variants or what changed. The card shows the design.

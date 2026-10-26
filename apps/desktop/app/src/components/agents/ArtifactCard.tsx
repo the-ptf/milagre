@@ -1037,11 +1037,6 @@ function ArtifactDock({
           <span data-slot="artifact-dock-title" className="truncate text-[13px]">
             {kind === "artifacts" ? (page?.title ?? htmlRef?.title ?? "Artifact") : label}
           </span>
-          {kind === "designs" && (
-            <span data-slot="designs-experimental" className="rounded border border-line px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
-              Experimental
-            </span>
-          )}
         </div>
         {feedback > 0 && (
           <button

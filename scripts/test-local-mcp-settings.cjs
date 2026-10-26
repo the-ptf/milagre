@@ -21,7 +21,7 @@ const localMcp = {
  revoke: async id=>{window.records=window.records.map(c=>c.id===id?{...c,revokedAt:'2026-10-13T00:00:00Z'}:c);},
 };
 document.documentElement.classList.add('dark');
-window.milagre={localMcp,listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
+window.milagre={localMcp,readDesignsEnabled:async()=>({enabled:true}),saveDesignsEnabled:async enabled=>({enabled}),listAccounts:async()=>({providers:[]}),listRecentProjects:async()=>[],onAccountsChanged:()=>()=>{}};
 createRoot(document.getElementById('root')).render(<div style={{display:'flex',height:'100vh',padding:16,gap:16}}><SettingsNav section="local-mcp" onSelect={()=>{}} onBack={()=>{}} /><main className="bg-page rounded-2xl" style={{flex:1}}><SettingsPanel section="local-mcp" models={[]} /></main></div>);
 `;
 async function browserChecks() {
@@ -54,8 +54,11 @@ async function browserChecks() {
     win.show();
     win.focus();
     await waitFor(`document.hasFocus()`);
-    await waitFor(`document.querySelectorAll('[role=switch]').length===8`);
-    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Milagre MCP");
+    await waitFor(`document.querySelectorAll('[data-local-mcp] [role=switch]').length===8`);
+    // Milagre holds Designs and artifacts above its MCP: the Designs switch and Published pages.
+    await waitFor(`document.querySelector('[data-slot=designs-setting] [role=switch][aria-label="Designs"]')?.getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate(`document.querySelector('[data-slot=designs-setting]').textContent.includes('Published pages')`), true);
+    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Milagre");
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
     assert.equal(await evaluate(`!!document.querySelector('#custom-mcp-settings')`), false);
     assert.equal(await evaluate(`document.body.textContent.includes('Create MCP config')`), false);

@@ -21,7 +21,7 @@ function createDesignToolGroup({ artifacts }) {
       const capabilities = new Set(scope.capabilities ?? []);
       const active = async (capability) => {
         await assertActive();
-        if (!artifacts.enabled()) throw Error("Designs are off in Settings > Experimental.");
+        if (!artifacts.enabled()) throw Error("Designs are off in Settings > Milagre.");
         if (!capabilities.has(capability)) throw Error("This connection does not grant that Designs capability.");
       };
       const permit = (id) => {

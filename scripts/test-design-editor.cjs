@@ -30,7 +30,7 @@ function Fixture() {
   return <main data-workspace-main style={{ height: "100vh", padding: "72px 32px 32px" }}>
   <div data-chat-pane className="mx-auto max-w-3xl">
     <div className="mb-6"><p className="text-[12px] text-ink-3">Milagre Design Lab</p><h1 className="mt-2 text-2xl font-medium text-ink">An editable screen, in your Chat.</h1><p className="mt-2 max-w-lg text-[13px] leading-6 text-ink-2">Open Fieldnotes, then choose Edit. Select a layer, change its text or appearance, or drag it on the canvas. Save keeps a new version.</p></div>
-    <section aria-label="Experimental settings" className="mb-4 rounded-xl border border-line bg-surface"><DesignsSettings /></section>
+    <section aria-label="Milagre settings" className="mb-4 rounded-xl border border-line bg-surface"><DesignsSettings /></section>
     {remote && <div className="flex gap-4 text-xs text-ink-3"><RemoteFlag /><RemoteFlag /></div>}
     <ArtifactsProvider chatId="/design-fixture#1" steps={[step]} userMessages={[feedback]} onSend={async () => true}><ArtifactCards steps={[step]} /><DesignFeedbackCard feedback={parseDesignFeedback(feedback.body)} messageId={feedback.id} /></ArtifactsProvider>
   </div><PanelToggles right={24} />
@@ -251,7 +251,7 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await openEditor(false);
     assert.equal(api.enabled(), true, "Designs defaults to on without a settings file");
-    assert.equal(await evaluate('document.querySelector("[data-slot=designs-experimental]").textContent'), "Experimental");
+    assert.equal(await evaluate('!!document.querySelector("[data-slot=designs-experimental]")'), false, "Designs left Experimental: no badge");
     assert.equal(await evaluate('!!document.querySelector("[data-slot=design-layers-panel]")'), false, "Layers starts closed for a clear canvas");
     assert.equal(
       await evaluate(`!!document.querySelector('[aria-label="Share Designs page"], [aria-label="Share page"]')`),
@@ -365,7 +365,7 @@ async function browserChecks() {
     );
     assert.deepEqual((await read()).document, savedDocument, "turning Designs off preserves every saved layer");
     await click("[data-slot=artifact-card] button");
-    await waitFor('!!document.querySelector("[data-slot=designs-experimental]")');
+    await waitFor('!!document.querySelector("[data-slot=artifact-dock], [data-slot=design-editor]")');
     await screenshot("designs-enabled");
 
     await waitFor('!!document.querySelector("[data-slot=artifact-edit]")');

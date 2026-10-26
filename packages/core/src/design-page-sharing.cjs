@@ -69,7 +69,7 @@ function createDesignPageSharing({
     return kind;
   };
   const checkEnabled = (kind) => {
-    if (pageKind(kind) === "designs" && !artifacts.enabled()) throw Error("Designs are off in Settings > Experimental. Turn Designs on before sharing.");
+    if (pageKind(kind) === "designs" && !artifacts.enabled()) throw Error("Designs are off in Settings > Milagre. Turn Designs on before sharing.");
   };
   const check = async (chatId, kind) => {
     checkEnabled(kind);
@@ -140,7 +140,7 @@ function createDesignPageSharing({
     }
   };
   const status = async (request = {}) => {
-    if (pageKind(request.kind) === "designs" && !artifacts.enabled()) return { available: false, reason: "Designs are off in Settings > Experimental." };
+    if (pageKind(request.kind) === "designs" && !artifacts.enabled()) return { available: false, reason: "Designs are off in Settings > Milagre." };
     try {
       const response = await fetcher(`${endpoint.origin}/health`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(5000) });
       if (response.status === 200 && (await boundedResponseText(response, 64)).trim() === "ok") return { available: true };

@@ -39,7 +39,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="skill" options={{ title: "Skill" }} />
       <Stack.Screen name="mcp" options={{ title: "MCP" }} />
       <Stack.Screen name="mcp-server" />
-      <Stack.Screen name="local-mcp" options={{ title: "Milagre MCP" }} />
+      <Stack.Screen name="local-mcp" options={{ title: "Milagre" }} />
       <Stack.Screen name="experimental" options={{ title: "Experimental" }} />
       <Stack.Screen name="privacy" options={{ title: "Privacy & AI" }} />
       <Stack.Screen name="project-settings" options={{ title: "Project" }} />

@@ -100,7 +100,7 @@ function createChatArtifacts({ directory, validateChat, settingsFile = path.join
   };
   const chatDirectory = (chatId) => path.join(directory, createHash("sha256").update(chatId).digest("hex").slice(0, 32));
   function requireDesigns() {
-    if (!settings.enabled()) throw Error("Designs are off in Settings > Experimental. Turn Designs on before using design tools.");
+    if (!settings.enabled()) throw Error("Designs are off in Settings > Milagre. Turn Designs on before using design tools.");
   }
   function checkFormat(format) {
     if (format !== undefined && format !== "design" && format !== "html") throw Error("Choose design or html format.");

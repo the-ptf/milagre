@@ -9676,6 +9676,7 @@ function loadSettings(state) {
     "../push": { usePush: () => ({ state: { enabled: true } }) },
     "../update-sheet": { useAppUpdates: () => ({ state: { status: "up-to-date" }, check: async () => {} }) },
     "../icons": { Icon: "Icon" },
+    "../milagre-mark": { MilagreMark: "MilagreMark" },
     // Group and Row are drawn by settings-list; the test reads their props.
     "../settings-list": { Group: function Group() {}, Row: "Row" },
     "../use-computer-status": { useComputerStatus: () => state.reachability ?? {} },
@@ -9761,7 +9762,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
           ["Connections", "Linear"],
           ["Skills", ""],
           ["MCP", ""],
-          ["Milagre MCP", ""],
+          ["Milagre", ""],
         ],
       ],
       ["Projects", [["milagre", ""]]],
@@ -9811,21 +9812,29 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
   assert.deepEqual(routed, ["routines", "computers"]);
   // The version line closes the page.
   assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "0.1.0 · 31 · d3dac403 · 5f83390"));
-  const page = (file, title, section, name) => {
+  const page = (file, title, section, name, extra = {}) => {
     const { default: Screen } = load(file, {
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "expo-router": { Stack: { Screen: "Screen" } },
       "react-native": { Text: "Text", View: "View" },
       "../ui": { PageScroll: "PageScroll", useStyles: () => ({}) },
       [`../${section}`]: { [name]: name },
+      ...extra,
     });
     const rendered = Screen();
     assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, title);
     assert.ok(find(rendered, (n) => n.type === name));
+    return rendered;
   };
   page("app/(settings)/general.tsx", "General", "general-section", "GeneralSection");
   page("app/(settings)/connections.tsx", "Connections", "linear-section", "LinearSection");
-  page("app/(settings)/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
+  // Milagre: Designs and artifacts first, then the Milagre MCP.
+  const milagre = page("app/(settings)/local-mcp.tsx", "Milagre", "local-mcp-section", "LocalMcpSection", {
+    "../designs-section": { DesignsSection: "DesignsSection" },
+    "../theme": { useTheme: () => ({ colors: {} }) },
+  });
+  assert.ok(find(milagre, (n) => n.type === "DesignsSection"));
+  assert.ok(find(milagre, (n) => n.type === "Text" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
 });
 
@@ -11676,35 +11685,20 @@ test("mobile Published pages entry requires owner access and remains available w
       },
       designs: { ...designsOn },
     };
-    const { ExperimentalSection } = load("experimental-section.tsx", {
+    const { DesignsSection } = load("designs-section.tsx", {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": { View: "View", Text: "Text" },
-      "@milagre/shared/linear": {},
-      "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue" },
       "expo-router": {
         useFocusEffect: (fn) => focuses.push(fn),
         router: { push: (path) => pushed.push(path) },
       },
-      "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-      "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
-      "./push": { usePush: () => ({ state: null }) },
-      "./icons": { Icon: "Icon" },
-      "@hugeicons/core-free-icons": {},
-      "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-      "./floating-inbox-setting": {
-        useFloatingInbox: () => [false, () => {}],
-        useFloatingInboxActivity: () => [true, () => {}],
-      },
-      "./ultracode-fatality-setting": {
-        useUltracodeFatality: () => [false, () => {}],
-      },
       "./session": { useSession: () => session },
-      "./ui": { Toggle: "Toggle", ListRow: "ListRow" },
+      "./ui": { Toggle: "Toggle", ListRow: "ListRow", ErrorNotice: "ErrorNotice", PillButton: "PillButton", useStyles: () => ({}) },
     });
     const render = () => {
       react.begin();
-      return ExperimentalSection();
+      return DesignsSection();
     };
     render();
     focuses[0]();

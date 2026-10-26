@@ -409,7 +409,6 @@ async function browserChecks() {
     await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${thumb("login")}.click()`);
     await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("iframe"))`);
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
-    assert.equal(await evaluate(`${dock}.querySelector("[data-slot=designs-experimental]").textContent`), "Experimental");
     // The chat's room springs open with the panel, to the panel's width and its gap.
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
     const inView = (id) =>

@@ -16,7 +16,6 @@ import {
   Plug01Icon,
   RepeatIcon,
   SecurityCheckIcon,
-  ServerIcon,
   Settings01Icon,
   UserCircleIcon,
 } from "@hugeicons/core-free-icons";
@@ -24,6 +23,7 @@ import { chatListLabel } from "@milagre/shared/chat-display";
 import { usePush } from "../../push";
 import { useAppUpdates } from "../../update-sheet";
 import { Icon, type IconData } from "../../icons";
+import { MilagreMark } from "../../milagre-mark";
 import { useSession } from "../../session";
 import { ProjectIcon } from "../../project-icon";
 import { useChatList } from "../../chat-display-setting";
@@ -224,7 +224,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           ) : null}
           <Row title="Skills" icon={BookOpen01Icon} onPress={() => onOpen("skills")} />
           <Row title="MCP" icon={Plug01Icon} onPress={() => onOpen("mcp")} />
-          <Row title="Milagre MCP" icon={ServerIcon} onPress={() => onOpen("local-mcp")} />
+          <Row title="Milagre" leading={<MilagreMark />} onPress={() => onOpen("local-mcp")} />
         </Group>
       ) : null}
       {/* The connected computer's Projects; each opens its own settings. */}

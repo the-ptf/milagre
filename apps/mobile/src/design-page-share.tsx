@@ -11,7 +11,7 @@ import { useTheme } from "./theme";
 const when = (share: DesignPageShare) =>
   `${share.updatedAt ? "Updated" : "Published"} ${new Date(share.updatedAt ?? share.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
 const olderLinksNotice = (count = 0) =>
-  count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Revoke in Experimental > Published pages.` : "";
+  count ? `${count === 1 ? "An older link" : `${count} older links`} could not be revoked yet. Revoke in Settings > Milagre > Published pages.` : "";
 
 /** A Chat page has one public link, and publishing again updates the snapshot behind it. Without a chatId this lists
  * every page published from the host. The parent keys this view by host and Chat and unmounts it when Designs is off. */
@@ -181,7 +181,7 @@ export function DesignPageShareSheet({
       >
         {!inSheet && (
           <CircleButton
-            label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Experimental"}
+            label={chatId ? (kind === "artifacts" ? "Back to artifact" : "Back to designs") : "Back to Milagre"}
             icon={ArrowLeft01Icon}
             onPress={state.busy ? undefined : onClose}
           />

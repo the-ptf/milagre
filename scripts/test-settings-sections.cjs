@@ -1,4 +1,5 @@
-// Settings sections in Electron: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots (Routines left it); Notifications holds the
+// Settings sections in Electron: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (Routines and Designs left it; Designs and
+// Published pages are in Milagre); Notifications holds the
 // chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
 // tells main each time it flips. The legacy sidebar switch is gone everywhere.
 const assert = require("node:assert/strict");
@@ -247,23 +248,32 @@ async function browserChecks() {
     await pick("Expanded");
     await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Experimental");
-    await waitFor(`!!document.querySelector("[data-slot=designs-setting]")`);
     await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);
     // Routines have no switch any more: a computer runs them once a device allowed AI sharing for it.
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Designs", "Floating inbox", "Ultracode Fatality"],
-      "Experimental lists only Designs, Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
+      ["Bots", "Delegate to other computers", "Floating inbox", "Ultracode Fatality"],
+      "Experimental lists only Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
     );
     assert.equal(
       await evaluate(
-        `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear/i.test(document.querySelector("main").textContent) || /Other computers/.test(document.querySelector("main").textContent)`,
+        `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear|Published pages/i.test(document.querySelector("main").textContent) || /Other computers|Designs/.test(document.querySelector("main").textContent)`,
       ),
       false,
       "settings that graduated are not in Experimental",
     );
     await screenshot("experimental");
+    // Designs graduated: it and Published pages live in Settings › Milagre, above the Milagre MCP.
+    await openSection("Milagre");
+    await waitFor(`!!document.querySelector("main [data-slot=designs-setting]")`);
+    await screenshot("milagre");
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent).join("|")`).then((t) =>
+        t.startsWith("Designs and artifacts|Milagre MCP"),
+      ),
+      true,
+    );
     const designsSetting = 'document.querySelector("[data-slot=designs-setting]")';
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
     await evaluate(`[...${designsSetting}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
@@ -289,6 +299,7 @@ async function browserChecks() {
     await waitFor(`!${shareDialog}`);
     await evaluate(`${designsSetting}.querySelector('[role="switch"][aria-label="Designs"]').click()`);
     await waitFor(`${designsSetting}.textContent.includes("Published pages")`);
+    await openSection("Experimental");
     const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';
     await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
     assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
@@ -383,7 +394,7 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     await screenshot("notifications");
     console.log(
-      "PASS: Experimental lists only Designs, Floating inbox, Ultracode Fatality and Bots (no Routines switch), with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
+      "PASS: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (no Routines or Designs switch); Milagre holds Designs and Published pages above the Milagre MCP; with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
     );
     app.exit(0);
   } catch (error) {
