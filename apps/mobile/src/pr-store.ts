@@ -16,7 +16,7 @@ const inflight = new Map<string, Promise<void>>();
 const EMPTY: Entry = { pr: null, error: "", loading: true };
 const NO_GUIDE: GuideEntry = { result: null };
 
-export const prKey = (cwd: string, number: number) => `${cwd}#${number}`;
+const prKey = (cwd: string, number: number) => `${cwd}#${number}`;
 
 function emit(key: string) {
   for (const listener of listeners.get(key) ?? []) listener();
@@ -37,7 +37,7 @@ function setEntry(key: string, entry: Entry) {
 }
 
 /** Reads the PR again; calls arriving together share one read. Never throws. */
-export function loadDetail(client: Client, cwd: string, number: number) {
+function loadDetail(client: Client, cwd: string, number: number) {
   const key = prKey(cwd, number);
   const running = inflight.get(key);
   if (running) return running;

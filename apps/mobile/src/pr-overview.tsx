@@ -67,7 +67,7 @@ const STATE: Record<
   CLOSED: { label: "Closed", icon: GitPullRequestClosedIcon, tone: "red", tint: "redTint" },
 };
 
-export function PrStatePill({ pr }: { pr: PullRequestDetail }) {
+function PrStatePill({ pr }: { pr: PullRequestDetail }) {
   const { colors } = useTheme();
   const state = STATE[pr.state === "OPEN" && pr.isDraft ? "DRAFT" : pr.state];
   return (
