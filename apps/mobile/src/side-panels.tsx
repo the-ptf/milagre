@@ -10,7 +10,10 @@ import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { IconButton } from "./ui";
+import { IconButton, Segmented } from "./ui";
+import { PrOverview } from "./pr-overview";
+import { PrFiles } from "./pr-lists";
+import { openPrFile, openPrPage } from "./pr-nav";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
@@ -18,8 +21,10 @@ import { useCardTop, useSplit } from "./split-context";
 import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-width";
 
 type Side = "left" | "right";
-/** What the focused screen offers: the left panel always, Changes when it has a Worktree. */
-type Screen = { token: object; chatId?: number; worktreeId?: number };
+/** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
+type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest?: { number: number; chatKey: string } };
+/** What the right panel shows: the Worktree's Changes, or the PR its branch opened. */
+type RightTab = "changes" | "pr";
 type Panels = {
   screen: Screen | null;
   open: Side | null;
@@ -30,6 +35,8 @@ type Panels = {
   update: (screen: Screen) => void;
   detach: (token: object) => void;
   show: (side: Side | null) => void;
+  tab: RightTab;
+  setTab: (tab: RightTab) => void;
   pull: (side: Side) => void;
   settled: (to: number) => void;
   navigate: (href?: Href, secondary?: boolean | "sheet") => void;
@@ -54,6 +61,7 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const from = useSharedValue(0);
   const [screen, setScreen] = useState<Screen | null>(null);
   const [open, setOpen] = useState<Side | null>(null);
+  const [tab, setTab] = useState<RightTab>("changes");
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
   const reset = useCallback(() => {
@@ -143,8 +151,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     return () => back.remove();
   }, [open, show]);
   const value = useMemo(
-    () => ({ screen, open, mounted, progress, from, attach, update, detach, show, pull, settled, navigate }),
-    [screen, open, mounted, progress, from, attach, update, detach, show, pull, settled, navigate],
+    () => ({ screen, open, mounted, progress, from, attach, update, detach, show, tab, setTab, pull, settled, navigate }),
+    [screen, open, mounted, progress, from, attach, update, detach, show, tab, setTab, pull, settled, navigate],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
 }
@@ -173,16 +181,26 @@ function panelTravel(width: number) {
 const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** Offers the panels while this screen is focused. A rightward drag opens the left one, a leftward drag Changes. */
-export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktreeId?: number }) {
+export function useSidePanels({
+  chatId,
+  worktreeId,
+  pullRequest,
+}: {
+  chatId?: number;
+  worktreeId?: number;
+  pullRequest?: { number: number; chatKey: string };
+}) {
   const panels = usePanels();
   const [token] = useState(() => ({}));
-  const { attach, update, detach, show, pull, settled, progress, from } = panels;
+  const { attach, update, detach, show, pull, settled, progress, from, setTab } = panels;
+  const prNumber = pullRequest?.number;
+  const prChat = pullRequest?.chatKey;
   // Focus gives the panels to this screen; what it offers is updated in place.
-  const offer = useRef({ token, chatId, worktreeId });
+  const offer = useRef<Screen>({ token, chatId, worktreeId, pullRequest });
   useEffect(() => {
-    offer.current = { token, chatId, worktreeId };
+    offer.current = { token, chatId, worktreeId, ...(prNumber && prChat ? { pullRequest: { number: prNumber, chatKey: prChat } } : {}) };
     update(offer.current);
-  }, [update, token, chatId, worktreeId]);
+  }, [update, token, chatId, worktreeId, prNumber, prChat]);
   useFocusEffect(
     useCallback(() => {
       attach(offer.current);
@@ -210,7 +228,16 @@ export function useSidePanels({ chatId, worktreeId }: { chatId?: number; worktre
       }).enabled(ours && !panels.open),
     [progress, from, travel, worktreeId, dockable, pull, settled, ours, panels.open, scale],
   );
-  return { gesture, open: ours ? panels.open : null, show };
+  // The right panel opened on the PR (its pill on an iPad) or on Changes (View changes, a drag).
+  const showPullRequest = useCallback(() => {
+    setTab("pr");
+    show("right");
+  }, [setTab, show]);
+  const showChanges = useCallback(() => {
+    setTab("changes");
+    show("right");
+  }, [setTab, show]);
+  return { gesture, open: ours ? panels.open : null, show, showPullRequest, showChanges };
 }
 
 /** The screen area a drag can start from; VoiceOver skips it while a panel covers it. */
@@ -280,7 +307,7 @@ function swipe({
 export function SidePanelsHost() {
   const { colors } = useTheme();
   const session = useSession();
-  const { screen, open, mounted, progress, from, show, settled, navigate } = usePanels();
+  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cardTop = useCardTop();
@@ -343,7 +370,15 @@ export function SidePanelsHost() {
             )}
             {mounted.right && screen.worktreeId !== undefined && (
               <Animated.View {...hidden("right")} style={[frame("right"), right]}>
-                <ChangesPanel key={`${session.snapshot?.project.path}#${screen.worktreeId}`} worktreeId={screen.worktreeId} onClose={() => show(null)} />
+                <ChangesPanel
+                  key={`${session.snapshot?.project.path}#${screen.worktreeId}`}
+                  worktreeId={screen.worktreeId}
+                  pullRequest={screen.pullRequest}
+                  tab={screen.pullRequest ? tab : "changes"}
+                  onTab={setTab}
+                  card={card}
+                  onClose={() => show(null)}
+                />
               </Animated.View>
             )}
           </SafeAreaInsetsContext.Provider>
@@ -353,33 +388,105 @@ export function SidePanelsHost() {
   );
 }
 
-/** Changes, and a file's diff in place of the list, so reading one never leaves the panel. */
-function ChangesPanel({ worktreeId, onClose }: { worktreeId: number; onClose: () => void }) {
+/**
+ * Changes, and a file's diff in place of the list, so reading one never leaves the panel. When the Chat's branch opened a
+ * PR, a switch at the top shows the PR instead: its overview, then its files in place; a PR file opens across the whole
+ * window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
+ */
+function ChangesPanel({
+  worktreeId,
+  pullRequest,
+  tab,
+  onTab,
+  card,
+  onClose,
+}: {
+  worktreeId: number;
+  pullRequest?: { number: number; chatKey: string };
+  tab: RightTab;
+  onTab: (tab: RightTab) => void;
+  card: boolean;
+  onClose: () => void;
+}) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const session = useSession();
   const [file, setFile] = useState<DiffTarget | null>(null);
-  const name = file ? file.path.split("/").pop() || file.path : "Changes";
+  const [prFiles, setPrFiles] = useState(false);
+  const pr = tab === "pr" && pullRequest ? pullRequest : undefined;
+  const cwd = session.snapshot?.project.state.worktrees[worktreeId]?.path;
+  const chatId = pullRequest ? Number(pullRequest.chatKey.slice(pullRequest.chatKey.lastIndexOf("#") + 1)) : NaN;
+  const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
+  const route = pullRequest ? { worktreeId: String(worktreeId), number: String(pullRequest.number), chat: pullRequest.chatKey } : null;
+  const back = pr ? prFiles : !!file;
+  const name = pr ? (prFiles ? "Files" : `PR #${pr.number}`) : file ? file.path.split("/").pop() || file.path : "Changes";
+  const switcher = pullRequest ? (
+    <Segmented
+      label="Right panel"
+      value={tab}
+      options={[
+        { value: "changes", title: "Changes" },
+        { value: "pr", title: `#${pullRequest.number}` },
+      ]}
+      onChange={(value) => onTab(value as RightTab)}
+    />
+  ) : null;
   return (
     <View style={{ flex: 1 }}>
       <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-        {file && <IconButton label="Back to Changes" icon={ArrowLeft01Icon} size={44} onPress={() => setFile(null)} />}
+        {back && (
+          <IconButton
+            label={pr ? "Back to the PR" : "Back to Changes"}
+            icon={ArrowLeft01Icon}
+            size={44}
+            onPress={() => (pr ? setPrFiles(false) : setFile(null))}
+          />
+        )}
         <Text
           accessibilityRole="header"
           numberOfLines={1}
-          style={{ flex: 1, paddingLeft: file ? 0 : 12, color: colors.ink, fontSize: file ? 17 : 22, fontWeight: file ? "600" : "700" }}
+          style={{ flex: 1, paddingLeft: back ? 0 : 12, color: colors.ink, fontSize: back ? 17 : 22, fontWeight: back ? "600" : "700" }}
         >
           {name}
         </Text>
-        <IconButton label="Close Changes" icon={Cancel01Icon} size={44} onPress={onClose} />
+        <IconButton label={pr ? "Close the PR" : "Close Changes"} icon={Cancel01Icon} size={44} onPress={onClose} />
       </View>
       {/* The list stays mounted under a diff, so going back keeps its mode, folders and scroll. */}
-      <View style={{ flex: 1, display: file ? "none" : "flex" }}>
-        <ChangesView worktreeId={worktreeId} onOpen={setFile} />
+      <View style={{ flex: 1, display: file || pr ? "none" : "flex" }}>
+        <ChangesView worktreeId={worktreeId} onOpen={setFile} header={switcher} />
       </View>
-      {file && (
+      {file && !pr && (
         <View style={{ flex: 1 }}>
           <DiffView target={file} />
         </View>
+      )}
+      {pr && route && cwd && session.client && !prFiles && (
+        <PrOverview
+          client={session.client}
+          cwd={cwd}
+          number={pr.number}
+          chatKey={pr.chatKey}
+          provider={provider}
+          header={switcher}
+          onChat={onClose}
+          onOpen={(page, extra) => {
+            if (page === "files") setPrFiles(true);
+            else openPrPage(page, route, extra);
+          }}
+        />
+      )}
+      {pr && route && cwd && session.client && prFiles && (
+        <PrFiles
+          client={session.client}
+          cwd={cwd}
+          number={pr.number}
+          onOpenFile={(entry) => {
+            if (card) {
+              onClose();
+              openPrFile(route, entry.path);
+            } else openPrPage("diff", route, { path: entry.path });
+          }}
+        />
       )}
     </View>
   );

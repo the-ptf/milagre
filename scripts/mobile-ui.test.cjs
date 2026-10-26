@@ -216,6 +216,14 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
+      // The PR sheet's bridge to the Chat is pure; opening the sheet is recorded on globalThis.openedPullRequests.
+      if (base === "pr-chat" && !(id in modules)) return (globalThis.prChat = load("pr-chat.ts", modules, "", cache));
+      if (base === "pr-nav" && !(id in modules))
+        return {
+          openPullRequest: (route) => (globalThis.openedPullRequests ??= []).push(route),
+          openPrPage: (page, route, extra) => (globalThis.openedPrPages ??= []).push([page, route, extra]),
+          openPrFile: (route, path) => (globalThis.openedPrPages ??= []).push(["file", route, { path }]),
+        };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -2376,6 +2384,12 @@ function chatHost({
       this.open = side;
       this.shown.push(side);
     },
+    showChanges() {
+      this.show("right");
+    },
+    showPullRequest() {
+      this.show("right:pr");
+    },
   };
   const params = { worktreeId: "1" };
   const session = {
@@ -2550,7 +2564,13 @@ function chatHost({
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
     // A test can show the Worktree branch's PR with globalThis.chatPullRequest, and PRs the Chat named with globalThis.chatNamedPullRequests.
-    "../status-indicators": { PullRequestAction: "PullRequestAction", SubagentChip: "SubagentChip", BackgroundRing: "BackgroundRing" },
+    "../status-indicators": {
+      PullRequestAction: "PullRequestAction",
+      PullRequestMerge: "PullRequestMerge",
+      HeaderPullRequestChip: "HeaderPullRequestChip",
+      SubagentChip: "SubagentChip",
+      BackgroundRing: "BackgroundRing",
+    },
     "../use-chat-pull-requests": {
       useChatPullRequests: (_client, targets) =>
         Object.fromEntries(targets.map(({ path }) => [path, { branch: globalThis.chatPullRequest, found: globalThis.chatNamedPullRequests ?? {} }])),
@@ -3390,14 +3410,18 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
     );
     const chipsNode = find(row, (node) => typeof node.type === "function" && node.props.pullRequests);
     const chips = chipsNode?.type(chipsNode.props);
-    const chip = find(chips, (node) => node.type === "Pressable" && node.props.accessibilityRole === "link");
+    const chip = find(chips, (node) => node.type === "Pressable" && node.props.accessibilityLabel?.includes("pull request #246"));
     assert.ok(chip, "a PR has its own tap target outside the Chat tap target");
+    assert.equal(chip.props.accessibilityRole, "button", "a PR of this computer's Chat opens in the app, not on GitHub");
     assert.ok(find(chip, (node) => node.type === "Text" && node.props.children.includes(246)));
     assert.equal(find(chip, (node) => node.type === "Icon").props.tone, tone);
     if (label) assert.ok(find(chip, (node) => node.type === "Text" && node.props.children === label));
+    const before = nav.routes.length;
     await chip.props.onPress({ stopPropagation() {} });
-    assert.equal(nav.external.at(-1), pr.url);
-    assert.equal(nav.routes.length, 0, "opening a PR does not navigate to the Chat");
+    assert.equal(nav.routes.length, before + 1, "the PR opens its Chat, which then opens the PR sheet");
+    assert.equal(nav.routes.at(-1).pathname, "/chat");
+    assert.equal(nav.routes.at(-1).params.id, String(item.chat.id));
+    assert.equal(nav.external.length, 0, "the PR does not leave for GitHub");
   }
   const plain = list.props.renderItem({ item: { ...item, pullRequests: [] } });
   assert.ok(
@@ -3422,8 +3446,10 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
   );
   const more = find(chips, (node) => node.type === "PullDown");
   assert.ok(more, "extra PRs remain available in a menu");
+  const routesBefore = nav.routes.length;
   more.props.onSelect(prs[2].url);
-  assert.equal(nav.external.at(-1), prs[2].url);
+  await Promise.resolve();
+  assert.equal(nav.routes.length, routesBefore + 1, "a PR from the menu opens in its Chat too");
   assert.ok(
     find(chips, (node) => node.type === "Text" && node.props.children === "Running"),
     "PR rows keep the Chat status on their second line",
@@ -4592,6 +4618,60 @@ test("the PR pill sends a PR action whose preview is already a card", async () =
     );
   } finally {
     delete globalThis.chatPullRequest;
+  }
+});
+
+test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the sheet's Fix in Chat sends in this Chat", async () => {
+  const url = "https://github.com/o/r/pull/90";
+  globalThis.chatPullRequest = { number: 90, title: "Fix it", url, state: "OPEN", readyToMerge: true };
+  globalThis.openedPullRequests = [];
+  try {
+    const screen = chatHost({ effects: true, call: async () => ({ sessionId: 42 }) });
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    const tree = screen.render();
+    const key = `${screen.session.snapshot.project.path}#42`;
+    assert.equal(
+      find(tree, (node) => node.type === "PullRequestAction"),
+      undefined,
+      "a ready PR has no blocker to send",
+    );
+    find(tree, (node) => node.type === "PullRequestMerge").props.onOpen();
+    assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "1", number: "90", chat: key }]));
+    // The header chip and ⋯ › Pull request #90 open it in the app too, not on GitHub.
+    const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
+    find(tree, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Pull request #90").props.onPress();
+    assert.equal(globalThis.openedPullRequests.length, 3);
+    assert.equal(screen.external?.length ?? 0, 0);
+    screen.render();
+    assert.equal(await globalThis.prChat.sendToChat(key, "Fix the failing lint check"), "sent");
+    await settle();
+    const sent = screen.calls.find((call) => call.method === "chat:send").args[0];
+    assert.equal(sent.body, "Fix the failing lint check");
+    assert.equal(globalThis.prChat.prefillChat(key, "About PR #90: "), true);
+    assert.equal(screen.session.drafts[key], "About PR #90: ");
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
+  }
+});
+
+test("on an iPad the PR opens in the right panel, beside Changes", () => {
+  globalThis.chatPullRequest = { number: 91, title: "Fix it", url: "https://github.com/o/r/pull/91", state: "OPEN", readyToMerge: true };
+  globalThis.openedPullRequests = [];
+  try {
+    const screen = chatHost({ screenWidth: 1194 });
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    find(screen.render(), (node) => node.type === "PullRequestMerge").props.onOpen();
+    assert.deepEqual(screen.panels.shown, ["right:pr"]);
+    assert.equal(globalThis.openedPullRequests.length, 0);
+    find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "View changes").props.onPress();
+    assert.deepEqual(screen.panels.shown, ["right:pr", "right"]);
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
   }
 });
 
