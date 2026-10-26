@@ -35,6 +35,7 @@ import { useTheme } from "./theme";
 import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
 import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
+import { designFontCache, loadCanvasDesign } from "./design-font-cache";
 import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
 
 /** A comment waiting for Send, pinned where the user held the design. */
@@ -50,6 +51,7 @@ type CanvasCommand = Record<string, unknown> & { t: string };
  * deleted, as on desktop. In memory, for the app's life.
  */
 const unsent = new Map<string, { notes: Note[]; choice: ArtifactRef | null }>();
+const EMPTY_DESIGNS: Record<string, Artifact> = {};
 
 const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: design.version, title: design.title, format: design.format });
 
@@ -72,7 +74,12 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
   const [listError, setListError] = useState("");
   // The version shown of each design; null shows the newest.
   const [versions, setVersions] = useState<Record<string, number | null>>(() => (id ? { [id]: version ? Number(version) : null } : {}));
-  const [loaded, setLoaded] = useState<Record<string, Artifact>>({});
+  const [loadedState, setLoaded] = useState<{ source: typeof source; chatId: typeof chatId; designs: Record<string, Artifact> }>({
+    source,
+    chatId,
+    designs: {},
+  });
+  const loaded = loadedState.source === source && loadedState.chatId === chatId ? loadedState.designs : EMPTY_DESIGNS;
   const [view, setView] = useState<CanvasView>({ mode: "design", id: id ?? null });
   const [notes, setNotes] = useState<Note[]>(() => (chatKey && unsent.get(chatKey)?.notes) || []);
   const [choice, setChoice] = useState<ArtifactRef | null>(() => (chatKey && unsent.get(chatKey)?.choice) || null);
@@ -164,12 +171,13 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
   const rows = useMemo(() => designGroups(summaries ?? []), [summaries]);
   const ordered = useMemo(() => rows.flatMap((row) => row.designs), [rows]);
 
-  // Every design's shown version, the opened one first, a few at a time. A newest version reloads when the agent makes
+  // Every design's shown version, the opened one first. A newest version reloads when the agent makes
   // another; a chosen older one stays.
-  const fetching = useRef(new Set<string>());
+  const pendingLoad = useRef<{ source: typeof source; promise: Promise<Artifact> } | null>(null);
   useEffect(() => {
-    if (!source || !summaries) return;
+    if (!source || !summaries || !chatId) return;
     let live = true;
+    const fonts = designFontCache(source.url);
     const wanted = ordered
       .map((design) => {
         const pinned = versions[design.id] ?? null;
@@ -177,23 +185,30 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
         const target = pinned ?? design.version;
         return { design, pinned, stale: !have || have.version !== target };
       })
-      .filter((item) => item.stale && !fetching.current.has(item.design.id))
+      .filter((item) => item.stale)
       .sort((a, b) => Number(b.design.id === view.id) - Number(a.design.id === view.id));
     const load = async (queue: typeof wanted) => {
       for (const { design, pinned } of queue) {
-        fetching.current.add(design.id);
+        if (pendingLoad.current?.source === source) await pendingLoad.current.promise.catch(() => {});
+        if (!live) return;
         try {
-          const artifact = await source.call<Artifact>("artifact:get", [{ chatId, id: design.id, ...(pinned === null ? {} : { version: pinned }) }]);
-          if (live && artifact.format === "design" && artifact.document) setLoaded((current) => ({ ...current, [design.id]: artifact }));
+          const promise = loadCanvasDesign(source, { chatId, id: design.id, ...(pinned === null ? {} : { version: pinned }) }, fonts);
+          pendingLoad.current = { source, promise };
+          const artifact = await promise;
+          if (live && artifact.format === "design" && artifact.document)
+            setLoaded((current) => ({
+              source,
+              chatId,
+              designs: { ...(current.source === source && current.chatId === chatId ? current.designs : {}), [design.id]: artifact },
+            }));
         } catch {
           /* A deleted or unreadable design stays blank on the board. */
-        } finally {
-          fetching.current.delete(design.id);
         }
       }
     };
-    // Three at a time keeps the opened design first without one slow read holding the rest.
-    for (let lane = 0; lane < 3; lane++) void load(wanted.filter((_, index) => index % 3 === lane));
+    // Each request advertises the previous response's fonts, including newly discovered catalog/weight sets.
+    // A superseding effect requeues unfinished designs; the old queue stops after its outstanding request.
+    void load(wanted);
     return () => {
       live = false;
     };
@@ -229,12 +244,25 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
   }, [layoutKey, insets.bottom, colors.ink3, colors.accent, command, epoch]);
 
   const sentDocs = useRef(new Map<string, string>());
+  const sentFonts = useRef(new Set<string>());
   useEffect(() => {
+    sentDocs.current.clear();
+    sentFonts.current.clear();
+  }, [source, chatId]);
+  useEffect(() => {
+    if (!ready.current) return;
+    const sendFont = (key: string, css: string) => {
+      if (sentFonts.current.has(key)) return;
+      command({ t: "fonts", key, css });
+      sentFonts.current.add(key);
+    };
     for (const artifact of Object.values(loaded)) {
-      const key = `${artifact.version}:${artifact.html.length}`;
+      if (artifact.format === "design" && artifact.fontKey && artifact.fontCss) sendFont(artifact.fontKey, artifact.fontCss);
+      const font = artifact.format === "design" ? artifact.fontKey : undefined;
+      const key = `${artifact.version}:${artifact.html.length}:${font ?? ""}`;
       if (sentDocs.current.get(artifact.id) === key) continue;
       sentDocs.current.set(artifact.id, key);
-      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html) });
+      command({ t: "html", id: artifact.id, doc: artifactDocument(artifact.html), ...(font ? { font } : {}) });
     }
     // The layout first: the page makes a design's frame when it lays the design out.
   }, [loaded, command, epoch, layoutKey]);
@@ -285,6 +313,7 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
         case "ready":
           ready.current = true;
           sentDocs.current.clear();
+          sentFonts.current.clear();
           setEpoch((value) => value + 1);
           return;
         case "painted":

@@ -8998,6 +8998,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
 
 /** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
 function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
+  let snapshot;
   const react = hookHost({ effects: true }),
     files = new Map(),
     injected = [],
@@ -9056,8 +9057,9 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
-      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./session": { useSession: () => ({ client, designs: feature, snapshot }) },
       "./use-design-catalog": { markDesignDeleted() {} },
+      "./design-font-cache": require("../apps/mobile/src/design-font-cache.ts"),
       "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
       "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {} },
       "./share-availability": share,
@@ -9070,6 +9072,9 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
     shareAvailabilityChanged: (...args) => share.shareAvailabilityChanged(...args),
     setClient(next) {
       client = next;
+    },
+    setSnapshot(next) {
+      snapshot = next;
     },
     appState(status) {
       for (const listener of appListeners) listener(status);
@@ -9203,7 +9208,7 @@ test("the designs sheet loads the version it opened, on a canvas page that runs 
   const h = designsHost(client);
   await h.open({ hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(([method]) => method === "artifact:get"))), [
-    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1 }]],
+    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1, fonts: { have: [] } }]],
   ]);
   for (const method of ["artifact:sharing-status", "artifact:list", "artifact:comments"])
     assert.ok(
@@ -14299,4 +14304,110 @@ test("the phone screen offers suggestions only for idle Claude Chats without att
   delete chat.backgroundTasks;
   chat.provider = "codex";
   assert.equal(screen.field().suggestion, undefined);
+});
+
+test("canvas font commands precede stripped documents and replay after page ready even after cache eviction", async () => {
+  const { designFontCache } = require("../apps/mobile/src/design-font-cache.ts");
+  const document = require("../packages/shared/src/design.mjs").createExampleDesign();
+  const url = "font-replay-mac";
+  const design = {
+    id: "home",
+    title: "Home",
+    format: "design",
+    version: 1,
+    latest: 1,
+    versions: 1,
+    width: 390,
+    height: 844,
+    document,
+    html: "<html><head></head><body>Hello</body></html>",
+  };
+  const client = {
+    url,
+    call: async (method) => {
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:get") return { ...design, fontKey: "inter", fontCss: "@font-face{font-family:Inter}" };
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      throw Error(method);
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: url, chatId: "/p#7", id: "home" };
+  let tree = await h.open(props);
+  const first = h.commands();
+  const fonts = first.findIndex((command) => command.t === "fonts");
+  const html = first.findIndex((command) => command.t === "html");
+  assert.ok(fonts >= 0 && html > fonts);
+  assert.equal(first[html].font, "inter");
+  assert.ok(!first[html].doc.includes("@font-face"), "the large CSS is spliced inside the page, not native JS");
+  designFontCache("another-host");
+  const start = first.length;
+  h.say(tree, { t: "ready" });
+  tree = h.render("DesignsSheet", props);
+  const replay = h.commands().slice(start);
+  assert.deepEqual(
+    replay.filter((command) => ["fonts", "html"].includes(command.t)).map((command) => command.t),
+    ["fonts", "html"],
+  );
+  h.cleanup();
+});
+
+test("a superseding Designs list requeues outstanding loads and stops the old queue", async () => {
+  const document = require("../packages/shared/src/design.mjs").createExampleDesign();
+  let version = 1,
+    release;
+  const gets = [];
+  const design = (id) => ({
+    id,
+    title: id,
+    format: "design",
+    version,
+    latest: version,
+    versions: version,
+    width: 390,
+    height: 844,
+    document,
+    html: `<html><head></head><body>${id}-${version}</body></html>`,
+  });
+  const client = {
+    url: "superseded-font-mac",
+    call: async (method, [request]) => {
+      if (method === "artifact:list") return [design("home"), design("other")];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "artifact:get") {
+        gets.push(request);
+        if (gets.length === 1)
+          return new Promise((resolve) => {
+            const old = design("home");
+            release = () => resolve(old);
+          });
+        return design(request.id);
+      }
+      throw Error(method);
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: client.url, chatId: "/p#7", id: "home" };
+  await h.open(props);
+  assert.equal(gets.length, 1);
+  version = 2;
+  h.setSnapshot({ runs: { runs: { "/p#7": { steps: [{ id: "new-version", kind: "artifact", status: "done" }] } } } });
+  h.render("DesignsSheet", props);
+  await settle();
+  h.render("DesignsSheet", props);
+  await settle();
+  assert.equal(gets.length, 1, "a replacement queue waits for the old request");
+  release();
+  await settle();
+  h.render("DesignsSheet", props);
+  assert.deepEqual(
+    gets.map((request) => request.id),
+    ["home", "home", "other"],
+  );
+  const commands = h.commands().filter((command) => command.t === "html");
+  assert.equal(commands.length, 2);
+  assert.ok(commands.every((command) => command.doc.includes("-2</body>")));
+  h.cleanup();
 });
