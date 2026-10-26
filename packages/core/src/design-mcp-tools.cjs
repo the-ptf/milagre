@@ -5,9 +5,8 @@ const { artifactToolDefinitions } = require("./chat-artifacts.cjs");
 function createDesignToolGroup({ artifacts }) {
   return {
     id: "designs",
-    enabled: () => artifacts.enabled(),
+    enabled: () => true,
     tools: ({ scope, assertActive }) => {
-      if (!artifacts.enabled()) return [];
       if (
         !scope ||
         typeof scope.chatId !== "string" ||
@@ -21,7 +20,6 @@ function createDesignToolGroup({ artifacts }) {
       const capabilities = new Set(scope.capabilities ?? []);
       const active = async (capability) => {
         await assertActive();
-        if (!artifacts.enabled()) throw Error("Designs are off in Settings > Experimental.");
         if (!capabilities.has(capability)) throw Error("This connection does not grant that Designs capability.");
       };
       const permit = (id) => {

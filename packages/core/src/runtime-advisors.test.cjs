@@ -150,15 +150,6 @@ test("execution screenshots are saved before delivery and survive deleting the o
   await fs.rm(file);
   assert.ok((await fs.stat(saved)).size > 0);
 });
-test("new advisors inherit the current host Designs availability", async (t) => {
-  const f = await fixture(t);
-  await f.runtime.invoke("designs:enabled:save", [false]);
-  const reply = await runTool(f.tool("create_advisor"), { title: "Review", prompt: "Assess" });
-  assert.equal(reply.isError, false);
-  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
-  assert.equal(f.sessions[1].options.designsEnabled, false);
-  assert.ok(!f.sessions[1].options.linked.tools.some((tool) => tool.name.startsWith("design_")));
-});
 test("advisor completion waits for a human question before steering", async (t) => {
   const f = await fixture(t);
   await runTool(f.tool("create_advisor"), { title: "Review", prompt: "Assess" });

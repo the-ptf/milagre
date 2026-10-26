@@ -14,10 +14,7 @@ const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 const AGENT = "/opt/antigravity/agy_acp_server.par";
 const TURN = { prompt: "Hi", images: [], model: "gemini-3.8-flash-high", permissionMode: "ask" };
 
-function antigravity(
-  t,
-  { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, designsEnabled, env, permissionPolicy } = {},
-) {
+function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, command = AGENT, interruptGraceMs, workspaceRoots, env, permissionPolicy } = {}) {
   const events = [];
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-test-"));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-acp-cwd-"));
@@ -30,7 +27,6 @@ function antigravity(
     command,
     env,
     workspaceRoots,
-    designsEnabled,
     clientVersion: "test",
     interruptGraceMs,
     permissionPolicy,
@@ -96,17 +92,6 @@ test("introduces Milagre and its instructions on the first prompt of each proces
     { type: "text", text: "Hi" },
   ]);
   assert.deepEqual(prompts[1].prompt, [{ type: "text", text: "Again" }]);
-});
-
-test("Designs can be disabled when starting or resuming an ACP session", async (t) => {
-  for (const resumeId of [undefined, "sess-existing"]) {
-    const { session, events } = antigravity(t, { designsEnabled: false, resumeId });
-    await session.startTurn(TURN);
-    await ended(events);
-    const [prompt] = await sent(session, "session/prompt");
-    assert.match(prompt.prompt[0].text, /Designs are off/);
-    assert.doesNotMatch(prompt.prompt[0].text, /design_show|design_read|design_apply/);
-  }
 });
 
 test("sends images as image blocks and interleaves [Image #N] tokens in reading order", async (t) => {

@@ -1,7 +1,7 @@
-/** The connected computer owns this setting. Keep its last answer visible while reconnecting. */
-export type DesignsState = { enabled: boolean | null; saving: boolean; stale: boolean; error: string };
+/** Whether the connected computer has Designs: always, unless it runs an older Milagre with Designs off. Keep its last answer visible while reconnecting. */
+export type DesignsState = { enabled: boolean | null; stale: boolean; error: string };
 type Caller = { call: <T>(method: string, args: unknown[]) => Promise<T> };
-export const DESIGNS_DISCONNECTED: DesignsState = { enabled: null, saving: false, stale: true, error: "" };
+export const DESIGNS_DISCONNECTED: DesignsState = { enabled: null, stale: true, error: "" };
 
 const confirmed = (value: unknown): boolean => {
   if (!value || typeof value !== "object" || typeof (value as { enabled?: unknown }).enabled !== "boolean")
@@ -18,17 +18,17 @@ export function createDesignsSetting(client: Caller) {
   const listeners = new Set<() => void>();
   const publish = (next: DesignsState) => {
     if (disposed) return;
-    if (state.enabled === next.enabled && state.saving === next.saving && state.stale === next.stale && state.error === next.error) return;
+    if (state.enabled === next.enabled && state.stale === next.stale && state.error === next.error) return;
     state = next;
     for (const listener of listeners) listener();
   };
   const unavailable = (message: string) => {
     generation++;
-    publish({ ...state, saving: false, stale: true, error: message });
+    publish({ ...state, stale: true, error: message });
   };
   const refresh = (): Promise<void> => {
     if (disposed) return Promise.resolve();
-    if (state.saving || reading) {
+    if (reading) {
       readAgain = true;
       return reading ?? Promise.resolve();
     }
@@ -36,33 +36,18 @@ export function createDesignsSetting(client: Caller) {
       do {
         readAgain = false;
         const current = ++generation;
-        publish({ ...state, saving: false, stale: true, error: "" });
+        publish({ ...state, stale: true, error: "" });
         try {
           const enabled = confirmed(await client.call("designs:enabled:read", []));
-          if (current === generation) publish({ enabled, saving: false, stale: false, error: "" });
+          if (current === generation) publish({ enabled, stale: false, error: "" });
         } catch (error) {
-          if (current === generation)
-            publish({ ...state, saving: false, stale: true, error: error instanceof Error ? error.message : "Could not read the Designs setting." });
+          if (current === generation) publish({ ...state, stale: true, error: error instanceof Error ? error.message : "Could not read the Designs setting." });
         }
       } while (readAgain);
     })().finally(() => {
       reading = null;
     });
     return reading;
-  };
-  const save = async (enabled: boolean) => {
-    if (disposed || state.enabled === null || state.saving) return;
-    const current = ++generation;
-    publish({ ...state, saving: true, error: "" });
-    try {
-      const saved = confirmed(await client.call("designs:enabled:save", [enabled]));
-      if (current === generation) publish({ enabled: saved, saving: false, stale: false, error: "" });
-    } catch (error) {
-      if (current === generation)
-        publish({ ...state, saving: false, stale: true, error: error instanceof Error ? error.message : "Could not change the Designs setting." });
-    } finally {
-      if (readAgain && !disposed) void refresh();
-    }
   };
   return {
     getSnapshot: () => state,
@@ -73,7 +58,6 @@ export function createDesignsSetting(client: Caller) {
       };
     },
     refresh,
-    save,
     unavailable,
     resume() {
       disposed = false;

@@ -60,7 +60,7 @@ test("comment scope follows the comment's design, not the comment ID", async (t)
   assert.equal(result[0].resolved.note, "Done");
   assert.equal(result[1].resolved, undefined);
 });
-test("revocation, capabilities and Designs OFF govern already cached tool calls", async (t) => {
+test("revocation and capabilities govern already cached tool calls", async (t) => {
   const { tools, revoke } = await fixture(t);
   revoke();
   await assert.rejects(
@@ -74,9 +74,8 @@ test("revocation, capabilities and Designs OFF govern already cached tool calls"
   const readOnly = await fixture(t, "*", ["read"]);
   assert.equal(readOnly.tools.design_apply, undefined);
   assert.equal(readOnly.tools.artifact_resolve_comment, undefined);
-  await readOnly.artifacts.setEnabled(false);
-  assert.deepEqual(readOnly.group.tools({ scope: readOnly.scope, assertActive: readOnly.assertActive }), []);
-  await assert.rejects(readOnly.tools.design_read.run({ id: "allowed" }), /Designs are off/);
+  assert.ok(readOnly.group.tools({ scope: readOnly.scope, assertActive: readOnly.assertActive }).length > 0);
+  assert.equal(JSON.parse(await readOnly.tools.design_read.run({ id: "allowed" })).id, "allowed");
 });
 test("wildcard creation is confined to the granted Chat and empty scope grants nothing", async (t) => {
   const wildcard = await fixture(t, "*");

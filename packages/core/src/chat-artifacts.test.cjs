@@ -34,54 +34,26 @@ async function fixture(t) {
   return { api, tools, directory };
 }
 
-test("Designs is on by default, persists off, and gates already cached tools and all operations", async (t) => {
+test("Designs are always on: tools exist, designs and comments survive a restarted store and Chat removal", async (t) => {
   const { api, tools, directory } = await fixture(t);
-  assert.equal(api.enabled(), true);
+  assert.equal(api.enabled, undefined);
+  assert.equal(api.setEnabled, undefined);
   assert.equal(typeof api.show, "function");
   assert.equal(tools.artifact_show, undefined);
   assert.equal(tools.artifact_read, undefined);
+  assert.ok(artifactToolDefinitions(CHAT, api).length > 0);
   await tools.design_show.run({ id: "welcome", title: "Welcome", document: designDocument() });
   const [comment] = await api.addComments({ chatId: CHAT, comments: [{ design: { id: "welcome", version: 1 }, text: "Bigger" }] });
-  assert.deepEqual(await api.setEnabled(false), { enabled: false });
-  assert.deepEqual(artifactToolDefinitions(CHAT, api), []);
   const request = { chatId: CHAT, id: "welcome" };
-  const calls = [
-    () => tools.design_show.run({ id: "new", title: "New", document: designDocument() }),
-    () => tools.design_read.run({ id: "welcome" }),
-    () => tools.design_apply.run({ id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] }),
-    () => tools.design_export.run({ id: "welcome", format: "json" }),
-    () => api.list({ ...request, format: "design" }),
-    () => api.addComments({ ...request, comments: [{ design: { id: "welcome", version: 1 }, text: "Hidden" }] }),
-
-    () => tools.artifact_resolve_comment.run({ id: comment.id, note: "Done" }),
-  ];
-  for (const call of calls) await assert.rejects(call(), /Designs are off/);
-  assert.deepEqual(await api.list(request), []);
-  assert.deepEqual(await api.comments(request), []);
+  assert.equal((await api.list({ ...request, format: "design" })).length, 1);
+  assert.equal((await api.comments(request)).length, 1);
+  await tools.artifact_resolve_comment.run({ id: comment.id, note: "Done" });
+  assert.equal((await api.comments(request))[0].resolved.note, "Done");
   const restarted = createChatArtifacts({ directory, validateChat: async () => {} });
-  assert.equal(restarted.enabled(), false);
-  await restarted.setEnabled(true);
   assert.equal((await restarted.get(request)).version, 1);
   assert.equal((await restarted.comments(request)).length, 1);
-  assert.equal((await restarted.comments(request))[0].resolved, undefined);
-  await restarted.setEnabled(false);
   await restarted.removeChat(CHAT);
-  await restarted.setEnabled(true);
   assert.deepEqual(await restarted.list(request), []);
-});
-
-test("turning Designs off is ordered with accepted writes and rejects queued later writes", async (t) => {
-  const { api } = await fixture(t);
-  const first = api.showDesign({ chatId: CHAT, id: "welcome", title: "Welcome", document: designDocument() });
-  const off = api.setEnabled(false);
-  const later = api.apply({ chatId: CHAT, id: "welcome", expectedVersion: 1, operations: [{ op: "delete", id: "heading" }] });
-  assert.equal((await first).version, 1);
-  assert.deepEqual(await off, { enabled: false });
-  await assert.rejects(later, /Designs are off/);
-  await api.setEnabled(true);
-  assert.equal((await api.get({ chatId: CHAT, id: "welcome" })).version, 1);
-  await assert.rejects(api.setEnabled("false"), /boolean/);
-  assert.equal(api.enabled(), true);
 });
 
 test("legacy HTML reopens as one current artifact and keeps old files and comments", async (t) => {
@@ -114,10 +86,9 @@ test("legacy HTML reopens as one current artifact and keeps old files and commen
   );
   assert.equal((await api.comments({ chatId: CHAT })).length, 3);
   await api.resolveComment({ chatId: CHAT, id: "00000001", note: "Updated the live artifact" });
-  await api.setEnabled(false);
   assert.deepEqual(
     (await api.comments({ chatId: CHAT })).map((comment) => comment.id),
-    ["00000001", "00000002"],
+    ["00000001", "00000002", "00000003"],
   );
   assert.equal((await api.list({ chatId: CHAT }))[0].id, "split");
   assert.equal((await api.get({ chatId: CHAT, id: "old", version: 1 })).html, "<p>Newer</p>");
@@ -126,10 +97,9 @@ test("legacy HTML reopens as one current artifact and keeps old files and commen
   assert.equal(await fs.readFile(path.join(split, "v1.html"), "utf8"), "<p>Newer</p>", "legacy HTML remains recoverable on disk");
 });
 
-test("HTML tool updates one live page independently of Designs, without version history", async (t) => {
+test("HTML tool updates one live page without version history", async (t) => {
   const { api, directory } = await fixture(t);
   const tools = Object.fromEntries([...htmlArtifactToolDefinitions(CHAT, api), ...artifactCommentToolDefinitions(CHAT, api)].map((tool) => [tool.name, tool]));
-  await api.setEnabled(false);
   const first = JSON.parse(await tools.artifact_show.run({ title: "Explainer", html: "<p>One</p>" }));
   const updated = JSON.parse(await tools.artifact_show.run({ id: "different-id", title: "Updated", html: "<p>Two</p>" }));
   assert.equal(updated.id, first.id);
@@ -152,8 +122,6 @@ test("HTML tool updates one live page independently of Designs, without version 
   await tools.artifact_show.run({ title: "Updated again", html: "<p>Three</p>" });
   await tools.artifact_resolve_comment.run({ id: comment.id, note: "Expanded explanation" });
   assert.equal(JSON.parse(await tools.artifact_comments.run({ all: true }))[0].resolved.note, "Expanded explanation");
-  await assert.rejects(api.pageSnapshot({ chatId: CHAT, title: "Designs" }), /Designs are off/);
-  await api.setEnabled(true);
   await api.showDesign({ chatId: CHAT, id: "screen", title: "Screen", document: designDocument() });
   await assert.rejects(tools.artifact_show.run({ id: "screen", title: "Overwrite", html: "<p>x</p>" }), /separate formats/);
   await assert.rejects(tools.artifact_read.run({ id: "screen" }), /separate formats/);
@@ -165,7 +133,6 @@ test("HTML feedback survives edits made while the comment is being composed", as
   const { api } = await fixture(t);
   const first = await api.show({ chatId: CHAT, title: "Explainer", html: "<p>One</p>" });
   await api.show({ chatId: CHAT, title: "Explainer", html: "<p>Two</p>" });
-  await api.setEnabled(false);
   const [comment] = await api.addComments({
     chatId: CHAT,
     comments: [{ id: "12345678", design: first, text: "Explain this paragraph" }],
@@ -360,14 +327,11 @@ test("deleting a design removes every version and its comments, and its id is ne
   );
 });
 
-test("only a design is deleted, and only while Designs is on", async (t) => {
+test("only a design is deleted", async (t) => {
   const { api } = await fixture(t);
   const page = await api.show({ chatId: CHAT, title: "Page", html: "<p>hi</p>" });
   await assert.rejects(api.deleteDesign({ chatId: CHAT, id: page.id }), /separate formats/);
   await api.showDesign({ chatId: CHAT, id: "a", title: "First", document: designDocument() });
-  await api.setEnabled(false);
-  await assert.rejects(api.deleteDesign({ chatId: CHAT, id: "a" }), /Designs are off/);
-  await api.setEnabled(true);
   await assert.rejects(api.deleteDesign({ chatId: "/repo#4", id: "a" }), /no longer available/);
   assert.equal((await api.list({ chatId: CHAT, format: "design" })).length, 1);
 });

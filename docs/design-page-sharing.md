@@ -27,7 +27,7 @@ The public Artifact is a responsive iframe with `sandbox="allow-scripts"`. Inlin
 
 Desktop and mobile use `artifact:page-shares`, `artifact:share-page` and `artifact:revoke-page-share`. Publishing requires the literal `acknowledgePublic: true`. Each command validates its Chat and page kind. The Designs flag applies only to structured pages. `artifact:sharing-status` checks the requested kind; both UIs hide Share while publication is unavailable.
 
-Settings > Experimental > Published pages uses owner-only `artifact:all-page-shares` and `artifact:revoke-saved-page-share`. These work after the original Chat is deleted and while Designs is off. Unreadable history files are skipped with a host warning so other pages remain manageable. Confined demo phones cannot publish, revoke, inspect global history or query sharing status. Mobile remains review-only for design editing.
+Settings > Milagre > Published pages uses owner-only `artifact:all-page-shares` and `artifact:revoke-saved-page-share`. These work after the original Chat is deleted. Unreadable history files are skipped with a host warning so other pages remain manageable. Confined demo phones cannot publish, revoke, inspect global history or query sharing status. Mobile remains review-only for design editing.
 
 The production origin is `https://share.milagre.cloud`. Isolated runtimes can inject `designSharing.origin` and a fetch implementation for local checks. This change does not deploy the Worker or publish an app update.
 

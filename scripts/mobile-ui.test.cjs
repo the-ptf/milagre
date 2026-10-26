@@ -9739,6 +9739,7 @@ function loadSettings(state) {
     "../push": { usePush: () => ({ state: { enabled: true } }) },
     "../update-sheet": { useAppUpdates: () => ({ state: { status: "up-to-date" }, check: async () => {} }) },
     "../icons": { Icon: "Icon" },
+    "../milagre-mark": { MilagreMark: "MilagreMark" },
     // Group and Row are drawn by settings-list; the test reads their props.
     "../settings-list": { Group: function Group() {}, Row: "Row" },
     "../use-computer-status": { useComputerStatus: () => state.reachability ?? {} },
@@ -9824,7 +9825,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
           ["Connections", "Linear"],
           ["Skills", ""],
           ["MCP", ""],
-          ["Milagre MCP", ""],
+          ["Milagre", ""],
         ],
       ],
       ["Projects", [["milagre", ""]]],
@@ -9874,21 +9875,29 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
   assert.deepEqual(routed, ["routines", "computers"]);
   // The version line closes the page.
   assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "0.1.0 · 31 · d3dac403 · 5f83390"));
-  const page = (file, title, section, name) => {
+  const page = (file, title, section, name, extra = {}) => {
     const { default: Screen } = load(file, {
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "expo-router": { Stack: { Screen: "Screen" } },
       "react-native": { Text: "Text", View: "View" },
       "../ui": { PageScroll: "PageScroll", useStyles: () => ({}) },
       [`../${section}`]: { [name]: name },
+      ...extra,
     });
     const rendered = Screen();
     assert.equal(find(rendered, (n) => n.type === "Screen").props.options.title, title);
     assert.ok(find(rendered, (n) => n.type === name));
+    return rendered;
   };
   page("app/(settings)/general.tsx", "General", "general-section", "GeneralSection");
   page("app/(settings)/connections.tsx", "Connections", "linear-section", "LinearSection");
-  page("app/(settings)/local-mcp.tsx", "Milagre MCP", "local-mcp-section", "LocalMcpSection");
+  // Milagre: Designs and artifacts first, then the Milagre MCP.
+  const milagre = page("app/(settings)/local-mcp.tsx", "Milagre", "local-mcp-section", "LocalMcpSection", {
+    "../published-pages-section": { PublishedPagesSection: "PublishedPagesSection" },
+    "../theme": { useTheme: () => ({ colors: {} }) },
+  });
+  assert.ok(find(milagre, (n) => n.type === "PublishedPagesSection"));
+  assert.ok(find(milagre, (n) => n.type === "Text" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
 });
 
@@ -11082,30 +11091,23 @@ test("Composer restores model and permission defaults after relaunch without a p
   assert.equal(defaults.pickedOn, undefined);
 });
 
-test("the phone Designs setting keeps the last confirmed value through refresh, failed saves and reconnects", async () => {
+test("the phone Designs setting keeps the last confirmed value through refresh and reconnects", async () => {
   const { createDesignsSetting } = require("../apps/mobile/src/designs-setting.ts");
-  let read = deferred(),
-    save = deferred();
+  let read = deferred();
   const calls = [];
   const setting = createDesignsSetting({
     call(method, args) {
       calls.push([method, args]);
-      return method.endsWith(":read") ? read.promise : save.promise;
+      return read.promise;
     },
   });
+  // An older Mac can still report Designs off.
   const first = setting.refresh();
   assert.equal(setting.getSnapshot().enabled, null);
   read.resolve({ enabled: false });
   await first;
   assert.equal(setting.getSnapshot().stale, false);
-  const pending = setting.save(true);
-  assert.equal(setting.getSnapshot().enabled, false, "enabling waits for the host's acknowledgement");
-  assert.equal(setting.getSnapshot().saving, true);
-  save.reject(new Error("Mac disconnected"));
-  await pending;
-  assert.equal(setting.getSnapshot().enabled, false, "a failed enable keeps the last confirmed OFF value");
-  assert.equal(setting.getSnapshot().stale, true);
-  assert.equal(setting.getSnapshot().error, "Mac disconnected");
+  assert.equal(setting.getSnapshot().enabled, false);
   read = deferred();
   const retry = setting.refresh();
   read.resolve({ enabled: true });
@@ -11119,11 +11121,6 @@ test("the phone Designs setting keeps the last confirmed value through refresh, 
   await checking;
   assert.equal(setting.getSnapshot().enabled, true);
   assert.equal(setting.getSnapshot().error, "Offline");
-  save = deferred();
-  const failedDisable = setting.save(false);
-  save.reject(new Error("Not permitted"));
-  await failedDisable;
-  assert.equal(setting.getSnapshot().enabled, true, "a failed disable also keeps the last confirmed value");
   read = deferred();
   const stale = setting.refresh();
   setting.unavailable("Reconnect");
@@ -11138,7 +11135,10 @@ test("the phone Designs setting keeps the last confirmed value through refresh, 
   await reconnected;
   assert.equal(setting.getSnapshot().enabled, false, "confirmed remote OFF applies while the last value was ON");
   assert.equal(setting.getSnapshot().stale, false);
-  assert.deepEqual(calls[1], ["designs:enabled:save", [true]]);
+  assert.ok(
+    calls.every(([method]) => method === "designs:enabled:read"),
+    "the phone only reads the setting",
+  );
   setting.dispose();
   const unsupported = createDesignsSetting({ call: async () => null });
   await unsupported.refresh();
@@ -11722,7 +11722,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.ok(find(tree, (n) => n.props?.children === "Published pages"));
 });
 
-test("mobile Published pages entry requires owner access and remains available when Designs is off", async () => {
+test("mobile Published pages entry requires owner access", async () => {
   for (const allowed of [true, false]) {
     const react = hookHost();
     const focuses = [];
@@ -11737,52 +11737,34 @@ test("mobile Published pages entry requires owner access and remains available w
           return null;
         },
       },
-      designs: { ...designsOn },
     };
-    const { ExperimentalSection } = load("experimental-section.tsx", {
+    const { PublishedPagesSection } = load("published-pages-section.tsx", {
       react,
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": { View: "View", Text: "Text" },
-      "@milagre/shared/linear": {},
-      "@milagre/shared/themes": { DEFAULT_THEME_ID: "milagre-blue" },
       "expo-router": {
         useFocusEffect: (fn) => focuses.push(fn),
         router: { push: (path) => pushed.push(path) },
       },
-      "./custom-theme-section": { CustomThemeSection: "CustomThemeSection" },
-      "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
-      "./push": { usePush: () => ({ state: null }) },
-      "./icons": { Icon: "Icon" },
-      "@hugeicons/core-free-icons": {},
-      "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
-      "./floating-inbox-setting": {
-        useFloatingInbox: () => [false, () => {}],
-        useFloatingInboxActivity: () => [true, () => {}],
-      },
-      "./ultracode-fatality-setting": {
-        useUltracodeFatality: () => [false, () => {}],
-      },
       "./session": { useSession: () => session },
-      "./ui": { Toggle: "Toggle", ListRow: "ListRow" },
+      "./ui": { ListRow: "ListRow", useStyles: () => ({}) },
     });
     const render = () => {
       react.begin();
-      return ExperimentalSection();
+      return PublishedPagesSection();
     };
-    render();
+    // Nothing shows while the Mac is asked, so a refused owner check never flashes the row.
+    assert.equal(render(), null);
     focuses[0]();
-    await new Promise((resolve) => setImmediate(resolve));
-    const row = find(render(), (n) => n.props?.title === "Published pages");
+    await settle();
+    const tree = render();
+    const row = find(tree, (n) => n.props?.title === "Published pages");
     assert.equal(!!row, allowed);
+    assert.equal(!!find(tree, (n) => n.type === "Toggle"), false, "Designs can't be turned off");
     if (allowed) {
       row.props.onPress();
       assert.deepEqual(pushed, ["/published-pages"]);
-    }
-    session.designs.enabled = false;
-    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
-    focuses.at(-1)();
-    await settle();
-    assert.equal(!!find(render(), (n) => n.props?.title === "Published pages"), allowed);
+    } else assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Only the Mac's owner can manage its published pages."));
   }
 });
 

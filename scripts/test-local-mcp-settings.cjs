@@ -54,8 +54,11 @@ async function browserChecks() {
     win.show();
     win.focus();
     await waitFor(`document.hasFocus()`);
-    await waitFor(`document.querySelectorAll('[role=switch]').length===8`);
-    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Milagre MCP");
+    await waitFor(`document.querySelectorAll('[data-local-mcp] [role=switch]').length===8`);
+    // Milagre holds Published pages above its MCP, and no Designs switch.
+    assert.equal(await evaluate(`document.querySelector('[data-slot=published-pages-setting]').textContent.includes('Published pages')`), true);
+    assert.equal(await evaluate(`!!document.querySelector('[role=switch][aria-label="Designs"]')`), false);
+    assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Milagre");
     assert.equal(await evaluate(`!!document.querySelector('form')`), false);
     assert.equal(await evaluate(`!!document.querySelector('#custom-mcp-settings')`), false);
     assert.equal(await evaluate(`document.body.textContent.includes('Create MCP config')`), false);

@@ -28,7 +28,7 @@ export default function PublishedPagesScreen() {
         ) : (
           <View style={{ padding: 20, gap: 16 }}>
             <Text style={styles.muted}>Connect to a Mac to manage its published pages.</Text>
-            <PillButton title="Back to Experimental" onPress={() => router.back()} />
+            <PillButton title="Back to Milagre" onPress={() => router.back()} />
           </View>
         )}
       </View>

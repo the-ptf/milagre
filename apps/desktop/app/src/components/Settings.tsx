@@ -1,6 +1,5 @@
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
-import { useDesignsEnabled } from "../lib/designs-enabled";
 import { useBots } from "../lib/bots-store";
 import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
@@ -12,6 +11,7 @@ import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
 import { Switch } from "./primitives/Switch";
 import { LocalMcpSettings } from "./LocalMcpSettings";
+import { MilagreMark } from "./MilagreMark";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   LINEAR_ADD_WORKSPACE,
@@ -48,7 +48,6 @@ import {
   Plug01Icon,
   RepeatIcon,
   SecurityCheckIcon,
-  ServerIcon,
   Settings01Icon,
   SmartphoneIcon,
   UserCircleIcon,
@@ -147,7 +146,7 @@ const SECTIONS: Array<{ key: SettingsSection; label: string; icon: ReactNode }> 
   { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
   { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
   { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
-  { key: "local-mcp", label: "Milagre MCP", icon: <Icon icon={ServerIcon} /> },
+  { key: "local-mcp", label: "Milagre", icon: <MilagreMark /> },
   { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} /> },
   { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
   { key: "privacy", label: "Privacy & AI", icon: <Icon icon={SecurityCheckIcon} /> },
@@ -571,25 +570,17 @@ function NotificationChimeSetting() {
   );
 }
 
-export function DesignsSettings() {
-  const designs = useDesignsEnabled();
+/** Every public link to a design or artifact this computer published, revocable even after its Chat is deleted. */
+function PublishedPagesSettings() {
   const [publishedPages, setPublishedPages] = useState(false);
   return (
-    <div data-slot="designs-setting">
-      <Row label="Designs" description="Create editable designs in Chat.">
-        <Switch label="Designs" checked={designs.enabled} disabled={!designs.ready || designs.saving} onChange={(enabled) => void designs.save(enabled)} />
-      </Row>
-      <Row label="Published pages" description="Manage public links, including pages from deleted Chats.">
+    <div data-slot="published-pages-setting">
+      <Row label="Published pages" description="Manage public links to designs and artifacts, including pages from deleted Chats.">
         <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
           Manage
         </button>
       </Row>
       {publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
-      {designs.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
-          {designs.error}
-        </p>
-      )}
     </div>
   );
 }
@@ -675,7 +666,6 @@ function ExperimentalSettings() {
   return (
     <>
       <Group title="Beta">
-        <DesignsSettings />
         <Row
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."
@@ -2365,7 +2355,15 @@ export function SettingsPanel({
             <p className="mt-6 text-[13px] text-ink-3">Open a project to see its skills.</p>
           ))}
         {section === "mcp" && <McpSettings title={title} />}
-        {section === "local-mcp" && <LocalMcpSettings bridge={window.milagre} />}
+        {section === "local-mcp" && (
+          <>
+            <Group title="Designs and artifacts">
+              <PublishedPagesSettings />
+            </Group>
+            <h2 className="mt-6 px-1 text-[12px] font-medium text-ink-3">Milagre MCP</h2>
+            <LocalMcpSettings bridge={window.milagre} />
+          </>
+        )}
         {section === "devices" && <DevicesSettings onAddComputer={onAddComputer} />}
         {section === "experimental" && <ExperimentalSettings />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}

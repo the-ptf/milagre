@@ -2,11 +2,11 @@ import { useSyncExternalStore } from "react";
 import type { MilagreBridge } from "../electron.d.ts";
 import { bridgeForKey } from "./computer-bridge.ts";
 
-type State = { enabled: boolean; ready: boolean; saving: boolean; error: string };
-type Store = { subscribe: (listener: () => void) => () => void; snapshot: () => State; save: (enabled: boolean) => Promise<void> };
+type State = { enabled: boolean; ready: boolean; error: string };
+type Store = { subscribe: (listener: () => void) => () => void; snapshot: () => State };
 const stores = new WeakMap<MilagreBridge, Store>();
-const initial: State = { enabled: false, ready: false, saving: false, error: "" };
-const unavailable: Store = { subscribe: () => () => {}, snapshot: () => initial, save: async () => {} };
+const initial: State = { enabled: false, ready: false, error: "" };
+const unavailable: Store = { subscribe: () => () => {}, snapshot: () => initial };
 // A busy or reconnecting host rejects a read (the client turns calls away past 32 pending, or one times out), so a
 // failed read is asked again, sooner first.
 const RETRY_MS = [500, 1000, 2000, 5000, 10_000];
@@ -76,29 +76,14 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
         }
       };
     },
-    save: async (enabled) => {
-      if (state.saving || !state.ready) return;
-      const saving = ++revision;
-      update({ saving: true, error: "" });
-      try {
-        const result = await bridge.saveDesignsEnabled(enabled);
-        if (saving === revision) update({ enabled: result.enabled === true });
-      } catch (cause) {
-        update({
-          error: cause instanceof Error ? cause.message : "Could not change the Designs setting.",
-        });
-      } finally {
-        update({ saving: false });
-      }
-    },
   };
   stores.set(bridge, store);
   return store;
 }
 
-/** The Chat's host owns this switch. Unknown and older hosts never expose a legacy design fallback. */
+/** Whether the Chat's host has Designs: always, unless it runs an older Milagre with Designs off. Unknown hosts never
+ * expose a legacy design fallback. */
 export function useDesignsEnabled(key?: string | null) {
   const store = designsEnabledStore(bridgeForKey(key));
-  const state = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
-  return { ...state, save: store.save };
+  return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }

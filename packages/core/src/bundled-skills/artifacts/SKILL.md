@@ -17,4 +17,4 @@ For a flowchart, sequence, state, class or ER diagram, a timeline, a Gantt or pi
 
 ## Comments
 
-The user can comment on the page. A comment pinned on it says where, as a share of the page across and down, and quotes the text near the spot ("near ..."): find the spot by that text, since the page may lay out differently on their screen. After addressing a comment, call `artifact_resolve_comment` with its id and a short note. Artifacts remain available when Designs is off. Sharing publishes a frozen copy of the current page; later edits stay private until published again. Only the user can publish through the sharing controls.
+The user can comment on the page. A comment pinned on it says where, as a share of the page across and down, and quotes the text near the spot ("near ..."): find the spot by that text, since the page may lay out differently on their screen. After addressing a comment, call `artifact_resolve_comment` with its id and a short note. Sharing publishes a frozen copy of the current page; later edits stay private until published again. Only the user can publish through the sharing controls.

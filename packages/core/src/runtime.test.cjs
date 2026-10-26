@@ -37,30 +37,26 @@ async function fixture(t) {
   return { project, dataDir, events, options, make };
 }
 
-test("the host Designs switch defaults on, broadcasts saves, gates API calls and persists across restarts", async (t) => {
+test("the host Designs switch is always on, so saving it off changes nothing", async (t) => {
   const { make, events } = await fixture(t);
   const runtime = make();
   assert.deepEqual(await runtime.invoke("designs:enabled:read"), { enabled: true });
   const bundled = path.join(__dirname, "bundled-skills", "design", "SKILL.md");
   const allSkills = await runtime.invoke("skills:list", [null]);
   assert.ok([...allSkills.skills, ...allSkills.shadowed].some((skill) => skill.path === bundled));
-  assert.deepEqual(await runtime.invoke("designs:enabled:save", [false]), { enabled: false });
-  assert.deepEqual(events.find((event) => event.channel === "designs:enabled-changed").payload, { enabled: false });
+  assert.deepEqual(await runtime.invoke("designs:enabled:save", [false]), { enabled: true });
+  assert.deepEqual(await runtime.invoke("designs:enabled:read"), { enabled: true });
+  assert.equal(
+    events.find((event) => event.channel === "designs:enabled-changed"),
+    undefined,
+  );
   await assert.rejects(runtime.invoke("artifact:list", [{ chatId: "/unopened#1" }]), /existing Chat/);
-  await assert.rejects(runtime.invoke("artifact:page-shares", [{ chatId: "/unopened#1" }]), /Designs are off/);
-  await assert.rejects(runtime.invoke("artifact:share-page", [{ chatId: "/unopened#1", title: "Designs", acknowledgePublic: true }]), /Designs are off/);
-  await assert.rejects(runtime.invoke("artifact:revoke-page-share", [{ chatId: "/unopened#1", id: "x".repeat(43) }]), /Designs are off/);
   await assert.rejects(runtime.invoke("artifact:add-comments", [{}]), /existing Chat/);
-  const disabledSkills = await runtime.invoke("skills:list", [null]);
-  assert.ok(![...disabledSkills.skills, ...disabledSkills.shadowed].some((skill) => skill.path === bundled));
-  assert.ok([...disabledSkills.skills, ...disabledSkills.shadowed].some((skill) => skill.name === "artifacts"));
-  await assert.rejects(runtime.invoke("skills:read", [null, bundled]), /no longer there/);
-  await assert.rejects(runtime.invoke("designs:enabled:save", ["yes"]), /boolean/);
+  const skills = await runtime.invoke("skills:list", [null]);
+  assert.ok([...skills.skills, ...skills.shadowed].some((skill) => skill.path === bundled));
   await runtime.close();
   const restarted = make();
-  assert.deepEqual(await restarted.invoke("designs:enabled:read"), { enabled: false });
-  assert.deepEqual(await restarted.invoke("designs:enabled:save", [true]), { enabled: true });
-  await assert.rejects(restarted.invoke("artifact:list", [{ chatId: "/unopened#1" }]), /existing Chat/);
+  assert.deepEqual(await restarted.invoke("designs:enabled:read"), { enabled: true });
 });
 
 test("page sharing RPCs validate the existing Chat and preserve the public confirmation boundary", async (t) => {
