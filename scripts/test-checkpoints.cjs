@@ -130,11 +130,12 @@ async function browserChecks() {
     await devtools.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
     return style;
   };
-  // Materialize every format before the tests replace the system clipboard.
+  // Materialize every format before the tests replace the system clipboard. An empty clipboard (CI's Linux) reads as an
+  // item with no types, which ClipboardItem refuses.
   const previousClipboard = await Promise.all(
-    (await clipboard.read()).map(
-      async (item) => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async (type) => [type, await item.getType(type)])))),
-    ),
+    (await clipboard.read())
+      .filter((item) => item.types.length)
+      .map(async (item) => new ClipboardItem(Object.fromEntries(await Promise.all(item.types.map(async (type) => [type, await item.getType(type)]))))),
   );
   let exitCode = 0;
   try {
