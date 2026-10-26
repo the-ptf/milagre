@@ -62,7 +62,7 @@ import {
   sessionIdFromKey,
 } from "./lib/agent-runs";
 import { attachmentPrompt } from "./lib/media";
-import { BLOCKERS, pullRequestAction } from "./lib/pr-blockers";
+import { BLOCKERS, pullRequestAction, rowPullRequests } from "./lib/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
@@ -81,7 +81,7 @@ import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
 import { DiffToolbar, useDiffPreferences, useDiffPresence } from "./components/changes/DiffPrefs";
 import { useChanges } from "./components/changes/useChanges";
-import { usePullRequest, useReviewGuide } from "./components/changes/usePullRequest";
+import { useLocalChanges, usePullRequest, useReviewGuide } from "./components/changes/usePullRequest";
 import { PullRequestPanelBody, type PullRequestPanelActions } from "./components/changes/PullRequestPanel";
 import { ReviewGuideView } from "./components/changes/ReviewGuideView";
 import type { ThreadActions } from "./components/changes/PullRequestReview";
@@ -706,15 +706,19 @@ function App() {
   const branchPr = selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
   const prChatKey = project && selectedSession ? chatKey(project.path, selectedSession.id) : null;
   const [prWanted, setPrWanted] = useState(false);
-  const prReview = usePullRequest({ cwd: selectedWorktree?.path, number: branchPr?.number, active: prWanted, bridge: bridgeForKey(prChatKey) });
+  // A PR picked in the panel's menu (or opened from a row's PR chip), over the branch's own, while its Chat is open.
+  const [prPick, setPrPick] = useState<{ chat: string; number: number } | null>(null);
+  const prNumber = prPick && prPick.chat === prChatKey ? prPick.number : branchPr?.number;
+  const prReview = usePullRequest({ cwd: selectedWorktree?.path, number: prNumber, active: prWanted, bridge: bridgeForKey(prChatKey) });
   const changes = useChanges({
     cwd: selectedWorktree?.path,
     base: selectedWorktree?.base,
     chatId: prChatKey,
     available: view === "chat" && Boolean(selectedSession && selectedWorktree),
-    pullRequest: branchPr ? { number: branchPr.number, range: prRange(prReview.pr) } : undefined,
+    pullRequest: prNumber ? { number: prNumber, range: prRange(prReview.pr) } : undefined,
   });
   const prShown = changes.open && changes.mode === "pr";
+  const localChanges = useLocalChanges({ cwd: selectedWorktree?.path, active: prShown, bridge: bridgeForKey(prChatKey) });
   useEffect(() => setPrWanted(prShown), [prShown]);
   const prGuide = useReviewGuide({ cwd: selectedWorktree?.path, pr: prReview.pr, active: prShown, bridge: bridgeForKey(prChatKey) });
   const [guideStop, setGuideStop] = useState(0);
@@ -1863,8 +1867,10 @@ function App() {
   const openRowPullRequest = useEvent((item: { id: string; details?: { path?: string } }, pr: { number: number }) => {
     const path = item.details?.path;
     const session = state?.sessions[Number(item.id)];
-    if (!project || !path || !session || pullRequests[path]?.number !== pr.number || state?.worktrees[session.worktree_id]?.path !== path) return false;
-    openChatByKey(chatKey(project.path, session.id));
+    if (!project || !path || !session || state?.worktrees[session.worktree_id]?.path !== path) return false;
+    const key = chatKey(project.path, session.id);
+    openChatByKey(key);
+    setPrPick({ chat: key, number: pr.number });
     changes.showPullRequest();
     return true;
   });
@@ -2016,7 +2022,7 @@ function App() {
           toggleTheme();
         } else if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
           event.preventDefault();
-          changes.toggle();
+          changes.toggleDefault();
         } else if (event.key.toLowerCase() === "l") {
           event.preventDefault();
           changes.closeDiff();
@@ -2799,7 +2805,7 @@ function App() {
             )}
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          {changesAvailable && !botsShown && <ChangesToggle open={changes.open} onToggle={changes.toggle} />}
+          {changesAvailable && !botsShown && <ChangesToggle open={changes.open} onToggle={changes.toggleDefault} />}
           {!botsShown && <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />}
           {view === "chat" && !botsShown && (
             <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
@@ -3232,15 +3238,18 @@ function App() {
                   if (changes.mode === "pr") {
                     void prReview.refresh();
                     void prGuide.refresh();
+                    localChanges.refresh();
                   }
                 }}
                 onSelectFile={changes.selectFile}
                 activePath={changes.activePath}
                 commentCounts={diffComments.counts}
                 pullRequest={
-                  branchPr
+                  prNumber
                     ? {
-                        number: branchPr.number,
+                        number: prNumber,
+                        choices: rowPullRequests(selectedPullRequests),
+                        onPick: (number) => prChatKey && setPrPick({ chat: prChatKey, number }),
                         totals: prReview.pr ? { added: prReview.pr.additions, removed: prReview.pr.deletions } : undefined,
                         loading: prReview.state.status === "loading" || prReview.busy !== null,
                         body: (
@@ -3251,6 +3260,7 @@ function App() {
                             activePath={changes.activePath}
                             guideOpen={guideShowing}
                             guideStop={guideStop}
+                            local={{ count: localChanges.count, onOpen: () => changes.setMode("uncommitted") }}
                           />
                         ),
                       }
