@@ -555,3 +555,26 @@ test("fresh Chat lists go to the session only for its own computer's live client
   );
   assert.ok(seeded.length > 2, "the new client's read is handed over");
 });
+
+test("Choose projects hides and shows another computer's Project in what its view lists", async () => {
+  const clients = { "https://a": fakeClient("https://a"), "https://b": fakeClient("https://b") };
+  const { store, settle } = setup(clients);
+  store.sync([host("https://a"), host("https://b")], null);
+  store.show();
+  await settle();
+  const before = store.viewOf("https://a");
+  store.setProjectHidden("https://b", "/a", true);
+  assert.equal(store.viewOf("https://a"), before, "the other computer's view is untouched");
+  assert.deepEqual(
+    store.viewOf("https://b")?.projects.map((item) => [item.path, !!item.hidden]),
+    [
+      ["/a", true],
+      ["/b", false],
+    ],
+  );
+  const hidden = store.viewOf("https://b");
+  store.setProjectHidden("https://b", "/a", true);
+  assert.equal(store.viewOf("https://b"), hidden, "setting what is already so publishes nothing");
+  store.setProjectHidden("https://b", "/a", false);
+  assert.equal(store.viewOf("https://b")?.projects[0]?.hidden, undefined);
+});

@@ -92,6 +92,24 @@ export function useAllComputers({ visible, expandAll }: { visible: boolean; expa
   return useMemo(() => allComputers.views(), [versions]);
 }
 
+/**
+ * Every shown computer's Projects as the sidebars last read them, for Choose projects. Reads nothing itself: the
+ * sidebar that opened it keeps them read.
+ */
+export function useComputerViews(): HostView[] {
+  const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- versions changes exactly when a view does.
+  return useMemo(() => allComputers.views(), [versions]);
+}
+
+/** Saves a Project hidden or shown on this phone for another computer than the session's, and lists it so. */
+export async function setOtherComputerProjectHidden(hostId: string, path: string, hidden: boolean) {
+  if (process.env.EXPO_PUBLIC_DEMO !== "1") await savedHiddenProjects.setHidden(hostId, path, hidden);
+  allComputers.setProjectHidden(hostId, path, hidden);
+  // A Project shown again has no Chats read yet; read it now instead of on the next poll.
+  if (!hidden) void allComputers.refreshProject(hostId, path).catch(() => {});
+}
+
 /** The Projects a new Chat can start in, on every shown computer, as the sidebars last read them. Reads nothing itself. */
 export function useNewChatProjects(): NewChatProject[] {
   const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);

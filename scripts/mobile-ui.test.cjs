@@ -3767,11 +3767,11 @@ test("Choose projects opens as a sheet over the sidebar instead of closing it", 
   assert.deepEqual(nav.secondaryRoutes, ["sheet"]);
 });
 
-function chooseProjectsHost(setProjectHidden, call = async () => {}) {
+function chooseProjectsHost(setProjectHidden, call = async () => {}, { url, views = [], otherHidden = async () => {} } = {}) {
   const react = hookHost();
   const link = { id: "checkout", name: "Checkout", projectIds: ["shop", "api"] };
   const session = {
-    client: { call },
+    client: { call, url },
     recent: [
       { path: "/shop", name: "shop" },
       { path: "milagre-link:checkout", name: "Checkout", link, projects: [] },
@@ -3784,6 +3784,11 @@ function chooseProjectsHost(setProjectHidden, call = async () => {}) {
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
     "expo-router": { router: { back() {} } },
     "../session": { useSession: () => session },
+    "../all-computers": {
+      allComputers: { clientFor: () => null },
+      setOtherComputerProjectHidden: otherHidden,
+      useComputerViews: () => views,
+    },
     "../project-icon": { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" },
     "../ui": { ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
@@ -3834,6 +3839,38 @@ test("a failed phone visibility change restores the checkbox and shows the error
   await host.row().props.onPress();
   assert.equal(host.row().props.accessibilityState.checked, true);
   assert.equal(find(host.render(), (node) => node.type === "ErrorNotice").props.message, "Could not save on device");
+});
+
+const computerView = (hostId, name, projects, extra = {}) => ({ hostId, name, projects, loaded: true, state: "online", ...extra });
+
+test("Choose projects lists every computer under its name and saves a hide for the computer it belongs to", async () => {
+  const own = [];
+  const other = [];
+  const host = chooseProjectsHost(async (path, hidden) => own.push([path, hidden]), undefined, {
+    url: "https://studio",
+    views: [
+      computerView("https://studio", "Studio Mac", []),
+      computerView("https://air", "MacBook Air", [{ path: "/blog", name: "blog" }]),
+      computerView("https://old", "Old Mac", [], { loaded: false, state: "offline" }),
+    ],
+    otherHidden: async (hostId, path, hidden) => other.push([hostId, path, hidden]),
+  });
+  const tree = host.render();
+  const headers = [];
+  find(tree, (node) => {
+    if (node.props?.accessibilityRole === "header" && node.props.children !== "Choose projects") headers.push(node.props.children);
+    return false;
+  });
+  same(headers, ["Studio Mac", "MacBook Air", "Old Mac"]);
+  assert.ok(
+    find(tree, (node) => node.props?.children === "Offline. Its Projects show here once it answers."),
+    "a computer that never answered says so",
+  );
+  const blog = () => find(host.render(), (node) => node.props?.accessibilityRole === "checkbox" && node.props.accessibilityLabel === "blog");
+  await blog().props.onPress();
+  await host.row().props.onPress();
+  same(other, [["https://air", "/blog", true]]);
+  same(own, [["milagre-link:checkout", true]]);
 });
 
 test("a chat search with no matching title lists matching messages, and a tap opens their Chat", () => {

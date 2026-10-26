@@ -545,6 +545,17 @@ export function createAllComputersStore(deps: StoreDeps) {
     refreshHosts(ids: string[]): Promise<void> {
       return Promise.all(ids.map((id) => entries.get(id)).flatMap((entry) => (entry ? [cycle(entry, true)] : []))).then(() => undefined);
     },
+    /** Hides or shows one of a computer's Projects in what the sidebar lists, as Choose projects saved it. */
+    setProjectHidden(hostId: string, path: string, hidden: boolean) {
+      const entry = entries.get(hostId);
+      if (!entry || !entry.projects.some((item) => item.path === path && !!item.hidden !== hidden)) return;
+      entry.projects = entry.projects.map((item) => {
+        if (item.path !== path) return item;
+        const { hidden: _hidden, ...rest } = item;
+        return hidden ? { ...rest, hidden: true } : rest;
+      });
+      publish(entry);
+    },
     /** Reads one Project again, after a Chat action changed it. */
     async refreshProject(hostId: string, path: string) {
       const entry = entries.get(hostId);
