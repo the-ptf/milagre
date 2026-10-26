@@ -41,6 +41,8 @@ import { ErrorNotice, PageScroll, PullDown, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { usePrDetail, usePrGuide, writePr } from "./pr-store";
 import { prefillChat, sendToChat } from "./pr-chat";
+import { isOldMacError } from "./file-mentions";
+import { useRpc } from "./use-rpc";
 import type { PrPage } from "./pr-nav";
 import {
   MERGE_METHODS,
@@ -119,6 +121,9 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
   const { colors } = useTheme();
   const { pr, error, loading, refresh } = usePrDetail(client, cwd, number);
   const guide = usePrGuide(client, cwd, pr?.url);
+  // A Mac from before the PR panel has no pr:* commands; the branch's PR (and its address) still comes from the older call.
+  const oldMac = !pr && isOldMacError(error);
+  const { data: branchPr } = useRpc<{ number: number; url: string } | null>(oldMac ? client : null, "worktree:pull-request", [cwd]);
   const [notice, setNotice] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -133,7 +138,17 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
     return (
       <View style={{ flex: 1 }}>
         {header}
-        {error ? (
+        {oldMac ? (
+          <View style={{ padding: 20, gap: 14 }}>
+            <Text style={[styles.label, { fontSize: 16 }]}>Update Milagre on this Mac to review PR #{number} here.</Text>
+            <Text style={styles.muted}>{"This Mac's Milagre is older than the PR panel."}</Text>
+            {branchPr?.number === number && branchPr.url && (
+              <View style={{ flexDirection: "row" }}>
+                <WideButton title="Open on GitHub" icon={LinkSquare02Icon} secondary onPress={() => void Linking.openURL(branchPr.url).catch(() => {})} />
+              </View>
+            )}
+          </View>
+        ) : error ? (
           <View style={{ padding: 20 }}>
             <ErrorNotice message={error} retry={refresh} retryTitle="Try again" />
           </View>
