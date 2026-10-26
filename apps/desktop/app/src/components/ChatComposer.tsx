@@ -67,6 +67,7 @@ import { insertImageMentions } from "../lib/file-mentions";
 import { mediaUrl } from "../lib/media";
 import { useRemoteMedia } from "../lib/remote-media";
 import { MediaLightbox } from "./motion/LazyMediaLightbox";
+import { ScrollArea } from "./primitives/ScrollArea";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
@@ -1285,7 +1286,7 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
-            className="chat-gutter mx-auto flex min-h-0 w-full max-w-[var(--chat-width)] flex-1 flex-col items-center px-3 pt-[max(48px,24vh)]"
+            className="chat-gutter mx-auto flex min-h-0 w-full max-w-[var(--chat-width)] flex-1 flex-col items-center px-3 pt-[max(48px,24vh)] [@container(max-height:560px)]:pt-4"
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
             <NewChatHeading
@@ -1458,7 +1459,8 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
-          {approval && <div className="mb-2 w-full">{approval}</div>}
+          {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
+          {approval && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
           {review.view !== "closed" && !isNewChat && (
             <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
           )}

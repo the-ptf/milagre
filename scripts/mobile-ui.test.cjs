@@ -215,6 +215,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules)) return { useSplit: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
+      // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
+      if (base === "split-chats" && !(id in modules))
+        return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -2544,6 +2547,7 @@ function chatHost({
       KeyboardChatScrollView: "KeyboardChatScrollView",
       KeyboardStickyView: "KeyboardStickyView",
       useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
     },
     "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
@@ -2608,7 +2612,10 @@ function chatHost({
   });
   const render = () => {
     react.begin();
-    const tree = ChatScreen();
+    // The screen holds the routed Chat's pane, and on a wide iPad a second one beside it, which a phone never shows.
+    const screen = ChatScreen();
+    const pane = find(screen, (node) => typeof node.type === "function" && node.props.pane);
+    const tree = pane.type(pane.props);
     react.flush();
     return tree;
   };
