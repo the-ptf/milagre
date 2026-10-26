@@ -49,7 +49,7 @@ const TILE_CONTROLS = "a, button, input, textarea, select, summary, label, img, 
  * in it does what that one does, a drag that selected text keeps its selection, and a click inside something the tile
  * opened through a portal (an image lightbox, a file viewer) never reaches the tile in the DOM, only through React.
  */
-export function clickFocusesTile(event: MouseEvent<HTMLElement>) {
+function clickFocusesTile(event: MouseEvent<HTMLElement>) {
   const tile = event.currentTarget;
   const target = event.target;
   if (!(target instanceof Element) || !tile.contains(target)) return false;
