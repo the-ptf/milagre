@@ -3078,6 +3078,7 @@ function App() {
                         activity={selectedSession ? chatActivity(selectedSession, run) : undefined}
                         plan={selectedSession?.plan}
                         contextUsage={run?.contextUsage ?? selectedSession?.contextUsage}
+                        suggestion={selectedSession?.provider === "claude" ? selectedSession.suggestion?.text : undefined}
                         ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
                         agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
                         onOpenDiff={(path) => {

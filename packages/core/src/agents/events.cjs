@@ -222,6 +222,20 @@ function textDelta(state, text, startsMessage = false) {
 // later user message ends it. Child messages go to the subagent track; only the Agent
 // call that started them is a step in the parent reply.
 function mapClaudeMessage(message, state) {
+  if (message.type === "system" && message.subtype === "init") state.suggestionTurnId = null;
+  if (message.type === "prompt_suggestion") {
+    if (
+      message.parent_tool_use_id != null ||
+      message.session_id !== state.sessionId ||
+      !state.suggestionTurnId ||
+      typeof message.suggestion !== "string" ||
+      !message.suggestion.trim()
+    )
+      return [];
+    const turnId = state.suggestionTurnId;
+    state.suggestionTurnId = null;
+    return [{ type: "prompt-suggestion", text: message.suggestion, turnId }];
+  }
   const events = claudeSubagents(message, state);
   // Claude Code answers a turn it can't authenticate with a reply of its own ("Not logged in · Please run
   // /login") marked authentication_failed, then a failed result.

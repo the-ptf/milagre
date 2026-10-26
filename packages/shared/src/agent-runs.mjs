@@ -138,8 +138,10 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       return split ? { ...runs, [chatId]: split } : runs;
     }
     // A turn this window didn't start, such as a steering message that arrived as the last turn ended.
-    case "turn-started":
-      return run ? runs : startRun(runs, chatId, model);
+    case "turn-started": {
+      const next = run ? runs : startRun(runs, chatId, model);
+      return event.turnId === undefined || next[chatId].turnId === event.turnId ? next : { ...next, [chatId]: { ...next[chatId], turnId: event.turnId } };
+    }
     case "permission-request": {
       if (!run) return runs;
       const { type: _type, ...request } = event;
@@ -214,10 +216,27 @@ export function applyRunEvent(runs, chatId, event, model = "") {
  */
 export function applyAgentEvent(state, runs, projectPath, chatId, event) {
   const sessionId = sessionIdFromKey(chatId);
-  const session = state.sessions[sessionId];
+  let session = state.sessions[sessionId];
   if (!chatInProject(projectPath, chatId) || !session) return { state, runs, changed: false };
   const run = runs[chatId];
+  // Input, reset and a new turn invalidate even a suggestion still in flight from the old turn.
+  const clearSuggestion = ["message-sent", "turn-started", "session-reset"].includes(event.type);
+  const suggestionChanged = clearSuggestion && (session.suggestion !== undefined || session.suggestionTurnId !== undefined);
+  if (suggestionChanged) {
+    const { suggestion: _suggestion, suggestionTurnId: _turn, ...rest } = session;
+    session = rest;
+    state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+  }
   switch (event.type) {
+    case "prompt-suggestion": {
+      if (run || session.provider !== "claude" || !event.turnId || event.turnId !== session.suggestionTurnId || !event.text.trim())
+        return { state, runs, changed: false };
+      return {
+        state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, suggestion: { text: event.text, turnId: event.turnId } } } },
+        runs,
+        changed: true,
+      };
+    }
     case "subagent-update": {
       if (event.agent.id === session.native_session_id) return { state, runs, changed: false };
       const children = (session.subagents ?? []).filter((agent) => agent.id !== session.native_session_id);
@@ -281,14 +300,16 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, native_session_id: event.nativeId } } }, runs, changed: true };
     }
     case "session-reset": {
-      if (!session.native_session_id) return { state, runs, changed: false };
+      if (!session.native_session_id) return { state, runs, changed: suggestionChanged };
       const { native_session_id: _forgotten, ...rest } = session;
       return { state: { ...state, sessions: { ...state.sessions, [sessionId]: rest } }, runs, changed: true };
     }
-    case "message-sent":
-      return run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
+    case "message-sent": {
+      const next = run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
+      return { ...next, changed: next.changed || suggestionChanged };
+    }
     case "turn-started":
-      return { state, runs: applyRunEvent(runs, chatId, event, lastUserModel(state, sessionId)), changed: false };
+      return { state, runs: applyRunEvent(runs, chatId, event, lastUserModel(state, sessionId)), changed: suggestionChanged };
     // A /compact the user asked for shows its progress on its divider: Claude's own compaction step stays out of the reply.
     case "step-started":
       if (event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
@@ -312,6 +333,13 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     case "turn-failed": {
       if (!run) return { state, runs, changed: false };
       const remaining = applyRunEvent(runs, chatId, event);
+      const { suggestion: _suggestion, suggestionTurnId: _turn, ...rest } = session;
+      const suggestionTurnId = event.type === "turn-completed" && session.provider === "claude" ? run.turnId : null;
+      const suggestionUpdated = Boolean(suggestionTurnId) || session.suggestion !== undefined || session.suggestionTurnId !== undefined;
+      if (suggestionUpdated) {
+        session = { ...rest, ...(suggestionTurnId ? { suggestionTurnId } : {}) };
+        state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+      }
       // The context gauge outlives the run, so the composer still shows it between turns.
       if (run.contextUsage) state = { ...state, sessions: { ...state.sessions, [sessionId]: { ...session, contextUsage: run.contextUsage } } };
       // A compaction request whose turn ends before its boundary did not happen.
@@ -319,7 +347,7 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
       if (unfinished) state = withContext(state, unfinished, { ...unfinished.context, status: "failed" });
       // The reply so far was saved when a steering message split it; there is nothing left to show.
       if (event.type === "turn-completed" && run.split && !run.text.trim() && !run.steps.length)
-        return { state, runs: remaining, changed: Boolean(run.contextUsage) || Boolean(unfinished) };
+        return { state, runs: remaining, changed: Boolean(run.contextUsage) || Boolean(unfinished) || suggestionUpdated };
       // A /compact turn says nothing: its divider is the whole reply.
       if (event.type === "turn-completed" && !run.text.trim() && !run.steps.length && isCompactionRequest(lastUserMessage(state, sessionId)))
         return { state, runs: remaining, changed: true };

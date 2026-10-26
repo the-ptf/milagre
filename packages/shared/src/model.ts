@@ -173,6 +173,10 @@ export interface AgentSession {
   resumeTurn?: { stoppedAt?: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
+  /** Claude's predicted follow-up, accepted into the draft without sending. */
+  suggestion?: { text: string; turnId: string };
+  /** The completed turn eligible to supply a suggestion; cleared before any new input. */
+  suggestionTurnId?: string;
   /**
    * The Routine and Run that started this Chat; set only on a Chat a Run created. `hidden` keeps it out of every Chat list
    * until it waits on an approval or question; it is absent on a Chat made before Run Chats were hidden.
@@ -836,6 +840,7 @@ export type AgentEvent =
   /** Milagre's own event: a task tool changed the Chat's plan; null clears it. */
   | { type: "plan-updated"; plan: ChatPlan | null }
   | ({ type: "context-usage" } & ContextUsage)
+  | { type: "prompt-suggestion"; text: string; turnId: string }
   | { type: "context-compacting" }
   /** The provider compacted the conversation: token counts when reported; `manual` when `/compact` asked for it. */
   | { type: "context-compacted"; trigger: "manual" | "auto"; before?: number; after?: number }

@@ -532,8 +532,15 @@ test("chat:reload ends the agent's process, and the next message resumes its ses
   await send("first");
   await completed(1);
 
+  agents.sessions[0].options.emit({ type: "prompt-suggestion", text: "Continue", turnId: "t" });
+  for (let i = 0; i < 200 && !(await stateOf()).sessions[chat.id].suggestion; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal((await stateOf()).sessions[chat.id].suggestion.text, "Continue");
+
   await runtime.invoke("chat:reload", [chatId]);
   assert.equal(agents.sessions[0].closed, true);
+  assert.equal((await stateOf()).sessions[chat.id].suggestion, undefined);
+  assert.equal((await stateOf()).sessions[chat.id].suggestionTurnId, undefined);
+  assert.equal((await stateOf()).sessions[chat.id].native_session_id, "claude-1");
   const { role, body, context } = (await stateOf()).messages.at(-1);
   assert.deepEqual({ role, body, context }, { role: "assistant", body: "Chat reloaded", context: { kind: "reload" } });
 
