@@ -2545,6 +2545,7 @@ function chatHost({
       KeyboardChatScrollView: "KeyboardChatScrollView",
       KeyboardStickyView: "KeyboardStickyView",
       useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
     },
     "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },

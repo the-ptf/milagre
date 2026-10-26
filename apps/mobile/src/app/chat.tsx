@@ -57,7 +57,7 @@ import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, terminalPlaces } from "../terminal";
-import { KeyboardChatScrollView, KeyboardStickyView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { ChatReply } from "../chat-reply";
 import { designMessageSent, peekDesignMessage } from "../design-outbox";
 import { chosenDesign, designActivity } from "@milagre/shared/artifact";
@@ -193,18 +193,30 @@ export default function ChatScreen() {
     router.setParams({ id: String(shown.chatId), worktreeId: undefined, draft: undefined, prefill: undefined });
     closeBeside();
   }, [shown]);
+  // The pane whose composer has focus owns the keyboard: only its composer rides it and only its transcript makes room, so
+  // the other pane does no keyboard-driven layout work on every frame of the animation.
+  const [typing, setTyping] = useState<"routed" | "beside">("routed");
+  const besideTyping = Boolean(shown) && typing === "beside";
+  const routedTypes = useCallback(() => setTyping("routed"), []);
+  const besideTypes = useCallback(() => setTyping("beside"), []);
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
-      <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} onClose={promote} />
+      <View style={{ flex: 1 }}>
+        <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
+      </View>
       {shown && (
         <>
           <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />
-          <ChatPane
-            key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
-            params={{ id: String(shown.chatId), hostId: shown.hostId, projectPath: shown.projectPath }}
-            pane="secondary"
-            onClose={closeBeside}
-          />
+          <View style={{ flex: 1 }}>
+            <ChatPane
+              key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
+              params={{ id: String(shown.chatId), hostId: shown.hostId, projectPath: shown.projectPath }}
+              pane="secondary"
+              keyboard={besideTyping}
+              onTyping={besideTypes}
+              onClose={closeBeside}
+            />
+          </View>
         </>
       )}
     </View>
@@ -215,7 +227,21 @@ export default function ChatScreen() {
  * One Chat: the routed one (`single`, or `primary` with another beside it), or the one beside it (`secondary`), which
  * leaves the route, the native header, the side panels and the open Project to the routed one.
  */
-function ChatPane({ params, pane, onClose }: { params: ChatParams; pane: "single" | "primary" | "secondary"; onClose: () => void }) {
+function ChatPane({
+  params,
+  pane,
+  keyboard: ownsKeyboard,
+  onTyping,
+  onClose,
+}: {
+  params: ChatParams;
+  pane: "single" | "primary" | "secondary";
+  /** Whether this pane follows the keyboard: always alone, only the last touched one in a split. */
+  keyboard: boolean;
+  /** Its composer took focus: in a split, this pane gets the keyboard. */
+  onTyping: () => void;
+  onClose: () => void;
+}) {
   const { colors } = useTheme();
   const styles = useStyles();
   const navigation = useNavigation<NavigationProp<{ chat: { worktreeId?: string } }, "chat">>();
@@ -640,9 +666,11 @@ function ChatPane({ params, pane, onClose }: { params: ChatParams; pane: "single
   // The "Start a new chat in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
   const keyboard = useReanimatedKeyboardAnimation();
+  // The keyboard's height once it has settled (0 closed): read on show and hide only, never per frame.
+  const restingKeyboard = useKeyboardState((state) => (state.isVisible ? state.height : 0));
   const startLift = Math.max(insets.bottom, 12) - 8;
   const startLineStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 }],
+    transform: [{ translateY: ownsKeyboard ? Math.min(0, keyboard.height.get() + startLift * keyboard.progress.get()) / 2 : 0 }],
   }));
   const sidebar = (
     <Stack.Toolbar placement="left">
@@ -1568,6 +1596,7 @@ function ChatPane({ params, pane, onClose }: { params: ChatParams; pane: "single
             <KeyboardChatScrollView
               key={scrollKey}
               ref={scroll}
+              freeze={!ownsKeyboard}
               offset={lift}
               keyboardLiftBehavior="whenAtEnd"
               onEndVisible={onEndVisible}
@@ -1818,8 +1847,22 @@ function ChatPane({ params, pane, onClose }: { params: ChatParams; pane: "single
                 </View>
               </View>
             ) : null}
-            <MessageNavigation items={navigationItems} onSelect={navigateToMessage} top={insets.top + 72} bottom={dockHeight + 12} keyboardOffset={lift} />
-            <KeyboardStickyView pointerEvents="box-none" offset={{ closed: 0, opened: lift }} style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
+            <MessageNavigation
+              items={navigationItems}
+              onSelect={navigateToMessage}
+              top={insets.top + 72}
+              bottom={dockHeight + 12}
+              keyboardOffset={lift}
+              followKeyboard={ownsKeyboard}
+            />
+            <KeyboardStickyView
+              enabled={ownsKeyboard}
+              pointerEvents="box-none"
+              // The other pane's composer jumps clear of the open keyboard once, so a tap can move the keyboard to it. A
+              // disabled sticky view sits at its `closed` offset, which overrides any transform in `style`.
+              offset={{ closed: ownsKeyboard ? 0 : Math.min(0, lift - restingKeyboard), opened: lift }}
+              style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+            >
               {/* The transcript blurs and fades under the composer like desktop's. */}
               <BottomFade height={dockHeight + 48} />
               <View
@@ -2152,6 +2195,7 @@ function ChatPane({ params, pane, onClose }: { params: ChatParams; pane: "single
                         onSubmit={() => {
                           if (!sendDisabled) void send();
                         }}
+                        onFocus={onTyping}
                         onChangeText={(value) => {
                           // Clearing the composer also clears the limit error that its mentions caused.
                           composer.setDrafts((current) => ({ ...current, [chatId]: value }));

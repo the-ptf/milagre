@@ -71,6 +71,7 @@ export function PromptField({
   images = 0,
   onMention,
   onSubmit,
+  onFocus,
   placeholder = "Message the agent",
 }: {
   client: Client;
@@ -88,6 +89,8 @@ export function PromptField({
   onMention?: (path: string) => void;
   /** Return on a hardware keyboard; Shift+Return and the on-screen keyboard still add a line. */
   onSubmit?: () => void;
+  /** The field took the keyboard (an iPad split gives the keyboard to this pane). */
+  onFocus?: () => void;
   placeholder?: string;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
@@ -264,6 +267,7 @@ export function PromptField({
             paste.onFocus();
             enter.attach();
             setFocused(true);
+            onFocus?.();
           }}
           onBlur={() => setFocused(false)}
           style={{
