@@ -60,6 +60,48 @@ const first = (computers) => computers.list()[0];
 const within = (promise, label, ms = 10_000) =>
   Promise.race([promise, delay(ms, undefined, { ref: false }).then(() => Promise.reject(new Error(`Timed out waiting for ${label}`)))]);
 
+test("a connected Mac previews a file shared outside the remote Worktree", async (t) => {
+  const { computers } = await desk(t);
+  const { demoRuntimeOptions } = require("../../daemon/src/demo-agent.cjs");
+  const demo = demoRuntimeOptions();
+  let file;
+  const mac = await startTestMac(t, {
+    lan: false,
+    runtime: {
+      ...demo,
+      createSession: (provider, context) => demoRuntimeOptions({ copy: { ack: "", reply: `[Report](${encodeURI(file)})` } }).createSession(provider, context),
+    },
+  });
+  file = path.join(mac.home, "shared report.md");
+  await fs.writeFile(file, "Report shared across computers");
+  const added = await computers.add(await linkOf(mac));
+  await until(() => first(computers)?.state === "online", "the paired Mac to come online");
+  const opened = await computers.invoke(added.id, "project:open", [mac.project]);
+  await assert.rejects(computers.invoke(added.id, "attachment:preview", [file]), /attached file|open Worktree/);
+  await computers.invoke(added.id, "chat:send", [
+    {
+      projectPath: mac.project,
+      sessionId: Number(Object.keys(opened.state.sessions)[0]),
+      body: "Share the report",
+      provider: "codex",
+      model: "demo",
+    },
+  ]);
+  await until(async () => {
+    const messages = await mac.client.call("chat:all-messages", [mac.project]);
+    return messages.some((message) => message.role === "assistant" && message.body.includes("[Report]"));
+  }, "the assistant to share its report");
+  assert.equal((await computers.invoke(added.id, "attachment:preview", [file])).text, "Report shared across computers");
+  const chunks = [];
+  await require("@milagre/shared/attachment-download").downloadAttachment(
+    (offset, version) => computers.invoke(added.id, "attachment:read", version === undefined ? [file, offset] : [file, offset, version]),
+    (bytes) => {
+      chunks.push(Buffer.from(bytes));
+    },
+  );
+  assert.equal(Buffer.concat(chunks).toString(), "Report shared across computers");
+});
+
 test("a new computer waits for Allow, then drives the Mac over the relay and moves to its LAN", async (t) => {
   const { computers, events, dataDir } = await desk(t);
   const mac = await startTestMac(t, { autoAllow: false });

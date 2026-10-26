@@ -1605,7 +1605,7 @@ function markdownHost({ media, basePath, reachable = null, reactCompiler = false
       "./viewer-store": viewer,
       "./chat-presentation": require("../apps/mobile/src/chat-presentation.ts"),
       "./markdown-image": require("../apps/mobile/src/markdown-image.ts"),
-      "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
+      "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
       "./ui": { PageScroll: "PageScroll", colors: {}, styles: { muted: {}, code: {} } },
     },
     "",
@@ -7818,10 +7818,12 @@ test("mobile file preview renders text and reports unreadable, empty, and trunca
         return result;
       },
     },
+    "../save-attachment": { saveAttachment: async () => true },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   const render = () => {
     react.begin();
@@ -7856,10 +7858,12 @@ test("mobile file preview shows Markdown formatted, with the source a tap away",
     },
     "../session": { useSession: () => ({ client: {} }) },
     "../use-rpc": { useRpc: () => result },
+    "../save-attachment": { saveAttachment: async () => true },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   const render = () => {
     react.begin();
@@ -7916,10 +7920,12 @@ test("mobile picked files preview locally before sending", async () => {
         return {};
       },
     },
+    "../save-attachment": { saveAttachment: async () => true },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
-    "@milagre/shared/file-link": require("../packages/shared/src/file-link.ts"),
-    "../ui": { colors: {}, styles: {}, ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
+    "../ui": { colors: {}, styles: {}, Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   react.begin();
   FilePreview();
@@ -7927,6 +7933,117 @@ test("mobile picked files preview locally before sending", async () => {
   react.begin();
   assert.ok(find(FilePreview(), (node) => node.type === "FileCode" && node.props.text === "export const draft = true;" && node.props.name === "ui.tsx"));
   assert.equal(closed, true);
+});
+
+test("mobile file downloads write binary bytes, cancel quietly, and remove partial files on failure", async () => {
+  let canceled = false;
+  let failed = false;
+  let created = 0;
+  let removed = 0;
+  let closed = 0;
+  const written = [];
+  const { saveAttachment } = load("save-attachment.ts", {
+    "@milagre/shared/attachment-download": require("@milagre/shared/attachment-download"),
+    "expo-file-system": {
+      // oxlint-disable-next-line typescript/no-extraneous-class -- constructor stub; this test downloads from the Mac
+      File: class {},
+      FileMode: { WriteOnly: "w" },
+      Directory: {
+        pickDirectoryAsync: async () => {
+          if (canceled) throw new Error("File picking was cancelled by the user");
+          return {
+            createFile: (name, type) => {
+              assert.equal(name, "archive.zip");
+              assert.equal(type, "application/zip");
+              created++;
+              return {
+                delete: () => removed++,
+                open: () => ({
+                  close: () => closed++,
+                  writeBytes: async (bytes) => {
+                    if (failed) throw new Error("Disk full");
+                    written.push(Buffer.from(bytes));
+                  },
+                }),
+              };
+            },
+          };
+        },
+      },
+    },
+  });
+  const request = { name: "archive.zip", read: async () => ({ size: 4, version: "v1", base64: "UEsA/w==" }), progress() {} };
+  assert.equal(await saveAttachment(request), true);
+  assert.deepEqual(Buffer.concat(written), Buffer.from([80, 75, 0, 255]));
+  assert.equal(closed, 1);
+  canceled = true;
+  assert.equal(await saveAttachment(request), false);
+  assert.equal(created, 1, "canceling the picker creates no file");
+  canceled = false;
+  failed = true;
+  await assert.rejects(saveAttachment(request), /Disk full/);
+  assert.equal(closed, 2);
+  assert.equal(removed, 1, "a failed download removes its partial file");
+});
+
+test("mobile ZIP preview offers Download, progress, success and retryable errors", async () => {
+  const react = hookHost();
+  const gate = deferred();
+  let failure = false;
+  const { default: FilePreview } = load("app/file-preview.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    // oxlint-disable-next-line typescript/no-extraneous-class -- constructor stub; this test downloads from the Mac
+    "expo-file-system": { File: class {}, FileMode: {} },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { Stack: { Screen: "Screen" }, useLocalSearchParams: () => ({ path: "/remote/archive.zip" }) },
+    "../session": {
+      useSession: () => ({
+        client: {
+          call: async (method, args) => {
+            assert.equal(method, "attachment:read");
+            assert.deepEqual(Array.from(args), ["/remote/archive.zip", 0], "the first chunk omits the optional version over JSON RPC");
+            return {};
+          },
+        },
+      }),
+    },
+    "../use-rpc": { useRpc: () => ({ data: { binary: true }, refresh() {} }) },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ bottom: 34 }) },
+    "../file-code": { FileCode: "FileCode" },
+    "../markdown": { Markdown: "Markdown" },
+    "@milagre/shared/file-link": require("@milagre/shared/file-link"),
+    "../ui": { Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../save-attachment": {
+      saveAttachment: async (options) => {
+        if (failure) throw new Error("Connection lost");
+        options.progress(50, 100);
+        await options.read(0);
+        await gate.promise;
+        return true;
+      },
+    },
+  });
+  const render = () => {
+    react.begin();
+    return FilePreview();
+  };
+  find(render(), (node) => node.type === "Button").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Button").props.title, "Downloading… 50%");
+  gate.resolve();
+  await settle();
+  assert.ok(find(render(), (node) => node.type?.name === "Toast" && node.props.text === "File saved."));
+  assert.equal(
+    find(render(), (node) => node.type === "Text" && node.props.children === "File saved."),
+    undefined,
+    "success is not left in the preview content",
+  );
+  failure = true;
+  find(render(), (node) => node.type === "Button").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
+  assert.equal(find(render(), (node) => node.type === "Button").props.loading, false);
 });
 
 test("mobile TSX preview colors native text in both themes and preserves selection", () => {

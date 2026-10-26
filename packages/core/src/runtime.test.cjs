@@ -866,14 +866,18 @@ test("an open project's worktree folders are read without its whole state", asyn
   await assert.rejects(runtime.invoke("project:worktree-paths", [path.join(project, "elsewhere")]), /Open the project/);
 });
 
-test("attachment preview command serves Worktree files and saved external attachments only", async (t) => {
+test("attachment preview serves Worktree files, saved attachments and exact files shared in assistant replies", async (t) => {
   const { project, make } = await fixture(t);
   const first = make();
   const opened = await first.invoke("project:current");
   const local = path.join(project, "ui.tsx");
   const external = path.join(path.dirname(project), "attached.txt");
+  const shared = path.join(path.dirname(project), "shared report.md");
+  const unshared = path.join(path.dirname(project), "private.txt");
   await fs.writeFile(local, "export const ui = true;");
   await fs.writeFile(external, "outside the Worktree");
+  await fs.writeFile(shared, "Shared by the agent");
+  await fs.writeFile(unshared, "Private");
   assert.equal((await first.invoke("attachment:preview", [local])).text, "export const ui = true;");
   await assert.rejects(first.invoke("attachment:preview", [external]), /attached file|open Worktree/);
   await first.invoke("chat:patch", [project, Number(Object.keys(opened.state.sessions)[0]), { title: "Attachments" }]);
@@ -889,10 +893,27 @@ test("attachment preview command serves Worktree files and saved external attach
     files: [external],
     context: null,
   });
+  state.messages.push({
+    id: state.next_id++,
+    session_id: Number(Object.keys(opened.state.sessions)[0]),
+    role: "assistant",
+    body: `Read the [report](../shared%20report.md:12). A plain mention grants no access: ${unshared}`,
+    context: null,
+  });
   await fs.writeFile(stored, JSON.stringify(state));
   const second = make();
   await second.invoke("project:current");
   assert.equal((await second.invoke("attachment:preview", [external])).text, "outside the Worktree");
+  assert.equal((await second.invoke("attachment:preview", [shared])).text, "Shared by the agent");
+  await assert.rejects(second.invoke("attachment:preview", [unshared]), /attached file|open Worktree/);
+  await second.close();
+  const third = make({ lazyMessages: { idleMs: 0, sweepMs: 0 } });
+  await third.invoke("project:current");
+  await third.flush();
+  await third.unloadIdle();
+  assert.equal(require("./message-store.cjs").savedRows(project)?.size ?? 0, 0, "Chat transcript is unloaded");
+  assert.equal((await third.invoke("attachment:preview", [shared])).text, "Shared by the agent", "sharing survives a restart");
+  assert.equal(require("./message-store.cjs").savedRows(project)?.size ?? 0, 0, "preview does not reload the Chat");
 });
 
 // A clone of a remote that has moved on: the clone's main is one commit behind.

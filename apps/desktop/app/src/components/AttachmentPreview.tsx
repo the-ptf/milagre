@@ -3,11 +3,13 @@ import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, SourceCodeIcon, TextFontIcon } from "@hugeicons/core-free-icons";
 import { isMarkdownFile } from "@milagre/shared/file-link";
+import { downloadAttachment } from "@milagre/shared/attachment-download";
 import { FileCode } from "./FileCode";
 import { FilesRoot } from "./editor-links";
 import { Markdown } from "./markdown/Markdown";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { useBridge } from "../lib/computer-bridge";
+import { showToast } from "../lib/toast";
 
 export function AttachmentPreview({ path, name, file, close }: { file?: File; path: string; name: string; close: () => void }) {
   const bridge = useBridge();
@@ -16,6 +18,44 @@ export function AttachmentPreview({ path, name, file, close }: { file?: File; pa
   const [error, setError] = useState("");
   const markdown = isMarkdownFile(name);
   const [formatted, setFormatted] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadError, setDownloadError] = useState("");
+  const download = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setDownloadProgress(0);
+    setDownloadError("");
+    try {
+      let blob: Blob;
+      if (file) blob = file;
+      else {
+        const chunks: Uint8Array<ArrayBuffer>[] = [];
+        await downloadAttachment(
+          (offset, version) => bridge.readAttachmentChunk(path, offset, version),
+          (bytes) => {
+            chunks.push(bytes);
+          },
+          (received, total) => setDownloadProgress(total ? Math.round((received / total) * 100) : 100),
+        );
+        blob = new Blob(chunks, { type: "application/octet-stream" });
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Give Electron time to start reading the blob before releasing it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      showToast("Download started.");
+    } catch (reason) {
+      setDownloadError(reason instanceof Error ? reason.message : "Could not download this file. Try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
   useLayoutEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const element = dialog.current;
@@ -57,6 +97,16 @@ export function AttachmentPreview({ path, name, file, close }: { file?: File; pa
       current = false;
     };
   }, [path, file, bridge]);
+  const downloadButton = (
+    <button
+      type="button"
+      disabled={downloading}
+      onClick={() => void download()}
+      className="rounded-control px-3 py-1.5 text-xs font-medium text-ink-2 hover:bg-hover disabled:opacity-50"
+    >
+      {downloading ? `Downloading… ${downloadProgress}%` : "Download"}
+    </button>
+  );
   return createPortal(
     <dialog
       ref={dialog}
@@ -83,6 +133,7 @@ export function AttachmentPreview({ path, name, file, close }: { file?: File; pa
           <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={path}>
             {name}
           </h2>
+          {result && !result.binary && downloadButton}
           {markdown && result?.text && (
             <div role="group" aria-label="Markdown view" className="flex rounded-control bg-field p-0.5">
               {[
@@ -115,6 +166,11 @@ export function AttachmentPreview({ path, name, file, close }: { file?: File; pa
           </button>
         </header>
         <ScrollArea className="min-h-0 flex-1 p-4">
+          {!!downloadError && (
+            <p role="alert" className="mb-3 text-sm">
+              {downloadError}
+            </p>
+          )}
           {error ? (
             <p role="alert" className="text-sm">
               {error}
@@ -124,7 +180,10 @@ export function AttachmentPreview({ path, name, file, close }: { file?: File; pa
               Reading file…
             </p>
           ) : result.binary ? (
-            <p className="text-sm text-ink-2">This file does not have a text preview.</p>
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-ink-2">This file does not have a text preview.</p>
+              {downloadButton}
+            </div>
           ) : result.text && markdown && formatted ? (
             <FilesRoot root={path.slice(0, path.lastIndexOf("/")) || "/"}>
               <div className="text-[13px] leading-[1.55]">

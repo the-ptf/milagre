@@ -19,6 +19,7 @@ state.sessions = { 3: { id: 3, worktree_id: 1, agent_name: 'Claude', provider: '
 state.messages = [{ id: 4, session_id: 3, role: 'user', body: 'Attachment test', context: null, images: [{id:'old',name:'legacy.png',dataUrl:'data:image/png;base64,'+window.imageBytes},{id:'new',name:'stored.png',path:'/fixture/.milagre/images/photo.png'}] }, { id: 6, session_id: 5, role: 'user', body: 'Other chat', context: null }, { id: 7, session_id: 3, role: 'assistant', body: 'The [written design](/fixture/docs/spec.md) is committed. See [the helper](src/greeting.ts#L3) and [the site](https://example.com).', context: null }];
 state.messages.push({ id: 8, session_id: 3, role: 'user', body: 'Fix @src/greeting.ts using /frontend-design', context: null, files: ['/fixture/src/greeting.ts', '/fixture/extra.txt'] });
 state.next_id = 9;
+state.messages.find(message => message.role === 'assistant').body += ' [archive](/fixture/archive.zip)';
 window.calls = []; window.searches = []; window.notices = []; window.synced = []; window.listeners = [];
 window.stateListeners = [];
 // Stands in for the main process: it saves every project's state, and tells the window.
@@ -40,7 +41,8 @@ window.milagre = new Proxy({
  onQuitFailed: fn => {window.quitFailed=fn;return ()=>{};},
  retryQuit: async () => {window.retriedQuit=true;},
  listSkills: async () => ({ skills: [{ name: 'frontend-design', description: 'Build polished interfaces', path: '/skills/frontend-design/SKILL.md', scope: 'bundled', provider: 'claude' }], warnings: [] }),
- readAttachment: async file => { (window.fileReads ??= []).push(file); if (file.endsWith('missing.txt')) throw new Error('File no longer exists.'); if (file.endsWith('.md')) return { text: '# Live activities\\n\\nThe **plan** has [goals](goals.md).\\n\\n- One\\n- Two', truncated: false, binary: false }; return { text: file.endsWith('empty.txt') ? '' : 'export const greeting = "hello";', truncated: false, binary: false }; },
+ readAttachment: async file => { (window.fileReads ??= []).push(file); if (file.endsWith('.zip')) return {text:'',binary:true,truncated:false}; if (file.endsWith('missing.txt')) throw new Error('File no longer exists.'); if (file.endsWith('.md')) return { text: '# Live activities\\n\\nThe **plan** has [goals](goals.md).\\n\\n- One\\n- Two', truncated: false, binary: false }; return { text: file.endsWith('empty.txt') ? '' : 'export const greeting = "hello";', truncated: false, binary: false }; },
+ readAttachmentChunk: async (file, offset) => { if (window.failDownload) {window.failDownload = false; throw new Error('Connection lost. Try again.');} (window.downloadReads ??= []).push(file); return {base64:'UEsDBAD/AAE=',size:8,version:'zip-v1'}; },
  showImageMenu: async (file, name) => { (window.imageMenus ??= []).push([file, name]); },
  onOpenChat: fn => { window.openNotification = fn; return () => {}; },
  switchProject: async root => ({ path: root, name: 'Other project', state: { ...state, sessions: { 10: { id: 10, worktree_id: 1, agent_name: 'Notified', status: 'Idle' } }, messages: [{ id: 11, session_id: 10, body: 'Notification destination', role: 'user', context: null }], next_id: 12 } }),
@@ -101,6 +103,15 @@ async function browserChecks() {
     }
   };
   const errors = [];
+  const downloadFolder = await require("node:fs/promises").mkdtemp(path.join(require("node:os").tmpdir(), "milagre-file-download-ui-"));
+  const downloadFile = path.join(downloadFolder, "archive.zip");
+  const downloaded = new Promise((resolve, reject) => {
+    session.fromPartition("issues-test").once("will-download", (_event, item) => {
+      assert.equal(item.getFilename(), "archive.zip");
+      item.setSavePath(downloadFile);
+      item.once("done", (_event, state) => (state === "completed" ? resolve() : reject(new Error(state))));
+    });
+  });
   window.webContents.on("console-message", (details) => {
     if (details.level === "error" || details.level === 3) errors.push(details.message);
   });
@@ -165,9 +176,26 @@ async function browserChecks() {
     await key("Escape");
     await waitFor(`!document.querySelector('dialog')`);
     await evaluate("window.fileReads = []");
+    const replyLink = (text) => `[...document.querySelectorAll('article a')].find(a => a.textContent === ${JSON.stringify(text)})`;
+    await evaluate(`${replyLink("archive")}.click(); window.failDownload = true;`);
+    await waitFor(`!!document.querySelector('dialog[open]')`);
+    const downloadButton = `[...document.querySelectorAll('dialog[open] button')].find(button => button.textContent === 'Download')`;
+    await evaluate(`${downloadButton}.click()`);
+    await waitFor(`document.querySelector('dialog[open] [role=alert]')?.textContent.includes('Connection lost')`);
+    await evaluate(`${downloadButton}.click()`);
+    await Promise.race([
+      downloaded,
+      delay(5000).then(() => {
+        throw new Error("File download did not finish");
+      }),
+    ]);
+    assert.equal(await evaluate(`document.querySelector('[data-toast]:popover-open')?.textContent`), "Download started.");
+    assert.deepEqual(await require("node:fs/promises").readFile(downloadFile), Buffer.from([80, 75, 3, 4, 0, 255, 0, 1]));
+    await require("node:fs/promises").rm(downloadFolder, { recursive: true, force: true });
+    await key("Escape");
+    await waitFor(`!document.querySelector('dialog')`);
 
     // A reply's link to a file on this computer opens the file viewer; markdown opens formatted, with the source a click away.
-    const replyLink = (text) => `[...document.querySelectorAll('article a')].find(a => a.textContent === ${JSON.stringify(text)})`;
     assert.equal(await evaluate(`${replyLink("the site")}.target`), "_blank", "Web links still leave the app");
     await evaluate(`${replyLink("written design")}.click()`);
     await waitFor(`!!document.querySelector('dialog[open] h1')`);

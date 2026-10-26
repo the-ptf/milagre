@@ -45,7 +45,6 @@
     "src/artifact-document.d.mts",
     "src/diagram.ts",
     "src/genui.ts",
-    "src/file-link.ts",
     "src/message-search.mjs",
     "src/message-search.d.mts",
     "src/agent-activity.ts",
@@ -312,7 +311,10 @@
       "default": "./src/design-draft.mjs"
     },
     "./genui": "./src/genui.ts",
-    "./file-link": "./src/file-link.ts",
+    "./file-link": {
+      "types": "./src/file-link.d.mts",
+      "default": "./src/file-link.mjs"
+    },
     "./loopback-url": "./src/loopback-url.ts",
     "./simulator-receiver": {
       "types": "./src/simulator-receiver.d.mts",
@@ -356,6 +358,10 @@
     "./notification-schedule": {
       "types": "./src/notification-schedule.d.mts",
       "default": "./src/notification-schedule.mjs"
+    },
+    "./attachment-download": {
+      "types": "./src/attachment-download.d.mts",
+      "default": "./src/attachment-download.mjs"
     },
     "./attachment-upload": {
       "types": "./src/attachment-upload.d.mts",
