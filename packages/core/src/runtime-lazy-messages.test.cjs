@@ -43,7 +43,9 @@ async function fixture(t) {
           options,
           turnActive: false,
           closed: false,
-          startTurn: async () => {
+          requests: [],
+          startTurn: async (request) => {
+            session.requests.push(request);
             turn++;
             options.emit({ type: "turn-started", turnId: `t${turn}` });
             options.emit({ type: "session-started", nativeId: `${provider}-native` });
@@ -196,4 +198,20 @@ test("archiving and restoring a Chat that left memory keeps every message, and a
     ["user", "Keep me"],
     ["assistant", "Reply 1 from claude"],
   ]);
+});
+
+test("a reference resolves an unloaded Chat without loading its messages", async (t) => {
+  const { runtime, project, chat, send, unload, inMemory, sessions } = await openChat(t);
+  await send("The decision was to use SQLite.");
+  await runtime.invoke("chat:patch", [project, chat.id, { title: "Storage decision" }]);
+  await unload();
+  const result = await runtime.invoke("chat:send", [
+    { projectPath: project, worktreeId: chat.worktree_id, body: `Read @chat:${chat.id} and explain the decision`, provider: "claude", model: "claude-model" },
+  ]);
+  assert.notEqual(result.sessionId, chat.id);
+  await until(() => sessions.some((s) => s.requests.some((r) => r.prompt.includes("<chat_mentions>"))));
+  const request = sessions.flatMap((s) => s.requests).find((r) => r.prompt.includes("<chat_mentions>"));
+  assert.ok(request.prompt.includes(`chatId: "${project}#${chat.id}"`));
+  assert.ok(request.prompt.includes('"Storage decision"'));
+  assert.equal(inMemory(), false, "resolving a reference reads only the unloaded Chat's summary");
 });

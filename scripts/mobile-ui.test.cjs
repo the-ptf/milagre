@@ -152,10 +152,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
       if (/^\.\/use-skill-names$/.test(id) && !(id in modules)) return { useSkillNames: () => [] };
       // The chips draw as named elements, like the other components these tests do not render.
-      if (/^\.\/prompt-chip$/.test(id) && !(id in modules)) return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip" };
+      if (/^\.\/prompt-chip$/.test(id) && !(id in modules))
+        return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip", ChatMentionChip: "ChatMentionChip" };
       if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
       if (
-        (id === "@milagre/shared/prompt-parts" ||
+        (id === "@milagre/shared/agent-runs" ||
+          id === "@milagre/shared/prompt-parts" ||
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
           id === "@milagre/shared/themes" ||
@@ -14002,4 +14004,64 @@ test("mobile simulator relayed frames stay in two cache files and never enter in
   assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2, "reset frame sequences must not evict the newly written file");
   h.cleanup();
   assert.equal(h.files.size, 0);
+});
+
+test("phone Chat mentions work without a Worktree and never search or attach files", async () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const calls = [];
+  const client = {
+    call: (...args) => {
+      calls.push(args);
+      return Promise.resolve([]);
+    },
+  };
+  let draft = "@Plan";
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+  });
+  const chats = [
+    { id: 12, title: "Plan review", branch: "feature", at: 12, available: true },
+    { id: 13, title: "Plan self", branch: "main", at: 13, available: true },
+  ];
+  const render = () => {
+    react.begin();
+    const tree = PromptField({
+      client,
+      projectPath: "/project",
+      draft,
+      chats,
+      currentId: 13,
+      onChangeText: (value) => {
+        draft = value;
+      },
+    });
+    react.flush();
+    return tree;
+  };
+  try {
+    let field = find(render(), (node) => node.type === "Field");
+    field.props.onFocus();
+    field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
+    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    assert.ok(row);
+    assert.equal(
+      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      undefined,
+    );
+    row.props.onPress();
+    assert.equal(draft, "@chat:12 ");
+    render();
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");
+  } finally {
+    react.cleanup();
+  }
 });
