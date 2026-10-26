@@ -219,6 +219,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
       if (base === "split-chats" && !(id in modules))
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
+      // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
+      if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -2364,6 +2366,8 @@ function chatHost({
   screenWidth = 402,
   now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
+  // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
+  pane: asPane,
 } = {}) {
   const sending = deferred();
   const calls = [];
@@ -2567,7 +2571,7 @@ function chatHost({
     "../chat-row-store": { useActivityClock: (on) => (on ? now : 0) },
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
-    "../session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "../session": { useSession: () => session, useMainSession: () => session, useComposer: () => session, usePendingChats: () => session },
     "../pending-chats": require("../apps/mobile/src/pending-chats.ts"),
     "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
@@ -2619,7 +2623,7 @@ function chatHost({
     // The screen holds the routed Chat's pane, and on a wide iPad a second one beside it, which a phone never shows.
     const screen = ChatScreen();
     const pane = find(screen, (node) => typeof node.type === "function" && node.props.pane);
-    const tree = pane.type(pane.props);
+    const tree = pane.type(asPane ? { ...pane.props, pane: asPane, onClose: () => (router.closed = (router.closed ?? 0) + 1) } : pane.props);
     react.flush();
     return tree;
   };
@@ -3947,6 +3951,28 @@ test("a Chat in another Project loads it behind the splash mark, and shows a fai
   notice.props.retry();
   host.render();
   assert.equal(opening.length, 2, "Retry opens the Project again");
+});
+
+test("a Chat beside of another Project waits for it in its own pane, and never opens a Project or leaves the screen", () => {
+  const host = chatHost({ effects: true, pane: "secondary" });
+  const opened = [];
+  host.session.open = (path) => opened.push(path);
+  host.session.snapshot = null;
+  Object.assign(host.params, { id: "3", projectPath: "/other", hostId: "studio" });
+  delete host.params.worktreeId;
+  const waiting = host.render();
+  assert.ok(find(waiting, (node) => node.type === "LoadingLogo"));
+  assert.equal(
+    find(waiting, (node) => node.type === "Redirect"),
+    undefined,
+    "the routed Chat stays",
+  );
+  assert.deepEqual(opened, [], "the open Project stays the routed Chat's");
+  host.session.error = "Connection lost.";
+  const failed = host.render();
+  assert.match(find(failed, (node) => node.type === "ErrorNotice").props.message, /Connection lost/);
+  find(failed, (node) => node.type === "GlassIconButton" && node.props.label === "Close Chat").props.onPress();
+  assert.equal(host.router.closed, 1, "Close ends the pair while it waits");
 });
 
 test("launch restoration opens the saved computer/Project/Chat target directly", async () => {

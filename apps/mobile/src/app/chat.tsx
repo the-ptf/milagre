@@ -41,7 +41,7 @@ import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-i
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ReachableHostContext } from "../reachable-host";
 import { useReachableHost } from "../routes-native";
-import { useComposer, usePendingChats, useSession } from "../session";
+import { useComposer, useMainSession, usePendingChats, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
@@ -122,7 +122,8 @@ import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, useNewChatProjects } from "../all-computers";
 import { ProjectIcon } from "../project-icon";
-import { besideState, closeBeside, useBesideChat } from "../split-chats";
+import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
+import { BesideSession, touchPane } from "../beside-session";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -168,8 +169,8 @@ function headerTitleWidth(screenWidth: number, routineButton: boolean) {
 type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
 
 /**
- * The routed Chat, and on a wide iPad a second Chat of the same Project beside it, opened from a sidebar row's
- * "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
+ * The routed Chat, and on a wide iPad a second Chat beside it, of any Project on any computer, opened from a sidebar
+ * row's "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
  */
 export default function ChatScreen() {
   const { colors } = useTheme();
@@ -202,23 +203,29 @@ export default function ChatScreen() {
   const besideTyping = Boolean(shown) && typing === "beside";
   const routedTypes = useCallback(() => setTyping("routed"), []);
   const besideTypes = useCallback(() => setTyping("beside"), []);
+  // A sheet a pane opens is about that pane's Chat, so it reads that pane's Project (beside-session.tsx).
+  const routedTouched = useCallback(() => touchPane("routed"), []);
+  const besideTouched = useCallback(() => touchPane("beside"), []);
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} onTouchStart={routedTouched}>
         <ChatPane key="routed" params={params} pane={shown ? "primary" : "single"} keyboard={!besideTyping} onTyping={routedTypes} onClose={promote} />
       </View>
       {shown && (
         <>
           <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />
-          <View style={{ flex: 1 }}>
-            <ChatPane
-              key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
-              params={{ id: String(shown.chatId), hostId: shown.hostId, projectPath: shown.projectPath }}
-              pane="secondary"
-              keyboard={besideTyping}
-              onTyping={besideTypes}
-              onClose={closeBeside}
-            />
+          <View style={{ flex: 1 }} onTouchStart={besideTouched}>
+            {/* A Chat of another Project or computer reads its own Project's session; one of the open Project shares it. */}
+            <BesideSession key={`${shown.hostId}|${shown.projectPath}`} chat={shown}>
+              <ChatPane
+                key={`${shown.hostId}|${shown.projectPath}#${shown.chatId}`}
+                params={{ id: String(shown.chatId), hostId: shown.hostId, projectPath: shown.projectPath }}
+                pane="secondary"
+                keyboard={besideTyping}
+                onTyping={besideTypes}
+                onClose={closeBeside}
+              />
+            </BesideSession>
           </View>
         </>
       )}
@@ -228,7 +235,8 @@ export default function ChatScreen() {
 
 /**
  * One Chat: the routed one (`single`, or `primary` with another beside it), or the one beside it (`secondary`), which
- * leaves the route, the native header, the side panels and the open Project to the routed one.
+ * leaves the route, the native header, the side panels and the open Project to the routed one. Every read and action
+ * goes through useSession, which for a Chat beside of another Project is that Project's own (beside-session.tsx).
  */
 function ChatPane({
   params,
@@ -254,6 +262,9 @@ function ChatPane({
   const [ownDraft] = useState(() => randomUUID());
   const draftId = params.draft || ownDraft;
   const session = useSession();
+  // The Chat beside reads its own Project when that isn't the open one.
+  const openSession = useMainSession();
+  const ownProject = session !== openSession;
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
@@ -605,10 +616,14 @@ function ChatPane({
     router.push("/handoff-brief");
   }, []);
   const openActivity = useCallback((message: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message } }), [params.id]);
-  // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one.
+  // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one. The Chat beside
+  // opens it in its own place, so the routed Chat and the open Project stay.
   const openOtherChat = useCallback(
-    (key: string) => router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) } }),
-    [targetHost],
+    (key: string) =>
+      secondary
+        ? openBeside({ hostId: targetHost, projectPath: projectOfKey(key), chatId: sessionIdFromKey(key) })
+        : router.replace({ pathname: "/chat", params: { projectPath: projectOfKey(key), hostId: targetHost, id: String(sessionIdFromKey(key)) } }),
+    [targetHost, secondary],
   );
   const { rememberChat } = session;
   const canRemember = !secondary && !!params.id && !!session.snapshot?.project.state.sessions[Number(params.id)] && targetMatches;
@@ -648,7 +663,13 @@ function ChatPane({
       unsubscribe();
     };
   }, [savedChatKey]);
-  useReadOpenChat(connected, projectPath, targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined, !!panels.open);
+  // Only the routed Chat clears its Unread mark: the one beside is read when it is opened on its own.
+  useReadOpenChat(
+    connected,
+    projectPath,
+    !secondary && targetMatches && params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined,
+    !!panels.open,
+  );
   // A Chat picked in another Project opens that Project here, behind the splash mark, rather than in the navigation.
   // The Chat beside is always of the open Project, and never opens another.
   const { wanted, error: openError, retry: retryOpen } = useOpenProject(secondary ? {} : params);
@@ -714,8 +735,9 @@ function ChatPane({
   const compactSeen = useRef<Record<string, number> | null>(null);
   const compactRequests = composer.compactRequests;
   useEffect(() => {
-    // The routed Chat sends for every Chat of the Project, the one beside it included.
-    if (secondary) return;
+    // The routed Chat sends for every Chat of the open Project, the one beside it included; a Chat beside of another
+    // Project sends for its own.
+    if (secondary && !ownProject) return;
     if (!compactSeen.current) {
       compactSeen.current = { ...compactRequests };
       return;
@@ -759,6 +781,28 @@ function ChatPane({
   const portsChat = params.id && Number(params.id) > 0 && session.snapshot ? `${session.snapshot.project.path}#${params.id}` : undefined;
   const { ports } = useChatPorts(portsChat ? session.client : null, portsChat);
   const reachable = useMemo(() => ({ host: reachableHost, loopbackOnly: loopbackOnlyPorts(ports) }), [reachableHost, ports]);
+  // The Chat beside waits for its own Project in its pane; it never sends the app back to the computers.
+  if (secondary && (!session.client || !session.snapshot || !targetMatches)) {
+    return (
+      <View style={[styles.screen, { alignItems: "center", justifyContent: "center", padding: 24 }]}>
+        <View
+          accessible={!session.error}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Opening Chat…"
+          style={{ alignItems: "center", justifyContent: "center" }}
+        >
+          {session.error ? (
+            <ErrorNotice message={session.error} retry={() => void session.refresh().catch((e: Error) => session.setError(e.message))} retryTitle="Try again" />
+          ) : (
+            <LoadingLogo />
+          )}
+        </View>
+        <View style={{ position: "absolute", top: insets.top + 6, right: 12 }}>
+          <GlassIconButton label="Close Chat" systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
+        </View>
+      </View>
+    );
+  }
   if (!session.client || (!session.snapshot && !wanted)) return <Redirect href="/" />;
   if (!session.snapshot || !targetMatches || needsWorktree) {
     return (
@@ -846,6 +890,8 @@ function ChatPane({
   const projectName = project.name || project.path.split("/").findLast(Boolean) || "Project";
   const hostIds = new Set(newChatProjects.map((item) => item.hostId));
   const hostName = newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName;
+  // A Chat beside on another computer than the open one says which.
+  const otherComputer = client.url !== openSession.client?.url;
   function chooseProject() {
     if (busy) return;
     showChoiceSheet({
@@ -1246,6 +1292,8 @@ function ChatPane({
     }
   }
   function headerAction(id: string) {
+    // The ⋯ menu is native: its touch may never reach the pane, and what it opens is about this pane's Chat.
+    touchPane(secondary ? "beside" : "routed");
     if (id === "changes" && secondary) router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } });
     else if (id === "changes") panels.showChanges();
     else if (id === "linear" && linearIssue) openLinearIssue(linearIssue.url);
@@ -1392,18 +1440,33 @@ function ChatPane({
             {title}
           </Text>
         </View>
-        {!project.link && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, opacity: worktree ? 1 : 0 }}>
-            <Icon icon={GitBranchIcon} tone="ink3" size={11} />
-            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
-              {worktree?.name ?? ""}
-            </Text>
-            <Text style={{ fontSize: 12 }}>
-              <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
-              {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
-              <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
-            </Text>
-            {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
+        {(paired || !project.link) && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
+            {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
+            {paired && (
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                accessibilityLabel={otherComputer ? `${projectName} on ${hostName}` : projectName}
+                style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flexShrink: 1 }}
+              >
+                {otherComputer ? `${projectName} · ${hostName}` : projectName}
+              </Text>
+            )}
+            {!project.link && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
+                <Icon icon={GitBranchIcon} tone="ink3" size={11} />
+                <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+                  {worktree?.name ?? ""}
+                </Text>
+                <Text style={{ fontSize: 12 }}>
+                  <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
+                  {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
+                  <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
+                </Text>
+                {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
+              </View>
+            )}
           </View>
         )}
       </View>
