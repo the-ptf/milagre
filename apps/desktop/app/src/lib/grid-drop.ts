@@ -86,17 +86,32 @@ export function placeDropped(tiles: readonly string[], key: string, target: Pick
 }
 
 const PINS_KEY = "milagre.chatGridPins";
+const SPLIT_KEY = "milagre.chatSplit";
 
-/** The Chats kept in the grid on this Mac, by key (`<project>#<id>`), whether or not they are active. */
-export function readGridPins(storage: Pick<Storage, "getItem">): string[] {
+function readKeys(storage: Pick<Storage, "getItem">, name: string): string[] {
   try {
-    const value: unknown = JSON.parse(storage.getItem(PINS_KEY) ?? "[]");
+    const value: unknown = JSON.parse(storage.getItem(name) ?? "[]");
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
   }
 }
 
+/** The Chats kept in the grid on this Mac, by key (`<project>#<id>`), whether or not they are active. */
+export function readGridPins(storage: Pick<Storage, "getItem">) {
+  return readKeys(storage, PINS_KEY);
+}
+
 export function saveGridPins(storage: Pick<Storage, "setItem">, pins: readonly string[]) {
   storage.setItem(PINS_KEY, JSON.stringify(pins));
+}
+
+/** The Chats of the split view on this Mac, in order: the ones dragged beside the open Chat. */
+export function readSplitChats(storage: Pick<Storage, "getItem">) {
+  return readKeys(storage, SPLIT_KEY);
+}
+
+/** A new Chat's draft tile is left out: it has no Chat to come back to. */
+export function saveSplitChats(storage: Pick<Storage, "setItem">, keys: readonly string[]) {
+  storage.setItem(SPLIT_KEY, JSON.stringify(keys.filter((key) => !key.endsWith("#0"))));
 }

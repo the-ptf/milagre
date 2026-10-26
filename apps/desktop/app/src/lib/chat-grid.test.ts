@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import type { CoordinatorState } from "../model";
-import { activeChatKeys, draftTileKey, gridChats } from "./chat-grid.ts";
+import { activeChatKeys, draftTileKey, gridChats, readChatLayout, splitChats } from "./chat-grid.ts";
 
 const NO_WORK = { delegations: [], negotiations: [], receiveOnly: [] };
 
@@ -68,4 +68,22 @@ test("gridChats: a new Chat's draft tile keeps its slot, and the saved Chat take
   assert.deepEqual(gridChats(["/a#2", draft, "/a#3"], ["/a#2", "/a#3"], "/a#4"), ["/a#2", "/a#4", "/a#3"]);
   // Leaving the draft for a tile already there drops the draft, nothing takes its slot.
   assert.deepEqual(gridChats(["/a#2", draft, "/a#3"], ["/a#2", "/a#3"], "/a#3"), ["/a#2", "/a#3"]);
+});
+
+test("splitChats: a Chat opened from outside the split takes the focused tile's slot, one inside it changes nothing", () => {
+  const split = ["/a#1", "/b#2"];
+  assert.deepEqual(splitChats(split, "/b#2", "/c#3"), ["/a#1", "/c#3"]);
+  assert.deepEqual(splitChats(split, "/a#1", "/c#3"), ["/c#3", "/b#2"]);
+  assert.equal(splitChats(split, "/a#1", "/b#2"), split);
+  assert.equal(splitChats(split, null, "/c#3"), split);
+  assert.equal(splitChats(split, "/z#9", "/c#3"), split);
+  assert.deepEqual(splitChats([draftTileKey("/a"), "/b#2"], draftTileKey("/a"), "/a#4"), ["/a#4", "/b#2"]);
+});
+
+test("readChatLayout: single, grid or split, single for anything else", () => {
+  const read = (value: string | null) => readChatLayout({ getItem: () => value });
+  assert.equal(read("grid"), "grid");
+  assert.equal(read("split"), "split");
+  assert.equal(read(null), "single");
+  assert.equal(read("tiles"), "single");
 });

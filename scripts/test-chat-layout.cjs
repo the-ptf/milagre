@@ -193,6 +193,8 @@ async function browserChecks() {
       await window.webContents
         .capturePage()
         .then((image) => require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "message-rail.png"), image.toPNG()));
+    // The rail measures the transcript again once the Markdown example is gone: a slow runner can read it before that.
+    await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length === 15').catch(() => {});
     assert.equal(await evaluate('document.querySelectorAll("[data-slot=preview-rail-item]").length'), 15, "Long Chats show at most 15 navigation lines");
     const jumpButton = `document.querySelector('button[aria-label="Go to bottom"]')`;
     const distanceFromBottom = `(() => { const v = document.querySelector('[aria-label="Conversation"]'); return v.scrollHeight - v.clientHeight - v.scrollTop; })()`;

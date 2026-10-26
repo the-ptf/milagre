@@ -41,6 +41,8 @@ type ChatGridProps = {
   /** The Chats kept in the grid while idle. */
   pinned: ReadonlySet<string>;
   onTogglePin: (key: string) => void;
+  /** The split view's close button on every tile, in place of pinning and Mark read. */
+  onClose?: (key: string) => void;
 };
 
 // What a press in an unfocused tile is meant for instead of focusing it: a control, a link or media in its transcript.
@@ -61,8 +63,22 @@ function clickFocusesTile(event: MouseEvent<HTMLElement>) {
   return !selection || selection.isCollapsed || !tile.contains(selection.anchorNode);
 }
 
-/** Every active Chat side by side. Only the focused tile has a composer; clicking another focuses it. */
-export function ChatGrid({ keys, focused, children, states, runs, delegated, models, onFocus, onOpenRoutine, onDismiss, pinned, onTogglePin }: ChatGridProps) {
+/** Every active Chat side by side, or a split's Chats. Only the focused tile has a composer; clicking another focuses it. */
+export function ChatGrid({
+  keys,
+  focused,
+  children,
+  states,
+  runs,
+  delegated,
+  models,
+  onFocus,
+  onOpenRoutine,
+  onDismiss,
+  pinned,
+  onTogglePin,
+  onClose,
+}: ChatGridProps) {
   const grid = useRef<HTMLElement>(null);
   const shown = keys.length > 0;
   // A tile focused from the keyboard, the sidebar or a click comes into view, and the prompt takes the keyboard unless
@@ -100,6 +116,7 @@ export function ChatGrid({ keys, focused, children, states, runs, delegated, mod
               onDismiss={onDismiss}
               pinned={pinned.has(key)}
               onTogglePin={onTogglePin}
+              onClose={onClose}
             >
               {key === focused ? children : null}
             </ChatTile>
@@ -144,6 +161,7 @@ const ChatTile = memo(function ChatTile({
   onDismiss,
   pinned,
   onTogglePin,
+  onClose,
   children,
 }: {
   chatKey: string;
@@ -157,6 +175,7 @@ const ChatTile = memo(function ChatTile({
   onDismiss: (key: string) => void;
   pinned: boolean;
   onTogglePin: (key: string) => void;
+  onClose?: (key: string) => void;
   children: ReactNode;
 }) {
   const scope = projectOfKey(chatKey);
@@ -217,7 +236,23 @@ const ChatTile = memo(function ChatTile({
         </span>
         {onOpenRoutine && session && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
         {needsYou && !focused && <span className="shrink-0 font-medium text-orange">Needs you</span>}
-        {!isDraftTileKey(chatKey) && (
+        {onClose && (
+          <Tooltip label="Close" side="bottom">
+            <button
+              type="button"
+              aria-label="Close"
+              data-tile-close
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose(chatKey);
+              }}
+              className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-hover hover:text-ink"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} color="currentColor" />
+            </button>
+          </Tooltip>
+        )}
+        {!onClose && !isDraftTileKey(chatKey) && (
           <Tooltip label={pinned ? "Remove from grid" : "Keep in grid"} side="bottom">
             <button
               type="button"
@@ -234,7 +269,7 @@ const ChatTile = memo(function ChatTile({
             </button>
           </Tooltip>
         )}
-        {mark === "unread" && !focused && (
+        {!onClose && mark === "unread" && !focused && (
           <Tooltip label="Mark read" side="bottom">
             <button
               type="button"
