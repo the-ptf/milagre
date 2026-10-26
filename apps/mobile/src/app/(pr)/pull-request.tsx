@@ -13,7 +13,9 @@ export default function PullRequestSheet() {
   const close = useCloseSheet();
   if (!valid || !client || !cwd) return <PrPending number={number} waiting={waiting} onClose={close} />;
   return (
-    <View style={[styles.screen, { paddingTop: 16 }]}>
+    // Not collapsable: a form sheet lays out a ScrollView with at most one view beside it; a flattened root hands it every
+    // row, and a PR already read (the Chat reads it for its Review pill) opened to a blank sheet.
+    <View collapsable={false} style={[styles.screen, { paddingTop: 16 }]}>
       <PrOverview
         key={number}
         client={client}
@@ -24,10 +26,10 @@ export default function PullRequestSheet() {
         onClose={close}
         choices={chatPullRequestChoices(route.chat)}
         onPick={(next) => router.setParams({ number: String(next) })}
-        onChanges={() => {
+        onChanges={(mode) => {
           close();
           // The Chat's Changes slide in once the sheet is down.
-          setTimeout(() => showChatChanges(route.chat), 350);
+          setTimeout(() => showChatChanges(route.chat, mode), 350);
         }}
         onChat={close}
         onOpen={(page, extra) => openPrPage(page, route, extra)}

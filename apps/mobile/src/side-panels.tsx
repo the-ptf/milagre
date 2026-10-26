@@ -15,6 +15,7 @@ import { PrOverview } from "./pr-overview";
 import { PrFiles } from "./pr-lists";
 import { openPrFile, openPrPage } from "./pr-nav";
 import type { PrChoice } from "./pr-chat";
+import type { DiffMode } from "@milagre/shared/git-diff";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
@@ -41,6 +42,9 @@ type Panels = {
   show: (side: Side | null) => void;
   tab: RightTab;
   setTab: (tab: RightTab) => void;
+  /** The mode Changes opens in, and a count that remounts it there when asked again. */
+  changesMode: { mode: DiffMode; nonce: number };
+  setChangesMode: (mode: DiffMode) => void;
   /** The PR picked in the PR menu (or opened from a link), over the one the Chat's row shows first. */
   pick: number | null;
   setPick: (number: number | null) => void;
@@ -86,6 +90,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const [open, setOpen] = useState<Side | null>(null);
   const [tab, setTab] = useState<RightTab>("pr");
   const [pick, setPick] = useState<number | null>(null);
+  const [changesMode, setChangesModeState] = useState<{ mode: DiffMode; nonce: number }>({ mode: "uncommitted", nonce: 0 });
+  const setChangesMode = useCallback((mode: DiffMode) => setChangesModeState((previous) => ({ mode, nonce: previous.nonce + 1 })), []);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
@@ -235,8 +241,48 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     return () => back.remove();
   }, [open, show]);
   const value = useMemo(
-    () => ({ screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pick, setPick, pull, settled, navigate }),
-    [screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pick, setPick, pull, settled, navigate],
+    () => ({
+      screen,
+      open,
+      mounted,
+      progress,
+      from,
+      attach,
+      update,
+      detach,
+      arrived,
+      show,
+      tab,
+      setTab,
+      changesMode,
+      setChangesMode,
+      pick,
+      setPick,
+      pull,
+      settled,
+      navigate,
+    }),
+    [
+      screen,
+      open,
+      mounted,
+      progress,
+      from,
+      attach,
+      update,
+      detach,
+      arrived,
+      show,
+      tab,
+      setTab,
+      changesMode,
+      setChangesMode,
+      pick,
+      setPick,
+      pull,
+      settled,
+      navigate,
+    ],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
 }
@@ -268,7 +314,7 @@ const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: number; worktreeId?: number; pullRequest?: ScreenPullRequest }) {
   const panels = usePanels();
   const [token] = useState(() => ({}));
-  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab, setPick } = panels;
+  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab, setPick, setChangesMode } = panels;
   const navigation = useNavigation() as unknown as TransitionEvents;
   const prNumber = pullRequest?.number;
   const prChat = pullRequest?.chatKey;
@@ -322,10 +368,14 @@ export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: nu
     },
     [setTab, setPick, show],
   );
-  const showChanges = useCallback(() => {
-    setTab("changes");
-    show("right");
-  }, [setTab, show]);
+  const showChanges = useCallback(
+    (mode?: DiffMode) => {
+      if (mode) setChangesMode(mode);
+      setTab("changes");
+      show("right");
+    },
+    [setTab, setChangesMode, show],
+  );
   return { gesture, open: ours ? panels.open : null, show, showPullRequest, showChanges };
 }
 
@@ -396,7 +446,7 @@ function swipe({
 export function SidePanelsHost() {
   const { colors } = useTheme();
   const session = useSession();
-  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab, pick, setPick } = usePanels();
+  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab, changesMode, setChangesMode, pick, setPick } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cardTop = useCardTop();
@@ -467,6 +517,8 @@ export function SidePanelsHost() {
                   onTab={setTab}
                   pick={pick}
                   onPick={setPick}
+                  changesMode={changesMode}
+                  onChangesMode={setChangesMode}
                   card={card}
                   onClose={() => show(null)}
                 />
@@ -492,6 +544,8 @@ function ChangesPanel({
   onTab,
   pick,
   onPick,
+  changesMode,
+  onChangesMode,
   card,
   onClose,
 }: {
@@ -501,6 +555,8 @@ function ChangesPanel({
   onTab: (tab: RightTab) => void;
   pick: number | null;
   onPick: (number: number | null) => void;
+  changesMode: { mode: DiffMode; nonce: number };
+  onChangesMode: (mode: DiffMode) => void;
   card: boolean;
   onClose: () => void;
 }) {
@@ -540,7 +596,7 @@ function ChangesPanel({
       )}
       {/* The list stays mounted under a diff, so going back keeps its mode, folders and scroll. */}
       <View style={{ flex: 1, display: file || pr ? "none" : "flex" }}>
-        <ChangesView worktreeId={worktreeId} onOpen={setFile} />
+        <ChangesView key={changesMode.nonce} worktreeId={worktreeId} onOpen={setFile} initialMode={changesMode.mode} />
       </View>
       {file && !pr && (
         <View style={{ flex: 1 }}>
@@ -561,8 +617,9 @@ function ChangesPanel({
             setPrFiles(false);
             onPick(next);
           }}
-          onChanges={() => {
+          onChanges={(mode) => {
             setFile(null);
+            onChangesMode(mode);
             onTab("changes");
           }}
           onChat={onClose}

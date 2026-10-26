@@ -26,6 +26,7 @@ import {
   checksOutcome,
   checksSummary,
   mergeStatus,
+  notInPrLabel,
   openThreads,
   type MergeMethod,
   type GuideStop,
@@ -99,8 +100,8 @@ export function PullRequestPanelBody({
   activePath?: string;
   guideOpen: boolean;
   guideStop: number;
-  /** The Worktree's uncommitted files, which the PR doesn't have yet, and what shows them. */
-  local?: { count: number; onOpen: () => void };
+  /** The Worktree's uncommitted files, which the PR doesn't have yet, and what shows them (Committed when only commits are missing). */
+  local?: { count: number; onOpen: (mode: "uncommitted" | "committed") => void };
 }) {
   const { state, pr } = review;
   if (!pr) {
@@ -119,18 +120,16 @@ export function PullRequestPanelBody({
         <ChecksRow pr={pr} onFix={() => actions.fixChecks(pr)} />
         <ReviewsRow pr={pr} onOpenFile={actions.openFile} onFix={(thread) => actions.fixThread(pr, thread)} />
         <DescriptionRow pr={pr} />
-        {local && local.count > 0 && pr.state === "OPEN" && (
+        {local && pr.state === "OPEN" && notInPrLabel(local.count, pr.localCommits ?? 0) && (
           <button
             type="button"
-            data-pr-local={local.count}
-            onClick={local.onOpen}
+            data-pr-local={notInPrLabel(local.count, pr.localCommits ?? 0)}
+            onClick={() => local.onOpen(local.count > 0 ? "uncommitted" : "committed")}
             className="flex h-9 w-full items-center gap-2.5 rounded-control px-3 text-left transition-colors hover:bg-hover"
           >
             <span className="flex shrink-0 text-orange">{icon(CloudUploadIcon, 15)}</span>
             <span className="shrink-0 text-[12.5px] font-medium text-ink">Not in the PR yet</span>
-            <span className="min-w-0 flex-1 truncate text-right text-[11.5px] text-ink-2">
-              {local.count} {local.count === 1 ? "file" : "files"}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-right text-[11.5px] text-ink-2">{notInPrLabel(local.count, pr.localCommits ?? 0)}</span>
             <span className="shrink-0 text-ink-3">{icon(ArrowRight01Icon, 13)}</span>
           </button>
         )}

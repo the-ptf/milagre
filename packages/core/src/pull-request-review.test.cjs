@@ -145,6 +145,18 @@ test("detail turns GitHub's PR into the panel's shape", async () => {
   assert.deepEqual(pr.pendingReview, { id: "R_9", count: 2 });
 });
 
+test("detail counts the folder's commits an open PR doesn't have yet", async () => {
+  const { exec } = fakeGh(() => ({ data: { repository: { pullRequest: prNode() } } }));
+  const runs = [];
+  const git = { read: { run: async (cwd, args) => (runs.push(args), { ok: true, stdout: "2\n" }) } };
+  const result = await createPullRequestReview({ exec, git }).detail({ cwd: "/w", number: 7 });
+  assert.equal(result.pr.localCommits, 2);
+  assert.deepEqual(runs, [["rev-list", "--count", `${HEAD}..HEAD`]]);
+  const merged = fakeGh(() => ({ data: { repository: { pullRequest: prNode({ state: "MERGED" }) } } }));
+  const none = await createPullRequestReview({ exec: merged.exec, git }).detail({ cwd: "/w", number: 7 });
+  assert.equal(none.pr.localCommits, undefined, "A merged PR has nothing left to push to");
+});
+
 test("detail pages through more than 100 files", async () => {
   const { exec, calls } = fakeGh((_args, query) =>
     query.includes("after:$after")

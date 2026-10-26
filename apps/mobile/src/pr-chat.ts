@@ -1,3 +1,5 @@
+import type { DiffMode } from "@milagre/shared/git-diff";
+
 // "Fix in Chat", "Ask in Chat" and "Send to Chat" from the PR sheet reach the Chat screen under it through this: the open
 // Chat registers how it sends and how it fills its composer, keyed like its drafts (`projectPath#id`).
 
@@ -11,8 +13,8 @@ type ChatHandle = {
   prefill: (text: string) => void;
   /** The Chat's PRs, in its row's order. */
   pullRequests?: () => PrChoice[];
-  /** Shows the Worktree's Changes beside the Chat. */
-  changes?: () => void;
+  /** Shows the Worktree's Changes beside the Chat, in a mode when given. */
+  changes?: (mode?: DiffMode) => void;
 };
 
 const handles = new Map<string, ChatHandle>();
@@ -41,10 +43,10 @@ export function chatPullRequestChoices(chatKey: string | undefined): PrChoice[] 
 }
 
 /** Shows the Chat's Changes; false when its screen isn't open. */
-export function showChatChanges(chatKey: string | undefined) {
+export function showChatChanges(chatKey: string | undefined, mode?: DiffMode) {
   const handle = chatKey ? handles.get(chatKey) : undefined;
   if (!handle?.changes) return false;
-  handle.changes();
+  handle.changes(mode);
   return true;
 }
 

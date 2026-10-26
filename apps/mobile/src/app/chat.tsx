@@ -45,9 +45,12 @@ import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-re
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
 import { shiftImageMentions } from "@milagre/shared/prompt-mentions";
 import { addMention, appendAttachments, appendImageMentions, attachmentPrompt, mentionAttachments, prepareAttachments } from "../attachments";
-import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, SubagentChip } from "../status-indicators";
-import { openPullRequest } from "../pr-nav";
+import { BackgroundRing, HeaderPullRequestChip, PullRequestAction, PullRequestMerge, PullRequestReview, SubagentChip } from "../status-indicators";
+import { usePrDetail } from "../pr-store";
+import { openThreads } from "@milagre/shared/pull-request-review";
+import { openPrPage, openPullRequest } from "../pr-nav";
 import { onPullRequestRequest, registerPrChat, type PrChoice } from "../pr-chat";
+import type { DiffMode } from "@milagre/shared/git-diff";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -409,6 +412,9 @@ export default function ChatScreen() {
   // Every PR the row shows, for the PR panel's menu; the list keeps one identity while it says the same.
   const prChoicesJson = JSON.stringify(rowPrs.map(({ number, title, state }) => ({ number, title, state })));
   const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);
+  // The open PR's detail, read every 30 s while it's open, for the Review pill's count of unresolved threads.
+  const prDetail = usePrDetail(session.client, prPath, pr?.number ?? Number.NaN, pr?.state === "OPEN");
+  const prOpenThreads = pr && prDetail.pr?.state === "OPEN" && prDetail.pr.number === pr.number ? openThreads(prDetail.pr).length : 0;
   const remote = lean && (!pending || pendingCanonicalId !== null) ? Math.max(0, historyPage.total - historyPage.messages.length) : 0;
   // The design the user last chose on the design sheet, which its cards mark.
   const history = chatHistory(messages);
@@ -537,7 +543,7 @@ export default function ChatScreen() {
     prefill: (text: string) => void;
     open: (number?: number) => void;
     pullRequests: () => PrChoice[];
-    changes: () => void;
+    changes: (mode?: DiffMode) => void;
   } | null>(null);
   useEffect(() => {
     if (!savedChatKey) return;
@@ -545,7 +551,7 @@ export default function ChatScreen() {
       send: (body) => prChat.current?.send(body) ?? Promise.resolve(false),
       prefill: (text) => prChat.current?.prefill(text),
       pullRequests: () => prChat.current?.pullRequests() ?? [],
-      changes: () => prChat.current?.changes(),
+      changes: (mode) => prChat.current?.changes(mode),
     });
     const unsubscribe = onPullRequestRequest(savedChatKey, (number) => prChat.current?.open(number));
     return () => {
@@ -710,9 +716,10 @@ export default function ChatScreen() {
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
-  function openPr(number = pr?.number) {
+  function openPr(number = pr?.number, page?: "threads") {
     if (!number || !params.id || !worktree || project.link) return;
     if (widthClass(window.width) !== "compact") panels.showPullRequest(number);
+    else if (page) openPrPage(page, { worktreeId: String(worktreeId), number: String(number), chat: chatId });
     else openPullRequest({ worktreeId: String(worktreeId), number: String(number), chat: chatId });
   }
   prChat.current = {
@@ -1696,6 +1703,7 @@ export default function ChatScreen() {
                       />
                     )}
                     {!prAction && chat && pr?.state === "OPEN" && pr.readyToMerge && <PullRequestMerge pr={pr} onOpen={() => openPr(pr.number)} />}
+                    {chat && pr && prOpenThreads > 0 && <PullRequestReview count={prOpenThreads} onOpen={() => openPr(pr.number, "threads")} />}
                     <View style={{ flex: 1 }} />
                     <BrowserChip chatId={params.id ? chatId : undefined} />
                     {params.id && Number(params.id) > 0 && chat && !chat.archived && (

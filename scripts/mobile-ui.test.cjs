@@ -169,6 +169,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
+      if (id === "@milagre/shared/pull-request-review" && !(id in modules)) return require("../packages/shared/src/pull-request-review.ts");
       const base = id.replace(/^\.\.?\//, "");
       if (base === "theme" || base === "ui") {
         // Themed code reads colors through hooks; a test's own fake wins over these defaults.
@@ -224,6 +225,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           openPrPage: (page, route, extra) => (globalThis.openedPrPages ??= []).push([page, route, extra]),
           openPrFile: (route, path) => (globalThis.openedPrPages ??= []).push(["file", route, { path }]),
         };
+      // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
+      if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -2567,6 +2570,7 @@ function chatHost({
     "../status-indicators": {
       PullRequestAction: "PullRequestAction",
       PullRequestMerge: "PullRequestMerge",
+      PullRequestReview: "PullRequestReview",
       HeaderPullRequestChip: "HeaderPullRequestChip",
       SubagentChip: "SubagentChip",
       BackgroundRing: "BackgroundRing",
@@ -4654,6 +4658,47 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
   } finally {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
+  }
+});
+
+test("open review threads show a Review pill beside Merge, which opens the PR's threads", () => {
+  globalThis.chatPullRequest = { number: 92, title: "Fix it", url: "https://github.com/o/r/pull/92", state: "OPEN", readyToMerge: true };
+  const thread = (id, resolved, pending = false) => ({
+    id,
+    path: "a.ts",
+    line: 1,
+    side: "RIGHT",
+    resolved,
+    outdated: false,
+    comments: [{ id: `c${id}`, author: "jefo3", body: "?", createdAt: "x", ...(pending ? { pending: true } : {}) }],
+  });
+  // One open thread, one resolved, one that holds only the viewer's draft: only the first counts.
+  globalThis.prDetail = { number: 92, state: "OPEN", threads: [thread("1", false), thread("2", true), thread("3", false, true)] };
+  globalThis.openedPrPages = [];
+  try {
+    const screen = chatHost();
+    screen.params.id = "42";
+    screen.session.snapshot.project.state.sessions[42] = { id: 42, provider: "codex", worktree_id: 1 };
+    const tree = screen.render();
+    assert.ok(
+      find(tree, (node) => node.type === "PullRequestMerge"),
+      "Merge stays beside it",
+    );
+    const review = find(tree, (node) => node.type === "PullRequestReview");
+    assert.equal(review.props.count, 1);
+    review.props.onOpen();
+    const key = `${screen.session.snapshot.project.path}#42`;
+    assert.equal(JSON.stringify(globalThis.openedPrPages), JSON.stringify([["threads", { worktreeId: "1", number: "92", chat: key }, undefined]]));
+    globalThis.prDetail = { ...globalThis.prDetail, state: "MERGED" };
+    assert.equal(
+      find(screen.render(), (node) => node.type === "PullRequestReview"),
+      undefined,
+      "a merged PR has no review to answer",
+    );
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.prDetail;
+    delete globalThis.openedPrPages;
   }
 });
 
