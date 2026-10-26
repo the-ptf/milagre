@@ -1972,6 +1972,18 @@ export default function ChatScreen() {
                         client={client}
                         projectPath={worktree?.path || (project.link ? "" : project.path)}
                         draft={draft}
+                        suggestion={
+                          !run &&
+                          !busy &&
+                          !picking &&
+                          !attachments.length &&
+                          activity?.activity === "idle" &&
+                          chat?.provider === "claude" &&
+                          actualProvider === "claude"
+                            ? chat.suggestion?.text
+                            : undefined
+                        }
+                        onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
                         images={attachments.filter((item) => item.image).length}
                         onImagePaste={(image) => void pasteImage(image)}
                         known={knownFiles.current}

@@ -72,6 +72,8 @@ export function PromptField({
   onMention,
   onSubmit,
   placeholder = "Message the agent",
+  suggestion,
+  onAcceptSuggestion,
 }: {
   client: Client;
   projectPath: string;
@@ -89,6 +91,8 @@ export function PromptField({
   /** Return on a hardware keyboard; Shift+Return and the on-screen keyboard still add a line. */
   onSubmit?: () => void;
   placeholder?: string;
+  suggestion?: string;
+  onAcceptSuggestion?: (text: string) => void;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
   // Text size scales the composer too; 16 stays 16 at the default step.
@@ -185,6 +189,32 @@ export function PromptField({
 
   return (
     <View>
+      {suggestion && !draft && !query && !fileToken && onAcceptSuggestion && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Use suggested prompt: ${suggestion}`}
+          accessibilityHint="Puts the suggestion in the message field without sending it"
+          onPress={() => {
+            const end = { start: suggestion.length, end: suggestion.length };
+            setRequested({ draft: suggestion, selection: end });
+            setSelection(end);
+            onAcceptSuggestion(suggestion);
+            paste.ref.current?.focus();
+          }}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            justifyContent: "center",
+            paddingHorizontal: 10,
+            marginBottom: 4,
+            borderRadius: 12,
+            backgroundColor: pressed ? colors.hover : colors.surface,
+          })}
+        >
+          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: inputSize }}>
+            {suggestion}
+          </Text>
+        </Pressable>
+      )}
       {query ? (
         <Animated.View entering={openSkills(motionScale)}>
           <PageScroll

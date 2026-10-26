@@ -2054,3 +2054,38 @@ test("a queued message nobody waits on since a restart tells the runtime when it
   );
   assert.equal(started.length, 1);
 });
+
+test("saving a new message clears suggestions before checkpoint preparation and publication", async (t) => {
+  let release;
+  const checkpoint = new Promise((resolve) => {
+    release = resolve;
+  });
+  let preparing = false;
+  const h = harness({
+    hooks: {
+      beforeTask: async () => {
+        if (preparing) await checkpoint;
+      },
+    },
+  });
+  t.after(() => h.manager.closeAll());
+  const sessionId = await chatWithReply(h.host, h.session, h.saved);
+  await h.states.update(ALPHA, (state) => ({
+    ...state,
+    sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], suggestion: { text: "Continue", turnId: "t1" }, suggestionTurnId: "t1" } },
+  }));
+  preparing = true;
+  const send = h.host.send(message(ALPHA, "Next", { sessionId }));
+  try {
+    await waitUntil(() => h.saved.get(ALPHA)?.messages.at(-1)?.body === "Next");
+    const staged = h.saved.get(ALPHA).sessions[sessionId];
+    assert.equal(staged.suggestion, undefined);
+    assert.equal(staged.suggestionTurnId, undefined);
+  } finally {
+    release();
+    await send;
+  }
+  const sent = h.published.findLast(({ event }) => event.type === "message-sent").state.sessions[sessionId];
+  assert.equal(sent.suggestion, undefined);
+  assert.equal(sent.suggestionTurnId, undefined);
+});

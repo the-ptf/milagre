@@ -737,6 +737,7 @@ interface ChatComposerProps {
   plan?: ChatPlan;
   /** How full the agent's context window is, shown as a ring beside Send. */
   contextUsage?: ContextUsage;
+  suggestion?: string;
   /** The ports the chat's commands listen on, shown as a pill beside the to-do list. */
   ports?: AgentPort[];
   /** The runtime's key for this Chat (`projectPath#id`), which browser ownership is recorded under. */
@@ -1058,6 +1059,7 @@ export function ChatComposer({
   activity,
   plan,
   contextUsage,
+  suggestion,
   ports,
   agentChatId,
   onStopPort,
@@ -1468,6 +1470,7 @@ export function ChatComposer({
               onCompact={onCompact}
               sendBlocked={sendBlocked}
               running={isSending}
+              suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
               models={models}
               cliStatus={cliStatus}
               onModelPickerOpen={onModelPickerOpen}

@@ -14003,3 +14003,78 @@ test("mobile simulator relayed frames stay in two cache files and never enter in
   h.cleanup();
   assert.equal(h.files.size, 0);
 });
+
+const chip = (tree) => find(tree, (node) => node.type === "Pressable" && node.props.accessibilityLabel === "Use suggested prompt: Add tests");
+
+test("phone suggestion fills and focuses the draft without sending, and hides behind typing or menus", () => {
+  const react = hookHost();
+  let draft = "";
+  let focus = 0;
+  let accepted = 0;
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+    "./use-rpc": { useRpc: () => ({ data: { skills: [{ name: "tests", description: "Test" }] } }) },
+    "./use-image-paste": { useImagePaste: () => ({ ref: { current: { focus: () => focus++ } }, onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./theme": { useTheme: () => ({ colors: fakePalette, motionScale: 0, typeScale: 1 }) },
+  });
+  const render = () => {
+    react.begin();
+    return PromptField({
+      client: {},
+      projectPath: "/project",
+      draft,
+      suggestion: "Add tests",
+      onChangeText: (value) => {
+        draft = value;
+      },
+      onAcceptSuggestion: (value) => {
+        accepted++;
+        if (!draft) draft = value;
+      },
+    });
+  };
+
+  const tree = render();
+  assert.ok(chip(tree));
+  chip(tree).props.onPress();
+  assert.equal(draft, "Add tests");
+  assert.equal(focus, 1);
+  assert.equal(accepted, 1);
+  assert.equal(chip(render()), undefined);
+  for (const value of [" ", "already typing", "/tests", "@file"]) {
+    draft = value;
+    assert.equal(chip(render()), undefined);
+  }
+  draft = "";
+  const stale = chip(render());
+  draft = "typed before the tap arrived";
+  stale.props.onPress();
+  assert.equal(draft, "typed before the tap arrived", "a delayed tap preserves new input");
+});
+
+test("the phone screen offers suggestions only for idle Claude Chats without attachments or a send in progress", () => {
+  const screen = ongoingChatHost();
+  const state = screen.session.snapshot.project.state;
+  const chat = state.sessions[7];
+  chat.provider = "claude";
+  chat.suggestion = { text: "Add tests", turnId: "t" };
+  for (const message of state.messages) message.model = "claude-opus-5-5";
+  screen.session.drafts["/p#7"] = "";
+  assert.equal(screen.field().suggestion, "Add tests");
+  screen.session.attachments["/p#7"] = [{ id: "file", name: "notes.txt", uri: "file:///notes.txt" }];
+  assert.equal(screen.field().suggestion, undefined);
+  screen.session.attachments["/p#7"] = [];
+  screen.session.snapshot.runs.runs["/p#7"] = { text: "", model: "claude-opus-5-5", steps: [], approvals: [], questions: [], answered: {} };
+  assert.equal(screen.field().suggestion, undefined);
+  delete screen.session.snapshot.runs.runs["/p#7"];
+  chat.backgroundTasks = [{ id: "server", kind: "command", title: "Server", status: "running", startedAt: 1 }];
+  assert.equal(screen.field().suggestion, undefined);
+  delete chat.backgroundTasks;
+  chat.provider = "codex";
+  assert.equal(screen.field().suggestion, undefined);
+});

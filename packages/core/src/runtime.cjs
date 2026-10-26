@@ -1012,7 +1012,7 @@ function createRuntime(options) {
           ? new CodexSession({ ...withMcp, clientVersion: version })
           : provider === "antigravity"
             ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
-            : new ClaudeSession(withMcp);
+            : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
     // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).
@@ -1705,6 +1705,16 @@ function createRuntime(options) {
     if ((state.sessions[sessionId]?.summary?.count ?? 0) > 0 || state.messages.some((message) => message.session_id === sessionId))
       await chats.addNote(chatId, { body: RELOAD_TEXT, context: { kind: "reload" } });
     await agents.closeChat(chatId);
+    await editProject(
+      projectOfKey(chatId),
+      (latest) => {
+        const current = latest.sessions[sessionId];
+        if (!current || (current.suggestion === undefined && current.suggestionTurnId === undefined)) return latest;
+        const { suggestion: _suggestion, suggestionTurnId: _turn, ...session } = current;
+        return { ...latest, sessions: { ...latest.sessions, [sessionId]: session } };
+      },
+      { chats: [] },
+    );
   });
 
   // The end of a background command's output, for the Chat's background line: what the agent left running in it.
