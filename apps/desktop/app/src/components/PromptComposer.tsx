@@ -566,7 +566,9 @@ export function PromptComposer({
     if (recall(event)) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (canSend) send();
+      // An unaccepted suggestion is never sent. Otherwise the parent checks its live draft, which a render-time
+      // `canSend` can trail when Enter follows the edit in the same task.
+      if (canSend || !visibleSuggestion) send();
     }
   }
 
