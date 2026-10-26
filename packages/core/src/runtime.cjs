@@ -1,3 +1,4 @@
+const { chatMentionsContext } = require("./chat-mentions.cjs");
 const { createAccountRouting } = require("./account-routing.cjs");
 const { createLimitSwitch } = require("./limit-switch.cjs");
 const { createMcp } = require("./mcp/index.cjs");
@@ -1095,7 +1096,8 @@ function createRuntime(options) {
     const reports = agents.isTurnActive(request.chatId) ? null : await linked.reportsForTurn(request.chatId);
     const milagreNotes = agentNotes.get(request.chatId) ?? [];
     agentNotes.delete(request.chatId);
-    const text = [prompt, ...setupNotes, ...milagreNotes, context, reports?.text].filter(Boolean).join("\n\n");
+    const mentions = await chatMentionsContext(request, (key) => scopeStates.get(key)).catch(() => "");
+    const text = [prompt, ...setupNotes, ...milagreNotes, context, mentions, reports?.text].filter(Boolean).join("\n\n");
     try {
       if (closing) {
         await chats.receive(request.chatId, { type: "turn-cancelled" });

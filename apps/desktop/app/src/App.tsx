@@ -1,3 +1,4 @@
+import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { prepareImageUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
@@ -2305,6 +2306,12 @@ function App() {
       showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? <SidebarUsage usage={usage} scope={accountScope} /> : undefined,
     [showUsageInSidebar, usage.snapshot, usage.loading, accountScope],
   );
+  const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
+  const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
+  const mentionContext = useMemo(
+    () => ({ chats: mentionChats, project: project?.path ?? "", currentId: selectedSession?.id, onOpen: openLinkedChat }),
+    [mentionChats, project?.path, selectedSession?.id, openLinkedChat],
+  );
   const composerWorktrees = useMemo(
     () => worktrees.filter((worktree) => !worktree.sharedChat).map((worktree) => ({ id: worktree.id, name: worktree.name, path: worktree.path })),
     [worktrees],
@@ -3029,6 +3036,7 @@ function App() {
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <DraftChatComposer
                         store={draftStore}
+                        mentionContext={mentionContext}
                         messages={displayedMessages}
                         loading={messagesLoading}
                         scrollKey={chatView.current}

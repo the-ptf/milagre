@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
@@ -93,6 +93,19 @@ export function ImageMentionChip({ index, onOpen }: { index: number; onOpen?: ()
       <Icon icon={Image01Icon} color="#26a69a" size={Math.round(textPx * 0.95)} strokeWidth={1.8} />
       <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
         {label}
+      </Text>
+    </Box>
+  );
+}
+
+/** A mentioned Chat opens through the same scoped navigation as a sender line. */
+export function ChatMentionChip({ title, onOpen }: { title: string; onOpen?: () => void }) {
+  const { colors, textPx } = useTheme();
+  return (
+    <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Open ${title}`}>
+      <Icon icon={BubbleChatIcon} size={Math.round(textPx * 0.95)} color={colors.ink2} />
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
+        {title}
       </Text>
     </Box>
   );

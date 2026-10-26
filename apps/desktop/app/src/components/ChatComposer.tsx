@@ -56,6 +56,7 @@ import { FindBar } from "./FindBar";
 import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import { lazyView } from "../lib/lazy-view";
+import { ChatMentionsContext, EMPTY_CHAT_MENTIONS, type ChatMentionScope } from "./ChatMentions";
 import { PromptText } from "./PromptText";
 import { onlyImageMentions } from "@milagre/shared/prompt-parts";
 import { useFilesRoot } from "./editor-links";
@@ -682,6 +683,7 @@ const MessageTranscript = memo(function MessageTranscript({
 });
 
 interface ChatComposerProps {
+  mentionContext?: ChatMentionScope;
   /** The chat's computer is away: the composer is disabled and says so. */
   offlineName?: string | null;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
@@ -1029,6 +1031,7 @@ function NewChatHeader({
 const EMPTY_SUBAGENTS: Subagent[] = [];
 
 export function ChatComposer({
+  mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
   scopeKind,
   imageDraft,
@@ -1248,6 +1251,7 @@ export function ChatComposer({
 
   return (
     <ReplyProviders
+      mentionContext={mentionContext}
       chatId={artifactChat}
       steps={artifactSteps}
       userMessages={userMessages}
@@ -1321,30 +1325,32 @@ export function ChatComposer({
                     {/* Reply links to this Chat's loopback-only servers stay localhost (Markdown.tsx). */}
                     <LoopbackPortsContext.Provider value={loopbackPorts}>
                       <StepDetailsScope scope={messageScope}>
-                        <MessageTranscript
-                          findOpen={findOpen}
-                          earlier={earlier}
-                          messages={messages}
-                          pendingMessageId={pendingMessageId}
-                          isSending={isSending}
-                          streamingText={streamingText}
-                          streamingSteps={streamingSteps}
-                          asking={asking}
-                          undoable={undoable}
-                          undoBlocked={isSending || Boolean(offlineName)}
-                          onUndo={runtimeChat ? undoTask : undefined}
-                          highlightId={highlightId}
-                          onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
-                          waitingStepIds={waitingStepIds}
-                          onRecommendationSelect={onRecommendationSelect}
-                          onUpdateCli={onUpdateCli}
-                          updatingCli={updatingCli}
-                          cliStatus={cliStatus}
-                          onOpenLinkedChat={onOpenLinkedChat}
-                          onOpenAccounts={onOpenAccounts}
-                          offlineName={offlineName}
-                          models={models}
-                        />
+                        <ChatMentionsContext value={mentionContext}>
+                          <MessageTranscript
+                            findOpen={findOpen}
+                            earlier={earlier}
+                            messages={messages}
+                            pendingMessageId={pendingMessageId}
+                            isSending={isSending}
+                            streamingText={streamingText}
+                            streamingSteps={streamingSteps}
+                            asking={asking}
+                            undoable={undoable}
+                            undoBlocked={isSending || Boolean(offlineName)}
+                            onUndo={runtimeChat ? undoTask : undefined}
+                            highlightId={highlightId}
+                            onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                            waitingStepIds={waitingStepIds}
+                            onRecommendationSelect={onRecommendationSelect}
+                            onUpdateCli={onUpdateCli}
+                            updatingCli={updatingCli}
+                            cliStatus={cliStatus}
+                            onOpenLinkedChat={onOpenLinkedChat}
+                            onOpenAccounts={onOpenAccounts}
+                            offlineName={offlineName}
+                            models={models}
+                          />
+                        </ChatMentionsContext>
                       </StepDetailsScope>
                     </LoopbackPortsContext.Provider>
 
@@ -1517,6 +1523,7 @@ const NO_CHECKPOINTS: CheckpointApi = {
 
 /** A Chat's transcript alone, following its stream: an unfocused tile of the Chat grid. Replying means focusing the tile. */
 export function ChatTranscript({
+  mentionContext,
   chatKey,
   messages,
   messageScope,
@@ -1528,7 +1535,7 @@ export function ChatTranscript({
   waitingStepIds,
   runStartedAt,
   models,
-}: { chatKey: string } & Pick<
+}: { chatKey: string; mentionContext?: ChatMentionScope } & Pick<
   ChatComposerProps,
   "messages" | "messageScope" | "earlier" | "isSending" | "streamingText" | "streamingSteps" | "asking" | "waitingStepIds" | "runStartedAt" | "models"
 >) {
@@ -1536,7 +1543,7 @@ export function ChatTranscript({
   const steps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages } = history;
   return (
-    <ReplyProviders chatId={chatKey} steps={steps} userMessages={userMessages}>
+    <ReplyProviders chatId={chatKey} steps={steps} userMessages={userMessages} mentionContext={mentionContext}>
       <MessageScroller
         navigation="none"
         followOutput
@@ -1570,6 +1577,7 @@ export function ChatTranscript({
 
 /** The contexts a Chat's replies read: its designs and the send function a generative UI button posts through. */
 function ReplyProviders({
+  mentionContext = EMPTY_CHAT_MENTIONS,
   chatId,
   steps,
   userMessages,
@@ -1579,6 +1587,7 @@ function ReplyProviders({
   subagents,
   children,
 }: {
+  mentionContext?: ChatMentionScope;
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
@@ -1591,7 +1600,9 @@ function ReplyProviders({
 }) {
   return (
     <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
-      <GenerativeUIProvider onSend={onSend}>{children}</GenerativeUIProvider>
+      <GenerativeUIProvider onSend={onSend}>
+        <ChatMentionsContext value={mentionContext}>{children}</ChatMentionsContext>
+      </GenerativeUIProvider>
     </ArtifactsProvider>
   );
 }

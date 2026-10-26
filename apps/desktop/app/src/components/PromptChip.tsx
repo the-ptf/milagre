@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
 import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
@@ -116,5 +116,33 @@ export function ImageChip({ index, name, onOpen }: { index: number; name?: strin
     >
       {content}
     </button>
+  );
+}
+
+/** A reference opens the original Project's Chat, without granting additional access. */
+export function ChatChip({ title, onOpen }: { title: string; onOpen?: () => void }) {
+  const className = `${CHIP} border-line-strong bg-hover text-ink`;
+  const content = (
+    <>
+      <HugeiconsIcon icon={BubbleChatIcon} size={ICON_SIZE} strokeWidth={1.8} aria-hidden />
+      <span className={LABEL}>{title}</span>
+    </>
+  );
+  return onOpen ? (
+    <button
+      type="button"
+      data-chip="chat"
+      className={`${className} cursor-pointer hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-accent-ink`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+    >
+      {content}
+    </button>
+  ) : (
+    <span data-chip="chat" className={className}>
+      {content}
+    </span>
   );
 }

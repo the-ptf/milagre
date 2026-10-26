@@ -17,7 +17,8 @@ import {
   type EditKind,
   type EditResult,
 } from "../lib/editor-model";
-import { FileChip, ImageChip, SkillChip } from "./PromptChip";
+import { useChatMentions } from "./ChatMentions";
+import { ChatChip, FileChip, ImageChip, SkillChip } from "./PromptChip";
 
 export type PromptEditorHandle = {
   focus(): void;
@@ -106,6 +107,7 @@ export function PromptEditor({
   placeholderClassName = "",
   ref,
 }: PromptEditorProps) {
+  const mentions = useChatMentions();
   const rootRef = useRef<HTMLDivElement>(null);
   const [history] = useState(() => createEditHistory());
   const [chips, setChips] = useState<Chip[]>([]);
@@ -494,6 +496,8 @@ export function PromptEditor({
         createPortal(
           chip.part.kind === "skill" ? (
             <SkillChip name={chip.part.name} description={skillDescriptions.get(chip.part.name.toLowerCase())} />
+          ) : chip.part.kind === "chat" ? (
+            <ChatChip title={mentions.chats.find((chat) => chat.id === (chip.part.kind === "chat" ? chip.part.id : 0))?.title ?? "Chat"} />
           ) : chip.part.kind === "image" ? (
             <ImageChip index={chip.part.index} onOpen={onOpenImage?.bind(null, chip.part.index)} />
           ) : (

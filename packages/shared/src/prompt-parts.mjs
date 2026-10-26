@@ -5,7 +5,27 @@ const IMAGE_TOKEN = /\[Image #([1-9]\d*)\]/g;
 
 /** `@path`, or `@"path"` when the path has whitespace or a quote. */
 export function formatFileMention(path) {
-  return /[\s"]/.test(path) ? `@"${path}"` : `@${path}`;
+  return /[\s"]/.test(path) || /^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(path) ? `@"${path}"` : `@${path}`;
+}
+
+/** A reference to a Chat in the sending Project. */
+export function formatChatMention(id) {
+  return `@chat:${id}`;
+}
+
+/** Chat references in prose, with complete tokens only (never code or file paths). */
+export function chatMentionTokens(prompt) {
+  const tokens = [];
+  const prose = prosePrompt(prompt);
+  const quoted = Array.from(prose.matchAll(/(^|\s)@"[^"\n]+"/g), (match) => ({ start: match.index, end: match.index + match[0].length }));
+  for (const match of prose.matchAll(/(^|\s)@chat:([1-9]\d*)(?=$|\s|[.,!?;:)\]}]+(?=$|\s))/g)) {
+    if (quoted.some((span) => match.index >= span.start && match.index < span.end)) continue;
+    const id = Number(match[2]);
+    if (!Number.isSafeInteger(id)) continue;
+    const start = match.index + match[1].length;
+    tokens.push({ id, start, end: start + formatChatMention(id).length });
+  }
+  return tokens;
 }
 
 /** `[Image #1]` inline token for a 1-based attached image index. */
@@ -62,6 +82,7 @@ function fileTokens(prompt, files) {
       if (files(match[2])) tokens.push({ path: match[2], start, end: match.index + match[0].length });
       continue;
     }
+    if (/^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(match[3])) continue;
     let path = match[3];
     if (!files(path)) path = path.replace(TRAILING_PUNCTUATION, "");
     if (path && files(path)) tokens.push({ path, start, end: start + 1 + path.length });
@@ -88,12 +109,15 @@ function imageTokens(prompt, images) {
 }
 
 /** Split a prompt into text, skill, file and image parts. The parts' text joins back into the prompt. */
-export function promptParts(prompt, { skills, files, images = 0 }) {
+export function promptParts(prompt, { skills, files, images = 0, chats = () => false }) {
   const marks = [];
   let offset = 0;
   for (const part of promptSkillParts(prompt, skills)) {
     if (part.skill) marks.push({ kind: "skill", start: offset, end: offset + part.text.length, name: part.text.slice(1) });
     offset += part.text.length;
+  }
+  for (const token of chatMentionTokens(prompt)) {
+    if (chats(token.id) && !marks.some((mark) => token.start < mark.end && token.end > mark.start)) marks.push({ kind: "chat", ...token });
   }
   for (const token of fileTokens(prompt, files)) {
     if (marks.some((mark) => token.start < mark.end && token.end > mark.start)) continue;
@@ -114,7 +138,9 @@ export function promptParts(prompt, { skills, files, images = 0 }) {
         ? { kind: "skill", text, name: mark.name }
         : mark.kind === "file"
           ? { kind: "file", text, path: mark.path }
-          : { kind: "image", text, index: mark.index },
+          : mark.kind === "chat"
+            ? { kind: "chat", text, id: mark.id, start: mark.start }
+            : { kind: "image", text, index: mark.index },
     );
     end = mark.end;
   }

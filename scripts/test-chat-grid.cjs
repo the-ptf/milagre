@@ -42,6 +42,7 @@ const state = {
     message(id * 10 + 2, id, "assistant", "Done with the first pass on " + titles[id].toLowerCase() + ". The change touches two files."),
   ]),
 };
+state.messages.find((item) => item.id === 21).body = "Read @chat:4 for context.";
 // A local tile's image, while the window's open Project is another Computer's.
 state.messages.find((item) => item.id === 41).images = [{ id: "shot", name: "shot.png", path: "/fixture/shot.png" }];
 const run = (extra) => ({ text: "Reading the files…", model: "x", steps: [], approvals: [], questions: [], answered: {}, startedAt: Date.now(), ...extra });
@@ -142,6 +143,8 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-chat-tile="/fixture#4"] [data-tile-dismiss]').click()`);
     assert.equal(await evaluate("window.dismissed"), "/fixture#4", "Mark read dismisses the unread tile");
     assert.equal(await evaluate("window.focusedTo"), null, "Mark read does not focus the tile");
+    await evaluate(`window.focusedTo = null; document.querySelector('[data-chat-tile="/fixture#2"] button[data-chip="chat"]').click()`);
+    assert.equal(await evaluate("window.focusedTo"), "/fixture#4", "a tile's mention opens its own Project's referenced Chat without focusing the source tile");
     await evaluate(`document.querySelector('[data-chat-tile="/fixture#2"]').click()`);
     assert.equal(await evaluate("window.focusedTo"), "/fixture#2", "Clicking a tile focuses its Chat");
     await evaluate(`window.focusedTo = null; document.querySelector('[data-chat-tile="/fixture#1"]').click()`);
