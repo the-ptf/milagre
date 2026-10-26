@@ -12,6 +12,8 @@ export default function PullRequestSheet() {
   const { route, cwd, number, client, valid, provider, waiting } = usePrRoute();
   const close = useCloseSheet();
   const choices = chatPullRequestChoices(route.chat);
+  const shown = choices.find((choice) => choice.number === number && choice.cwd === route.cwd);
+  const project = shown?.project && shown.projectPath ? { name: shown.project, path: shown.projectPath } : undefined;
   if (!valid || !client || !cwd) return <PrPending number={number} waiting={waiting} onClose={close} />;
   return (
     // Not collapsable: a form sheet lays out a ScrollView with at most one view beside it; a flattened root hands it every
@@ -26,6 +28,7 @@ export default function PullRequestSheet() {
         provider={provider}
         onClose={close}
         choices={choices}
+        project={project}
         onPick={(key) => {
           const next = choices.find((choice) => prChoiceKey(choice) === key);
           if (next) router.setParams({ number: String(next.number), ...(next.cwd ? { cwd: next.cwd } : {}) });

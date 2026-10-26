@@ -2892,10 +2892,10 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     // Both Projects opened a #12: the open one comes first, and each is read in its own Worktree.
     const choices = globalThis.prChat.chatPullRequestChoices(key);
     assert.equal(
-      JSON.stringify(choices.map(({ number, state, cwd, project }) => [number, state, cwd, project])),
+      JSON.stringify(choices.map(({ number, state, cwd, project, projectPath }) => [number, state, cwd, project, projectPath])),
       JSON.stringify([
-        [12, "OPEN", "/wt/web", "Web"],
-        [12, "MERGED", "/wt/api", "API"],
+        [12, "OPEN", "/wt/web", "Web", "/web"],
+        [12, "MERGED", "/wt/api", "API", "/api"],
       ]),
     );
     // The header's PR chip opens the open one, in the web Project's Worktree.

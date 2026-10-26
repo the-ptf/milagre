@@ -765,6 +765,7 @@ export function LinkWorkspace({
                               guideOpen={prActions.guideShowing}
                               guideStop={prActions.guideStop}
                               local={{ count: prLocal.count, onOpen: changes.setMode }}
+                              project={prEntry ? { name: prEntry.name, path: prEntry.member.projectPath } : undefined}
                             />
                           ),
                         }

@@ -516,7 +516,16 @@ function ChatPane({
   const chatPrs = prPath ? chatPullRequests(prRefs, prStatus[prPath]?.found ?? {}, prStatus[prPath]?.branch) : [];
   const linkPrs = linkMembers.flatMap((member) => {
     const branch = prStatus[member.worktreePath]?.branch;
-    return branch ? [{ pr: branch, cwd: member.worktreePath, project: linkView?.projects.find((entry) => entry.id === member.projectId)?.name }] : [];
+    return branch
+      ? [
+          {
+            pr: branch,
+            cwd: member.worktreePath,
+            project: linkView?.projects.find((entry) => entry.id === member.projectId)?.name,
+            projectPath: member.projectPath,
+          },
+        ]
+      : [];
   });
   // The header menu's PR is the one the row shows first.
   const rowPrs = rowPullRequests(prPath ? chatPrs : linkPrs.map((entry) => entry.pr));
@@ -530,7 +539,12 @@ function ChatPane({
     rowPrs.map((entry) => {
       const place = prPath ? undefined : placeOf(entry);
       const { number, title, state } = entry;
-      return { number, title, state, ...(place ? { cwd: place.cwd, ...(place.project ? { project: place.project } : {}) } : {}) };
+      return {
+        number,
+        title,
+        state,
+        ...(place ? { cwd: place.cwd, projectPath: place.projectPath, ...(place.project ? { project: place.project } : {}) } : {}),
+      };
     }),
   );
   const prChoices = useMemo(() => JSON.parse(prChoicesJson) as PrChoice[], [prChoicesJson]);

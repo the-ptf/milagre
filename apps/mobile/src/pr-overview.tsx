@@ -47,6 +47,7 @@ import { usePrDetail, usePrGuide, writePr } from "./pr-store";
 import { prChoiceKey, prefillChat, sendToChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
 import { useRpc } from "./use-rpc";
+import { ProjectIcon } from "./project-icon";
 import type { PrPage } from "./pr-nav";
 import type { DiffFilesResult, DiffMode } from "@milagre/shared/git-diff";
 import {
@@ -207,12 +208,27 @@ export type PrOverviewProps = {
   /** The Chat's PRs; with more than one, the number opens a menu to switch between them. */
   choices?: PrChoice[];
   onPick?: (key: string) => void;
+  /** A Link Chat's PR names the Project it belongs to. */
+  project?: { name: string; path: string };
   /** Shows the Worktree's changes that aren't in the PR yet, uncommitted ones first; without it there is no such row. */
   onChanges?: (mode: DiffMode) => void;
 };
 
 /** The PR sheet's first page, and the iPad panel's PR mode: what the PR is, whether it can merge, and where to go next. */
-export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provider, onClose, choices = NO_CHOICES, onPick, onChanges }: PrOverviewProps) {
+export function PrOverview({
+  client,
+  cwd,
+  number,
+  chatKey,
+  onOpen,
+  onChat,
+  provider,
+  onClose,
+  choices = NO_CHOICES,
+  onPick,
+  onChanges,
+  project,
+}: PrOverviewProps) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { pr, error, loading, refresh } = usePrDetail(client, cwd, number);
@@ -355,6 +371,14 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, provi
           </PullDown>
           {close}
         </View>
+        {project && (
+          <View accessible accessibilityLabel={`Project ${project.name}`} style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+            <ProjectIcon client={client} path={project.path} size={20} />
+            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: 14, fontWeight: "600" }}>
+              {project.name}
+            </Text>
+          </View>
+        )}
         <Text selectable accessibilityRole="header" style={{ color: colors.ink, fontSize: 20, fontWeight: "700", lineHeight: 26 }}>
           {pr.title}
         </Text>
