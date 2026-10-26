@@ -28,6 +28,7 @@ function mentionCandidates(draft: string): string[] {
   for (const match of draft.matchAll(/(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g)) {
     if (match[2] !== undefined) paths.add(match[2]);
     else if (match[3] !== undefined) {
+      if (/^chat:[1-9]\d*[.,!?;:)\]}]*$/.test(match[3])) continue;
       paths.add(match[3]);
       const trimmed = match[3].replace(TRAILING_PUNCTUATION, "");
       if (trimmed) paths.add(trimmed);

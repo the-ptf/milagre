@@ -310,8 +310,21 @@ function panelTravel(width: number) {
 /** A card's own safe area: it sits clear of the status bar and home indicator already. */
 const NO_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
-/** Offers the panels while this screen is focused. A rightward drag opens the left one, a leftward drag Changes. */
-export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: number; worktreeId?: number; pullRequest?: ScreenPullRequest }) {
+/**
+ * Offers the panels while this screen is focused. A rightward drag opens the left one, a leftward drag Changes.
+ * `passive` (the Chat open beside the routed one on a wide iPad) offers nothing and leaves the panels to the screen.
+ */
+export function useSidePanels({
+  chatId,
+  worktreeId,
+  pullRequest,
+  passive = false,
+}: {
+  chatId?: number;
+  worktreeId?: number;
+  pullRequest?: ScreenPullRequest;
+  passive?: boolean;
+}) {
   const panels = usePanels();
   const [token] = useState(() => ({}));
   const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab, setPick, setChangesMode } = panels;
@@ -322,6 +335,7 @@ export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: nu
   // Focus gives the panels to this screen; what it offers is updated in place.
   const offer = useRef<Screen>({ token, chatId, worktreeId, pullRequest });
   useEffect(() => {
+    if (passive) return;
     offer.current = {
       token,
       chatId,
@@ -329,15 +343,18 @@ export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: nu
       ...(prNumber && prChat ? { pullRequest: { number: prNumber, chatKey: prChat, ...(prChoices ? { choices: prChoices } : {}) } } : {}),
     };
     update(offer.current);
-  }, [update, token, chatId, worktreeId, prNumber, prChat, prChoices]);
+  }, [passive, update, token, chatId, worktreeId, prNumber, prChat, prChoices]);
   useFocusEffect(
     useCallback(() => {
-      attach(offer.current);
-    }, [attach]),
+      if (!passive) attach(offer.current);
+    }, [passive, attach]),
   );
   useEffect(() => () => detach(token), [detach, token]);
   // Drawn and in place: the navigation that opened this screen can slide off it now.
-  useEffect(() => navigation.addListener("transitionEnd", (event) => !event.data.closing && arrived(token)), [navigation, arrived, token]);
+  useEffect(
+    () => (passive ? undefined : navigation.addListener("transitionEnd", (event) => !event.data.closing && arrived(token))),
+    [passive, navigation, arrived, token],
+  );
   const { width } = useWindowDimensions();
   const travel = panelTravel(width);
   // Where the sidebar is pinned beside the Chat, a drag only reaches Changes.
@@ -356,8 +373,8 @@ export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: nu
         pull,
         settled,
         scale,
-      }).enabled(ours && !panels.open),
-    [progress, from, travel, worktreeId, dockable, pull, settled, ours, panels.open, scale],
+      }).enabled(!passive && ours && !panels.open),
+    [progress, from, travel, worktreeId, dockable, pull, settled, ours, passive, panels.open, scale],
   );
   // The right panel opened on a PR (its pill on an iPad, a row's PR link) or on Changes (View changes).
   const showPullRequest = useCallback(
@@ -376,7 +393,7 @@ export function useSidePanels({ chatId, worktreeId, pullRequest }: { chatId?: nu
     },
     [setTab, setChangesMode, show],
   );
-  return { gesture, open: ours ? panels.open : null, show, showPullRequest, showChanges };
+  return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges };
 }
 
 /** The screen area a drag can start from; VoiceOver skips it while a panel covers it. */

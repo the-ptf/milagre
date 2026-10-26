@@ -10,3 +10,7 @@ export function editImageMentions(
   images: number,
   selection?: { start: number; end: number },
 ): { value: string; caret: number | null };
+
+export type MentionChat = { id: number; title: string; branch: string; at: number; lastAt?: number; available: boolean };
+export function chatMentionChoices(state: Pick<import("./model.ts").CoordinatorState, "sessions" | "worktrees">): MentionChat[];
+export function matchingMentionChats(chats: readonly MentionChat[], query: string, currentId?: number): MentionChat[];

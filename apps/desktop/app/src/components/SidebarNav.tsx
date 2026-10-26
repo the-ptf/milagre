@@ -51,7 +51,8 @@ import { ComputersButton } from "./sidebar/ComputersButton";
 import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } from "./sidebar/ChatRow";
 import { useComputers, useHiddenComputers, isDimmed } from "../lib/computers";
 import { computerSections, mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
-import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
+import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey, unqualifyKey } from "@milagre/shared/chat-scopes";
+import { gridDrop, type GridDropTarget } from "@/lib/grid-drop";
 import { useDismiss } from "../lib/use-dismiss";
 import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/chat-list";
 import { linkBetween } from "@milagre/shared/chat-links";
@@ -1593,12 +1594,74 @@ type FlatScope = {
 };
 
 /**
+ * Drags a one-list row onto the Chat view, the only place it drops: beside a grid tile or the Chat on screen
+ * (lib/grid-drop.ts). A press that doesn't move past the threshold stays a click; Escape calls the drag off.
+ */
+function dragRowToGrid(event: ReactPointerEvent<HTMLElement>, key: string, onDragging: (key: string | null) => void) {
+  const start = { x: event.clientX, y: event.clientY };
+  let started = false;
+  let target: GridDropTarget | null = null;
+  const move = (moveEvent: PointerEvent) => {
+    if (!started) {
+      if (Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < DRAG_THRESHOLD) return;
+      started = true;
+      onDragging(key);
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      window.getSelection()?.removeAllRanges();
+    }
+    target = gridDrop.hit(moveEvent.clientX, moveEvent.clientY, key);
+    gridDrop.show(target);
+  };
+  const stop = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", stop);
+    window.removeEventListener("keydown", escape, true);
+    gridDrop.show(null);
+    onDragging(null);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  };
+  const end = () => {
+    stop();
+    if (!started) return;
+    // The press still ends in a click; it was a drag, so that click doesn't open the chat.
+    const swallow = (click: MouseEvent) => {
+      click.preventDefault();
+      click.stopPropagation();
+    };
+    window.addEventListener("click", swallow, { capture: true, once: true });
+    window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    if (target) gridDrop.drop(key, target);
+  };
+  const escape = (keyEvent: KeyboardEvent) => {
+    if (keyEvent.key !== "Escape" || !started) return;
+    keyEvent.preventDefault();
+    stop();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", stop);
+  window.addEventListener("keydown", escape, true);
+}
+
+/**
  * The one-list sidebar's unpinned rows: chats of every scope in one column, each with its own scope's actions, marks,
- * Links and Project on the second line. The rows don't drag: pinning goes through the row menu (pinned rows still drag
- * in the Pinned section).
+ * Links and Project on the second line. Pinning goes through the row menu (pinned rows still drag in the Pinned
+ * section); a row dragged out onto the Chat view joins the grid there.
  */
 function FlatChatList({ chats, scopes }: { chats: FlatChat[]; scopes: Map<string, FlatScope> }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const pressed = event.target as HTMLElement;
+    const row = pressed.closest<HTMLElement>("[data-chat-key]");
+    const key = row?.dataset.chatKey;
+    if (!key || isLinkScopeKey(key.slice(0, key.lastIndexOf("#"))) || pressed.closest("a, input, [aria-haspopup]")) return;
+    dragRowToGrid(event, key, setDragging);
+  };
   const sidebarLinks = useSidebarLinks();
   const botMarks = useBotMarks();
   // Both read the latest render's scopes and Links when an action runs, so one set of actions serves every render.
@@ -1627,29 +1690,32 @@ function FlatChatList({ chats, scopes }: { chats: FlatChat[]; scopes: Map<string
     return positions;
   }, [scopes]);
   return (
-    <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px">
+    <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px" onPointerDown={startDrag}>
       {chats.map(({ scopeKey, row }) => {
         const scope = scopes.get(scopeKey)!;
         const { list } = scope;
         const position = list.showHints ? (hintPositions.get(row) ?? -1) : -1;
+        const key = `${scopeKey}#${row.id}`;
         return (
-          <ChatRow
-            key={`${scopeKey}#${row.id}`}
-            item={row}
-            active={list.isActive(row)}
-            collapsed={false}
-            actions={actionsOf(scopeKey, scope)}
-            shortcutHint={position >= 0 && position < 9 ? `${shortcutModifier}${position + 1}` : undefined}
-            onPick={list.onPick}
-            onHover={list.onHover}
-            computer={list.computer}
-            show={list.show}
-            dimOffline
-            linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
-            bot={botMarks.get(`${scopeKey}#${row.id}`)}
-            project={scope.name}
-            {...scope.badge}
-          />
+          <div key={key} data-chat-key={key} className="contents">
+            <ChatRow
+              item={row}
+              active={list.isActive(row)}
+              collapsed={false}
+              actions={actionsOf(scopeKey, scope)}
+              shortcutHint={position >= 0 && position < 9 ? `${shortcutModifier}${position + 1}` : undefined}
+              onPick={list.onPick}
+              onHover={list.onHover}
+              computer={list.computer}
+              show={list.show}
+              dimOffline
+              linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
+              bot={botMarks.get(key)}
+              project={scope.name}
+              dragging={dragging === key}
+              {...scope.badge}
+            />
+          </div>
         );
       })}
     </div>
@@ -1933,13 +1999,22 @@ function ChatList({
     if (!id || pressed.closest("a, input, [aria-haspopup]") || byId(id)?.pending) return;
     const start = { x: event.clientX, y: event.clientY };
     let started = false;
+    // Past the sidebar's lists, the Chat view takes the drop: beside a grid tile, or beside the Chat on screen. Named
+    // Link Chats stay out of the grid.
+    const key = isLinkScopeKey(scopeKey) ? null : `${scopeKey}#${id}`;
+    let onGrid: GridDropTarget | null = null;
     const move = (moveEvent: PointerEvent) => {
       if (!started) {
         if (Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < DRAG_THRESHOLD) return;
         started = true;
         begin(id, false);
       }
-      dragHandlers.current.over(dragHandlers.current.hit(moveEvent.clientX, moveEvent.clientY));
+      // Escape called the drag off: the rest of the press does nothing.
+      if (!dragRef.current) return;
+      const target = dragHandlers.current.hit(moveEvent.clientX, moveEvent.clientY);
+      onGrid = !target && key ? gridDrop.hit(moveEvent.clientX, moveEvent.clientY, key) : null;
+      gridDrop.show(onGrid);
+      dragHandlers.current.over(target);
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -1956,10 +2031,15 @@ function ChatList({
       };
       window.addEventListener("click", swallow, { capture: true, once: true });
       window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
-      dragHandlers.current.drop();
+      if (!dragRef.current) return;
+      if (onGrid && key) {
+        dragHandlers.current.finish();
+        gridDrop.drop(key, onGrid);
+      } else dragHandlers.current.drop();
     };
     const cancel = () => {
       stop();
+      gridDrop.show(null);
       if (started) dragHandlers.current.finish();
     };
     window.addEventListener("pointermove", move);
@@ -1973,6 +2053,7 @@ function ChatList({
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      gridDrop.show(null);
       dragHandlers.current.finish();
     };
     window.addEventListener("keydown", onKey, true);

@@ -131,6 +131,7 @@ const stubs = {
   "./project-icon": "export const ProjectIcon = () => null; export const ProjectIcons = () => null;",
   "./project-search": "export const ProjectSearch = () => null;",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
+  "./split-context": "export const useSplit = () => ({ widthClass: 'compact' });",
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",
   "./update-sheet": "export const UpdateSettingsBadge = () => null;",

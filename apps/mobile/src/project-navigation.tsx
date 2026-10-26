@@ -52,6 +52,8 @@ import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./n
 import { ProjectIcon, ProjectIcons } from "./project-icon";
 import { ProjectSearch } from "./project-search";
 import { chatMenu, runChatAction } from "./chat-actions";
+import { useSplit } from "./split-context";
+import { canOpenBeside, openBeside, useBesideChat } from "./split-chats";
 import { confirm } from "./confirm-store";
 import { showChoiceSheet } from "./choice-store";
 import { ArchivingOverlay, useArchiveActivity } from "./archive-progress";
@@ -290,6 +292,9 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   const { reloadProjects, cachedProject } = session;
   const currentPath = session.snapshot?.project.path;
   const currentHostId = session.client?.url;
+  // A wide iPad can open another Chat of the open Project beside the open one.
+  const wide = useSplit().widthClass === "wide";
+  const beside = useBesideChat();
   const [chatList] = useChatList();
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
@@ -664,6 +669,10 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   // scroll position stay in place.
   async function act(row: { hostId: string; path: string; chat: AgentSession }, action: string) {
     const { hostId, path: projectPath, chat } = row;
+    if (action === "open-beside") {
+      openBeside({ hostId, projectPath, chatId: chat.id });
+      return;
+    }
     const client = clientOf(hostId);
     const copy = copyOf(hostId, projectPath);
     if (!copy || !client) return;
@@ -1151,7 +1160,12 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
               </Pressable>
             );
           const title = item.title;
-          const selected = currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id;
+          const besideRow = { hostId: item.hostId, projectPath: item.path, chatId: item.chat.id, archived: item.chat.archived };
+          const offerBeside = canOpenBeside(besideRow, { wide, hostId: currentHostId, projectPath: currentPath, chatId: activeChatId }, beside);
+          // The Chat open beside the open one is selected too.
+          const isBeside =
+            wide && activeChatId !== undefined && beside?.hostId === item.hostId && beside.projectPath === item.path && beside.chatId === item.chat.id;
+          const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside;
           const tone = chatMarkTone(item.mark);
           const pullRequests = rowShow.pullRequests ? item.pullRequests || [] : [];
           const linearIssue = rowShow.linearIssue ? item.linearIssue : undefined;
@@ -1195,6 +1209,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
             item.hostId === currentHostId
               ? linkMenuSection({ available: links.available, worktreePath: worktreeForLinks(item.path, item.prPath)?.worktree_path, linked: linked.length })
               : null,
+            offerBeside,
           );
           // While it archives, the row stays put under the progress and takes no taps.
           const archiving =

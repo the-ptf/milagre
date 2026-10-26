@@ -10,7 +10,9 @@ import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared
 import { FileChip } from "./file-chip";
 import { onlyImageMentions, promptParts } from "@milagre/shared/prompt-parts";
 import { isMentionOfFile, mentionedFile, mentionedFiles } from "@milagre/shared/prompt-mentions";
-import { FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
+import type { MentionChat } from "@milagre/shared/prompt-mentions";
+import { projectOfKey } from "@milagre/shared/agent-runs";
+import { ChatMentionChip, FileMentionChip, ImageMentionChip, SkillChip } from "./prompt-chip";
 import { promptAccessibilityLabel } from "./prompt-label";
 import { useSkillNames } from "./use-skill-names";
 import { Markdown } from "./markdown";
@@ -230,7 +232,9 @@ function openMention(path: string, attached: string[], root: string) {
   if (file) router.push({ pathname: "/file-preview", params: { path: file } });
 }
 
+const NO_MENTION_CHATS: readonly MentionChat[] = [];
 export const ChatReply = memo(function ChatReply({
+  chats = NO_MENTION_CHATS,
   message,
   run,
   onActivity,
@@ -243,6 +247,7 @@ export const ChatReply = memo(function ChatReply({
   highlighted = false,
   onOpenChat,
 }: {
+  chats?: readonly MentionChat[];
   message?: ChatMessage;
   /** Opens another Chat by its key, from the sender line of a message that Chat sent. */
   onOpenChat?: (chatKey: string) => void;
@@ -268,8 +273,14 @@ export const ChatReply = memo(function ChatReply({
   const userFiles = message?.files;
   const userImages = message?.images?.length ?? 0;
   const userParts = useMemo(
-    () => promptParts(userText, { skills: skillNames, files: isMentionOfFile(userFiles ?? [], basePath ?? ""), images: userImages }),
-    [userText, skillNames, userFiles, basePath, userImages],
+    () =>
+      promptParts(userText, {
+        skills: skillNames,
+        files: isMentionOfFile(userFiles ?? [], basePath ?? ""),
+        images: userImages,
+        chats: (id) => chats.some((chat) => chat.id === id),
+      }),
+    [userText, skillNames, userFiles, basePath, userImages, chats],
   );
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
@@ -369,7 +380,7 @@ export const ChatReply = memo(function ChatReply({
                 >
                   <Text
                     selectable={selectableMessageText}
-                    accessibilityLabel={promptAccessibilityLabel(parts)}
+                    accessibilityLabel={promptAccessibilityLabel(parts, (id) => chats.find((chat) => chat.id === id)?.title ?? "Chat")}
                     style={{ color: colors.ink, fontSize: textPx, lineHeight }}
                     {...messageActionProps(openActions)}
                   >
@@ -378,6 +389,16 @@ export const ChatReply = memo(function ChatReply({
                         <SkillChip key={index} name={part.name} />
                       ) : part.kind === "file" ? (
                         <FileMentionChip key={index} path={part.path} onOpen={() => openMention(part.path, attached, root)} />
+                      ) : part.kind === "chat" ? (
+                        <ChatMentionChip
+                          key={`chat:${part.id}:${part.start}`}
+                          title={chats.find((chat) => chat.id === part.id)?.title ?? "Chat"}
+                          onOpen={
+                            chatId && onOpenChat && chats.some((chat) => chat.id === part.id && chat.available)
+                              ? () => onOpenChat(`${projectOfKey(chatId)}#${part.id}`)
+                              : undefined
+                          }
+                        />
                       ) : part.kind === "image" ? (
                         <ImageMentionChip key={index} index={part.index} onOpen={() => open(viewerPhotos(message, media), part.index - 1, [])} />
                       ) : (

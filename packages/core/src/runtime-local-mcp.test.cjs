@@ -308,3 +308,27 @@ test("host MCP removes a clean Worktree it made, and keeps one with uncommitted 
   );
   await assert.rejects(call(connection, "worktree_remove", { projectPath: f.project, worktreeId: 1 }), /Milagre didn't create this Worktree/);
 });
+
+test("a Chat mention reaches an active steering turn without repeating linked context", async (t) => {
+  const f = await fixture(t);
+  const source = Object.values(f.opened.state.sessions)[0];
+  await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, sessionId: source.id, body: "Decision: keep the daemon state in SQLite", provider: "claude", model: "fixture" },
+  ]);
+  await waitUntil(() => f.sessions[0]?.turns.length === 1);
+  f.sessions[0].turnActive = false;
+  f.sessions[0].options.emit({ type: "turn-completed" });
+  await f.runtime.invoke("chat:patch", [f.project, source.id, { title: "Storage decision" }]);
+  const receiver = await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, worktreeId: source.worktree_id, body: "Begin work", provider: "claude", model: "fixture" },
+  ]);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+  await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, sessionId: receiver.sessionId, body: `While working, read @chat:${source.id}`, provider: "claude", model: "fixture" },
+  ]);
+  await waitUntil(() => f.sessions[1].turns.length === 2);
+  const steering = f.sessions[1].turns[1].prompt;
+  assert.ok(steering.includes("<chat_mentions>"));
+  assert.ok(steering.includes(`chatId: "${f.project}#${source.id}"`));
+  assert.ok(!steering.includes("<linked_worktrees>"));
+});

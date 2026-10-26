@@ -9,11 +9,13 @@ const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PromptComposer } from '/src/components/PromptComposer';
+import { ChatMentionsContext } from '/src/components/ChatMentions';
+import { PromptText } from '/src/components/PromptText';
 import { MODEL_CATALOG, capabilityFor } from '/src/model';
 import '/src/styles.css';
 const noop = () => {};
 window.sent = [];
-window.milagre = { listSkills: async root => ({ skills: root === '/other' ? [] : [
+window.milagre = { searchProjectFiles: async () => ['review.md'], listSkills: async root => ({ skills: root === '/other' ? [] : [
   { name: 'reorder', description: 'Gently put things in order', scope: 'bundled', provider: 'milagre', path: '/skills/reorder/SKILL.md' },
   { name: 'settle', description: 'Close out loose ends', scope: 'workspace', provider: 'claude', path: '/skills/settle/SKILL.md' },
   { name: 'tldr', description: 'Rewrite for a skimming reader', scope: 'bundled', provider: 'milagre', path: '/skills/tldr/SKILL.md' },
@@ -30,7 +32,8 @@ function Fixture() {
   window.setProject = setRoot;
   window.setExpanded = setExpanded;
   const model = suggestOptions.provider ? MODEL_CATALOG.find(item => item.provider === suggestOptions.provider) : MODEL_CATALOG[0];
-  return <div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
+  const chats = root === '/other' ? [] : [{id: 12, title: 'Plan review', branch: 'feature', at: 12, available: true}, {id: 13, title: 'Current review', branch: 'main', at: 13, available: true}, {id: 14, title: 'Chat', branch: 'old', at: 14, available: false}];
+  return <ChatMentionsContext value={{chats, project: '/fixture', currentId: 13, onOpen: key => window.opened = key}}><div style={{ width: '100%', maxWidth: 720, margin: '260px auto' }}>
     <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
       onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={!!suggestOptions.blocked}
@@ -38,7 +41,8 @@ function Fixture() {
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop} alwaysExpanded={expanded} />
-  </div>;
+    <div id='sent-mentions'><PromptText text='See @chat:12 @chat:14 @chat:999' skills={new Map()} files={() => false} /></div>
+  </div></ChatMentionsContext>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
 `;
@@ -195,6 +199,22 @@ async function browserChecks() {
     await escape();
     await evaluate(`window.setProject('/other')`);
     await waitFor(`!${editor}.querySelector('[data-chip="skill"]')`);
+    await evaluate(`window.setProject('/fixture')`);
+    await type("@review");
+    await waitFor(`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('Plan review')`);
+    assert.ok(!(await evaluate(`document.querySelector('[aria-label="Project files and Chats"]').textContent`)).includes("Current review"));
+    await evaluate(`[...document.querySelectorAll('[aria-label="Project files and Chats"] button')].find(b => b.textContent.includes('Plan review')).click()`);
+    await waitFor(`${editor}.querySelector('[data-chip="chat"]')?.textContent === 'Plan review'`);
+    assert.equal(await evaluate(`${editor}.value`), "@chat:12 ");
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('#sent-mentions [data-chip="chat"]')].map(el => [el.tagName, el.textContent])`), [
+      ["BUTTON", "Plan review"],
+      ["SPAN", "Chat"],
+    ]);
+    await evaluate(`document.querySelector('#sent-mentions button').click()`);
+    assert.equal(await evaluate("window.opened"), "/fixture#12");
+    await screenshot("chat-mentions");
+    await evaluate(`window.setProject('/other')`);
+    await waitFor(`!${editor}.querySelector('[data-chip="chat"]')`);
     await type("");
     await evaluate(`window.setProject('/fixture'); window.setSuggestOptions({ provider: 'claude', text: 'Add tests' });`);
     const suggestion = `document.querySelector('[data-prompt-suggestion]')`;

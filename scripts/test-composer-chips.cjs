@@ -172,7 +172,7 @@ async function browserChecks() {
 
     // An @ pick: a file chip, the quoted mention in the draft, one attachment.
     await typeText("@my");
-    await waitFor(`document.querySelector('[aria-label="Project files"]')?.textContent.includes('my app.ts')`, "the file menu");
+    await waitFor(`document.querySelector('[aria-label="Project files and Chats"]')?.textContent.includes('my app.ts')`, "the file menu");
     await keydown("Enter");
     await draftIs('use /tldr @"src/my app.ts" ');
     assert.deepEqual(await chips("file"), ["my app.ts"]);

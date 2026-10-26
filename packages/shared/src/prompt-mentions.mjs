@@ -1,4 +1,5 @@
 import { formatImageMention, promptParts } from "./prompt-parts.mjs";
+import { chatTitle, isListedChat } from "./chats.mjs";
 import { prosePrompt } from "./prompt-skills.mjs";
 
 /**
@@ -131,4 +132,28 @@ export function editImageMentions(previous, next, images, selection) {
   }
   if (from === start && to === end) return { value: next, caret: null };
   return { value: previous.slice(0, from) + inserted + previous.slice(to), caret: from + inserted.length };
+}
+
+/** Summary-only Chat references, including unavailable entries so old chips have a neutral label. */
+export function chatMentionChoices(state) {
+  return Object.values(state.sessions).map((session) => ({
+    id: session.id,
+    title: session.archived || session.routine?.hidden ? "Chat" : chatTitle(session),
+    branch: state.worktrees[session.worktree_id]?.name ?? "",
+    at: session.summary?.lastAt ?? session.summary?.lastId ?? session.id,
+    lastAt: session.summary?.lastAt,
+    available: !session.archived && !session.routine?.hidden && isListedChat(session, session.summary?.count ?? 1),
+  }));
+}
+
+/** Files precede this separately labelled group; newest matching Chats come first. */
+export function matchingMentionChats(chats, query, currentId) {
+  const needle = query.toLowerCase();
+  return (
+    chats
+      .filter((chat) => chat.available && chat.id !== currentId && chat.title.toLowerCase().includes(needle))
+      // oxlint-disable-next-line unicorn/no-array-sort -- Hermes lacks toSorted; filter creates a private array.
+      .sort((a, b) => b.at - a.at || b.id - a.id)
+      .slice(0, 5)
+  );
 }

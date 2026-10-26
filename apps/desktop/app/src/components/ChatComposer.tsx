@@ -57,6 +57,7 @@ import { FindBar } from "./FindBar";
 import { Notice } from "./Notice";
 import { Attachments } from "./Attachments";
 import { lazyView } from "../lib/lazy-view";
+import { ChatMentionsContext, EMPTY_CHAT_MENTIONS, type ChatMentionScope } from "./ChatMentions";
 import { PromptText } from "./PromptText";
 import { onlyImageMentions } from "@milagre/shared/prompt-parts";
 import { useFilesRoot } from "./editor-links";
@@ -67,6 +68,7 @@ import { insertImageMentions } from "../lib/file-mentions";
 import { mediaUrl } from "../lib/media";
 import { useRemoteMedia } from "../lib/remote-media";
 import { MediaLightbox } from "./motion/LazyMediaLightbox";
+import { ScrollArea } from "./primitives/ScrollArea";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
@@ -683,6 +685,7 @@ const MessageTranscript = memo(function MessageTranscript({
 });
 
 interface ChatComposerProps {
+  mentionContext?: ChatMentionScope;
   /** The chat's computer is away: the composer is disabled and says so. */
   offlineName?: string | null;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
@@ -1032,6 +1035,7 @@ function NewChatHeader({
 const EMPTY_SUBAGENTS: Subagent[] = [];
 
 export function ChatComposer({
+  mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
   scopeKind,
   imageDraft,
@@ -1253,6 +1257,7 @@ export function ChatComposer({
 
   return (
     <ReplyProviders
+      mentionContext={mentionContext}
       chatId={artifactChat}
       steps={artifactSteps}
       userMessages={userMessages}
@@ -1286,7 +1291,7 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
-            className="chat-gutter mx-auto flex min-h-0 w-full max-w-[var(--chat-width)] flex-1 flex-col items-center px-3 pt-[max(48px,24vh)]"
+            className="chat-gutter mx-auto flex min-h-0 w-full max-w-[var(--chat-width)] flex-1 flex-col items-center px-3 pt-[max(48px,24vh)] [@container(max-height:560px)]:pt-4"
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
             <NewChatHeading
@@ -1326,30 +1331,32 @@ export function ChatComposer({
                     {/* Reply links to this Chat's loopback-only servers stay localhost (Markdown.tsx). */}
                     <LoopbackPortsContext.Provider value={loopbackPorts}>
                       <StepDetailsScope scope={messageScope}>
-                        <MessageTranscript
-                          findOpen={findOpen}
-                          earlier={earlier}
-                          messages={messages}
-                          pendingMessageId={pendingMessageId}
-                          isSending={isSending}
-                          streamingText={streamingText}
-                          streamingSteps={streamingSteps}
-                          asking={asking}
-                          undoable={undoable}
-                          undoBlocked={isSending || Boolean(offlineName)}
-                          onUndo={runtimeChat ? undoTask : undefined}
-                          highlightId={highlightId}
-                          onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
-                          waitingStepIds={waitingStepIds}
-                          onRecommendationSelect={onRecommendationSelect}
-                          onUpdateCli={onUpdateCli}
-                          updatingCli={updatingCli}
-                          cliStatus={cliStatus}
-                          onOpenLinkedChat={onOpenLinkedChat}
-                          onOpenAccounts={onOpenAccounts}
-                          offlineName={offlineName}
-                          models={models}
-                        />
+                        <ChatMentionsContext value={mentionContext}>
+                          <MessageTranscript
+                            findOpen={findOpen}
+                            earlier={earlier}
+                            messages={messages}
+                            pendingMessageId={pendingMessageId}
+                            isSending={isSending}
+                            streamingText={streamingText}
+                            streamingSteps={streamingSteps}
+                            asking={asking}
+                            undoable={undoable}
+                            undoBlocked={isSending || Boolean(offlineName)}
+                            onUndo={runtimeChat ? undoTask : undefined}
+                            highlightId={highlightId}
+                            onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                            waitingStepIds={waitingStepIds}
+                            onRecommendationSelect={onRecommendationSelect}
+                            onUpdateCli={onUpdateCli}
+                            updatingCli={updatingCli}
+                            cliStatus={cliStatus}
+                            onOpenLinkedChat={onOpenLinkedChat}
+                            onOpenAccounts={onOpenAccounts}
+                            offlineName={offlineName}
+                            models={models}
+                          />
+                        </ChatMentionsContext>
                       </StepDetailsScope>
                     </LoopbackPortsContext.Provider>
 
@@ -1462,7 +1469,8 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
-          {approval && <div className="mb-2 w-full">{approval}</div>}
+          {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
+          {approval && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
           {review.view !== "closed" && !isNewChat && (
             <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
           )}
@@ -1527,6 +1535,7 @@ const NO_CHECKPOINTS: CheckpointApi = {
 
 /** A Chat's transcript alone, following its stream: an unfocused tile of the Chat grid. Replying means focusing the tile. */
 export function ChatTranscript({
+  mentionContext,
   chatKey,
   messages,
   messageScope,
@@ -1538,7 +1547,7 @@ export function ChatTranscript({
   waitingStepIds,
   runStartedAt,
   models,
-}: { chatKey: string } & Pick<
+}: { chatKey: string; mentionContext?: ChatMentionScope } & Pick<
   ChatComposerProps,
   "messages" | "messageScope" | "earlier" | "isSending" | "streamingText" | "streamingSteps" | "asking" | "waitingStepIds" | "runStartedAt" | "models"
 >) {
@@ -1546,7 +1555,7 @@ export function ChatTranscript({
   const steps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages } = history;
   return (
-    <ReplyProviders chatId={chatKey} steps={steps} userMessages={userMessages}>
+    <ReplyProviders chatId={chatKey} steps={steps} userMessages={userMessages} mentionContext={mentionContext}>
       <MessageScroller
         navigation="none"
         followOutput
@@ -1580,6 +1589,7 @@ export function ChatTranscript({
 
 /** The contexts a Chat's replies read: its designs and the send function a generative UI button posts through. */
 function ReplyProviders({
+  mentionContext = EMPTY_CHAT_MENTIONS,
   chatId,
   steps,
   userMessages,
@@ -1589,6 +1599,7 @@ function ReplyProviders({
   subagents,
   children,
 }: {
+  mentionContext?: ChatMentionScope;
   chatId: string | null;
   steps: ChatStep[];
   userMessages: { id: number | string; body: string }[];
@@ -1601,7 +1612,9 @@ function ReplyProviders({
 }) {
   return (
     <ArtifactsProvider chatId={chatId} steps={steps} userMessages={userMessages} onSend={onSend} agent={agent} followAgent={followAgent} subagents={subagents}>
-      <GenerativeUIProvider onSend={onSend}>{children}</GenerativeUIProvider>
+      <GenerativeUIProvider onSend={onSend}>
+        <ChatMentionsContext value={mentionContext}>{children}</ChatMentionsContext>
+      </GenerativeUIProvider>
     </ArtifactsProvider>
   );
 }

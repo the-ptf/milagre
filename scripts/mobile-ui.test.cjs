@@ -152,10 +152,12 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
       if (/^\.\/use-skill-names$/.test(id) && !(id in modules)) return { useSkillNames: () => [] };
       // The chips draw as named elements, like the other components these tests do not render.
-      if (/^\.\/prompt-chip$/.test(id) && !(id in modules)) return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip" };
+      if (/^\.\/prompt-chip$/.test(id) && !(id in modules))
+        return { SkillChip: "SkillChip", FileMentionChip: "FileMentionChip", ChatMentionChip: "ChatMentionChip" };
       if (/^\.\.?\/(draft-clear|file-mentions|prompt-label)$/.test(id) && !(id in modules)) return load(`${id.replace(/^\.\.?\//, "")}.ts`, modules, "", cache);
       if (
-        (id === "@milagre/shared/prompt-parts" ||
+        (id === "@milagre/shared/agent-runs" ||
+          id === "@milagre/shared/prompt-parts" ||
           id === "@milagre/shared/appearance" ||
           id === "@milagre/shared/prompt-mentions" ||
           id === "@milagre/shared/themes" ||
@@ -214,6 +216,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules)) return { useSplit: () => phoneSplit, SplitProvider: ({ children }) => children };
       if ((base === "split-width" || base === "navigation-commands") && !(id in modules)) return load(`${base}.ts`, modules, "", cache);
+      // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
+      if (base === "split-chats" && !(id in modules))
+        return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -2545,6 +2550,7 @@ function chatHost({
       KeyboardChatScrollView: "KeyboardChatScrollView",
       KeyboardStickyView: "KeyboardStickyView",
       useReanimatedKeyboardAnimation: () => ({ height: { get: () => 0 }, progress: { get: () => 0 } }),
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
     },
     "../running-logo": { ThinkingIndicator: "ThinkingIndicator", BackgroundIndicator: "BackgroundIndicator" },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
@@ -2610,7 +2616,10 @@ function chatHost({
   });
   const render = () => {
     react.begin();
-    const tree = ChatScreen();
+    // The screen holds the routed Chat's pane, and on a wide iPad a second one beside it, which a phone never shows.
+    const screen = ChatScreen();
+    const pane = find(screen, (node) => typeof node.type === "function" && node.props.pane);
+    const tree = pane.type(pane.props);
     react.flush();
     return tree;
   };
@@ -14047,6 +14056,66 @@ test("mobile simulator relayed frames stay in two cache files and never enter in
   assert.equal([...h.files.keys()].filter((uri) => uri.endsWith(".jpg")).length, 2, "reset frame sequences must not evict the newly written file");
   h.cleanup();
   assert.equal(h.files.size, 0);
+});
+
+test("phone Chat mentions work without a Worktree and never search or attach files", async () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const calls = [];
+  const client = {
+    call: (...args) => {
+      calls.push(args);
+      return Promise.resolve([]);
+    },
+  };
+  let draft = "@Plan";
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+  });
+  const chats = [
+    { id: 12, title: "Plan review", branch: "feature", at: 12, available: true },
+    { id: 13, title: "Plan self", branch: "main", at: 13, available: true },
+  ];
+  const render = () => {
+    react.begin();
+    const tree = PromptField({
+      client,
+      projectPath: "/project",
+      draft,
+      chats,
+      currentId: 13,
+      onChangeText: (value) => {
+        draft = value;
+      },
+    });
+    react.flush();
+    return tree;
+  };
+  try {
+    let field = find(render(), (node) => node.type === "Field");
+    field.props.onFocus();
+    field.props.onSelectionChange({ nativeEvent: { selection: { start: draft.length, end: draft.length } } });
+    const row = find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan review");
+    assert.ok(row);
+    assert.equal(
+      find(render(), (node) => node.type === "ListRow" && node.props.title === "Plan self"),
+      undefined,
+    );
+    row.props.onPress();
+    assert.equal(draft, "@chat:12 ");
+    render();
+    await new Promise((resolve) => setTimeout(resolve, 170));
+    assert.deepEqual(calls, [], "no file callback means no file RPC, even with a Chat menu");
+  } finally {
+    react.cleanup();
+  }
 });
 
 const chip = (tree) => find(tree, (node) => node.type === "Pressable" && node.props.accessibilityLabel === "Use suggested prompt: Add tests");

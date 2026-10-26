@@ -6,9 +6,10 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-import React from "react";
+import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ChatGrid } from "/src/components/ChatGrid";
+import { ChatGrid, GridDropOverlay } from "/src/components/ChatGrid";
+import { gridDrop, dropSide } from "/src/lib/grid-drop";
 import { useScopeStates } from "/src/lib/sidebar-scopes";
 import { ScopeContext } from "/src/lib/computer-bridge";
 import { ChatComposer } from "/src/components/ChatComposer";
@@ -42,6 +43,7 @@ const state = {
     message(id * 10 + 2, id, "assistant", "Done with the first pass on " + titles[id].toLowerCase() + ". The change touches two files."),
   ]),
 };
+state.messages.find((item) => item.id === 21).body = "Read @chat:4 for context.";
 // A local tile's image, while the window's open Project is another Computer's.
 state.messages.find((item) => item.id === 41).images = [{ id: "shot", name: "shot.png", path: "/fixture/shot.png" }];
 const run = (extra) => ({ text: "Reading the files…", model: "x", steps: [], approvals: [], questions: [], answered: {}, startedAt: Date.now(), ...extra });
@@ -63,13 +65,29 @@ const focusedChat = (
 window.focusedTo = null;
 window.dismissed = null;
 document.documentElement.classList.add("dark");
+// The check moves focus itself (window.setFocused), as App does once a tile's click asks for it.
+function Harness() {
+  const [focused, setFocused] = useState("/fixture#1");
+  const [pinned, setPinned] = useState(() => new Set(["/fixture#2"]));
+  window.setFocused = setFocused;
+  window.gridDrop = gridDrop;
+  window.dropSide = dropSide;
+  const togglePin = (key) => setPinned((current) => { const next = new Set(current); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  return (
+    <>
+      <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused={focused}
+        states={{ "/fixture": state }} runs={runs} delegated={new Set()} models={MODEL_CATALOG}
+        onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}
+        pinned={pinned} onTogglePin={togglePin}>{focusedChat}</ChatGrid>
+      <GridDropOverlay />
+    </>
+  );
+}
 createRoot(document.getElementById("root")).render(
   <div style={{ height: "100vh", padding: 12 }}>
     <ScopeProbe />
     <ScopeContext.Provider value="mac-b|/remote">
-    <ChatGrid keys={["/fixture#1", "/fixture#2", "/fixture#3", "/fixture#4"]} focused="/fixture#1"
-      states={{ "/fixture": state }} runs={runs} delegated={new Set()} models={MODEL_CATALOG}
-      onFocus={(key) => (window.focusedTo = key)} onDismiss={(key) => (window.dismissed = key)}>{focusedChat}</ChatGrid>
+      <Harness />
     </ScopeContext.Provider>
   </div>,
 );
@@ -142,10 +160,40 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-chat-tile="/fixture#4"] [data-tile-dismiss]').click()`);
     assert.equal(await evaluate("window.dismissed"), "/fixture#4", "Mark read dismisses the unread tile");
     assert.equal(await evaluate("window.focusedTo"), null, "Mark read does not focus the tile");
+    await evaluate(`window.focusedTo = null; document.querySelector('[data-chat-tile="/fixture#2"] button[data-chip="chat"]').click()`);
+    assert.equal(await evaluate("window.focusedTo"), "/fixture#4", "a tile's mention opens its own Project's referenced Chat without focusing the source tile");
     await evaluate(`document.querySelector('[data-chat-tile="/fixture#2"]').click()`);
     assert.equal(await evaluate("window.focusedTo"), "/fixture#2", "Clicking a tile focuses its Chat");
     await evaluate(`window.focusedTo = null; document.querySelector('[data-chat-tile="/fixture#1"]').click()`);
     assert.equal(await evaluate("window.focusedTo"), null, "Clicking the focused tile changes nothing");
+
+    // A click meant for something in an unfocused tile does that, and leaves focus where it is.
+    await evaluate(`document.querySelector('[data-chat-tile="/fixture#4"] img').click()`);
+    await waitFor(`!!document.querySelector('dialog[open]')`);
+    assert.equal(await evaluate("window.focusedTo"), null, "Opening an image in an unfocused tile does not focus it");
+    await evaluate(`document.querySelector('dialog[open]').click()`);
+    assert.equal(await evaluate("window.focusedTo"), null, "A click inside the lightbox (a portal) does not reach the tile");
+    await evaluate(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitFor(`!document.querySelector('dialog[open]')`);
+    await evaluate(`(() => {
+      const text = [...document.querySelectorAll('[data-chat-tile="/fixture#2"] p')].find((node) => node.textContent.includes("first pass"));
+      getSelection().selectAllChildren(text);
+      text.click();
+    })()`);
+    assert.equal(await evaluate("window.focusedTo"), null, "Selecting text in an unfocused tile keeps the selection instead of focusing it");
+    await evaluate("getSelection().removeAllRanges()");
+
+    // Moving focus moves the one composer to the new tile instead of building another.
+    await evaluate(`window.promptNode = document.querySelector('[data-promptbar]'); window.setFocused("/fixture#3")`);
+    await waitFor(`!!document.querySelector('[data-chat-tile="/fixture#3"] [data-promptbar]')`);
+    assert.ok(
+      await evaluate(`document.querySelector('[data-chat-tile="/fixture#3"] [data-promptbar]') === window.promptNode`),
+      "The focused tile's composer is the same element after focus moves",
+    );
+    assert.equal(await evaluate("document.querySelectorAll('[data-promptbar]').length"), 1, "Still only one composer");
+    await waitFor(`document.activeElement?.closest('[data-chat-tile="/fixture#3"]') !== null`);
+    await evaluate(`window.setFocused("/fixture#1")`);
+    await waitFor(`!!document.querySelector('[data-chat-tile="/fixture#1"] [data-promptbar]')`);
 
     window.setContentSize(1000, 900);
     await waitFor(
@@ -159,9 +207,26 @@ async function browserChecks() {
     await waitFor(`(() => { const grid = document.querySelector("[data-chat-grid]"); return grid.scrollHeight > grid.clientHeight; })()`);
     await screenshot("chat-grid-narrow.png");
 
+    // Keep in grid: the pin button toggles without focusing the tile.
+    assert.equal(await evaluate(`document.querySelector('[data-chat-tile="/fixture#2"] [data-tile-pin]').getAttribute("aria-pressed")`), "true");
+    await evaluate(`window.focusedTo = null; document.querySelector('[data-chat-tile="/fixture#3"] [data-tile-pin]').click()`);
+    await waitFor(`document.querySelector('[data-chat-tile="/fixture#3"] [data-tile-pin]').getAttribute("aria-pressed") === "true"`);
+    assert.equal(await evaluate("window.focusedTo"), null, "Keep in grid does not focus the tile");
+    // A sidebar drag over a tile's left half shows where it lands.
+    await evaluate(`(() => {
+      const box = document.querySelector('[data-chat-tile="/fixture#3"]').getBoundingClientRect();
+      window.gridDrop.show({ tile: "/fixture#3", ...window.dropSide(box, box.left + 10, 12) });
+    })()`);
+    await waitFor(`document.querySelector('[data-grid-drop="/fixture#3"]')?.textContent === "Add before"`);
+    await screenshot("chat-grid-drop.png");
+    await evaluate("window.gridDrop.show(null)");
+    await waitFor(`!document.querySelector('[data-grid-drop]')`);
+
     console.log("PASS: tiles keep their order, fill the width at 440px or more, and scroll once rows would drop under 320px");
     console.log("PASS: the grid hears the sidebar's first read of another Project, so its unread Chats get tiles");
     console.log("PASS: only the focused tile has a composer; a waiting tile says Needs you; Mark read and clicking a tile call back");
+    console.log("PASS: Keep in grid toggles a tile's pin; a drag over a tile shows which side it lands on");
+    console.log("PASS: images, the lightbox and text selection in an unfocused tile don't focus it; focus moves the same composer");
     app.exit(0);
   } catch (error) {
     console.error(error);
