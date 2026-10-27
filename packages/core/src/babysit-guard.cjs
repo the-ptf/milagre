@@ -4,11 +4,12 @@ const path = require("node:path");
 const { BABYSIT_LEVELS } = require("@milagre/shared/babysit");
 
 const NEVER_MERGES = "Babysitting never merges.";
+const NEVER_CLOSES = "Babysitting never closes or reopens the PR.";
 // A GraphQL body in a file can't be read here (no I/O), so it could hold any mutation; no setting allows it.
 const UNREADABLE_GRAPHQL = "Babysitting can't check a GraphQL request read from a file, so it's blocked.";
 
 // What each guarded action is called in the denial, and whether a Run's guard ({ level, resolveThreads }, already the
-// Run's effective values) allows it. Merging and unreadable GraphQL are never allowed and have their own reasons.
+// Run's effective values) allows it. Merging, closing and unreadable GraphQL are never allowed and have their own reasons.
 const ACTIONS = {
   push: { text: "pushing to GitHub", allowed: ({ level }) => level >= 3 },
   reply: { text: "replying on GitHub", allowed: ({ level }) => level >= 4 },
@@ -20,10 +21,11 @@ const ORDER = ["push", "reply", "rerequest", "resolve"];
 // GitHub GraphQL mutations by the action they take.
 const MUTATIONS = [
   ["merge", /\b(?:mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\b/],
+  ["close", /\b(?:closePullRequest|reopenPullRequest)\b/],
   ["push", /\b(?:createCommitOnBranch|updateRefs?|createRef|deleteRef|updatePullRequestBranch)\b/],
   [
     "reply",
-    /\b(?:addPullRequestReviewComment|addPullRequestReviewThreadReply|addPullRequestReviewThread|addPullRequestReview|submitPullRequestReview|addComment|updateIssueComment|updatePullRequestReviewComment)\b/,
+    /\b(?:addPullRequestReviewComment|addPullRequestReviewThreadReply|addPullRequestReviewThread|addPullRequestReview|submitPullRequestReview|addComment|updateIssueComment|updatePullRequestReviewComment|updatePullRequest|markPullRequestReadyForReview|convertPullRequestToDraft)\b/,
   ],
   ["rerequest", /\brequestReviews(?:ByLogin)?\b/],
   ["resolve", /\b(?:un)?resolveReviewThread\b/],
@@ -36,6 +38,8 @@ const ENDPOINTS = [
   ["rerequest", /\/requested_reviewers$/],
   ["reply", /\/(?:comments|replies|reviews)(?:\/|$)/],
   ["push", /\/git\/refs(?:\/|$)|\/contents(?:\/|$)|\/update-branch$|\/merge-upstream$/],
+  // Editing the PR itself; one that sets its state closes or reopens it (see apiActions).
+  ["reply", /\/(?:pulls|issues)\/\d+$/],
 ];
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
@@ -117,6 +121,11 @@ function closingParen(text, start) {
   for (let index = start; index < text.length; index += 1) {
     const char = text[index];
     if (!quote) arithmetic = arithmeticAt(text, index, arithmetic);
+    // A here-string (`<<<word`) is a plain redirect: its word is read as usual.
+    if (!quote && text.startsWith("<<<", index)) {
+      index += 2;
+      continue;
+    }
     const heredoc = quote || arithmetic ? null : heredocAt(text, index);
     if (heredoc) {
       pending.push(heredoc);
@@ -140,7 +149,8 @@ const runsText = (words) => words.some((word) => SHELLS.has(base(word)) || word 
  * A command line as its simple commands, each a list of words with quotes and escapes removed. Command substitutions
  * (`$(…)`, backticks) are commands of their own. A here-document's body is text for its command and is skipped, unless
  * its line runs text as a script: then the body, every word on the line (`sh -c '…'`, `eval "…"`, `echo '…' | sh`) and
- * the line's substitutions (`eval "$(cat <<EOF …)"`) are scripts too. `scripts` says the text itself is one of those.
+ * the line's substitutions (`eval "$(cat <<EOF …)"`) are scripts too. A here-string's word (`bash <<< "…"`) is a word
+ * on its line, so the same holds for it. `scripts` says the text itself is one of those.
  */
 function commandsOf(text, depth = 0, scripts = false) {
   if (depth > MAX_DEPTH) return [];
@@ -211,6 +221,11 @@ function commandsOf(text, depth = 0, scripts = false) {
       continue;
     }
     arithmetic = arithmeticAt(text, index, arithmetic);
+    if (text.startsWith("<<<", index)) {
+      endWord();
+      index += 2;
+      continue;
+    }
     const heredoc = arithmetic ? null : heredocAt(text, index);
     if (heredoc) {
       endWord();
@@ -259,6 +274,7 @@ function apiActions(words, line) {
   let fields = false;
   let endpoint = null;
   let unreadable = false;
+  const values = [];
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index];
     const [flag, inline] =
@@ -271,6 +287,7 @@ function apiActions(words, line) {
     if (name === "-X" || name === "--method") method = String(value ?? "").toUpperCase();
     else if (["-f", "--raw-field", "-F", "--field"].includes(name)) {
       fields = true;
+      values.push(value ?? "");
       if ((value ?? "").startsWith("query=@")) unreadable = true;
     } else if (name === "--input") {
       fields = true;
@@ -284,10 +301,12 @@ function apiActions(words, line) {
     .replace(/^\/+/, "")
     .replace(/\/+$/, "")}`;
   const match = ENDPOINTS.find(([, pattern]) => pattern.test(route));
+  if (match && /\/(?:pulls|issues)\/\d+$/.test(route) && values.some((value) => value.startsWith("state="))) return ["close"];
   return match ? [match[0]] : [];
 }
 
-// `gh pr merge`, `gh pr comment`, `gh pr edit --add-reviewer`, `gh pr update-branch`, `gh repo sync`, `gh api …`.
+// `gh pr merge`, `gh pr close`/`reopen`, `gh pr comment`, `gh pr edit` (`--add-reviewer` re-requests review, anything else
+// edits the PR like a reply), `gh pr ready`, `gh pr update-branch`, `gh repo sync`, `gh api …`.
 function ghActions(words, line) {
   const positional = [];
   let index = 0;
@@ -303,14 +322,28 @@ function ghActions(words, line) {
   const rest = words.slice(index);
   if (group === "api") return apiActions(words.slice(words.indexOf("api") + 1), line);
   if (group === "pr" && command === "merge") return ["merge"];
+  if (group === "pr" && (command === "close" || command === "reopen")) return ["close"];
+  if (group === "pr" && command === "ready") return ["reply"];
   // Both write commits to a branch on GitHub.
   if ((group === "pr" && command === "update-branch") || (group === "repo" && command === "sync")) return ["push"];
   if ((group === "pr" && (command === "comment" || command === "review")) || (group === "issue" && command === "comment")) return ["reply"];
-  if (group === "pr" && command === "edit" && rest.some((word) => word === "--add-reviewer" || word.startsWith("--add-reviewer="))) return ["rerequest"];
+  if (group === "pr" && command === "edit") {
+    let rerequest = false;
+    let edits = false;
+    for (let at = 0; at < rest.length; at += 1) {
+      const word = rest[at];
+      if (word === "--add-reviewer" || word === "-R" || word === "--repo") {
+        rerequest ||= word === "--add-reviewer";
+        at += 1;
+      } else if (word.startsWith("--add-reviewer=")) rerequest = true;
+      else if (word.startsWith("-") && !word.startsWith("--repo=")) edits = true;
+    }
+    return [...(rerequest ? ["rerequest"] : []), ...(edits || !rerequest ? ["reply"] : [])];
+  }
   return [];
 }
 
-/** The guarded actions a command line takes: "push", "reply", "rerequest", "resolve", "merge" or "graphql-file". */
+/** The guarded actions a command line takes: "push", "reply", "rerequest", "resolve", "merge", "close" or "graphql-file". */
 function actionsOf(line) {
   const actions = new Set();
   for (const words of commandsOf(line)) {
@@ -330,11 +363,12 @@ function actionsOf(line) {
 /**
  * Why a babysit Run's guard ({ level, resolveThreads }) refuses `command`, or null when it may run. Shell commands only:
  * `git push` below level 3, GitHub replies below 4, re-requesting review below 5, resolving threads unless that is on,
- * and merging never.
+ * and merging, closing or reopening the PR never.
  */
 function babysitDenial(command, guard) {
   const actions = actionsOf(String(command ?? ""));
   if (actions.has("merge")) return NEVER_MERGES;
+  if (actions.has("close")) return NEVER_CLOSES;
   if (actions.has("graphql-file")) return UNREADABLE_GRAPHQL;
   const refused = ORDER.find((action) => actions.has(action) && !ACTIONS[action].allowed(guard));
   if (!refused) return null;

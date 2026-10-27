@@ -86,7 +86,7 @@ test("re-requesting review needs level 5", () => {
   denied("gh api -X POST repos/o/r/pulls/42/requested_reviewers/ -f 'reviewers[]=alice'", at(4));
   denied(`gh api graphql -f query='mutation { requestReviews(input: {pullRequestId: "x", userIds: ["y"]}) { clientMutationId } }'`, at(4));
   allowed("gh pr edit 42 --add-reviewer alice", at(5));
-  allowed("gh pr edit 42 --title 'Better title'", at(3));
+  allowed("gh pr edit 42 --add-reviewer alice -R o/r", at(5));
   allowed("gh api repos/o/r/pulls/42/requested_reviewers", at(1));
 });
 
@@ -182,6 +182,46 @@ test("a heredoc fed to a shell is a script, and its body is checked", () => {
   // Text for a command that isn't a shell stays text.
   allowed(`git commit -m "$(cat <<'EOF'\nDon't git push yet.\nEOF\n)"`, at(2));
   allowed(`gh pr comment 4 --body-file - <<'EOF'\nI won't gh pr merge this.\nEOF`, at(4));
+});
+
+test("a here-string fed to a shell is a script", () => {
+  denied(`bash <<< "git push"`, at(1));
+  denied(`bash <<<"git push origin HEAD"`, at(1));
+  denied(`cat <<< "git push" | sh`, at(1));
+  assert.equal(babysitDenial(`sh <<< 'gh pr merge 1'`, at(5)), "Babysitting never merges.");
+  denied(`echo "$(bash <<< 'git push')"`, at(1));
+  // Text for any other command is only text, and what follows the here-string is still checked.
+  allowed(`grep foo <<< "git push"`, at(1));
+  denied(`grep foo <<< "x"; git push`, at(1));
+});
+
+test("closing or reopening the PR is always denied", () => {
+  const reason = "Babysitting never closes or reopens the PR.";
+  for (const level of [1, 3, 5]) {
+    assert.equal(babysitDenial("gh pr close 42", at(level)), reason);
+    assert.equal(babysitDenial("gh pr close 42 --delete-branch -c done", at(level)), reason);
+    assert.equal(babysitDenial("gh pr reopen 42", at(level)), reason);
+    assert.equal(babysitDenial(`gh api graphql -f query='mutation { closePullRequest(input: {pullRequestId: "x"}) { clientMutationId } }'`, at(level)), reason);
+    assert.equal(babysitDenial("gh api -X PATCH repos/o/r/pulls/42 -f state=closed", at(level)), reason);
+  }
+});
+
+test("editing the PR or marking it ready is a reply", () => {
+  const reason = `Babysit level Fix and push doesn't allow replying on GitHub. ${SETTINGS}`;
+  assert.equal(babysitDenial("gh pr edit 42 --title 'Better title'", at(3)), reason);
+  assert.equal(babysitDenial("gh pr ready 42", at(3)), reason);
+  denied("gh pr ready 42 --undo", at(1));
+  denied("gh pr edit 42 --body-file notes.md", at(2));
+  denied("gh pr edit 42 --add-label bug", at(3));
+  denied("gh api -X PATCH repos/o/r/pulls/42 -f title=Better", at(3));
+  // --add-reviewer with another flag is both.
+  assert.equal(
+    babysitDenial("gh pr edit 42 --add-reviewer alice --title x", at(4)),
+    `Babysit level Fix, push and reply doesn't allow re-requesting review. ${SETTINGS}`,
+  );
+  for (const command of ["gh pr edit 42 --title 'Better title'", "gh pr ready 42", "gh api -X PATCH repos/o/r/pulls/42 -f title=Better"])
+    allowed(command, at(4));
+  allowed("gh pr view 42 --json isDraft", at(1));
 });
 
 test("<< in arithmetic is a shift, not a heredoc", () => {
