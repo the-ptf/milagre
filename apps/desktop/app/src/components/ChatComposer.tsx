@@ -19,7 +19,7 @@ import { chatHistory } from "@milagre/shared/chat-history";
 import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
-import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { LoopbackPortsContext } from "../lib/ports";
@@ -469,6 +469,10 @@ const MessageSection = memo(function MessageSection({
   );
 });
 
+// A Chat's first render mounts only its last few messages, so the window paints them at once; the rest of the page
+// follows in a transition (TAIL_FIRST is enough to fill a tall window's viewport).
+const TAIL_FIRST = 6;
+
 // Background turns and draft edits must not rebuild a long, unchanged transcript.
 const MessageTranscript = memo(function MessageTranscript({
   messages,
@@ -626,6 +630,46 @@ const MessageTranscript = memo(function MessageTranscript({
     transcript.splice(pendingIndex < 0 ? transcript.length : pendingIndex, 0, { message: streamingMessage });
   }
 
+  // Markdown parses as each message mounts, so a long first page would hold the window until all of it has. The
+  // tail renders now and the rest in a transition that yields to the browser; the scroller, already at the bottom,
+  // stays there as the earlier messages appear above, and measures them once so they keep their real heights.
+  const [fullChat, setFullChat] = useState<number | string | null>(null);
+  const cut = fullChat !== chatId && transcript.length > TAIL_FIRST;
+  useEffect(() => {
+    if (fullChat !== chatId) startTransition(() => setFullChat(chatId));
+  }, [fullChat, chatId]);
+  const tailMarker = useRef<HTMLSpanElement>(null);
+  const expanding = useRef<{ viewport: HTMLElement; anchor: Element | null; top: number; short: boolean } | null>(null);
+  useLayoutEffect(() => {
+    if (cut) {
+      const viewport = tailMarker.current?.closest<HTMLElement>('[aria-label="Conversation"]');
+      if (!viewport) {
+        setFullChat(chatId);
+        return;
+      }
+      const anchor = tailMarker.current?.nextElementSibling ?? null;
+      const top = anchor ? anchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop : 0;
+      // A tail too short to fill the window would paint at its top and then drop to the bottom when the rest
+      // arrives: then the whole page renders now, before paint, as it did before.
+      const short = viewport.scrollHeight <= viewport.clientHeight;
+      expanding.current = { viewport, anchor, top, short };
+      if (short) setFullChat(chatId);
+      return;
+    }
+    const pending = expanding.current;
+    expanding.current = null;
+    if (!pending) return;
+    const { viewport, anchor, top, short } = pending;
+    if (short) viewport.scrollTop = viewport.scrollHeight;
+    else if (anchor?.isConnected) {
+      // The earlier messages went in above: move by their height, so the bottom (or a spot the reader scrolled
+      // to meanwhile) stays where it was on screen.
+      viewport.scrollTop += anchor.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - top;
+    }
+    viewport.dispatchEvent(new Event(TRANSCRIPT_SHOWN_EVENT));
+  }, [cut, chatId]);
+  const shown = cut ? transcript.slice(-TAIL_FIRST) : transcript;
+
   const openingIds = openingMessages.current.ids;
   // Only the Chat's last message, once its turn is over, can still switch accounts.
   const limitMessageId = isSending || offlineName ? undefined : messages.at(-1)?.id;
@@ -647,7 +691,8 @@ const MessageTranscript = memo(function MessageTranscript({
           {historyLoading ? "Loading earlier messages..." : `Show earlier messages (${start + remote})`}
         </button>
       )}
-      {transcript.map(({ message, merged }) => {
+      {cut && <span ref={tailMarker} hidden />}
+      {shown.map(({ message, merged }) => {
         // A Linear Run's first message is its issue card carrying the Run: the divider comes first, then the card.
         const issueRun = isRoutineRun(message) ? null : routineRunOf(message);
         return (
