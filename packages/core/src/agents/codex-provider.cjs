@@ -315,8 +315,8 @@ class CodexSession {
       return this.startTurn(request);
     }
     if (request.permissionMode) this.setPermissionMode(request.permissionMode);
-    // A message steered into a babysit Run doesn't lift its guard; a Run steered into a turn brings it, though the
-    // turn's approval policy stays the one it started with.
+    // A message steered into a babysit Run doesn't lift its guard. A babysit Run itself never steers into a running turn:
+    // its delivery waits while the Chat is busy, so it always starts a turn of its own with the guarded policy.
     if (request.guard) this.guard = request.guard;
     const turnId = this.state.turnId;
     // An open question waits for its answer; the message is the user's reply, so the question is dismissed.

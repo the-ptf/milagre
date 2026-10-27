@@ -4,18 +4,18 @@ const path = require("node:path");
 const { BABYSIT_LEVELS } = require("@milagre/shared/babysit");
 
 const NEVER_MERGES = "Babysitting never merges.";
+// A GraphQL body in a file can't be read here (no I/O), so it could hold any mutation; no setting allows it.
+const UNREADABLE_GRAPHQL = "Babysitting can't check a GraphQL request read from a file, so it's blocked.";
 
 // What each guarded action is called in the denial, and whether a Run's guard ({ level, resolveThreads }, already the
-// Run's effective values) allows it. Merging is never allowed and has its own reason.
+// Run's effective values) allows it. Merging and unreadable GraphQL are never allowed and have their own reasons.
 const ACTIONS = {
   push: { text: "pushing to GitHub", allowed: ({ level }) => level >= 3 },
   reply: { text: "replying on GitHub", allowed: ({ level }) => level >= 4 },
   rerequest: { text: "re-requesting review", allowed: ({ level }) => level >= 5 },
   resolve: { text: "resolving review threads", allowed: ({ level, resolveThreads }) => resolveThreads === true && level >= 4 },
-  // A GraphQL body in a file can't be read here (no I/O), so it could hold any mutation.
-  "graphql-file": { text: "GitHub GraphQL calls read from a file", allowed: () => false },
 };
-const ORDER = ["push", "reply", "rerequest", "resolve", "graphql-file"];
+const ORDER = ["push", "reply", "rerequest", "resolve"];
 
 // GitHub GraphQL mutations by the action they take.
 const MUTATIONS = [
@@ -29,12 +29,13 @@ const MUTATIONS = [
   ["resolve", /\b(?:un)?resolveReviewThread\b/],
 ];
 
-// REST endpoints a write (any method but GET) reaches, by action; the first that matches wins.
+// REST endpoints a write (any method but GET) reaches, by action, matched without a trailing slash; the first that matches
+// wins.
 const ENDPOINTS = [
   ["merge", /\/pulls\/\d+\/merge$|\/merges$/],
   ["rerequest", /\/requested_reviewers$/],
   ["reply", /\/(?:comments|replies|reviews)(?:\/|$)/],
-  ["push", /\/git\/refs(?:\/|$)|\/contents\/|\/update-branch$|\/merge-upstream$/],
+  ["push", /\/git\/refs(?:\/|$)|\/contents(?:\/|$)|\/update-branch$|\/merge-upstream$/],
 ];
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
@@ -66,13 +67,52 @@ const MAX_DEPTH = 8;
 
 const base = (word) => path.basename(word).replace(/\.exe$/i, "");
 
+// A here-document's operator at `index` (`<<WORD`, `<<'WORD'`, `<<"WORD"`, `<<-WORD`): its terminator, whether tabs
+// before the terminator are ignored, and where the operator ends. Null for `<<<` or anything else.
+function heredocAt(text, index) {
+  if (text[index] !== "<" || text[index + 1] !== "<" || text[index + 2] === "<") return null;
+  let at = index + 2;
+  const tabs = text[at] === "-";
+  if (tabs) at += 1;
+  while (text[at] === " " || text[at] === "\t") at += 1;
+  let delimiter = "";
+  while (at < text.length && !/\s/.test(text[at]) && !SEPARATORS.has(text[at]) && text[at] !== "<" && text[at] !== ">") {
+    if (!"'\"\\".includes(text[at])) delimiter += text[at];
+    at += 1;
+  }
+  return delimiter ? { delimiter, tabs, end: at } : null;
+}
+
+// The body of each pending here-document starts after the newline at `newline`: the index of the newline that ends the
+// last terminator line, or the text's end. The body is text for a command, never commands of its own.
+function afterHeredocs(text, newline, pending) {
+  let at = newline;
+  for (const { delimiter, tabs } of pending) {
+    while (at < text.length) {
+      const start = at + 1;
+      const stop = text.indexOf("\n", start);
+      at = stop < 0 ? text.length : stop;
+      const line = text.slice(start, at);
+      if ((tabs ? line.replace(/^\t+/, "") : line) === delimiter) break;
+    }
+  }
+  pending.length = 0;
+  return at;
+}
+
 // The end of a `$(` substitution starting at `start` (just past the paren), or the text's end.
 function closingParen(text, start) {
   let depth = 1;
   let quote = null;
+  const pending = [];
   for (let index = start; index < text.length; index += 1) {
     const char = text[index];
-    if (char === "\\" && quote !== "'") index += 1;
+    const heredoc = quote ? null : heredocAt(text, index);
+    if (heredoc) {
+      pending.push(heredoc);
+      index = heredoc.end - 1;
+    } else if (char === "\n" && !quote && pending.length) index = afterHeredocs(text, index, pending) - 1;
+    else if (char === "\\" && quote !== "'") index += 1;
     else if (quote) {
       if (char === quote) quote = null;
     } else if (char === "'" || char === '"') quote = char;
@@ -93,6 +133,8 @@ function commandsOf(text, depth = 0) {
   let words = [];
   let word = null;
   let quote = null;
+  // Here-documents opened on the current line, whose bodies start at its end.
+  const heredocs = [];
   const endWord = () => {
     if (word !== null) words.push(word);
     word = null;
@@ -134,9 +176,17 @@ function commandsOf(text, depth = 0) {
       else word += char;
       continue;
     }
-    if (char === "'" || char === '"') {
+    const heredoc = heredocAt(text, index);
+    if (heredoc) {
+      endWord();
+      heredocs.push(heredoc);
+      index = heredoc.end - 1;
+    } else if (char === "'" || char === '"') {
       quote = char;
       word ??= "";
+    } else if (char === "\n" && heredocs.length) {
+      endCommand();
+      index = afterHeredocs(text, index, heredocs) - 1;
     } else if (SEPARATORS.has(char)) endCommand();
     else if (/\s/.test(char)) endWord();
     else word = (word ?? "") + char;
@@ -163,7 +213,10 @@ function gitAction(words) {
     if (option === "-c" && /^alias\.[^=]+=.*\bpush\b/.test(words[index + 1] ?? "")) return "push";
     index += GIT_VALUE_OPTIONS.has(option) ? 2 : 1;
   }
-  return ["push", "send-pack"].includes(words[index]) || words.slice(index).some((word) => /^alias\.[^=]+=.*\bpush\b/.test(word)) ? "push" : null;
+  const subcommand = words[index];
+  if (subcommand === "push" || subcommand === "send-pack") return "push";
+  if (subcommand === "subtree" && words.slice(index + 1).includes("push")) return "push";
+  return words.slice(index).some((word) => /^alias\.[^=]+=.*\bpush\b/.test(word)) ? "push" : null;
 }
 
 function mutationAction(body) {
@@ -197,12 +250,15 @@ function apiActions(words, line) {
   }
   if (endpoint === "graphql") return [...mutationAction(line), ...(unreadable ? ["graphql-file"] : [])];
   if ((method ?? (fields ? "POST" : "GET")) === "GET" || !endpoint) return [];
-  const route = `/${endpoint.replace(/^\/+/, "").replace(/[?#].*$/, "")}`;
+  const route = `/${endpoint
+    .replace(/[?#].*$/, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")}`;
   const match = ENDPOINTS.find(([, pattern]) => pattern.test(route));
   return match ? [match[0]] : [];
 }
 
-// `gh pr merge`, `gh pr comment`, `gh pr edit --add-reviewer`, `gh api …`.
+// `gh pr merge`, `gh pr comment`, `gh pr edit --add-reviewer`, `gh pr update-branch`, `gh repo sync`, `gh api …`.
 function ghActions(words, line) {
   const positional = [];
   let index = 0;
@@ -218,6 +274,8 @@ function ghActions(words, line) {
   const rest = words.slice(index);
   if (group === "api") return apiActions(words.slice(words.indexOf("api") + 1), line);
   if (group === "pr" && command === "merge") return ["merge"];
+  // Both write commits to a branch on GitHub.
+  if ((group === "pr" && command === "update-branch") || (group === "repo" && command === "sync")) return ["push"];
   if ((group === "pr" && (command === "comment" || command === "review")) || (group === "issue" && command === "comment")) return ["reply"];
   if (group === "pr" && command === "edit" && rest.some((word) => word === "--add-reviewer" || word.startsWith("--add-reviewer="))) return ["rerequest"];
   return [];
@@ -248,6 +306,7 @@ function actionsOf(line) {
 function babysitDenial(command, guard) {
   const actions = actionsOf(String(command ?? ""));
   if (actions.has("merge")) return NEVER_MERGES;
+  if (actions.has("graphql-file")) return UNREADABLE_GRAPHQL;
   const refused = ORDER.find((action) => actions.has(action) && !ACTIONS[action].allowed(guard));
   if (!refused) return null;
   const title = (BABYSIT_LEVELS.find((entry) => entry.level === guard.level) ?? BABYSIT_LEVELS[0]).title;

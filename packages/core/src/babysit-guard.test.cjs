@@ -31,8 +31,13 @@ test("push is caught through git options, env prefixes and wrappers", () => {
     "echo origin | xargs git push",
     "git -c alias.ship=push ship",
     "git send-pack origin main",
+    "git subtree push --prefix=docs origin gh-pages",
+    "gh pr update-branch 4",
+    "gh pr update-branch 4 --rebase",
+    "gh repo sync owner/fork --branch main",
     "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc",
     "gh api --method PUT repos/o/r/pulls/1/update-branch",
+    "gh api --method PUT repos/o/r/pulls/1/update-branch/",
     "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'",
   ])
     denied(command, at(2));
@@ -78,6 +83,7 @@ test("re-requesting review needs level 5", () => {
   assert.equal(babysitDenial("gh pr edit 42 --add-reviewer alice", at(4)), reason);
   denied("gh pr edit 42 --add-reviewer=alice", at(4));
   denied("gh api -X POST repos/o/r/pulls/42/requested_reviewers -f 'reviewers[]=alice'", at(4));
+  denied("gh api -X POST repos/o/r/pulls/42/requested_reviewers/ -f 'reviewers[]=alice'", at(4));
   denied(`gh api graphql -f query='mutation { requestReviews(input: {pullRequestId: "x", userIds: ["y"]}) { clientMutationId } }'`, at(4));
   allowed("gh pr edit 42 --add-reviewer alice", at(5));
   allowed("gh pr edit 42 --title 'Better title'", at(3));
@@ -103,6 +109,7 @@ test("merge is always denied", () => {
   for (const level of [1, 2, 3, 4, 5]) {
     assert.equal(babysitDenial("gh pr merge 42 --squash", at(level)), "Babysitting never merges.");
     assert.equal(babysitDenial("gh api -X PUT repos/o/r/pulls/42/merge", at(level)), "Babysitting never merges.");
+    assert.equal(babysitDenial("gh api -X PUT /repos/o/r/pulls/42/merge/", at(level)), "Babysitting never merges.");
     assert.equal(
       babysitDenial(`gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "x"}) { clientMutationId } }'`, at(level)),
       "Babysitting never merges.",
@@ -140,13 +147,23 @@ test("chained push is caught", () => {
 test("a GraphQL body piped in or read from a file is checked", () => {
   denied(`echo '{"query":"mutation { mergePullRequest(input: {}) { clientMutationId } }"}' | gh api graphql --input -`, at(5));
   denied(`gh api graphql --input - <<'EOF'\n{"query":"mutation { resolveReviewThread(input: {}) { clientMutationId } }"}\nEOF`, at(3, false));
-  // A file can't be read here, so a GraphQL call from one is refused whatever the level.
-  assert.equal(
-    babysitDenial("gh api graphql --input body.json", at(5)),
-    `Babysit level Fix, push, reply and re-request review doesn't allow GitHub GraphQL calls read from a file. ${SETTINGS}`,
-  );
-  denied("gh api graphql -F query=@mutation.graphql", at(5));
+  // A file can't be read here, so a GraphQL call from one is refused whatever the level, and no setting changes that.
+  const unreadable = "Babysitting can't check a GraphQL request read from a file, so it's blocked.";
+  assert.equal(babysitDenial("gh api graphql --input body.json", at(5)), unreadable);
+  assert.equal(babysitDenial("gh api graphql -F query=@mutation.graphql", at(1)), unreadable);
   allowed("gh api graphql -f query='query { viewer { login } }'", at(1));
+});
+
+test("a heredoc's body is text, not commands", () => {
+  // Claude Code's own way of writing a commit message.
+  allowed(`git commit -m "$(cat <<'EOF'\nFix the flaky test\n\nDon't git push until CI is green; gh pr merge later.\nEOF\n)"`, at(2));
+  allowed(`gh pr comment 4 --body-file - <<'EOF'\nFixed in abc123. I won't gh pr merge this myself.\nEOF`, at(4));
+  allowed(`cat <<-"NOTE" > notes.txt\n\tgit push when ready\n\tNOTE\nnpm test`, at(1));
+  allowed(`cat <<EOF > notes.txt\ngit push\nEOF`, at(1));
+  // What follows the body is still checked, and so is a command on the heredoc's own line.
+  denied(`cat <<'EOF' > notes.txt\nnothing here\nEOF\ngit push`, at(2));
+  denied(`cat <<'EOF' | git push\nbody\nEOF`, at(2));
+  denied(`gh pr comment 4 --body-file - <<'EOF'\nFixed.\nEOF`, at(3));
 });
 
 test("anything that isn't a guarded command passes", () => {

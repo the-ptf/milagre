@@ -309,7 +309,8 @@ class ClaudeSession {
     // reply, so the question is dismissed and the message reaches Claude right away.
     this.questions.dismissAll();
     this.steeredTurn = true;
-    // A message steered into a babysit Run doesn't lift its guard; a Run steered into a turn brings it.
+    // A message steered into a babysit Run doesn't lift its guard. A babysit Run itself never steers into a running turn
+    // (its delivery waits while the Chat is busy); one that did would still bring its guard.
     if (request.guard) this.guard = request.guard;
     if (request.permissionMode) await this.setPermissionMode(request.permissionMode);
     this.inbox.push(userMessage(request.prompt, request.images));
