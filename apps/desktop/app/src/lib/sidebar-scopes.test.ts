@@ -314,3 +314,41 @@ test("one list: 200 Projects of 50 Chats merge quickly, in the order a scan gave
   const scan = mergeByScan(scopes, "recent");
   assert.ok(merged.every((entry, at) => entry.row === scan[at].row));
 });
+
+test("one list: an open Link's Chats keep their times and pins, so they interleave with a Project's as when it is closed", () => {
+  // The Link view builds its rows with scopeChats too; rows without times sank below every Project Chat.
+  const linkSession = (id: number, lastAt: number, extra = {}) => ({
+    id,
+    agent_name: "Claude",
+    status: "Idle",
+    worktrees: [],
+    workspacePath: `/links/${id}`,
+    summary: { count: 1, lastAt, firstAt: lastAt, titleLine: `Link ${id}` },
+    ...extra,
+  });
+  const link = {
+    sessions: { 1: linkSession(1, 80), 2: linkSession(2, 40), 3: linkSession(3, 10, { pinned: true, pin_order: 1 }) },
+    messages: [],
+  } as unknown as CoordinatorState;
+  const none = { running: new Set<string>(), waiting: new Set<string>(), asking: new Set<string>() };
+  const linkRows = scopeChats("milagre-link:abc", link, "recent", none);
+  assert.deepEqual(
+    linkRows.map((row) => [row.id, row.pinned, row.details?.lastAt]),
+    [
+      ["3", true, 10],
+      ["1", false, 80],
+      ["2", false, 40],
+    ],
+  );
+  const merged = mergeScopeChats(
+    [
+      { key: "/code/shop", rows: [flatRow("p1", 90), flatRow("p2", 50), flatRow("p3", 20)] },
+      { key: "milagre-link:abc", rows: linkRows },
+    ],
+    "recent",
+  );
+  assert.deepEqual(
+    merged.map(({ row }) => row.id),
+    ["3", "p1", "1", "p2", "2", "p3"],
+  );
+});
