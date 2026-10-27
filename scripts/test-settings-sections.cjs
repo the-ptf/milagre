@@ -45,6 +45,7 @@ window.milagre = {
   saveRemoteDelegationEnabled: async (enabled) => ({ enabled }),
   onRemoteDelegationEnabledChanged: () => () => {},
   readRoutinesEnabled: async () => ({ enabled: false }),
+  listRoutines: async () => ({ routines: [] }),
   saveRoutinesEnabled: async (enabled) => ({ enabled }),
   readBotsEnabled: async () => ({ enabled: false }),
   saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
@@ -284,6 +285,18 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Experimental's");
     assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "ExperimentalBabysit PRs");
     assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
+    // This Mac may not run Routines yet (readRoutinesEnabled is false): the page says babysitting needs them.
+    await waitFor(`!!document.querySelector("main [data-babysit-routines-off]")`);
+    assert.equal(
+      await evaluate(`document.querySelector("main [data-babysit-routines-off]").textContent`),
+      "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines.",
+    );
+    assert.equal(
+      await evaluate(
+        `document.querySelector("main [data-babysit-prs-page]").textContent.includes("Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.")`,
+      ),
+      true,
+    );
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent)`), [
       "Babysit PRs",
       "When something needs fixing",
@@ -352,9 +365,16 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector("main [data-saved]")`);
     assert.equal(await evaluate(`${pageText}.includes("Daemon is not running") || ${pageText}.includes("Not saved")`), false, "a later save clears the error");
     assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Never force-push. Keep one commit per round." });
+    // Reset while a field is focused and half typed: the typed text is dropped and the field shows the default.
+    await typeInto('main textarea[aria-label="Your instructions"]', "Half typed");
+    const savesBeforeReset = await evaluate("window.babysitSaves.length");
     await evaluate(`document.querySelector("main [data-babysit-reset]").click()`);
     await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
     await waitFor(`document.querySelector('main textarea[aria-label="Your instructions"]').value === ""`);
+    await delay(700);
+    assert.equal(await evaluate(`document.querySelector('main textarea[aria-label="Your instructions"]').value`), "", "the reset text stays");
+    assert.equal(await evaluate(`document.activeElement?.getAttribute("aria-label")`), null, "Reset leaves the field");
+    assert.equal(await evaluate("window.babysitSaves.length"), savesBeforeReset + 1, "only the reset saves, not the half-typed text");
     assert.equal(await evaluate(`!!document.querySelector('main input[aria-label="Your own rule"]')`), false, "reset turns Your own rule off");
     await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);

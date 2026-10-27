@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, File01Icon, Message01Icon, Tick02Icon, Upload01Icon, UserCheck01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
@@ -9,6 +9,7 @@ import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
 import { ErrorNotice, Segmented, Toggle, useStyles } from "./ui";
+import { useRoutines } from "./use-routines";
 
 type Save = (change: BabysitChange) => Promise<void>;
 
@@ -36,8 +37,11 @@ const dimmed = (on: boolean) => (on ? null : { opacity: 0.4 });
 const DAYS = options(DAYS_OPTIONS, (value) => plural(value, "day", "days"));
 const FAILURES = options(FAILURE_OPTIONS, (value) => plural(value, "time", "times"));
 
-/** A typed field that saves itself shortly after typing stops and when it loses focus or the screen closes. */
-function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save) {
+/**
+ * A typed field that saves itself shortly after typing stops and when it loses focus or the screen closes. `reset` (Reset
+ * all to defaults) drops what was typed, leaves the field and shows the default.
+ */
+function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save, input: RefObject<TextInput | null>) {
   const [value, setValue] = useState(saved);
   // Text the Mac already holds counts as saved until it is edited.
   const [state, setState] = useState<SaveState>(saved ? "saved" : "idle");
@@ -59,6 +63,14 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
   return {
     value,
     state,
+    reset: () => {
+      saver.cancel();
+      dirty.current = false;
+      focused.current = false;
+      setValue(BABYSIT_DEFAULTS[key]);
+      setState("idle");
+      input.current?.blur();
+    },
     onChangeText: (next: string) => {
       setValue(next);
       // Typing takes the Saved mark away until this text has saved.
@@ -94,8 +106,12 @@ export function BabysitSection() {
     }, [store, host]),
   );
   const save = useCallback<Save>((change) => (host ? store.save(host, change) : Promise.resolve()), [store, host]);
-  const ownRule = useAutosave(state.settings?.ownRuleText ?? "", "ownRuleText", save);
-  const instructions = useAutosave(state.settings?.instructions ?? "", "instructions", save);
+  const ownRuleInput = useRef<TextInput>(null);
+  const instructionsInput = useRef<TextInput>(null);
+  const ownRule = useAutosave(state.settings?.ownRuleText ?? "", "ownRuleText", save, ownRuleInput);
+  const instructions = useAutosave(state.settings?.instructions ?? "", "instructions", save, instructionsInput);
+  // Babysitting runs as a Heartbeat: a Mac that may not run Routines watches no PR.
+  const routinesOff = useRoutines(client).enabled === false;
   const settings = state.settings;
   if (!client) return <Text style={styles.muted}>Connect to a Mac to change Babysit PRs.</Text>;
   if (state.unsupported) return <Text style={styles.muted}>Update Milagre on your Mac to use Babysit PRs.</Text>;
@@ -126,9 +142,19 @@ export function BabysitSection() {
   const toggle = (title: string, selected: boolean, onPress: () => void, disabled = false) => (
     <Toggle title={title} selected={selected} disabled={disabled} tint={colors.accent} onPress={onPress} />
   );
+  const reset = () => {
+    ownRule.reset();
+    instructions.reset();
+    change(BABYSIT_DEFAULTS);
+  };
   return (
     <View style={{ gap: 20 }}>
       {error}
+      {routinesOff ? (
+        <View style={[styles.card, { paddingVertical: 12 }]}>
+          <Text style={styles.muted}>{"Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines."}</Text>
+        </View>
+      ) : null}
       <Group title="Babysit PRs">
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("Babysit new PRs", settings.enabled, () => change({ enabled: !settings.enabled }))}
@@ -177,7 +203,7 @@ export function BabysitSection() {
           </View>
         </View>
       </Group>
-      <Group title="When something needs fixing">
+      <Group title="When something needs fixing" footer="Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.">
         <View accessibilityRole="radiogroup" accessibilityLabel="When something needs fixing" style={{ gap: 8, paddingVertical: 12 }}>
           {BABYSIT_LEVELS.map((entry) => {
             const selected = entry.level === settings.level;
@@ -300,6 +326,7 @@ export function BabysitSection() {
           {settings.ownRule ? (
             <View style={{ gap: 4, paddingTop: 6 }}>
               <TextInput
+                ref={ownRuleInput}
                 accessibilityLabel="Your own rule"
                 maxLength={300}
                 value={ownRule.value}
@@ -319,6 +346,7 @@ export function BabysitSection() {
         {[
           <View key="instructions" style={{ gap: 6, paddingVertical: 12 }}>
             <TextInput
+              ref={instructionsInput}
               accessibilityLabel="Your instructions"
               multiline
               maxLength={4000}
@@ -334,7 +362,7 @@ export function BabysitSection() {
         ]}
       </Group>
       <View style={[styles.card, { paddingVertical: 0 }]}>
-        <Row title="Reset all to defaults" chevron={false} onPress={() => change(BABYSIT_DEFAULTS)} />
+        <Row title="Reset all to defaults" chevron={false} onPress={reset} />
       </View>
     </View>
   );

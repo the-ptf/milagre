@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 
-/** A titled card of Settings rows. `action` sits at the right of the title (Babysit PRs' Reset all to defaults). */
-export function Group({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+/**
+ * A titled card of Settings rows. `action` sits at the right of the title (Babysit PRs' Reset all to defaults); `footer`
+ * is a note under the card.
+ */
+export function Group({ title, action, footer, children }: { title: string; action?: ReactNode; footer?: string; children: ReactNode }) {
   return (
     <section className="mt-6">
       <div className="mb-2 flex items-baseline justify-between gap-4 px-1">
@@ -9,6 +12,7 @@ export function Group({ title, action, children }: { title: string; action?: Rea
         {action}
       </div>
       <div className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">{children}</div>
+      {footer && <p className="mt-2 px-1 text-[12px] text-ink-3">{footer}</p>}
     </section>
   );
 }

@@ -158,3 +158,38 @@ test("a failed save goes back and keeps the changes still on their way", async (
   assert.equal(store.snapshot().settings?.level, 5);
   stop();
 });
+
+test("cancel drops typed text and a save already on its way no longer marks the field", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const answers: Array<() => void> = [];
+    const saves: Partial<BabysitSettings>[] = [];
+    const states: string[] = [];
+    const saver = createDebouncedSave(
+      (patch) => {
+        saves.push(patch);
+        return new Promise<void>((resolve) => answers.push(resolve));
+      },
+      500,
+      (state) => states.push(state),
+    );
+    saver.edit({ instructions: "Run" });
+    const first = saver.flush();
+    saver.edit({ instructions: "Run bun" });
+    saver.cancel();
+    mock.timers.tick(1000);
+    await settle();
+    assert.deepEqual(saves, [{ instructions: "Run" }], "the text typed after it is dropped");
+    answers[0]!();
+    await first;
+    assert.deepEqual(states, ["saving"], "the answer from before Reset marks nothing");
+    // A later edit saves and marks as usual.
+    saver.edit({ instructions: "Never force-push." });
+    const next = saver.flush();
+    answers[1]!();
+    await next;
+    assert.equal(saver.state, "saved");
+  } finally {
+    mock.timers.reset();
+  }
+});

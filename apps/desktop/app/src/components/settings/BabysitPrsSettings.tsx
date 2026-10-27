@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -23,7 +23,9 @@ import {
   type BabysitStep,
   type BabysitWake,
 } from "@milagre/shared/babysit";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { createDebouncedSave, useBabysitSettings, type BabysitChange, type SaveState } from "../../lib/babysit-settings";
+import { useRoutines } from "../../lib/routines";
 import { Checkbox } from "../primitives/Checkbox";
 import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { Select } from "../primitives/Select";
@@ -79,8 +81,11 @@ export function BabysitPrsRow({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** A typed field that saves itself shortly after typing stops and when it loses focus or the page closes. */
-function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save) {
+/**
+ * A typed field that saves itself shortly after typing stops and when it loses focus or the page closes. `reset` (Reset
+ * all to defaults) drops what was typed, leaves the field and shows the default.
+ */
+function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save, input: RefObject<HTMLElement | null>) {
   const [value, setValue] = useState(saved);
   // Text the host already holds counts as saved until it is edited.
   const [state, setState] = useState<SaveState>(saved ? "saved" : "idle");
@@ -102,6 +107,14 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
   return {
     value,
     state,
+    reset: () => {
+      saver.cancel();
+      dirty.current = false;
+      focused.current = false;
+      setValue(BABYSIT_DEFAULTS[key]);
+      setState("idle");
+      input.current?.blur();
+    },
     onChange: (next: string) => {
       setValue(next);
       // Typing takes the Saved mark away until this text has saved.
@@ -195,8 +208,15 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
   // Switches, menus and checkboxes save at once; a failure shows in the page's error line.
   // Values that build on the current ones (chips, number rules) are worked out from the latest settings, changes still on their way included.
   const change = (patch: BabysitChange) => void save(patch).catch(() => {});
-  const ownRule = useAutosave(settings.ownRuleText, "ownRuleText", save);
-  const instructions = useAutosave(settings.instructions, "instructions", save);
+  const ownRuleInput = useRef<HTMLInputElement>(null);
+  const instructionsInput = useRef<HTMLTextAreaElement>(null);
+  const ownRule = useAutosave(settings.ownRuleText, "ownRuleText", save, ownRuleInput);
+  const instructions = useAutosave(settings.instructions, "instructions", save, instructionsInput);
+  const reset = () => {
+    ownRule.reset();
+    instructions.reset();
+    change(BABYSIT_DEFAULTS);
+  };
   const toggleWake = (kind: BabysitWake) =>
     change((current) => {
       const on = current.wake.includes(kind) ? current.wake.filter((item) => item !== kind) : [...current.wake, kind];
@@ -207,7 +227,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
       <Group
         title="Babysit PRs"
         action={
-          <button type="button" data-babysit-reset className="text-[12px] font-medium text-accent-ink hover:underline" onClick={() => change(BABYSIT_DEFAULTS)}>
+          <button type="button" data-babysit-reset className="text-[12px] font-medium text-accent-ink hover:underline" onClick={reset}>
             Reset all to defaults
           </button>
         }
@@ -253,7 +273,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           </div>
         </div>
       </Group>
-      <Group title="When something needs fixing">
+      <Group title="When something needs fixing" footer="Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.">
         <RadioGroup
           aria-label="When something needs fixing"
           value={String(settings.level)}
@@ -345,6 +365,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           {settings.ownRule && (
             <div className="grid gap-1">
               <input
+                ref={ownRuleInput}
                 aria-label="Your own rule"
                 maxLength={300}
                 value={ownRule.value}
@@ -365,6 +386,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
       <Group title="Your instructions">
         <div className="grid gap-2 p-4">
           <textarea
+            ref={instructionsInput}
             aria-label="Your instructions"
             rows={5}
             maxLength={4000}
@@ -386,6 +408,8 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
 /** Settings › Experimental › Babysit PRs: the one configuration every Chat's babysitting follows. */
 export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   const { settings, error, save } = useBabysitSettings();
+  // Babysitting runs as a Heartbeat: a Mac that may not run Routines watches no PR.
+  const routinesOff = useRoutines().byComputer[LOCAL_COMPUTER]?.enabled === false;
   return (
     <div data-babysit-prs-page>
       <div className="flex items-center gap-3">
@@ -408,6 +432,11 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
       {error && (
         <p role="alert" className="mt-3 px-1 text-[12px] text-red">
           {error}
+        </p>
+      )}
+      {routinesOff && (
+        <p data-babysit-routines-off className="mt-4 rounded-[10px] bg-field px-3 py-2.5 text-[12.5px] text-ink-2">
+          Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines.
         </p>
       )}
       {settings && <BabysitForm settings={settings} save={save} />}

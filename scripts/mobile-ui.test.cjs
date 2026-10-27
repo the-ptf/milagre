@@ -10394,7 +10394,9 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
     "./session": { useSession: () => ({ client }) },
     "./settings-list": { Group: "Group", Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", Segmented: "Segmented", Toggle: "Toggle" },
+    "./use-routines": { useRoutines: () => ({ enabled: routinesEnabled }) },
   });
+  let routinesEnabled = true;
   const render = () => {
     react.begin();
     return BabysitSection();
@@ -10460,11 +10462,31 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
   assert.deepEqual(saves.at(-1), { instructions: "Never force-push." });
   assert.ok(node((n) => n.type === "Text" && n.props.children === "Saved"));
   assert.equal(field().props.value, "Never force-push.");
-  // Reset puts every value back.
+  // Reset puts every value back, even with a field focused and half typed: the typed text is dropped.
+  field().props.onFocus();
+  field().props.onChangeText("Half typed");
+  render();
+  const savesBeforeReset = saves.length;
   node((n) => n.type === "Row" && n.props.title === "Reset all to defaults").props.onPress();
   await settle();
   assert.deepEqual(saves.at(-1), { ...babysit.BABYSIT_DEFAULTS });
   assert.equal(toggle("Babysit new PRs").props.selected, false);
+  assert.equal(field().props.value, "");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(saves.length, savesBeforeReset + 1, "only the reset saves, not the half-typed text");
+  assert.equal(field().props.value, "");
+  // Each PR keeps its settings; and a Mac that may not run Routines babysits nothing, which the screen says.
+  assert.equal(
+    node((n) => n.type === "Group" && n.props.title === "When something needs fixing").props.footer,
+    "Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.",
+  );
+  const routinesNote = "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines.";
+  assert.equal(
+    node((n) => n.type === "Text" && n.props.children === routinesNote),
+    undefined,
+  );
+  routinesEnabled = false;
+  assert.ok(node((n) => n.type === "Text" && n.props.children === routinesNote));
 });
 
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {

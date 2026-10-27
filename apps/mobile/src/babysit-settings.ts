@@ -75,11 +75,16 @@ export function babysitSettingsStore(onState: (state: BabysitState) => void) {
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
-/** A typed field's save: one call 500 ms after typing stops, or at once on flush (blur, leaving the screen). */
+/**
+ * A typed field's save: one call 500 ms after typing stops, or at once on flush (blur, leaving the screen). `cancel` (Reset)
+ * drops what was typed and not yet sent; a save already on its way still lands but no longer marks the field.
+ */
 export function createDebouncedSave(save: (patch: Patch) => Promise<void>, ms = 500, onState?: (state: SaveState) => void) {
   let pending: Patch | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight = 0;
+  // Bumped by cancel: answers to saves sent before it are not this field's any more.
+  let generation = 0;
   let state: SaveState = "idle";
   const set = (next: SaveState) => {
     state = next;
@@ -91,14 +96,17 @@ export function createDebouncedSave(save: (patch: Patch) => Promise<void>, ms = 
     const patch = pending;
     pending = null;
     if (!patch) return;
+    const sent = generation;
     inFlight += 1;
     set("saving");
     try {
       await save(patch);
+      if (sent !== generation) return;
       inFlight -= 1;
       // Saved only once nothing newer is typed or still on its way; each save carries the whole text, so the last to land wins.
       if (!inFlight && !pending) set("saved");
     } catch {
+      if (sent !== generation) return;
       inFlight -= 1;
       set("error");
     }
@@ -110,6 +118,13 @@ export function createDebouncedSave(save: (patch: Patch) => Promise<void>, ms = 
       timer = setTimeout(() => void flush(), ms);
     },
     flush,
+    cancel() {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pending = null;
+      inFlight = 0;
+      generation += 1;
+    },
     get state() {
       return state;
     },
