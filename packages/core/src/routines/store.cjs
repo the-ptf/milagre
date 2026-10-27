@@ -390,6 +390,17 @@ function assertHookFree(state, hookId, exceptId) {
   if (taken) throw new Error("Another Routine already uses that webhook");
 }
 
+// Whether a Routine is the live babysitter of pull request `number` of `repo` (host/owner/repo, any case).
+const watchesPullRequest = (routine, repo, number) =>
+  !routine.completedAt && routine.trigger.kind === "pull-request" && routine.trigger.number === number && lower(routine.trigger.repo) === lower(repo);
+
+// One live Routine per pull request: two would answer every change twice.
+function assertPullRequestFree(state, repo, number, exceptId) {
+  if (state.routines.some((routine) => routine.id !== exceptId && watchesPullRequest(routine, repo, number))) {
+    throw new Error(`Pull request #${number} is already being babysat`);
+  }
+}
+
 // How many Runs a Routine may have going at once: a babysit Routine one, any other `limit`.
 const slots = (routine, limit) => (routine.trigger.kind === "pull-request" ? Math.min(limit, PULL_REQUEST_RUNS) : limit);
 
@@ -737,10 +748,12 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     if (input.maxRuns != null) routine.maxRuns = checkMaxRuns(input.maxRuns);
     if (input.signingHeader != null) routine.signingHeader = checkSigningHeader(input.signingHeader, trigger);
     if (input.expiresAt != null) routine.expiresAt = checkExpiresAt(input.expiresAt, at);
-    else if (target.kind === "chat" && routine.maxRuns === undefined) routine.expiresAt = at + DEFAULT_EXPIRY_MS;
+    // A pull-request Routine only advances on events, so a maxRuns alone would never end it: it always has an expiry.
+    else if (target.kind === "chat" && (routine.maxRuns === undefined || trigger.kind === "pull-request")) routine.expiresAt = at + DEFAULT_EXPIRY_MS;
     if (trigger.kind === "schedule") routine.nextRunAt = nextRun(trigger.cron, trigger.timezone, at);
     return transact((state, tx) => {
       if (trigger.kind === "webhook") assertHookFree(state, trigger.hookId);
+      if (trigger.kind === "pull-request") assertPullRequestFree(state, trigger.repo, trigger.number);
       state.routines.push(routine);
       tx.changed = true;
       return copy(routine);
@@ -769,13 +782,16 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       }
       if (patch.maxRuns === null) delete next.maxRuns;
       else if (patch.maxRuns !== undefined) next.maxRuns = checkMaxRuns(patch.maxRuns);
-      if (patch.expiresAt === null) delete next.expiresAt;
-      else if (patch.expiresAt !== undefined) next.expiresAt = checkExpiresAt(patch.expiresAt, at);
+      if (patch.expiresAt === null) {
+        if (routine.trigger.kind === "pull-request") throw new Error("A babysit Routine always has an end: keep expiresAt");
+        delete next.expiresAt;
+      } else if (patch.expiresAt !== undefined) next.expiresAt = checkExpiresAt(patch.expiresAt, at);
       if (patch.trigger !== undefined) {
         if (!isObject(patch.trigger)) throw new Error("trigger must be an object");
         if (patch.trigger.kind !== routine.trigger.kind) throw new Error("Can't change a Routine's trigger kind");
         next.trigger = checkTrigger(patch.trigger);
         if (next.trigger.kind === "webhook") assertHookFree(state, next.trigger.hookId, routine.id);
+        if (next.trigger.kind === "pull-request") assertPullRequestFree(state, next.trigger.repo, next.trigger.number, routine.id);
       }
       if (patch.target !== undefined) {
         if (!isObject(patch.target)) throw new Error("target must be an object");
@@ -1120,12 +1136,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
 
   // The live Routine babysitting pull request `number` of `repo` (host/owner/repo, any case), in any Chat.
   function findPullRequest(repo, number) {
-    const wanted = lower(repo);
-    const found = data.routines.find(
-      (routine) =>
-        !routine.completedAt && routine.trigger.kind === "pull-request" && routine.trigger.number === number && lower(routine.trigger.repo) === wanted,
-    );
-    return copy(found);
+    return copy(data.routines.find((routine) => watchesPullRequest(routine, repo, number)));
   }
 
   // What the babysit poller last saw of a Routine's pull request. The store keeps it whole and never reads inside it.

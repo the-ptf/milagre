@@ -2512,3 +2512,43 @@ test("a pull-request event waits its turn and never expires", () => {
   const [again] = store.claimQueued(time.t);
   assert.equal(again.run.event.key, "pr7:1");
 });
+
+test("pull-request routine always has an expiry", () => {
+  const { store } = setup();
+  const routine = store.create({ ...prSpec, maxRuns: 50 });
+  assert.equal(routine.maxRuns, 50);
+  assert.equal(routine.expiresAt, START + 7 * DAY);
+  assert.equal(store.create({ ...prSpec, trigger: { ...PR_TRIGGER, number: 8 }, expiresAt: START + DAY }).expiresAt, START + DAY);
+  assert.throws(() => store.create({ ...prSpec, trigger: { ...PR_TRIGGER, number: 9 }, expiresAt: START + 31 * DAY }), /30d/);
+  assert.throws(() => store.update(routine.id, { expiresAt: null }), /end/);
+  assert.equal(store.get(routine.id).expiresAt, START + 7 * DAY);
+});
+
+test("second live routine for the same PR is refused", () => {
+  const { store } = setup();
+  const first = store.create(prSpec);
+  assert.throws(
+    () => store.create({ ...prSpec, target: { kind: "chat", chatId: "c2" }, trigger: { ...PR_TRIGGER, repo: "GitHub.com/Acme/App" } }),
+    /already being babysat/,
+  );
+  const other = store.create({ ...prSpec, name: "Babysit PR #8", trigger: { ...PR_TRIGGER, number: 8 } });
+  // Moving a routine onto a watched PR is refused; keeping its own is fine.
+  assert.throws(() => store.update(other.id, { trigger: { ...PR_TRIGGER, number: 7 } }), /already being babysat/);
+  assert.equal(store.update(first.id, { trigger: PR_TRIGGER }).trigger.number, 7);
+  assert.equal(store.list().length, 2);
+});
+
+test("a completed babysit routine frees the PR", () => {
+  const { store } = setup();
+  const first = store.create(prSpec);
+  store.complete(first.id);
+  assert.equal(store.create(prSpec).trigger.number, 7);
+});
+
+test("upsertHeartbeat works again after the babysit routine completes", () => {
+  const { store } = setup();
+  const babysit = store.create(prSpec);
+  store.complete(babysit.id);
+  const heartbeat = store.upsertHeartbeat({ ...base, chatId: "c1", name: "Babysit PR #7", every: "5m" });
+  assert.equal(heartbeat.trigger.kind, "schedule");
+});
