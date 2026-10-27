@@ -694,7 +694,10 @@ function ChatPane({
     showBrief(brief, title);
     router.push("/handoff-brief");
   }, []);
-  const openActivity = useCallback((message: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message } }), [params.id]);
+  const openActivity = useCallback(
+    (message: string, stepId?: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message, ...(stepId ? { stepId } : {}) } }),
+    [params.id],
+  );
   // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one. The Chat beside
   // opens it in its own place, so the routed Chat and the open Project stay.
   const openOtherChat = useCallback(
@@ -1704,6 +1707,19 @@ function ChatPane({
   // The host's message replaces the preview as soon as the transcript grows by it.
   const answerPreview = answering && sentAnswers.count === messages.length ? sentAnswers.message : null;
   const pendingInput = pending && pendingCanonicalId === null ? pending.preview.message : null;
+  const renderToolApproval = (approval: NonNullable<typeof run>["approvals"][number]) => (
+    <Approval
+      key={approval.requestId}
+      approval={approval}
+      busy={actionBusy}
+      respond={(decision) =>
+        void action(async () => {
+          const accepted = await client.call("agent:respond-permission", [{ chatId, requestId: approval.requestId, decision }]);
+          if (!accepted) throw new Error("This approval is no longer pending. Refresh the Chat.");
+        }, true)
+      }
+    />
+  );
   const liveReply = run ? (
     <ChatReply
       key="run"
@@ -2069,19 +2085,7 @@ function ChatPane({
                     onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
                   />
                 ) : null}
-                {run?.approvals.map((approval) => (
-                  <Approval
-                    key={approval.requestId}
-                    approval={approval}
-                    busy={actionBusy}
-                    respond={(decision) =>
-                      void action(async () => {
-                        const accepted = await client.call("agent:respond-permission", [{ chatId, requestId: approval.requestId, decision }]);
-                        if (!accepted) throw new Error("This approval is no longer pending. Refresh the Chat.");
-                      }, true)
-                    }
-                  />
-                ))}
+                {run?.approvals.map(renderToolApproval)}
                 {question && (
                   // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
                   <View style={answering ? { display: "none" } : undefined}>
