@@ -13,6 +13,35 @@ export function markdownTokens(text: string, streaming = false): ReturnType<type
     .parse(streaming ? closeOpenMarkdown(text) : text, {})
     .flatMap((token) => (token.type === "fence" && isMarkdownFence(token.info) ? markdownTokens(token.content, streaming) : [token]));
 }
+/** A get-or-compute cache keyed by text: the least recently used goes first once it holds `entries` texts or `chars` characters in all. A text longer than `maxText` is computed each time. */
+export function textCache<T>(compute: (text: string) => T, { entries, chars, maxText }: { entries: number; chars: number; maxText: number }) {
+  const values = new Map<string, T>();
+  let total = 0;
+  return (text: string): T => {
+    if (values.has(text)) {
+      const hit = values.get(text) as T;
+      // Most recently used last: a Map keeps insertion order.
+      values.delete(text);
+      values.set(text, hit);
+      return hit;
+    }
+    const value = compute(text);
+    if (text.length > maxText) return value;
+    values.set(text, value);
+    total += text.length;
+    for (const key of values.keys()) {
+      if (values.size <= entries && total <= chars) break;
+      values.delete(key);
+      total -= key.length;
+    }
+    return value;
+  };
+}
+/**
+ * The tokens of a finished block, kept across mounts so reopening a Chat doesn't tokenize its replies again. Tokens are
+ * plain data that rendering only reads. A block still streaming changes on every batch: it uses `markdownTokens`.
+ */
+export const cachedMarkdownTokens = textCache((text) => markdownTokens(text), { entries: 500, chars: 2_000_000, maxText: 200_000 });
 /**
  * Splits a reply into top-level Markdown blocks so each is parsed on its own: while a reply streams, only the last
  * block changes. A blank line followed by an unindented line starts a block; code fences are never split.

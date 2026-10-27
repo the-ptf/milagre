@@ -41,7 +41,7 @@ import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-i
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { ReachableHostContext } from "../reachable-host";
 import { useReachableHost } from "../routes-native";
-import { useComposer, useMainSession, usePendingChats, useSession } from "../session";
+import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { pickAttachments, preparePastedImage, discardPastedImage, type PastedImage } from "../attachment-picker";
@@ -305,7 +305,7 @@ function ChatPane({
   const session = useSession();
   // The Chat beside reads its own Project when that isn't the open one.
   const openSession = useMainSession();
-  const ownProject = session !== openSession;
+  const ownProject = !sameSession(session, openSession);
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
@@ -450,6 +450,8 @@ function ChatPane({
   const projectPath = session.snapshot?.project.path;
   const mentionState = session.snapshot?.project.state;
   const mentionLink = session.snapshot?.project.link;
+  // This Chat's streaming turn, read on its own: a runs read for another Chat of the Project re-renders nothing here.
+  const liveRun = useRun(params.id && projectPath ? `${projectPath}#${params.id}` : undefined);
   const mentionKey = JSON.stringify(mentionState && !mentionLink ? chatMentionChoices(mentionState) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
   // Linear is read only while the Mac has it on and connected; a linked Chat has no Worktrees of its own.
@@ -511,16 +513,11 @@ function ChatPane({
     }, [acceptedSessionId, pending?.promoted, pendingKey, setPendingChats, adoptChat]),
   );
   const allMessages = session.snapshot?.project.state.messages;
-  // A host that keeps messages by Chat sends the snapshot without them: the Chat on screen reads its own as pages.
+  // A host that keeps messages by Chat sends the snapshot without them: the Chat on screen reads its own as pages, its
+  // last turns again as the Project state changes (a saved message changes it), never on a read of the streaming turns.
   const lean = !!session.snapshot?.project.state.messagesInChats;
-  const page = useChatPage(lean ? connected : null, projectPath, params.id ? Number(params.id) : null, session.snapshot, session.reconnects);
-  const canonicalPage = useChatPage(
-    lean && pendingCanonicalId !== null ? connected : null,
-    projectPath,
-    pendingCanonicalId,
-    session.snapshot,
-    session.reconnects,
-  );
+  const page = useChatPage(lean ? connected : null, projectPath, params.id ? Number(params.id) : null, mentionState, session.reconnects);
+  const canonicalPage = useChatPage(lean && pendingCanonicalId !== null ? connected : null, projectPath, pendingCanonicalId, mentionState, session.reconnects);
   const media = useCallback((path: string) => connected!.image(projectPath!, path), [connected, projectPath]);
   const savedMessages = useMemo(
     () => (lean ? page.messages : params.id && allMessages ? allMessages.filter((m) => m.session_id === Number(params.id)) : []),
@@ -897,13 +894,13 @@ function ChatPane({
     );
   }
   const client = session.client;
-  const { project, runs } = session.snapshot;
+  const { project } = session.snapshot;
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking;
-  const run = chat ? runs.runs[chatId] : undefined;
+  const run = chat ? liveRun : undefined;
   const heartbeat =
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)

@@ -12,6 +12,8 @@ const MARKER_COLOR = { add: "text-diff-add", remove: "text-diff-remove", context
 
 // A block highlights once it is within this distance of the viewport; far ones stay plain text of the same size.
 const NEAR_MARGIN = 800;
+// A block still being streamed highlights again once its text has stopped changing for this long.
+const STREAM_SETTLE_MS = 120;
 
 function scrollParent(node: HTMLElement): HTMLElement | null {
   for (let parent = node.parentElement; parent; parent = parent.parentElement) {
@@ -23,8 +25,9 @@ function scrollParent(node: HTMLElement): HTMLElement | null {
 /**
  * A fenced block with its language's colours. With `diff`, a block whose lines all start with `+`, `-` or a space
  * (a diff snippet, as diff comments send) shows tinted rows and highlights the code without the markers.
+ * With `streaming`, the block is still being written: it highlights after each pause rather than on every batch.
  */
-export function CodeBlock({ code, fence, diff = false }: { code: string; fence?: string; diff?: boolean }) {
+export function CodeBlock({ code, fence, diff = false, streaming = false }: { code: string; fence?: string; diff?: boolean; streaming?: boolean }) {
   const rows = useMemo(() => (diff ? diffRows(code) : null), [code, diff]);
   const source = rows ? rows.map((row) => row.text).join("\n") : code;
   const language = resolveCodeLanguage(fence);
@@ -78,7 +81,29 @@ export function CodeBlock({ code, fence, diff = false }: { code: string; fence?:
 
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
-  const lines = useMemo(() => (near && language && languageReady ? highlight(source, language) : undefined), [near, source, language, languageReady]);
+  // Highlighting the whole block again on every streamed batch is what stalls a long fence; while it streams, the
+  // text highlighted is the one it had at its last pause, and what arrived since shows plain after it.
+  const [settled, setSettled] = useState(source);
+  useEffect(() => {
+    if (!streaming || settled === source) return;
+    const timer = window.setTimeout(() => setSettled(source), STREAM_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [streaming, source, settled]);
+  const target = streaming ? settled : source;
+
+  const highlighted = useMemo(() => (near && language && languageReady ? highlight(target, language) : undefined), [near, target, language, languageReady]);
+  // The settled text's complete lines keep their colours while the rest streams in: the grammar only reads forward,
+  // so their tokens stay right. Its last line may still grow, so it joins the plain tail.
+  let lines = highlighted;
+  let tail: string | undefined;
+  if (highlighted && target !== source) {
+    const complete = target.lastIndexOf("\n");
+    if (rows || complete < 0 || !source.startsWith(target)) lines = undefined;
+    else {
+      lines = highlighted.slice(0, target.slice(0, complete).split("\n").length);
+      tail = source.slice(complete + 1);
+    }
+  }
 
   const copy = () => {
     navigator.clipboard.writeText(code).then(
@@ -142,6 +167,7 @@ export function CodeBlock({ code, fence, diff = false }: { code: string; fence?:
                   </Fragment>
                 ))
               : code}
+            {tail !== undefined && `\n${tail}`}
           </code>
         </pre>
       )}

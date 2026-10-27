@@ -41,6 +41,50 @@ test("phone projections preserve PR references without shell output", () => {
   assert.equal(project.pullRequestRefs, undefined, "projection metadata does not change stored state");
 });
 
+test("/runs takes one Project's turns by key, the same shape as before, without copying the others", () => {
+  const { projectRuns } = require("./mobile-bridge.cjs");
+  const mine = { text: "here", steps: [] };
+  const theirs = { text: "elsewhere", steps: [] };
+  const all = { runs: { "/p#1": mine, "/p-other#2": theirs, "/p#3": mine }, seq: 7 };
+  const own = projectRuns(all, "/p");
+  assert.deepEqual(Object.keys(own.runs), ["/p#1", "/p#3"]);
+  assert.equal(own.seq, 7);
+  assert.equal(own.runs["/p#1"], mine, "a run of the Project is passed on as it is (runsForPhone slims a copy)");
+  assert.deepEqual(projectRuns({ runs: undefined, seq: 0 }, "/p"), { runs: {}, seq: 0 });
+});
+
+test("overlapping runs reads share one host read until an event comes in, and none is kept once it lands", async () => {
+  const { sharedRead } = require("./mobile-bridge.cjs");
+  let calls = 0;
+  const answers = [];
+  const shared = sharedRead(
+    () =>
+      new Promise((resolve) => {
+        calls++;
+        answers.push(resolve);
+      }),
+  );
+  const first = shared.read();
+  const second = shared.read();
+  await delay(0);
+  assert.equal(calls, 1, "a read while one is on its way shares it");
+  shared.changed();
+  const third = shared.read();
+  await delay(0);
+  assert.equal(calls, 2, "after an event, a read goes to the host again: the one on its way may predate the change");
+  answers[0]("a");
+  answers[1]("b");
+  assert.deepEqual(await Promise.all([first, second, third]), ["a", "a", "b"]);
+  const fourth = shared.read();
+  await delay(0);
+  assert.equal(calls, 3, "a landed read is never reused");
+  answers[2]("c");
+  assert.equal(await fourth, "c");
+  const failing = sharedRead(() => Promise.reject(new Error("busy")));
+  await assert.rejects(failing.read(), /busy/);
+  await assert.rejects(failing.read(), /busy/, "a failed read is not kept either");
+});
+
 async function fixture(t, { runtimeOptions = {}, bridgeOptions = {} } = {}) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-mobile-")));
   const dataDir = path.join(root, "profile");

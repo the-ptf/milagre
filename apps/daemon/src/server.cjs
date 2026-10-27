@@ -13,6 +13,7 @@ const { createRuntime } = require("@milagre/core");
 const { socketPath: pathFor, prepareSocketDirectory } = require("./paths.cjs");
 const { VERSION, MAX_FRAME_BYTES, MAX_PENDING, pageSize, wire } = require("./protocol.cjs");
 const { createPhone, RELAY_URL } = require("./phone.cjs");
+const { transportDiagnostics } = require("./relay-host.cjs");
 const { computerName } = require("./mobile-pairing.cjs");
 const { lanAddresses } = require("./lan-addresses.cjs");
 const { createMobilePush } = require("./mobile-push.cjs");
@@ -780,7 +781,15 @@ async function startDaemon({
           else if (request.method === "desktop:respond") result = desktopCommands.respond(key, input);
           else if (request.method === "desktop:invoke") result = await desktopCommands.invoke(input.method, input.args);
           else throw new Error(`Unknown command: ${request.method}`);
-        } else if (request.method === "phone:status") result = phone.status();
+        } else if (request.method === "phone:status") {
+          result = phone.status();
+          // Relay transport counters (relay-host.cjs), only while MILAGRE_TRANSPORT_DIAGNOSTICS=1 turned them on at start.
+          // `{ resetTransport: true }` reads them, then starts them over. phone:* stays this Mac's own: peers are denied.
+          if (transportDiagnostics) {
+            result = { ...result, transport: transportDiagnostics.read() };
+            if (request.args[0]?.resetTransport === true) transportDiagnostics.reset();
+          }
+        }
         // Settings shows the reply, which arrives after the status events: answer with the settled status, not the
         // "starting" one a reset began from, or the window hides the new code.
         else if (request.method === "phone:set-enabled") {

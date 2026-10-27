@@ -22,8 +22,9 @@ import { router } from "expo-router";
 import type { Token } from "markdown-it";
 import { localFileLink } from "@milagre/shared/file-link";
 import { reachableUrl } from "@milagre/shared/loopback-url";
+import { splitStreamingBlocks } from "@milagre/shared/streaming-blocks";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
-import { markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
+import { cachedMarkdownTokens, markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
 import { PageScroll, useStyles, type Styles } from "./ui";
 import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
 
@@ -442,7 +443,7 @@ const Chunk = memo(function Chunk({
   const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
-  const nodes = useMemo(() => tree(markdownTokens(text, streaming)), [text, streaming]);
+  const nodes = useMemo(() => tree(streaming ? markdownTokens(text, true) : cachedMarkdownTokens(text)), [text, streaming]);
   const images = useMemo(() => ({ media, basePath }), [media, basePath]);
   const theme = useMemo(
     () => ({ colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction }),
@@ -450,6 +451,44 @@ const Chunk = memo(function Chunk({
   );
   return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });
+type BlockProps = { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void } & ImageOptions;
+/**
+ * One block of the shared split, cut where the phone also sets list items apart. A finished block keeps its text from
+ * batch to batch, so it never splits or renders again while the reply streams.
+ */
+const Block = memo(function Block({ text, streaming, ...props }: BlockProps) {
+  const chunks = useMemo(() => markdownChunks(text), [text]);
+  return chunks.map((chunk, index) => <Chunk key={index} {...props} text={chunk} streaming={streaming && index === chunks.length - 1} />);
+});
+
+// A reply can stream dozens of batches a second; parsing the block being written faster than this shows nothing new.
+const STREAM_RENDER_MS = 50;
+
+/**
+ * While `streaming`, `text` changes on screen at most once per STREAM_RENDER_MS, and the newest text always follows.
+ * A text that doesn't continue the one on screen (a different reply) shows at once.
+ */
+function useThrottledText(text: string, streaming: boolean): string {
+  const [shown, setShown] = useState(text);
+  const shownAt = useRef(0);
+  useEffect(() => {
+    if (!streaming || shown === text) return;
+    const timer = setTimeout(
+      () => {
+        shownAt.current = Date.now();
+        setShown(text);
+      },
+      Math.max(0, shownAt.current + STREAM_RENDER_MS - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [streaming, text, shown]);
+  return streaming && text.startsWith(shown) ? shown : text;
+}
+
+/**
+ * A reply in top-level blocks (the split desktop uses), each cut again where the phone sets list items apart. While it
+ * streams, the finished blocks render from memo and only the block being written parses, at most every STREAM_RENDER_MS.
+ */
 export const Markdown = memo(function Markdown({
   text,
   streaming = false,
@@ -458,18 +497,19 @@ export const Markdown = memo(function Markdown({
   selectable = true,
   onMessageAction,
 }: { text: string; streaming?: boolean; selectable?: boolean; onMessageAction?: () => void } & ImageOptions) {
-  const chunks = useMemo(() => markdownChunks(text), [text]);
+  const shown = useThrottledText(text, streaming);
+  const parts = useMemo(() => splitStreamingBlocks(shown), [shown]);
   return (
     <View style={{ gap: 12 }}>
-      {chunks.map((chunk, index) => (
-        <Chunk
+      {parts.map((part, index) => (
+        <Block
           key={index}
-          text={chunk}
+          text={part}
           media={media}
           basePath={basePath}
           selectable={selectable}
           onMessageAction={onMessageAction}
-          streaming={streaming && index === chunks.length - 1}
+          streaming={streaming && index === parts.length - 1}
         />
       ))}
     </View>

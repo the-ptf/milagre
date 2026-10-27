@@ -1,5 +1,5 @@
-import { Children, createContext, isValidElement, memo, useContext, useState, useEffect } from "react";
-import type { ReactNode } from "react";
+import { Children, createContext, isValidElement, memo, useContext, useState, useEffect, useRef } from "react";
+import type { ReactElement, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { ImageAttachment } from "@milagre/shared/model";
@@ -145,9 +145,9 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   const code = Children.toArray(children).find(isValidElement) as { props: { className?: string; children?: ReactNode } } | undefined;
   const text = String(code?.props.children ?? "").replace(/\n$/, "");
   const fence = codeLanguageFromClassName(code?.props.className);
-  if (isMarkdownFence(fence)) return <MarkdownBody text={streaming ? closeOpenMarkdown(text) : text} />;
+  if (isMarkdownFence(fence)) return streaming ? <MarkdownBody text={closeOpenMarkdown(text)} cache={false} /> : <MarkdownBody text={text} />;
   if (isMermaidFence(fence)) return <MermaidBlock code={text} />;
-  const plain = <CodeBlock code={text} fence={fence} />;
+  const plain = <CodeBlock code={text} fence={fence} streaming={streaming} />;
   return isGenuiFence(fence) ? <GenerativeUI code={text} fallback={plain} /> : plain;
 }
 
@@ -172,13 +172,48 @@ const components: Components = {
   },
 };
 
-// Parsed output of one block of text; memoized so a block that stopped changing never parses again.
-const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
-  return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-      {text}
-    </ReactMarkdown>
-  );
+const REMARK_PLUGINS = [remarkGfm];
+
+function parseMarkdown(text: string): ReactElement {
+  // react-markdown's sync component uses no hooks: called directly it parses now and returns the element tree, whose
+  // components (links, code blocks) still render, and read their context, wherever the tree is mounted.
+  return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, components });
+}
+
+// Parsed bodies outlive their Chat's transcript, so reopening a Chat (or a transcript slot remounting) reuses them
+// instead of parsing every message again. react-markdown doesn't expose its syntax tree, so this keeps the element tree
+// it returns per text: a few times the text's size in memory, bounded by entries and by the total length of the texts.
+const CACHE_ENTRIES = 500;
+const CACHE_CHARS = 2_000_000;
+// A body this long would push out hundreds of others; it parses on each mount as before.
+const CACHE_MAX_TEXT = 200_000;
+const parsedBodies = new Map<string, ReactElement>();
+let parsedChars = 0;
+
+function cachedMarkdown(text: string): ReactElement {
+  const hit = parsedBodies.get(text);
+  if (hit) {
+    // Most recently used last: Map keeps insertion order.
+    parsedBodies.delete(text);
+    parsedBodies.set(text, hit);
+    return hit;
+  }
+  const parsed = parseMarkdown(text);
+  if (text.length > CACHE_MAX_TEXT) return parsed;
+  parsedBodies.set(text, parsed);
+  parsedChars += text.length;
+  for (const key of parsedBodies.keys()) {
+    if (parsedBodies.size <= CACHE_ENTRIES && parsedChars <= CACHE_CHARS) break;
+    parsedBodies.delete(key);
+    parsedChars -= key.length;
+  }
+  return parsed;
+}
+
+// Parsed output of one block of text; memoized so a block that stopped changing never parses again. A block still
+// being written (`cache={false}`) changes on every batch, so it stays out of the cache it would only churn.
+const MarkdownBody = memo(function MarkdownBody({ text, cache = true }: { text: string; cache?: boolean }) {
+  return cache ? cachedMarkdown(text) : parseMarkdown(text);
 });
 
 const WRAPPER = "markdown break-words [overflow-wrap:anywhere]";
@@ -193,19 +228,39 @@ export const Markdown = memo(function Markdown({ text, images }: { text: string;
   );
 });
 
-/**
- * The answer of a running turn. Its finished blocks render from memo, and only the block being written is
- * parsed (with its open bold or code span closed), so a long answer costs no more per batch than a short one.
- * One wrapper keeps the spacing between blocks the same as when the whole text is a single `Markdown`.
- */
-export const StreamingMarkdown = memo(function StreamingMarkdown({ text }: { text: string }) {
+// A streamed answer can arrive in dozens of batches a second; parsing the block being written faster than this shows
+// nothing new. The last batch always renders, after at most this long.
+const STREAM_RENDER_MS = 50;
+
+/** `value`, changing at most once per `interval` ms while it keeps changing; the latest value always follows. */
+function useThrottledValue<T>(value: T, interval: number): T {
+  const [shown, setShown] = useState(value);
+  const shownAt = useRef(0);
+  useEffect(() => {
+    if (Object.is(value, shown)) return;
+    const show = () => {
+      shownAt.current = performance.now();
+      setShown(value);
+    };
+    const wait = shownAt.current + interval - performance.now();
+    if (wait <= 0) {
+      show();
+      return;
+    }
+    const timer = window.setTimeout(show, wait);
+    return () => window.clearTimeout(timer);
+  }, [value, shown, interval]);
+  return shown;
+}
+
+const StreamingBlocks = memo(function StreamingBlocks({ text }: { text: string }) {
   const blocks = splitStreamingBlocks(text);
   return (
     <div className={WRAPPER}>
       {blocks.map((block, index) =>
         index === blocks.length - 1 ? (
           <MarkdownStreamingContext key={index} value={true}>
-            <MarkdownBody text={closeOpenMarkdown(block)} />
+            <MarkdownBody text={closeOpenMarkdown(block)} cache={false} />
           </MarkdownStreamingContext>
         ) : (
           <MarkdownBody key={index} text={block} />
@@ -213,4 +268,14 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({ text }: { tex
       )}
     </div>
   );
+});
+
+/**
+ * The answer of a running turn. Its finished blocks render from memo, and only the block being written is
+ * parsed (with its open bold or code span closed), so a long answer costs no more per batch than a short one.
+ * One wrapper keeps the spacing between blocks the same as when the whole text is a single `Markdown`. Batches
+ * render at most every STREAM_RENDER_MS, so a fast stream doesn't parse the open block more often than it can show.
+ */
+export const StreamingMarkdown = memo(function StreamingMarkdown({ text }: { text: string }) {
+  return <StreamingBlocks text={useThrottledValue(text, STREAM_RENDER_MS)} />;
 });

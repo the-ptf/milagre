@@ -2529,6 +2529,11 @@ function App() {
   });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
+  // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
+  const switchLinkFromSidebar = useEvent((id: string) => void selectLink(id));
+  const linkProjectFromSidebar = useEvent(() => setLinkDialogOpen(true));
+  const addComputerFromSidebar = useEvent(() => setAddComputerOpen(true));
+  const editLinkFromSidebar = useEvent((id: string) => void editLink(id));
   // The pointer rests on a chat's row: its page is read now (a host that keeps messages by Chat), so the click paints
   // at once instead of waiting on the host, or on another computer's network.
   const hoverChat = useEvent((scopeKey: string, id: string) => {
@@ -3239,11 +3244,11 @@ function App() {
                   fill
                   workspaceName={project.name}
                   workspaceImage={projectImage(project.path)}
-                  onSwitchLink={(id) => void selectLink(id)}
-                  onLinkProject={() => setLinkDialogOpen(true)}
-                  onAddComputer={() => setAddComputerOpen(true)}
+                  onSwitchLink={switchLinkFromSidebar}
+                  onLinkProject={linkProjectFromSidebar}
+                  onAddComputer={addComputerFromSidebar}
                   onOpenComputerSettings={openComputerSettings}
-                  onEditLink={(id) => void editLink(id)}
+                  onEditLink={editLinkFromSidebar}
                   onOpenProject={openProjectFromSidebar}
                   recents={chats}
                   activeId={
