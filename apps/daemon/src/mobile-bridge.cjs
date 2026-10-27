@@ -391,11 +391,40 @@ const MAX_WAITING = 64;
 const MAX_WAIT = 20_000;
 // A turn's events arrive many times a second; one signal per window is enough for the phone to fetch once.
 const LIVE_DELAY = { runs: 150, project: 400 };
-/** The turns streaming now in one Project's Chats; the daemon holds every Project's. */
-const projectRuns = ({ runs, seq }, projectPath) => ({
-  runs: Object.fromEntries(Object.entries(runs ?? {}).filter(([key]) => chatInProject(projectPath, key))),
-  seq,
-});
+/**
+ * The turns streaming now in one Project's Chats; the daemon holds every Project's. Only that Project's entries are
+ * taken, by key, before runsForPhone copies (and slims) any of them: the other Projects' turns are never copied.
+ */
+function projectRuns({ runs, seq }, projectPath) {
+  const own = {};
+  for (const key in runs ?? {}) if (Object.hasOwn(runs, key) && chatInProject(projectPath, key)) own[key] = runs[key];
+  return { runs: own, seq };
+}
+/**
+ * One host read shared by the requests that arrive while it is on its way, as long as no host event came in since it
+ * started (`changed()`): an event may be a change that read missed, so a request after one reads again. A streaming
+ * turn has every phone's live socket fetch /runs, next to /attention polls and snapshots, each of which reads and
+ * parses every Project's runs from the host; the ones that overlap now share that read. Nothing is kept once it lands.
+ */
+function sharedRead(read) {
+  let events = 0;
+  let pending = null;
+  return {
+    changed() {
+      events++;
+    },
+    read() {
+      if (pending?.events === events) return pending.promise;
+      const current = { events, promise: Promise.resolve().then(read) };
+      pending = current;
+      const forget = () => {
+        if (pending === current) pending = null;
+      };
+      current.promise.then(forget, forget);
+      return current.promise;
+    },
+  };
+}
 const failure = (status, message) => Object.assign(new Error(message), { status });
 // Projects one /chat-lists call may name, and how many of them it reads at a time.
 const MAX_CHAT_LISTS = 20;
@@ -426,6 +455,8 @@ async function startMobileBridge({
   await confine?.root();
   const expected = Buffer.from(`Bearer ${token}`);
   const client = await connect({ dataDir });
+  // Every Project's streaming turns, read from the host; see sharedRead.
+  const hostRuns = sharedRead(() => client.call("chat:runs"));
   // The bridge only needs to know a state changed, so it takes patches: the host then encodes no whole state for it. A
   // phone shows the last few entries of a subagent's transcript, so the bridge takes only their tails, and it never
   // shows an archived subagent, so the bridge takes those as summaries. It takes states without messages, so it holds
@@ -658,6 +689,7 @@ async function startMobileBridge({
     live.add(entry);
   }
   client.on("event", ({ channel, payload } = {}) => {
+    hostRuns.changed();
     followState(channel, payload);
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
@@ -765,7 +797,7 @@ async function startMobileBridge({
         }
         if (req.method === "GET" && target.pathname === "/snapshot") {
           const projectPath = target.searchParams.get("projectPath");
-          const [held, runs] = await Promise.all([readScope(projectPath), client.call("chat:runs")]);
+          const [held, runs] = await Promise.all([readScope(projectPath), hostRuns.read()]);
           if (!held.link && target.searchParams.get("view") === "chats") {
             const { project } = await withMessages(projectPath, held, { marks: true });
             reply(200, { result: forChatList(project, projectRuns(runs, projectPath)) }, { etag: true });
@@ -796,7 +828,7 @@ async function startMobileBridge({
           if (!Array.isArray(paths) || !paths.length || !paths.every((item) => typeof item === "string"))
             throw failure(400, "Choose the Projects as a JSON list of paths");
           if (paths.length > MAX_CHAT_LISTS) throw failure(400, `Choose at most ${MAX_CHAT_LISTS} Projects`);
-          const runs = await client.call("chat:runs");
+          const runs = await hostRuns.read();
           const projects = [...new Set(paths)];
           const result = {};
           const read = async (projectPath) => {
@@ -833,13 +865,13 @@ async function startMobileBridge({
           const projectPath = target.searchParams.get("projectPath");
           if (!validScope(projectPath)) throw failure(400, "Choose a valid Project or Link");
           await confine?.check(projectPath);
-          reply(200, { result: runsForPhone(projectRuns(await client.call("chat:runs"), projectPath)) }, { etag: true });
+          reply(200, { result: runsForPhone(projectRuns(await hostRuns.read(), projectPath)) }, { etag: true });
           return;
         }
         // The chat keys, in every Project, whose turn waits on the user: a few bytes the phone polls for its attention dots.
         // A confined phone only opens its one Project, so it gets none.
         if (req.method === "GET" && target.pathname === "/attention") {
-          reply(200, { result: confine ? [] : chatsNeedingAttention((await client.call("chat:runs")).runs) }, { etag: true });
+          reply(200, { result: confine ? [] : chatsNeedingAttention((await hostRuns.read()).runs) }, { etag: true });
           return;
         }
         if (req.method === "GET" && target.pathname === "/inbox") {
@@ -1027,4 +1059,4 @@ async function startMobileBridge({
   }
   return { url, close, lost };
 }
-module.exports = { startMobileBridge, forPhone, forChatList, runsForPhone, METHODS };
+module.exports = { startMobileBridge, forPhone, forChatList, runsForPhone, projectRuns, sharedRead, METHODS };

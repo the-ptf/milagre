@@ -1,8 +1,9 @@
 import { reconcileState } from "@milagre/shared/reconcile";
 import { keepOrder } from "@milagre/shared/stable-order";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
-import { createClient, type ClientHost, type Client, type OpenProject, type RecentProject, type Snapshot, type ProjectPreview } from "./client";
+import type { AgentRun } from "@milagre/shared/agent-runs";
+import { createClient, type ClientHost, type Client, type OpenProject, type RecentProject, type Runs, type Snapshot, type ProjectPreview } from "./client";
 import { relayRuntime } from "./relay-native";
 import { learnRoutes, lanRoutes } from "./routes-native";
 import { syncProject } from "./live";
@@ -28,12 +29,147 @@ const hostOf = (url: string) =>
 /** A computer to connect to: a saved one, a scanned pairing, or an address and token typed in. */
 export type HostLink = ClientHost & { name?: string };
 
+/**
+ * The open Project's streaming turns, kept apart from its snapshot. A streaming turn sends a runs signal up to every
+ * 150 ms; putting each read into the snapshot replaced the object every screen reads, re-rendering all of them and
+ * re-reading the open Chat's messages. Each update is stamped, and so is each snapshot put on screen (a whole read
+ * carries the runs too): whichever is later is what shows, so a turn's end (its saved reply and its run gone, in one
+ * snapshot) never shows half-applied.
+ */
+class RunsStore {
+  private key: string | null = null;
+  private runs: Runs | null = null;
+  private stamp = 0;
+  private clock = 0;
+  private stamps = new WeakMap<Snapshot, number>();
+  private listeners = new Set<() => void>();
+  /** Moves on each change of what any snapshot of this store shows as its runs. */
+  version = 0;
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+  private changed() {
+    this.version++;
+    for (const listener of Array.from(this.listeners)) listener();
+  }
+  /** Whether `snapshot` is one this store's session put on screen (the Chat beside keeps its own runs in its snapshot). */
+  owns(snapshot: Snapshot) {
+    return this.stamps.has(snapshot);
+  }
+  /** A snapshot just put on screen, read whole or from the cache: its runs show until a later runs read. */
+  confirm(snapshot: Snapshot) {
+    this.stamps.set(snapshot, ++this.clock);
+    this.changed();
+  }
+  clear() {
+    this.key = null;
+    this.runs = null;
+    this.changed();
+  }
+  /** The runs of `snapshot`, of the Project `key` names ("computer|path"): a later runs read's, else its own. */
+  runsFor(key: string, snapshot: Snapshot): Runs {
+    return key === this.key && this.runs && this.stamp > (this.stamps.get(snapshot) ?? 0) ? this.runs : snapshot.runs;
+  }
+  /** Runs read on their own while `snapshot` shows; an answer older (by seq) than what shows now is dropped. */
+  update(key: string, snapshot: Snapshot, runs: Runs) {
+    const current = this.runsFor(key, snapshot);
+    if ((runs.seq ?? 0) < (current.seq ?? 0)) return false;
+    const next = reconcileState(current, runs);
+    if (next === current) return false;
+    this.key = key;
+    this.runs = next;
+    this.stamp = ++this.clock;
+    this.changed();
+    return true;
+  }
+}
+
+const NO_SUBSCRIBE = () => () => {};
+// The snapshots useSession hands out read their runs live; each one's own snapshot, for the store's checks.
+const bases = new WeakMap<Snapshot, Snapshot>();
+const baseOf = (snapshot: Snapshot) => bases.get(snapshot) ?? snapshot;
+// Each component gets its own copy of a session (it tracks whether that component read the runs); the session it copies.
+const sessionBases = new WeakMap<Session, Session>();
+/** Whether two sessions from useSession / useMainSession are the same one (each component holds its own copy). */
+export function sameSession(a: Session, b: Session) {
+  return (sessionBases.get(a) ?? a) === (sessionBases.get(b) ?? b);
+}
+/** The runs that show now for `session`'s Project. */
+function runsOf(session: Session): Runs | undefined {
+  if (!session.snapshot) return undefined;
+  const base = baseOf(session.snapshot);
+  if (!session.client || !session.runsStore.owns(base)) return base.runs;
+  return session.runsStore.runsFor(`${session.client.url}|${base.project.path}`, base);
+}
+
+/**
+ * Hands out `session` with a snapshot whose `runs` reads the live ones. A component re-renders for runs only once it
+ * has read them: the screens that never look at the turns (most of them) no longer re-render on every runs read.
+ */
+class LiveRuns {
+  private touched = false;
+  private last: { session: Session; version: number; value: Session } | null = null;
+  private touch = () => {
+    this.touched = true;
+  };
+  version(store: RunsStore) {
+    return this.touched ? store.version : 0;
+  }
+  wrap(session: Session, version: number): Session {
+    if (this.last?.session === session && this.last.version === version) return this.last.value;
+    const base = session.snapshot;
+    const client = session.client;
+    let value = session;
+    if (base && client && session.runsStore.owns(base)) {
+      const key = `${client.url}|${base.project.path}`;
+      const store = session.runsStore;
+      const touch = this.touch;
+      const snapshot = { ...base };
+      Object.defineProperty(snapshot, "runs", {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+          touch();
+          return store.runsFor(key, base);
+        },
+      });
+      bases.set(snapshot, base);
+      value = { ...session, snapshot };
+      sessionBases.set(value, session);
+    }
+    this.last = { session, version, value };
+    return value;
+  }
+}
+function useLiveRuns(session: Session | null): Session | null {
+  const [reader] = useState(() => new LiveRuns());
+  const store = session?.runsStore;
+  const version = useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, () => (store ? reader.version(store) : 0));
+  return session ? reader.wrap(session, version) : null;
+}
+
 function useSessionState() {
   const [client, setClient] = useState<Client | null>(null);
   const [recent, setRecent] = useState<RecentProject[]>([]);
   // The computer whose Projects list `recent` holds, once it has answered: an empty list before that is not "no Projects".
   const listedFor = useRef<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [runsStore] = useState(() => new RunsStore());
+  // The snapshot last put on screen, which a runs read lands on and the next whole read reconciles with.
+  const latest = useRef<Snapshot | null>(null);
+  /** Every snapshot goes on screen here, so its runs and the runs read apart stay ordered. */
+  const putSnapshot = useCallback(
+    (next: Snapshot | null) => {
+      latest.current = next;
+      if (next) runsStore.confirm(next);
+      else runsStore.clear();
+      setSnapshot(next);
+    },
+    [runsStore],
+  );
   const designs = useDesigns(client, snapshot?.project.path, recent[0]?.path);
   const [error, setError] = useState("");
   // How many times the connection came back after an error: the Chat on screen reads its pages again on each.
@@ -193,7 +329,7 @@ function useSessionState() {
       setClient(next);
       listedFor.current = next.url;
       setRecent(projects);
-      setSnapshot(null);
+      putSnapshot(null);
       setError("");
       setHostName(name || hosts.find((saved) => saved.id === next.url)?.name || hostOf(next.url));
       return true;
@@ -224,7 +360,7 @@ function useSessionState() {
       setClient(next);
       listedFor.current = next.url;
       setRecent(projects);
-      setSnapshot(state);
+      putSnapshot(state);
       setError("");
       setHostName(host.name);
       return true;
@@ -245,7 +381,7 @@ function useSessionState() {
     const cached = seen.current.get(`${client.url}|${projectPath}`);
     if (!options.background) {
       setOpening({ path: projectPath, cached: !!cached });
-      if (cached) setSnapshot(cached);
+      if (cached) putSnapshot(cached);
     }
     try {
       const state = await client.open(projectPath);
@@ -255,7 +391,7 @@ function useSessionState() {
           throw new Error("This Chat is no longer available. Choose another Chat.");
         selection.current = { client, path: project.path };
         seen.current.set(`${client.url}|${projectPath}`, state).set(`${client.url}|${project.path}`, state);
-        setSnapshot((previous) => reconcileState(previous ?? undefined, state));
+        putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
         setRecent((previous) =>
           previous.some((item) => item.path === project.path)
@@ -391,7 +527,7 @@ function useSessionState() {
       const state = await client.snapshot(projectPath);
       if (current === selection.current) {
         seen.current.set(`${client.url}|${projectPath}`, state);
-        setSnapshot((previous) => reconcileState(previous ?? undefined, state));
+        putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
         if (lost.current) {
           lost.current = false;
@@ -401,29 +537,29 @@ function useSessionState() {
     } catch (error) {
       if (current === selection.current) throw error;
     }
-  }, [client, projectPath]);
-  /** Fetches only the Project's streaming turns and puts them into the snapshot on screen. */
+  }, [client, projectPath, putSnapshot]);
+  /** Fetches only the Project's streaming turns: they go to the runs store, and the snapshot on screen stays as it is. */
   const refreshRuns = useCallback(async () => {
     const current = selection.current;
     if (!client || !projectPath || current?.client !== client || current.path !== projectPath) return;
     try {
       const runs = await client.runs(projectPath);
-      // A snapshot that landed meanwhile may already hold later runs.
-      if (current === selection.current) {
-        setSnapshot((previous) =>
-          previous?.project.path === projectPath && (runs.seq ?? 0) >= (previous.runs.seq ?? 0) ? reconcileState(previous, { ...previous, runs }) : previous,
-        );
+      const shown = latest.current;
+      // A snapshot that landed meanwhile may already hold later runs (the store compares their seq).
+      if (current === selection.current && shown?.project.path === projectPath) {
+        const key = `${client.url}|${projectPath}`;
+        if (runsStore.update(key, shown, runs)) {
+          // Reopening the Project, or a list's read of it, starts from these runs, as it did when they were in the snapshot.
+          const copy = { ...shown, runs: runsStore.runsFor(key, shown) };
+          seen.current.set(key, copy);
+          if (liveKey.current === key) listed.current.set(key, copy);
+        }
         setError("");
       }
     } catch (error) {
       if (current === selection.current) throw error;
     }
-  }, [client, projectPath]);
-  const running = useRef(false);
-  const anyRunning = !!snapshot && Object.keys(snapshot.runs.runs).length > 0;
-  useEffect(() => {
-    running.current = anyRunning;
-  }, [anyRunning]);
+  }, [client, projectPath, runsStore]);
   /** Poll quickly for a while after the user acts, so a new turn shows up before its first event arrives. */
   const expectActivity = () => {
     busyUntil.current = Date.now() + 15000;
@@ -450,9 +586,13 @@ function useSessionState() {
         return () => subscription.remove();
       },
       // Live turns refresh every second; an idle Project only needs a slower check for changes made elsewhere.
-      pollDelay: () => (running.current || Date.now() < busyUntil.current ? 1000 : 4000),
+      pollDelay: () => {
+        const shown = latest.current;
+        const running = !!shown && Object.keys(runsStore.runsFor(`${client.url}|${shown.project.path}`, shown).runs).length > 0;
+        return running || Date.now() < busyUntil.current ? 1000 : 4000;
+      },
     });
-  }, [client, projectPath, refresh, refreshRuns, refreshProviders, refreshDesigns, designsConnectionChanged]);
+  }, [client, projectPath, refresh, refreshRuns, refreshProviders, refreshDesigns, designsConnectionChanged, runsStore]);
   const selected = selection.current;
   const isSelected = () => selected !== null && selection.current === selected;
   const disconnect = () => {
@@ -460,7 +600,7 @@ function useSessionState() {
     generation.current++;
     selection.current = null;
     setClient(null);
-    setSnapshot(null);
+    putSnapshot(null);
     setError("");
   };
   return {
@@ -482,7 +622,9 @@ function useSessionState() {
     client,
     designs,
     recent,
+    /** The Project state the computer last sent whole; its streaming turns live in `runsStore` (useRun). */
     snapshot,
+    runsStore,
     error,
     reconnects,
     setError,
@@ -645,15 +787,53 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 /** The connection and Project this screen works with: the open one, or the one a SessionScope above it names. */
 export function useSession() {
   const scoped = useContext(ScopedSessionContext);
+  const session = useLiveRuns(useContext(SessionContext));
+  const own = useLiveRuns(scoped);
+  if (!session) throw new Error("SessionProvider is required");
+  return own ?? session;
+}
+/** The open computer and Project, whatever SessionScope is above. */
+export function useMainSession() {
+  const session = useLiveRuns(useContext(SessionContext));
+  if (!session) throw new Error("SessionProvider is required");
+  return session;
+}
+/** The session useSession reads, without subscribing to its runs. */
+function useSessionContext() {
+  const scoped = useContext(ScopedSessionContext);
   const session = useContext(SessionContext);
   if (!session) throw new Error("SessionProvider is required");
   return scoped ?? session;
 }
-/** The open computer and Project, whatever SessionScope is above. */
-export function useMainSession() {
-  const session = useContext(SessionContext);
-  if (!session) throw new Error("SessionProvider is required");
-  return session;
+/** The streaming turn of one Chat ("path#id"), if any; re-renders only as that turn changes. */
+export function useRun(chatKey: string | null | undefined): AgentRun | undefined {
+  const session = useSessionContext();
+  return useSyncExternalStore(session.runsStore.subscribe, () => (chatKey ? runsOf(session)?.runs[chatKey] : undefined));
+}
+/** What a Chat list reads of a turn: that it runs, and whether it waits on an approval or a question. */
+const listShape = (runs: Runs) =>
+  Object.entries(runs.runs)
+    .map(([key, run]) => `${key}:${run.approvals.length}:${run.questions.length}`)
+    .join("\n");
+class ListRuns {
+  private last: { shape: string; runs: Runs } | null = null;
+  pick(runs: Runs | undefined) {
+    if (!runs) return undefined;
+    const shape = listShape(runs);
+    if (this.last?.shape !== shape) this.last = { shape, runs };
+    return this.last.runs;
+  }
+}
+/**
+ * This screen's Project with its runs as a Chat list reads them: they change as a turn starts, asks or ends, not with
+ * every step it streams, so a list re-renders only for what its rows show.
+ */
+export function useListSnapshot(): Snapshot | null {
+  const session = useSessionContext();
+  const [reader] = useState(() => new ListRuns());
+  const runs = useSyncExternalStore(session.runsStore.subscribe, () => reader.pick(runsOf(session)));
+  const base = session.snapshot;
+  return useMemo(() => (base && runs && runs !== base.runs ? { ...base, runs } : base), [base, runs]);
 }
 /** Everything under it reads `session` from useSession instead of the open one; null leaves the open one. */
 export function SessionScope({ session, children }: { session: Session | null; children: React.ReactNode }) {

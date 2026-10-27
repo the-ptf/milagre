@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,40 +15,57 @@ import { useFloatingInbox } from "./floating-inbox-setting";
 import { FloatingInboxChip } from "./inbox";
 
 const NONE: string[] = [];
+type AttentionClient = { attention: () => Promise<string[]> };
+/**
+ * One poller per computer, however many lists and pills read it: the first reader starts it, the last one to go stops
+ * it. Each answer is kept with its computer, so switching computers never shows the last one's Chats.
+ */
+type Poller = { keys: string[]; readers: Set<() => void>; timer: ReturnType<typeof setInterval> | null; busy: boolean };
+const pollers = new Map<AttentionClient, Poller>();
+const POLL_MS = 5000;
+function pollerOf(client: AttentionClient) {
+  let poller = pollers.get(client);
+  if (!poller) pollers.set(client, (poller = { keys: NONE, readers: new Set(), timer: null, busy: false }));
+  return poller;
+}
+function load(client: AttentionClient, poller: Poller) {
+  // One call at a time: on a busy Mac a slow answer would otherwise stack a new call every 5 s.
+  if (poller.busy || AppState.currentState !== "active") return;
+  poller.busy = true;
+  client
+    .attention()
+    .then(
+      (keys) => {
+        if (pollers.get(client) !== poller || poller.keys.join("\n") === keys.join("\n")) return;
+        poller.keys = keys;
+        for (const reader of Array.from(poller.readers)) reader();
+      },
+      () => {},
+    )
+    .finally(() => {
+      poller.busy = false;
+    });
+}
+function subscribeAttention(client: AttentionClient, reader: () => void) {
+  const poller = pollerOf(client);
+  poller.readers.add(reader);
+  if (!poller.timer) {
+    load(client, poller);
+    poller.timer = setInterval(() => load(client, poller), POLL_MS);
+  }
+  return () => {
+    poller.readers.delete(reader);
+    if (poller.readers.size) return;
+    if (poller.timer) clearInterval(poller.timer);
+    pollers.delete(client);
+  };
+}
 /** Chat keys, in every Project, whose turn waits on an approval or question. A Mac from before /attention gives none. */
 // ponytail: polls every 5 s while the app is open; a live "attention" signal from the bridge if this ever costs too much.
 export function useAttention(): string[] {
   const { client } = useSession();
-  // Kept with the computer it came from, so switching computers never shows the last one's Chats.
-  const [found, setFound] = useState<{ client: typeof client; keys: string[] }>({ client: null, keys: [] });
-  useEffect(() => {
-    if (!client) return;
-    let live = true;
-    // One call at a time: on a busy Mac a slow answer would otherwise stack a new call every 5 s.
-    let busy = false;
-    const load = () => {
-      if (busy || AppState.currentState !== "active") return;
-      busy = true;
-      client
-        .attention()
-        .then(
-          (keys) => {
-            if (live) setFound((previous) => (previous.client === client && previous.keys.join("\n") === keys.join("\n") ? previous : { client, keys }));
-          },
-          () => {},
-        )
-        .finally(() => {
-          busy = false;
-        });
-    };
-    load();
-    const timer = setInterval(load, 5000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [client]);
-  return found.client === client ? found.keys : NONE;
+  const subscribe = useCallback((reader: () => void) => (client ? subscribeAttention(client, reader) : () => {}), [client]);
+  return useSyncExternalStore(subscribe, () => (client ? (pollers.get(client)?.keys ?? NONE) : NONE));
 }
 
 // The phone's "Attention button" setting, read once and shared by Settings and every Chat.

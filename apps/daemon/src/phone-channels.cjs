@@ -85,6 +85,8 @@ const routeOk = (path) => typeof path === "string" && path.startsWith("/") && !p
  * A computer's first hello waits for `allowComputer({ key, name, signal, waiting })` (phone.cjs), which resolves
  * "allowed", "denied", "expired", "busy" or "dropped" and calls `waiting()` once it holds the request.
  * `batchMs` is the batch window for devices that take batches (tests shorten or stretch it).
+ * `diagnostics` (optional, relay-host.cjs createTransportDiagnostics) counts message types, marks and odd frames; it
+ * only ever sees fixed names, never a conn id, key or payload. Without it nothing is counted and nothing is allocated.
  */
 function createPhoneChannels({
   identity,
@@ -102,11 +104,13 @@ function createPhoneChannels({
   pendingRepeatMs = PENDING_REPEAT_MS,
   queueWaitMs = MAX_QUEUE_WAIT,
   batchMs = BATCH_MS,
+  diagnostics = null,
 }) {
   const sendFrame = (current, type, conn, payload) => current.send(frame(type, conn, payload));
   function sendMessage(current, conn, record, message) {
     // A response's last part and a stream's end are waited on: they close the batch window at once.
     const urgent = (message.t === "res" && message.more === false) || message.t === "live-close";
+    diagnostics?.message("out", message.t);
     sendEncoded(current, conn, record, encoder.encode(JSON.stringify(message)), urgent);
   }
   /** Sends one message (`encoded`, its UTF-8 JSON bytes) sealed for the device: now, or with its window when it takes batches. */
@@ -139,11 +143,12 @@ function createPhoneChannels({
     }
     record.lives.clear();
   }
-  /** Forgets one phone connection. `notify` tells the relay so the phone's socket closes too. */
-  function dropConn(current, conn, notify) {
-    const record = current.conns.get(conn);
-    if (!record) return;
-    current.conns.delete(conn);
+  /**
+   * Stops everything a record started: timers, a held Allow, live sockets, a desktop's daemon connection, waiting
+   * requests. The record must already be out of `conns`, so whatever this sets off (a daemon connection that ends on
+   * close) finds no record of its own to drop.
+   */
+  function release(record) {
     clearTimeout(record.helloTimer);
     clearTimeout(record.batchTimer);
     record.batched.length = 0;
@@ -154,10 +159,26 @@ function createPhoneChannels({
     // A desktop's daemon connection goes with its channel.
     record.peer?.close();
     for (const queued of record.queue.splice(0)) clearTimeout(queued.expiry);
+    record.queuedBytes = 0;
+  }
+  /** Forgets one phone connection. `notify` tells the relay so the phone's socket closes too. */
+  function dropConn(current, conn, notify) {
+    const record = current.conns.get(conn);
+    if (!record) return;
+    current.conns.delete(conn);
+    release(record);
     if (notify) sendFrame(current, CLOSE, conn);
+  }
+  /**
+   * dropConn for a continuation that ran late: it drops `conn` only while `record` still holds it. A record a second
+   * OPEN for the same conn replaced must never close its successor's channel.
+   */
+  function dropOwn(current, conn, record, notify) {
+    if (current.conns.get(conn) === record) dropConn(current, conn, notify);
   }
 
   function refuse(current, conn, code, extra) {
+    diagnostics?.mark("error");
     sendFrame(current, DATA, conn, new Uint8Array([ERROR_MARK, ...encoder.encode(JSON.stringify({ t: "error", code, ...extra }))]));
     dropConn(current, conn, true);
   }
@@ -173,15 +194,20 @@ function createPhoneChannels({
     clearTimeout(record.helloTimer);
     const abort = new AbortController();
     record.abort = abort;
-    const notice = () => sendFrame(current, DATA, conn, PENDING_NOTICE);
+    // Only while this record holds the conn: a replaced record's notices would reach its successor's device.
+    const notice = () => {
+      if (current.conns.get(conn) !== record) return;
+      diagnostics?.mark("pending");
+      sendFrame(current, DATA, conn, PENDING_NOTICE);
+    };
     try {
       return await allowComputer({
         key: accepted.phoneKey,
         name: accepted.name,
         signal: abort.signal,
         waiting() {
-          // Once per request, and not after it is over.
-          if (record.pendingTimer || record.abort !== abort) return;
+          // Once per request, and not after it is over (an aborted one is, even before its answer comes back).
+          if (record.pendingTimer || record.abort !== abort || abort.signal.aborted) return;
           notice();
           record.pendingTimer = setInterval(notice, pendingRepeatMs);
         },
@@ -231,7 +257,7 @@ function createPhoneChannels({
       try {
         await phones.add(accepted.phoneKey, { kind, name: accepted.name });
       } catch {
-        return dropConn(current, conn, true);
+        return dropOwn(current, conn, record, true);
       }
     } else {
       // When it was last here, and its name if it changed. A failed write never closes a known device's channel.
@@ -243,20 +269,25 @@ function createPhoneChannels({
     clearTimeout(record.helloTimer);
     record.kind = kind;
     record.batch = accepted.caps.includes(BATCH_CAP);
+    diagnostics?.message("out", "hello");
     sendFrame(current, DATA, conn, accepted.reply);
     if (kind === "computer") {
       try {
         record.peer = openPeerChannel({
           openPeer,
-          deliver: (encoded) => sendEncoded(current, conn, record, encoded),
+          deliver: (encoded) => {
+            diagnostics?.message("out", "peer");
+            sendEncoded(current, conn, record, encoded);
+          },
           queued: () => current.queued?.(conn) ?? 0,
           budget: current.peerBudget,
           isOpen: () => current.conns.get(conn) === record,
-          drop: () => dropConn(current, conn, true),
+          // The daemon connection can end long after its record was replaced: it closes only its own channel.
+          drop: () => dropOwn(current, conn, record, true),
         });
       } catch {
         // A desktop with no daemon connection has nothing to talk to, and must never fall through to the bridge.
-        return dropConn(current, conn, true);
+        return dropOwn(current, conn, record, true);
       }
       // The connection ended while it was being built: dropConn found no peer to close.
       if (current.conns.get(conn) !== record) record.peer.close();
@@ -447,6 +478,14 @@ function createPhoneChannels({
     const conn = new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(1);
     const payload = bytes.subarray(9);
     if (type === OPEN) {
+      // The relay hands out each conn once per host socket, so a second OPEN means the old record is gone on its side:
+      // everything it started stops here. No CLOSE goes out, since the conn now belongs to the new record.
+      const superseded = current.conns.get(conn);
+      if (superseded) {
+        diagnostics?.anomaly("duplicateOpen");
+        current.conns.delete(conn);
+        release(superseded);
+      }
       const record = {
         state: "hello",
         channel: null,
@@ -470,7 +509,7 @@ function createPhoneChannels({
       };
       current.conns.set(conn, record);
       record.helloTimer = setTimeout(() => {
-        if (current.conns.get(conn) === record && record.state !== "open") dropConn(current, conn, true);
+        if (record.state !== "open") dropOwn(current, conn, record, true);
       }, helloMs);
       return;
     }
@@ -480,15 +519,28 @@ function createPhoneChannels({
     }
     if (type !== DATA) return;
     const record = current.conns.get(conn);
-    if (!record) return;
+    // Frames the phone sent before the relay heard our CLOSE, or for a conn this socket never opened.
+    if (!record) return void diagnostics?.anomaly("dataNoConn");
     if (record.state === "hello") {
+      diagnostics?.message("in", "hello");
       // Anything unexpected past the guarded steps drops this channel; it must never become an unhandled rejection.
-      void hello(current, conn, record, payload).catch(() => dropConn(current, conn, true));
+      void hello(current, conn, record, payload).catch(() => dropOwn(current, conn, record, true));
       return;
     }
-    if (record.state !== "open") return dropConn(current, conn, true);
+    if (record.state !== "open") {
+      diagnostics?.anomaly("dataNotOpen");
+      return dropConn(current, conn, true);
+    }
+    let message;
     try {
-      handleMessage(current, conn, record, record.channel.open(payload));
+      message = record.channel.open(payload);
+    } catch {
+      diagnostics?.anomaly("dataUndecryptable");
+      return dropConn(current, conn, true);
+    }
+    diagnostics?.message("in", record.kind === "computer" ? "peer" : message?.t);
+    try {
+      handleMessage(current, conn, record, message);
     } catch {
       dropConn(current, conn, true);
     }

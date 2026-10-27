@@ -43,3 +43,59 @@ test("Markdown fences format documents, including nested code and streamed empha
     assert.equal(markdownTokens(`\`\`\`${info}\n## Literal\n\`\`\``)[0]?.type, "fence");
   }
 });
+
+test("finished block tokens come from a cache bounded by entries and characters, least recently used out first", async () => {
+  const { cachedMarkdownTokens, textCache } = await import("./chat-presentation.ts");
+  const body = "# Saved reply\n\nWith **bold** text";
+  assert.equal(cachedMarkdownTokens(body), cachedMarkdownTokens(body), "a remount reuses the tokens");
+  assert.deepEqual(cachedMarkdownTokens(body), markdownTokens(body));
+  const computed: string[] = [];
+  const cache = textCache(
+    (text) => {
+      computed.push(text);
+      return { text };
+    },
+    { entries: 3, chars: 10, maxText: 6 },
+  );
+  const first = cache("aa");
+  cache("bb");
+  cache("cc");
+  assert.equal(cache("aa"), first, "a hit returns the same value");
+  cache("dd");
+  assert.deepEqual(computed, ["aa", "bb", "cc", "dd"]);
+  cache("bb");
+  assert.deepEqual(computed.slice(4), ["bb"], "past three entries the least recently used (bb, not the reread aa) went");
+  cache("aa");
+  assert.equal(computed.length, 5);
+  cache("eeeee");
+  cache("ffffff");
+  cache("aa");
+  assert.deepEqual(computed.slice(5), ["eeeee", "ffffff", "aa"], "past ten characters the oldest texts went");
+  cache("ggggggg");
+  cache("ggggggg");
+  assert.deepEqual(computed.slice(8), ["ggggggg", "ggggggg"], "a text over the size limit is never kept");
+});
+
+// Blank lines that end a chunk change no token: compare without them.
+const readChunks = (chunks: string[]) => chunks.map((chunk) => chunk.replace(/\s+$/, ""));
+const chunkTokens = (chunks: string[]) => chunks.flatMap((chunk) => markdownTokens(chunk).map(({ type, tag, content, info }) => [type, tag, content, info]));
+
+test("the shared block split cut again by markdownChunks reads like markdownChunks of the whole text", async () => {
+  const { markdownChunks } = await import("./chat-presentation.ts");
+  const { splitStreamingBlocks } = await import("@milagre/shared/streaming-blocks");
+  const texts = [
+    "# Title\n\nFirst paragraph\nstill first\n\n- a\n- b\n\n1. step\n\n    indented code in the item\n\n2. next\n\nEnd",
+    "Intro\n\n```sh\nnpm test\n\nnpm run lint\n```\n\nAfter\n\n~~~\nx\n\n```\nstill tilde\n~~~\n\n````md\n```js\ninner\n```\n\nouter\n````\n\n```open\n\nnever closes",
+    "Lead\n\n- a\n\n- b\n\n  body\n\n- c\n\n10) ten\n\nTail\n\n1\n\n1. late item",
+    "See [docs]\n\nMore text\n\n[docs]: https://example.test\n\nAfter",
+    "Para\n\n    indented code\n\n> quote\n\n## Heading\n\n\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n",
+  ];
+  for (const text of texts) {
+    for (let length = 0; length <= text.length; length += 1) {
+      const prefix = text.slice(0, length);
+      const pieces = splitStreamingBlocks(prefix).flatMap((block) => markdownChunks(block));
+      assert.deepEqual(readChunks(pieces), readChunks(markdownChunks(prefix)), `prefix ${JSON.stringify(prefix)}`);
+    }
+    assert.deepEqual(chunkTokens(splitStreamingBlocks(text).flatMap((block) => markdownChunks(block))), chunkTokens(markdownChunks(text)));
+  }
+});

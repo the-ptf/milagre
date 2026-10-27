@@ -445,7 +445,8 @@ async function browserChecks() {
     await screenshot("lean-history");
     for (const busy of [false, true]) {
       await loadFixture(process.argv[2] + "?long=1");
-      await waitFor(`!!document.querySelector('[data-slot="message"]')`);
+      // The newest few messages mount first and the rest of the page follows in a transition (tail-first mount).
+      await waitFor(`document.querySelectorAll('[data-slot="message"]').length >= 40`);
       assert.equal(await evaluate(`document.querySelectorAll('[data-slot="message"]').length`), 40, "long chats initially mount only the newest page");
       await delay(400);
       await evaluate(
