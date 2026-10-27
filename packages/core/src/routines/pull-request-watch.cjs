@@ -8,6 +8,7 @@ const { defaultExec, ghMessage, ghOptions } = require("../pull-request-review.cj
 const BABYSIT_MARKER = "<!-- milagre-babysit -->";
 
 const VIEW_FIELDS = "state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,headRefName,baseRefName,comments,reviews";
+// Not paginated: the first 100 threads and each thread's first 50 comments are what a babysat PR is read from.
 const THREADS_QUERY = `query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){pullRequest(number:$number){
     reviewThreads(first:100){nodes{id isResolved comments(first:50){nodes{id body author{login}}}}}
@@ -42,21 +43,24 @@ function splitRepo(repo) {
   return { host, owner, name };
 }
 
-/** Names of the checks that failed, and how many have yet to finish. */
+/** Names of the checks that failed, how many have yet to finish, and how many distinct checks the PR has. */
 function classifyChecks(rollup) {
   const failing = new Set();
+  const names = new Set();
   let pending = 0;
   for (const check of Array.isArray(rollup) ? rollup : []) {
     if (!check || typeof check !== "object") continue;
     if (typeof check.context === "string" && typeof check.state === "string") {
+      names.add(check.context);
       if (FAILED_STATUS.has(check.state)) failing.add(text(check.context));
       else if (PENDING_STATUS.has(check.state)) pending += 1;
       continue;
     }
+    names.add(text(check.name));
     if (check.status !== "COMPLETED") pending += 1;
     else if (FAILED.has(text(check.conclusion))) failing.add(text(check.name));
   }
-  return { failingChecks: [...failing].filter(Boolean), pendingChecks: pending };
+  return { failingChecks: [...failing].filter(Boolean), pendingChecks: pending, totalChecks: names.size };
 }
 
 async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, env = process.env, settings } = {}) {
@@ -146,14 +150,19 @@ function diffSnapshots(prev, next, settings) {
     changes.push({ id: "behind", text: `Branch is behind ${base}` });
   }
 
+  // Green needs a settled PR, not a young one: never on the baseline reading, never with conflicts, and a PR with
+  // no checks registered yet counts only once a review has approved it.
   let stop = null;
   if (next.state !== "OPEN") stop = "closed";
   else if (
     settings?.stopWhenGreen &&
+    prev &&
+    next.mergeable !== "CONFLICTING" &&
     next.failingChecks.length === 0 &&
     next.pendingChecks === 0 &&
     next.unresolvedThreads.length === 0 &&
-    (next.reviewDecision === "APPROVED" || next.reviewDecision === null)
+    (next.reviewDecision === "APPROVED" || next.reviewDecision === null) &&
+    (next.totalChecks > 0 || next.reviewDecision === "APPROVED")
   ) {
     stop = "green";
   }

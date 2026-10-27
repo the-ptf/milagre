@@ -18,6 +18,7 @@ const snapshot = (patch = {}) => ({
   behindBy: 0,
   failingChecks: [],
   pendingChecks: 0,
+  totalChecks: 0,
   comments: [],
   unresolvedThreads: [],
   ...patch,
@@ -99,18 +100,34 @@ test("merged stops", () => {
 });
 
 test("green and approved stops", () => {
-  assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: "APPROVED" }), settings()).stop, "green");
+  assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: "APPROVED", totalChecks: 3 }), settings()).stop, "green");
 });
 
 test("green with no review required stops", () => {
-  assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: null }), settings()).stop, "green");
+  assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: null, totalChecks: 3 }), settings()).stop, "green");
+});
+
+test("baseline never stops green", () => {
+  assert.equal(diffSnapshots(undefined, snapshot({ reviewDecision: "APPROVED", totalChecks: 3 }), settings()).stop, null);
+});
+
+test("conflicting PR does not stop green", () => {
+  const conflicting = snapshot({ mergeable: "CONFLICTING", mergeState: "DIRTY", reviewDecision: "APPROVED", totalChecks: 3 });
+  const { changes, stop } = diffSnapshots(snapshot(), conflicting, settings());
+  assert.deepEqual(changes, [{ id: "conflict", text: "Merge conflicts with main" }]);
+  assert.equal(stop, null);
+});
+
+test("no checks and no approval does not stop green", () => {
+  assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: null, totalChecks: 0 }), settings()).stop, null);
+  assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: "APPROVED", totalChecks: 0 }), settings()).stop, "green");
 });
 
 test("green does not stop when stopWhenGreen is off, or checks, threads are open", () => {
-  assert.equal(diffSnapshots(snapshot(), snapshot(), settings({ stopWhenGreen: false })).stop, null);
-  assert.equal(diffSnapshots(snapshot(), snapshot({ pendingChecks: 1 }), settings()).stop, null);
-  assert.equal(diffSnapshots(snapshot(), snapshot({ failingChecks: ["build"] }), settings()).stop, null);
-  assert.equal(diffSnapshots(snapshot(), snapshot({ unresolvedThreads: ["t1"] }), settings()).stop, null);
+  assert.equal(diffSnapshots(snapshot(), snapshot({ totalChecks: 3 }), settings({ stopWhenGreen: false })).stop, null);
+  assert.equal(diffSnapshots(snapshot(), snapshot({ pendingChecks: 1, totalChecks: 3 }), settings()).stop, null);
+  assert.equal(diffSnapshots(snapshot(), snapshot({ failingChecks: ["build"], totalChecks: 1 }), settings()).stop, null);
+  assert.equal(diffSnapshots(snapshot(), snapshot({ unresolvedThreads: ["t1"], totalChecks: 3 }), settings()).stop, null);
 });
 
 test("REVIEW_REQUIRED does not stop", () => {
@@ -186,6 +203,7 @@ test("readPullRequestSnapshot reads the PR, its threads and its checks", async (
     behindBy: 0,
     failingChecks: ["build", "deploy", "ci/legacy"],
     pendingChecks: 2,
+    totalChecks: 7,
     comments: [
       { id: "IC_1", body: "top level", author: "alice", threadId: null },
       { id: "PRR_1", body: "needs work", author: "bob", threadId: null },
