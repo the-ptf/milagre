@@ -54,9 +54,15 @@ function createChatSimulators({ simulators, file, validateChat }) {
     }
     saved = next;
   }
-  async function listing(chatId) {
-    const attached = await records(chatId),
-      list = await simulators.list();
+  // Whether this host can show simulators, as its last device list said.
+  let supported = true;
+  // The window asks every 5 s for each Chat on screen (`attachedOnly`): a Chat with nothing attached shows nothing, so it
+  // is answered from its saved attachments without listing devices, which starts a process each time.
+  async function listing(chatId, { attachedOnly = false } = {}) {
+    const attached = await records(chatId);
+    if (attachedOnly && !attached.length) return { chatId, attached: [], devices: [], available: [], supported };
+    const list = await simulators.list();
+    supported = list.supported !== false;
     return {
       ...list,
       chatId,
@@ -66,7 +72,7 @@ function createChatSimulators({ simulators, file, validateChat }) {
     };
   }
   const api = {
-    list: (request) => serial(() => listing(request?.chatId)),
+    list: (request) => serial(() => listing(request?.chatId, { attachedOnly: request?.attachedOnly === true })),
     attach: (request) =>
       serial(async () => {
         const attached = await records(request?.chatId);

@@ -149,6 +149,42 @@ test("lineage is remembered after the agent exits, until the browser itself exit
   assert.equal((await f.service.list({ chatId: "chat-a" })).targets.length, 0, "a reused identifier does not inherit old ownership");
 });
 
+test("a Chat that can own no page is answered from a recent reading; one that can, and the agent's tool, read afresh", async (t) => {
+  const f = fixture(t);
+  const tool = require("./chat-browsers.cjs")
+    .browserToolDefinitions("chat-a", f.service)
+    .find((item) => item.name === "browser_list");
+  // Chat Z's agent isn't running, and no browser was attached to it or started by it.
+  const first = await f.service.list({ chatId: "chat-z" });
+  assert.deepEqual(first.targets, []);
+  assert.deepEqual(
+    first.others.map((item) => item.id),
+    [OTHER],
+  );
+  assert.equal(f.adapter.discovered, 1);
+  // Windows and phones ask every 15 s for each Chat on screen; such Chats take the last reading.
+  f.advance(15_000);
+  assert.deepEqual(await f.service.list({ chatId: "chat-z" }), first);
+  await f.service.list({ chatId: "chat-y" });
+  assert.equal(f.adapter.discovered, 1, "no new reading for Chats that own nothing");
+  // A Chat whose agent runs reads afresh, through its agent's browser_list too.
+  assert.equal(JSON.parse(await tool.run({})).targets.length, 2);
+  assert.equal(f.adapter.discovered, 2);
+  f.advance(2500);
+  await f.service.list({ chatId: "chat-a" });
+  assert.equal(f.adapter.discovered, 3);
+  // An attached browser makes the Chat one that owns a page.
+  f.advance(2500);
+  await f.service.attach({ chatId: "chat-z", browserId: OTHER });
+  f.advance(2500);
+  assert.equal((await f.service.list({ chatId: "chat-z" })).targets.length, 1);
+  assert.equal(f.adapter.discovered, 5);
+  // Past 30 s even a Chat that owns nothing reads the table again.
+  f.advance(30_000);
+  await f.service.list({ chatId: "chat-y" });
+  assert.equal(f.adapter.discovered, 6);
+});
+
 test("attach is explicit, per Chat, and refuses browsers another Chat started", async (t) => {
   const f = fixture(t);
   await assert.rejects(f.service.open({ chatId: "chat-b", targetId: target(FOREIGN, OTHER) }, "owner"), /page/i);
