@@ -12,6 +12,8 @@ const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./sche
 const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
+const { createPullRequestPoller } = require("./pr-poller.cjs");
+const { readPullRequestSnapshot } = require("./pull-request-watch.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
 const OFF = "Routines can't run on this computer until AI sharing is allowed. Open Routines and choose Allow.";
@@ -524,10 +526,12 @@ function createRoutines({
   };
   const store = createRoutineStore({ file, now, onPurged: forgetPurged, onRunsDropped: runsDropped });
   let poller = null;
-  // Every change may add, remove or switch a Linear Routine, so the poller looks again (a cheap scan).
+  let prPoller = null;
+  // Every change may add, remove or switch a Linear or pull-request Routine, so the pollers look again (a cheap scan).
   const changed = () => {
     emit("routines:changed", { enabled: store.enabled() });
     poller?.sync();
+    prPoller?.sync();
   };
   const hooksNow = () => {
     try {
@@ -586,6 +590,16 @@ function createRoutines({
     scheduler,
     // Only an issue a Chat is linked to takes comments; the rest are dropped before they make a Run.
     linkedIssue: async (issue) => Boolean(await routineChatsView.linkedChat(issue)),
+    onChange: changed,
+    now,
+    ...(timers.setTimeout ? { setTimeout: timers.setTimeout } : {}),
+    ...(timers.clearTimeout ? { clearTimeout: timers.clearTimeout } : {}),
+  });
+  prPoller = createPullRequestPoller({
+    store,
+    scheduler,
+    // The Routine's own settings decide what is read (the commits behind are only counted when behind wakes the agent).
+    read: (pr) => readPullRequestSnapshot(pr, { settings: pr.settings }),
     onChange: changed,
     now,
     ...(timers.setTimeout ? { setTimeout: timers.setTimeout } : {}),
@@ -778,8 +792,10 @@ function createRoutines({
     if (enabled) {
       scheduler.start();
       poller.start();
+      prPoller.start();
     } else {
       poller.stop();
+      prPoller.stop();
       // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again. A comment
       // already on its way goes back to its queue; this resolves once it has.
       await scheduler.tick();
@@ -831,6 +847,7 @@ function createRoutines({
       if (!store.enabled()) return;
       scheduler.start();
       poller.start();
+      prPoller.start();
     },
     // One tick now, and what the scheduler still has going off the tick (for tests that wait for a positive signal).
     tick: () => scheduler.tick(),
@@ -842,6 +859,7 @@ function createRoutines({
     stop() {
       scheduler.stop();
       poller.stop();
+      prPoller.stop();
       return settleWithin();
     },
     // `enabled` is whether this computer may run Routines: a device that allowed AI sharing said so (there is no switch

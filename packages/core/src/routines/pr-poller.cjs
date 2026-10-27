@@ -1,0 +1,197 @@
+// Babysit PRs: one timer per live pull-request Routine reads its PR on the Routine's own interval and, only when something
+// changed, queues a `pull-request` event through the scheduler. It also ends the Routine when a stop rule holds.
+const crypto = require("node:crypto");
+const { diffSnapshots } = require("./pull-request-watch.cjs");
+const { ghMessage } = require("../pull-request-review.cjs");
+
+const MINUTE_MS = 60_000;
+const MAX_DELAY_MS = 15 * MINUTE_MS;
+
+const isComment = (id) => id.startsWith("comment:");
+const sha1 = (value) => crypto.createHash("sha1").update(value).digest("hex");
+const record = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+
+// The time is part of the key: the same check failing, passing and failing again is a new change to hand over, and the
+// store forgets no key it has seen.
+function eventOf(routine, handing, kept, next, at) {
+  const { repo, number } = routine.trigger;
+  const ids = handing.map((change) => change.id).toSorted();
+  const counts = ids.map((id) => kept.attempts[id] ?? 0).join(",");
+  return {
+    kind: "pull-request",
+    key: `pr:${repo}#${number}:${sha1(`${ids.join("\n")}:${counts}:${at}`)}`,
+    summary: handing.map((change) => change.text).join("\n"),
+    changes: handing,
+    branch: next.headRef,
+  };
+}
+
+/**
+ * `read({ repo, number, settings })` resolves the PR's snapshot (see readPullRequestSnapshot) and throws on a gh failure.
+ * `onChange` runs when a Routine ended or its lastError changed. `now` is the runtime's clock; it and the timers are
+ * injected for tests.
+ */
+function createPullRequestPoller({
+  store,
+  scheduler,
+  read,
+  onChange = () => {},
+  now = Date.now,
+  setTimeout: setTimer = setTimeout,
+  clearTimeout: clearTimer = clearTimeout,
+}) {
+  // routine id -> { timer, delay, polling }
+  const states = new Map();
+  let running = false;
+
+  const live = (routine) => Boolean(routine && routine.enabled && !routine.completedAt && routine.trigger.kind === "pull-request");
+  const watched = () => (running && store.enabled() ? store.list().filter(live) : []);
+  const baseOf = (routine) => routine.trigger.settings.intervalMinutes * MINUTE_MS;
+
+  function drop(id) {
+    const state = states.get(id);
+    if (!state) return;
+    clearTimer(state.timer);
+    states.delete(id);
+  }
+
+  function schedule(id, state, ms) {
+    clearTimer(state.timer);
+    state.timer = setTimer(() => {
+      state.timer = null;
+      // pollNow never rejects; returning it lets a test await the poll.
+      return pollNow(id);
+    }, ms);
+    state.timer?.unref?.();
+  }
+
+  /** Matches the timers to the live pull-request Routines and the Routines switch. Cheap; safe to call often. */
+  function sync() {
+    const wanted = new Map(watched().map((routine) => [routine.id, routine]));
+    for (const id of states.keys()) if (!wanted.has(id)) drop(id);
+    for (const id of wanted.keys()) {
+      if (states.has(id)) continue;
+      const state = { timer: null, delay: null, polling: false };
+      states.set(id, state);
+      schedule(id, state, 0);
+    }
+  }
+
+  // The change ids that stand right now: everything wrong with the PR that diffSnapshots would report against a clean one.
+  function standing(next, settings) {
+    const clean = { ...next, failingChecks: [], mergeable: "MERGEABLE", mergeState: "CLEAN", behindBy: 0 };
+    return diffSnapshots(clean, next, settings).changes.filter((change) => !isComment(change.id));
+  }
+
+  /**
+   * What to hand the agent now, or the reason to stop instead. A comment is handed once. A failing check, a conflict or
+   * the branch being behind is handed when it first appears, and again once a Run has finished since and it is still
+   * there; each such repeat counts as a failed attempt, and the Routine can end after too many.
+   */
+  function decide(routine, stored, next, at) {
+    const settings = routine.trigger.settings;
+    const { changes: fresh, stop } = diffSnapshots(stored?.snapshot ?? null, next, settings);
+    if (stop) return { stop };
+
+    const remaining = standing(next, settings);
+    const present = new Set(remaining.map((change) => change.id));
+    const handed = {};
+    const attempts = {};
+    // A problem that has gone away is forgotten, so it starts over if it comes back.
+    for (const [id, when] of Object.entries(record(stored?.handed))) {
+      if (!present.has(id)) continue;
+      handed[id] = when;
+      if (Number.isFinite(stored?.attempts?.[id])) attempts[id] = stored.attempts[id];
+    }
+
+    const handing = [...fresh];
+    const ids = new Set(fresh.map((change) => change.id));
+    const repeated = [];
+    for (const change of remaining) {
+      const since = handed[change.id];
+      if (ids.has(change.id) || since === undefined) continue;
+      if (routine.lastRunAt === undefined || !(routine.lastRunAt > since)) continue;
+      handing.push(change);
+      repeated.push(change.id);
+      attempts[change.id] = (attempts[change.id] ?? 0) + 1;
+    }
+    const cap = settings.stopAfterFailures;
+    if (cap?.on && repeated.some((id) => attempts[id] >= cap.times)) return { stop: "failures" };
+
+    for (const change of handing) {
+      if (isComment(change.id)) continue;
+      handed[change.id] = at;
+      attempts[change.id] ??= 0;
+    }
+    return { handing, kept: { snapshot: next, attempts, handed } };
+  }
+
+  function setError(routine, message) {
+    if ((routine.lastError ?? null) === message) return;
+    store.setLastError(routine.id, message);
+    onChange();
+  }
+
+  async function pollNow(id) {
+    const state = states.get(id);
+    if (!running || !state || state.polling) return;
+    const before = store.get(id);
+    if (!live(before) || !store.enabled()) return void drop(id);
+    state.polling = true;
+    clearTimer(state.timer);
+    state.timer = null;
+    const base = baseOf(before);
+    const current = () => running && states.get(id) === state;
+    try {
+      const { repo, number, settings } = before.trigger;
+      const next = await read({ repo, number, settings });
+      if (!current()) return;
+      // What happened while the read was out: the Routine may have ended or been deleted.
+      const routine = store.get(id);
+      if (!live(routine)) return void drop(id);
+      const at = now();
+      const decision = decide(routine, store.prSnapshot(id), next, at);
+      if (decision.stop) {
+        store.complete(id, decision.stop);
+        drop(id);
+        onChange();
+        return;
+      }
+      const { handing, kept } = decision;
+      // Handed over before the snapshot moves on: a crash in between hands the same changes over again (the store
+      // refuses a key it has seen), where the other order would lose them.
+      if (handing.length) scheduler.enqueueEvents([{ at, routineId: id, event: eventOf(routine, handing, kept, next, at) }]);
+      store.setPrSnapshot(id, kept);
+      state.delay = base;
+      setError(routine, null);
+    } catch (error) {
+      if (!current()) return;
+      state.delay = Math.min((state.delay ?? base) * 2, Math.max(MAX_DELAY_MS, base));
+      console.warn(`[routines] pull request poll of ${id} failed`, error?.message ?? error);
+      try {
+        setError(store.get(id) ?? before, ghMessage(error));
+      } catch (storeError) {
+        console.warn("[routines] could not record a pull request poll error", storeError);
+      }
+    } finally {
+      state.polling = false;
+    }
+    if (current()) schedule(id, state, state.delay);
+  }
+
+  return {
+    start() {
+      if (running) return;
+      running = true;
+      sync();
+    },
+    stop() {
+      running = false;
+      for (const id of states.keys()) drop(id);
+    },
+    sync,
+    pollNow,
+  };
+}
+
+module.exports = { createPullRequestPoller };
