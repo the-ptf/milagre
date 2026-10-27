@@ -424,4 +424,4 @@ function createPullRequestReview({ exec = defaultExec, env = process.env, diff =
   };
 }
 
-module.exports = { createPullRequestReview, ghMessage, toDetail, GH_LOGIN, GH_MISSING };
+module.exports = { createPullRequestReview, ghMessage, ghOptions, defaultExec, toDetail, GH_LOGIN, GH_MISSING };
