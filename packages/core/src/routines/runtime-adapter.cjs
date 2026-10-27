@@ -34,6 +34,8 @@ const STOP_WAIT_MS = 5000;
 const START_TIMEOUT_MS = 2 * 60 * 1000;
 // Reading the branch a Chat's Worktree is on (a babysit Run waits on it).
 const HEAD_BRANCH_TIMEOUT_MS = 5000;
+// How long a Babysit Heartbeat lasts when its settings don't name a number of days.
+const BABYSIT_DEFAULT_DAYS = 30;
 // What a Chat a Routine started can't do while it is still its Run's: make, change or delete Routines, or start their Runs,
 // so a Run never sets off another. A Run Chat the user kept is a normal Chat and gets them.
 const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"]);
@@ -893,6 +895,29 @@ function createRoutines({
       return {
         routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) }, mayRun ? {} : { nextRunAt: null })),
       };
+    },
+    // The live Routine babysitting a pull request (host/owner/repo, number), if any: babysit-watch.cjs asks before it adds one.
+    findPullRequest: (repo, number) => store.findPullRequest(repo, number),
+    /**
+     * The `Babysit PR #<n>` Heartbeat for a pull request the Chat opened, made as its agent's: a heartbeat_create does the
+     * same. It ends after `stopAfterDays` when that rule is on, else after 30 days, and follows the Chat's own provider,
+     * model and permission mode. Does nothing (null) while this computer may not run Routines, as the tools refuse then.
+     */
+    async createBabysit({ chatId, url, repo, number, settings }) {
+      if (!store.enabled()) return null;
+      const target = await checkTarget({ kind: "chat", chatId });
+      const days = settings.stopAfterDays?.on ? settings.stopAfterDays.days : BABYSIT_DEFAULT_DAYS;
+      const name = `Babysit PR #${number}`;
+      const routine = store.create({
+        name,
+        prompt: name,
+        trigger: { kind: "pull-request", url, repo, number, settings: { ...settings } },
+        target,
+        createdBy: { kind: "agent", chatId: target.chatId },
+        expiresAt: now() + days * 864e5,
+      });
+      changed();
+      return routine;
     },
     // A Routine from the Routines form: always the user's, whatever the input says.
     async create(input, consentVersion) {

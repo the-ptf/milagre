@@ -86,6 +86,9 @@ A saved prompt plus a **Trigger** plus a target, kept by the **Computer**'s daem
 A **Routine** whose target is an existing **Chat**: on a schedule, Milagre sends its prompt back into that **Chat** as a new turn. The **Chat**'s agent sets it on its own **Chat** with Milagre's `heartbeat_create`. Every **Heartbeat** ends: after 7 days by default, at most 30, after its maximum **Runs**, when its **Chat** is archived or gone, or after three failed **Runs** in a row.
 _Avoid_: reminder, cron job
 
+**Babysit**:
+A **Heartbeat** Milagre adds to a **Chat** that opened a PR, when Babysit PRs is on. It checks the PR itself and wakes the agent only when something changed.
+
 **Trigger**:
 What fires a **Routine**: a schedule, a Linear event or a webhook. Used loosely for a **Routine** whose target is a new **Chat**.
 

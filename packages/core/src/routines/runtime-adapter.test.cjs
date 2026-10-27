@@ -1970,3 +1970,63 @@ test("headBranch reads the branch checked out in the Chat's Worktree, or null", 
   fs.rmSync(dir, { recursive: true });
   assert.equal(await adapter.headBranch("/project#2"), null);
 });
+
+// A Routines whose Chat /project#2 exists, for the Heartbeat a Chat's `gh pr create` adds (babysit-watch.cjs).
+function babysitRoutines(t, clock) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: { turnSettings: () => null },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => ({ sessions: { 2: { id: 2 } } }),
+    projects: async () => [{ path: "/project" }],
+    timers: {
+      now: () => clock,
+      setInterval: () => ({ unref() {} }),
+      clearInterval() {},
+      setTimeout: () => ({ unref() {} }),
+      clearTimeout() {},
+    },
+  });
+  return routines;
+}
+
+const babysitInput = (stopAfterDays) => ({
+  chatId: "/project#2",
+  url: "https://github.com/the-ptf/milagre-ade/pull/42",
+  repo: "github.com/the-ptf/milagre-ade",
+  number: 42,
+  settings: { enabled: true, stopAfterDays },
+});
+
+test("createBabysit makes the Babysit Heartbeat in the Chat, ending after the days the rule names", async (t) => {
+  const clock = Date.UTC(2026, 9, 27);
+  const routines = babysitRoutines(t, clock);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const routine = await routines.createBabysit(babysitInput({ on: true, days: 3 }));
+  assert.equal(routine.name, "Babysit PR #42");
+  assert.equal(routine.prompt, "Babysit PR #42");
+  assert.equal(routine.trigger.kind, "pull-request");
+  assert.equal(routine.trigger.number, 42);
+  assert.deepEqual(routine.target, { kind: "chat", chatId: "/project#2" });
+  assert.deepEqual(routine.createdBy, { kind: "agent", chatId: "/project#2" });
+  assert.equal(routine.expiresAt, clock + 3 * 864e5);
+  for (const key of ["provider", "model", "permissionMode"]) assert.equal(key in routine, false, key);
+  assert.equal(routines.findPullRequest("github.com/The-PTF/milagre-ade", 42)?.id, routine.id);
+  await assert.rejects(routines.createBabysit(babysitInput({ on: true, days: 3 })), /already being babysat/);
+  await routines.save(false);
+});
+
+test("createBabysit with no day rule lasts 30 days, and does nothing while Routines are off", async (t) => {
+  const clock = Date.UTC(2026, 9, 27);
+  const routines = babysitRoutines(t, clock);
+  assert.equal(await routines.createBabysit(babysitInput({ on: true, days: 3 })), null);
+  assert.equal(routines.list().routines.length, 0);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const routine = await routines.createBabysit(babysitInput({ on: false, days: 3 }));
+  assert.equal(routine.expiresAt, clock + 30 * 864e5);
+  await routines.save(false);
+});
