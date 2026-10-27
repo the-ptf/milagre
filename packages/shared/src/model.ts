@@ -515,8 +515,11 @@ export type RoutineRunContext = {
   name: string;
   at: number;
   label?: string;
-  /** A Babysit PRs Run: the level it went at (1 when the Worktree is on another branch) and whether it may resolve threads. */
-  babysit?: { level: number; resolveThreads: boolean };
+  /**
+   * A Babysit PRs Run: the level it went at (1 when the Worktree is on another branch, which `offBranch` says) and whether it
+   * may resolve threads (the setting, at a level that replies).
+   */
+  babysit?: { level: number; resolveThreads: boolean; offBranch?: boolean };
   quiet?: boolean;
   summary?: string;
 };

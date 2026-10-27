@@ -1754,8 +1754,12 @@ test("a pull-request run whose chat got busy as it was sent waits too", async ()
   ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
   await ctx.scheduler.tick();
   assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.calls.defer[0].notBefore, START + 15_000);
   assert.equal(ctx.store.get(routine.id).runCount, 0);
   refuse = false;
+  ctx.clock.t = START + 15_000;
+  await ctx.scheduler.tick();
+  assert.equal(ctx.store.runs(routine.id)[0].status, "running");
 });
 
 test("context carries the effective level", async () => {
@@ -1780,8 +1784,38 @@ test("a Worktree on another branch makes the run report only", async () => {
   const routine = createBabysit(ctx, { level: 5 });
   ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
   await ctx.scheduler.tick();
-  assert.equal(ctx.calls.send[0].context.babysit.level, 1);
-  assert.match(ctx.calls.send[0].prompt, /another branch/);
+  // resolveThreads is the effective value: a report-only Run resolves nothing, whatever the setting says.
+  assert.deepEqual(ctx.calls.send[0].context.babysit, { level: 1, resolveThreads: false, offBranch: true });
+  assert.match(ctx.calls.send[0].prompt, /this Worktree is on `main`, not the PR's `feature`/);
+});
+
+test("on the branch, resolveThreads is the setting at a level that replies", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const high = createBabysit(ctx, { level: 4, resolveThreads: true });
+  ctx.scheduler.enqueueEvent(high.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.deepEqual(ctx.calls.send[0].context.babysit, { level: 4, resolveThreads: true });
+});
+
+test("a pull-request run's branch lookup never holds up a heartbeat in the same tick", async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const ctx = triggers({ chatOptions: { headBranch: () => gate.then(() => "feature") } });
+  const routine = createBabysit(ctx);
+  const beat = ctx.store.upsertHeartbeat({ ...base, chatId: "c2", name: "beat" });
+  ctx.clock.t = beat.nextRunAt;
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await within(ctx.raw.tick());
+  assert.deepEqual(
+    ctx.calls.send.map((call) => call.chatId),
+    ["c2"],
+  );
+  release();
+  await ctx.raw.idle();
+  assert.deepEqual(
+    ctx.calls.send.map((call) => call.chatId),
+    ["c2", "c1"],
+  );
 });
 
 test("a branch that can't be read counts as another branch", async () => {

@@ -14,7 +14,7 @@ const event = {
   ],
   branch: "feature",
 };
-const prompt = (over = {}, onBranch = true) => babysitPrompt({ settings: normalizeBabysitSettings(over), event, pr, onBranch });
+const prompt = (over = {}, onBranch = true, headBranch = null) => babysitPrompt({ settings: normalizeBabysitSettings(over), event, pr, onBranch, headBranch });
 
 test("the prompt names the PR, what changed, the level and the skills", () => {
   const text = prompt({ level: 3 });
@@ -47,10 +47,20 @@ test("no instructions section when empty", () => {
 test("wrong branch forces report only", () => {
   const text = prompt({ level: 5 }, false);
   assert.match(text, /Report only/);
-  assert.match(text, /another branch/);
+  assert.match(text, /not known to be on the PR.s branch/);
   assert.ok(!text.includes("Fix, push and reply and"));
   assert.equal(effectiveLevel({ level: 5 }, false), 1);
   assert.equal(effectiveLevel({ level: 5 }, true), 5);
+});
+
+test("wrong branch says why and forbids switching", () => {
+  const other = prompt({ level: 5 }, false, "main");
+  assert.match(other, /Start your reply by saying this Worktree is on `main`, not the PR's `feature`, so this Run only reports\./);
+  assert.match(other, /Do not switch branches\./);
+  assert.match(prompt({ level: 5 }, false, null), /this Worktree has a branch that couldn't be read, not the PR's `feature`/);
+  // Every level forbids it, on the branch too.
+  for (const level of [1, 2, 3, 4, 5]) assert.match(prompt({ level }), /Do not switch branches\./);
+  assert.ok(!prompt({ level: 3 }).includes("Start your reply"));
 });
 
 test("each level says what it allows and forbids", () => {
@@ -74,6 +84,11 @@ test("own rule tells the agent to delete the heartbeat", () => {
   const text = prompt({ ownRule: true, ownRuleText: "Two reviewers approved" });
   assert.match(text, /Two reviewers approved/);
   assert.match(text, /delete this Heartbeat with routine_delete and say why/);
+});
+
+test("an own rule that ends in punctuation doesn't double it", () => {
+  const text = prompt({ ownRule: true, ownRuleText: "Two approvals. " });
+  assert.match(text, /Your own stop rule: Two approvals\. After each pass/);
 });
 
 test("an own rule that is off or empty adds nothing", () => {

@@ -2,7 +2,7 @@ const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { linearIssueUrl } = require("@milagre/shared/linear-issue");
-const { babysitPrompt, effectiveLevel } = require("./babysit-prompt.cjs");
+const { babysitPrompt, effectiveLevel, effectiveResolve } = require("./babysit-prompt.cjs");
 
 const TICK_MS = 1000;
 const BUSY = "chat was busy";
@@ -348,7 +348,7 @@ function createRoutineScheduler({
     const { settings, url, number } = routine.trigger;
     const onBranch = headBranch !== null && headBranch === event.branch;
     const level = effectiveLevel(settings, onBranch);
-    const text = babysitPrompt({ settings, event, pr: { url, number }, onBranch, routineId: routine.id });
+    const text = babysitPrompt({ settings, event, pr: { url, number }, onBranch, headBranch, routineId: routine.id });
     const body = `PR #${number} changed:\n${event.summary}`;
     const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
     pending.set(chatId, entry);
@@ -359,7 +359,7 @@ function createRoutineScheduler({
       name: routine.name,
       at: now(),
       label: `PR #${number}`,
-      babysit: { level, resolveThreads: settings.resolveThreads },
+      babysit: { level, resolveThreads: effectiveResolve(settings, level), ...(onBranch ? {} : { offBranch: true }) },
     };
     await deliver(chatId, entry, { body, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
   }
@@ -401,9 +401,10 @@ function createRoutineScheduler({
 
   async function dispatchAll(claims) {
     for (const { routine, run } of claims) {
-      if (isComment(run.event)) {
-        // Finding a comment's Chat reads every Project, so comments go out off the tick, one after another in the order they
-        // were claimed (comments on one issue arrive in order), and a heartbeat never waits on that lookup.
+      if (isComment(run.event) || isPullRequest(run.event)) {
+        // Finding a comment's Chat reads every Project, and a babysit Run reads its Worktree's branch, so both go out off the
+        // tick, one after another in the order they were claimed (comments on one issue, and one PR's events, arrive in
+        // order), and a heartbeat never waits on that.
         comments = comments
           .then(() => {
             // Stopped meanwhile (Routines off, Milagre closing): the comment goes back to its queue for next time.
