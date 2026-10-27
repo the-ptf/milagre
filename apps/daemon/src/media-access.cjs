@@ -35,21 +35,53 @@ function sniffsAs(type, head) {
   return head.subarray(4, 8).toString("latin1") === "ftyp" && HEIC_BRANDS.has(head.subarray(8, 12).toString("latin1"));
 }
 
-/** A scope's Worktree folders, through any daemon call (`call(method, args)`): a Project's, or a Link's members'. Unknown scopes give none. */
-const scopeRootsVia =
-  ({ dataDir, call }) =>
-  async (scope) => {
+// A remote Chat's images are read together, one media:read each, and each asked for its scope's Worktrees: 30 images
+// were 30 project:worktree-paths (for a Link, 30 whole Link states). An answer is kept this long per daemon and scope;
+// a read it would refuse asks again first (openMedia), so a Worktree made meanwhile is never refused. Failures aren't kept.
+const ROOTS_TTL_MS = 5000;
+const MAX_KEPT_ROOTS = 64;
+/** @type {Map<string, { at: number; roots: Promise<string[]> }>} */
+const keptRoots = new Map();
+
+/**
+ * A scope's Worktree folders, through any daemon call (`call(method, args)`): a Project's, or a Link's members'. Unknown
+ * scopes give none. Kept for ROOTS_TTL_MS; `.fresh(scope)` reads them again.
+ */
+function scopeRootsVia({ dataDir, call, now = Date.now }) {
+  async function read(scope) {
+    if (!isLinkScopeKey(scope)) return await call("project:worktree-paths", [scope]);
+    const link = await call("link:snapshot", [scopeFromKey(scope).linkId]);
+    return [
+      path.join(dataDir, "links", link.link.id, ".milagre", "images"),
+      ...Object.values(link.state.sessions).flatMap((chat) => [chat.workspacePath, ...chat.worktrees.map((member) => member.worktreePath)]),
+    ];
+  }
+  const key = (scope) => `${dataDir}\0${scope}`;
+  async function scopeRoots(scope) {
+    let kept = keptRoots.get(key(scope));
+    if (!kept || now() - kept.at >= ROOTS_TTL_MS) {
+      const entry = { at: now(), roots: read(scope) };
+      kept = entry;
+      keptRoots.delete(key(scope));
+      keptRoots.set(key(scope), entry);
+      if (keptRoots.size > MAX_KEPT_ROOTS) keptRoots.delete(/** @type {string} */ (keptRoots.keys().next().value));
+      entry.roots.catch(() => {
+        if (keptRoots.get(key(scope)) === entry) keptRoots.delete(key(scope));
+      });
+    }
     try {
-      if (!isLinkScopeKey(scope)) return await call("project:worktree-paths", [scope]);
-      const link = await call("link:snapshot", [scopeFromKey(scope).linkId]);
-      return [
-        path.join(dataDir, "links", link.link.id, ".milagre", "images"),
-        ...Object.values(link.state.sessions).flatMap((chat) => [chat.workspacePath, ...chat.worktrees.map((member) => member.worktreePath)]),
-      ];
+      const roots = await kept.roots;
+      return Array.isArray(roots) ? [...roots] : [];
     } catch {
       return [];
     }
+  }
+  scopeRoots.fresh = (scope) => {
+    keptRoots.delete(key(scope));
+    return scopeRoots(scope);
   };
+  return scopeRoots;
+}
 
 /**
  * An image a scope's chat shows, opened for reading, under the rules the phone's /media always had (moved here from
@@ -66,16 +98,21 @@ async function openMedia({ scope, requested }, { dataDir, scopeRoots, chatImage,
   const type = MEDIA_TYPES[path.extname(requested).toLowerCase()];
   if (!type) throw failure(415, "Only png, jpeg, gif, webp and heic images are served");
   // Only the worktree folders: a big Project's whole state would be read in pages for every image.
-  const worktreePaths = await scopeRoots(scope);
-  const candidates = [
-    ...(Array.isArray(worktreePaths) ? worktreePaths : []),
-    ...(isLinkScopeKey(scope) ? [] : [path.join(scope, ".milagre", "images")]),
-    path.join(dataDir, "mobile-attachments"),
-    path.join(os.tmpdir(), "milagre-generated-images"),
-    path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "generated_images"),
-  ].filter((candidate) => typeof candidate === "string" && path.isAbsolute(candidate));
-  const roots = (await Promise.all(candidates.map(realOrNull))).filter(Boolean);
+  const allowed = async (worktreePaths) => {
+    const candidates = [
+      ...(Array.isArray(worktreePaths) ? worktreePaths : []),
+      ...(isLinkScopeKey(scope) ? [] : [path.join(scope, ".milagre", "images")]),
+      path.join(dataDir, "mobile-attachments"),
+      path.join(os.tmpdir(), "milagre-generated-images"),
+      path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "generated_images"),
+    ].filter((candidate) => typeof candidate === "string" && path.isAbsolute(candidate));
+    return { candidates, roots: (await Promise.all(candidates.map(realOrNull))).filter(Boolean) };
+  };
+  let { candidates, roots } = await allowed(await scopeRoots(scope));
   let real = await realOrNull(requested);
+  // Worktrees kept from a moment ago (scopeRootsVia) lack one made since: a path they don't hold is checked on fresh ones.
+  if (typeof scopeRoots.fresh === "function" && (!real || !roots.some((root) => inside(root, real))))
+    ({ candidates, roots } = await allowed(await scopeRoots.fresh(scope)));
   if (!real || !roots.some((root) => inside(root, real))) {
     // A screenshot in /tmp must be explicitly shared in this scope's assistant reply.
     // The runtime validates that reference and returns a durable Project attachment, never arbitrary bytes.

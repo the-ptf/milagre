@@ -2,7 +2,7 @@ const { readToken, authenticationProof, authenticationNonce, validToken, validNo
 const net = require("node:net");
 const { once, EventEmitter } = require("node:events");
 const { socketPath } = require("./paths.cjs");
-const { VERSION, MAX_PENDING, wire } = require("./protocol.cjs");
+const { VERSION, MAX_PENDING, wire, isEventFrame } = require("./protocol.cjs");
 
 // Commands core lets run longer than the default deadline (git/client.cjs LIMITS, gh, the CLI installers), plus a
 // margin. A shorter client deadline reported a slow pre-commit hook or push as failed while it was still running.
@@ -38,7 +38,12 @@ const SLOW_METHODS = Object.freeze({
 });
 const deadlineFor = (method, fallback) => Math.max(fallback, SLOW_METHODS[method] ?? 0);
 
-async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = process.platform === "win32" }) {
+/**
+ * A connection to this Mac's daemon. `events: false`: the daemon's events, which it sends every connection, are dropped
+ * unread (a connection kept for calls only).
+ * @param {{ dataDir: string; timeoutMs?: number; requireAuthentication?: boolean; events?: boolean }} options
+ */
+async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = process.platform === "win32", events = true }) {
   const authenticationToken = requireAuthentication ? readToken(dataDir) : null;
   const socket = net.createConnection(socketPath(dataDir));
   const connecting = once(socket, "connect");
@@ -66,6 +71,7 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
     while (queued.length > 0 && pending.size < MAX_PENDING) start(queued.shift());
   }
   const connection = wire(socket, {
+    skip: events ? null : isEventFrame,
     onInvalid(error) {
       fail(error);
       socket.destroy();

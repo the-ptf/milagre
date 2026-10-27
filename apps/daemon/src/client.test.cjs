@@ -59,3 +59,48 @@ test("calls past MAX_PENDING wait for a free slot instead of failing", async (t)
   );
   assert.equal(most, MAX_PENDING);
 });
+
+test("a connection that takes no events drops them unread and still gets its answers", async (t) => {
+  const fs = require("node:fs");
+  const net = require("node:net");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { connect } = require("./client.cjs");
+  const { socketPath, prepareSocketDirectory } = require("./paths.cjs");
+  const { VERSION, wire, isEventFrame } = require("./protocol.cjs");
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-client-"));
+  const socket = socketPath(dataDir);
+  prepareSocketDirectory(socket);
+  fs.rmSync(socket, { force: true });
+  // Every answer follows two events, as on a busy daemon: one written as server.cjs eventFrame does, one as a notice to
+  // a single connection is (connection.send).
+  const server = net.createServer((peer) => {
+    const connection = wire(peer, {
+      onInvalid: () => peer.destroy(),
+      onMessage(message) {
+        peer.write(`{"v":${VERSION},"event":{"channel":"agent:event","payload":{"chatId":"/p#1"},"seq":7}}\n`);
+        connection.send({ v: VERSION, event: { channel: "computers:pending" } });
+        connection.send({ v: VERSION, id: message.id, result: message.method });
+      },
+    });
+  });
+  await new Promise((resolve) => server.listen(socket, resolve));
+  t.after(() => {
+    server.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  const quiet = await connect({ dataDir, requireAuthentication: false, events: false });
+  const listening = await connect({ dataDir, requireAuthentication: false });
+  t.after(() => {
+    quiet.close();
+    listening.close();
+  });
+  const heard = { quiet: [], listening: [] };
+  quiet.on("event", (event) => heard.quiet.push(event.channel));
+  listening.on("event", (event) => heard.listening.push(event.channel));
+  assert.equal(await quiet.call("test:one"), "test:one");
+  assert.equal(await listening.call("test:two"), "test:two");
+  assert.deepEqual(heard.quiet, []);
+  assert.deepEqual(heard.listening, ["agent:event", "computers:pending"]);
+  assert.equal(isEventFrame(Buffer.from(`{"v":${VERSION},"id":3,"result":{"event":1}}`)), false, "an answer is never taken for an event");
+});
