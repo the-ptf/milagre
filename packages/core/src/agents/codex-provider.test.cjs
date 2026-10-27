@@ -367,6 +367,47 @@ test("switching to Auto mid-turn leaves a waiting command to the user", async (t
   await ended(events);
 });
 
+const PUSH_DENIED = "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.";
+
+test("guarded turn denies push and allows ls in full mode", async (t) => {
+  const { session, events } = codex(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await ended(events);
+  // Commands come to Milagre, with Full's sandbox: push is declined, the rest runs unasked.
+  assert.equal(replyText(events), "decision:decline decision:accept");
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+  const start = (await received(session)).find((message) => message.method === "turn/start").params;
+  assert.equal(start.approvalPolicy, "untrusted");
+  assert.deepEqual(start.sandboxPolicy, { type: "dangerFullAccess" });
+  // The step says why.
+  const step = events.find((event) => event.type === "step-completed" && event.id === "cmd-1");
+  assert.equal(step.detail, `$ git push origin HEAD\n${PUSH_DENIED}`);
+  // The Chat's next turn is the user's own: Full asks about nothing again.
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(events, 2);
+  const starts = (await received(session)).filter((message) => message.method === "turn/start");
+  assert.equal(starts[1].params.approvalPolicy, "never");
+});
+
+test("a guarded turn in Ask or Auto keeps its policy, denies push and asks about the rest", async (t) => {
+  for (const [permissionMode, policy] of [
+    ["ask", "untrusted"],
+    ["auto", "on-request"],
+  ]) {
+    const { session, events } = codex(t, { scenario: "guarded" });
+    await session.startTurn({ ...TURN, permissionMode, guard: { level: 2, resolveThreads: false } });
+    await asked(events);
+    assert.equal(events.find((event) => event.type === "permission-request").command, "ls build", permissionMode);
+    session.respondToPermission("srv-2", "allow");
+    await ended(events);
+    assert.equal(replyText(events), "decision:decline decision:accept");
+    assert.equal((await received(session)).find((message) => message.method === "turn/start").params.approvalPolicy, policy);
+  }
+});
+
 test("denying declines the command", async (t) => {
   const { session, events } = codex(t, { scenario: "approval" });
   await session.startTurn(TURN);

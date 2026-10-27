@@ -32,6 +32,7 @@ const {
   WorkspaceAccess,
 } = require("./permissions.cjs");
 const { PendingQuestions, codexQuestionRequest, codexQuestionResponse } = require("./questions.cjs");
+const { babysitDenial } = require("../babysit-guard.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
 // Outside Plan mode, Codex offers its question tool (request_user_input) only behind this feature.
@@ -42,8 +43,12 @@ const THREAD_CONFIG = { features: { default_mode_request_user_input: true } };
 // Auto only when Codex wants to go beyond the workspace sandbox, and Full never asks. Bot rules asks
 // like Ask, so every untrusted command reaches the bot's policy (under on-request a sandboxed
 // `gh pr merge` would run unasked), with network on because a bot's work needs it.
-function codexPolicy(permissionMode, cwd, workspaceRoots = []) {
-  if (permissionMode === "full") return { approvalPolicy: "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
+// A babysit Run's turn (`guarded`) must show Milagre every command its level might refuse. Full keeps its sandbox but
+// asks about untrusted commands, which Milagre then allows itself (PendingPermissions); Ask already asks, and Auto's
+// sandbox has no network, so a push or a GitHub write can only run once Codex asks to leave it.
+function codexPolicy(permissionMode, cwd, workspaceRoots = [], { guarded = false } = {}) {
+  if (permissionMode === "full")
+    return { approvalPolicy: guarded ? "untrusted" : "never", sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" } };
   return {
     approvalPolicy: permissionMode === "auto" ? "on-request" : "untrusted",
     sandbox: "workspace-write",
@@ -195,6 +200,10 @@ class CodexSession {
     this.questions = new PendingQuestions((event) => this.emit(event));
     // fileChange items by id, from item/started: their approval requests carry no diff of their own.
     this.fileChanges = new Map();
+    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
+    // item id ({ command, reason }), so their steps say why.
+    this.guard = null;
+    this.refused = new Map();
   }
 
   get nativeId() {
@@ -215,6 +224,7 @@ class CodexSession {
     }
     this.turnActive = true;
     this.cancelRequested = false;
+    this.guard = request.guard ?? null;
     Object.assign(this.state, { turnId: null, lastItemId: null, hasText: false });
     let markReady;
     this.turnReady = new Promise((resolve) => {
@@ -231,7 +241,9 @@ class CodexSession {
   }
 
   async beginTurn({ prompt, images = [], model, permissionMode, effort, fastMode = false }) {
-    const policy = this.analysisOnly ? advisorPolicy("codex", this.linked?.tools ?? []) : codexPolicy(permissionMode, this.cwd, this.access.roots);
+    const policy = this.analysisOnly
+      ? advisorPolicy("codex", this.linked?.tools ?? [])
+      : codexPolicy(permissionMode, this.cwd, this.access.roots, { guarded: Boolean(this.guard) });
     // The turn's sandbox writes to every owned root; one made during the turn reaches it through approvals.
     this.access.learned();
     this.permissions.setMode(permissionMode);
@@ -303,6 +315,9 @@ class CodexSession {
       return this.startTurn(request);
     }
     if (request.permissionMode) this.setPermissionMode(request.permissionMode);
+    // A message steered into a babysit Run doesn't lift its guard; a Run steered into a turn brings it, though the
+    // turn's approval policy stays the one it started with.
+    if (request.guard) this.guard = request.guard;
     const turnId = this.state.turnId;
     // An open question waits for its answer; the message is the user's reply, so the question is dismissed.
     this.questions.dismissAll();
@@ -439,7 +454,7 @@ class CodexSession {
     if (method === "turn/started" && !this.turnActive && !this.state.subagents?.has(params.threadId)) return;
     if (method === "turn/started" && params.threadId === this.state.threadId) this.state.turnId ??= params.turn?.id ?? null;
     if (method === "item/completed" && params.item?.type === "imageGeneration") params = { ...params, item: saveGeneratedImage(params.item) };
-    const events = mapCodexNotification(method, params, this.state);
+    const events = mapCodexNotification(method, params, this.state).map((event) => this.withRefusal(event));
     // The mapper filters other threads and stale turns before any image is surfaced here.
     if (method === "item/completed" && events.some((event) => event.type === "step-completed" && event.id === String(params.item?.id)))
       events.push(...toolImageEvents(params.item));
@@ -455,6 +470,14 @@ class CodexSession {
     // An app-server that answered 401 holds the old credentials; the next message starts a fresh one.
     if (loggedOut) void finished.then(() => this.close());
     else void finished;
+  }
+
+  // A command a babysit Run's level refused ends as a step that says why, rather than "Declined.".
+  withRefusal(event) {
+    const refused = event.type === "step-completed" ? this.refused.get(event.id) : undefined;
+    if (!refused) return event;
+    this.refused.delete(event.id);
+    return { ...event, detail: `$ ${refused.command}\n${refused.reason}` };
   }
 
   // Native children need not be subscribed on the parent's connection. Read their history
@@ -577,8 +600,15 @@ class CodexSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (approval && this.analysisOnly) answer("deny");
     else if (approval && (!this.turnActive || this.cancelRequested || this.closed)) answer("cancelled");
-    else if (method === "item/commandExecution/requestApproval") this.permissions.add(codexCommandRequest(id, params), answer);
-    else if (method === "item/fileChange/requestApproval") {
+    else if (method === "item/commandExecution/requestApproval") {
+      const request = codexCommandRequest(id, params);
+      // A babysit Run's level refuses it before any card or mode can allow it. Codex takes no reason with a decline.
+      const reason = this.guard ? babysitDenial(request.command, this.guard) : null;
+      if (reason) {
+        if (params.itemId) this.refused.set(String(params.itemId), { command: request.command, reason });
+        answer("deny");
+      } else this.permissions.add(request, answer);
+    } else if (method === "item/fileChange/requestApproval") {
       const request = codexFileRequest(id, params, this.fileChanges.get(params.itemId));
       const decided = params.grantRoot ? null : this.access.answer(request, this.permissions.mode);
       if (decided) answer(decided.decision);
@@ -645,6 +675,7 @@ class CodexSession {
     this.permissions.cancelAll();
     this.questions.cancelAll();
     this.fileChanges.clear();
+    this.refused.clear();
     // A command still running when the turn stopped never completes; the renderer closes its step.
     this.state.steps.clear();
     this.state.thinkingStarts?.clear();

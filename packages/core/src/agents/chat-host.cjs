@@ -228,7 +228,8 @@ class ChatHost {
   /** The settings of the chat's latest turn this run (provider, model, permission mode…), or null. */
   turnSettings(chatId) {
     if (!this.turns.has(chatId)) return null;
-    const { prompt: _prompt, ...settings } = this.turns.get(chatId);
+    // A babysit Run's guard belongs to its own turn: a message sent on these settings is not that Run.
+    const { prompt: _prompt, guard: _guard, ...settings } = this.turns.get(chatId);
     return settings;
   }
 
@@ -1032,6 +1033,10 @@ class ChatHost {
       seq,
     );
     if (state.sessions[target.sessionId].titlePending) void this.nameChat(projectPath, target.sessionId).catch(() => {});
+    // A babysit Run's level, enforced by the agent's session on each command (babysit-guard.cjs). A turn continued after
+    // a usage limit (continueAfterLimit) brings the guard of the turn it continues.
+    const babysit = routineRunOf(request)?.babysit;
+    const guard = babysit ? { level: babysit.level, resolveThreads: babysit.resolveThreads === true } : request.guard;
     const turn = {
       provider: runProvider,
       model: runModel,
@@ -1041,6 +1046,7 @@ class ChatHost {
       fastMode: request.fastMode,
       replies: request.replies,
       tldrEnabled: request.tldrEnabled,
+      ...(guard ? { guard } : {}),
       prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
     this.turns.set(target.chatId, turn);

@@ -21,6 +21,7 @@ const {
 const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
 const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
+const { babysitDenial } = require("../babysit-guard.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
@@ -181,6 +182,10 @@ class AcpSession {
       }) ?? null;
     this.permissions = new PendingPermissions((event) => this.emit(event), { policy: permissionPolicy });
     this.questions = new PendingQuestions((event) => this.emit(event));
+    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null; and the commands it refused by
+    // tool call id ({ command, reason }), so their steps say why.
+    this.guard = null;
+    this.refused = new Map();
   }
 
   get nativeId() {
@@ -212,6 +217,7 @@ class AcpSession {
     }
     this.turnActive = true;
     this.cancelRequested = false;
+    this.guard = request.guard ?? null;
     this.turnEnded = new Promise((resolve) => {
       this.markTurnEnded = resolve;
     });
@@ -413,8 +419,10 @@ class AcpSession {
 
   // The agent's mode follows Milagre's permission mode. An agent without config options gets session/set_mode;
   // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
+  // Full's mode never asks, so a babysit Run's turn in Full runs in Auto's: its commands ask, the level refuses what it
+  // doesn't allow, and PendingPermissions allows the rest without a card.
   async applyMode() {
-    const target = this.config.modes[this.permissions.mode];
+    const target = this.config.modes[this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
     if (!target || target === this.state.mode || !this.rpc || this.closed) return;
     try {
       await this.setConfig("mode", target);
@@ -442,7 +450,15 @@ class AcpSession {
   }
 
   mapUpdate(update) {
-    for (const event of mapAcpUpdate(update, this.state)) this.emit(event);
+    for (const event of mapAcpUpdate(update, this.state)) this.emit(this.withRefusal(event));
+  }
+
+  // A command a babysit Run's level refused ends as a step that says why.
+  withRefusal(event) {
+    const refused = event.type === "step-completed" ? this.refused.get(event.id) : undefined;
+    if (!refused) return event;
+    this.refused.delete(event.id);
+    return { ...event, detail: `$ ${refused.command}\n${refused.reason}` };
   }
 
   handleServerRequest(id, method, params = {}) {
@@ -483,6 +499,13 @@ class AcpSession {
     const call = { ...known, ...toolCall, rawInput: { ...known.rawInput, ...toolCall.rawInput } };
     if (!toolCall.rawInput && !known.rawInput) delete call.rawInput;
     const request = acpPermissionRequest(requestId, call, options);
+    // A babysit Run's level refuses it before the workspace, a card or the mode can allow it. ACP takes no reason.
+    const reason = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
+    if (reason) {
+      if (request.stepId) this.refused.set(request.stepId, { command: request.command, reason });
+      this.reply(id, outcome(pickOption(options, "deny")));
+      return;
+    }
     const decided = this.access.answer(request, this.permissions.mode);
     if (decided) {
       this.reply(id, outcome(pickOption(options, decided.decision)));
@@ -558,6 +581,7 @@ class AcpSession {
     clearTimeout(this.interruptTimer);
     this.permissions.cancelAll();
     this.questions.cancelAll();
+    this.refused.clear();
     const thinking = closeThinking(this.state);
     // The transcripts' last word lands in the turn; a stopped turn stops its children too.
     this.subagents?.turnEnded({ cancelled: events.some((event) => event.type === "turn-cancelled") });

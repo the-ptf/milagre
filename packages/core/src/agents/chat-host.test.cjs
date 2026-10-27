@@ -1081,6 +1081,28 @@ test("a quit saves no resume for a Routine's turn, which the scheduler owns; a u
   assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
 });
 
+test("a babysit Run's turn carries its level as a guard to the agent; other turns and the turn settings don't", async (t) => {
+  const { host, manager, session } = harness();
+  t.after(() => manager.closeAll());
+  const babysit = { level: 2, resolveThreads: false, offBranch: true };
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
+  const run = await host.send(message(ALPHA, "PR #4 changed", { permissionMode: "full", context }));
+  await waitUntil(() => session(ALPHA)?.turns.length === 1);
+  assert.deepEqual(session(ALPHA).turns[0].guard, { level: 2, resolveThreads: false });
+  const chatId = `${ALPHA}#${run.sessionId}`;
+  // Settings read for the Chat's next message (a Delegation, a beat) never pass the guard on.
+  assert.equal("guard" in host.turnSettings(chatId), false);
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  // A heartbeat's beat and a user's message are not guarded.
+  await host.send(
+    message(ALPHA, "Check CI", { sessionId: run.sessionId, context: { kind: "routine-run", routineId: "r2", runId: "run-2", name: "CI", at: NOW } }),
+  );
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].guard, undefined);
+});
+
 test("a Run's new Chat starts hidden, with the Routine's name as a generated title that a user's name beats", async (t) => {
   const { host, manager, states, saved, broadcasts } = harness();
   t.after(() => manager.closeAll());

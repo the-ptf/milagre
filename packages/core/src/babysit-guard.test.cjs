@@ -1,0 +1,155 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { babysitDenial } = require("./babysit-guard.cjs");
+
+const at = (level, resolveThreads = level >= 4) => ({ level, resolveThreads });
+const SETTINGS = "Change it in Settings › Experimental › Babysit PRs.";
+const denied = (command, guard) => assert.notEqual(babysitDenial(command, guard), null, command);
+const allowed = (command, guard) => assert.equal(babysitDenial(command, guard), null, command);
+
+test("report only denies git push", () => {
+  assert.equal(babysitDenial("git push", at(1)), `Babysit level Report only doesn't allow pushing to GitHub. ${SETTINGS}`);
+  assert.equal(babysitDenial("git push --force-with-lease origin HEAD", at(2)), `Babysit level Fix, don't push doesn't allow pushing to GitHub. ${SETTINGS}`);
+});
+
+test("fix and push allows git push", () => {
+  for (const level of [3, 4, 5]) allowed("git push origin HEAD", at(level));
+  allowed("git commit -m 'fix' && git push", at(3));
+});
+
+test("push is caught through git options, env prefixes and wrappers", () => {
+  for (const command of [
+    "git -C /repo push",
+    "git -c user.name=x push origin",
+    "git --no-pager push",
+    "git --git-dir /repo/.git push",
+    "/usr/bin/git push",
+    "FOO=1 git push",
+    "env GIT_TRACE=1 git push",
+    "sudo -u me git push",
+    "nohup git push &",
+    "echo origin | xargs git push",
+    "git -c alias.ship=push ship",
+    "git send-pack origin main",
+    "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc",
+    "gh api --method PUT repos/o/r/pulls/1/update-branch",
+    "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'",
+  ])
+    denied(command, at(2));
+  // Reading is fine at every level.
+  allowed("git status && git log --oneline -3 && git fetch origin", at(1));
+  allowed("gh api repos/o/r/git/refs/heads/main", at(1));
+});
+
+test("words in quotes are not commands", () => {
+  allowed(`git commit -m "don't git push yet; gh pr merge later"`, at(2));
+  allowed(`echo 'git push' > notes.txt`, at(1));
+  allowed(`grep -rn "gh pr comment" docs`, at(1));
+});
+
+test("level 3 denies gh pr comment", () => {
+  assert.equal(babysitDenial('gh pr comment 42 --body "Fixed in abc123"', at(3)), `Babysit level Fix and push doesn't allow replying on GitHub. ${SETTINGS}`);
+  for (const command of [
+    "gh pr review 42 --comment -b 'done'",
+    "gh issue comment 42 --body hi",
+    "gh api -X POST repos/o/r/pulls/42/comments/7/replies -f body=done",
+    "gh api --method=POST repos/o/r/issues/42/comments -f body=done",
+    "gh api repos/o/r/issues/42/comments -f body=done",
+    "gh api -XPATCH repos/o/r/issues/comments/9 -f body=edited",
+    "gh api repos/o/r/pulls/42/reviews --input review.json",
+    `gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {}) { comment { id } } }'`,
+    `gh api graphql -F query='mutation($id: ID!) { addPullRequestReviewComment(input: {}) { clientMutationId } }'`,
+    `gh api graphql --raw-field query='mutation { addComment(input: {subjectId: "x", body: "y"}) { clientMutationId } }'`,
+  ])
+    denied(command, at(3));
+  allowed("gh api repos/o/r/pulls/42/comments", at(3));
+  allowed("gh api -X GET repos/o/r/issues/42/comments", at(3));
+  allowed("gh pr view 42 --comments && gh pr checks 42", at(1));
+});
+
+test("level 4 allows gh pr comment", () => {
+  allowed('gh pr comment 42 --body "Fixed in abc123 <!-- milagre-babysit -->"', at(4));
+  allowed("gh api -X POST repos/o/r/pulls/42/comments/7/replies -f body=done", at(4));
+  allowed(`gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {}) { comment { id } } }'`, at(4));
+});
+
+test("re-requesting review needs level 5", () => {
+  const reason = `Babysit level Fix, push and reply doesn't allow re-requesting review. ${SETTINGS}`;
+  assert.equal(babysitDenial("gh pr edit 42 --add-reviewer alice", at(4)), reason);
+  denied("gh pr edit 42 --add-reviewer=alice", at(4));
+  denied("gh api -X POST repos/o/r/pulls/42/requested_reviewers -f 'reviewers[]=alice'", at(4));
+  denied(`gh api graphql -f query='mutation { requestReviews(input: {pullRequestId: "x", userIds: ["y"]}) { clientMutationId } }'`, at(4));
+  allowed("gh pr edit 42 --add-reviewer alice", at(5));
+  allowed("gh pr edit 42 --title 'Better title'", at(3));
+  allowed("gh api repos/o/r/pulls/42/requested_reviewers", at(1));
+});
+
+test("resolve denied when switch off", () => {
+  const resolve = `gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "t"}) { thread { isResolved } } }'`;
+  assert.equal(
+    babysitDenial(resolve, at(5, false)),
+    `Babysit level Fix, push, reply and re-request review doesn't allow resolving review threads. ${SETTINGS}`,
+  );
+  denied(resolve, at(3, true));
+  allowed(resolve, at(4, true));
+  // Reading threads is not resolving them.
+  allowed(
+    `gh api graphql -f query='query { repository(owner: "o", name: "r") { pullRequest(number: 1) { reviewThreads(first: 50) { nodes { isResolved } } } } }'`,
+    at(1),
+  );
+});
+
+test("merge is always denied", () => {
+  for (const level of [1, 2, 3, 4, 5]) {
+    assert.equal(babysitDenial("gh pr merge 42 --squash", at(level)), "Babysitting never merges.");
+    assert.equal(babysitDenial("gh api -X PUT repos/o/r/pulls/42/merge", at(level)), "Babysitting never merges.");
+    assert.equal(
+      babysitDenial(`gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "x"}) { clientMutationId } }'`, at(level)),
+      "Babysitting never merges.",
+    );
+    assert.equal(
+      babysitDenial(`gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'`, at(level)),
+      "Babysitting never merges.",
+    );
+  }
+  // Merging the base into the branch locally is how conflicts get fixed.
+  allowed("git merge origin/main", at(2));
+});
+
+test("chained push is caught", () => {
+  for (const command of [
+    "npm test && git push",
+    "npm test || git push",
+    "npm test; git push",
+    "npm test & git push",
+    "git status | git push",
+    "npm test\ngit push",
+    "bash -c 'npm test && git push'",
+    `sh -c "git -C /repo push"`,
+    "zsh -lc 'git push'",
+    "echo $(git push)",
+    "echo `git push`",
+    `eval "git push"`,
+    "(cd /repo && git push)",
+    "{ git push; }",
+    "if true; then git push; fi",
+  ])
+    denied(command, at(2));
+});
+
+test("a GraphQL body piped in or read from a file is checked", () => {
+  denied(`echo '{"query":"mutation { mergePullRequest(input: {}) { clientMutationId } }"}' | gh api graphql --input -`, at(5));
+  denied(`gh api graphql --input - <<'EOF'\n{"query":"mutation { resolveReviewThread(input: {}) { clientMutationId } }"}\nEOF`, at(3, false));
+  // A file can't be read here, so a GraphQL call from one is refused whatever the level.
+  assert.equal(
+    babysitDenial("gh api graphql --input body.json", at(5)),
+    `Babysit level Fix, push, reply and re-request review doesn't allow GitHub GraphQL calls read from a file. ${SETTINGS}`,
+  );
+  denied("gh api graphql -F query=@mutation.graphql", at(5));
+  allowed("gh api graphql -f query='query { viewer { login } }'", at(1));
+});
+
+test("anything that isn't a guarded command passes", () => {
+  for (const command of ["", "ls", "npm test", "gh pr checks 42 --watch", "gh run view 123 --log-failed", "git rebase origin/main", "git commit -am wip"])
+    allowed(command, at(1));
+});
