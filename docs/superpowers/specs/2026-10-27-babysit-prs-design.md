@@ -69,7 +69,7 @@ Skills per problem: failed checks `milagre-fix-ci`, review comments `milagre-add
 
 **Reset all to defaults** restores every value above, including clearing the instructions and own rule.
 
-**Your instructions** autosave about 500 ms after typing stops and on blur, with a "Saved" mark beside the field. The
+**Your instructions** autosave about 500 ms after typing stops and on blur, with only a "Saved" mark under the field. The
 text goes after Milagre's prompt in a labelled section; it adds to the prompt, never replaces it.
 
 **When settings change.** A babysit Heartbeat takes a copy of the settings when it is created. Changes apply to PRs
@@ -119,7 +119,7 @@ Routine page like any Heartbeat.
   header and a back button. Graduating later moves the row to Settings › Routines (which already exists,
   `Settings.tsx:150, 851`).
 - **Desktop page:** as in the design, four groups built from the existing Settings `Group` / `Row` pieces: Babysit PRs;
-  When something needs fixing (the five levels with their action icons, a **Default** tag on Fix and push, then the
+  When something needs fixing (the five levels, each with one pill of its steps joined by small arrows (fix → push → reply → re-request), a **Default** tag on Fix and push, then the
   Resolve threads switch); Stop babysitting when; Your instructions. **Reset all to defaults** sits on the first group's
   header.
 - **Phone:** a Babysit PRs row in the phone's Experimental settings that pushes a Babysit PRs screen with the same
