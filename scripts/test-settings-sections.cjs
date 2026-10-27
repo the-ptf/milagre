@@ -289,7 +289,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector("main [data-babysit-routines-off]")`);
     assert.equal(
       await evaluate(`document.querySelector("main [data-babysit-routines-off]").textContent`),
-      "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines.",
+      "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.",
     );
     assert.equal(
       await evaluate(

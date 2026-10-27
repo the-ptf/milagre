@@ -152,7 +152,9 @@ export function BabysitSection() {
       {error}
       {routinesOff ? (
         <View style={[styles.card, { paddingVertical: 12 }]}>
-          <Text style={styles.muted}>{"Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines."}</Text>
+          <Text style={styles.muted}>
+            {"Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top."}
+          </Text>
         </View>
       ) : null}
       <Group title="Babysit PRs">

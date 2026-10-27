@@ -10480,7 +10480,8 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
     node((n) => n.type === "Group" && n.props.title === "When something needs fixing").props.footer,
     "Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.",
   );
-  const routinesNote = "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines.";
+  const routinesNote =
+    "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.";
   assert.equal(
     node((n) => n.type === "Text" && n.props.children === routinesNote),
     undefined,

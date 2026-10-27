@@ -436,7 +436,7 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
       )}
       {routinesOff && (
         <p data-babysit-routines-off className="mt-4 rounded-[10px] bg-field px-3 py-2.5 text-[12.5px] text-ink-2">
-          Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them in Settings › Routines.
+          Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.
         </p>
       )}
       {settings && <BabysitForm settings={settings} save={save} />}
