@@ -32,6 +32,12 @@ let recent = restartRecent
     ];
 window.milagre = {
   listRecentProjects: async () => recent,
+  forgetProject: async (path) => {
+    window.forgetCalls = [...(window.forgetCalls ?? []), path];
+    if (window.failForget) throw new Error("Could not save Projects list");
+    recent = recent.filter((project) => project.path !== path);
+    return recent;
+  },
   setProjectHidden: async (path, hidden) => {
     window.hiddenCalls = [...(window.hiddenCalls ?? []), [path, hidden]];
     recent = recent.map((project) => (project.path === path ? { ...project, hidden } : project));
@@ -63,6 +69,7 @@ window.milagre = {
     if (scope === "/work/shop") window.pushShop({ ...chat(7, "Shop chat"), sessions: { 7: { id: 7, worktree_id: 1, agent_name: "Claude", status: "Idle", ...patch } } });
   },
 };
+window.addEventListener("milagre:project-removed", (event) => { window.removedProject = event.detail; });
 window.pushShop = (state) => listeners.forEach((callback) => callback({ path: "/work/shop", state }));
 localStorage.removeItem("milagre.sidebarClosedScopes");
 // A restart keeps the saved group order; a first load starts clean.
@@ -205,7 +212,7 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
     await delay(300);
 
-    // One open scope; the others offer New chat in <name>; only a Project's ⋯ menu on a non-current scope has Remove.
+    // Every Project offers removal, including the open one.
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope][data-current]").length`), 1, "Exactly one scope is open");
     assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"]')?.hasAttribute("data-current")`), true);
     assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-action]')?.getAttribute("aria-label")`), "New chat");
@@ -229,11 +236,34 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector("[data-scope-menu-panel]")`);
     assert.equal(
       await evaluate(`!!document.querySelector('[data-scope-menu-panel] [data-scope-menu-item="remove"]')`),
-      false,
-      "The open Project's menu has no Remove",
+      true,
+      "The open Project's menu offers Remove",
     );
     await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitFor(`!document.querySelector("[data-scope-menu-panel]")`);
+
+    // Confirmation is cancellable, and a failed save keeps the dialog open with a retry.
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
+    await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
+    assert.equal(await evaluate(`document.activeElement.textContent`), "Cancel");
+    await screenshot("remove-project-confirmation");
+    await evaluate(`document.activeElement.click()`);
+    await waitFor(`!document.querySelector('[data-project-remove-confirm]')`);
+    assert.equal(await evaluate(`(window.forgetCalls ?? []).length`), 0);
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/arketa"] [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
+    await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
+    await evaluate(`window.failForget = true; document.querySelector('[data-project-remove-confirm]').click()`);
+    await waitFor(`!!document.querySelector('dialog [role="alert"]')`);
+    assert.match(await evaluate(`document.querySelector('dialog [role="alert"]').textContent`), /Could not save Projects list/);
+    assert.equal(await evaluate(`window.removedProject ?? null`), null);
+    await evaluate(`window.failForget = false; document.querySelector('[data-project-remove-confirm]').click()`);
+    await waitFor(`!document.querySelector('[data-project-remove-confirm]')`);
+    assert.equal(await evaluate(`window.removedProject`), "/work/arketa");
+    // The fixture keeps the current Project prop; App closes it in response to the removal event.
 
     // The project chooser lists every Project, the hidden one unchecked; checking it brings its group back, unchecking hides it again.
     await evaluate(`document.querySelector("[data-filters]").click()`);
@@ -476,7 +506,7 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     await reset();
     console.log(
-      "PASS: the sidebar lists each Project and Link with its chats, skips a hidden Project, chooses Projects with checkboxes, marks one open scope, offers New chat per scope and Remove only on other Projects, pins chats to one Pinned section on top, opens them, marks Link chats waiting on the user, follows live changes, folds groups, and keeps the group order across restarts",
+      "PASS: the sidebar lists each Project and Link with its chats, skips a hidden Project, chooses Projects with checkboxes, marks one open scope, offers New chat and confirmed removal for every Project, pins chats to one Pinned section on top, opens them, marks Link chats waiting on the user, follows live changes, folds groups, and keeps the group order across restarts",
     );
     app.exit(0);
   } catch (error) {

@@ -103,10 +103,10 @@ import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, rememberProjectCopy, runKeys, useScopeStates } from "./lib/sidebar-scopes";
-import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, type ChatLayout } from "./lib/chat-grid";
+import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, splitChats, type ChatLayout } from "./lib/chat-grid";
 import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
-import { dropSide, gridDrop, placeDropped, readGridPins, saveGridPins, type GridDropTarget } from "./lib/grid-drop";
+import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
@@ -133,7 +133,7 @@ import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
 import { beginChatSwitch } from "./lib/chat-switch-timing";
-import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
+import { PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
 import { isModalOpen } from "./lib/modal";
@@ -419,17 +419,9 @@ function App() {
   const [layout, setLayout] = useState<ChatLayout>(() => readChatLayout(localStorage));
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
-  const toggleLayout = () =>
-    setLayout((current) => {
-      const next = current === "grid" ? "single" : "grid";
-      saveChatLayout(localStorage, next);
-      return next;
-    });
-  const showGrid = () =>
-    setLayout(() => {
-      saveChatLayout(localStorage, "grid");
-      return "grid";
-    });
+  useEffect(() => saveChatLayout(localStorage, layout), [layout]);
+  const toggleLayout = () => setLayout((current) => (current === "grid" ? "single" : "grid"));
+  const showGrid = () => setLayout("grid");
   // Chats kept in the grid while idle: dropped there from the sidebar, or pinned from a tile's header.
   const [gridPins, setGridPins] = useState<readonly string[]>(() => readGridPins(localStorage));
   const changeGridPins = (change: (pins: readonly string[]) => readonly string[]) =>
@@ -438,6 +430,11 @@ function App() {
       saveGridPins(localStorage, next);
       return next;
     });
+  // The split view's Chats, in order: the open one and the ones dragged beside it from the sidebar.
+  const [splitKeys, setSplitKeys] = useState<readonly string[]>(() => readSplitChats(localStorage));
+  useEffect(() => saveSplitChats(localStorage, splitKeys), [splitKeys]);
+  // The split tile being closed while focus moves to its neighbour: it leaves the split once focus has left it.
+  const [closingTile, setClosingTile] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   useEffect(() => {
@@ -902,41 +899,28 @@ function App() {
     () => remoteDelegationsFrom(linkedWork, project && selectedSession ? chatKey(project.path, selectedSession.id) : null),
     [linkedWork, project, selectedSession],
   );
-  // Chats in other projects that wait on an approval or question, but not in Projects hidden from the sidebar. Joined, so a
+  // Other Chats that wait on an approval or question, except in Projects hidden from the sidebar. Joined, so a
   // streamed batch that changes nothing keeps the arrays.
   const hiddenProjects = useHiddenProjects();
-  const attentionKey = chatsNeedingAttention(agentRuns.runs, project?.path ?? "", hiddenProjects).join("\n");
+  const attentionKey = chatsNeedingAttention(
+    agentRuns.runs,
+    view === "chat" && project && selectedSession ? chatKey(project.path, selectedSession.id) : "",
+    hiddenProjects,
+  ).join("\n");
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
+  const { states: scopeStates } = useScopeStates(
+    true,
+    attentionPaths.filter((path) => path !== project?.path),
+  );
   const projectName = useCallback(
     (path: string) => recentProjects.find((recent) => recent.path === path)?.name ?? path.split("/").pop() ?? path,
     [recentProjects],
-  );
-  // Each waiting chat's project and title, for the attention menu. Titles change with state, not with each streamed batch.
-  const attentionTitles = useMemo(
-    () =>
-      attentionChats.map((key) => {
-        const path = projectOfKey(key);
-        const other = states[path];
-        const session = other?.sessions[sessionIdFromKey(key)];
-        return {
-          key,
-          project: projectName(path),
-          title: session
-            ? chatTitle(
-                session,
-                other.messages.filter((message) => message.session_id === session.id),
-              )
-            : undefined,
-        };
-      }),
-    [attentionChats, states, projectName],
   );
   const delegated = useStableSet(useMemo(() => delegatedChats(linkedWork, project?.path ?? ""), [linkedWork, project?.path]));
   // Every Project's state the window holds: the sidebar's reads of the ones not open, kept live, then this window's own on top.
   // The grid tiles its active Chats from them, and the Routines dot reads hidden Run Chats from them.
   const gridOn = layout === "grid" && view === "chat";
-  const { states: scopeStates } = useScopeStates(true, NO_KEYS);
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
   // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
@@ -977,25 +961,90 @@ function App() {
   const [gridTiles, setGridTiles] = useState<readonly string[]>(NO_KEYS);
   const nextGridTiles = gridChats(gridTiles, activeKeys, gridOn ? gridFocusKey : null);
   if (nextGridTiles !== gridTiles) setGridTiles(nextGridTiles);
-  const shownTiles = gridOn && gridFocusKey ? gridTiles : NO_KEYS;
+  // In the split view a Chat opened from the sidebar takes the focused tile's place, so the split keeps its size. Only focus
+  // moves in the Chat view count: a Run Chat opened beside its Routine's page never joins the split.
+  const [splitFocus, setSplitFocus] = useState(gridFocusKey);
+  let split = splitKeys;
+  if (view === "chat" && splitFocus !== gridFocusKey) {
+    setSplitFocus(gridFocusKey);
+    if (closingTile !== null) setClosingTile(null);
+    if (layout === "split")
+      split = closingTile === splitFocus ? splitKeys.filter((key) => key !== closingTile) : splitChats(splitKeys, splitFocus, gridFocusKey);
+  }
+  // A split Chat archived or gone with its Worktree drops out, as a pin does; the focused draft tile stays.
+  const liveSplit = useMemo(
+    () =>
+      split.filter((key) => {
+        if (key === gridFocusKey) return true;
+        const state = gridStates[projectOfKey(key)];
+        const session = state?.sessions?.[sessionIdFromKey(key)];
+        return !isDraftTileKey(key) && (!state || Boolean(session && !session.archived));
+      }),
+    [split, gridStates, gridFocusKey],
+  );
+  const splitShown = layout === "split" && gridFocusKey !== null && liveSplit.length > 1 && liveSplit.includes(gridFocusKey);
+  // A split down to one Chat, or one the open Chat isn't in (after a reload), ends: the view shows that Chat alone. A new
+  // Chat's draft focus doesn't end it, since the window shows one while it restores the open Chat.
+  if (layout === "split" && view === "chat" && !splitShown && closingTile === null && gridFocusKey !== null && !isDraftTileKey(gridFocusKey)) {
+    split = NO_KEYS;
+    setLayout("single");
+  }
+  if (split !== splitKeys) setSplitKeys(split);
+  const splitOn = splitShown && view === "chat";
+  const shownTiles = splitOn ? liveSplit : gridOn && gridFocusKey ? gridTiles : NO_KEYS;
+  // Each waiting chat's project and title, for the attention menu. Titles change with state, not with each streamed batch.
+  const attentionTitles = useMemo(
+    () =>
+      attentionChats
+        .filter((key) => !shownTiles.includes(key))
+        .map((key) => {
+          const path = projectOfKey(key);
+          const other = path === project?.path ? state : (states[path] ?? scopeStates[path]);
+          const session = other?.sessions[sessionIdFromKey(key)];
+          return {
+            key,
+            project: projectName(path),
+            title: session
+              ? chatTitle(
+                  session,
+                  other.messages.filter((message) => message.session_id === session.id),
+                )
+              : undefined,
+          };
+        }),
+    [attentionChats, shownTiles, states, scopeStates, projectName, project?.path, state],
+  );
   const shownTilesRef = useRef(shownTiles);
   shownTilesRef.current = shownTiles;
   const focusedChatKeyRef = useRef(focusedChatKey);
   focusedChatKeyRef.current = focusedChatKey;
   const gridFocusKeyRef = useRef(gridFocusKey);
   gridFocusKeyRef.current = gridFocusKey;
-  // A Chat dropped from the sidebar is kept in the grid where it was dropped. Dropped beside the one Chat on screen, it
-  // turns the view into a grid of the two, and keeps that Chat too, so focusing either leaves both.
+  // A Chat dropped on the grid is kept there where it was dropped. Dropped beside the one Chat on screen, or on a split's
+  // tile, it joins a split view of only those Chats: the other active Chats stay out of it.
   const dropOnGrid = useEvent((key: string, target: GridDropTarget) => {
     const focused = focusedChatKeyRef.current;
-    const grid = layoutRef.current === "grid";
-    changeGridPins((pins) => {
-      const next = pins.filter((item) => item !== key);
-      if (!grid && focused && !next.includes(focused)) next.push(focused);
-      return [...next, key];
-    });
-    setGridTiles((tiles) => placeDropped(grid ? tiles : NO_KEYS, key, target, focused));
-    if (!grid) showGrid();
+    if (layoutRef.current === "grid") {
+      changeGridPins((pins) => [...pins.filter((item) => item !== key), key]);
+      setGridTiles((tiles) => placeDropped(tiles, key, target, focused));
+      return;
+    }
+    setSplitKeys(placeDropped(shownTilesRef.current, key, target, focused));
+    setLayout("split");
+  });
+  // Closing a split tile leaves the others; the last one left shows alone. Closing the focused tile focuses its neighbour
+  // first and leaves the split once that Chat is open, so the split never drops to one Chat while it loads.
+  const closeSplitTile = useEvent((key: string) => {
+    const tiles = shownTilesRef.current;
+    const next = tiles.filter((item) => item !== key);
+    const at = tiles.indexOf(key);
+    const neighbour = [...next.slice(at), ...next.slice(0, at).toReversed()].find((item) => !isDraftTileKey(item));
+    if (key !== gridFocusKeyRef.current || !neighbour) {
+      setSplitKeys(next);
+      return;
+    }
+    setClosingTile(key);
+    openLinkedChat(neighbour);
   });
   useEffect(
     () =>
@@ -1577,7 +1626,7 @@ function App() {
       }
     } catch (error) {
       if (navigation !== projectNavigation.current) return;
-      if (!projectRef.current) setStartupError(ipcErrorMessage(error));
+      if (!projectRef.current && onboarding) setStartupError(ipcErrorMessage(error));
       setNotice(ipcErrorMessage(error));
     }
   }
@@ -1585,6 +1634,36 @@ function App() {
   // With other computers, Add project asks which computer first; with this Mac alone, the folder dialog.
   const openProject = () => (pairedComputers.length > 0 ? Promise.resolve(setAddProjectOpen(true)) : replaceProject(() => window.milagre.openProject()));
   const switchProject = (projectPath: string) => replaceProject(() => bridgeForKey(projectPath).switchProject(projectPath), projectPath);
+  const onProjectRemoved = useEvent((event: Event) => {
+    const removed = (event as CustomEvent<string>).detail;
+    if (settingsProject?.path === removed) {
+      setSettingsProject(null);
+      setView("chat");
+    }
+    if (projectRef.current?.path !== removed || selectedLinkRef.current) return;
+    const navigation = ++projectNavigation.current;
+    scopeDrafts.save({ kind: "project", projectPath: removed }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
+    advanceChatView();
+    projectRef.current = null;
+    setProject(null);
+    setSelectedSessionId(null);
+    setSelectedWorktreeId(null);
+    // An established window keeps its Project/Link picker, even when no local Project remains.
+    setOnboarding(false);
+    setView("chat");
+    void window.milagre
+      .listRecentProjects()
+      .then((list) => {
+        const next = list.find((entry) => !entry.hidden && entry.path !== removed);
+        if (next && navigation === projectNavigation.current && !projectRef.current) return switchProject(next.path);
+        return undefined;
+      })
+      .catch(() => {});
+  });
+  useEffect(() => {
+    window.addEventListener(PROJECT_REMOVED, onProjectRemoved);
+    return () => window.removeEventListener(PROJECT_REMOVED, onProjectRemoved);
+  }, [onProjectRemoved]);
   async function selectLink(id: string, sessionId?: number, { keepView = false } = {}) {
     leaveBots();
     const navigation = ++projectNavigation.current;
@@ -2549,7 +2628,7 @@ function App() {
       }}
     />
   ) : null;
-  if (selectedLink && view === "settings")
+  if ((selectedLink || !project) && view === "settings")
     return (
       <DotBackground>
         {saveNotices}
@@ -2558,9 +2637,13 @@ function App() {
         <div className="flex h-screen gap-3 pr-3">
           <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
             <SettingsNav
-              showProjectSettings={false}
+              showProjectSettings={!selectedLink || !!settingsProject}
+              project={settingsProject ?? undefined}
               section={settingsSection}
-              onSelectProject={() => {}}
+              onSelectProject={(picked) => {
+                setSettingsProject(picked);
+                setSettingsSection("project");
+              }}
               onSelect={setSettingsSection}
               computerId={settingsComputer ?? undefined}
               onSelectComputer={selectSettingsComputer}
@@ -2570,6 +2653,7 @@ function App() {
           <main className="min-w-0 flex-1 pb-3">
             <SettingsPanel
               section={settingsSection}
+              project={settingsProject ?? undefined}
               computerId={settingsComputer ?? undefined}
               accountScope={accountScope}
               models={models}
@@ -2641,6 +2725,55 @@ function App() {
         {linkWorkspace}
         {linkDialogs}
       </>
+    );
+
+  if (!loading && !project && splash !== "intro")
+    return (
+      <DotBackground>
+        {saveNotices}
+        <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
+        <div data-project-chooser className="flex h-screen w-full gap-3 text-ink">
+          <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
+            <SidebarNav
+              fill
+              workspaceName="Projects"
+              recents={[]}
+              onOpenProject={openProjectFromSidebar}
+              onSwitchProject={switchProjectFromSidebar}
+              onSwitchLink={(id) => void selectLink(id)}
+              onLinkProject={() => setLinkDialogOpen(true)}
+              onEditLink={(id) => void editLink(id)}
+              onAddComputer={() => setAddComputerOpen(true)}
+              onOpenComputerSettings={openComputerSettings}
+              onOpenProjectSettings={openProjectSettings}
+              onNewChatInScope={newChatInScope}
+              onOpenScopeChat={openScopeChat}
+              onHoverChat={hoverChat}
+              onOpenSettings={() => {
+                setSettingsSection("general");
+                setView("settings");
+              }}
+              runningKeys={sidebarRunKeys.running}
+              waitingKeys={sidebarRunKeys.waiting}
+              askingKeys={sidebarRunKeys.asking}
+              attentionPaths={attentionPaths}
+            />
+          </div>
+          <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+            {notice && (
+              <p role="alert" className="break-words text-[13px] text-red">
+                {notice}
+              </p>
+            )}
+            <h1 className="text-[22px] font-semibold">Choose a Project</h1>
+            <p className="text-[14px] text-ink-3">Open a Project or Link from the sidebar, or add a Project.</p>
+            <button type="button" onClick={openProjectFromSidebar} className="rounded-control bg-ink px-4 py-2 text-[13px] font-medium text-surface">
+              Add Project
+            </button>
+          </main>
+        </div>
+        {linkDialogs}
+      </DotBackground>
     );
 
   if (loading || !project || !state || splash === "intro") {
@@ -2921,9 +3054,9 @@ function App() {
           {view === "chat" && !botsShown && (
             <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
           )}
-          {showAttentionButton && !floatingInbox && !botsShown && attentionChats[0] && (
+          {showAttentionButton && !floatingInbox && !botsShown && attentionTitles[0] && (
             <AttentionButton
-              label={attentionLabel(attentionPaths.map(projectName))}
+              label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
               items={attentionTitles.map((item) => ({
                 ...item,
                 asking: !agentRuns.runs[item.key]?.approvals.length,
@@ -3128,6 +3261,7 @@ function App() {
                     onDismiss={dismissTile}
                     pinned={pinnedTiles}
                     onTogglePin={toggleGridPin}
+                    onClose={splitOn ? closeSplitTile : undefined}
                   >
                     <EditorLinks
                       root={isRemoteKey(project.path) ? "" : (selectedWorktree?.path ?? project.path)}

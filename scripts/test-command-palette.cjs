@@ -41,7 +41,7 @@ window.milagre = new Proxy({
   getRuns: async () => ({ seq: 0, runs: {} }),
   onAgentEvent: handler => { (window.agentHandlers ??= []).push(handler); return () => {}; },
   getCurrentProject: async () => ({ path: '/fixture', name: 'Milagre', state }),
-  listRecentProjects: async () => [{ path: '/fixture', name: 'Milagre' }, { path: '/other', name: 'Website' }],
+  listRecentProjects: async () => [{ path: '/fixture', name: 'Milagre' }, { path: '/other', name: 'Website', hidden: window.hideWebsite ?? false }],
   listBranches: async () => ['main'],
   listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }),
@@ -365,6 +365,7 @@ async function browserChecks() {
     await screenshot("palette-started-chat.png");
     // The heading's Project dropdown lists the Projects with the open one checked; a pick switches to that Project and a
     // switch that fails puts the draft back where it was typed.
+    await evaluate("window.hideWebsite = true");
     await evaluate('document.querySelector("[data-new-chat-project]").click()');
     await waitFor('document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 2');
     assert.deepEqual(
@@ -375,7 +376,7 @@ async function browserChecks() {
         ["Milagre", true],
         ["Website", false],
       ],
-      "The open Project is first and checked",
+      "The open Project is first and checked, and sidebar-hidden Projects remain selectable",
     );
     await screenshot("new-chat-project-menu.png");
     await key("Escape");

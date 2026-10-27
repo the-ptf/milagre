@@ -134,7 +134,7 @@ function ProjectPicker({
   );
 }
 
-/** The open Project first, then this Mac's recent Projects the user didn't hide, then other computers' by name. */
+/** The open Project first, then all this Mac's recent Projects, then other computers' by name. Sidebar visibility does not limit where a Chat can start. */
 function useProjectChoices(currentKey: string, currentName: string): ProjectChoice[] {
   const [recent, setRecent] = useState<RecentProject[]>([]);
   useEffect(() => {
@@ -163,16 +163,16 @@ function useProjectChoices(currentKey: string, currentName: string): ProjectChoi
   const seen = new Set<string>([currentKey]);
   const choices: ProjectChoice[] = [{ key: currentKey, name: currentName, computer: computerName(currentKey) }];
   for (const project of recent) {
-    if (project.hidden || seen.has(project.path) || hiddenComputers.has(computerOfKey(project.path))) continue;
+    if (seen.has(project.path) || hiddenComputers.has(computerOfKey(project.path))) continue;
     seen.add(project.path);
     choices.push({ key: project.path, name: project.name, computer: computerName(project.path) });
   }
-  const others = remote.scopes
-    .filter((scope) => !scope.link && !seen.has(scope.key) && !hiddenComputers.has(scope.computerId))
+  const others = remote.projects
+    .filter((scope) => !scope.path.startsWith("milagre-link:") && !seen.has(scope.path) && !hiddenComputers.has(scope.computerId))
     .toSorted((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   for (const scope of others) {
-    seen.add(scope.key);
-    choices.push({ key: scope.key, name: scope.name, computer: computerName(scope.key) });
+    seen.add(scope.path);
+    choices.push({ key: scope.path, name: scope.name, computer: computerName(scope.path) });
   }
   return choices;
 }

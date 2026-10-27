@@ -11,6 +11,7 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import SidebarNav from "/src/components/SidebarNav";
 import { updateSettings } from "/src/lib/settings";
+import { attentionLabel } from "@milagre/shared/attention";
 import { AttentionButton } from "/src/components/changes/ChangesChrome";
 import "/src/styles.css";
 window.milagre = {
@@ -27,8 +28,8 @@ function Fixture() {
   ].filter(item => waiting.some(path => item.key.startsWith(path + "#")));
   return <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
     <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow" }]} activeId="1" attentionPaths={waiting} />
-    {waiting.length > 0 && <AttentionButton label={waiting.length > 1 ? "milagre-ade and shop need attention" : "milagre-ade needs attention"} items={items}
-      offset={false} onOpen={key => { window.opened = key; setWaiting(waiting.filter(path => !key.startsWith(path + "#"))); }} />}
+    {waiting.length > 0 && <AttentionButton label={attentionLabel(items.map(item => item.title))} items={items}
+      offset={0} onOpen={key => { window.opened = key; setWaiting(waiting.filter(path => !key.startsWith(path + "#"))); }} />}
   </div>;
 }
 createRoot(document.getElementById("root")).render(<Fixture />);
@@ -71,7 +72,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('${group}')`);
     assert.equal(await dots(group), 1, "The waiting project's group shows a dot");
     assert.equal(await dots('[data-sidebar-scope="/work/arketa"]'), 0, "The open project's group does not");
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "milagre-ade and shop need attention");
+    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "2 Chats need attention");
     await screenshot("button");
 
     // Two waiting: the button opens a menu to pick one.
@@ -84,7 +85,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!document.querySelector("[data-attention-menu]")`), false, "Picking closes the menu");
 
     // One left: a click opens it directly.
-    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "milagre-ade needs attention");
+    assert.equal(await evaluate(`document.querySelector("[data-attention-button]")?.textContent`), "Add attention indicators needs attention");
     await click("[data-attention-button]");
     await waitFor(`!document.querySelector("[data-attention-button]")`);
     assert.equal(await evaluate("window.opened"), "/work/milagre-ade#4", "The button opens the only waiting chat");

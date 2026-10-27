@@ -33,3 +33,6 @@ export { stableOrder } from "@milagre/shared/stable-order";
 
 /** Fired on window after a project is hidden or shown again, so lists read from the main process refresh. */
 export const RECENT_PROJECTS_CHANGED = "milagre:recent-projects-changed";
+
+/** A Project was removed from the list; close its current view without stopping its Chats. */
+export const PROJECT_REMOVED = "milagre:project-removed";

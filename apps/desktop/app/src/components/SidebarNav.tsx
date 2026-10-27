@@ -1,4 +1,5 @@
 import type { NamedProjectLink } from "@milagre/shared/model";
+import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { setBarControlsWidth, useWindowChrome } from "../lib/window-chrome";
 import { ResizeHandle } from "./primitives/ResizeHandle";
@@ -729,7 +730,8 @@ export default memo(function SidebarNav({
   ]);
   const showAll = !collapsed;
   // One list: every scope's chats in one column, each row naming its Project; Grouped by Project keeps a fold per scope.
-  const oneList = showAll && chatList === "list";
+  // With no selected scope, keep even Projects and Links without Chats available to choose.
+  const oneList = showAll && chatList === "list" && !!currentKey;
   const {
     states: scopeStates,
     failed: failedScopes,
@@ -939,19 +941,7 @@ export default memo(function SidebarNav({
       return next;
     });
 
-  const forgetProject = (path: string) => {
-    setRecentProjects((list) => list.filter((project) => project.path !== path));
-    bridgeForKey(path)
-      .forgetProject(path)
-      .then(
-        (list) => {
-          // A computer's answer is its own list; this Mac's list stays, and the computer's scopes read it again.
-          if (isRemoteKey(path)) window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
-          else if (Array.isArray(list)) setRecentProjects(list);
-        },
-        () => {},
-      );
-  };
+  const [removingProject, setRemovingProject] = useState<{ path: string; name: string } | null>(null);
 
   // Checked in the project chooser; the choice belongs to this Mac alone.
   const showProject = (path: string, show: boolean) => {
@@ -1011,8 +1001,8 @@ export default memo(function SidebarNav({
     .filter((project) => project.current || !hiddenComputers.has(project.computerId))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 
-  // A Project's ⋯ rows: the four actions, and removing it from the list unless it's the open one. A Link gets its name copied and can be edited.
-  const scopeMenu = (scope: { key: string; name: string; link: NamedProjectLink | null }, current: boolean): ScopeMenuItem[] => {
+  // A Project's ⋯ rows include removal, even for the open Project. A Link gets its name copied and can be edited.
+  const scopeMenu = (scope: { key: string; name: string; link: NamedProjectLink | null }): ScopeMenuItem[] => {
     const link = scope.link;
     if (link)
       return [
@@ -1029,9 +1019,14 @@ export default memo(function SidebarNav({
       ...projectMenuActions(IS_MAC)
         .filter((item) => item.key !== "reveal" || !isRemoteKey(scope.key))
         .map((item) => ({ key: item.key, label: item.label, icon: PROJECT_MENU_ICONS[item.key], ...actions[item.key] })),
-      ...(current
-        ? []
-        : [{ key: "remove", label: "Remove from list", icon: Cancel01Icon, destructive: true, separatorBefore: true, run: () => forgetProject(scope.key) }]),
+      {
+        key: "remove",
+        label: "Remove Project",
+        icon: Cancel01Icon,
+        destructive: true,
+        separatorBefore: true,
+        run: () => setRemovingProject({ path: scope.key, name: scope.name }),
+      },
     ];
   };
 
@@ -1338,7 +1333,7 @@ export default memo(function SidebarNav({
                                         }
                                       : () => onNewChatInScope?.(scope.key)
                                   }
-                                  menu={scopeMenu(scope, current)}
+                                  menu={scopeMenu(scope)}
                                 />
                                 {/* Rows grow open and shut instead of appearing at once; closed ones leave the tab order. */}
                                 <div
@@ -1487,6 +1482,7 @@ export default memo(function SidebarNav({
           </div>
         </div>
       </aside>
+      {removingProject && <RemoveProjectDialog project={removingProject} onClose={() => setRemovingProject(null)} />}
       {!collapsed && (
         <ResizeHandle
           label="Resize sidebar"

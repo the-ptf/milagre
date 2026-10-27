@@ -32,7 +32,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import { DotBackground } from "./DotBackground";
 import SidebarNav from "./SidebarNav";
-import { runKeys } from "../lib/sidebar-scopes";
+import { runKeys, useScopeStates } from "../lib/sidebar-scopes";
 import { DraftChatComposer } from "./DraftChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
 import { effortFor, type ChatMessage, type ModelOption, type ModelProvider } from "../model";
@@ -54,7 +54,7 @@ import { Select } from "./primitives/Select";
 import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
-import { CORNER_PITCH, PanelToggles } from "./agents/PanelToggles";
+import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./agents/PanelToggles";
 import { queueControls } from "./QueuedMessages";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { busyTerminals, newTerminal, useTerminalSync, type TerminalPlace } from "../lib/terminal-actions";
@@ -151,6 +151,24 @@ export function LinkWorkspace({
   const attentionChats = useMemo(() => (attentionKey ? attentionKey.split("\n") : []), [attentionKey]);
   const { showAttentionButton, floatingInbox } = useSettings();
   const attentionPaths = useMemo(() => [...new Set(attentionChats.map(projectOfKey))], [attentionChats]);
+  const { states: attentionStates } = useScopeStates(true, attentionPaths);
+  const sidePanels = useSidePanels();
+  const attentionItems = attentionChats.map((key) => {
+    const other = attentionStates[projectOfKey(key)];
+    const chat = other?.sessions[sessionIdFromKey(key)];
+    return {
+      key,
+      title: chat
+        ? chatTitle(
+            chat,
+            other.messages.filter((message) => message.session_id === chat.id),
+          )
+        : "Chat",
+      project: projectOfKey(key).split("/").pop() ?? key,
+      asking: !agents.runs[key]?.approvals.length,
+      waitingFor: waitingFor(agents.runs[key]),
+    };
+  });
   // A host that keeps messages by Chat (chat-pages-v1) sends states without them: the open Chat reads its own.
   const lean = isLean(state);
   const chatWindow = useChatMessages(lean ? owner : null, sessionId);
@@ -781,14 +799,9 @@ export function LinkWorkspace({
           <PanelToggles right={!canvasOpen && session ? 12 + CORNER_PITCH : 12} />
           {showAttentionButton && !floatingInbox && attentionChats[0] && (
             <AttentionButton
-              label={attentionLabel(attentionPaths.map((path) => path.split("/").pop() ?? path))}
-              items={attentionChats.map((key) => ({
-                key,
-                project: projectOfKey(key).split("/").pop() ?? key,
-                asking: !agents.runs[key]?.approvals.length,
-                waitingFor: waitingFor(agents.runs[key]),
-              }))}
-              offset={!canvasOpen && session ? 1 : 0}
+              label={attentionLabel(attentionItems.map((item) => item.title))}
+              items={attentionItems}
+              offset={(!canvasOpen && session ? 1 : 0) + sidePanelCount(sidePanels)}
               onOpen={(key) => onCanvasChat(projectOfKey(key), sessionIdFromKey(key))}
             />
           )}
