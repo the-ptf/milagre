@@ -14520,7 +14520,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
     "expo-router": { Stack: { Screen: "Screen" }, router: { dismissAll() {}, replace() {}, back() {} } },
     "expo-camera": { CameraView: "CameraView", useCameraPermissions: () => [{ granted: false }, () => {}] },
     "expo-clipboard": { getStringAsync: async () => invitation },
-    "@hugeicons/core-free-icons": require("@hugeicons/core-free-icons"),
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
     "@milagre/shared/ai-consent": require("@milagre/shared/ai-consent"),
     "@milagre/shared/pairing-link": pairing,
     "../pairing": pairing,
