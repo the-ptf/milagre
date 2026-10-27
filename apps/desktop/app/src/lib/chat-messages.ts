@@ -1,3 +1,4 @@
+import { readWithTimeout } from "@milagre/shared/read-timeout";
 import { rememberChat } from "./offline-cache.ts";
 import { bridgeForKey, isRemoteKey } from "./computer-bridge.ts";
 import { computerOfKey } from "@milagre/shared/chat-scopes";
@@ -64,6 +65,37 @@ const loads = new Map<string, Promise<void>>();
 const earlierLoads = new Map<string, Promise<void>>();
 // Reads whose page may predate a change that arrived while they were on their way: each reads again when it ends.
 const stale = new Set<string>();
+// Scopes whose open is on its way to their computer. A Chat's page read goes out before it, so it can reach a host that
+// hasn't loaded the Project yet: that read waits for the open and reads once more instead of showing the error.
+const openings = new Map<string, Promise<unknown>>();
+const NOT_OPEN = /Open the Project before reading its messages/;
+
+/** The open of `scope` is on its way (`opened` settles with it): a page read that finds it not open there yet reads again. */
+export function noteScopeOpening(scope: string, opened: Promise<unknown>) {
+  openings.set(scope, opened);
+  const settled = () => {
+    if (openings.get(scope) === opened) openings.delete(scope);
+  };
+  opened.then(settled, settled);
+}
+
+function readPage(scope: string, chatId: number) {
+  // The call is made now, not a microtask later: a switch's open, sent right after, must not reach the host first.
+  const read = () => {
+    let page: Promise<{ messages: ChatMessage[]; hasMore: boolean; total: number }>;
+    try {
+      page = bridgeForKey(scope).readChatMessages(scope, chatId, { turns: TURNS });
+    } catch (error) {
+      page = Promise.reject(error);
+    }
+    return readWithTimeout(() => page);
+  };
+  return read().catch((error: unknown) => {
+    const opening = openings.get(scope);
+    if (!opening || !NOT_OPEN.test(error instanceof Error ? error.message : String(error))) throw error;
+    return opening.then(read, read);
+  });
+}
 /** A paired computer's chat paints from its last copy on this Mac while the computer's own answer is on its way. */
 function recallRemote(scope: string, chatId: number, key: string) {
   if (!isRemoteKey(scope)) return;
@@ -81,14 +113,20 @@ function load(scope: string, chatId: number) {
   const key = keyOf(scope, chatId);
   let loading = loads.get(key);
   if (!loading) {
+    const current = windows.get(key);
+    if (current) set(key, { ...current, loading: true, error: undefined });
     recallRemote(scope, chatId, key);
-    loading = bridgeForKey(scope)
-      .readChatMessages(scope, chatId, { turns: TURNS })
+    loading = readPage(scope, chatId)
       .then(
-        (page) => set(key, { messages: page.messages, hasMore: page.hasMore, total: page.total, loading: false }),
-        (error: Error) => set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error.message }),
+        (page) => {
+          if (loads.get(key) === loading) set(key, { messages: page.messages, hasMore: page.hasMore, total: page.total, loading: false });
+        },
+        (error: Error) => {
+          if (loads.get(key) === loading) set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error.message });
+        },
       )
       .finally(() => {
+        if (loads.get(key) !== loading) return;
         loads.delete(key);
         if (stale.delete(key)) void load(scope, chatId);
       });
@@ -108,11 +146,14 @@ async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
   const request = bridgeForKey(scope)
     .readChatMessages(scope, chatId, { before: first.id, turns })
     .then((page) => {
+      if (earlierLoads.get(key) !== request) return;
       const latest = windows.get(key);
       const next = prependChatPage(latest, first.id, page);
       if (next && next !== latest) set(key, next);
     })
-    .finally(() => earlierLoads.delete(key));
+    .finally(() => {
+      if (earlierLoads.get(key) === request) earlierLoads.delete(key);
+    });
   earlierLoads.set(key, request);
   return request;
 }
@@ -131,19 +172,30 @@ function follow() {
   if (following) return;
   following = true;
   stateEvents.onMessages(({ scope, changes, reset }) => {
+    if (reset) {
+      // A reconnect's old read may never answer. Replace it now; only the current read may commit its result.
+      const keys = new Set([...loads.keys(), ...earlierLoads.keys(), ...windows.keys()]);
+      for (const key of keys) {
+        if (!key.startsWith(`${scope}#`)) continue;
+        loads.delete(key);
+        earlierLoads.delete(key);
+        stale.delete(key);
+        void load(scope, Number(key.slice(scope.length + 1)));
+      }
+      return;
+    }
     // A read on its way may have been answered before a change to its Chat: it reads again (a new Chat's reply can beat
     // its first page).
     for (const key of loads.keys()) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
-      if (reset || changes?.removed.length || changes?.changed.some(({ message }) => message.session_id === chatId)) stale.add(key);
+      if (changes?.removed.length || changes?.changed.some(({ message }) => message.session_id === chatId)) stale.add(key);
     }
     // A copy: set() moves a window to the end of the Map, and walking the Map itself would reach it again.
     for (const [key, current] of Array.from(windows)) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
-      if (reset) void load(scope, chatId);
-      else if (changes) {
+      if (changes) {
         const next = applyChanges(current, chatId, changes);
         if (next !== current) set(key, next);
       }
@@ -152,16 +204,20 @@ function follow() {
 }
 
 /**
- * Reads Chat `chatId`'s window before it is shown (the pointer is over its row), so opening it paints at once. A
- * window already read, or being read, is left alone.
+ * Reads Chat `chatId`'s window before it is shown (the pointer is over its row, or a click is switching to it), so
+ * opening it paints at once: a switch calls this before it sets any state, so the page read goes out ahead of the reads
+ * the switch's render starts. A window already read, or being read, is left alone; one whose read failed reads again.
  */
 export function prefetchChatMessages(scope: string, chatId: number) {
   if (!(chatId > 0)) return;
   const key = keyOf(scope, chatId);
-  if (windows.has(key) || loads.has(key)) return;
+  if (loads.has(key) || (windows.has(key) && !windows.get(key)?.error)) return;
   follow();
   void load(scope, chatId);
 }
+
+/** Chat `chatId`'s window as held now, without reading it. Exported for its tests. */
+export const peekChatWindow = (scope: string, chatId: number): ChatWindow | undefined => windows.get(keyOf(scope, chatId));
 
 /** The window of Chat `chatId`'s messages, read when first shown; none while `scope` or `chatId` is missing. */
 export function useChatMessages(scope: string | null | undefined, chatId: number | null | undefined) {
@@ -185,10 +241,11 @@ export function useChatMessages(scope: string | null | undefined, chatId: number
   useEffect(() => {
     if (!key) return;
     follow();
-    if (!windows.has(key)) void load(scope!, chatId!);
+    if (!windows.has(key) || windows.get(key)?.error) void load(scope!, chatId!);
   }, [key, scope, chatId]);
   return {
     ...chat,
+    retry: useCallback(() => (key ? load(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
     loadEarlier: useCallback(() => (key ? loadEarlier(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
     loadAll: useCallback((signal?: AbortSignal) => (key ? loadAll(scope!, chatId!, signal) : Promise.resolve()), [key, scope, chatId]),
   };

@@ -64,3 +64,21 @@ test("a locked keychain does not prevent navigation", async () => {
   assert.equal(await store.read(), null);
   await store.save({ hostId: "mac", projectPath: "/p", chatId: 1 });
 });
+
+test("removing a Project clears only its saved Chat after pending saves", async () => {
+  let value = "";
+  const store = createNavigationStore({
+    getItemAsync: async () => value,
+    setItemAsync: async (_, next) => {
+      value = next;
+    },
+  });
+  const location = { hostId: "mac", projectPath: "/p", chatId: 1 };
+  void store.save(location);
+  await store.forgetProject("studio", "/p");
+  assert.deepEqual(await store.read(), location);
+  await store.forgetProject("mac", "/other");
+  assert.deepEqual(await store.read(), location);
+  await store.forgetProject("mac", "/p");
+  assert.equal(await store.read(), null);
+});

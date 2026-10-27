@@ -427,6 +427,64 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "host-restarted.png"), Buffer.from(shot.data, "base64"));
     }
     console.log("PASS: a host that crashed is started again, the window says so, and the draft stays");
+    if (!expectTheme) {
+      await evaluate(`(() => {
+        localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") || "{}"), chatList: "grouped" }));
+        window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
+      })()`);
+      const second = await fs.mkdtemp(path.join(path.dirname(project), "removal-member-"));
+      const linkId = await evaluate(`(async () => {
+        await window.milagre.openProjectAt(${JSON.stringify(second)});
+        const registered = await window.milagre.listProjects();
+        const ids = [${JSON.stringify(project)}, ${JSON.stringify(second)}].map((path) => registered.find((entry) => entry.path === path).id);
+        const link = await window.milagre.createNamedLink({ name: "Removal regression Link", projectIds: ids });
+        await window.milagre.forgetProject(${JSON.stringify(second)});
+        window.dispatchEvent(new Event("milagre:recent-projects-changed"));
+        return link.id;
+      })()`);
+      // A window at most 1024 px wide (the CI macOS runner's screen) starts with the sidebar collapsed, and a collapsed
+      // sidebar lists no scopes. The chooser below mounts a fresh sidebar, so it is expanded again there.
+      const expandSidebar = () => evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
+      await expandSidebar();
+      await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"]')`), "remaining Link in sidebar");
+      // CSS.escape: a Windows path's backslashes would otherwise escape the selector.
+      await evaluate(`document.querySelector('[data-sidebar-scope=' + CSS.escape(${JSON.stringify(project)}) + '] [data-scope-menu]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-scope-menu-item="remove"]')`), "Project removal menu");
+      await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-project-remove-confirm]')`), "Project removal confirmation");
+      await evaluate(`(() => {
+        localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") || "{}"), chatList: "list" }));
+        window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
+      })()`);
+      await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-project-chooser]')`), "Project chooser after last local Project removal");
+      assert.equal(await evaluate(`!!document.querySelector('[data-onboarding]')`), false);
+      await expandSidebar();
+      await waitFor(
+        () => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-action]')`),
+        "remaining Link is accessible",
+      );
+      await evaluate(`document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-action]').click()`);
+      await waitFor(
+        () => evaluate(`!document.querySelector('[data-project-chooser]') && !!document.querySelector('[data-chat-pane] [data-prompt-editor]')`),
+        "remaining Link opens",
+      );
+      console.log("PASS: removing the last local Project keeps its Named Link accessible and opens it");
+      // The packaged and ownership passes below share this profile and expect it as it was: the Project back, open and
+      // current, and no Link (a collapsed sidebar lists Chats only while this Mac has a single scope).
+      await evaluate(`(async () => {
+        await window.milagre.openProjectAt(${JSON.stringify(project)});
+        const link = (await window.milagre.listNamedLinks()).find((entry) => entry.id === ${JSON.stringify(linkId)});
+        await window.milagre.updateNamedLink({ id: link.id, name: link.name, projectIds: link.projectIds, hidden: true });
+      })()`);
+      await waitFor(
+        () =>
+          evaluate(
+            `window.milagre.getCurrentProject().then((current) => current?.path === ${JSON.stringify(project)} && !!document.querySelector('[data-chat-pane] [data-prompt-editor]'))`,
+          ),
+        "Project opened again after its removal",
+      );
+    }
     console.log(
       `PASS: ${expectTheme ? "packaged" : "source"} desktop opens existing Chats, provider IDs, Project settings, bundled skills and saved UI preferences`,
     );

@@ -25,6 +25,16 @@ const CHAT_PAGES = "chat-pages-v1";
 const SUBAGENT_TAILS = "subagent-tails-v1";
 // A host that can sends each archived subagent as a summary; the panel reads the rest when it opens one (subagent-transcripts.ts).
 const ARCHIVED_SUMMARIES = "archived-subagent-summaries-v1";
+// Calls whose reply is the Project the window shows from then on (server.cjs keeps the same list for its view).
+const SHOWN_PROJECT = new Set([
+  "project:open",
+  "project:current",
+  "project:switch",
+  "canvas:open-project",
+  "onboarding:create",
+  "onboarding:clone",
+  "onboarding:init-git",
+]);
 /**
  * Asks a host that can for state patches, and for states without messages, with transcript tails and with archived
  * subagents as summaries when it can; an older one keeps sending whole states.
@@ -260,7 +270,8 @@ async function connectDesktopRuntime(options) {
       buffered = [];
       bufferedBytes = 0;
       attach(connection);
-      for (const projectPath of projects) {
+      /** @param {string} projectPath */
+      const openAgain = async (projectPath) => {
         try {
           await connection.call(isLinkScopeKey(projectPath) ? "link:open" : "project:open", [
             isLinkScopeKey(projectPath) ? projectPath.slice("milagre-link:".length) : projectPath,
@@ -275,11 +286,9 @@ async function connectDesktopRuntime(options) {
             currentChat = null;
           }
         }
-      }
-      if (currentProject)
-        await connection.call(isLinkScopeKey(currentProject) ? "link:open" : "project:open", [
-          isLinkScopeKey(currentProject) ? currentProject.slice("milagre-link:".length) : currentProject,
-        ]);
+      };
+      for (const projectPath of projects) await openAgain(projectPath);
+      if (currentProject) await openAgain(currentProject);
       await connection.call("chat:set-open", [currentChat]);
       await connection.call("daemon:focus", [{ focused }]);
       capturingSnapshot = true;
@@ -349,15 +358,11 @@ async function connectDesktopRuntime(options) {
   async function invoke(method, args = []) {
     if (closed || !client || recovering) throw new Error("Milagre host is disconnected. Your command was not sent.");
     const result = /** @type {any} */ (await client.call(method, args));
-    if (
-      ["project:open", "project:current", "project:switch"].includes(method) &&
-      result &&
-      typeof result === "object" &&
-      "path" in result &&
-      typeof result.path === "string"
-    ) {
+    // The Project the window shows from now on, opened again after a reconnect. A sidebar row (canvas:open-project) is
+    // only that: the Projects the sidebar went through aren't all opened again, each one's first read on the new host.
+    if (SHOWN_PROJECT.has(method) && result && typeof result === "object" && "path" in result && typeof result.path === "string") {
       currentProject = result.path;
-      projects.add(result.path);
+      if (method !== "canvas:open-project") projects.add(result.path);
     }
     if (method === "link:open" && result?.link?.id) {
       currentProject = scopeKey({ kind: "link", linkId: result.link.id });

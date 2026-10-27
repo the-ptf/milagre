@@ -20,6 +20,10 @@ const NETWORK_MS = 5_000;
 const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
 // A call made while the runtime moves between the relay and the LAN waits this long for it to be back.
 const SWITCH_WAIT_MS = 10_000;
+// A saved LAN address that doesn't answer (another network) is probed for up to PROBE_TIMEOUT, and every connect waited
+// that out before dialing the relay. A connect now waits this long for the LAN, then takes the relay; a LAN channel that
+// opens later takes over once nothing waits on the relay (moveToLan).
+const LAN_WAIT_MS = 500;
 // Problems worth a line under a computer while it keeps retrying; the rest read as Reconnecting… or Offline.
 const SHOWN = new Set(["full", "outdated", "kind", "bad-hello", "busy"]);
 const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac.";
@@ -38,6 +42,14 @@ const addressOf = (url) => {
     return null;
   }
 };
+/** Waits for `promise`, or `ms` at most. */
+function atMost(promise, ms) {
+  let timer;
+  const waited = new Promise((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([promise, waited]).finally(() => clearTimeout(timer));
+}
 const hostOf = (url) => {
   try {
     return new URL(url).host;
@@ -70,6 +82,27 @@ function recovered(entry) {
   entry.recovery = null;
 }
 
+/**
+ * The runtime is on the relay while the supervisor holds a LAN channel no runtime took: the relay channel closes once no
+ * call waits on it (calls already there finish there), and the runtime's reconnect then takes the LAN channel. Its brief
+ * disconnect is a switch, not an outage: `down` lets the first disconnect after it go by, and a call made meanwhile
+ * (invoke) waits for `recovery`.
+ */
+function moveToLan(entry) {
+  const client = entry.client;
+  const route = entry.supervisor.current();
+  if (!client || entry.route !== "relay" || route.kind !== "lan" || route.transport.used || route.transport.client.closed) return;
+  client.closeWhenIdle(() => {
+    entry.switching = true;
+    if (!entry.recovery) {
+      /** @type {(() => void) | undefined} */
+      let resolve;
+      const promise = /** @type {Promise<void>} */ (new Promise((settle) => (resolve = settle)));
+      entry.recovery = { promise, done: () => resolve?.() };
+    }
+  });
+}
+
 async function stop(entry) {
   entry.stopped = true;
   entry.abort.abort();
@@ -95,7 +128,7 @@ async function stop(entry) {
  *   emit?: (id: string, channel: string, payload: unknown) => void; ownHostId?: () => Promise<string | null>;
  *   allowLocalRelay?: boolean; createSocket?: (url: string) => any; fetch?: typeof globalThis.fetch;
  *   now?: () => number; random?: (n: number) => Uint8Array; reconnectMs?: number; switchWaitMs?: number;
- *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[];
+ *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; lanWaitMs?: number;
  *   networkSignature?: () => string;
  * }} options
  */
@@ -118,6 +151,7 @@ function createComputers({
   checkEveryMs = CHECK_EVERY_MS,
   networkMs = NETWORK_MS,
   backoffMs = BACKOFF_MS,
+  lanWaitMs = LAN_WAIT_MS,
   networkSignature = defaultNetworkSignature,
 }) {
   const store = createComputersStore({ file: path.join(dataDir, "computers.json"), now, allowLocalRelay });
@@ -247,10 +281,8 @@ function createComputers({
       openLan: (endpoint, _lan, onLost) => openLan(entry, endpoint, onLost),
       now,
     });
-    // A LAN route that opens while the runtime is on the relay: the relay channel closes once no call waits on it (calls
-    // already there finish there), and the runtime's reconnect then takes the LAN channel. Its brief disconnect is a
-    // switch, not an outage: `down` lets the first disconnect after it go by, and a call made meanwhile (invoke) waits
-    // for `recovery`. A LAN route lost before the relay was free leaves the runtime where it is.
+    // A LAN route that opens while the runtime is on the relay moves it there (moveToLan); one lost before the relay was
+    // free leaves the runtime where it is.
     entry.supervisor = supervisor;
     supervisor.subscribe((route) => {
       const client = entry.client;
@@ -259,16 +291,7 @@ function createComputers({
         client.keepOpen?.();
         return;
       }
-      if (route.transport.used) return;
-      client.closeWhenIdle(() => {
-        entry.switching = true;
-        if (!entry.recovery) {
-          /** @type {(() => void) | undefined} */
-          let resolve;
-          const promise = /** @type {Promise<void>} */ (new Promise((settle) => (resolve = settle)));
-          entry.recovery = { promise, done: () => resolve?.() };
-        }
-      });
+      moveToLan(entry);
     });
     entries.set(id, entry);
     return entry;
@@ -295,7 +318,10 @@ function createComputers({
   /** The runtime's `connect`: the LAN channel the supervisor holds, when it has one, else a new relay channel. */
   async function connectRoute(entry) {
     if (entry.stopped || entry.refused) throw new Error("This computer is no longer connected.");
-    await entry.supervisor.check().catch(() => {});
+    await atMost(
+      entry.supervisor.check().catch(() => {}),
+      lanWaitMs,
+    );
     const route = entry.supervisor.current();
     if (route.kind === "lan" && !route.transport.used && !route.transport.client.closed) {
       route.transport.used = true;
@@ -332,6 +358,8 @@ function createComputers({
     void store.seen(entry.id).catch(() => {});
     void learnRoutes(entry);
     changed();
+    // A LAN channel that opened while this connect took the relay.
+    moveToLan(entry);
   }
 
   function down(entry, error) {

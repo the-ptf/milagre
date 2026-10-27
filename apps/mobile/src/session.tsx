@@ -172,6 +172,12 @@ function useSessionState() {
   );
   const designs = useDesigns(client, snapshot?.project.path, recent[0]?.path);
   const [error, setError] = useState("");
+  // How many times the connection came back after an error: the Chat on screen reads its pages again on each.
+  const [reconnects, setReconnects] = useState(0);
+  const lost = useRef(false);
+  useEffect(() => {
+    if (error) lost.current = true;
+  }, [error]);
   const [models, setModels] = useState<AgentModels | null>(null);
   const [cliStatus, setCliStatus] = useState<AgentCliStatus | null>(null);
   const [providerError, setProviderError] = useState("");
@@ -467,6 +473,30 @@ function useSessionState() {
       setRecent((previous) => keepOrder(previous, projects, (item) => item.path));
     }
   }, [client]);
+  const forgetProject = async (path: string) => {
+    if (!client) throw new Error("Connect to your computer first.");
+    const removingGeneration = generation.current;
+    await client.call("project:forget", [path]);
+    const sameNavigation = generation.current === removingGeneration;
+    // Invalidate an in-flight open before it can put the removed Project back on screen.
+    if (sameNavigation && (selection.current?.path === path || snapshot?.project.path === path || opening?.path === path)) {
+      generation.current++;
+      selection.current = null;
+      setSnapshot(null);
+      setOpening(null);
+    }
+    const completionGeneration = generation.current;
+    setLastLocation((current) => (current?.hostId === client.url && current.projectPath === path ? null : current));
+    await savedNavigation.forgetProject(client.url, path);
+    seen.current.delete(`${client.url}|${path}`);
+    listed.current.delete(`${client.url}|${path}`);
+    // A removed Project's saved location/cache belongs to its computer; the visible list and navigation belong to
+    // the current selection. Neither an RPC nor a keychain write may replace a newer computer or Chat.
+    if (!sameNavigation || generation.current !== completionGeneration) return false;
+    setRecent((previous) => previous.filter((item) => item.path !== path));
+    void reloadProjects().catch(() => {});
+    return true;
+  };
   const setProjectHidden = useCallback(
     async (path: string, hidden: boolean) => {
       setRecent((previous) =>
@@ -499,6 +529,10 @@ function useSessionState() {
         seen.current.set(`${client.url}|${projectPath}`, state);
         putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
+        if (lost.current) {
+          lost.current = false;
+          setReconnects((count) => count + 1);
+        }
       }
     } catch (error) {
       if (current === selection.current) throw error;
@@ -577,6 +611,7 @@ function useSessionState() {
     previewProject,
     seedPreview,
     reloadProjects,
+    forgetProject,
     setProjectHidden,
     claimAutoOpen,
     opening,
@@ -591,6 +626,7 @@ function useSessionState() {
     snapshot,
     runsStore,
     error,
+    reconnects,
     setError,
     models,
     cliStatus,

@@ -336,7 +336,9 @@ const NavigationBody = memo(function NavigationBody({
   // A wide iPad can open another Chat, of any Project on any computer that answers, beside the open one.
   const wide = useSplitLayout().widthClass === "wide";
   const beside = useBesideChat();
-  const [chatList] = useChatList();
+  const [savedChatList] = useChatList();
+  // The chooser must list Projects and Links even when they have no Chats yet.
+  const chatList = currentPath ? savedChatList : "grouped";
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
   const searching = !!needle;
@@ -870,15 +872,17 @@ const NavigationBody = memo(function NavigationBody({
     if (action !== "remove" || !client) return;
     const confirmed = await confirm(
       `Remove ${name}?`,
-      "It leaves this list on your phone and your Mac. The folder and its Chats stay on your computer; add it again to bring it back.",
+      "It leaves this list on your phone and your Mac. Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back. Running Chats keep running.",
       "Remove",
     );
     if (!confirmed) return;
     setError("");
     try {
-      await client.call("project:forget", [projectPath]);
-      if (isCurrent) await reloadProjects();
-      else await allComputers.refreshAll();
+      if (isCurrent) {
+        const sameNavigation = await session.forgetProject(projectPath);
+        if (sameNavigation && projectPath === currentPath) onNavigate("/projects");
+      } else await client.call("project:forget", [projectPath]);
+      await allComputers.refreshAll();
     } catch (e) {
       const message = (e as Error).message;
       if (alive.current) setError(/not available from mobile/i.test(message) ? "Update Milagre on your Mac to remove Projects from your phone." : message);
@@ -1282,7 +1286,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           ...(linked && item.hostId === currentHostId ? [{ id: "edit", title: "Edit Link", systemImage: "pencil" }] : []),
         ],
       },
-      ...(!linked ? [{ items: [{ id: "remove", title: "Remove from list", systemImage: "minus.circle", destructive: true }] }] : []),
+      ...(!linked ? [{ items: [{ id: "remove", title: "Remove Project", systemImage: "minus.circle", destructive: true }] }] : []),
     ];
     const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
     // A tap folds the group; a long press opens the Project's menu.

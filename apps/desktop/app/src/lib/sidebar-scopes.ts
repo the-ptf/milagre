@@ -4,7 +4,7 @@ import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre
 import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { stateEvents } from "./state-events.ts";
+import { seedHeldState, stateEvents } from "./state-events.ts";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
@@ -193,6 +193,24 @@ let listening = 0;
 // Every mounted hook hears a first read, not only the one that asked: the Chat grid reads none itself.
 const readListeners = new Set<(key: string, state: CoordinatorState | LinkState) => void>();
 
+/** The last full state the sidebars hold for a scope (a Project path or a `milagre-link:` key), if any. */
+export function cachedScopeState(key: string): CoordinatorState | LinkState | undefined {
+  return scopeStateCache[key];
+}
+
+/**
+ * The window opened a scope, or is leaving it, and holds its latest state: the sidebars take that as their read, so the
+ * scope's group shows its chats from it instead of reading its whole state again. Live events keep it current after that.
+ */
+export function seedScopeState(key: string, state: CoordinatorState | LinkState | undefined) {
+  if (!state?.sessions || !listening) return;
+  requestedKeys.add(key);
+  if (scopeStateCache[key] === state) return;
+  scopeStateCache[key] = state;
+  // As a read's answer would: every sidebar takes it, and one that failed to read it stops saying so.
+  for (const listener of readListeners) listener(key, state);
+}
+
 export function useScopeStates(enabled: boolean, keys: string[]) {
   const [states, setStates] = useState<Record<string, CoordinatorState | LinkState>>(() => ({ ...scopeStateCache }));
   // Scopes whose read failed, so the sidebar can say so instead of loading forever.
@@ -247,6 +265,8 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
       read.then(
         (opened) => {
           if (!opened.state?.sessions) return;
+          // The host's next patch applies to this state instead of reading it again (a host that numbers states).
+          seedHeldState(key, opened);
           // A live update can arrive before a slow read answers, especially from another computer. Keep that
           // newer state, so the old snapshot doesn't undo pin settings or move the rows back.
           const cached = scopeStateCache[key];

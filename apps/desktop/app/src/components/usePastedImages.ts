@@ -7,6 +7,8 @@ import { uploadFile } from "../lib/attachment-uploads";
 import { remapImageMentions } from "@milagre/shared/prompt-mentions";
 
 const TYPES = new Set(IMAGE_TYPES);
+const NONE: ImageAttachment[] = [];
+const NO_FILES: string[] = [];
 
 function isAttachableImage(file: File): boolean {
   return TYPES.has(file.type) && file.size <= MAX_ATTACHMENT_BYTES;
@@ -41,12 +43,13 @@ export function usePastedImages(scope: string, owner?: string) {
   const generation = useRef(0);
   const reading = useRef(false);
 
+  // Clearing what is empty already keeps the same arrays, so a switch between Chats without attachments renders nothing more.
   function clear() {
     generation.current++;
     reading.current = false;
-    setImages([]);
-    setFiles([]);
-    setOrder([]);
+    if (currentImages.current.length) setImages(NONE);
+    setFiles((current) => (current.length ? NO_FILES : current));
+    setOrder((current) => (current.length ? NO_FILES : current));
     setLoading(false);
     setError("");
   }

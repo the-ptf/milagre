@@ -24,7 +24,7 @@ import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { LoopbackPortsContext } from "../lib/ports";
 import { createPortal } from "react-dom";
-import { commitChatSwitch } from "../lib/chat-switch-timing";
+import { commitChatSwitch, transcriptShown } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -98,7 +98,7 @@ import { CompactionDivider } from "./CompactionDivider";
 import { CheckpointRestoreDivider } from "./CheckpointRestoreDivider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
-import { undoableTasks, type CheckpointApi } from "@milagre/shared/checkpoints";
+import { undoableTasks, type Checkpoint, type CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
 import { bridgeForKey } from "../lib/computer-bridge";
 import { isModalOpen } from "../lib/modal";
@@ -756,6 +756,8 @@ interface ChatComposerProps {
   messages: AppChatMessage[];
   /** A saved Chat's page is still being read, so an empty `messages` doesn't mean a new Chat. */
   loading?: boolean;
+  loadError?: string;
+  onRetryLoad?: () => void;
   /** Unsaved input appears below the reply still streaming while the backend prepares the send. */
   pendingMessageId?: number;
   draft: string;
@@ -1090,6 +1092,8 @@ export function ChatComposer({
   earlier,
   messages,
   loading = false,
+  loadError,
+  onRetryLoad,
   pendingMessageId,
   draft,
   onDraftChange,
@@ -1175,7 +1179,7 @@ export function ChatComposer({
   const chatId = messages[0]?.session_id ?? "new";
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
-  const isNewChat = messages.length === 0 && !loading;
+  const isNewChat = messages.length === 0 && !loading && !loadError;
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
   // bot's new Chat keeps the composer centred.
@@ -1197,8 +1201,13 @@ export function ChatComposer({
     setScrolled((viewport?.scrollTop ?? 0) > 4);
   }, [isNewChat, transcriptKey]);
   // Undo changes: the Chat's task checkpoints, the panel that takes the composer's place, and the message it outlines.
-  const checkpointApi = useMemo<CheckpointApi>(() => (runtimeChat ? (bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS), [runtimeChat]);
+  const checkpointApi = useMemo<CheckpointApi>(
+    () => (runtimeChat ? keptCheckpoints(bridgeForKey(runtimeChat).checkpoints ?? NO_CHECKPOINTS) : NO_CHECKPOINTS),
+    [runtimeChat],
+  );
   const review = useCheckpoints(checkpointApi, runtimeChat ?? "");
+  // Until the Chat's quiet list read answers, the list it had when it was last shown: its undo buttons show at once.
+  const checkpointItems = review.items.length || !runtimeChat ? review.items : (lastCheckpoints.get(runtimeChat) ?? review.items);
   const [undoIntent, setUndoIntent] = useState<UndoIntent>("Undo");
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const reloadCheckpoints = review.reload;
@@ -1209,11 +1218,11 @@ export function ChatComposer({
   const undoable = useMemo(
     () =>
       new Map(
-        undoableTasks(review.items)
+        undoableTasks(checkpointItems)
           .filter((task) => task.messageId !== undefined)
           .map((task, index) => [task.messageId!, { id: task.id, latest: index === 0 }]),
       ),
-    [review.items],
+    [checkpointItems],
   );
   const openUndo = useEvent(() => {
     setUndoIntent("Undo");
@@ -1352,7 +1361,17 @@ export function ChatComposer({
           messageCount={messages.length}
           element={
             isNewChat ? null : messages.length === 0 ? (
-              <div className="relative flex min-h-0 flex-1 flex-col" />
+              <div
+                className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2"
+                role={loadError ? "alert" : "status"}
+              >
+                <p>{loadError ? `Could not load this Chat: ${loadError}` : "Loading Chat..."}</p>
+                {loadError && onRetryLoad && (
+                  <button type="button" onClick={onRetryLoad} className="rounded-control border border-line px-3 py-1.5 hover:bg-hover">
+                    Try again
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
                 <MessageScroller
@@ -1577,6 +1596,26 @@ const NO_CHECKPOINTS: CheckpointApi = {
   preview: () => Promise.reject(new Error("Open a saved Chat to undo its changes")),
   restore: () => Promise.reject(new Error("Open a saved Chat to undo its changes")),
 };
+// Each Chat's checkpoints as last listed, for the most recently shown Chats: a Chat shown again marks its undoable
+// messages from them while the list is read again.
+const lastCheckpoints = new Map<string, Checkpoint[]>();
+const KEPT_CHECKPOINT_LISTS = 32;
+function keptCheckpoints(api: CheckpointApi): CheckpointApi {
+  return {
+    list: (request) =>
+      api.list(request).then((items) => {
+        lastCheckpoints.delete(request.chatId);
+        lastCheckpoints.set(request.chatId, items);
+        for (const oldest of lastCheckpoints.keys()) {
+          if (lastCheckpoints.size <= KEPT_CHECKPOINT_LISTS) break;
+          lastCheckpoints.delete(oldest);
+        }
+        return items;
+      }),
+    preview: (request) => api.preview(request),
+    restore: (request) => api.restore(request),
+  };
+}
 
 /** A Chat's transcript alone, following its stream: an unfocused tile of the Chat grid. Replying means focusing the tile. */
 export function ChatTranscript({
@@ -1768,6 +1807,8 @@ function TranscriptSlots({
   // The switch is measured once the Chat's messages are on screen (lib/chat-switch-timing.ts).
   useLayoutEffect(() => {
     if (activeKey && messageCount > 0) commitChatSwitch(activeKey);
+    else transcriptShown(null);
+    return () => transcriptShown(null);
   }, [activeKey, messageCount]);
   if (!activeKey) {
     if (element) return element;

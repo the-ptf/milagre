@@ -4,23 +4,37 @@
 // `commitMs` the part React spent before the first frame.
 
 const NAME = "milagre:chat-switch";
+// A switch whose transcript never commits (its Chat failed to load, or another one was picked) is dropped after this.
+const EXPIRE_MS = 10_000;
 const enabled = () => typeof localStorage !== "undefined" && localStorage.getItem("milagre.measureNavigation") === "1";
 
 let pending: { key: string; start: number } | undefined;
 let frame = 0;
+// The Chat whose transcript committed last: asking for it again is no switch, and no commit would end the measure.
+let shown: string | null = null;
 
-/** The user asked for Chat `key`; the next commit of its transcript ends the measure. */
+/** The user asked for Chat `key`; the next commit of its transcript ends the measure. The Chat already on screen starts none. */
 export function beginChatSwitch(key: string) {
-  if (!enabled()) return;
+  if (!enabled() || key === shown) return;
   pending = { key, start: performance.now() };
   cancelAnimationFrame(frame);
 }
 
+/** The transcript on screen changed: a Chat's key, or null while none is (a new Chat, one still loading, none mounted). */
+export function transcriptShown(key: string | null) {
+  shown = key;
+}
+
 /** Chat `key`'s transcript committed; the measure ends two frames later, an upper bound on when it was presented. */
 export function commitChatSwitch(key: string) {
+  shown = key;
   if (!enabled() || pending?.key !== key) return;
   const sample = pending;
   const commit = performance.now();
+  if (commit - sample.start > EXPIRE_MS) {
+    pending = undefined;
+    return;
+  }
   frame = requestAnimationFrame(() => {
     frame = requestAnimationFrame(() => {
       if (pending !== sample) return;

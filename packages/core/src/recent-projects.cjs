@@ -66,7 +66,11 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
     const next = queue
       .catch(() => {})
       .then(async () => {
-        const entries = change(await read({ strict: true })).slice(0, MAX_RECENT);
+        const current = await read({ strict: true });
+        const changed = change(current);
+        // A change that leaves the list as it is (`current` itself) leaves the file as it is too.
+        if (changed === current) return current;
+        const entries = changed.slice(0, MAX_RECENT);
         await fs.mkdir(path.dirname(file), { recursive: true });
         const temporary = `${file}.${process.pid}.${++counter}.tmp`;
         try {
@@ -84,11 +88,14 @@ function createRecentProjects(file, { now = () => new Date() } = {}) {
 
   return {
     list: () => read({ strict: false }),
-    /** Puts a project at the top (once), as it opens. */
+    /**
+     * Puts a project at the top (once), as it opens. One at the top already stays as it is: only its openedAt would
+     * change, and every switch back to it would write the file again.
+     */
     add(projectPath) {
       const entry = entryFrom({ path: projectPath, openedAt: now().toISOString() });
       if (!entry) return Promise.reject(new Error("An absolute project path is required"));
-      return save((entries) => [entry, ...entries.filter((item) => item.path !== entry.path)]);
+      return save((entries) => (entries[0]?.path === entry.path ? entries : [entry, ...entries.filter((item) => item.path !== entry.path)]));
     },
     /** Takes a project off the list. Its folder is never touched. */
     forget(projectPath) {

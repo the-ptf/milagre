@@ -4,7 +4,7 @@ import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { bridgeForKey } from "./computer-bridge.ts";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import type { AgentEvent, CoordinatorState, LinkState } from "../model.ts";
-import type { MessageChanges } from "../electron.d.ts";
+import type { MessageChanges, RuntimeSnapshot } from "../electron.d.ts";
 
 // A host that sends state patches (state-patches-v1) puts what changed in a state event in place of the whole state,
 // which runs to megabytes in a large Project: `patch`, made from the state numbered `base`, gives the one numbered
@@ -31,6 +31,8 @@ const held = new Map<string, { epoch: string; version: number; state: AnyState }
 // removes its run, so it waits for the state with its saved reply and both reach the window together.
 type HeldEvent = { event: Omit<AgentEventUpdate, "state">; withState: boolean };
 const reading = new Map<string, { patches: Numbered[]; events: HeldEvent[] }>();
+// Scopes whose read again gave up after a change: the window's copy may miss that change until the next one reads it.
+const behind = new Set<string>();
 const projectListeners = new Set<(update: ProjectStateUpdate) => void>();
 const linkListeners = new Set<(update: LinkStateUpdate) => void>();
 const agentListeners = new Set<(update: AgentEventUpdate) => void>();
@@ -71,6 +73,8 @@ async function readAgain(scope: string, first: Numbered) {
         bridgeForKey(scope).readState(scope),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The state read took too long")), READ_TIMEOUT_MS)),
       ]);
+      // A reconnect's snapshot replaced this read and released the events held behind it.
+      if (reading.get(scope) !== pending) return;
       const current = { epoch: read.epoch, version: read.version, state: read.state as AnyState };
       let gap = false;
       // What arrived during the read: older patches are in the state read; newer ones follow it in order.
@@ -85,6 +89,7 @@ async function readAgain(scope: string, first: Numbered) {
       }
       if (gap) continue;
       held.set(scope, current);
+      behind.delete(scope);
       reading.delete(scope);
       // Message changes in the gap are lost: the Chats shown read their messages again.
       if (isLean(current.state)) for (const listener of messageListeners) listener({ scope, reset: true });
@@ -96,14 +101,87 @@ async function readAgain(scope: string, first: Numbered) {
   } catch {
     // The next state event reads it again.
   }
+  if (reading.get(scope) !== pending) return;
   held.delete(scope);
+  behind.add(scope);
   reading.delete(scope);
+  release(pending);
+}
+
+/** What an open reply (a Project's open or read, a Link's) carries: its state, and from a host that numbers states,
+ * that state's number (`version`) and the host's run (`epoch`). */
+export type NumberedReply = { state?: unknown; version?: number; epoch?: string };
+const numberOf = (reply: NumberedReply | null | undefined) =>
+  reply && typeof reply.version === "number" && typeof reply.epoch === "string" ? { version: reply.version, epoch: reply.epoch } : null;
+
+/**
+ * Keeps an open reply's state as the scope's last numbered state, so the host's next patch applies to it instead of
+ * reading the whole state again. Only a numbered state with its sessions counts; a held state of the same host as new
+ * or newer, or a read under way, stays.
+ */
+export function seedHeldState(scope: string, reply: NumberedReply | null | undefined) {
+  const number = numberOf(reply);
+  const state = reply?.state as AnyState | undefined;
+  if (!number || !state?.sessions || reading.has(scope)) return;
+  const last = held.get(scope);
+  if (last && last.epoch === number.epoch && last.version >= number.version) return;
+  held.set(scope, { ...number, state });
+  behind.delete(scope);
+}
+
+/**
+ * The scope's state as the host numbered it, kept current by its patches: a copy the window can keep when it opens the
+ * scope without its state. None while it is read again, after a read again gave up, or for a copy that came without a
+ * number (an older host's, or one main kept while the computer was away), which only a whole read can vouch for.
+ */
+export function numberedState(scope: string): CoordinatorState | LinkState | undefined {
+  return reading.has(scope) || behind.has(scope) ? undefined : held.get(scope)?.state;
+}
+
+/**
+ * A reply that names the state the host holds without sending it (a Project read with `{ state: false }`): the window
+ * keeps its own copy. When the copy here is of another host run or older, or a read again gave up on it, the scope is
+ * read again, so a copy that missed a change doesn't stay on screen.
+ */
+export function confirmHeldState(scope: string, reply: NumberedReply | null | undefined) {
+  const number = numberOf(reply);
+  if (!number || reading.has(scope)) return;
+  const last = held.get(scope);
+  const stale = last ? last.epoch !== number.epoch || last.version < number.version : behind.has(scope);
+  if (!stale) return;
+  subscribe();
+  // A first payload with no number: nothing of it applies to what the read brings.
+  void readAgain(scope, { resync: true });
+}
+
+/** The agent events held behind a read that gave no state: they go out as they came. */
+function release(pending: { events: HeldEvent[] }) {
   for (const { event } of pending.events) for (const listener of agentListeners) listener(event);
 }
 
 function announce(scope: string, state: AnyState) {
   if (isLinkScopeKey(scope)) for (const listener of linkListeners) listener({ linkId: scope.slice(linkPrefix.length), state: state as LinkState });
   else for (const listener of projectListeners) listener({ path: scope, state: state as CoordinatorState });
+}
+
+/**
+ * A reconnect restores metadata without message bodies: the Chats shown read their pages again even if the Chat stays
+ * idle. A read from before the reconnect is dropped (its events still go out); the last state read keeps its number, so
+ * the next patch applies to it when nothing changed meanwhile and reads again when something did.
+ */
+function restoreSnapshot(snapshot: RuntimeSnapshot) {
+  const scopes = [
+    ...(snapshot.projects ?? []).map(({ path, state }) => ({ scope: path, state })),
+    ...(snapshot.links ?? []).map(({ linkId, state }) => ({ scope: scopeKey({ kind: "link", linkId }), state })),
+  ];
+  for (const { scope, state } of scopes) {
+    const pending = reading.get(scope);
+    if (pending) {
+      reading.delete(scope);
+      release(pending);
+    }
+    if (isLean(state)) for (const listener of messageListeners) listener({ scope, reset: true });
+  }
 }
 
 function subscribe() {
@@ -148,12 +226,14 @@ function subscribe() {
     } else if (scope && state) held.delete(scope);
     for (const listener of agentListeners) listener({ ...event, ...(state ? { state } : {}) });
   };
+  window.milagre.onRuntimeSnapshot?.(restoreSnapshot);
   window.milagre.onProjectState?.(project);
   window.milagre.onLinkState?.(link);
   window.milagre.onAgentEvent?.(agent);
   // A paired computer's events arrive with keys that name it (computer-routing.cjs), so its scopes keep apart from this Mac's.
   window.milagre.onComputerEvent?.((event) => {
-    if (event.channel === "project:state") project(event.payload);
+    if (event.channel === "runtime:snapshot" && event.payload) restoreSnapshot(event.payload);
+    else if (event.channel === "project:state") project(event.payload);
     else if (event.channel === "link:state") link(event.payload);
     else if (event.channel === "agent:event") agent(event.payload);
   });

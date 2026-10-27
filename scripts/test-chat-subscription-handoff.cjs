@@ -10,6 +10,10 @@ import { createRoot } from 'react-dom/client';
 import { useChatMessages } from './apps/desktop/app/src/lib/chat-messages.ts';
 import { useChatPage } from './apps/mobile/src/chat-pages.ts';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+window.milagre = {
+  onRuntimeSnapshot(listener) { window.receiveSnapshot = listener; return () => {}; },
+  onComputerEvent(listener) { window.receiveComputerEvent = listener; return () => {}; },
+};
 const messages = Array.from({length:120}, (_,i) => ({id:i+1, session_id:1, role:i%2?'assistant':'user', body:'message '+i}));
 const requests = [];
 async function read(_scope, _id, options) {
@@ -56,7 +60,58 @@ window.run = async () => {
     check(current.messages.length===120,platform+': could not reload full history');
     await act(async()=>root.unmount()); host.remove();
   }
-  return 'PASS: desktop/mobile mounted subscription handoff, StrictMode, inactive trim and reload';
+  for (const remote of [false, true]) {
+    for (const stalled of [false, true]) {
+      const scope = (remote ? 'remote|' : '') + '/reconnect-' + stalled;
+      let current, finish, reads=0;
+      const rows = [{id:1,session_id:2,role:'user',body:'A short Chat'}, {id:2,session_id:2,role:'assistant',body:'Its reply'}];
+      window.read = async () => {
+        if (++reads === 1) {
+          if (stalled) return new Promise(resolve => { finish=()=>resolve({messages:[],total:0,hasMore:false}); });
+          throw new Error('Daemon connection closed');
+        }
+        return {messages:rows,total:2,hasMore:false};
+      };
+      function ReconnectingReader() {
+        current=useChatMessages(scope,2);
+        return React.createElement('div',null,current.messages.map(m=>m.body).join(' '));
+      }
+      const host=document.createElement('div'); document.body.append(host);
+      const root=createRoot(host);
+      await act(async()=>root.render(React.createElement(ReconnectingReader)));
+      check(current.messages.length===0,'interrupted first read should have no messages');
+      const snapshot={projects:[{path:scope,state:{messages:[],messagesInChats:true}}]};
+      await act(async()=>{
+        if(remote) window.receiveComputerEvent({channel:'runtime:snapshot',payload:snapshot});
+        else window.receiveSnapshot(snapshot);
+      });
+      check(current.messages.length===2,'reconnect must restore a short Chat without another message event');
+      check(host.textContent.includes('Its reply'),'recovered short Chat must be rendered');
+      if(finish) {
+        await act(async()=>finish());
+        check(current.messages.length===2,'an old empty page must not overwrite recovery');
+      }
+      await act(async()=>root.unmount()); host.remove();
+    }
+  }
+  // The phone's refreshed snapshot already drives the production paging hook after reconnect.
+  {
+    let current, revision=0, reads=0;
+    const client={url:'ws://reconnect-mobile',chatMessages:async()=>{
+      if(++reads===1) throw new Error('Daemon connection closed');
+      return {messages:[{id:1,role:'user',body:'Recovered short Chat'}],total:1,hasMore:false};
+    }};
+    function Reader() { current=useChatPage(client,'/phone-reconnect',1,revision); return React.createElement('div',null,current.messages.length); }
+    const host=document.createElement('div'); document.body.append(host);
+    const root=createRoot(host);
+    await act(async()=>root.render(React.createElement(Reader)));
+    check(current.error,'initial phone read should fail');
+    revision++;
+    await act(async()=>root.render(React.createElement(Reader)));
+    check(current.messages.length===1 && !current.error,'refreshed phone snapshot must restore the short Chat');
+    await act(async()=>root.unmount()); host.remove();
+  }
+  return 'PASS: desktop/mobile subscription handoff, StrictMode, inactive trim, failed/stalled short Chat reconnect, and late response isolation';
 };
 `;
 
@@ -72,13 +127,11 @@ async function main() {
         {
           name: "network-boundary",
           setup(build) {
-            build.onResolve({ filter: /\/(offline-cache|computer-bridge|state-events)\.ts$/ }, (args) => ({ path: args.path, namespace: "fixture" }));
+            build.onResolve({ filter: /\/(offline-cache|computer-bridge)\.ts$/ }, (args) => ({ path: args.path, namespace: "fixture" }));
             build.onLoad({ filter: /.*/, namespace: "fixture" }, (args) => ({
               contents: args.path.endsWith("offline-cache.ts")
                 ? "export function rememberChat() {}"
-                : args.path.endsWith("state-events.ts")
-                  ? "export const stateEvents={onMessages(){}}"
-                  : "export function bridgeForKey() { return {readChatMessages: (...args)=>window.read(...args)} }; export const isRemoteKey = () => false;",
+                : "export function bridgeForKey() { return {readChatMessages: (...args)=>window.read(...args)} }; export const isRemoteKey = () => false;",
             }));
           },
         },

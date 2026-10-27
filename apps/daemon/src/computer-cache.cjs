@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { hash } = require("node:crypto");
 const { database } = require("@milagre/core/chat-db");
 
 // Spec "Offline cache": the transcripts of a computer's last 20 opened chats.
@@ -25,11 +26,17 @@ const checked = (computerId) => {
  * itself names things (no window qualifier): its Project, Link and registry lists (kinds "recent", "links", "registry",
  * key ""), each scope's last whole state ("scope", by scope key: { name, state }), and its last 20 chat windows ("chat",
  * by chat key: { messages, hasMore, total }). node:sqlite, as ADR-0007; one handle per computer, closed by remove/close.
+ * It is a copy, so it is written write-ahead without waiting for the disk (a crash may lose the last writes, never the
+ * file), and a copy the same as the last one written is not written again.
  * @param {{ dir: string; now?: () => number }} options
  */
 function createComputerCaches({ dir, now = Date.now }) {
   /** @type {Map<string, any>} */
   const open = new Map();
+  // Per computer, a digest of what each (kind, key) last wrote. Every read of a list (project:recent, link:list, Routines)
+  // and every open of a Project (a 1.3 MB state) put its copy again, most of them unchanged; those write nothing now.
+  /** @type {Map<string, Map<string, string>>} */
+  const written = new Map();
   let closed = false;
   function db(computerId) {
     const id = checked(computerId);
@@ -38,6 +45,9 @@ function createComputerCaches({ dir, now = Date.now }) {
       fs.mkdirSync(path.join(dir, id), { recursive: true, mode: 0o700 });
       const raw = new (database().DatabaseSync)(path.join(dir, id, "cache.sqlite"));
       try {
+        // A rollback journal with full syncs wrote a 1.3 MB state into its journal and the file, waiting on the disk for both.
+        raw.exec("PRAGMA journal_mode = WAL");
+        raw.exec("PRAGMA synchronous = NORMAL");
         raw.exec(SCHEMA);
         handle = {
           handle: raw,
@@ -45,6 +55,7 @@ function createComputerCaches({ dir, now = Date.now }) {
             "INSERT INTO entries (kind, key, payload, at) VALUES (?, ?, ?, ?) ON CONFLICT (kind, key) DO UPDATE SET payload = excluded.payload, at = excluded.at",
           ),
           trim: raw.prepare("DELETE FROM entries WHERE kind = 'chat' AND key NOT IN (SELECT key FROM entries WHERE kind = 'chat' ORDER BY at DESC LIMIT ?)"),
+          touch: raw.prepare("UPDATE entries SET at = ? WHERE kind = ? AND key = ?"),
           read: raw.prepare("SELECT payload FROM entries WHERE kind = ? AND key = ?"),
         };
       } catch (error) {
@@ -71,6 +82,7 @@ function createComputerCaches({ dir, now = Date.now }) {
       /* already unusable */
     }
     open.delete(id);
+    written.delete(id);
     fs.rmSync(path.join(dir, id), { recursive: true, force: true, maxRetries: 5 });
   }
   /** @template T @param {string} id @param {() => T} work @returns {T} */
@@ -88,9 +100,21 @@ function createComputerCaches({ dir, now = Date.now }) {
       const id = checked(computerId);
       if (closed) return;
       guarded(id, () => {
-        const { upsert, trim } = db(id);
-        upsert.run(kind, key, text ?? JSON.stringify(value), now());
-        if (kind === "chat") trim.run(MAX_CHATS);
+        const { upsert, trim, touch } = db(id);
+        const payload = text ?? JSON.stringify(value);
+        const digest = hash("sha256", payload, "base64");
+        const slot = `${kind}\n${key}`;
+        let kept = written.get(id);
+        if (kept?.get(slot) === digest) {
+          // The same copy: a chat still counts as opened now, for the MAX_CHATS kept.
+          if (kind === "chat") touch.run(now(), kind, key);
+          return;
+        }
+        upsert.run(kind, key, payload, now());
+        if (!kept) written.set(id, (kept = new Map()));
+        // Chats past MAX_CHATS are deleted: what they last wrote no longer stands for a row.
+        if (kind === "chat" && Number(trim.run(MAX_CHATS).changes) > 0) for (const other of kept.keys()) if (other.startsWith("chat\n")) kept.delete(other);
+        kept.set(slot, digest);
       });
     },
     /** @param {string} computerId @param {string} kind @param {string} key */
@@ -108,6 +132,7 @@ function createComputerCaches({ dir, now = Date.now }) {
       const id = checked(computerId);
       open.get(id)?.handle.close();
       open.delete(id);
+      written.delete(id);
       await fs.promises.rm(path.join(dir, id), { recursive: true, force: true, maxRetries: 5 });
     },
     close() {
@@ -120,6 +145,7 @@ function createComputerCaches({ dir, now = Date.now }) {
         }
       }
       open.clear();
+      written.clear();
     },
   };
 }

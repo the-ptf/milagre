@@ -290,6 +290,20 @@ test("the phone's designs canvas runs only its own script, and the designs run n
   assert.match(designsCanvasShell("red;}body{x:y"), /background:#f2f2f2/, "only a plain color reaches the style");
 });
 
+test("the phone's designs canvas stops loaded placeholders with fully drawn strokes for their fade", () => {
+  const page = designsCanvasShell();
+  assert.ok(page.includes(".board.ready .draw{opacity:0}"), "loaded placeholders still fade out");
+  assert.match(page, /\.draw\{[^}]*transition:opacity \.2s\}/, "the placeholder keeps its opacity transition");
+  assert.match(DESIGNS_CANVAS_SCRIPT, /classList\.add\("ready"\)/, "loading a design stops its placeholder");
+  assert.match(DESIGNS_CANVAS_SCRIPT, /classList\.remove\("ready"\)/, "a new version restarts its placeholder");
+  assert.ok(page.includes(".board.ready .draw *{animation:none;stroke-dashoffset:0}"), "ready boards stop drawing with the whole icon visible");
+  assert.ok(page.includes(".draw *{stroke-dasharray:100;stroke-dashoffset:100;animation:draw 1.8s ease-in-out infinite}"), "loading boards still animate");
+  assert.ok(
+    page.includes("@media (prefers-reduced-motion:reduce){.draw *{animation:none;stroke-dashoffset:0}"),
+    "reduced motion keeps loading placeholders static",
+  );
+});
+
 test("resolutions are read again only when a comment resolves or feedback is sent", () => {
   const home = { id: "home", version: 1, title: "Home" };
   const feedback = designFeedbackMessage({ comments: [{ design: home, text: "Bigger", id: newCommentId() }] });
