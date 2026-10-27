@@ -72,8 +72,8 @@ function createComputersStore({ file, now = Date.now, allowLocalRelay = false })
       const computer = find(id);
       return computer ? copy(computer) : null;
     },
-    async add({ id, hostId, name, relay }) {
-      const computer = readComputer({ id, hostId, name, relay, lanRoutes: [], addedAt: now(), lastSeen: now() }, allowLocalRelay);
+    async add({ id, hostId, name, relay, lanRoutes = /** @type {string[]} */ ([]) }) {
+      const computer = readComputer({ id, hostId, name, relay, lanRoutes, addedAt: now(), lastSeen: now() }, allowLocalRelay);
       if (!computer) throw new Error("That computer's link is damaged.");
       const before = computers;
       const after = [...computers.filter((item) => item.id !== id), computer];

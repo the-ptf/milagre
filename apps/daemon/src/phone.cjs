@@ -201,6 +201,7 @@ function createPhone({
             pairingLink: live.link,
             computerLink: live.computerLink,
             qrSvg: live.qrSvg,
+            pairingOptions: live.pairingOptions,
           }
         : {}),
     };
@@ -423,6 +424,7 @@ function createPhone({
         phones: current.phones,
         token: config.token,
         bridgeUrl: current.bridge.url,
+        canPair: (key) => mayPair(key),
         ...peer,
       });
       lanError = undefined;
@@ -446,7 +448,44 @@ function createPhone({
   /** Where a device finds this Mac: its relay identity and, while the LAN listener runs, its addresses. */
   function routesOf(current) {
     const port = current.lan?.port;
-    return { hostId: current.identity.hostId, key: b64url(current.identity.box.publicKey), lan: port ? addresses().map((ip) => `ws://${ip}:${port}`) : [] };
+    return {
+      hostId: current.identity.hostId,
+      key: b64url(current.identity.box.publicKey),
+      lan: port ? addresses().map((ip) => `ws://${ip}:${port}`) : [],
+    };
+  }
+
+  /** Private links pair without contacting the public relay; automatic links carry the same routes as a preference. */
+  async function refreshPairingLinks(current) {
+    const direct = routesOf(current).lan.slice(0, 4);
+    const parts = {
+      hostId: current.identity.hostId,
+      key: b64url(current.identity.box.publicKey),
+      token: config.token,
+      name: name(),
+      direct,
+    };
+    current.computerLink = relayPairingLink({ ...parts, relay: relayUrl });
+    if (current.remote !== "cloudflare") current.link = current.computerLink;
+    current.qrSvg = await QRCode.toString(current.link, {
+      type: "svg",
+      margin: 2,
+      errorCorrectionLevel: "M",
+    });
+    current.pairingOptions = [{ id: "automatic", label: "Automatic", link: current.computerLink }];
+    if (direct.length) {
+      const link = relayPairingLink({ ...parts, relay: direct[0] });
+      current.pairingOptions.push({
+        id: "private",
+        label: "LAN or Tailscale only",
+        link,
+        qrSvg: await QRCode.toString(link, {
+          type: "svg",
+          margin: 2,
+          errorCorrectionLevel: "M",
+        }),
+      });
+    }
   }
 
   async function cloudflareOrNull() {
@@ -495,7 +534,7 @@ function createPhone({
         },
       };
       if (cloudflare) tunnel = await tunnels.startNamedTunnel({ hostname: cloudflare.hostname, connectorToken: cloudflare.connectorToken });
-      // The relay runs behind a tunnel too: computers pair and connect only through it.
+      // Keep the remote fallback and webhooks available alongside direct device channels.
       relay = startRelay({
         relayUrl,
         identity,
@@ -522,10 +561,23 @@ function createPhone({
       // A phone scans the tunnel's link when there is one; a computer always gets the relay's.
       const link = cloudflare ? pairingLink({ address: tunnel.url || bridge.url, token: config.token, name: name(), access: cloudflare.access }) : computerLink;
       const publicUrl = tunnel?.url;
-      const qrSvg = await QRCode.toString(link, { type: "svg", margin: 2, errorCorrectionLevel: "M" });
-      live = { bridge, tunnel, relay, retired, identity, phones, localUrl: bridge.url, publicUrl, remote, link, computerLink, qrSvg };
+      live = {
+        bridge,
+        tunnel,
+        relay,
+        retired,
+        identity,
+        phones,
+        localUrl: bridge.url,
+        publicUrl,
+        remote,
+        link,
+        computerLink,
+        qrSvg: "",
+      };
       // Last, so a failure before it leaves no listener behind.
       await startLanFor(live);
+      await refreshPairingLinks(live);
       attempts = 0;
       void bridge.lost.then(() => {
         if (mine === generation) restartLater();
@@ -703,6 +755,7 @@ function createPhone({
           await host?.close().catch(() => {});
         } else if (live) await startLanFor(live);
         if (!enabled) lanError = undefined;
+        if (live) await refreshPairingLinks(live);
         changed();
       });
       return status();
@@ -713,6 +766,7 @@ function createPhone({
         await load();
         if (config.enabled) {
           openPairing();
+          if (live) await refreshPairingLinks(live);
           changed();
         }
       });

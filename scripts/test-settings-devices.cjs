@@ -110,7 +110,8 @@ async function browserChecks() {
       if (await evaluate(source)) return;
       await delay(25);
     }
-    throw Error(`Timed out: ${source}`);
+    await screenshot("timeout");
+    throw Error(`Timed out: ${source}. Screen: ${await evaluate("document.body.innerText.slice(0, 400)")}`);
   }
   async function click(text) {
     const expr = `[...document.querySelectorAll('button')].find(el => el.textContent.trim() === ${JSON.stringify(text)})`;
@@ -185,6 +186,17 @@ async function browserChecks() {
     assert.equal(copied, (await host.call("phone:status")).pairingLink);
     assert.match(copied, /^milagre:\/\/pair\?relay=/);
     console.log("PASS: Copy link copies the link");
+    await evaluate(`document.querySelector('button[aria-label="Pairing connection"]').click()`);
+    await click("LAN or Tailscale only");
+    await click("Copy link");
+    await delay(50);
+    const privateLink = await clipboard.readText();
+    assert.ok(new URL(privateLink).searchParams.get("relay").startsWith("ws://192.168.1.20:"));
+    assert.ok(!privateLink.includes("relay.milagre.cloud"));
+    await screenshot("private-pairing");
+    await evaluate(`document.querySelector('button[aria-label="Pairing connection"]').click()`);
+    await click("Automatic");
+    console.log("PASS: Settings offers a private QR and copied link with no public relay fallback");
 
     // Devices: no phones yet and no Computers list, then a phone and a computer as they pair.
     const phoneKey = "p".repeat(43);

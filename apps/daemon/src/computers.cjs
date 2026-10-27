@@ -2,8 +2,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomBytes, randomUUID } = require("node:crypto");
 const { helloName } = require("@milagre/shared/relay-crypto");
-const { parsePairing } = require("@milagre/shared/pairing-link");
-const { createRouteSupervisor, PROBE_TIMEOUT } = require("@milagre/shared/route-supervisor");
+const { parsePairing, privateDeviceEndpoint } = require("@milagre/shared/pairing-link");
+const { createRouteSupervisor, connectDeviceRoutes, PROBE_TIMEOUT } = require("@milagre/shared/route-supervisor");
 const { computerName } = require("./mobile-pairing.cjs");
 const { connectDesktopRuntime } = require("./runtime-client.cjs");
 const { connectPeer, PeerError } = require("./peer-client.cjs");
@@ -158,6 +158,7 @@ function createComputers({
   const keys = credentials ?? createComputerKeys({ file: path.join(dataDir, "computer-keys.json"), safeStorage, random });
   const ready = store.load();
   const entries = new Map();
+  const pairingEndpoints = new WeakMap();
   let enabled = false;
   let closed = false;
   // Whether this window is focused: every computer's daemon is told (its unread marks and notifications depend on it).
@@ -452,7 +453,9 @@ function createComputers({
             if (!handed) return connectRoute(entry);
             const client = handed;
             handed = null;
-            return Promise.resolve(adopt(entry, client, "relay"));
+            const endpoint = pairingEndpoints.get(client);
+            const direct = endpoint && privateDeviceEndpoint(endpoint, { allowLocalRelay });
+            return Promise.resolve(adopt(entry, client, direct ? "lan" : "relay", direct ? endpoint : null));
           },
           emit: (channel, payload) => runtimeEvent(entry, channel, payload),
         });
@@ -564,18 +567,29 @@ function createComputers({
         const shown = helloName(label) ?? helloName(pairing.name) ?? "Computer";
         let client;
         try {
-          client = await connectPeer({
-            url: relay.url,
-            hostId: relay.hostId,
-            hostKey: relay.key,
-            token: pairing.token,
-            identity: await keys.identity(),
-            name: name(),
-            random,
-            onPending,
-            signal: abort.signal,
-            ...socketOption,
+          const identity = await keys.identity();
+          const selected = await connectDeviceRoutes({
+            primary: relay.url,
+            direct: relay.direct,
+            probe: (endpoint) => probe(endpoint, relay.hostId),
+            stopped: () => abort.signal.aborted,
+            final: isFinal,
+            connect: (url) =>
+              connectPeer({
+                url,
+                hostId: relay.hostId,
+                hostKey: relay.key,
+                token: pairing.token,
+                identity,
+                name: name(),
+                random,
+                onPending,
+                signal: abort.signal,
+                ...socketOption,
+              }),
           });
+          client = selected.connection;
+          pairingEndpoints.set(client, selected.endpoint);
         } catch (error) {
           const failure = /** @type {any} */ (error);
           const code = error instanceof PeerError ? error.code : (failure?.code ?? "lost");
@@ -588,7 +602,14 @@ function createComputers({
         const id = randomUUID();
         try {
           await keys.save(id, { hostKey: relay.key, token: pairing.token });
-          await store.add({ id, hostId: relay.hostId, name: shown, relay: relay.url });
+          const direct = [...new Set([...(relay.direct ?? []), ...(privateDeviceEndpoint(relay.url, { allowLocalRelay }) ? [relay.url] : [])])];
+          await store.add({
+            id,
+            hostId: relay.hostId,
+            name: shown,
+            relay: relay.url,
+            lanRoutes: direct,
+          });
         } catch (error) {
           client.close();
           await keys.forget(id).catch(() => {});

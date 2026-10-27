@@ -6,9 +6,11 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Clipboard from "expo-clipboard";
 import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, ClipboardPasteIcon, KeyboardIcon, QrCodeIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { parsePairing, type Pairing } from "../pairing";
+import { privatePairingLink } from "@milagre/shared/pairing-link";
+import { Row, Group } from "../settings-list";
 import { useSession } from "../session";
 import { Icon } from "../icons";
-import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, useStyles } from "../ui";
+import { CircleButton, ErrorNotice, Field, PageScroll, PillButton, RowSwitch, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 /** One sheet, two steps: scan (with paste as a shortcut), or type the address and token. */
@@ -23,6 +25,7 @@ export default function AddComputer() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [privateOnly, setPrivateOnly] = useState(false);
   async function pair(pairing: Pairing) {
     if (busy) return;
     setBusy(true);
@@ -41,7 +44,7 @@ export default function AddComputer() {
   }
   function fromLink(text: string) {
     try {
-      void pair(parsePairing(text));
+      void pair(parsePairing(privateOnly ? privatePairingLink(text) : text));
     } catch (e) {
       setError((e as Error).message);
       setScanned(false);
@@ -155,6 +158,18 @@ export default function AddComputer() {
               <Text style={styles.label}>On your Mac</Text>
               <Text style={styles.text}>Open Milagre, go to Settings → Devices, turn on Allow devices to connect and scan the QR code it shows.</Text>
             </View>
+            <Group footer="Automatic tries LAN and Tailscale before the remote connection. Private pairing needs both devices on the same network or tailnet.">
+              {[
+                <Row
+                  key="private"
+                  title="LAN or Tailscale only"
+                  chevron={false}
+                  disabled={busy}
+                  onPress={() => setPrivateOnly(!privateOnly)}
+                  trailing={<RowSwitch label="LAN or Tailscale only" selected={privateOnly} disabled={busy} onPress={() => setPrivateOnly(!privateOnly)} />}
+                />,
+              ]}
+            </Group>
             <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
               {[
                 {
@@ -169,6 +184,10 @@ export default function AddComputer() {
                   icon: KeyboardIcon,
                   title: "Enter address and token",
                   onPress: () => {
+                    if (privateOnly) {
+                      setError("For private pairing, scan or paste the Mac's LAN or Tailscale pairing link.");
+                      return;
+                    }
                     setManual(true);
                     setError("");
                   },

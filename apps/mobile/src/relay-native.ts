@@ -29,11 +29,20 @@ export const relayRuntime: RelayRuntime & { forget(hostId: string): void } = {
     } catch {
       throw new Error("Could not read this phone's pairing key. Unlock your phone and try again.");
     }
-    const pairing = `${relay.url} ${relay.key} ${token}`;
+    const pairing = JSON.stringify([relay.url, relay.direct, relay.key, token]);
     const current = open.get(relay.hostId);
     if (current?.pairing === pairing) return current.transport;
     current?.transport.close();
-    const transport = createRelayTransport({ relay: relay.url, hostId: relay.hostId, key: relay.key, token, identity, random: phoneRandom, name: phoneName });
+    const transport = createRelayTransport({
+      relay: relay.url,
+      direct: relay.direct,
+      hostId: relay.hostId,
+      key: relay.key,
+      token,
+      identity,
+      random: phoneRandom,
+      name: phoneName,
+    });
     open.set(relay.hostId, { pairing, transport });
     return transport;
   },

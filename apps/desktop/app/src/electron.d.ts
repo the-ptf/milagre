@@ -162,8 +162,9 @@ export type PhoneStatus = {
   publicUrl?: string;
   /** What the QR encodes: the tunnel's link behind a Cloudflare tunnel, otherwise the relay's. */
   pairingLink?: string;
-  /** The relay's link, the only kind another Mac can pair with. Copy link copies it. */
+  /** The encrypted device link, with private routes preferred before the remote fallback. */
   computerLink?: string;
+  pairingOptions?: { id: string; label: string; link: string; qrSvg?: string }[];
   qrSvg?: string;
   /** Phone access on this Mac's local network: on or off, and the addresses a phone on the same network dials. */
   lan?: { enabled: boolean; addresses: string[]; error?: string };

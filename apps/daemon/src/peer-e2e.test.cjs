@@ -6,6 +6,20 @@ const { startTestMac, connectDesktop, connectPhone, until } = require("./relay-t
 
 const PIECE = 512 * 1024;
 
+test("a first desktop pairs over the private route with owner approval", async (t) => {
+  const mac = await startTestMac(t);
+  const status = await mac.client.call("phone:status");
+  const option = status.pairingOptions.find((entry) => entry.id === "private");
+  assert.ok(option, "Settings offers a private pairing link");
+  const { parsePairing } = require("@milagre/shared/pairing-link");
+  const pairing = parsePairing(option.link, { allowLocalRelay: true });
+  assert.ok(pairing.relay.url.startsWith("ws://127.0.0.1:"));
+  const desktop = mac.dial(connectDesktop, { relayUrl: pairing.relay.url, name: "Direct Mac" });
+  assert.ok((await desktop.hello()).channel);
+  assert.equal((await desktop.call("daemon:status")).result.version, "9.8.7");
+  assert.equal((await mac.client.call("devices:list"))[0].route, "lan");
+});
+
 /** Waits for `promise`, failing the test instead of hanging the suite when it never settles. */
 function within(promise, label, ms = 10_000) {
   let timer;

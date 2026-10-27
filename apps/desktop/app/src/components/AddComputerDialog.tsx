@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
+import { privatePairingLink } from "@milagre/shared/pairing-link";
+import { Switch } from "./primitives/Switch";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
 
 const FIELD =
@@ -15,6 +17,14 @@ const FIELD =
 export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (computer: ComputerView) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [link, setLink] = useState("");
+  const [privateOnly, setPrivateOnly] = useState(false);
+  let selectedLink = link.trim();
+  let selectionError = "";
+  try {
+    if (selectedLink && privateOnly) selectedLink = privatePairingLink(selectedLink);
+  } catch (cause) {
+    selectionError = ipcErrorMessage(cause);
+  }
   const [preview, setPreview] = useState<ComputerPreview | null>(null);
   const [name, setName] = useState("");
   const typedName = useRef(false);
@@ -41,10 +51,11 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
 
   // Each change to the link is read again before anything is sent; an older answer that arrives late is dropped.
   useEffect(() => {
-    const text = link.trim();
+    const text = selectedLink;
     const read = ++reads.current;
     setPreview(null);
     setError(null);
+    if (selectionError) return setError(selectionError);
     if (!text) return;
     window.milagre.computers.preview(text).then(
       (found) => {
@@ -56,7 +67,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         if (read === reads.current) setError(ipcErrorMessage(cause));
       },
     );
-  }, [link]);
+  }, [selectedLink, selectionError]);
 
   const close = () => {
     if (adding) void window.milagre.computers.cancelAdd();
@@ -67,9 +78,11 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
     setAdding(true);
     setWaiting(false);
     setError(null);
-    const result: AddComputerResult = await window.milagre.computers
-      .add(link.trim(), { name: name.trim() || preview.name })
-      .catch((cause: unknown) => ({ ok: false as const, code: "failed", message: ipcErrorMessage(cause) }));
+    const result: AddComputerResult = await window.milagre.computers.add(selectedLink, { name: name.trim() || preview.name }).catch((cause: unknown) => ({
+      ok: false as const,
+      code: "failed",
+      message: ipcErrorMessage(cause),
+    }));
     // Cleared before onAdded unmounts the dialog, or the unmount cleanup would cancel a pairing that already succeeded.
     addingNow.current = false;
     setAdding(false);
@@ -134,6 +147,18 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
             Paste
           </button>
         </div>
+        <div className="mt-3 flex items-center justify-between gap-3 text-[13px]">
+          <span>LAN or Tailscale only</span>
+          <Switch
+            label="LAN or Tailscale only"
+            checked={privateOnly}
+            disabled={adding}
+            onChange={(value) => {
+              if (!adding) setPrivateOnly(value);
+            }}
+          />
+        </div>
+        <p className="mt-1 text-[12px] text-ink-3">Automatic tries private routes first. Private pairing needs both devices on the same network or tailnet.</p>
         {preview && (
           <div data-add-computer-found className="mt-3 flex items-center gap-3 rounded-[10px] bg-hover px-3 py-2.5">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-hover-2 text-ink-2">

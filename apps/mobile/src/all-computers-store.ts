@@ -61,7 +61,7 @@ const isLink = (path: string) => path.startsWith("milagre-link:");
  * Every field that authenticates or addresses the computer counts (the learned LAN route does not: it is not part of the pairing).
  */
 const credentials = (host: SavedHost) =>
-  JSON.stringify([host.token, host.address, host.relay?.hostId, host.relay?.key, host.relay?.url, host.access?.id, host.access?.secret]);
+  JSON.stringify([host.token, host.address, host.relay?.hostId, host.relay?.key, host.relay?.url, host.relay?.direct, host.access?.id, host.access?.secret]);
 /** A refusal that comes from this Project or this request, not the network: asking again at once would only get it again. */
 const deterministic = (error: unknown) => {
   const status = (error as { status?: unknown } | null)?.status;

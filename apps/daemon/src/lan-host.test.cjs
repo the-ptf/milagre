@@ -35,6 +35,16 @@ test("/v1/hello names this Mac and nothing else", async (t) => {
   assert.equal((await fetch(`http://127.0.0.1:${host.port}/rpc`)).status, 404);
 });
 
+test("a new phone can pair directly during the owner's pairing window", async (t) => {
+  const { identity, key, phones, url } = await lanMac(t, { knownPhone: false, canPair: () => true });
+  const phone = connectPhone({ relayUrl: url, identity, key });
+  t.after(() => phone.ws.close());
+  assert.ok((await phone.hello()).channel);
+  assert.equal(phones.isKnown(b64url(key.publicKey)), true);
+  phone.request(1, { path: "/rpc" });
+  assert.equal((await phone.response(1)).status, 200);
+});
+
 test("a known phone calls /rpc over the LAN socket", async (t) => {
   const { identity, key, bridge, url } = await lanMac(t);
   const phone = connectPhone({ relayUrl: url, identity, key });

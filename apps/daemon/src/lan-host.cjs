@@ -37,8 +37,7 @@ function parseTarget(url) {
 /**
  * Phone and paired-desktop access on the local network: the relay's phone protocol, end to end encrypted, over a socket the phone
  * dials directly. `/v1/hello` lets a phone check, without credentials, that this address is still this Mac.
- * Pairing never happens here: a phone must already be known (paired over the relay, or registered through
- * `phone:routes` on a route it trusts).
+ * A pinned pairing link can authorize a new device during the owner's pairing window, including over Tailscale.
  */
 function startLanHost({
   port,
@@ -54,8 +53,10 @@ function startLanHost({
   pingMs = PING_MS,
   idleMs = IDLE_MS,
   openPeer,
+  canPair = () => false,
+  allowComputer,
 }) {
-  const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair: () => false, WebSocket, fetch, random, helloMs, openPeer });
+  const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair, WebSocket, fetch, random, helloMs, openPeer, allowComputer });
   const sockets = new Map(); // conn id -> the phone's socket
   const perAddress = new Map(); // remote address -> open sockets
   const alive = new WeakSet(); // sockets that answered since the last ping

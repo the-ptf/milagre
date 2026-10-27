@@ -671,3 +671,17 @@ test("the window's focus reaches the computer's daemon, now and after every reco
   await delay(50);
   assert.equal(mac.focus.at(-1), true, "the reconnect replays the window's state");
 });
+
+test("the first pairing prefers advertised private routes and saves them for reconnects", async (t) => {
+  const mac = fakeMac({ lan: [LAN] });
+  const { computers, dataDir, state } = await paired(t, mac);
+  await computers.setEnabled(true);
+  const invitation = macLink(mac) + `&direct=${encodeURIComponent(JSON.stringify([LAN]))}`;
+  await computers.add(invitation);
+  await until(() => state() === "online", "private computer online");
+  assert.ok(mac.urls[0].startsWith(LAN), "the first pairing does not need the relay");
+  assert.equal(computers.list()[0].route, "lan");
+  assert.equal(computers.list()[0].address, "192.168.1.5");
+  const saved = JSON.parse(await fs.readFile(path.join(dataDir, "computers.json"), "utf8"));
+  assert.deepEqual(saved[0].lanRoutes, [LAN]);
+});
