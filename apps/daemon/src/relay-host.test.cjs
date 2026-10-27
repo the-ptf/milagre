@@ -8,7 +8,7 @@ const { b64url, boxKeyPair } = require("@milagre/shared/relay-crypto");
 const { createAssembler, fromBase64 } = require("@milagre/shared/relay-rpc");
 const { readIdentity } = require("./relay-identity.cjs");
 const { createDevices } = require("./devices.cjs");
-const { startRelayHost } = require("./relay-host.cjs");
+const { startRelayHost, createTransportDiagnostics, transportDiagnostics } = require("./relay-host.cjs");
 const {
   random,
   TOKEN,
@@ -25,7 +25,7 @@ const {
 
 async function startMac(
   t,
-  { relayUrl, bridgeUrl, canPair = () => false, token = TOKEN, timing, onStatus, openPeer, allowComputer = async () => "allowed", WebSocket } = {},
+  { relayUrl, bridgeUrl, canPair = () => false, token = TOKEN, timing, onStatus, openPeer, allowComputer = async () => "allowed", WebSocket, diagnostics } = {},
 ) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "relay-host-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
@@ -44,6 +44,7 @@ async function startMac(
     openPeer,
     allowComputer,
     ...(WebSocket ? { WebSocket } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
     onStatus: (status) => {
       statuses.push(status);
       onStatus?.(status);
@@ -1090,4 +1091,147 @@ test("a draining host whose room holds nothing says drained at once", async (t) 
   const host = startRelayHost({ relayUrl: relay.url, identity, retired: true, hooks: hookSet([], { drained: () => (drained += 1) }) });
   t.after(() => host.close());
   await until(() => drained === 1, "drained");
+});
+
+// Transport diagnostics (relay-host.cjs createTransportDiagnostics): opt-in counters, no payloads.
+test("transport diagnostics are off by default, and a host without them never reads the socket's buffer", async (t) => {
+  if (process.env.MILAGRE_TRANSPORT_DIAGNOSTICS === "1") return t.skip("diagnostics turned on in this environment");
+  assert.equal(transportDiagnostics, null);
+  const reads = { count: 0 };
+  class Counting extends require("ws").WebSocket {
+    get bufferedAmount() {
+      reads.count += 1;
+      return super.bufferedAmount;
+    }
+  }
+  const { connect } = await paired(t, { mac: { WebSocket: Counting } });
+  const phone = await connect();
+  phone.send({ t: "ping" });
+  assert.deepEqual(await phone.next(), { t: "pong" });
+  phone.request(1, { path: "/rpc", method: "POST", body: "{}" });
+  assert.equal((await phone.response(1)).status, 200);
+  assert.equal(reads.count, 0);
+});
+
+test("MILAGRE_TRANSPORT_DIAGNOSTICS=1 at start turns the process-wide diagnostics on; anything else leaves them off", () => {
+  const { execFileSync } = require("node:child_process");
+  const on = (value) =>
+    execFileSync(process.execPath, ["-e", "process.stdout.write(String(require('./relay-host.cjs').transportDiagnostics !== null))"], {
+      cwd: __dirname,
+      env: { ...process.env, MILAGRE_TRANSPORT_DIAGNOSTICS: value },
+    }).toString();
+  assert.equal(on("1"), "true");
+  assert.equal(on("0"), "false");
+  assert.equal(on(""), "false");
+});
+
+test("transport diagnostics count frames, bytes and envelopes both ways, the most the socket held, and reconnects", async (t) => {
+  const clock = { now: 5_000 };
+  const diagnostics = createTransportDiagnostics({ now: () => clock.now });
+  const tally = { inFrames: 0, inBytes: 0, outFrames: 0, outBytes: 0 };
+  const busy = { amount: 0 };
+  // Tallies the relay socket only: the bridge's live sockets share the class.
+  class Tallied extends require("ws").WebSocket {
+    constructor(url, ...rest) {
+      super(url, ...rest);
+      this.relay = String(url).includes("/v1/host");
+      if (this.relay)
+        this.on("message", (data) => {
+          tally.inFrames += 1;
+          tally.inBytes += data.length;
+        });
+    }
+    send(data, ...rest) {
+      if (this.relay) {
+        tally.outFrames += 1;
+        tally.outBytes += typeof data === "string" ? Buffer.byteLength(data) : data.length;
+      }
+      return super.send(data, ...rest);
+    }
+    get bufferedAmount() {
+      return busy.amount || super.bufferedAmount;
+    }
+  }
+  const relay = await startRelay(t);
+  const { mac, connect } = await paired(t, { relay, mac: { WebSocket: Tallied, diagnostics, timing: { backoff: [20], jitter: false } } });
+  const phone = await connect();
+  phone.send({ t: "ping" });
+  assert.deepEqual(await phone.next(), { t: "pong" });
+  busy.amount = 12_345;
+  phone.request(1, { path: "/rpc", method: "POST", headers: { authorization: `Bearer ${TOKEN}` }, body: '{"secret":"s3cr3t"}' });
+  assert.equal((await phone.response(1)).status, 200);
+  busy.amount = 0;
+  phone.close();
+  await until(() => diagnostics.read().in.envelopes.CLOSE === 1, "the relay's CLOSE");
+  const seen = diagnostics.read();
+  assert.equal(seen.in.frames, tally.inFrames);
+  assert.equal(seen.in.bytes, tally.inBytes);
+  assert.equal(seen.out.frames, tally.outFrames);
+  assert.equal(seen.out.bytes, tally.outBytes);
+  assert.deepEqual(
+    Object.entries(seen.in.envelopes).filter(([, n]) => n),
+    [
+      ["OPEN", 1],
+      ["DATA", 3],
+      ["CLOSE", 1],
+      ["text", 2],
+    ],
+  );
+  assert.deepEqual(
+    Object.entries(seen.out.envelopes).filter(([, n]) => n),
+    [
+      ["DATA", 3],
+      ["text", 1],
+    ],
+  );
+  assert.deepEqual(
+    Object.entries(seen.in.messages).filter(([, n]) => n),
+    [
+      ["hello", 1],
+      ["req", 1],
+      ["ping", 1],
+    ],
+  );
+  assert.deepEqual(
+    Object.entries(seen.out.messages).filter(([, n]) => n),
+    [
+      ["hello", 1],
+      ["res", 1],
+      ["pong", 1],
+    ],
+  );
+  assert.equal(seen.maxBufferedAmount, 12_345);
+  assert.deepEqual(seen.active, { phone: 1, retired: 0, hooks: 0 });
+  // Nothing that names a device, the Mac, the bridge or a request is in what diagnostics hand out.
+  const json = JSON.stringify(seen);
+  for (const secret of [TOKEN, "s3cr3t", mac.identity.hostId, b64url(phone.key.publicKey), "/rpc", "127.0.0.1", "Bearer"])
+    assert.ok(!json.includes(secret), secret);
+
+  relay.hostSockets[0].terminate();
+  await until(() => relay.hostSockets.length === 2 && mac.host.status() === "online", "the host back online");
+  const after = diagnostics.read().sockets.phone;
+  assert.equal(after.connects, 2);
+  assert.equal(after.reconnects, 1);
+  assert.equal(after.closes["1006"], 1);
+
+  clock.now = 9_000;
+  diagnostics.reset();
+  const fresh = diagnostics.read();
+  assert.equal(fresh.since, 9_000);
+  assert.equal(fresh.uptimeMs, 0);
+  assert.equal(fresh.in.frames + fresh.out.frames + fresh.sockets.phone.connects + fresh.maxBufferedAmount, 0);
+  assert.deepEqual(fresh.active, { phone: 1, retired: 0, hooks: 0 }, "a reset keeps the hosts running now");
+  clock.now = 9_250;
+  assert.equal(diagnostics.read().uptimeMs, 250);
+
+  await mac.host.close();
+  const stopped = diagnostics.read();
+  assert.deepEqual(stopped.active, { phone: 0, retired: 0, hooks: 0 });
+  assert.equal(stopped.sockets.phone.stopped, 1);
+  assert.equal(stopped.sockets.phone.closes["1000"], 1);
+  // A stopped host counts nothing more.
+  const before = JSON.stringify(diagnostics.read());
+  mac.host.syncHooks();
+  mac.host.drop("anything");
+  assert.equal(JSON.stringify(diagnostics.read()), before);
 });

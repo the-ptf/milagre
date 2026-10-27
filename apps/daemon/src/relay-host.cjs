@@ -37,6 +37,110 @@ const EMPTY_SET = JSON.stringify({ hookIds: [] });
 const RELAY_PEER_BUDGET = 96 * 1024 * 1024 + PEER_BUDGET;
 const defaultRandom = (n) => new Uint8Array(randomBytes(n));
 
+// Opt-in transport diagnostics: plain counters of what crosses the relay socket, for chasing traffic storms without
+// logging anything. Off unless MILAGRE_TRANSPORT_DIAGNOSTICS=1 when the daemon starts; read (and reset) through
+// phone:status on this Mac's own connection. Every key is a fixed name below: no conn id, hook id, key, token, URL,
+// header, argument or payload ever reaches it.
+const ENVELOPES = ["OPEN", "DATA", "CLOSE", "HOOK", "HOOK_SET", "HOOK_ACK", "HOOK_RESULT"]; // frame type n is ENVELOPES[n - 1]
+const MESSAGE_TYPES = new Set(["hello", "req", "res", "live-open", "live", "live-close", "ping", "pong", "peer"]);
+const ANOMALIES = ["dataNoConn", "dataNotOpen", "dataUndecryptable", "duplicateOpen"];
+const CLOSE_CODES = [1000, 1001, 1005, 1006, 1009, 1011, 4403, 4409, 4410];
+const ROLES = ["phone", "retired", "hooks"];
+const zeros = (names) => Object.fromEntries(names.map((name) => [name, 0]));
+const envelopeOf = (bytes) => (bytes.length < 9 ? "short" : (ENVELOPES[bytes[0] - 1] ?? "other"));
+
+function blankCounters() {
+  const direction = (marks) => ({
+    frames: 0,
+    bytes: 0,
+    envelopes: zeros([...ENVELOPES, "text", "short", "other"]),
+    messages: zeros([...MESSAGE_TYPES, "unknown"]),
+    ...(marks ? { marks: zeros(["pending", "error"]) } : {}),
+  });
+  return {
+    in: direction(false),
+    out: direction(true),
+    anomalies: zeros(ANOMALIES),
+    maxBufferedAmount: 0,
+    sockets: Object.fromEntries(
+      ROLES.map((role) => [role, { started: 0, stopped: 0, connects: 0, reconnects: 0, closes: zeros([...CLOSE_CODES.map(String), "idle", "other"]) }]),
+    ),
+  };
+}
+
+/**
+ * One process-wide set of counters (bounded: fixed keys, integers only). Each relay host `attach`es with its role and
+ * counts through the probe it gets back until it stops (`detach`), so the totals outlive host restarts. `read()` is a
+ * copy with `since` (ms epoch of the start or last reset), `uptimeMs` and the hosts running now; `reset()` zeroes
+ * everything but that.
+ */
+function createTransportDiagnostics({ now = Date.now } = {}) {
+  let counters = blankCounters();
+  let since = now();
+  const active = zeros(ROLES);
+  const count = {
+    frame(direction, envelope, size) {
+      const side = counters[direction];
+      side.frames += 1;
+      side.bytes += size;
+      side.envelopes[envelope] += 1;
+    },
+    message(direction, type) {
+      counters[direction].messages[typeof type === "string" && MESSAGE_TYPES.has(type) ? type : "unknown"] += 1;
+    },
+    mark(kind) {
+      counters.out.marks[kind] += 1;
+    },
+    anomaly(name) {
+      counters.anomalies[name] += 1;
+    },
+    buffered(amount) {
+      if (amount > counters.maxBufferedAmount) counters.maxBufferedAmount = amount;
+    },
+  };
+  return {
+    attach(role) {
+      let attached = true;
+      active[role] += 1;
+      counters.sockets[role].started += 1;
+      return {
+        frame: (direction, envelope, size) => attached && count.frame(direction, envelope, size),
+        message: (direction, type) => attached && count.message(direction, type),
+        mark: (kind) => attached && count.mark(kind),
+        anomaly: (name) => attached && count.anomaly(name),
+        buffered: (amount) => attached && count.buffered(amount),
+        connect(reconnect) {
+          if (!attached) return;
+          const socket = counters.sockets[role];
+          socket.connects += 1;
+          if (reconnect) socket.reconnects += 1;
+        },
+        closed(code) {
+          if (!attached) return;
+          const closes = counters.sockets[role].closes;
+          closes[code === undefined ? "idle" : CLOSE_CODES.includes(code) ? String(code) : "other"] += 1;
+        },
+        /** The host stopped: nothing it still holds counts any more. */
+        detach() {
+          if (!attached) return;
+          attached = false;
+          active[role] -= 1;
+          counters.sockets[role].stopped += 1;
+        },
+      };
+    },
+    read() {
+      const at = now();
+      return { enabled: true, since, uptimeMs: at - since, active: { ...active }, ...structuredClone(counters) };
+    },
+    reset() {
+      counters = blankCounters();
+      since = now();
+    },
+  };
+}
+const transportDiagnostics = process.env.MILAGRE_TRANSPORT_DIAGNOSTICS === "1" ? createTransportDiagnostics() : null;
+
 /**
  * Keeps the Mac connected to the public relay and serves each phone that comes through it:
  * an encrypted channel per phone, with requests and live sockets forwarded to the loopback bridge.
@@ -61,8 +165,11 @@ function startRelayHost({
   allowComputer,
   hooks,
   hooksOnly = false,
+  diagnostics = transportDiagnostics,
 }) {
   const { pingMs, idleMs, helloMs, backoff, replacedMs, stableMs, jitter, pendingRepeatMs, queueWaitMs } = { ...DEFAULT_TIMING, ...timing };
+  // Null unless diagnostics are on: every count below is behind it, so a host without them does no extra work.
+  let probe = diagnostics ? diagnostics.attach(hooksOnly ? "hooks" : retired ? "retired" : "phone") : null;
   // `hooksOnly`: no phone is served (phone access is off), the socket is kept for webhooks alone.
   const channels = hooksOnly
     ? null
@@ -81,6 +188,7 @@ function startRelayHost({
         allowComputer,
         pendingRepeatMs,
         queueWaitMs,
+        diagnostics: probe,
       });
   let status = "connecting";
   let closed = false;
@@ -88,6 +196,7 @@ function startRelayHost({
   let retryTimer = null;
   let session = null; // the live relay socket and its phone connections
   let drainedOnce = false;
+  let dialed = false;
 
   const setStatus = (next) => {
     if (status === next) return;
@@ -100,7 +209,13 @@ function startRelayHost({
   };
 
   function sendRaw(current, bytes) {
-    if (current.socket.readyState === WebSocket.OPEN) current.socket.send(bytes);
+    if (current.socket.readyState !== WebSocket.OPEN) return;
+    current.socket.send(bytes);
+    // Measured only: what the socket holds unsent right after this frame joined it. Nothing is dropped or closed on it.
+    if (probe) {
+      probe.frame("out", envelopeOf(bytes), bytes.length);
+      probe.buffered(current.socket.bufferedAmount);
+    }
   }
 
   /**
@@ -216,6 +331,8 @@ function startRelayHost({
   function connect() {
     if (closed) return;
     setStatus("connecting");
+    probe?.connect(dialed);
+    dialed = true;
     const ws = new WebSocket(`${relayUrl}/v1/host?id=${identity.hostId}`, { handshakeTimeout: idleMs });
     const current = {
       socket: ws,
@@ -244,6 +361,7 @@ function startRelayHost({
     const finish = (code) => {
       if (current.over) return;
       current.over = true;
+      probe?.closed(code);
       clearInterval(current.timer);
       clearTimeout(current.readyTimer);
       clearTimeout(current.stableTimer);
@@ -273,6 +391,7 @@ function startRelayHost({
       // ws does not catch listener errors, and nothing a relay sends may take the daemon down.
       try {
         current.lastHeard = Date.now();
+        if (probe) probe.frame("in", isBinary ? envelopeOf(data) : "text", data.length);
         if (current.ready) {
           if (!isBinary) return;
           if (hooks && hookFrame(current, data)) return;
@@ -285,7 +404,9 @@ function startRelayHost({
         if (message?.t === "challenge") {
           const nonce = fromB64url(String(message.nonce));
           if (nonce.length !== 32) throw new Error("Bad challenge");
-          ws.send(JSON.stringify({ t: "proof", key: b64url(identity.sign.publicKey), sig: b64url(nacl.sign.detached(nonce, identity.sign.secretKey)) }));
+          const proof = JSON.stringify({ t: "proof", key: b64url(identity.sign.publicKey), sig: b64url(nacl.sign.detached(nonce, identity.sign.secretKey)) });
+          ws.send(proof);
+          if (probe) probe.frame("out", "text", Buffer.byteLength(proof));
         } else if (message?.t === "ready") {
           current.ready = true;
           clearTimeout(current.readyTimer);
@@ -326,6 +447,12 @@ function startRelayHost({
     });
   }
 
+  // A stopped host counts nothing more (its channels hold the probe, which goes quiet) and lets go of it.
+  function stopProbe() {
+    probe?.detach();
+    probe = null;
+  }
+
   connect();
 
   return {
@@ -346,6 +473,7 @@ function startRelayHost({
       clearTimeout(retryTimer);
       const current = session;
       if (!current) {
+        stopProbe();
         setStatus("offline");
         return;
       }
@@ -356,8 +484,9 @@ function startRelayHost({
       const timer = setTimeout(() => current.socket.terminate(), 2000);
       await ended;
       clearTimeout(timer);
+      stopProbe();
     },
   };
 }
 
-module.exports = { startRelayHost };
+module.exports = { startRelayHost, createTransportDiagnostics, transportDiagnostics };
