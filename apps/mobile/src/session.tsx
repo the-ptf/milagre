@@ -622,7 +622,7 @@ function useSessionState() {
     client,
     designs,
     recent,
-    /** The Project state the computer last sent whole; its streaming turns live in `runsStore` (useRun, useRuns). */
+    /** The Project state the computer last sent whole; its streaming turns live in `runsStore` (useRun). */
     snapshot,
     runsStore,
     error,
@@ -804,11 +804,6 @@ function useSessionContext() {
   const session = useContext(SessionContext);
   if (!session) throw new Error("SessionProvider is required");
   return scoped ?? session;
-}
-/** The streaming turns of this screen's Project; re-renders as any of them changes. */
-export function useRuns(): Runs | undefined {
-  const session = useSessionContext();
-  return useSyncExternalStore(session.runsStore.subscribe, () => runsOf(session));
 }
 /** The streaming turn of one Chat ("path#id"), if any; re-renders only as that turn changes. */
 export function useRun(chatKey: string | null | undefined): AgentRun | undefined {

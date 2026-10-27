@@ -154,7 +154,7 @@ type BuildContext = {
 };
 
 /** The Filters menu's Show choices: which Chats the list keeps. */
-export type Show = "all" | "needs" | "running" | "archived";
+type Show = "all" | "needs" | "running" | "archived";
 const SHOW: [Show, string, string][] = [
   ["all", "All Chats", "bubble.left.and.bubble.right"],
   ["needs", "Needs me", "exclamationmark.bubble"],

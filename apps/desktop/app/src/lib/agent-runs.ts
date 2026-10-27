@@ -5,7 +5,7 @@ import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns, SentAnswer } from "@milagre/shared/agent-runs";
 
 export type { AgentRun, AgentRuns, SentAnswer } from "@milagre/shared/agent-runs";
-export { applyRunEvent, chatInProject, chatKey, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+export { chatInProject, chatKey, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 
 /** Session ids of the project's chats that wait on at least one approval or question, so the sidebar can mark them. */
 export function chatsWaitingForUser(runs: AgentRuns, projectPath: string): Set<number> {
@@ -158,7 +158,7 @@ export type FrameScheduler = (flush: () => void) => () => void;
  * The next animation frame, or a 16 ms timer where there is none or the page is hidden. A window macOS occludes stops
  * firing frames while it still counts as visible, so a 100 ms timer races the frame and whichever comes first flushes.
  */
-export const nextFrame: FrameScheduler = (flush) => {
+const nextFrame: FrameScheduler = (flush) => {
   const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
   if (typeof requestAnimationFrame !== "function" || hidden) {
     const timer = setTimeout(flush, 16);
@@ -211,4 +211,3 @@ export function createCoalescer<T>(apply: (batch: T[]) => void, schedule: FrameS
     },
   };
 }
-export type Coalescer<T> = ReturnType<typeof createCoalescer<T>>;
