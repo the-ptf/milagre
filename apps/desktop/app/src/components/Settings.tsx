@@ -78,6 +78,8 @@ import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneSta
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
+import { Group, Row } from "./settings/SettingsGroup";
+import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
@@ -467,43 +469,6 @@ function ChoiceGroup({ title, children }: { title: string; children: ReactNode }
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="mt-6">
-      <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">{title}</h2>
-      <div className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">{children}</div>
-    </section>
-  );
-}
-
-function Row({
-  label,
-  description,
-  preview,
-  children,
-}: {
-  label: string;
-  description?: string;
-  /** On Appearance: the row tells the window preview while the pointer is over it. */
-  preview?: { onEnter: () => void; onLeave: () => void };
-  children: ReactNode;
-}) {
-  return (
-    <div
-      data-preview-row={preview ? "" : undefined}
-      onPointerEnter={preview?.onEnter}
-      onPointerLeave={preview?.onLeave}
-      className="flex min-h-12 items-center justify-between gap-6 px-4 py-2"
-    >
-      <div className="grid min-w-0 gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">{label}</span>
-        {description && <span className="text-[12px] text-ink-3">{description}</span>}
-      </div>
-      <div className="shrink-0 text-[13px] text-ink-2">{children}</div>
-    </div>
-  );
-}
-
 /** The custom chat width: digits right-aligned with a px suffix. Enter or blur saves the clamped value, Escape restores the saved one. */
 function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onCommit: (px: number) => void; onFocusChange?: (focused: boolean) => void }) {
   const [text, setText] = useState(String(value));
@@ -669,10 +634,14 @@ function ChatSettings() {
   );
 }
 
-function ExperimentalSettings() {
+function ExperimentalSettings({ title }: { title?: string }) {
   const settings = useSettings();
+  // Babysit PRs opens as a page of its own inside Experimental, with its own title row and a way back.
+  const [page, setPage] = useState<"experimental" | "babysit-prs">("experimental");
+  if (page === "babysit-prs") return <BabysitPrsSettings onBack={() => setPage("experimental")} />;
   return (
     <>
+      <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
       <Group title="Beta">
         <Row
           label="Floating inbox"
@@ -702,6 +671,7 @@ function ExperimentalSettings() {
         </Row>
         <BotsSettings />
         <RemoteDelegationSettings />
+        <BabysitPrsRow onOpen={() => setPage("babysit-prs")} />
       </Group>
     </>
   );
@@ -2363,8 +2333,8 @@ export function SettingsPanel({
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto w-full max-w-[640px] px-6 pt-14 pb-10">
-        {/* MCP draws its own title row, with Refresh and Add server beside it. */}
-        {section !== "mcp" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
+        {/* MCP draws its own title row, with Refresh and Add server beside it; Experimental swaps it for Babysit PRs' page title. */}
+        {section !== "mcp" && section !== "experimental" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
         {section === "general" && <GeneralSettings models={models} />}
         {section === "accounts" && (
           <>
@@ -2404,7 +2374,7 @@ export function SettingsPanel({
           </>
         )}
         {section === "devices" && <DevicesSettings onAddComputer={onAddComputer} />}
-        {section === "experimental" && <ExperimentalSettings />}
+        {section === "experimental" && <ExperimentalSettings title={title} />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
         {section === "privacy" && <PrivacySettings />}
         {section === "about" && <AboutSettings update={update} />}

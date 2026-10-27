@@ -153,6 +153,8 @@ const ALLOWED: Record<string, string[]> = {
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   // This Mac's own switch for its Chats delegating to other computers.
   "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
+  // This Mac's own Babysit PRs settings, which its daemon's poller follows.
+  "lib/babysit-settings.ts": ["readBabysitSettings", "saveBabysitSettings", "onBabysitSettings"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   // Every computer's terminal:changed, and every host's reconnect snapshot, mark the Terminal lists the window holds.
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent", "onRuntimeSnapshot"],
