@@ -105,3 +105,26 @@ switches (129 ms measured vs 24 ms painted) because commitChatSwitch only fires 
 C10 The cold Chat's page read (chat:messages) shares the host's single event loop and the client's MAX_PENDING=32 slot pool with the burst
 above, so on a loaded Mac it waits behind spawns and git; the page read has no priority.
 C11 Startup with other computers: every remote Project's full lean state is read and written to the sqlite copy; project:image per Project.
+
+## After the fixes (2026-10-27, same harness, same plans)
+
+Three changes landed on this branch, each verified against the code by a reader before it was written:
+
+- Host (`packages/core`, `apps/daemon/src/server.cjs`, `runtime-client.cjs`): a Chat switch no longer refreshes the diff stats of a whole Project (`chat:set-open` reads the open Chat's Worktree only; `canvas:open-project` and a paired desktop's `project:read` open now set the connection's shown Project); switching back to a loaded Project runs one `git worktree list` instead of the full open (resume, titles, sweeps and the diff refresh run once per Project per run; registry and recents are not rewritten when nothing changed); `project:registry`, `canvas:links` and `link:open` answer without the per-Project Git sweep; `chat:messages` goes through the Project queue once; open replies carry `version` and `epoch` so the first change after an open is a patch, not a resync; `project:read(path, { state: false })` opens a Project on another Mac without shipping its state.
+- Renderer (`apps/desktop/app/src`): the cold Chat's page read leaves before the open and the rest of the burst; another computer's Project opens with `project:read` (never `project:switch`, which reordered that Mac's recents); held states are seeded from open replies and shared with the sidebar; model lists, CLI status, usage, branches, PRs, skills, checkpoints, designs and terminals are served from short caches and refreshed in the background; simulator and browser polls run only while something is attached or shown; remote images read at most 6 at a time with a negative cache; in-Link Chat picks are measured.
+- Daemon computers path (`apps/daemon/src/computers*`, `media-access.cjs`, `mobile-pairing.cjs`, `apps/desktop/electron/computers-lane.cjs`): paired computers' calls travel on a daemon connection of their own, so relay-latency reads no longer hold the window's 32 local slots; the far Mac keeps a scope's Worktree roots for 5 s across `media:read`; `computerName()` is looked up once; the offline copy is written after the reply and only when it changed (WAL); a reconnect waits at most 500 ms on a dead LAN address before dialing the relay.
+
+| switch kind                                | host calls per switch before → after | host calls ≥ 50 ms before → after | painted ms (median) before → after |
+| ------------------------------------------ | ------------------------------------ | --------------------------------- | ---------------------------------- |
+| Local: Chat to Chat, same Project          | 9 → 8                                | 2.2 → 1.0                         | 39 → 42                            |
+| Local: Project switch                      | 20 → 14                              | 10.9 → 0.8                        | 60 → 55                            |
+| Link: Chat to Chat inside the Link         | 4 → 2                                | 1.3 → 0.0                         | 44 → 46                            |
+| Link: open the Link                        | 24 → 21                              | 10.0 → 0.5                        | 78 → 81                            |
+| Other computer: Chat to Chat, same Project | 39 → 20                              | 18.5 → 2.0                        | 68 → 54                            |
+| Other computer: Project switch             | 57 → 29                              | 27.3 → 4.6                        | 50 → 59                            |
+
+Per switch, `agent:models` 0.76 → 0.12, `agent:cli-status` 0.71 → 0.12, `usage:read` 0.45 → 0.10, `usage:cached` 1.05 → 0.22, `project:branches` 0.69 → 0.15, `worktree:pull-request` 0.67 → 0.22, `project:worktree-paths` 2.86 → 0.51, `project:chat-image` 0.95 → 0.20, `terminal:list` 1.19 → 0.37, `designs:enabled:read` 0.86 → 0.07; `project:switch` on the far Mac is gone (`project:read` 0.05 → 0.54 takes its place, without the state).
+
+Loaded Mac (10 busy worker threads, same plan): switch back to the big Project 361 and 266 ms → 63 and 60 ms painted; to the small Project 167 → 109 ms; everything else 29 to 68 ms. Relay-only route after the fixes: every remote switch 37 to 70 ms painted. The host's own counting (`packages/core/src/runtime-open-cost.test.cjs`, 120-Worktree Project): a Chat switch in another Project 363 → 3 git processes, a switch back to a loaded Project 394 → 1, `project:registry` 12 → 0, `link:open` 12 → 0.
+
+On an idle Mac the paint times did not move, as expected: the window already painted from its copy. What changed is what each switch costs the hosts, which is what made switches slow on a busy Mac and over the relay.
