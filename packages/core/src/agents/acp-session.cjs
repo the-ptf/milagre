@@ -19,7 +19,7 @@ const {
   stopReasonEvent,
 } = require("./acp-events.cjs");
 const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, loginMessage, missingCliMessage } = require("./events.cjs");
-const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell } = require("./permissions.cjs");
+const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell, writesRemote } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
@@ -63,7 +63,9 @@ function acpPermissionRequest(requestId, call, options) {
   };
   if (call.kind === "execute") {
     const command = unwrapShell(commandOf(call));
-    return compact({ ...base, kind: "command", tool: "Shell", title: "Run this command?", command, cwd: cwdOf(call) });
+    // A GitHub write is only ever allowed once (see writesRemote).
+    const allowForChat = base.allowForChat && !writesRemote(command);
+    return compact({ ...base, allowForChat, kind: "command", tool: "Shell", title: "Run this command?", command, cwd: cwdOf(call) });
   }
   if (["edit", "delete", "move"].includes(call.kind)) {
     const diffs = diffsOf(call);
@@ -87,9 +89,11 @@ function acpPermissionRequest(requestId, call, options) {
   return compact({ ...base, kind: "other", tool: name, toolName: mcpName, title, detail });
 }
 
-// The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse.
-function pickOption(options, decision) {
+// The user's decision -> the agent's option. Allow for chat falls back to allow once, and the reverse. With `once` (a
+// GitHub write, see writesRemote) an allow is only ever allow once: an agent with no such option gets no answer.
+function pickOption(options, decision, { once = false } = {}) {
   const of = (kind) => options.find((option) => option?.kind === kind);
+  if (once && (decision === "allow" || decision === "allow-for-chat")) return of("allow_once") ?? null;
   if (decision === "allow") return of("allow_once") ?? of("allow_always");
   if (decision === "allow-for-chat") return of("allow_always") ?? of("allow_once");
   if (decision === "deny") return of("reject_once") ?? of("reject_always");
@@ -506,15 +510,16 @@ class AcpSession {
       this.reply(id, outcome(pickOption(options, "deny")));
       return;
     }
+    const once = { once: request.kind === "command" && writesRemote(request.command) };
     const decided = this.access.answer(request, this.permissions.mode);
     if (decided) {
-      this.reply(id, outcome(pickOption(options, decided.decision)));
+      this.reply(id, outcome(pickOption(options, decided.decision, once)));
       return;
     }
     const roots = [this.cwd, ...(this.access.roots ?? [])];
     // Resolved through symlinks: the agent names files by their real path (/private/var/… on macOS).
     const inWorkspace = request.kind === "edit" && request.files.length > 0 && insideWorkspace(roots, request.files, this.cwd);
-    this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision))), { inWorkspace });
+    this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace });
   }
 
   // Antigravity asks the user to choose through a permission request whose tool call id starts with

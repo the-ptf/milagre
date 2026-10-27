@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { AcpRpc } = require("./acp-rpc.cjs");
-const { AcpSession } = require("./acp-session.cjs");
+const { AcpSession, pickOption } = require("./acp-session.cjs");
 const { acpDiff, acpStepResult } = require("./acp-events.cjs");
 const { ANTIGRAVITY_MODES, antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
 const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, loginMessage, missingCliMessage } = require("./events.cjs");
@@ -285,6 +285,26 @@ test("guarded turn denies push", async (t) => {
   await ended(full.events, 2);
   const modes = (await sent(full.session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
   assert.deepEqual(modes, ["auto_edit", "yolo"]);
+});
+
+test("a command that writes to GitHub is allowed once, never always", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await waitUntil(() => of(events, "permission-request").length === 1);
+  const [push] = of(events, "permission-request");
+  assert.equal(push.command, "git push origin HEAD");
+  assert.equal(push.allowForChat, false);
+  session.respondToPermission(push.requestId, "allow-for-chat");
+  await waitUntil(() => of(events, "permission-request").length === 2);
+  const list = of(events, "permission-request")[1];
+  assert.equal(list.allowForChat, true);
+  session.respondToPermission(list.requestId, "allow-for-chat");
+  await ended(events);
+  assert.equal(replyText(events), "picked:allow picked:allow_always");
+  // An agent that offers no one-time allow gets no "always" for it either.
+  const always = [{ optionId: "allow_always", kind: "allow_always" }];
+  assert.equal(pickOption(always, "allow", { once: true }), null);
+  assert.equal(pickOption(always, "allow").optionId, "allow_always");
 });
 
 test("an edit shows its diff on the card and on the step that ran it", async (t) => {

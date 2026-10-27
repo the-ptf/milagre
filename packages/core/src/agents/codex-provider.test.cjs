@@ -408,6 +408,27 @@ test("a guarded turn in Ask or Auto keeps its policy, denies push and asks about
   }
 });
 
+test("a command that writes to GitHub is allowed once, never for the whole Chat", async (t) => {
+  const { session, events } = codex(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await asked(events);
+  const push = events.find((event) => event.type === "permission-request");
+  assert.equal(push.command, "git push origin HEAD");
+  assert.equal(push.allowForChat, false);
+  session.respondToPermission("srv-1", "allow-for-chat");
+  await waitUntil(() => events.filter((event) => event.type === "permission-request").length === 2);
+  const list = events.filter((event) => event.type === "permission-request")[1];
+  assert.equal(list.allowForChat, true);
+  session.respondToPermission("srv-2", "allow-for-chat");
+  await ended(events);
+  // A cached approval would let a later babysit Run's push run without asking, past the guard.
+  assert.equal(replyText(events), "decision:accept decision:acceptForSession");
+  assert.deepEqual(
+    events.filter((event) => event.type === "permission-resolved").map((event) => event.decision),
+    ["allow", "allow-for-chat"],
+  );
+});
+
 test("denying declines the command", async (t) => {
   const { session, events } = codex(t, { scenario: "approval" });
   await session.startTurn(TURN);
