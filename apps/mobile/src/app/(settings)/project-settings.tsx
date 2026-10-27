@@ -1,10 +1,12 @@
 import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
-import { Redirect, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
+import { confirm } from "../../confirm-store";
+import { allComputers } from "../../all-computers";
 import { useSession } from "../../session";
 import { ProjectIcon, setProjectImage } from "../../project-icon";
 import { ProjectAccountsGroup } from "../../project-accounts-section";
@@ -51,6 +53,27 @@ export default function ProjectSettingsScreen() {
     }, [client, path]),
   );
   if (!client || !path) return <Redirect href="/" />;
+  async function remove() {
+    if (
+      busy ||
+      !(await confirm(
+        `Remove ${name || "Project"}?`,
+        "This removes the Project from the list on your computer and paired phones. Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back. Running Chats keep running.",
+        "Remove Project",
+      ))
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      if (await session.forgetProject(path)) router.replace("/projects");
+      void allComputers.refreshAll();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not remove this Project.");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function changeSync(choice: MainSyncChoice) {
     setError("");
     try {
@@ -122,6 +145,11 @@ export default function ProjectSettingsScreen() {
         {error ? <ErrorNotice message={error} /> : null}
         <View style={{ marginTop: 16 }}>
           <ProjectAccountsGroup path={path} />
+        </View>
+        <Text style={[styles.label, { marginTop: 16 }]}>Remove Project</Text>
+        <View style={[styles.card, { gap: 12 }]}>
+          <Text style={styles.caption}>Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.</Text>
+          <PillButton title="Remove Project" secondary disabled={busy} onPress={() => void remove()} />
         </View>
       </PageScroll>
     </>

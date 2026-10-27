@@ -89,11 +89,13 @@ const remote = (id) => new Proxy({
   sendMessage: async (request) => (window.sent.push(request), { sessionId: 4 }),
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
 const remotes = { "c-arketa": remote("c-arketa"), "c-studio": remote("c-studio"), "c-new": remote("c-new") };
+let localRecent = [{ path: "/work/milagre-ade", name: "milagre-ade" }];
 window.milagre = new Proxy({
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
   getCurrentProject: async () => ({ path: "/work/milagre-ade", name: "milagre-ade", state: local }),
-  listRecentProjects: async () => [{ path: "/work/milagre-ade", name: "milagre-ade" }],
+  listRecentProjects: async () => localRecent,
+  forgetProject: async (key) => (localRecent = localRecent.filter((project) => project.path !== key)),
   // Back to this Mac's Project once Other computers is off (Task 16).
   readProject: async () => ({ path: "/work/milagre-ade", name: "milagre-ade", state: local }),
   switchProject: async () => ({ path: "/work/milagre-ade", name: "milagre-ade", state: local }),
@@ -342,9 +344,9 @@ async function browserChecks() {
     // Removing a computer's Project from the list asks that computer, and leaves this Mac's list as it was.
     await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector('[data-scope-menu-panel]')`);
-    await evaluate(
-      `[...document.querySelectorAll('[data-scope-menu-panel] [role="menuitem"]')].find((item) => item.textContent.includes('Remove from list')).click()`,
-    );
+    await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
+    await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
     await waitFor(`(window.forgotten ?? []).includes('c-arketa|/Users/a/arketa-web')`);
     await waitFor(`!document.querySelector('[data-scope-menu-panel]')`);
     assert.ok((await scopes()).includes("/work/milagre-ade"), "this Mac's Project is still listed");
@@ -492,6 +494,21 @@ async function browserChecks() {
     await evaluate(`window.setChatOrder('created')`);
     await waitFor(`JSON.stringify(${remoteIds}) === '["8","4"]'`);
     await screenshot("remote-chat-order");
+    // Removing the last local Project preserves access to the other computer from the full App.
+    await evaluate(`document.querySelector('[data-sidebar-scope="/work/milagre-ade"] [data-scope-menu]').click()`);
+    await waitFor(`!!document.querySelector('[data-scope-menu-item="remove"]')`);
+    await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
+    await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
+    await waitFor(`!!document.querySelector('[data-project-chooser]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-onboarding]')`), false);
+    await waitFor(`!!document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-action]')`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-sidebar-scope="/work/milagre-ade"]')`), false);
+    await screenshot("last-local-project-removed");
+    await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-action]').click()`);
+    await waitFor(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope === 'c-arketa|/Users/a/arketa-web'`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-project-chooser]')`), false);
+    console.log("PASS: removing the last local Project keeps remote Projects accessible and opens one from the chooser");
     assert.deepEqual(errors, []);
     console.log("PASS: remote chats retain live pin settings through a delayed read and follow both Chat order choices");
     app.exit(0);

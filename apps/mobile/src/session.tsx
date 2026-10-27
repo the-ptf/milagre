@@ -331,6 +331,30 @@ function useSessionState() {
       setRecent((previous) => keepOrder(previous, projects, (item) => item.path));
     }
   }, [client]);
+  const forgetProject = async (path: string) => {
+    if (!client) throw new Error("Connect to your computer first.");
+    const removingGeneration = generation.current;
+    await client.call("project:forget", [path]);
+    const sameNavigation = generation.current === removingGeneration;
+    // Invalidate an in-flight open before it can put the removed Project back on screen.
+    if (sameNavigation && (selection.current?.path === path || snapshot?.project.path === path || opening?.path === path)) {
+      generation.current++;
+      selection.current = null;
+      setSnapshot(null);
+      setOpening(null);
+    }
+    const completionGeneration = generation.current;
+    setLastLocation((current) => (current?.hostId === client.url && current.projectPath === path ? null : current));
+    await savedNavigation.forgetProject(client.url, path);
+    seen.current.delete(`${client.url}|${path}`);
+    listed.current.delete(`${client.url}|${path}`);
+    // A removed Project's saved location/cache belongs to its computer; the visible list and navigation belong to
+    // the current selection. Neither an RPC nor a keychain write may replace a newer computer or Chat.
+    if (!sameNavigation || generation.current !== completionGeneration) return false;
+    setRecent((previous) => previous.filter((item) => item.path !== path));
+    void reloadProjects().catch(() => {});
+    return true;
+  };
   const setProjectHidden = useCallback(
     async (path: string, hidden: boolean) => {
       setRecent((previous) =>
@@ -437,6 +461,7 @@ function useSessionState() {
     previewProject,
     seedPreview,
     reloadProjects,
+    forgetProject,
     setProjectHidden,
     claimAutoOpen,
     opening,

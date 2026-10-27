@@ -2065,7 +2065,19 @@ const routesNative = ({ learned = [], forgotten = [] } = {}) => ({
 });
 function sessionHost(
   client,
-  { effects = false, AppState = {}, created = [], saved = [], learned = [], savedProjectOrder, savedHiddenProjects, chatDefaults, permission = "ask" } = {},
+  {
+    effects = false,
+    AppState = {},
+    created = [],
+    saved = [],
+    learned = [],
+    savedProjectOrder,
+    savedHiddenProjects,
+    chatDefaults,
+    clientFactory,
+    navigationStore,
+    permission = "ask",
+  } = {},
 ) {
   client.recentScopes ??= () => client.call("project:recent");
   client.open ??= async (owner) => {
@@ -2084,7 +2096,7 @@ function sessionHost(
       "./client": {
         createClient: (...args) => {
           created.push(args);
-          return client;
+          return clientFactory ? clientFactory(...args) : client;
         },
       },
       "./relay-native": { relayRuntime },
@@ -2097,7 +2109,7 @@ function sessionHost(
           },
           list: async () => [],
         },
-        savedNavigation: { read: async () => null, save: async () => {} },
+        savedNavigation: navigationStore ?? { read: async () => null, save: async () => {}, forgetProject: async () => {} },
         savedProjectOrder: savedProjectOrder ?? { apply: async (_host, projects) => projects, save: async () => {} },
         savedHiddenProjects: savedHiddenProjects ?? { hidden: () => new Set(), apply: async (_host, projects) => projects, setHidden: async () => {} },
         readPermission: async () => permission,
@@ -2193,6 +2205,77 @@ test("reloading Projects keeps their order when opening a Chat moves its Project
     ["D", "B", "C"],
     "a new Project goes on top and a removed one leaves",
   );
+});
+
+test("removing the open Project clears its snapshot and list entry; a failed removal preserves both", async () => {
+  let recent = [{ path: "/p" }];
+  let fail = true;
+  const render = sessionHost({
+    url: "mac",
+    call: async (method) => {
+      if (method === "project:recent") return recent;
+      if (method === "project:forget") {
+        if (fail) throw new Error("disk full");
+        recent = [];
+      }
+      return {};
+    },
+    snapshot: async () => snapshot("/p"),
+  });
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/p");
+  await assert.rejects(render().forgetProject("/p"), /disk full/);
+  assert.equal(render().snapshot.project.path, "/p");
+  assert.equal(render().recent.length, 1);
+  fail = false;
+  await render().forgetProject("/p");
+  assert.equal(render().snapshot, null);
+  assert.equal(render().recent.length, 0);
+});
+
+for (const delay of ["acknowledgement", "saved location"]) {
+  test(`a removal waiting for its ${delay} cannot overwrite a newly connected computer`, async () => {
+    const pending = deferred();
+    const a = {
+      url: "a",
+      call: async (method) => (method === "project:forget" && delay === "acknowledgement" ? pending.promise : {}),
+      recentScopes: async () => [{ path: "/a" }],
+    };
+    const b = { url: "b", call: async () => ({}), recentScopes: async () => [{ path: "/b" }] };
+    const render = sessionHost(a, {
+      clientFactory: (host) => (host.address === "b" ? b : a),
+      navigationStore: { read: async () => null, save: async () => {}, forgetProject: async () => (delay === "saved location" ? pending.promise : undefined) },
+    });
+    await render().connect({ address: "a", token: "token" });
+    const removing = render().forgetProject("/a");
+    await settleAll();
+    await render().connect({ address: "b", token: "token" });
+    pending.resolve();
+    assert.equal(await removing, false, "The completion must not navigate away from the new computer");
+    await settleAll();
+    assert.equal(render().client, b);
+    assert.deepEqual(
+      render().recent.map((item) => item.path),
+      ["/b"],
+    );
+  });
+}
+
+test("a removal cannot close a newer Chat selection on the same computer", async () => {
+  const pending = deferred();
+  const render = sessionHost({
+    url: "a",
+    call: async (method) => (method === "project:forget" ? pending.promise : {}),
+    recentScopes: async () => [{ path: "/a" }, { path: "/b" }],
+    snapshot: async (path) => snapshot(path),
+  });
+  await render().connect({ address: "a", token: "token" });
+  await render().open("/a");
+  const removing = render().forgetProject("/a");
+  await render().open("/b");
+  pending.resolve();
+  assert.equal(await removing, false);
+  assert.equal(render().snapshot.project.path, "/b");
 });
 
 test("the Projects order survives a relaunch, per computer", async () => {
@@ -3124,6 +3207,11 @@ function navigationHost(
     reloadProjects: async () => {
       calls.push(["reload"]);
     },
+    forgetProject: async (path) => {
+      await session.client.call("project:forget", [path]);
+      await session.reloadProjects();
+      return true;
+    },
     cachedProject: () => undefined,
     previewProject: async () => state,
     openNotificationTargetCalls: [],
@@ -3990,6 +4078,11 @@ test("a drawer search over Projects held without messages asks the host, which f
   assert.match(nav.row("message").props.accessibilityLabel, /^Deploy the relay with wrangler, in /);
 });
 
+test("the chooser keeps empty Projects available with the flat Chat list preference", () => {
+  const nav = navigationHost(deferred().promise, { chatList: "list", session: { snapshot: null } });
+  assert.ok(nav.row("project"));
+});
+
 test("a sidebar Project can be removed from the list after confirming", async () => {
   const alerts = [];
   const nav = navigationHost(deferred().promise, { alert: pressDanger(alerts) });
@@ -4004,6 +4097,18 @@ test("a sidebar Project can be removed from the list after confirming", async ()
     ]),
   );
   assert.equal(JSON.stringify(nav.calls), JSON.stringify([["project:forget", ["/last"]], ["reload"]]));
+  assert.deepEqual(nav.routes, ["/projects"]);
+  assert.ok(nav.storeCalls.some(([name]) => name === "refreshAll"));
+});
+
+test("a removal completed after newer navigation does not replace the visible screen", async () => {
+  const pending = deferred();
+  const nav = navigationHost(deferred().promise, { alert: pressDanger([]), session: { forgetProject: () => pending.promise } });
+  nav.open(nav.row("project")).props.onSelect("remove");
+  await settleAll();
+  pending.resolve(false);
+  await settleAll();
+  assert.deepEqual(nav.routes, []);
 });
 
 test("a new Chat reached without a Worktree starts in the Project checkout once it loads", () => {

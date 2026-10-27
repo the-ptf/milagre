@@ -427,6 +427,44 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "host-restarted.png"), Buffer.from(shot.data, "base64"));
     }
     console.log("PASS: a host that crashed is started again, the window says so, and the draft stays");
+    if (!expectTheme) {
+      await evaluate(`(() => {
+        localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") || "{}"), chatList: "grouped" }));
+        window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
+      })()`);
+      const second = await fs.mkdtemp(path.join(path.dirname(project), "removal-member-"));
+      const linkId = await evaluate(`(async () => {
+        await window.milagre.openProjectAt(${JSON.stringify(second)});
+        const registered = await window.milagre.listProjects();
+        const ids = [${JSON.stringify(project)}, ${JSON.stringify(second)}].map((path) => registered.find((entry) => entry.path === path).id);
+        const link = await window.milagre.createNamedLink({ name: "Removal regression Link", projectIds: ids });
+        await window.milagre.forgetProject(${JSON.stringify(second)});
+        window.dispatchEvent(new Event("milagre:recent-projects-changed"));
+        return link.id;
+      })()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"]')`), "remaining Link in sidebar");
+      await evaluate(`document.querySelector('[data-sidebar-scope="${project}"] [data-scope-menu]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-scope-menu-item="remove"]')`), "Project removal menu");
+      await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-project-remove-confirm]')`), "Project removal confirmation");
+      await evaluate(`(() => {
+        localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") || "{}"), chatList: "list" }));
+        window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
+      })()`);
+      await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
+      await waitFor(() => evaluate(`!!document.querySelector('[data-project-chooser]')`), "Project chooser after last local Project removal");
+      assert.equal(await evaluate(`!!document.querySelector('[data-onboarding]')`), false);
+      await waitFor(
+        () => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-action]')`),
+        "remaining Link is accessible",
+      );
+      await evaluate(`document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-action]').click()`);
+      await waitFor(
+        () => evaluate(`!document.querySelector('[data-project-chooser]') && !!document.querySelector('[data-chat-pane] [data-prompt-editor]')`),
+        "remaining Link opens",
+      );
+      console.log("PASS: removing the last local Project keeps its Named Link accessible and opens it");
+    }
     console.log(
       `PASS: ${expectTheme ? "packaged" : "source"} desktop opens existing Chats, provider IDs, Project settings, bundled skills and saved UI preferences`,
     );

@@ -26,6 +26,15 @@ export function createNavigationStore(storage: Storage) {
         return null;
       }
     },
+    forgetProject(hostId: string, projectPath: string) {
+      pending = pending
+        .then(async () => {
+          const current = parseLocation(await storage.getItemAsync(key));
+          if (current?.hostId === hostId && current.projectPath === projectPath) await storage.setItemAsync(key, "null");
+        })
+        .catch(() => {});
+      return pending;
+    },
     save(location: ChatLocation) {
       pending = pending.then(() => storage.setItemAsync(key, JSON.stringify(location))).catch(() => {});
       return pending;
