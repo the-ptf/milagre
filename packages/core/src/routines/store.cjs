@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const util = require("node:util");
 const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { normalizeBabysitSettings } = require("@milagre/shared/babysit");
 const { everyToCron, nextRun } = require("./cron.cjs");
@@ -1139,10 +1140,15 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     return copy(data.routines.find((routine) => watchesPullRequest(routine, repo, number)));
   }
 
-  // What the babysit poller last saw of a Routine's pull request. The store keeps it whole and never reads inside it.
+  // What the babysit poller last saw of a Routine's pull request. The store keeps it whole and never reads inside it. A
+  // poll that saw nothing new hands back what is kept already: compared as the file holds it, that writes nothing.
   const prSnapshot = (routineId) => copy(data.pullRequests[routineId]);
+  const asSaved = (value) => JSON.parse(JSON.stringify(value));
   function setPrSnapshot(routineId, snapshot) {
     if (!isObject(snapshot)) throw new Error("A pull request snapshot must be an object");
+    const kept = data.pullRequests[routineId];
+    const live = data.routines.some((routine) => routine.id === routineId && !routine.completedAt);
+    if (live && kept !== undefined && util.isDeepStrictEqual(asSaved(kept), asSaved(snapshot))) return true;
     return transact((state, tx) => {
       const routine = find(state, routineId);
       // A Routine deleted or ended while the poller was reading has no snapshot to keep.

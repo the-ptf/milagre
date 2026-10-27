@@ -2483,6 +2483,30 @@ test("prSnapshot survives reload and is dropped on complete", () => {
   assert.equal(store.prSnapshot(other.id), undefined);
 });
 
+test("setPrSnapshot writes the store only when the snapshot changed", () => {
+  const { store } = setup();
+  const routine = store.create(prSpec);
+  const value = { snapshot: { head: "abc", comments: [] }, attempts: { "check:ci": 0 }, handed: { "check:ci": { at: 1, head: "abc" } } };
+  assert.equal(
+    countSaves(() => assert.equal(store.setPrSnapshot(routine.id, value), true)),
+    1,
+  );
+  // The same reading again, even built in another key order, leaves the file alone.
+  const same = { handed: { "check:ci": { head: "abc", at: 1 } }, attempts: { "check:ci": 0 }, snapshot: { comments: [], head: "abc" } };
+  assert.equal(
+    countSaves(() => assert.equal(store.setPrSnapshot(routine.id, same), true)),
+    0,
+  );
+  assert.equal(
+    countSaves(() => store.setPrSnapshot(routine.id, { ...value, attempts: { "check:ci": 1 } })),
+    1,
+  );
+  assert.deepEqual(store.prSnapshot(routine.id).attempts, { "check:ci": 1 });
+  // An ended Routine still keeps none.
+  store.complete(routine.id);
+  assert.equal(store.setPrSnapshot(routine.id, value), false);
+});
+
 test("only one pull-request run per routine runs at a time", () => {
   const { store } = setup();
   store.setEnabled(true);
