@@ -9,12 +9,13 @@ const PONG = new TextEncoder().encode('{"t":"pong"}');
 /**
  * A paired desktop on an encrypted channel: one daemon connection (`openPeer`, which is acceptConnection with the
  * paired-desktop policy) whose frames travel as rpc / evt / part messages (@milagre/shared/peer-frames).
- * `deliver(sealed)` hands one sealed message to the carrier; `queued()` is how many bytes the carrier holds unsent
+ * `deliver(encoded)` hands one message's UTF-8 JSON bytes to the carrier, which seals it (batched with its neighbours when
+ * the desktop takes batches) and sends it; `queued()` is how many bytes the carrier holds unsent
  * toward this desktop; `isOpen()` says whether the channel stands; `drop()` closes the channel, after which the carrier
  * calls `close()`. `receive(message)` takes each opened message and throws on one the protocol has no place for, for
  * the carrier to drop the channel.
  */
-function openPeerChannel({ openPeer, channel, deliver, queued, isOpen, drop, budget = PEER_BUDGET }) {
+function openPeerChannel({ openPeer, deliver, queued, isOpen, drop, budget = PEER_BUDGET }) {
   const reader = createFrameReader("rpc");
   const writer = createFrameWriter("evt");
   const connection = openPeer({
@@ -27,7 +28,7 @@ function openPeerChannel({ openPeer, channel, deliver, queued, isOpen, drop, bud
         drop();
         return false;
       }
-      for (const text of texts) deliver(channel.sealEncoded(text));
+      for (const text of texts) deliver(text);
       return true;
     },
     end: drop,
@@ -37,7 +38,7 @@ function openPeerChannel({ openPeer, channel, deliver, queued, isOpen, drop, bud
   return {
     receive(message) {
       if (message?.t === "ping") {
-        if (isOpen()) deliver(channel.sealEncoded(PONG));
+        if (isOpen()) deliver(PONG);
         return;
       }
       if (message?.t !== "rpc" && message?.t !== "part") throw new Error("Unknown message");

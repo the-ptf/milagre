@@ -82,6 +82,8 @@ const BACKOFF = [1000, 2000, 5000, 10000, 30000];
 const PING = 20_000;
 const SILENCE = 45_000;
 const HANDSHAKE = 15_000;
+// Asked for in the hello: the Mac then sends a window's messages as one frame, which dispatch takes apart.
+const BATCH_CAP = "batch";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const defaultTimers: RelayTimers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>) };
@@ -226,6 +228,12 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
       case "ping":
         send(c, { t: "pong" });
         return;
+      case "batch": {
+        // The messages of one window on the Mac, in order (it batches only because this phone's hello asked).
+        const items: unknown = message.items;
+        if (Array.isArray(items)) for (const item of items) dispatch(c, item as RelayMessage);
+        return;
+      }
       default:
         return; // pong, and anything newer than this app
     }
@@ -240,7 +248,7 @@ export function createRelayTransport(options: RelayTransportOptions): RelayTrans
       try {
         socket = create(`${endpoint.replace(/\/+$/, "")}/v1/phone?id=${encodeURIComponent(hostId)}`);
         socket.binaryType = "arraybuffer";
-        hello = phoneHello({ phone: identity, host, token, random, name: options.name ?? undefined });
+        hello = phoneHello({ phone: identity, host, token, random, name: options.name ?? undefined, caps: [BATCH_CAP] });
       } catch {
         return reject(fail("lost"));
       }

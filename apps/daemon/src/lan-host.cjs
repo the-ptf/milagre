@@ -55,8 +55,9 @@ function startLanHost({
   openPeer,
   canPair = () => false,
   allowComputer,
+  batchMs,
 }) {
-  const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair, WebSocket, fetch, random, helloMs, openPeer, allowComputer });
+  const channels = createPhoneChannels({ identity, phones, token, bridgeUrl, canPair, WebSocket, fetch, random, helloMs, openPeer, allowComputer, batchMs });
   const sockets = new Map(); // conn id -> the phone's socket
   const perAddress = new Map(); // remote address -> open sockets
   const alive = new WeakSet(); // sockets that answered since the last ping
