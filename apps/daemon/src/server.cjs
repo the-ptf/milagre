@@ -528,6 +528,14 @@ async function startDaemon({
     return runtime.stateOf(scope) === state && sameButMessages(sent.state, state) ? sent.version : null;
   }
   /**
+   * The number of the last state sent for a scope, for a reply that leaves the state out (project:read with
+   * `{ state: false }`): a window holding that state is up to date, and later changes reach it as patches on it.
+   */
+  function sentNumber(scope, state) {
+    if (!sentStates.has(scope)) sentStates.set(scope, { version: 1, state });
+    return sentStates.get(scope).version;
+  }
+  /**
    * A scope's state with its number, for a client that takes patches, beside the rest of its snapshot (a Project's path
    * and name, a Link's definition). A newer state than the one sent goes out first.
    */
@@ -865,7 +873,12 @@ async function startDaemon({
         // Only a desktop open (it passes takeNotice) takes the restored-chats notice; the phone's bridge opens without it.
         else if (request.method === "project:open") result = await runtime.openProject(request.args[0], { takeNotice: request.args[1]?.takeNotice === true });
         else if (request.method === "project:current" && view.projectPath) result = await runtime.invoke("project:snapshot", [view.projectPath]);
-        else {
+        // { path, name, git } and the number of the state this host last sent, without the state: for a window that holds
+        // it and only needs the Project open here (another computer's Project).
+        else if (request.method === "project:read" && request.args[1]?.state === false) {
+          const { state, ...project } = await runtime.invoke("project:read", [request.args[0]], context);
+          result = { ...project, version: sentNumber(project.path, state), epoch };
+        } else {
           const args =
             policy &&
             (request.method === "link:update" || request.method === "link:create") &&

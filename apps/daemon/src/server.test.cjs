@@ -940,6 +940,23 @@ test("a reply whose state differs from the last sent only in a Chat it loaded ke
   assert.deepEqual(applyStatePatch(wholeOpen.state, change.payload.patch), (await whole.call("state:read", [project])).state);
 });
 
+test("project:read with { state: false } opens the Project without its state, under the number of the state last sent", async (t) => {
+  const { project, client } = await fixture(t);
+  const desktop = await client();
+  const { epoch } = await desktop.call("daemon:state-patches", [{ messages: false }]);
+  const opened = await desktop.call("project:open", [project]);
+  assert.deepEqual(await desktop.call("project:read", [project, { state: false }]), {
+    path: project,
+    name: path.basename(project),
+    git: true,
+    version: opened.version,
+    epoch,
+  });
+  // Without it, as before, with the number beside the state.
+  const read = await desktop.call("project:read", [project]);
+  assert.deepEqual([read.version, read.epoch, read.state.sessions], [opened.version, epoch, opened.state.sessions]);
+});
+
 test("a connection's Project follows a sidebar open, and a Link it opens has none", async (t) => {
   const { project, client } = await fixture(t);
   const other = path.join(path.dirname(project), "other");

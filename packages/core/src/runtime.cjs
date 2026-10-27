@@ -2375,9 +2375,14 @@ function createRuntime(options) {
     return withHidden(await recentProjects().list());
   });
   // Reads a recent Project's chats for the all-Projects sidebar without making it the open one or reordering the list.
-  commands.handle("project:read", async (_event, projectPath) => {
+  // `{ state: false }`: { path, name, git } alone, for a window that holds the state already and only needs the Project
+  // open on this host (the daemon adds the number of the state it last sent, see server.cjs).
+  commands.handle("project:read", async (_event, projectPath, read) => {
     if (!(await recentProjects().list()).some((item) => item.path === projectPath)) throw new Error("Open this project in Milagre first.");
-    return readProject(projectPath);
+    const project = await readProject(projectPath);
+    if (read?.state !== false) return project;
+    const { state: _state, ...rest } = project;
+    return rest;
   });
   // A retry only flushes the newest pending state. It never replays a Chat command or sends a message.
   commands.handle("scope:retry-save", async (_event, scope) => {
