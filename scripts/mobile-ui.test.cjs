@@ -10101,6 +10101,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
   assert.ok(find(milagre, (n) => n.type === "PublishedPagesSection"));
   assert.ok(find(milagre, (n) => n.type === "Text" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
+  page("app/(settings)/babysit-prs.tsx", "Babysit PRs", "babysit-section", "BabysitSection");
 });
 
 test("mobile Linear page shows the Mac's Linear switch and status, re-read on focus", async () => {
@@ -10187,6 +10188,7 @@ test("mobile Linear page shows the Mac's Linear switch and status, re-read on fo
     "./icons": { Icon: "Icon" },
     "@hugeicons/core-free-icons": {},
     "./session": { useSession: () => ({ designs: designsOn, client }) },
+    "./settings-list": { Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   }).ExperimentalSection;
   react.begin();
@@ -10294,6 +10296,7 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
+    "./settings-list": { Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
   });
   const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
@@ -10308,6 +10311,160 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     find(render(), (n) => n.props?.title === "Routines"),
     undefined,
   );
+});
+
+test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const pushed = [];
+  let answer = { enabled: true };
+  const client = {
+    async call(method) {
+      if (method === "babysit:settings:read") return answer;
+      return null;
+    },
+  };
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push: (path) => pushed.push(path) } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const row = () => find(render(), (n) => n.type === "Row" && n.props.title === "Babysit PRs");
+  assert.equal(row(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row().props.value, "On");
+  assert.ok(
+    find(render(), (n) => n.type === "Text" && n.props.children === "Watch every PR a Chat opens and fix review comments, failed checks and conflicts."),
+  );
+  row().props.onPress();
+  assert.deepEqual(pushed, ["/babysit-prs"]);
+  // Turned off on the Mac while the phone was on the page: coming back shows it.
+  answer = { enabled: false };
+  render();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row().props.value, "Off");
+  answer = null;
+  render();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row(), undefined, "an older Mac answers null: no row");
+});
+
+test("mobile Babysit PRs page shows the four groups and saves each change to the Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const babysit = require("@milagre/shared/babysit");
+  let stored = { ...babysit.BABYSIT_DEFAULTS, wake: [...babysit.BABYSIT_DEFAULTS.wake] };
+  const saves = [];
+  const client = {
+    async call(method, args) {
+      if (method === "babysit:settings:read") return stored;
+      if (method === "babysit:settings:save") {
+        // The page runs in its own realm; a plain copy compares by value.
+        saves.push(JSON.parse(JSON.stringify(args[0])));
+        stored = { ...stored, ...args[0] };
+        return stored;
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const store = load("babysit-settings.ts", {});
+  const { BabysitSection } = load("babysit-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/babysit": babysit,
+    "./babysit-settings": store,
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Group: "Group", Row: "Row" },
+    "./ui": { ErrorNotice: "ErrorNotice", Segmented: "Segmented", Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return BabysitSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const node = (predicate) => find(render(), predicate);
+  const toggle = (title) => node((n) => n.type === "Toggle" && n.props.title === title);
+  assert.equal(render(), null, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  const tree = render();
+  const groups = [];
+  (function walk(n) {
+    if (!n || typeof n !== "object") return;
+    if (n.type === "Group" && n.props.title) groups.push(n.props.title);
+    for (const child of [n.props?.children].flat(Infinity)) walk(child);
+  })(tree);
+  assert.deepEqual(groups, ["Babysit PRs", "When something needs fixing", "Stop babysitting when", "Your instructions"]);
+  assert.equal(toggle("Babysit new PRs").props.selected, false);
+  assert.ok(
+    node(
+      (n) =>
+        n.type === "Text" &&
+        n.props.children === "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.",
+    ),
+  );
+  toggle("Babysit new PRs").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { enabled: true });
+  assert.equal(toggle("Babysit new PRs").props.selected, true);
+  // Each level is a radio card; Fix and push is the default and starts selected.
+  const level = (title) => node((n) => n.props?.accessibilityRole === "radio" && String(n.props.accessibilityLabel).startsWith(title));
+  assert.equal(level("Fix and push.").props.accessibilityState.checked, true);
+  level("Fix, push, reply and re-request review.").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { level: 5 });
+  assert.equal(level("Fix, push, reply and re-request review.").props.accessibilityState.checked, true);
+  // Wake chips toggle and keep the settings' order.
+  node((n) => n.props?.accessibilityLabel === "Branch behind base").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { wake: ["comments", "checks", "conflicts", "behind"] });
+  // A number rule always sends its whole object.
+  node((n) => n.type === "Segmented" && n.props.label === "Watch the PR for").props.onChange("14");
+  await settle();
+  assert.deepEqual(saves.at(-1), { stopAfterDays: { on: true, days: 14 } });
+  toggle("It failed to fix the same problem").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { stopAfterFailures: { on: true, times: 3 } });
+  node((n) => n.type === "Segmented" && n.props.label === "Check every").props.onChange("5");
+  await settle();
+  assert.deepEqual(saves.at(-1), { intervalMinutes: 5 });
+  // Instructions save when the field loses focus, with only a Saved mark under it.
+  const field = () => node((n) => n.type === "TextInput" && n.props.accessibilityLabel === "Your instructions");
+  assert.equal(
+    node((n) => n.type === "Text" && n.props.children === "Saved"),
+    undefined,
+  );
+  field().props.onFocus();
+  field().props.onChangeText("Never force-push.");
+  render();
+  field().props.onBlur();
+  await settle();
+  assert.deepEqual(saves.at(-1), { instructions: "Never force-push." });
+  assert.ok(node((n) => n.type === "Text" && n.props.children === "Saved"));
+  assert.equal(field().props.value, "Never force-push.");
+  // Reset puts every value back.
+  node((n) => n.type === "Row" && n.props.title === "Reset all to defaults").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { ...babysit.BABYSIT_DEFAULTS });
+  assert.equal(toggle("Babysit new PRs").props.selected, false);
 });
 
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
