@@ -1945,3 +1945,28 @@ async function eventuallyTrue(check, timeoutMs = 2000) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+test("headBranch reads the branch checked out in the Chat's Worktree, or null", async () => {
+  const { execFileSync } = require("node:child_process");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-head-"));
+  const git = (...args) => execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
+  git("init", "-q", "-b", "feature");
+  git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "first");
+  const state = { sessions: { 2: { id: 2, worktree_id: 1 }, 3: { id: 3, worktree_id: 9 } }, worktrees: { 1: { id: 1, path: dir } }, messages: [] };
+  const adapter = routineChats({
+    chats: { runs: {}, isBusy: () => false },
+    cachedState: (scope) => (scope === "/project" ? state : undefined),
+    openState: async () => state,
+    isClosing: () => false,
+  });
+  assert.equal(await adapter.headBranch("/project#2"), "feature");
+  // A detached HEAD, a Worktree the state doesn't know, a Chat that isn't there and a Project not loaded: null.
+  git("checkout", "-q", "--detach");
+  assert.equal(await adapter.headBranch("/project#2"), null);
+  assert.equal(await adapter.headBranch("/project#3"), null);
+  assert.equal(await adapter.headBranch("/project#8"), null);
+  assert.equal(await adapter.headBranch("/other#2"), null);
+  // A folder that is gone.
+  fs.rmSync(dir, { recursive: true });
+  assert.equal(await adapter.headBranch("/project#2"), null);
+});

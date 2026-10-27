@@ -1681,3 +1681,135 @@ test("a comment whose Chat lookup keeps failing is logged once, not on every ret
   assert.equal(ctx.calls.linked.length, 4, "it tried four times");
   assert.equal(warn.mock.callCount(), 1);
 });
+
+// Babysit PRs: a pull-request event goes into the Routine's own Chat, with Milagre's babysit prompt.
+const PR_URL = "https://github.com/acme/app/pull/7";
+const createBabysit = (ctx, settings = {}, over = {}) =>
+  ctx.store.create({
+    name: "Babysit PR #7",
+    prompt: "babysit",
+    trigger: { kind: "pull-request", url: PR_URL, repo: "github.com/acme/app", number: 7, settings },
+    target: { kind: "chat", chatId: "c1" },
+    createdBy: { kind: "user" },
+    ...over,
+  });
+const prEvent = (n, over = {}) => ({
+  kind: "pull-request",
+  key: `pr7:${n}`,
+  summary: `Check failed: lint ${n}`,
+  changes: [{ id: "check:lint", text: `Check failed: lint ${n}` }],
+  branch: "feature",
+  ...over,
+});
+const onFeature = { headBranch: async () => "feature" };
+
+test("a pull-request run is sent to its own chat with the babysit prompt", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx, { level: 4, instructions: "Be brief." });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.start.length, 0, "no Chat is made");
+  assert.equal(ctx.calls.send.length, 1);
+  const sent = ctx.calls.send[0];
+  assert.equal(sent.chatId, "c1");
+  assert.match(sent.prompt, /https:\/\/github\.com\/acme\/app\/pull\/7/);
+  assert.match(sent.prompt, /Check failed: lint 1/);
+  assert.match(sent.prompt, /Fix, push and reply/);
+  assert.match(sent.prompt, /## Your instructions\nBe brief\./);
+  assert.ok(sent.prompt.endsWith(PASS_HINT));
+  assert.equal(sent.body, "PR #7 changed:\nCheck failed: lint 1");
+  assert.equal(ctx.store.runs(routine.id)[0].status, "running");
+});
+
+test("busy chat defers the pull-request run", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx);
+  ctx.state.busy.add("c1");
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 0);
+  assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.calls.defer[0].notBefore, START + 15_000);
+  assert.equal(ctx.store.get(routine.id).runCount, 0);
+
+  ctx.state.busy.delete("c1");
+  ctx.clock.t = START + 15_000;
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 1);
+});
+
+test("a pull-request run whose chat got busy as it was sent waits too", async () => {
+  const busy = Object.assign(new Error("busy"), { busy: true });
+  let refuse = true;
+  const ctx = triggers({
+    chatOptions: {
+      ...onFeature,
+      async send() {
+        if (refuse) throw busy;
+        return { started: Promise.resolve({ turnId: "t" }) };
+      },
+    },
+  });
+  const routine = createBabysit(ctx);
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.store.get(routine.id).runCount, 0);
+  refuse = false;
+});
+
+test("context carries the effective level", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx, { level: 4, resolveThreads: false });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  const run = ctx.store.runs(routine.id)[0];
+  assert.deepEqual(ctx.calls.send[0].context, {
+    kind: "routine-run",
+    routineId: routine.id,
+    runId: run.id,
+    name: "Babysit PR #7",
+    at: START,
+    label: "PR #7",
+    babysit: { level: 4, resolveThreads: false },
+  });
+});
+
+test("a Worktree on another branch makes the run report only", async () => {
+  const ctx = triggers({ chatOptions: { headBranch: async () => "main" } });
+  const routine = createBabysit(ctx, { level: 5 });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send[0].context.babysit.level, 1);
+  assert.match(ctx.calls.send[0].prompt, /another branch/);
+});
+
+test("a branch that can't be read counts as another branch", async () => {
+  const ctx = triggers({
+    chatOptions: {
+      headBranch: async () => {
+        throw new Error("no git");
+      },
+    },
+  });
+  const routine = createBabysit(ctx, { level: 5 });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send[0].context.babysit.level, 1);
+});
+
+test("a pull-request run for a gone chat ends the Routine", async () => {
+  const ctx = triggers({ chatOptions: { ...onFeature, exists: () => false } });
+  const routine = createBabysit(ctx);
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 0);
+  assert.ok(ctx.store.get(routine.id).completedAt);
+});
+
+test("a babysit Routine can't be run now", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx);
+  await assert.rejects(ctx.scheduler.runNow(routine.id), /A babysit Routine runs when its PR changes/);
+  assert.equal(ctx.calls.send.length, 0);
+});

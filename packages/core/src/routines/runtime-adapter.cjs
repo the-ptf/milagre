@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { execFile } = require("node:child_process");
 const { chatKey, isTurnEnd, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
@@ -31,6 +32,8 @@ const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 const STOP_WAIT_MS = 5000;
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
+// Reading the branch a Chat's Worktree is on (a babysit Run waits on it).
+const HEAD_BRANCH_TIMEOUT_MS = 5000;
 // What a Chat a Routine started can't do while it is still its Run's: make, change or delete Routines, or start their Runs,
 // so a Run never sets off another. A Run Chat the user kept is a normal Chat and gets them.
 const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"]);
@@ -278,6 +281,20 @@ function routineChats({
     return best?.chatId ?? null;
   }
 
+  // The branch checked out in a Chat's Worktree, or null when it has none (a detached HEAD) or it can't be read: a babysit
+  // Run goes at its level only while this is the PR's branch.
+  function headBranch(chatId) {
+    const state = cachedState(projectOfKey(chatId));
+    const target = session(chatId);
+    const cwd = target?.workspacePath ?? state?.worktrees?.[target?.worktree_id]?.path;
+    if (!cwd) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      execFile("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd, timeout: HEAD_BRANCH_TIMEOUT_MS }, (error, stdout) => {
+        resolve(error ? null : stdout.trim() || null);
+      });
+    });
+  }
+
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
   async function archive(chatId, { removeWorktree = false } = {}) {
     const projectPath = projectOfKey(chatId);
@@ -387,6 +404,7 @@ function routineChats({
       }
     },
     archive: (chatId, options) => archive(chatId, options),
+    headBranch: (chatId) => headBranch(chatId),
     linkedChat: (issue) => linkedChat(issue),
     // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its
     // divider in `context.routine`, so the patch goes there.

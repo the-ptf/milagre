@@ -2,6 +2,7 @@ const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { linearIssueUrl } = require("@milagre/shared/linear-issue");
+const { babysitPrompt, effectiveLevel } = require("./babysit-prompt.cjs");
 
 const TICK_MS = 1000;
 const BUSY = "chat was busy";
@@ -12,12 +13,15 @@ const CONCURRENT_RUNS = 3;
 const COMMENT_RETRY_MS = 15_000;
 const NO_CHAT = "issue has no Chat";
 const RUN_NOW_EVENTS = "Run now works for schedules and Heartbeats";
+const RUN_NOW_BABYSIT = "A babysit Routine runs when its PR changes";
 const AUTHOR_MAX = 80;
 
 const errorText = (error) => error?.message ?? String(error);
 const isComment = (event) => event?.kind === "linear" && event.change === "comment";
-// Whether a claimed Run makes a Chat: a trigger's, or a schedule's with a new-chat target.
-const startsChat = (routine, run) => (run.event ? !isComment(run.event) : routine.target.kind === "new-chat");
+const isPullRequest = (event) => event?.kind === "pull-request";
+// Whether a claimed Run makes a Chat: a trigger's (a comment and a pull-request event go into a Chat that exists), or a
+// schedule's with a new-chat target.
+const startsChat = (routine, run) => (run.event ? !isComment(run.event) && !isPullRequest(run.event) : routine.target.kind === "new-chat");
 
 // Characters that show nothing or turn text around: zero-width spaces and joiners, direction marks and overrides,
 // isolates, the BOM and soft hyphens.
@@ -98,7 +102,8 @@ const claimedSettings = (routine) => ({ provider: routine.provider, model: routi
  * `chats` is the adapter the runtime builds: exists, archived, busy (a turn open, preparing, or an approval or question
  * pending), send (resolves once the message is accepted, with a `started` promise for the turn), replyText,
  * patchRunContext, startChat (makes a Run's Chat, in a new Worktree or the Project folder, and words its first message),
- * archive, linkedChat (the Chat a Linear issue's comments go into, or null) and nameRun (titles an acted or quiet Run once
+ * archive, linkedChat (the Chat a Linear issue's comments go into, or null), headBranch (the branch checked out in a Chat's
+ * Worktree, or null) and nameRun (titles an acted or quiet Run once
  * it has ended, and a Run's own Chat with it; `{ quietSummary }` for a quiet one).
  */
 function createRoutineScheduler({
@@ -308,9 +313,61 @@ function createRoutineScheduler({
     await deliver(chatId, entry, { body: text, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
+  // A watched PR's change goes into the Routine's own Chat, in the babysit prompt. Like a comment it waits for a busy Chat
+  // rather than being skipped (store.cjs keeps a pull-request Run to one at a time, and its events in order). It goes at
+  // the level the setting says only while the Chat's Worktree is on the PR's branch; anywhere else it only reports.
+  async function deliverPullRequest(routine, run) {
+    const chatId = routine.target.chatId;
+    if (chatGone(chatId)) {
+      store.complete(routine.id, "chat gone");
+      finish(run, chatId, { status: "failed", error: "chat gone" });
+      return;
+    }
+    const { event } = run;
+    let headBranch = null;
+    try {
+      headBranch = (await chats.headBranch?.(chatId)) ?? null;
+    } catch {
+      // A branch that can't be read is a Worktree that isn't known to be on the PR's: report only.
+    }
+    // Stopped while the branch was read: back to the queue for next time.
+    if (stopped) {
+      store.deferRun(run.id, now());
+      return;
+    }
+    // The Routine may have been turned off or deleted, or its Chat archived, meanwhile.
+    const current = store.get(routine.id);
+    if (!current || !current.enabled || current.completedAt || chatGone(chatId)) {
+      finish(run, undefined, { status: "skipped-busy", error: "Routine was turned off" });
+      return;
+    }
+    if (pending.has(chatId) || chats.busy(chatId)) {
+      store.deferRun(run.id, now() + COMMENT_RETRY_MS);
+      return;
+    }
+    const { settings, url, number } = routine.trigger;
+    const onBranch = headBranch !== null && headBranch === event.branch;
+    const level = effectiveLevel(settings, onBranch);
+    const text = babysitPrompt({ settings, event, pr: { url, number }, onBranch, routineId: routine.id });
+    const body = `PR #${number} changed:\n${event.summary}`;
+    const entry = { runId: run.id, sent: false, turnStarted: false, comment: true };
+    pending.set(chatId, entry);
+    const context = {
+      kind: "routine-run",
+      routineId: routine.id,
+      runId: run.id,
+      name: routine.name,
+      at: now(),
+      label: `PR #${number}`,
+      babysit: { level, resolveThreads: settings.resolveThreads },
+    };
+    await deliver(chatId, entry, { body, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
+  }
+
   async function dispatch(routine, run) {
     if (run.event) {
       if (isComment(run.event)) await deliverComment(routine, run);
+      else if (isPullRequest(run.event)) await deliverPullRequest(routine, run);
       else await runInNewChat(routine, run);
     } else if (scheduleAllows(routine, run)) {
       if (routine.target.kind === "new-chat") await runInNewChat(routine, run);
@@ -544,6 +601,7 @@ function createRoutineScheduler({
 
   async function runNow(routineId) {
     const routine = store.get(routineId);
+    if (routine && !routine.completedAt && routine.trigger.kind === "pull-request") throw new Error(RUN_NOW_BABYSIT);
     // A Linear or webhook Run needs the event it answers.
     if (routine && !routine.completedAt && routine.trigger.kind !== "schedule") throw new Error(RUN_NOW_EVENTS);
     const started = store.startRun(routineId, now());
