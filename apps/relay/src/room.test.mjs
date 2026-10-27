@@ -555,3 +555,27 @@ test("a CLOSE that says host-offline closes the phone as if no Mac were there", 
   room.hostMessage(host, frame(3, next, new TextEncoder().encode("anything else")));
   assert.deepEqual(other.closed, { code: 1000, reason: "closed-by-host" });
 });
+
+test("DATA for a conn the room no longer holds is answered with one CLOSE, so the Mac stops a stream whose phone is gone", () => {
+  const room = createRoom({ id, nonce: randomNonce });
+  const host = connectHost(room);
+  const phone = fakeSocket();
+  const conn = room.phoneOpened(phone);
+  room.phoneClosed(phone);
+  assert.deepEqual(unframe(host.sent.at(-1)), { type: 3, conn, payload: new Uint8Array() });
+  // The Mac missed that CLOSE (or its stream was already in flight) and keeps sending.
+  const before = host.sent.length;
+  room.hostMessage(host, frame(2, conn, new Uint8Array([1])));
+  assert.deepEqual(unframe(host.sent.at(-1)), { type: 3, conn, payload: new Uint8Array() });
+  room.hostMessage(host, frame(2, conn, new Uint8Array([2])));
+  room.hostMessage(host, frame(3, conn));
+  assert.equal(host.sent.length, before + 1, "told once, and a CLOSE for it is not answered");
+  // A conn the room never opened (the room was rebuilt without it) is told too.
+  room.hostMessage(host, frame(2, 999n, new Uint8Array([2])));
+  assert.deepEqual(unframe(host.sent.at(-1)), { type: 3, conn: 999n, payload: new Uint8Array() });
+  // A live phone's frames still go through.
+  const other = fakeSocket();
+  const next = room.phoneOpened(other);
+  room.hostMessage(host, frame(2, next, new Uint8Array([5])));
+  assert.deepEqual(other.sent.at(-1), new Uint8Array([5]));
+});
