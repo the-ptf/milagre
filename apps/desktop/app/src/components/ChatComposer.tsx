@@ -112,7 +112,7 @@ import { RecommendationCard } from "./agents/recommendation-card";
 import { parseRecommendation } from "../lib/recommendation";
 import { StepRow } from "./agents/StepRow";
 import { StepDetailsMessage, StepDetailsScope } from "./agents/step-details";
-import { ActivityApprovalContext, ActivityBlock } from "./agents/ActivityBlock";
+import { ActivityBlock } from "./agents/ActivityBlock";
 import { GeneratedImage } from "./agents/GeneratedImage";
 import { Markdown, StreamingMarkdown } from "./markdown/Markdown";
 import { replyActivity, unspokenThought } from "../lib/reply-parts";
@@ -1309,10 +1309,6 @@ export function ChatComposer({
     event.currentTarget.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
   }
 
-  const inlineApprovalId = approval
-    ? waitingStepIds?.find((id) => streamingSteps?.some((step) => step.id === id && !["image", "artifact", "setup"].includes(step.kind)))
-    : undefined;
-  const inlineApproval = useMemo(() => (inlineApprovalId ? { stepId: inlineApprovalId, content: approval } : null), [inlineApprovalId, approval]);
   return (
     <ReplyProviders
       mentionContext={mentionContext}
@@ -1400,32 +1396,30 @@ export function ChatComposer({
                     <LoopbackPortsContext.Provider value={loopbackPorts}>
                       <StepDetailsScope scope={messageScope}>
                         <ChatMentionsContext value={mentionContext}>
-                          <ActivityApprovalContext.Provider value={inlineApproval}>
-                            <MessageTranscript
-                              findOpen={findOpen}
-                              earlier={earlier}
-                              messages={messages}
-                              pendingMessageId={pendingMessageId}
-                              isSending={isSending}
-                              streamingText={streamingText}
-                              streamingSteps={streamingSteps}
-                              asking={asking}
-                              undoable={undoable}
-                              undoBlocked={isSending || Boolean(offlineName)}
-                              onUndo={runtimeChat ? undoTask : undefined}
-                              highlightId={highlightId}
-                              onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
-                              waitingStepIds={waitingStepIds}
-                              onRecommendationSelect={onRecommendationSelect}
-                              onUpdateCli={onUpdateCli}
-                              updatingCli={updatingCli}
-                              cliStatus={cliStatus}
-                              onOpenLinkedChat={onOpenLinkedChat}
-                              onOpenAccounts={onOpenAccounts}
-                              offlineName={offlineName}
-                              models={models}
-                            />
-                          </ActivityApprovalContext.Provider>
+                          <MessageTranscript
+                            findOpen={findOpen}
+                            earlier={earlier}
+                            messages={messages}
+                            pendingMessageId={pendingMessageId}
+                            isSending={isSending}
+                            streamingText={streamingText}
+                            streamingSteps={streamingSteps}
+                            asking={asking}
+                            undoable={undoable}
+                            undoBlocked={isSending || Boolean(offlineName)}
+                            onUndo={runtimeChat ? undoTask : undefined}
+                            highlightId={highlightId}
+                            onCheckpointPreview={runtimeChat ? previewRecovery : undefined}
+                            waitingStepIds={waitingStepIds}
+                            onRecommendationSelect={onRecommendationSelect}
+                            onUpdateCli={onUpdateCli}
+                            updatingCli={updatingCli}
+                            cliStatus={cliStatus}
+                            onOpenLinkedChat={onOpenLinkedChat}
+                            onOpenAccounts={onOpenAccounts}
+                            offlineName={offlineName}
+                            models={models}
+                          />
                         </ChatMentionsContext>
                       </StepDetailsScope>
                     </LoopbackPortsContext.Provider>
@@ -1540,7 +1534,7 @@ export function ChatComposer({
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
           {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
-          {approval && !inlineApprovalId && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
+          {approval && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
           {review.view !== "closed" && !isNewChat && (
             <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
           )}

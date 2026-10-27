@@ -9,7 +9,6 @@ import { ToolRow } from "../tool-row";
 import { Markdown } from "../markdown";
 import { useSession } from "../session";
 import { CircleButton, PageScroll, PillButton, useStyles } from "../ui";
-import { Approval } from "../questions";
 import { useChatPage } from "../chat-pages";
 import { useTheme } from "../theme";
 
@@ -36,8 +35,6 @@ export default function ActivitySheet() {
   const [full, setFull] = useState<{ id: number; steps: ChatStep[]; body: string } | null>(null);
   const [readFailure, setReadFailure] = useState<{ id: number; attempt: number; connection?: number } | null>(null);
   const [retry, setRetry] = useState(0);
-  const [answering, setAnswering] = useState(false);
-  const [answerError, setAnswerError] = useState("");
   // A reply before the page held here is read by id.
   const outside = !saved && message !== "run" && !!project?.state.messagesInChats && !page.loading;
   const client = session.client,
@@ -66,34 +63,6 @@ export default function ActivitySheet() {
   const waiting = waitingStepIds(run?.approvals);
   const summary = activitySummary(steps);
   const selected = stepId ? steps.find((step) => step.id === stepId) : undefined;
-  const renderStep = (step: ChatStep, expanded = false) => {
-    const approval = run?.approvals.find((request) => request.stepId === step.id);
-    return (
-      <View key={step.id}>
-        <ToolRow step={step} live={!!run} waiting={waiting.includes(step.id)} expanded={expanded} />
-        {approval && (
-          <Approval
-            approval={approval}
-            busy={answering}
-            respond={(decision) => {
-              if (!client || answering) return;
-              setAnswering(true);
-              setAnswerError("");
-              void client
-                .call("agent:respond-permission", [{ chatId, requestId: approval.requestId, decision }])
-                .then(
-                  (accepted) => {
-                    if (!accepted) setAnswerError("This approval is no longer pending.");
-                  },
-                  () => setAnswerError("Could not send approval. Try again."),
-                )
-                .finally(() => setAnswering(false));
-            }}
-          />
-        )}
-      </View>
-    );
-  };
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: 40, flexGrow: 1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
@@ -119,26 +88,25 @@ export default function ActivitySheet() {
         {readError && <PillButton title="Try again" secondary onPress={() => setRetry((value) => value + 1)} />}
         {!steps.length && <Text style={styles.muted}>No activity yet.</Text>}
         {selected ? (
-          renderStep(selected, true)
+          <ToolRow key={selected.id} step={selected} live={!!run} waiting={waiting.includes(selected.id)} expanded />
         ) : (
           <>
-            {setup.map((step) => renderStep(step))}
+            {setup.map((step) => (
+              <ToolRow key={step.id} step={step} live={!!run} waiting={waiting.includes(step.id)} />
+            ))}
             {activity.map((entry, index) =>
               entry.type === "step" ? (
-                renderStep(entry.step)
+                <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waiting.includes(entry.step.id)} />
               ) : (
                 <View key={`text-${index}`} style={{ paddingVertical: 6 }}>
                   <Markdown text={entry.text} />
                 </View>
               ),
             )}
-            {images.map((step) => renderStep(step))}
+            {images.map((step) => (
+              <ToolRow key={step.id} step={step} live={!!run} waiting={waiting.includes(step.id)} />
+            ))}
           </>
-        )}
-        {!!answerError && (
-          <Text accessibilityRole="alert" style={{ color: colors.red }}>
-            {answerError}
-          </Text>
         )}
       </View>
     </PageScroll>

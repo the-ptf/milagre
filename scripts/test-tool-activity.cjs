@@ -1,14 +1,17 @@
-// Real renderer regression: source marks, exact arguments, bounded output, failure reasons and linked approvals.
+// Real renderer regression: source marks, bounded output and approvals in the normal Chat area.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const fixture = `
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ActivityBlock, ActivityApprovalContext } from "/src/components/agents/ActivityBlock";
+import { ChatComposer } from "/src/components/ChatComposer";
+import { MODEL_CATALOG, capabilityFor } from "/src/model";
 import "/src/styles.css";
 document.documentElement.classList.add("dark");
 document.body.style.background = "var(--page)";
+window.milagre = { listEditors: async () => [] };
+const noop = () => {};
 const now = Date.now();
 const calls = [
  { type: "step", step: { id: "linear", kind: "other", title: "Used \\u0060list_issues\\u0060 from linear", source: { server: "linear", name: "list_issues" }, input: JSON.stringify({ query: "Tool call UI" }, null, 2), summary: "2 results", detail: '[{"id":"ENG-12"},{"id":"ENG-13"}]', status: "done", startedAt: now - 8400, endedAt: now - 7200, durationMs: 1200 } },
@@ -17,11 +20,18 @@ const calls = [
 ];
 function Fixture() {
  const [waiting, setWaiting] = useState(true);
- return <main style={{ width: 680, margin: "64px auto" }}>
-  <p style={{ color: "var(--ink)", marginBottom: 20 }}>I'll review the tool calls and run their checks.</p>
-  <ActivityApprovalContext.Provider value={waiting ? { stepId: "push", content: <button id="allow" onClick={() => setWaiting(false)}>Allow once</button> } : null}>
-   <ActivityBlock entries={calls} streaming waitingStepIds={waiting ? ["push"] : []} />
-  </ActivityApprovalContext.Provider>
+ return <main style={{ height: "100%", padding: 12 }}>
+  <ChatComposer messages={[{ id: 1, session_id: 1, role: "user", body: "Review the tool calls.", context: null }]} messageScope="/fixture" projectPath="/fixture"
+   imageDraft={{ images: [], files: [], attachFiles: noop, attachPath: noop, removeFile: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
+   draft="" onDraftChange={noop} onSend={noop} isSending sendBlocked={false}
+   streamingText="I'll review the tool calls and run their checks." streamingSteps={calls.map(entry => entry.step)}
+   waitingStepIds={waiting ? ["push"] : []}
+   approval={waiting ? <button id="allow" onClick={() => setWaiting(false)}>Allow once</button> : null}
+   models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={MODEL_CATALOG[0]} onModelChange={noop}
+   capability={capabilityFor(MODEL_CATALOG[0], null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
+   fastMode={false} onFastModeChange={noop} permissionMode="ask" onPermissionModeChange={noop}
+   onRecommendationSelect={noop} worktrees={[]} onWorktreeChange={noop}
+   isolation="local" onIsolationChange={noop} branches={[]} baseBranch="main" onBaseBranchChange={noop} newChatError={null} />
  </main>;
 }
 createRoot(document.getElementById("root")).render(<Fixture />);
@@ -32,6 +42,9 @@ async function check() {
   app.setPath("userData", require("node:fs").mkdtempSync(path.join(require("node:os").tmpdir(), "milagre-tool-activity-")));
   await app.whenReady();
   const window = new BrowserWindow({ width: 1000, height: 800, show: false, webPreferences: { backgroundThrottling: false } });
+  window.webContents.on("console-message", (details) => {
+    if (details.level === "error") console.error(details.message);
+  });
   const run = (code) => window.webContents.executeJavaScript(code);
   const wait = async (code) => {
     for (let i = 0; i < 160; i++) {
@@ -44,6 +57,11 @@ async function check() {
     await window.loadURL(process.argv[2]);
     await wait('!!document.querySelector("[data-slot=activity]")');
     assert.equal(await run('document.querySelectorAll("#allow").length'), 1, "a collapsed group does not hide or duplicate its approval");
+    assert.equal(
+      await run('!!document.getElementById("allow").closest("[data-slot=activity], [data-slot=step]")'),
+      false,
+      "asks stay in the normal Chat approval area",
+    );
     assert.ok(
       await run(
         '(() => { const node = document.querySelector("[data-slot=activity-sources] > span"); return parseFloat(getComputedStyle(node).borderRadius) >= node.getBoundingClientRect().width / 2; })()',
@@ -54,6 +72,11 @@ async function check() {
     await run('document.querySelector("[data-slot=activity] > button").click()');
     await wait('document.querySelectorAll("[data-slot=step]").length === 3');
     assert.equal(await run('document.querySelectorAll("#allow").length'), 1);
+    assert.equal(
+      await run('!!document.getElementById("allow").closest("[data-slot=activity], [data-slot=step]")'),
+      false,
+      "opening calls never moves an ask into them",
+    );
     await run('document.querySelector("[data-slot=activity] > button").click()');
     assert.equal(await run('document.querySelectorAll("#allow").length'), 1, "closing mounted rows keeps one usable approval");
     await run('document.querySelector("[data-slot=activity] > button").click()');
@@ -83,7 +106,7 @@ async function check() {
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "tool-activity.png"), (await window.webContents.capturePage()).toPNG());
     }
-    console.log("PASS: source stack, Linear logo, exact input, bounded output, visible failure cause, linked approval and retained disclosure");
+    console.log("PASS: source stack, Linear logo, exact input, bounded output, visible failure cause, normal Chat approval and retained disclosure");
     app.exit(0);
   } catch (error) {
     console.error(error);

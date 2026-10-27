@@ -1,5 +1,5 @@
 import { memo, useId, useState } from "react";
-import type { ComponentProps, CSSProperties, ReactNode } from "react";
+import type { ComponentProps, CSSProperties } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon, Loading03Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
@@ -48,7 +48,7 @@ function FileLink({ text, title, sweep, onOpen }: { text: string; title: string;
 }
 
 /** One tool call in a reply: what it did and how it went. A row with output, a diff or thinking opens to show it. */
-export const StepRow = memo(function StepRow({ step, waiting = false, after }: { step: ChatStep; waiting?: boolean; after?: ReactNode }) {
+export const StepRow = memo(function StepRow({ step, waiting = false }: { step: ChatStep; waiting?: boolean }) {
   // Thinking follows Settings › Chat › Always expand reasoning until the row is toggled.
   const { expandReasoning } = useSettings();
   const [toggled, setToggled] = useState<boolean | null>(null);
@@ -167,7 +167,6 @@ export const StepRow = memo(function StepRow({ step, waiting = false, after }: {
       ) : open && (loading || failed) ? (
         <div id={detailId}>{outputStatus}</div>
       ) : null}
-      {after && <div className="mt-1 mb-2 ml-6">{after}</div>}
     </div>
   );
 });

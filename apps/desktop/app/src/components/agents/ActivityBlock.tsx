@@ -1,5 +1,5 @@
-import { createContext, useContext, useRef, useState } from "react";
-import type { ComponentProps, ReactNode } from "react";
+import { useRef, useState } from "react";
+import type { ComponentProps } from "react";
 import { activityDuration, stepDisplayTitle } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "../../lib/display-clock";
 import { ActivitySources } from "./ActivitySource";
@@ -15,7 +15,6 @@ import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
 
 const NO_WAITING_STEPS: string[] = [];
-export const ActivityApprovalContext = createContext<{ stepId: string; content: ReactNode } | null>(null);
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -65,22 +64,15 @@ export function ActivityBlock({
   // An earlier step can resume or need approval. Reveal it permanently, without evicting rows.
   if (boundary !== null && hidden < boundary) setBoundary(hidden);
   const { toolCallDisplay } = useSettings();
-  const approval = useContext(ActivityApprovalContext);
   const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
   const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, streaming, now), streaming);
-  const inlineApproval = streaming && approval && steps.some((step) => step.id === approval.stepId) ? approval : null;
   if (!entries.length) return null;
   if (toolCallDisplay === "full")
     return (
       <div data-slot="activity-inline" className="-mx-1.5 my-1 flex min-w-0 flex-col">
         {entries.map((entry, index) =>
           entry.type === "step" ? (
-            <StepRow
-              key={entry.step.id}
-              step={entry.step}
-              waiting={waitingStepIds.includes(entry.step.id)}
-              after={entry.step.id === inlineApproval?.stepId ? inlineApproval.content : undefined}
-            />
+            <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
           ) : (
             <div key={`text-${index}`} className="px-1.5 py-1.5">
               <Markdown text={entry.text} />
@@ -90,8 +82,7 @@ export function ActivityBlock({
       </div>
     );
   const first = entries[0];
-  if (entries.length === 1 && first?.type === "step")
-    return <StepRow key={first.step.id} step={first.step} waiting={waitingStepIds.includes(first.step.id)} after={inlineApproval?.content} />;
+  if (entries.length === 1 && first?.type === "step") return <StepRow key={first.step.id} step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
 
   const current = streaming
     ? (steps.find((step) => step.status === "running" && waitingStepIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
@@ -169,12 +160,7 @@ export function ActivityBlock({
             {boundary !== null &&
               entries.slice(hidden).map((entry, index) =>
                 entry.type === "step" ? (
-                  <StepRow
-                    key={entry.step.id}
-                    step={entry.step}
-                    waiting={waitingStepIds.includes(entry.step.id)}
-                    after={open && entry.step.id === inlineApproval?.stepId ? inlineApproval.content : undefined}
-                  />
+                  <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
                 ) : (
                   <div key={`text-${hidden + index}`} className="px-1.5 py-1 text-[12.5px] leading-[1.55] text-ink-2">
                     <Markdown text={entry.text} />
@@ -184,7 +170,6 @@ export function ActivityBlock({
           </div>
         </div>
       </div>
-      {!open && inlineApproval && <div className="mt-2 ml-6">{inlineApproval.content}</div>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
 import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "./display-clock";
@@ -243,7 +243,6 @@ export const ChatReply = memo(function ChatReply({
   message,
   run,
   onActivity,
-  approvalForStep,
   media,
   basePath,
   chatId,
@@ -261,7 +260,6 @@ export const ChatReply = memo(function ChatReply({
   highlighted?: boolean;
   run?: AgentRun;
   onActivity: (message: string, stepId?: string) => void;
-  approvalForStep?: (stepId?: string) => ReactNode;
   media: MediaSource;
   basePath?: string;
   /** The Chat's key, to open the designs its replies showed. */
@@ -431,10 +429,13 @@ export const ChatReply = memo(function ChatReply({
       {toolCallDisplay === "full" ? (
         reply.activity.map((entry, index) =>
           entry.type === "step" ? (
-            <View key={entry.step.id}>
-              <ToolRow step={entry.step} live={!!run} waiting={waitingIds.includes(entry.step.id)} onPress={() => openActivity(entry.step.id)} />
-              {approvalForStep?.(entry.step.id)}
-            </View>
+            <ToolRow
+              key={entry.step.id}
+              step={entry.step}
+              live={!!run}
+              waiting={waitingIds.includes(entry.step.id)}
+              onPress={() => openActivity(entry.step.id)}
+            />
           ) : (
             <MessageActions key={`text-${index}`} text={entry.text} markdown>
               {(openActions) => (
@@ -461,7 +462,6 @@ export const ChatReply = memo(function ChatReply({
           />
         )
       )}
-      {toolCallDisplay !== "full" && approvalForStep?.()}
       {reply.images.map((step) => (
         <View key={step.id} style={{ gap: 6 }}>
           <ToolRow step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />

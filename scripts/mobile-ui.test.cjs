@@ -9647,10 +9647,9 @@ test("mobile Full detail shows each tool call and the notes between them in the 
   assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.waiting, true);
 });
 
-test("mobile activity sheet opens the selected call without paging and tethers approval to its own row", async () => {
+test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {
   const react = hookHost();
   let params = { id: "1", message: "run", stepId: "b" };
-  const answers = [];
   const steps = ["a", "b", "c"].map((id) => ({ id, kind: "shell", title: `Ran ${id}`, status: "running" }));
   const run = { text: "", steps, approvals: [{ requestId: "approval-b", stepId: "b" }], questions: [] };
   const { default: ActivitySheet } = load("app/activity.tsx", {
@@ -9668,12 +9667,7 @@ test("mobile activity sheet opens the selected call without paging and tethers a
     "../session": {
       useSession: () => ({
         snapshot: { project: { path: "/project", state: { messages: [] } }, runs: { runs: { "/project#1": run } } },
-        client: {
-          call: async (...args) => {
-            answers.push(args);
-            return true;
-          },
-        },
+        client: null,
       }),
     },
   });
@@ -9689,9 +9683,12 @@ test("mobile activity sheet opens the selected call without paging and tethers a
     undefined,
     "the selected call has no paging controls",
   );
-  await find(tree, (node) => node.type === "Approval").props.respond("allow");
-  await Promise.resolve();
-  assert.equal(JSON.stringify(answers), JSON.stringify([["agent:respond-permission", [{ chatId: "/project#1", requestId: "approval-b", decision: "allow" }]]]));
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.waiting, true);
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "selected call details never contain an approval ask",
+  );
   params = { ...params, stepId: "c" };
   tree = render();
   assert.equal(
@@ -9701,7 +9698,42 @@ test("mobile activity sheet opens the selected call without paging and tethers a
   );
   params = { id: "1", message: "run" };
   tree = render();
-  assert.equal(find(tree, (node) => node.type === "Approval").props.approval.stepId, "b", "the all-calls view also exposes its waiting approval");
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "the all-calls view keeps asks in Chat too",
+  );
+});
+
+test("mobile Chat shows linked and unlinked approval asks once in its normal approval area", async () => {
+  const screen = ongoingChatHost();
+  const answers = [];
+  const original = screen.session.client.call;
+  screen.session.client.call = (method, args) => {
+    if (method !== "agent:respond-permission") return original(method, args);
+    answers.push(args[0]);
+    return Promise.resolve(true);
+  };
+  screen.session.snapshot.runs.runs["/p#7"] = {
+    text: "Checking.",
+    startedAt: Date.now(),
+    questions: [],
+    answered: {},
+    steps: [{ id: "shell", kind: "shell", title: "Ran tests", status: "running" }],
+    approvals: [{ requestId: "linked", stepId: "shell" }, { requestId: "unlinked" }],
+  };
+  const approvals = [];
+  find(screen.render(), (node) => {
+    if (node.type === "Approval") approvals.push(node);
+    return false;
+  });
+  assert.deepEqual(
+    approvals.map((node) => node.props.approval.requestId),
+    ["linked", "unlinked"],
+  );
+  approvals[0].props.respond("allow");
+  await settle();
+  assert.equal(JSON.stringify(answers), JSON.stringify([{ chatId: "/p#7", requestId: "linked", decision: "allow" }]));
 });
 
 test("mobile tool output retries after reconnect and clears the failed-read controls after success", async () => {

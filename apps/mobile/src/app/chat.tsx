@@ -1720,8 +1720,6 @@ function ChatPane({
       }
     />
   );
-  const linkedApproval = (approval: NonNullable<typeof run>["approvals"][number]) =>
-    !!approval.stepId && !!run?.steps.some((step) => step.id === approval.stepId && !["image", "artifact", "setup"].includes(step.kind));
   const liveReply = run ? (
     <ChatReply
       key="run"
@@ -1732,9 +1730,6 @@ function ChatPane({
       designChoice={designChoice}
       designsMoved={designsMoved}
       onActivity={openActivity}
-      approvalForStep={(stepId) =>
-        run.approvals.filter((approval) => linkedApproval(approval) && (stepId === undefined || approval.stepId === stepId)).map(renderToolApproval)
-      }
     />
   ) : null;
   const sendDisabled =
@@ -2090,7 +2085,7 @@ function ChatPane({
                     onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
                   />
                 ) : null}
-                {run?.approvals.filter((approval) => !linkedApproval(approval)).map(renderToolApproval)}
+                {run?.approvals.map(renderToolApproval)}
                 {question && (
                   // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
                   <View style={answering ? { display: "none" } : undefined}>
