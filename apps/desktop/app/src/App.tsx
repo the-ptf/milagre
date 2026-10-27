@@ -198,6 +198,9 @@ const PROVIDERS_FRESH_MS = 60_000;
 const BRANCHES_FRESH_MS = 60_000;
 const NO_MESSAGES: ChatMessage[] = [];
 const NO_BRANCHES: string[] = [];
+// Each Project's branches as last read, and when: opening it again shows them at once, and reads them again (git on its
+// computer) in the background only once they are older than BRANCHES_FRESH_MS.
+const branchLists = new Map<string, { at: number; branches: string[] }>();
 
 /** Starts reading Chat `sessionId`'s page now, when `state` (the scope's, as held) comes from a host that keeps messages by Chat. */
 function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorState | LinkState | null | undefined) {
@@ -480,7 +483,9 @@ function App() {
   // A Project outside Git has one Worktree, the folder itself: its Chats always work there.
   const noGit = project?.git === false;
   const isolation: Isolation = noGit ? "local" : pickedIsolation;
-  const [branches, setBranches] = useState<string[]>([]);
+  // The open Project's branches, from the last read of them (branchLists); a read that changes them renders again.
+  const [, setBranchesRead] = useState(0);
+  const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
   const [baseBranch, setBaseBranch] = useState<string | null>(null);
   const [newChatError, setNewChatError] = useState<string | null>(null);
   // A short message about something that happened off to the side (a worktree that wouldn't go).
@@ -646,18 +651,17 @@ function App() {
     };
   }, []);
 
-  // Each Project's branches as last read: opening it again shows them at once, and reads them again (git on its computer)
-  // in the background only once they are older than BRANCHES_FRESH_MS. Every read of them goes through rememberBranches.
-  const branchCache = useRef(new Map<string, { at: number; branches: string[] }>());
+  // Every read of a Project's branches goes through here: the open Project's list renders again only when it changed.
   const rememberBranches = (path: string, next: string[]) => {
-    branchCache.current.set(path, { at: Date.now(), branches: next });
-    if (projectRef.current?.path === path) setBranches(next);
+    const kept = branchLists.get(path)?.branches;
+    const same = kept?.length === next.length && next.every((branch, index) => branch === kept[index]);
+    branchLists.set(path, { at: Date.now(), branches: same ? kept : next });
+    if (!same && projectRef.current?.path === path) setBranchesRead((count) => count + 1);
   };
   useEffect(() => {
     if (!project) return;
     const path = project.path;
-    const hit = branchCache.current.get(path);
-    setBranches(hit?.branches ?? NO_BRANCHES);
+    const hit = branchLists.get(path);
     if (hit && Date.now() - hit.at < BRANCHES_FRESH_MS) return;
     let cancelled = false;
     // Another computer's busy host (429) answers a later try; meanwhile a new Worktree starts from the checkout's branch.
@@ -1540,7 +1544,7 @@ function App() {
             () => {},
           );
       // A Project not on screen reads its branches again when it is opened.
-      else branchCache.current.delete(rename.projectPath);
+      else branchLists.delete(rename.projectPath);
     };
     const offLocal = window.milagre.onWorktreeRenamed(renamed);
     const offRemote = window.milagre.onComputerEvent?.((event) => {

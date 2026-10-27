@@ -58,6 +58,13 @@ const projectAt = async (key) => {
   }
   return project;
 };
+// Each call that opens or reads a remote Project or a Chat's page, in order: [method, key, options or chat id].
+window.remoteCalls = [];
+// A host that numbers states answers a read with { state: false } with the Project's name and state number alone.
+const projectHeader = (key) => {
+  const { path, name } = Object.values(remoteProjects).find((project) => project.path === key);
+  return { path, name, git: true, version: 1, epoch: "fixture-host" };
+};
 window.pushRemote = (state) => {
   remoteProjects["c-arketa"].state = state;
   for (const callback of computerEvents) callback({ channel: "project:state", payload: { path: remoteProjects["c-arketa"].path, state } });
@@ -76,10 +83,13 @@ const remote = (id) => new Proxy({
     throw new Error("Remote computer visibility must not be mutated from this Mac");
   },
   listNamedLinks: async () => [],
-  readProject: projectAt,
-  switchProject: projectAt,
+  readProject: async (key, options) => {
+    window.remoteCalls.push(["readProject", key, options ?? null]);
+    return options?.state === false ? projectHeader(key) : projectAt(key);
+  },
+  switchProject: async (key) => (window.remoteCalls.push(["switchProject", key, null]), projectAt(key)),
   // As main's offline cache answers a chat it kept nothing of (Task 20).
-  readChatMessages: async () => ({ messages: [], hasMore: false, total: 0 }),
+  readChatMessages: async (scope, chatId) => (window.remoteCalls.push(["readChatMessages", scope, chatId]), { messages: [], hasMore: false, total: 0 }),
   getRuns: async () => ({ runs: {}, seq: 0 }),
   listBranches: async () => ["main"],
   getCachedUsage: async () => remoteUsage(id),
@@ -357,6 +367,16 @@ async function browserChecks() {
       `[...document.querySelectorAll('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`,
     );
     await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('The deploy check fails about one run in five.')`);
+    // The window holds the Project's state from the sidebar's read: the other Mac is only asked for its name and number
+    // (project:read without the state), never project:switch, which would reorder its recent list and change its open Project.
+    await waitFor(
+      `window.remoteCalls.some(([method, key, options]) => method === 'readProject' && key === 'c-arketa|/Users/a/arketa-web' && options?.state === false)`,
+    );
+    assert.equal(
+      await evaluate(`window.remoteCalls.some(([method]) => method === 'switchProject')`),
+      false,
+      "another computer's Project opens without project:switch",
+    );
     await waitFor(`document.querySelector('.sidebar-usage-row')?.textContent.includes('37%')`);
     assert.ok(
       await evaluate(`window.usageReads.some(([id, scope]) => id === 'c-arketa' && scope === 'c-arketa|/Users/a/arketa-web')`),
@@ -432,6 +452,15 @@ async function browserChecks() {
     );
     await waitFor(`!!document.querySelector('[data-offline-empty]')`);
     assert.equal(await evaluate(`document.querySelector('[data-offline-empty]').textContent.trim()`), "No copy of this chat on this Mac yet.");
+    // A host that keeps messages by Chat: the Chat's page read goes out first, then the Project's read, so it isn't queued
+    // behind everything the switch's render asks the other Mac for.
+    const notesCalls = await evaluate(
+      `window.remoteCalls.filter(([, key]) => key === 'c-studio|/Users/s/notes').map(([method, , detail]) => method + (detail?.state === false ? ' header' : ''))`,
+    );
+    assert.ok(
+      notesCalls.includes("readChatMessages") && notesCalls.indexOf("readChatMessages") < notesCalls.indexOf("readProject header"),
+      `the page read leads the open: ${notesCalls}`,
+    );
     await screenshot("offline-chat-empty");
     await evaluate(
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].find((b) => b.textContent.includes('Backup rotation')).click()`,

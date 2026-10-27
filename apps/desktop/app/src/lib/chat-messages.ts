@@ -80,7 +80,16 @@ export function noteScopeOpening(scope: string, opened: Promise<unknown>) {
 }
 
 function readPage(scope: string, chatId: number) {
-  const read = () => readWithTimeout(() => bridgeForKey(scope).readChatMessages(scope, chatId, { turns: TURNS }));
+  // The call is made now, not a microtask later: a switch's open, sent right after, must not reach the host first.
+  const read = () => {
+    let page: Promise<{ messages: ChatMessage[]; hasMore: boolean; total: number }>;
+    try {
+      page = bridgeForKey(scope).readChatMessages(scope, chatId, { turns: TURNS });
+    } catch (error) {
+      page = Promise.reject(error);
+    }
+    return readWithTimeout(() => page);
+  };
   return read().catch((error: unknown) => {
     const opening = openings.get(scope);
     if (!opening || !NOT_OPEN.test(error instanceof Error ? error.message : String(error))) throw error;
