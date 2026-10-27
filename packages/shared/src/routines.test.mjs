@@ -676,3 +676,7 @@ test("routineEnd says how many Runs are left or when the Routine ends", () => {
   assert.equal(routineEnd({ expiresAt: now + 5 * 3600e3 }, now), "ends in 5 h");
   assert.equal(routineEnd({}, now), null);
 });
+
+test("triggerText words a pull-request trigger", () => {
+  assert.equal(triggerText({ kind: "pull-request", repo: "github.com/acme/app", number: 7 }), "PR #7");
+});

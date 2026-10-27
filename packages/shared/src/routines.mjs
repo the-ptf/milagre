@@ -161,6 +161,8 @@ export function triggerText(trigger) {
       return linearText(trigger);
     case "webhook":
       return "Webhook";
+    case "pull-request":
+      return `PR #${trigger.number}`;
     default:
       return String(trigger?.kind ?? "");
   }
