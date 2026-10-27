@@ -2737,6 +2737,8 @@ function chatHost({
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
     "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
+    "../babysit-stopped-divider": { BabysitStoppedDivider: "BabysitStoppedDivider" },
+    "@milagre/shared/babysit": require("@milagre/shared/babysit"),
     "../routine-run-divider": { RoutineRunDivider: "RoutineRunDivider" },
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
@@ -5339,6 +5341,32 @@ test("the message that continued a Chat on another account is a line, not a repl
   );
   const rail = find(tree, (node) => node.type === "MessageNavigation");
   assert.equal(rail.props.items.at(-1).label, "Go to Switched to me@work.com after the usage limit, 2 of 2.");
+});
+
+test("a Chat whose babysit Heartbeat ended shows the line saying why, and the rail names it", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "babysit-stopped", routineId: "r1", pr: 7, reason: "merged" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Open a PR" },
+    { id: 2, session_id: 42, role: "assistant", body: "Stopped babysitting PR #7: merged.", context },
+  ];
+  const tree = screen.render();
+  const dividers = [];
+  find(tree, (node) => {
+    if (node.type === "BabysitStoppedDivider") dividers.push(node.props.context);
+    return false;
+  });
+  assert.deepEqual(dividers, [context]);
+  // Not drawn as a reply too.
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.at(-1).label, "Go to Stopped babysitting PR #7: merged, 2 of 2.");
 });
 
 test("quiet heartbeats collapse into one line and their replies are hidden", () => {
