@@ -122,6 +122,10 @@ Routine page like any Heartbeat.
   When something needs fixing (the five levels, each with one pill of its steps joined by small arrows (fix → push → reply → re-request), a **Default** tag on Fix and push, then the
   Resolve threads switch); Stop babysitting when; Your instructions. **Reset all to defaults** sits on the first group's
   header.
+- **Theme colors:** every colored state (selected level row, radio, switches, checkboxes, chips, action pills, the
+  Reset link) uses the active theme's tokens: `--accent` for controls and selected icons, `--accent-tint` for the
+  selected row and chip fills, `--accent-ink` for selected text. No hard-coded colors, so light, dark and custom themes
+  all recolor it. The canvas design shows the default light theme.
 - **Phone:** a Babysit PRs row in the phone's Experimental settings that pushes a Babysit PRs screen with the same
   groups, built from the app's own components (Victor rejects phone mockups that aren't).
 - In the Chat, a babysit Heartbeat shows with the existing Heartbeat card; quiet polls leave nothing.
