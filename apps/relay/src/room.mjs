@@ -3,6 +3,8 @@ import { hostIdOf, b64url, fromB64url } from "@milagre/shared/relay-crypto";
 
 const MAX_FRAME = 1024 * 1024;
 export const MAX_PHONES = 16;
+// Conns the room remembers telling the Mac about; past this many the list starts over (a repeat costs one more CLOSE).
+const TOLD_GONE_MAX = 64;
 const OPEN = 1,
   DATA = 2,
   CLOSE = 3;
@@ -66,6 +68,7 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
     next = 0n; // host: the proven Mac; pending: a newcomer still proving its key
   const phones = new Map(); // conn -> socket
   const connOf = new Map(); // socket -> conn
+  const toldGone = new Set(); // conns the Mac was told are gone, so a stream to one is answered once
   // A mark that fails (a socket already gone) only costs that socket its restore.
   const note = (socket, state) => {
     try {
@@ -160,7 +163,16 @@ export function createRoom({ id, nonce = () => crypto.getRandomValues(new Uint8A
       const { type, conn, payload } = unframe(bytes);
       if (conn === 0n) return type === HOOK_SET || type === HOOK_ACK ? onHostFrame?.(type, payload) : undefined;
       const phone = phones.get(conn);
-      if (!phone) return;
+      // A stream for a phone that left (its CLOSE lost, or the room rebuilt without it): the Mac hears CLOSE once, so
+      // it stops sending frames the room can only drop, each of which still costs a request.
+      if (!phone) {
+        if (type === DATA && !toldGone.has(conn)) {
+          if (toldGone.size >= TOLD_GONE_MAX) toldGone.clear();
+          toldGone.add(conn);
+          toHost(frame(CLOSE, conn));
+        }
+        return;
+      }
       if (type === DATA) {
         if (sent(phone, payload)) return;
         forgetPhone(conn, phone);
