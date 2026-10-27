@@ -59,7 +59,12 @@ export interface Runtime {
   /** A bot's thread, or a Chat a bot opened and still runs: no completion notification or push. */
   isQuietChat(chatKey: string): boolean;
   environmentReady: Promise<unknown>;
-  focused(): Promise<void>;
+  /** A window regains focus over `view`: its Chat is read and its Project's diff stats are read again (throttled). */
+  focused(view?: { projectPath: string | null; chatId: string | null }): Promise<void>;
+  /** A window shows `chatId` now: it is read, and only its own Worktree's diff stat is read again (throttled). */
+  chatOpened(chatId: string | null): Promise<void>;
+  /** The state a Project or Link (scope key) holds now, without waiting for its queued changes; undefined when unread. */
+  stateOf(scope: string): unknown;
   /** Unloads the idle Chats of every open Project and Link now, as the sweep does. */
   unloadIdle(): Promise<void>;
   /** True once close() has begun, including after a failed close that has not been retried yet. */
