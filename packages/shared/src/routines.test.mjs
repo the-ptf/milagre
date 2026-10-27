@@ -48,8 +48,15 @@ test("parsePass ignores a (pass) that is not at the start", () => {
   assert.deepEqual(parsePass(""), { quiet: false });
 });
 
-test("parsePass caps the summary at 80 characters", () => {
-  assert.equal(parsePass("(pass) " + "x".repeat(200)).summary.length, 80);
+test("parsePass caps the summary at 80 characters, with an ellipsis where it cut", () => {
+  assert.equal(parsePass("(pass) " + "x".repeat(200)).summary, `${"x".repeat(79)}\u2026`);
+  // Exactly 80 fits as it is.
+  assert.equal(parsePass("(pass) " + "y".repeat(80)).summary, "y".repeat(80));
+  // A cut ends on a whole word: the QA reply that lost its last word mid-way.
+  const long = "I did not fix the `check` failure, because the only fix is a file you told me not to add.";
+  const { summary } = parsePass(`(pass) ${long}`);
+  assert.equal(summary, "I did not fix the `check` failure, because the only fix is a file you told me\u2026");
+  assert.ok(summary.length <= 80);
 });
 
 const context = (over = {}) => ({

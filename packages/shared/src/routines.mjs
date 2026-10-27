@@ -27,8 +27,19 @@ export function isRoutineRun(message) {
 }
 
 /**
+ * A summary cut to 80 characters: on a word when the cut leaves most of the line (else mid-word), and ending in "…" so
+ * the divider shows it goes on.
+ */
+function capSummary(line) {
+  if (line.length <= SUMMARY_LIMIT) return line;
+  const cut = line.slice(0, SUMMARY_LIMIT - 1);
+  const word = cut.replace(/\s+\S*$/, "");
+  return `${(word.length >= SUMMARY_LIMIT / 2 ? word : cut).trimEnd()}\u2026`;
+}
+
+/**
  * Whether a heartbeat reply is a pass: it starts with "(pass)" (leading whitespace, "*" and "_" ignored, any case), and the
- * rest of that line is the summary, at most 80 characters.
+ * rest of that line is the summary, at most 80 characters (capSummary).
  */
 export function parsePass(text) {
   const match = /^[\s*_]*\(pass\)(.*)/i.exec(String(text ?? ""));
@@ -37,7 +48,7 @@ export function parsePass(text) {
     .split("\n")[0]
     .replace(/^[\s*_]+/, "")
     .trim();
-  return { quiet: true, summary: line.slice(0, SUMMARY_LIMIT) };
+  return { quiet: true, summary: capSummary(line) };
 }
 
 /**
