@@ -11,10 +11,12 @@ const MINUTE = 60_000;
 
 const snapshot = (patch = {}) => ({
   state: "OPEN",
+  isDraft: false,
   reviewDecision: null,
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
   headRef: "feature",
+  headOid: "a1",
   baseRef: "main",
   behindBy: 0,
   failingChecks: [],
@@ -191,7 +193,7 @@ test("restart reuses stored snapshot", async () => {
 
   const ctx = setup();
   const routine = ctx.routine();
-  ctx.store.setPrSnapshot(routine.id, { snapshot: failing, attempts: { "check:lint": 0 }, handed: { "check:lint": START } });
+  ctx.store.setPrSnapshot(routine.id, { snapshot: failing, attempts: { "check:lint": 0 }, handed: { "check:lint": { at: START, head: "a1" } } });
   assert.notEqual(ctx.store.prSnapshot(routine.id), undefined);
   ctx.poller.stop();
   const again = setup({ file: ctx.file });
@@ -216,21 +218,97 @@ test("failure cap completes after N repeats", async () => {
   await ctx.poll();
   assert.equal(ctx.delivered.length, 1);
 
-  // A Run finished and lint still fails: handed over again.
+  // A Run finished but pushed nothing: lint still fails, and that is no new attempt.
   ctx.clock.t += MINUTE;
   finishedRun(ctx, routine);
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 1);
+  assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], 0);
+
+  // A Run pushed a commit and lint still fails: handed over again.
+  ctx.clock.t += MINUTE;
+  finishedRun(ctx, routine);
+  ctx.world.next = snapshot({ failingChecks: ["lint"], headOid: "a2" });
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.delivered.length, 2);
   assert.notEqual(ctx.delivered[1].event.key, ctx.delivered[0].event.key);
   assert.ok(!ctx.store.get(routine.id).completedAt);
 
-  // Another Run, lint still fails: the second repeat reaches the cap.
+  // Another push, lint still fails: the second repeat reaches the cap.
   ctx.clock.t += MINUTE;
   finishedRun(ctx, routine);
+  ctx.world.next = snapshot({ failingChecks: ["lint"], headOid: "a3" });
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.delivered.length, 2);
+  assert.ok(ctx.store.get(routine.id).completedAt);
+});
+
+test("a red check at level 1 wakes the agent once, not every poll", async () => {
+  const ctx = setup({ settings: { level: 1 } });
+  const routine = ctx.routine();
+  ctx.poller.start();
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  for (let i = 0; i < 6; i += 1) {
+    await ctx.poll();
+    ctx.clock.t += MINUTE;
+    finishedRun(ctx, routine);
+    ctx.clock.t += MINUTE;
+  }
+  assert.equal(ctx.delivered.length, 1);
+  assert.ok(!ctx.store.get(routine.id).completedAt);
+});
+
+test("a conflict nobody pushes for wakes once; a push that leaves it wakes again", async () => {
+  const ctx = setup();
+  const routine = ctx.routine();
+  ctx.poller.start();
+  await ctx.poll();
+  ctx.world.next = snapshot({ mergeable: "CONFLICTING", mergeState: "DIRTY" });
+  for (let i = 0; i < 3; i += 1) {
+    ctx.clock.t += MINUTE;
+    await ctx.poll();
+    ctx.clock.t += MINUTE;
+    finishedRun(ctx, routine);
+  }
+  assert.equal(ctx.delivered.length, 1);
+  ctx.world.next = snapshot({ mergeable: "CONFLICTING", mergeState: "DIRTY", headOid: "a2" });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 2);
+  assert.deepEqual(ctx.delivered[1].event.changes, [{ id: "conflict", text: "Merge conflicts with main" }]);
+  assert.equal(ctx.store.prSnapshot(routine.id).attempts.conflict, 1);
+});
+
+test("a green poll with new comments hands them over and stops on the next poll", async () => {
+  const ctx = setup();
+  const routine = ctx.routine();
+  ctx.poller.start();
+  ctx.world.next = snapshot({ pendingChecks: 1, totalChecks: 1 });
+  await ctx.poll();
+  ctx.world.next = snapshot({ totalChecks: 1, comments: [comment("c1", "Approve, with a nit")] });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 1);
+  assert.deepEqual(ctx.delivered[0].event.changes, [{ id: "comment:c1", text: "Review comment from @alice: Approve, with a nit" }]);
+  assert.ok(!ctx.store.get(routine.id).completedAt);
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 1);
+  assert.ok(ctx.store.get(routine.id).completedAt);
+});
+
+test("a closed PR stops at once, new comments or not", async () => {
+  const ctx = setup();
+  const routine = ctx.routine();
+  ctx.poller.start();
+  await ctx.poll();
+  ctx.world.next = snapshot({ state: "CLOSED", comments: [comment("c1", "closing this")] });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.deepEqual(ctx.delivered, []);
   assert.ok(ctx.store.get(routine.id).completedAt);
 });
 
@@ -297,15 +375,16 @@ test("failure cap survives a push that turns checks pending", async () => {
   await ctx.poll();
   assert.equal(ctx.delivered.length, 1);
   for (const attempt of [1, 2]) {
+    const headOid = `push${attempt}`;
     ctx.clock.t += MINUTE;
     finishedRun(ctx, routine);
     // The push restarted the checks: nothing is failing, one is pending, and the attempts stay.
-    ctx.world.next = snapshot({ pendingChecks: 1, totalChecks: 1 });
+    ctx.world.next = snapshot({ pendingChecks: 1, totalChecks: 1, headOid });
     ctx.clock.t += MINUTE;
     await ctx.poll();
     assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], attempt - 1);
     // It fails again: that is a repeat.
-    ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+    ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1, headOid });
     ctx.clock.t += MINUTE;
     await ctx.poll();
     if (attempt === 1) {
@@ -326,15 +405,15 @@ test("a check that passes with nothing pending resets its attempts", async () =>
   await ctx.poll();
   ctx.clock.t += MINUTE;
   finishedRun(ctx, routine);
-  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1, headOid: "a2" });
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], 1);
-  ctx.world.next = snapshot({ totalChecks: 1 });
+  ctx.world.next = snapshot({ totalChecks: 1, headOid: "a2" });
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.deepEqual(ctx.store.prSnapshot(routine.id).attempts, {});
-  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1, headOid: "a2" });
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.delivered.length, 3);

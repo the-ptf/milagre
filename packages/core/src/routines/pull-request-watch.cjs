@@ -7,7 +7,7 @@ const { defaultExec, ghMessage, ghOptions } = require("../pull-request-review.cj
 /** The agent's own PR comments carry this, so a babysat PR never wakes itself. */
 const BABYSIT_MARKER = "<!-- milagre-babysit -->";
 
-const VIEW_FIELDS = "state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,headRefName,baseRefName,comments,reviews";
+const VIEW_FIELDS = "state,isDraft,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,headRefName,headRefOid,baseRefName,comments,reviews";
 // Not paginated: the first 100 threads and each thread's first 50 comments are what a babysat PR is read from.
 const THREADS_QUERY = `query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){pullRequest(number:$number){
@@ -109,10 +109,13 @@ async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, e
 
   return {
     state: text(view.state) || "OPEN",
+    isDraft: view.isDraft === true,
     reviewDecision: text(view.reviewDecision) || null,
     mergeable: text(view.mergeable),
     mergeState,
     headRef,
+    // The head commit: the poller hands a problem over again only once something was pushed since.
+    headOid: text(view.headRefOid),
     baseRef,
     behindBy,
     ...classifyChecks(view.statusCheckRollup),
@@ -150,13 +153,14 @@ function diffSnapshots(prev, next, settings) {
     changes.push({ id: "behind", text: `Branch is behind ${base}` });
   }
 
-  // Green needs a settled PR, not a young one: never on the baseline reading, never with conflicts, and a PR with
-  // no checks registered yet counts only once a review has approved it.
+  // Green needs a settled PR, not a young one: never on the baseline reading, never a draft, never with conflicts, and a
+  // PR with no checks registered yet counts only once a review has approved it.
   let stop = null;
   if (next.state !== "OPEN") stop = "closed";
   else if (
     settings?.stopWhenGreen &&
     prev &&
+    !next.isDraft &&
     next.mergeable !== "CONFLICTING" &&
     next.failingChecks.length === 0 &&
     next.pendingChecks === 0 &&

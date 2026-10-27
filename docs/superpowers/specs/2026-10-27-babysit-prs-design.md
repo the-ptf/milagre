@@ -106,11 +106,14 @@ Routine page like any Heartbeat.
 8. **Wrong branch.** If the Chat's Worktree isn't on the PR's head branch when a Run starts (the Chat moved on, or
    opened stacked PRs), that Run drops to **Report only** and says why. It never switches branches.
 9. **Stop.** The poller ends the Heartbeat when merged/closed, green and approved, the time limit, or the attempt cap
-   holds. "Approved" means `reviewDecision` is `APPROVED`, or null because the repo requires no review. With the time
+   holds. "Approved" means `reviewDecision` is `APPROVED`, or null because the repo requires no review; a draft is never
+   green. A poll that finds something new hands it over first and stops green on the next poll; closed stops at once.
+   With the time
    limit off, the Heartbeat's 30-day maximum still applies (GLOSSARY: every Heartbeat ends). The user's own rule is
    checked by the agent on each Run; when it holds, the agent ends the Heartbeat and says why. "Failed to fix the same
-   problem" counts Runs handed the same failing check name, or the same review thread, that still fail or stay
-   unresolved on the next poll.
+   problem" counts a failing check, conflict or behind branch that is still there after the agent pushed a commit. A
+   problem still there with the same head commit is not handed over again, so a Run that can't or may not push (Report
+   only, the wrong branch) wakes once per problem, not every poll.
 
 ## UI
 

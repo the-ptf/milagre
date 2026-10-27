@@ -85,51 +85,59 @@ function createPullRequestPoller({
 
   /**
    * What to hand the agent now, or the reason to stop instead. A comment is handed once. A failing check, a conflict or
-   * the branch being behind is handed when it first appears, and again once a Run has finished since and it is still
-   * there; each such repeat counts as a failed attempt, and the Routine can end after too many. A check keeps its
-   * attempts while others are still pending (a push restarts them), so failing again after a push is a repeat too; it
-   * starts over only once it passes with nothing pending. A conflict or the branch being behind starts over as soon as
-   * it is resolved.
+   * the branch being behind is handed when it first appears. It is handed again only when it is still there after a Run
+   * finished and the PR's head commit moved since it was handed: something was pushed and didn't fix it. That counts as
+   * a failed attempt, and the Routine can end after too many. A Run that pushes nothing (Report only, the wrong branch,
+   * a problem it can't fix) never wakes the agent again for the same problem. A check keeps its attempts while others
+   * are still pending (a push restarts them), so failing again after a push is a repeat too; it starts over only once it
+   * passes with nothing pending. A conflict or the branch being behind starts over as soon as it is resolved. A closed
+   * PR stops at once; a green one only on a poll with nothing to hand over, so the last comments still reach the agent.
    */
   function decide(routine, stored, next, at) {
     const settings = routine.trigger.settings;
     const { changes: fresh, stop } = diffSnapshots(stored?.snapshot ?? null, next, settings);
-    if (stop) return { stop };
+    if (stop === "closed") return { stop };
 
+    const head = next.headOid ?? "";
+    // Whether the head commit moved since the change was handed over.
+    const pushedSince = (entry) => entry.head !== head;
     const remaining = standing(next, settings);
     const present = new Set(remaining.map((change) => change.id));
     const handed = {};
     const attempts = {};
-    for (const [id, when] of Object.entries(record(stored?.handed))) {
+    for (const [id, entry] of Object.entries(record(stored?.handed))) {
       const kept = present.has(id) || (id.startsWith("check:") && next.pendingChecks > 0);
-      if (!kept) continue;
-      handed[id] = when;
+      if (!kept || !entry || typeof entry !== "object") continue;
+      handed[id] = entry;
       if (Number.isFinite(stored?.attempts?.[id])) attempts[id] = stored.attempts[id];
     }
 
     const handing = [...fresh];
     const ids = new Set(fresh.map((change) => change.id));
     const repeated = [];
-    // A change that fails again while its attempts are still kept is a repeat.
+    // A change that fails again after a push while its attempts are still kept is a repeat. Failing again on the same
+    // commit (someone re-ran the check) is handed over as news but is no attempt of the agent's.
     for (const change of fresh) {
-      if (isComment(change.id) || attempts[change.id] === undefined) continue;
+      if (isComment(change.id) || attempts[change.id] === undefined || !pushedSince(handed[change.id])) continue;
       repeated.push(change.id);
       attempts[change.id] += 1;
     }
     for (const change of remaining) {
       const since = handed[change.id];
       if (ids.has(change.id) || since === undefined) continue;
-      if (routine.lastRunAt === undefined || !(routine.lastRunAt > since)) continue;
+      if (!pushedSince(since)) continue;
+      if (routine.lastRunAt === undefined || !(routine.lastRunAt > since.at)) continue;
       handing.push(change);
       repeated.push(change.id);
       attempts[change.id] = (attempts[change.id] ?? 0) + 1;
     }
     const cap = settings.stopAfterFailures;
     if (cap?.on && repeated.some((id) => attempts[id] >= cap.times)) return { stop: "failures" };
+    if (stop && handing.length === 0) return { stop };
 
     for (const change of handing) {
       if (isComment(change.id)) continue;
-      handed[change.id] = at;
+      handed[change.id] = { at, head };
       attempts[change.id] ??= 0;
     }
     return { handing, kept: { snapshot: next, attempts, handed } };

@@ -10,10 +10,12 @@ const settings = (patch = {}) => ({
 
 const snapshot = (patch = {}) => ({
   state: "OPEN",
+  isDraft: false,
   reviewDecision: null,
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
   headRef: "feature",
+  headOid: "a1",
   baseRef: "main",
   behindBy: 0,
   failingChecks: [],
@@ -107,6 +109,11 @@ test("green with no review required stops", () => {
   assert.equal(diffSnapshots(snapshot(), snapshot({ reviewDecision: null, totalChecks: 3 }), settings()).stop, "green");
 });
 
+test("a draft never stops green", () => {
+  assert.equal(diffSnapshots(snapshot(), snapshot({ isDraft: true, reviewDecision: "APPROVED", totalChecks: 3 }), settings()).stop, null);
+  assert.equal(diffSnapshots(snapshot({ isDraft: true }), snapshot({ isDraft: true, state: "CLOSED" }), settings()).stop, "closed");
+});
+
 test("baseline never stops green", () => {
   assert.equal(diffSnapshots(undefined, snapshot({ reviewDecision: "APPROVED", totalChecks: 3 }), settings()).stop, null);
 });
@@ -137,10 +144,12 @@ test("REVIEW_REQUIRED does not stop", () => {
 
 const VIEW = {
   state: "OPEN",
+  isDraft: true,
   reviewDecision: "REVIEW_REQUIRED",
   mergeStateStatus: "CLEAN",
   mergeable: "MERGEABLE",
   headRefName: "feature",
+  headRefOid: "0123abc",
   baseRefName: "main",
   statusCheckRollup: [
     { __typename: "CheckRun", name: "build", status: "COMPLETED", conclusion: "FAILURE" },
@@ -195,10 +204,12 @@ test("readPullRequestSnapshot reads the PR, its threads and its checks", async (
   const result = await readPullRequestSnapshot({ repo: "ghe.example.com/o/r", number: 12 }, { exec, env: { PATH: "/bin" }, settings: settings() });
   assert.deepEqual(result, {
     state: "OPEN",
+    isDraft: true,
     reviewDecision: "REVIEW_REQUIRED",
     mergeable: "MERGEABLE",
     mergeState: "CLEAN",
     headRef: "feature",
+    headOid: "0123abc",
     baseRef: "main",
     behindBy: 0,
     failingChecks: ["build", "deploy", "ci/legacy"],
@@ -214,7 +225,9 @@ test("readPullRequestSnapshot reads the PR, its threads and its checks", async (
   });
   const view = calls.find((call) => call.args[0] === "pr");
   assert.deepEqual(view.args.slice(0, 5), ["pr", "view", "12", "-R", "ghe.example.com/o/r"]);
-  assert.ok(view.args.includes("state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,headRefName,baseRefName,comments,reviews"));
+  assert.ok(
+    view.args.includes("state,isDraft,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,headRefName,headRefOid,baseRefName,comments,reviews"),
+  );
   assert.equal(view.options.env.GH_PROMPT_DISABLED, "1");
   assert.equal(view.options.env.PATH, "/bin");
   const graphql = calls.find((call) => call.args[1] === "graphql");
