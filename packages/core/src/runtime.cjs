@@ -88,6 +88,7 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createBabysitSettings } = require("./babysit-settings.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
 const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
@@ -1303,6 +1304,10 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
+  const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
+  commands.handle("babysit:settings:read", () => babysitSettings.read());
+  commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),

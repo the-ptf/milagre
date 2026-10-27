@@ -47,6 +47,8 @@ const METHODS = new Set([
   "limits:auto-switch:save",
   "app-update:auto:read",
   "app-update:auto:save",
+  "babysit:settings:read",
+  "babysit:settings:save",
   "routines:enabled:read",
   "routines:enabled:save",
   "routines:list",

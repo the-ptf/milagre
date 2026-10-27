@@ -134,6 +134,9 @@ const PATHS = Object.freeze({
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
   "app-update:auto:save": denied,
+  // Babysit PRs settings are one global preference with no folder in them: a confined phone reads and changes it.
+  "babysit:settings:read": none,
+  "babysit:settings:save": none,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
