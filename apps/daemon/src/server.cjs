@@ -903,7 +903,9 @@ async function startDaemon({
           view.linkId = result.link.id;
           view.projectPath = null;
         }
-        if (SHOWN_PROJECT.has(request.method) && result?.path) view.projectPath = result.path;
+        // A paired desktop opens another Mac's Project with project:read and options ({ state }); a sidebar read passes none.
+        const opensProject = SHOWN_PROJECT.has(request.method) || (request.method === "project:read" && request.args[1] && typeof request.args[1] === "object");
+        if (opensProject && result?.path) view.projectPath = result.path;
         const scope = replyScope(request.method, result);
         if (scope) {
           const number = replyNumber(scope, result.state);
