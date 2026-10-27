@@ -10,6 +10,8 @@ const unavailable: Store = { subscribe: () => () => {}, snapshot: () => initial 
 // A busy or reconnecting host rejects a read (the client turns calls away past 32 pending, or one times out), so a
 // failed read is asked again, sooner first.
 const RETRY_MS = [500, 1000, 2000, 5000, 10_000];
+// A reader that mounts again this soon after the last answer (a Chat shown again) takes it without asking the host.
+const FRESH_MS = 60_000;
 
 /** One host's Designs switch, read when its first reader mounts. Exported for its tests. */
 export function designsEnabledStore(bridge: MilagreBridge): Store {
@@ -19,6 +21,8 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
   let state = initial;
   let revision = 0;
   let failures = 0;
+  // When the host last said where the switch stands (a read's answer or a change it pushed).
+  let answeredAt = 0;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let stop: (() => void) | undefined;
   const listeners = new Set<() => void>();
@@ -39,6 +43,7 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
         (value) => {
           if (reading !== revision) return null;
           failures = 0;
+          answeredAt = Date.now();
           update({ enabled: value?.enabled === true, ready: true, error: "" });
           return null;
         },
@@ -60,9 +65,10 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
           revision++;
           cancelRetry();
           failures = 0;
+          answeredAt = Date.now();
           update({ enabled: value.enabled === true, ready: true, error: "" });
         });
-        read();
+        if (!state.ready || state.error || Date.now() - answeredAt >= FRESH_MS) read();
       }
       return () => {
         listeners.delete(listener);
@@ -71,7 +77,7 @@ export function designsEnabledStore(bridge: MilagreBridge): Store {
           stop = undefined;
           cancelRetry();
           failures = 0;
-          // The answer is kept for the next reader, which reads it again.
+          // The answer is kept for the next reader, which reads it again unless it is recent.
           revision++;
         }
       };

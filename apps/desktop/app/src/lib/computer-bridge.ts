@@ -53,12 +53,12 @@ export const useScope = () => useContext(ScopeContext);
 
 /** Agent events from this Mac and from every paired computer, raw (keys already name their computer). */
 export function onAnyAgentEvent(callback: (payload: AgentEventPayload) => void) {
-  const offLocal = window.milagre.onAgentEvent(callback);
+  const offLocal = window.milagre.onAgentEvent?.(callback);
   const offRemote = window.milagre.onComputerEvent?.((event) => {
     if (event.channel === "agent:event") callback(event.payload);
   });
   return () => {
-    offLocal();
+    offLocal?.();
     offRemote?.();
   };
 }

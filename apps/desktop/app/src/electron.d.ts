@@ -27,6 +27,13 @@ export type FloatingDragOverlay = {
 
 /** On a state event from a host that sends patches: what changed since the state numbered `base`, or `resync`. */
 type StateNumbering = { patch?: StatePatch; base?: number; version?: number; epoch?: string; resync?: boolean; messages?: MessageChanges };
+/**
+ * On an open reply (a Project's open, switch or read, a Link's open or read) from a host that numbers states: the
+ * number of the state it carries, or holds, and the host's run. A host from before them sends neither.
+ */
+export type StateStamp = { version?: number; epoch?: string };
+/** A Project read with `{ state: false }`: its path, name and number without the state, which a host from before the option still sends. */
+export type ProjectRead = Omit<OpenProject, "state"> & { state?: CoordinatorState } & StateStamp;
 /** A starter bot and the setup card it asks for. */
 export type BotTemplate = {
   id: string;
@@ -494,8 +501,8 @@ export type MilagreBridge = {
   listEditors: () => Promise<EditorInfo[]>;
   /** Opens a file (or, with no path, the folder) in an editor. `path` is relative to `root`. Returns a Result with a failure code and message. */
   openInEditor: (request: { root: string; path?: string; line?: number; editor?: string }) => Promise<Result<null>>;
-  getCurrentProject: () => Promise<OpenProject | null>;
-  openProject: () => Promise<OpenProject | null>;
+  getCurrentProject: () => Promise<(OpenProject & StateStamp) | null>;
+  openProject: () => Promise<(OpenProject & StateStamp) | null>;
   /** Opens a folder of this computer as a Project, without the dialog. */
   openProjectAt: (folder: string) => Promise<OpenProject>;
   listDirs: (request: { path?: string }) => Promise<DirListing>;
@@ -514,14 +521,19 @@ export type MilagreBridge = {
   setProjectHidden: (projectPath: string, hidden: boolean) => Promise<RecentProject[]>;
   /** Loads a recent project's chats without opening it; later changes arrive through onProjectState. */
   retrySave: (scope: string) => Promise<void>;
-  readProject: (projectPath: string) => Promise<OpenProject>;
+  readProject: {
+    /** No options: the sidebar's read of a Project it lists. With options: a window opening it (on another computer). */
+    (projectPath: string, options?: { state: true }): Promise<OpenProject & StateStamp>;
+    /** `state: false`: only the Project's path, name and state number, for a window that holds its state already. */
+    (projectPath: string, options: { state: false }): Promise<ProjectRead>;
+  };
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
   createNamedLink: (request: { name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
   updateNamedLink: (request: { id: string; name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
-  openNamedLink: (id: string) => Promise<OpenLink>;
+  openNamedLink: (id: string) => Promise<OpenLink & StateStamp>;
   /** A Link's chats as saved, without opening it or preparing its worktrees. */
-  readLink: (id: string) => Promise<{ link: NamedProjectLink; state: LinkState }>;
+  readLink: (id: string) => Promise<{ link: NamedProjectLink; state: LinkState } & StateStamp>;
   sendLinkMessage: (request: LinkSendRequest) => Promise<{ sessionId: number }>;
   /** Raw from the host: a whole state, or a patch (see StateNumbering). Listen through state-events.ts instead. */
   onLinkState: (callback: (update: { linkId: string; state?: LinkState } & StateNumbering) => void) => () => void;
@@ -553,9 +565,9 @@ export type MilagreBridge = {
   /** The canvas's Stop on a Link: the Negotiation stops, turns already running finish. */
   stopNegotiation: (id: string) => Promise<void>;
   setWorktreePosition: (id: string, worktreePath: string, position: { x: number; y: number }) => Promise<unknown>;
-  openCanvasProject: (projectPath: string) => Promise<OpenProject>;
+  openCanvasProject: (projectPath: string) => Promise<OpenProject & StateStamp>;
   /** Opens a project from the recent list. Rejects for a path that isn't listed or isn't a checkout's top folder. */
-  switchProject: (projectPath: string) => Promise<OpenProject>;
+  switchProject: (projectPath: string) => Promise<OpenProject & StateStamp>;
   /** Takes a project off the recent list (its folder is untouched) and resolves to the list. */
   forgetProject: (projectPath: string) => Promise<RecentProject[]>;
   /** A project's state changed in the main process, its only writer. Changes made by agent events come with the event instead. */

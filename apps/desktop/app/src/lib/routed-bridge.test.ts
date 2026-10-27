@@ -154,7 +154,8 @@ const ALLOWED: Record<string, string[]> = {
   // This Mac's own switch for its Chats delegating to other computers.
   "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
-  "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent"],
+  // Every computer's terminal:changed, and every host's reconnect snapshot, mark the Terminal lists the window holds.
+  "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent", "onRuntimeSnapshot"],
 };
 
 function sources(folder: string): string[] {
