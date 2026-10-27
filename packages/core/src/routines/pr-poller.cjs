@@ -186,7 +186,8 @@ function createPullRequestPoller({
           const at = now();
           const decision = decide(routine, store.prSnapshot(id), next, at, store.hasPending(id));
           if (decision.stop) {
-            store.complete(id, decision.stop);
+            // Why it ended, as the Chat's line says it: a closed PR may have merged.
+            store.complete(id, decision.stop === "closed" && next.state === "MERGED" ? "merged" : decision.stop);
             drop(id);
             onChange();
             return;

@@ -479,6 +479,8 @@ export interface Routine {
   /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
   signingHeader?: string;
   completedAt?: number;
+  /** Why it ended, when whatever ended it said: a babysit stop reason, "expired", "max runs", "chat gone"… */
+  completedReason?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -524,6 +526,22 @@ export type RoutineRunContext = {
   summary?: string;
 };
 
+/** Why a babysit Heartbeat ended: the PR merged or closed, a stop rule held, it ran out of time, or it was deleted. */
+export type BabysitStopReason = "merged" | "closed" | "green" | "failures" | "expired" | "own-rule" | "deleted";
+
+/**
+ * The line Milagre writes in a Chat when the Heartbeat babysitting its PR ended (babysitStoppedText in babysit.mjs says it).
+ * `times` is the failures rule's count, `days` how long the Heartbeat watched.
+ */
+export type BabysitStoppedContext = {
+  kind: "babysit-stopped";
+  routineId: string;
+  pr: number;
+  reason: BabysitStopReason;
+  times?: number;
+  days?: number;
+};
+
 /**
  * Undo changes wrote files: `restored` of them went back to how they were before the task (`checkpointId`), `kept` stayed
  * as they were. `recoveryId` is the checkpoint saved just before, which the line's Redo previews. `redo` marks restoring
@@ -552,6 +570,7 @@ export type ChatContext =
   | ChatReloadContext
   | BotContext
   | RoutineRunContext
+  | BabysitStoppedContext
   | CheckpointRestoreContext
   | "handover"
   | null;

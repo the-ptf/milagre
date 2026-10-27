@@ -1,5 +1,5 @@
-// The Babysit PRs settings every surface shares: the daemon reads them, the desktop and the phone edit them.
-// Types: babysit.d.mts.
+// The Babysit PRs settings every surface shares: the daemon reads them, the desktop and the phone edit them. Also the
+// line a Chat shows when babysitting its PR stopped. Types: babysit.d.mts.
 
 /** What can wake the agent, in the order the settings list them. */
 const WAKE_ORDER = Object.freeze(["comments", "checks", "conflicts", "behind"]);
@@ -80,4 +80,30 @@ export function normalizeBabysitSettings(value) {
     ownRuleText: text(source.ownRuleText, OWN_RULE_MAX, defaults.ownRuleText),
     instructions: text(source.instructions, INSTRUCTIONS_MAX, defaults.instructions),
   };
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// Why babysitting a PR stopped, as the Chat's line says it after "Stopped babysitting PR #<n>: ".
+const STOPPED_WHY = {
+  merged: () => "merged",
+  closed: () => "closed",
+  green: () => "checks pass and it's approved",
+  failures: (context) => `the same problem failed ${plural(context.times ?? 3, "time")}`,
+  expired: (context) => `watched for ${plural(context.days ?? 7, "day")}`,
+  "own-rule": () => "your own stop rule held",
+  deleted: () => "its Heartbeat was deleted",
+};
+
+/**
+ * The line a Chat shows when its PR's babysit Heartbeat ended (context kind "babysit-stopped"): "Stopped babysitting PR #1:
+ * merged.". A reason this build doesn't know reads as a plain stop.
+ */
+export function babysitStoppedText(context) {
+  const why = Object.hasOwn(STOPPED_WHY, context.reason) ? STOPPED_WHY[context.reason](context) : null;
+  return why ? `Stopped babysitting PR #${context.pr}: ${why}.` : `Stopped babysitting PR #${context.pr}.`;
+}
+
+export function isBabysitStopped(message) {
+  return message?.context?.kind === "babysit-stopped";
 }

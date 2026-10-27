@@ -436,7 +436,14 @@ function chatRuns(state) {
  * that had a Chat and are no longer in the store (trimmed, deleted with their Routine, or purged, on load too), once per
  * write or load, after it, so the Chats they left can be tidied. A Run without a Chat is never reported.
  */
-function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex"), onPurged = () => {}, onRunsDropped = () => {} }) {
+function createRoutineStore({
+  file,
+  now = Date.now,
+  id = () => crypto.randomBytes(4).toString("hex"),
+  onPurged = () => {},
+  onRunsDropped = () => {},
+  onEnded = () => {},
+}) {
   // Why every mutation is refused, or null.
   let readOnly = null;
   let maintainedAt = now();
@@ -450,6 +457,16 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   publish(data);
   if (purgedOnLoad.length) told(purgedOnLoad);
   toldDropped(droppedSince(chatRunsOnLoad));
+
+  // The Routines a change ended, each once, with why ("expired" or what complete was given), after the write.
+  function toldEnded(ended) {
+    if (ended.length === 0) return;
+    try {
+      onEnded(ended);
+    } catch (error) {
+      console.warn("[routines] couldn't follow up on ended Routines", error);
+    }
+  }
 
   function told(ids) {
     try {
@@ -1182,26 +1199,38 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       .map((routine) => routine.trigger.hookId);
   }
 
-  function complete(routineId, _reason) {
-    return transact((state, tx) => {
+  // Ends a Routine and keeps why (a babysit stop reason, "max runs", "chat gone"…). Ending one that already ended keeps
+  // the first reason and tells nobody again.
+  function complete(routineId, reason) {
+    const ended = [];
+    const result = transact((state, tx) => {
       const routine = find(state, routineId);
       if (!routine) return null;
+      const first = !routine.completedAt;
       markCompleted(state, routine, now());
+      if (first && typeof reason === "string" && reason) routine.completedReason = reason;
+      if (first) ended.push({ routine: copy(routine), reason: routine.completedReason });
       tx.changed = true;
       return copy(routine);
     });
+    toldEnded(ended);
+    return result;
   }
 
   function expireDue(at) {
     assertWritable();
     if (!maintenanceDue() && !data.routines.some((routine) => expired(routine, at))) return;
+    const ended = [];
     transact((state, tx) => {
       for (const routine of state.routines) {
         if (!expired(routine, at)) continue;
         markCompleted(state, routine, at);
+        routine.completedReason = "expired";
+        ended.push({ routine: copy(routine), reason: "expired" });
         tx.changed = true;
       }
     });
+    toldEnded(ended);
   }
 
   // Runs left running by a stop fail, and queued events stay queued. A restart is one failure however many Runs it cut

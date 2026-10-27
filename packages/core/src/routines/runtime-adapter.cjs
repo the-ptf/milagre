@@ -7,6 +7,7 @@ const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { shortTitle } = require("@milagre/shared/chats");
 const { routineIssueContext } = require("@milagre/shared/linear-issue");
 const { routineRunOf } = require("@milagre/shared/routines");
+const { babysitStoppedText } = require("@milagre/shared/babysit");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
@@ -36,6 +37,10 @@ const START_TIMEOUT_MS = 2 * 60 * 1000;
 const HEAD_BRANCH_TIMEOUT_MS = 5000;
 // How long a Babysit Heartbeat lasts when its settings don't name a number of days.
 const BABYSIT_DEFAULT_DAYS = 30;
+const DAY_MS = 864e5;
+// The reasons a babysit Heartbeat ends that its Chat hears about. Its Chat gone or archived leaves nowhere to say it;
+// a deletion says it from removeRoutine.
+const BABYSIT_STOPS = new Set(["merged", "closed", "green", "failures", "expired"]);
 // What a Chat a Routine started can't do while it is still its Run's: make, change or delete Routines, or start their Runs,
 // so a Run never sets off another. A Run Chat the user kept is a normal Chat and gets them.
 const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"]);
@@ -544,7 +549,15 @@ function createRoutines({
     if (!webhooksReady) return void purgedEarly.push(...ids);
     for (const routineId of ids) webhooks.forget(routineId);
   };
-  const store = createRoutineStore({ file, now, onPurged: forgetPurged, onRunsDropped: runsDropped });
+  const store = createRoutineStore({
+    file,
+    now,
+    onPurged: forgetPurged,
+    onRunsDropped: runsDropped,
+    onEnded: (ended) => {
+      for (const { routine, reason } of ended) if (BABYSIT_STOPS.has(reason)) noteBabysitStopped(routine, reason);
+    },
+  });
   let poller = null;
   let prPoller = null;
   // Every change may add, remove or switch a Linear or pull-request Routine, so the pollers look again (a cheap scan).
@@ -650,7 +663,7 @@ function createRoutines({
     store,
     scheduler,
     checkTarget,
-    remove: (routineId) => removeRoutine(routineId),
+    remove: (routineId, by) => removeRoutine(routineId, by),
     keepChat: (chatId) => keepRunChat(chatId),
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -661,11 +674,35 @@ function createRoutines({
   const webhooks = createWebhooks({ store, scheduler, hooks: hooksNow, changed });
   webhooksReady = true;
   forgetPurged(purgedEarly.splice(0));
-  // A Routine deleted from anywhere (the form, an agent's routine_delete) takes its webhook secret with it.
-  function removeRoutine(routineId) {
+  // A Routine deleted from anywhere (the form, an agent's routine_delete) takes its webhook secret with it. A live babysit
+  // Heartbeat says in its Chat that it stopped: its own Chat deleting it with the own stop rule on is that rule holding
+  // (the prompt asks for nothing else), anything else a deletion.
+  function removeRoutine(routineId, { byChat } = {}) {
+    const before = store.get(routineId);
     const removed = store.remove(routineId);
     if (removed) webhooks.forget(routineId);
+    if (removed && before && !before.completedAt) {
+      const ownRule = byChat !== undefined && before.target?.kind === "chat" && byChat === before.target.chatId && before.trigger.settings?.ownRule === true;
+      noteBabysitStopped(before, ownRule ? "own-rule" : "deleted");
+    }
     return removed;
+  }
+
+  /**
+   * The line a babysit Heartbeat leaves in its Chat when it ends (babysitStoppedText): a note, so no turn starts and no
+   * push goes out. Any other Routine, or one whose Chat is gone, leaves none. Written in the background, waited for at stop.
+   */
+  function noteBabysitStopped(routine, reason) {
+    if (routine?.trigger?.kind !== "pull-request" || routine.target?.kind !== "chat" || typeof chats.addNote !== "function") return;
+    const context = { kind: "babysit-stopped", routineId: routine.id, pr: routine.trigger.number, reason };
+    const times = routine.trigger.settings?.stopAfterFailures?.times;
+    if (reason === "failures" && Number.isInteger(times)) context.times = times;
+    if (reason === "expired" && Number.isFinite(routine.expiresAt)) context.days = Math.max(1, Math.round((routine.expiresAt - routine.createdAt) / DAY_MS));
+    const task = Promise.resolve()
+      .then(() => chats.addNote(routine.target.chatId, { body: babysitStoppedText(context), context }))
+      .catch((error) => console.warn("[routines] couldn't say in its Chat that babysitting stopped", error));
+    sweeps.add(task);
+    void task.finally(() => sweeps.delete(task));
   }
 
   // A Heartbeat set on a Chat keeps it: a Heartbeat's Chat is ongoing work, whoever set it. A Chat that isn't a hidden Run

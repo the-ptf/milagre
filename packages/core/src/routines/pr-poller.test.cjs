@@ -158,6 +158,8 @@ test("merged PR completes the routine", async () => {
   ctx.world.next = snapshot({ state: "MERGED" });
   await ctx.poll();
   assert.ok(ctx.store.get(routine.id).completedAt);
+  // Merged, not just closed: the Chat's line says which.
+  assert.equal(ctx.store.get(routine.id).completedReason, "merged");
   assert.deepEqual(ctx.delivered, []);
   assert.deepEqual(ctx.timers.pending(), []);
   assert.ok(ctx.changes.length > 0);
@@ -244,6 +246,7 @@ test("failure cap completes after N repeats", async () => {
   await ctx.poll();
   assert.equal(ctx.delivered.length, 2);
   assert.ok(ctx.store.get(routine.id).completedAt);
+  assert.equal(ctx.store.get(routine.id).completedReason, "failures");
 });
 
 test("a red check at level 1 wakes the agent once, not every poll", async () => {
@@ -301,6 +304,7 @@ test("a green poll with new comments hands them over and stops on the next poll"
   await ctx.poll();
   assert.equal(ctx.delivered.length, 1);
   assert.ok(ctx.store.get(routine.id).completedAt);
+  assert.equal(ctx.store.get(routine.id).completedReason, "green");
 });
 
 test("green waits for a deferred run before stopping", async () => {
@@ -344,6 +348,7 @@ test("a closed PR stops at once, new comments or not", async () => {
   await ctx.poll();
   assert.deepEqual(ctx.delivered, []);
   assert.ok(ctx.store.get(routine.id).completedAt);
+  assert.equal(ctx.store.get(routine.id).completedReason, "closed");
 });
 
 test("a problem that is fixed is forgotten", async () => {

@@ -2049,3 +2049,85 @@ test("a babysit heartbeat keeps a hidden run chat, and a failed keep leaves the 
   assert.equal(warn.mock.callCount(), 1);
   await failing.save(false);
 });
+
+// The line a Chat gets when its babysit Heartbeat ends: a note Milagre writes (ChatHost.addNote), never a turn.
+function babysitNotes(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const clock = { t: Date.UTC(2026, 9, 27) };
+  const notes = [];
+  const sent = [];
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: {
+      turnSettings: () => null,
+      addNote: async (chatId, note) => void notes.push({ chatId, ...note }),
+      send: async (request) => void sent.push(request),
+    },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => ({ sessions: { 2: { id: 2 } } }),
+    projects: async () => [{ path: "/project" }],
+    timers: {
+      now: () => clock.t,
+      setInterval: () => ({ unref() {} }),
+      clearInterval() {},
+      setTimeout: () => ({ unref() {} }),
+      clearTimeout() {},
+    },
+  });
+  return { routines, clock, notes, sent, settle: settleNotes };
+}
+const settleNotes = () => new Promise((resolve) => setImmediate(resolve));
+
+test("a babysit Heartbeat that runs out of time leaves a line in its Chat saying so", async (t) => {
+  const { routines, clock, notes, sent, settle } = babysitNotes(t);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const routine = await routines.createBabysit(babysitInput({ on: true, days: 7 }));
+  clock.t += 7 * 864e5 + 1;
+  await routines.tick();
+  await settle();
+  assert.deepEqual(notes, [
+    {
+      chatId: "/project#2",
+      body: "Stopped babysitting PR #42: watched for 7 days.",
+      context: { kind: "babysit-stopped", routineId: routine.id, pr: 42, reason: "expired", days: 7 },
+    },
+  ]);
+  assert.deepEqual(sent, [], "no turn starts");
+  // Ended once, told once.
+  await routines.tick();
+  await settle();
+  assert.equal(notes.length, 1);
+  await routines.save(false);
+});
+
+test("a babysit Heartbeat deleted by its own Chat's stop rule, or by hand, says which", async (t) => {
+  const { routines, notes, settle } = babysitNotes(t);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const own = await routines.createBabysit({
+    ...babysitInput({ on: true, days: 3 }),
+    settings: { enabled: true, ownRule: true, ownRuleText: "Two approvals" },
+  });
+  const remove = routines.definitions("/project#2").find((tool) => tool.name === "routine_delete");
+  await remove.run({ id: own.id });
+  await settle();
+  assert.equal(notes.at(-1).body, "Stopped babysitting PR #42: your own stop rule held.");
+  assert.equal(notes.at(-1).context.reason, "own-rule");
+
+  const byHand = await routines.createBabysit(babysitInput({ on: true, days: 3 }));
+  routines.remove(byHand.id);
+  await settle();
+  assert.equal(notes.at(-1).body, "Stopped babysitting PR #42: its Heartbeat was deleted.");
+  assert.equal(notes.length, 2);
+
+  // An ordinary Heartbeat deleted leaves no line.
+  const tools = routines.definitions("/project#2");
+  await tools.find((tool) => tool.name === "heartbeat_create").run({ name: "watch", prompt: "look", every: "15m" });
+  const heartbeat = routines.list().routines.find((item) => item.name === "watch");
+  routines.remove(heartbeat.id);
+  await settle();
+  assert.equal(notes.length, 2);
+  await routines.save(false);
+});

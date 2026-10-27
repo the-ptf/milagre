@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BABYSIT_DEFAULTS, BABYSIT_LEVELS, DAYS_OPTIONS, FAILURE_OPTIONS, INTERVAL_OPTIONS, normalizeBabysitSettings } from "./babysit.mjs";
+import {
+  BABYSIT_DEFAULTS,
+  BABYSIT_LEVELS,
+  DAYS_OPTIONS,
+  FAILURE_OPTIONS,
+  INTERVAL_OPTIONS,
+  babysitStoppedText,
+  isBabysitStopped,
+  normalizeBabysitSettings,
+} from "./babysit.mjs";
 
 test("defaults match the spec", () => {
   assert.deepEqual(BABYSIT_DEFAULTS, {
@@ -100,4 +109,21 @@ test("levels carry their steps", () => {
   );
   assert.equal(BABYSIT_LEVELS[0].title, "Report only");
   assert.equal(BABYSIT_LEVELS[4].description, "Then asks the reviewers who left changes to look again.");
+});
+
+test("the line a Chat shows when babysitting its PR stopped says why", () => {
+  const stopped = (reason, extra = {}) => babysitStoppedText({ kind: "babysit-stopped", routineId: "r1", pr: 1, reason, ...extra });
+  assert.equal(stopped("merged"), "Stopped babysitting PR #1: merged.");
+  assert.equal(stopped("closed"), "Stopped babysitting PR #1: closed.");
+  assert.equal(stopped("green"), "Stopped babysitting PR #1: checks pass and it's approved.");
+  assert.equal(stopped("failures", { times: 3 }), "Stopped babysitting PR #1: the same problem failed 3 times.");
+  assert.equal(stopped("expired", { days: 7 }), "Stopped babysitting PR #1: watched for 7 days.");
+  assert.equal(stopped("expired", { days: 1 }), "Stopped babysitting PR #1: watched for 1 day.");
+  assert.equal(stopped("own-rule"), "Stopped babysitting PR #1: your own stop rule held.");
+  assert.equal(stopped("deleted"), "Stopped babysitting PR #1: its Heartbeat was deleted.");
+  // A reason this build doesn't know still reads as a stop.
+  assert.equal(stopped("later"), "Stopped babysitting PR #1.");
+  assert.equal(isBabysitStopped({ context: { kind: "babysit-stopped", routineId: "r1", pr: 1, reason: "merged" } }), true);
+  assert.equal(isBabysitStopped({ context: { kind: "reload" } }), false);
+  assert.equal(isBabysitStopped(null), false);
 });

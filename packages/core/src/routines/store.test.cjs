@@ -505,6 +505,51 @@ test("complete and expireDue end Routines", () => {
   );
 });
 
+test("complete and expireDue keep why a Routine ended and tell onEnded once, after the write", () => {
+  const { options, clock } = setup();
+  const told = [];
+  const store = createRoutineStore({
+    ...options,
+    onEnded: (ended) => {
+      // Told after the write: the store already holds the ended Routine.
+      for (const entry of ended) assert.ok(store.get(entry.routine.id).completedAt);
+      told.push(...ended.map((entry) => [entry.routine.name, entry.reason]));
+    },
+  });
+  const a = store.upsertHeartbeat({ ...base, name: "a", expiresIn: "1h" });
+  const c = store.upsertHeartbeat({ ...base, name: "c" });
+  clock.t = START + 90 * 60_000;
+  store.expireDue(clock.t);
+  store.complete(c.id, "green");
+  assert.equal(store.get(a.id).completedReason, "expired");
+  assert.equal(store.get(c.id).completedReason, "green");
+  assert.equal(createRoutineStore(options).get(c.id).completedReason, "green");
+  // Completing an ended Routine again tells nobody, and keeps the first reason.
+  store.complete(c.id, "chat gone");
+  assert.equal(store.get(c.id).completedReason, "green");
+  assert.deepEqual(told, [
+    ["a", "expired"],
+    ["c", "green"],
+  ]);
+  // A Routine ended without a reason keeps none; an onEnded that throws doesn't undo the end.
+  const quiet = createRoutineStore({
+    ...options,
+    onEnded: () => {
+      throw new Error("boom");
+    },
+  });
+  const d = quiet.upsertHeartbeat({ ...base, name: "d" });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    quiet.complete(d.id);
+  } finally {
+    console.warn = warn;
+  }
+  assert.ok(quiet.get(d.id).completedAt);
+  assert.equal(quiet.get(d.id).completedReason, undefined);
+});
+
 test("list returns disabled Routines, newest first", () => {
   const { store, clock } = setup();
   const a = store.upsertHeartbeat({ ...base, name: "a" });

@@ -259,7 +259,8 @@ function createRoutineTools({
         readOnly: false,
         run: async ({ id }) => {
           const routine = own(id);
-          remove(id);
+          // Who deleted it: a babysit Heartbeat's own Chat deleting it is its own stop rule holding.
+          remove(id, { byChat: chatId });
           return `Deleted "${routine.name}".`;
         },
       },
