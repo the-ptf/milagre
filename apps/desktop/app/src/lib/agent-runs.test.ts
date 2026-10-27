@@ -252,7 +252,9 @@ function manualFrames() {
   };
 }
 
-test("streamed events in one frame land as one state, in arrival order", () => {
+test("streamed events in one frame land as one state, in arrival order", (t) => {
+  // A run's startedAt is stamped when its event is applied; the two applications below must see the same clock.
+  t.mock.timers.enable({ apis: ["Date"], now: 1_793_000_000_000 });
   const frames = manualFrames();
   let runs: AgentRuns = {};
   let applied = 0;
