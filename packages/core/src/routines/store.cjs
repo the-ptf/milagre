@@ -1249,6 +1249,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     runningCount: () => Object.values(data.runs).reduce((count, runs) => count + runs.filter((run) => run.status === "running").length, 0),
     // Whether a Run is still in the store.
     hasRun: (runId) => runIndex.has(runId),
+    // Whether Routine `routineId` has an event waiting (deferred ones included) or a Run under way: completing it now would
+    // drop what it was handed.
+    hasPending: (routineId) => (data.queues[routineId]?.length ?? 0) > 0 || (data.runs[routineId] ?? []).some((run) => run.status === "running"),
     // Whether Routine `routineId` was deleted or purged here, ever.
     wasRemoved: (routineId) => Object.hasOwn(data.removed ?? {}, routineId),
     // Why every write is refused (a file this Milagre can't read or understand), or null when the store writes.

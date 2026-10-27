@@ -294,9 +294,43 @@ test("a green poll with new comments hands them over and stops on the next poll"
   assert.equal(ctx.delivered.length, 1);
   assert.deepEqual(ctx.delivered[0].event.changes, [{ id: "comment:c1", text: "Review comment from @alice: Approve, with a nit" }]);
   assert.ok(!ctx.store.get(routine.id).completedAt);
+  // Its Run takes the comment and ends.
+  const [claimed] = ctx.store.claimQueued(ctx.clock.t);
+  ctx.store.finishRun(claimed.run.id, { status: "acted" });
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.delivered.length, 1);
+  assert.ok(ctx.store.get(routine.id).completedAt);
+});
+
+test("green waits for a deferred run before stopping", async () => {
+  const ctx = setup();
+  const routine = ctx.routine();
+  ctx.poller.start();
+  ctx.world.next = snapshot({ pendingChecks: 1, totalChecks: 1 });
+  await ctx.poll();
+  ctx.world.next = snapshot({ totalChecks: 1, comments: [comment("c1", "Approve, with a nit")] });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 1);
+  // The scheduler claims the event, finds the Chat busy and defers it: it waits in the queue again.
+  const [claimed] = ctx.store.claimQueued(ctx.clock.t);
+  assert.ok(claimed);
+  assert.equal(ctx.store.hasPending(routine.id), true);
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.ok(!ctx.store.get(routine.id).completedAt, "a green poll doesn't stop while the comment's Run is still on its way");
+  ctx.store.deferRun(ctx.store.runs(routine.id).find((run) => run.status === "running").id, ctx.clock.t + MINUTE);
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.ok(!ctx.store.get(routine.id).completedAt, "nor while it waits deferred");
+  // The Run starts and ends: the next green poll stops.
+  ctx.clock.t += MINUTE;
+  const [again] = ctx.store.claimQueued(ctx.clock.t);
+  ctx.store.finishRun(again.run.id, { status: "acted" });
+  assert.equal(ctx.store.hasPending(routine.id), false);
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
   assert.ok(ctx.store.get(routine.id).completedAt);
 });
 

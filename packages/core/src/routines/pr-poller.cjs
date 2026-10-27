@@ -91,9 +91,10 @@ function createPullRequestPoller({
    * a problem it can't fix) never wakes the agent again for the same problem. A check keeps its attempts while others
    * are still pending (a push restarts them), so failing again after a push is a repeat too; it starts over only once it
    * passes with nothing pending. A conflict or the branch being behind starts over as soon as it is resolved. A closed
-   * PR stops at once; a green one only on a poll with nothing to hand over, so the last comments still reach the agent.
+   * PR stops at once; a green one only on a poll with nothing to hand over and nothing handed still waiting or running
+   * (`pending`), so the last comments still reach the agent.
    */
-  function decide(routine, stored, next, at) {
+  function decide(routine, stored, next, at, pending = false) {
     const settings = routine.trigger.settings;
     const { changes: fresh, stop } = diffSnapshots(stored?.snapshot ?? null, next, settings);
     if (stop === "closed") return { stop };
@@ -133,7 +134,7 @@ function createPullRequestPoller({
     }
     const cap = settings.stopAfterFailures;
     if (cap?.on && repeated.some((id) => attempts[id] >= cap.times)) return { stop: "failures" };
-    if (stop && handing.length === 0) return { stop };
+    if (stop && handing.length === 0 && !pending) return { stop };
 
     for (const change of handing) {
       if (isComment(change.id)) continue;
@@ -183,7 +184,7 @@ function createPullRequestPoller({
           const routine = store.get(id);
           if (!live(routine)) return void drop(id);
           const at = now();
-          const decision = decide(routine, store.prSnapshot(id), next, at);
+          const decision = decide(routine, store.prSnapshot(id), next, at, store.hasPending(id));
           if (decision.stop) {
             store.complete(id, decision.stop);
             drop(id);
