@@ -40,7 +40,8 @@ function registerLinkRuntime({ commands, registry, store, workspaces, chats, bro
     state = await store.get(id);
     titles.resume(key, state);
     void chats.recoverHandoffs(key, state).catch(() => {});
-    const projects = await registry().list();
+    // The registry as saved: names and paths, without checking every registered Project with git again.
+    const { projects } = await registry().snapshot();
     return {
       link,
       state,
