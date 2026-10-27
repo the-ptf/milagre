@@ -167,3 +167,12 @@ test("sealEncoded seals JSON text already encoded, in the same counter sequence 
   assert.deepEqual(desktop.open(accepted.channel.seal({ t: "pong" })), { t: "pong" });
   assert.deepEqual(accepted.channel.open(desktop.sealEncoded(new TextEncoder().encode('{"t":"ping"}'))), { t: "ping" });
 });
+
+test("a hello may say what the device takes (caps): short strings only, eight at most, and none when it says nothing", () => {
+  const { host, phone } = pair();
+  const plain = hostAccept({ host, hello: phoneHello({ phone, host: host.publicKey, token, random }).message, isKnown: () => true, token, random });
+  assert.deepEqual(plain.caps, []);
+  const caps = ["batch", 7, "x".repeat(33), ...Array(10).fill("more")];
+  const accepted = hostAccept({ host, hello: phoneHello({ phone, host: host.publicKey, token, random, caps }).message, isKnown: () => true, token, random });
+  assert.deepEqual(accepted.caps, ["batch", ...Array(6).fill("more")]);
+});

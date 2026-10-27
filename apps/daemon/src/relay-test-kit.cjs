@@ -94,12 +94,13 @@ async function startFakeBridge(t) {
 }
 
 /** A phone speaking the encrypted protocol over a raw relay socket. */
-function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name, kind }) {
+function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name, kind, caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const inbox = [];
   const waiters = [];
   const closed = new Promise((resolve) => ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() })));
   ws.on("message", (data) => {
+    phone.rawFrames += 1;
     const bytes = new Uint8Array(data);
     const waiter = waiters.shift();
     if (waiter) waiter(bytes);
@@ -119,6 +120,10 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     key,
     closed,
     nextRaw,
+    /** Frames the socket received, batches counted once. */
+    rawFrames: 0,
+    /** Messages of a batch still to hand out. */
+    items: [],
     channel: null,
     opened: new Promise((resolve, reject) => {
       ws.on("open", resolve);
@@ -127,7 +132,7 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     /** Resolves with the channel, or with { error } when the Mac refused the hello. */
     async hello() {
       await phone.opened;
-      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind });
+      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind, caps });
       ws.send(message);
       const reply = await nextRaw();
       if (reply[0] === 0x04) return { error: JSON.parse(new TextDecoder().decode(reply.subarray(1))) };
@@ -137,8 +142,13 @@ function connectPhone({ relayUrl, identity, token = TOKEN, key = boxKeyPair(rand
     send(message) {
       ws.send(phone.channel.seal(message));
     },
+    /** The next message; a batch (a Mac sends them to a phone whose hello asked) is handed out one message at a time. */
     async next(ms) {
-      return phone.channel.open(await nextRaw(ms));
+      if (phone.items.length) return phone.items.shift();
+      const message = phone.channel.open(await nextRaw(ms));
+      if (message.t !== "batch") return message;
+      phone.items.push(...message.items);
+      return phone.items.shift();
     },
     /** Sends a request as `req` parts: the body goes out as base64 chunks, `''` and no more when there is none. */
     request(id, { method = "GET", path, headers = {}, body }, size) {
@@ -257,7 +267,7 @@ async function startLocalRelay(t, { autoPong = true, hostBehavior } = {}) {
  * evt and part messages (@milagre/shared/peer-frames). `messages` keeps every message the Mac sent, parts included;
  * `frames` every daemon frame they carried; `error` the first message it could not read.
  */
-function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name = "studio" }) {
+function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(random), name = "studio", caps }) {
   const ws = new WebSocket(`${relayUrl}/v1/phone?id=${identity.hostId}`);
   const reader = createFrameReader("evt");
   const writer = createFrameWriter("rpc");
@@ -276,12 +286,16 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
   function take(bytes) {
     try {
       const message = channel.open(bytes);
-      messages.push(message);
-      if (message.t === "pong") return;
-      const read = reader.read(message);
-      if (!read) return;
-      frames.push(read.frame);
-      for (const watcher of Array.from(watchers)) watcher(read.frame);
+      desktop.rawFrames += 1;
+      // A batch (a Mac sends them to a desktop whose hello asked) holds a window's messages, in order.
+      for (const item of message.t === "batch" ? message.items : [message]) {
+        messages.push(item);
+        if (item.t === "pong") continue;
+        const read = reader.read(item);
+        if (!read) continue;
+        frames.push(read.frame);
+        for (const watcher of Array.from(watchers)) watcher(read.frame);
+      }
     } catch (error) {
       desktop.error ??= error;
       ws.terminate();
@@ -317,12 +331,14 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
     closed,
     messages,
     frames,
+    /** Sealed frames the channel opened, batches counted once. */
+    rawFrames: 0,
     error: null,
     notices: [],
     /** Resolves with the channel, or with { error } when the Mac refused the hello. Waits through pending notices (Allow). */
     async hello({ ms = 5000 } = {}) {
       await opened;
-      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind: "desktop" });
+      const { message, ephemeral } = phoneHello({ phone: key, host: identity.box.publicKey, token, random, name, kind: "desktop", caps });
       const reply = await new Promise((resolve, reject) => {
         let timer;
         const arm = () => {

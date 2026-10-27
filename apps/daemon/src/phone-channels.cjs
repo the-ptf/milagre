@@ -27,6 +27,35 @@ const REQUEST_TIMEOUT = 340_000;
 const BLOCKED_HEADERS = new Set(["host", "origin", "authorization", "connection", "content-length", "transfer-encoding", "upgrade", "cookie"]);
 const FORWARDED_HEADERS = ["content-type", "etag"];
 const encoder = new TextEncoder();
+// A device whose hello says it takes batches (`caps` has BATCH_CAP) hears the messages of one window as one frame,
+// `{ t: "batch", items }`, in order: a streaming turn's events or a live socket's output then cost the relay one frame
+// per window instead of one per message. A window closes after batchMs, early past BATCH_BYTES (a frame stays well
+// under the relay's 1 MiB), and at once on a message the device waits on (a response's last part, a stream's close).
+const BATCH_CAP = "batch";
+const BATCH_MS = 50;
+const BATCH_BYTES = 512 * 1024;
+const BATCH_HEAD = encoder.encode('{"t":"batch","items":[');
+const BATCH_TAIL = encoder.encode("]}");
+const COMMA = encoder.encode(",");
+
+/** One batch message's UTF-8 JSON from the messages' own (`items`, each UTF-8 JSON bytes). */
+function joinBatch(items) {
+  let size = BATCH_HEAD.length + BATCH_TAIL.length + COMMA.length * (items.length - 1);
+  for (const item of items) size += item.length;
+  const out = new Uint8Array(size);
+  let at = 0;
+  const put = (bytes) => {
+    out.set(bytes, at);
+    at += bytes.length;
+  };
+  put(BATCH_HEAD);
+  items.forEach((item, index) => {
+    if (index) put(COMMA);
+    put(item);
+  });
+  put(BATCH_TAIL);
+  return out;
+}
 const PENDING_NOTICE = new Uint8Array([PENDING_MARK, ...encoder.encode('{"t":"pending"}')]);
 // What a refused computer hears for each answer that isn't Allow; "expired" and "dropped" add nothing to unknown-phone.
 const NOT_ALLOWED = { denied: { reason: "denied" }, busy: { reason: "busy" } };
@@ -55,6 +84,7 @@ const routeOk = (path) => typeof path === "string" && path.startsWith("/") && !p
  * frames. Without `openPeer` desktops are turned away. `phones` is the devices store (`isKnown`, `kindOf`, `add`, `seen`).
  * A computer's first hello waits for `allowComputer({ key, name, signal, waiting })` (phone.cjs), which resolves
  * "allowed", "denied", "expired", "busy" or "dropped" and calls `waiting()` once it holds the request.
+ * `batchMs` is the batch window for devices that take batches (tests shorten or stretch it).
  * `diagnostics` (optional, relay-host.cjs createTransportDiagnostics) counts message types, marks and odd frames; it
  * only ever sees fixed names, never a conn id, key or payload. Without it nothing is counted and nothing is allocated.
  */
@@ -73,13 +103,34 @@ function createPhoneChannels({
   allowComputer,
   pendingRepeatMs = PENDING_REPEAT_MS,
   queueWaitMs = MAX_QUEUE_WAIT,
+  batchMs = BATCH_MS,
   diagnostics = null,
 }) {
   const sendFrame = (current, type, conn, payload) => current.send(frame(type, conn, payload));
   function sendMessage(current, conn, record, message) {
-    if (current.conns.get(conn) !== record || !record.channel) return;
+    // A response's last part and a stream's end are waited on: they close the batch window at once.
+    const urgent = (message.t === "res" && message.more === false) || message.t === "live-close";
     diagnostics?.message("out", message.t);
-    sendFrame(current, DATA, conn, record.channel.seal(message));
+    sendEncoded(current, conn, record, encoder.encode(JSON.stringify(message)), urgent);
+  }
+  /** Sends one message (`encoded`, its UTF-8 JSON bytes) sealed for the device: now, or with its window when it takes batches. */
+  function sendEncoded(current, conn, record, encoded, urgent = false) {
+    if (current.conns.get(conn) !== record || !record.channel) return;
+    if (!record.batch) return sendFrame(current, DATA, conn, record.channel.sealEncoded(encoded));
+    if (record.batched.length && record.batchedBytes + encoded.length > BATCH_BYTES) flushBatch(current, conn, record);
+    record.batched.push(encoded);
+    record.batchedBytes += encoded.length;
+    if (urgent || record.batchedBytes >= BATCH_BYTES) return flushBatch(current, conn, record);
+    record.batchTimer ??= setTimeout(() => flushBatch(current, conn, record), batchMs);
+  }
+  /** Sends what the window holds: one message as itself, several as one batch message. */
+  function flushBatch(current, conn, record) {
+    clearTimeout(record.batchTimer);
+    record.batchTimer = null;
+    const items = record.batched.splice(0);
+    record.batchedBytes = 0;
+    if (!items.length || current.conns.get(conn) !== record || !record.channel) return;
+    sendFrame(current, DATA, conn, record.channel.sealEncoded(items.length === 1 ? items[0] : joinBatch(items)));
   }
 
   function closeLives(record) {
@@ -99,6 +150,8 @@ function createPhoneChannels({
    */
   function release(record) {
     clearTimeout(record.helloTimer);
+    clearTimeout(record.batchTimer);
+    record.batched.length = 0;
     // A computer still waiting for Allow: its request goes with its channel, and the notices stop even if the owner never answers the abort.
     record.abort?.abort();
     clearInterval(record.pendingTimer);
@@ -215,16 +268,16 @@ function createPhoneChannels({
     record.state = "open";
     clearTimeout(record.helloTimer);
     record.kind = kind;
+    record.batch = accepted.caps.includes(BATCH_CAP);
     diagnostics?.message("out", "hello");
     sendFrame(current, DATA, conn, accepted.reply);
     if (kind === "computer") {
       try {
         record.peer = openPeerChannel({
           openPeer,
-          channel: record.channel,
-          deliver: (sealed) => {
+          deliver: (encoded) => {
             diagnostics?.message("out", "peer");
-            sendFrame(current, DATA, conn, sealed);
+            sendEncoded(current, conn, record, encoded);
           },
           queued: () => current.queued?.(conn) ?? 0,
           budget: current.peerBudget,
@@ -449,6 +502,10 @@ function createPhoneChannels({
         peer: null,
         abort: null,
         pendingTimer: null,
+        batch: false,
+        batched: [],
+        batchedBytes: 0,
+        batchTimer: null,
       };
       current.conns.set(conn, record);
       record.helloTimer = setTimeout(() => {

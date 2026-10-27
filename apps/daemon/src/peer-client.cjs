@@ -21,6 +21,8 @@ const CLOSE_BY_HOST = 1000;
 const CLOSE_HOST_OFFLINE = 4404;
 const CLOSE_ROOM_FULL = 4429;
 const DESKTOP_PEER = "desktop-peer-v1";
+// Asked for in the hello: the Mac then sends a window's messages as one frame (phone-channels.cjs).
+const BATCH_CAP = "batch";
 // A paired Mac is not trusted like the local daemon: a paged reply may not announce more than MAX_PAGES pages nor run
 // past MAX_PAGED_CHARS in all. The daemon holds at most 96 Mi characters of pages at once (server.cjs PAGES_BUDGET_CHARS)
 // in pages of up to 1 Mi, so these have headroom over any real reply.
@@ -89,7 +91,7 @@ async function connectPeer({
   let host, hello;
   try {
     host = fromB64url(hostKey);
-    hello = phoneHello({ phone: identity, host, token, random, name, kind: "desktop" });
+    hello = phoneHello({ phone: identity, host, token, random, name, kind: "desktop", caps: [BATCH_CAP] });
   } catch {
     // A malformed pinned key or identity: this Mac's stored keys for the computer are unusable.
     throw new PeerError("keys");
@@ -250,15 +252,24 @@ async function connectPeer({
     if (!bytes?.length) return end(new PeerError("lost"));
     heard();
     if (channel) {
-      let read;
+      const frames = [];
       try {
-        const message = channel.open(bytes);
-        if (/** @type {any} */ (message)?.t === "pong") return;
-        read = reader.read(message);
+        const message = /** @type {any} */ (channel.open(bytes));
+        // A Mac that batches (this hello asked for it) sends a window's messages as one, in order.
+        const items = message?.t === "batch" ? message.items : [message];
+        if (!Array.isArray(items)) throw new Error("Malformed batch");
+        for (const item of items) {
+          if (item?.t === "pong") continue;
+          const read = reader.read(item);
+          if (read) frames.push(read.frame);
+        }
       } catch {
         return end(new PeerError("lost"));
       }
-      if (read) receive(read.frame);
+      for (const frame of frames) {
+        if (client.closed) return;
+        receive(frame);
+      }
       return;
     }
     if (bytes[0] === PENDING) return waitForAllow();

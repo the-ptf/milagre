@@ -67,6 +67,9 @@ export const hostIdOf = (signPublicKey) => b64url(nacl.hash(signPublicKey).slice
 
 const json = (value) => encoder.encode(JSON.stringify(value));
 const parse = (bytes) => JSON.parse(decoder.decode(bytes));
+// What a device says it takes (`caps` in its hello, e.g. "batch"): short names, a few at most; Macs from before ignore them.
+const MAX_CAPS = 8;
+const MAX_CAP = 32;
 function sameToken(a, b) {
   if (typeof a !== "string" || a.length !== b.length) return false;
   let diff = 0;
@@ -110,14 +113,18 @@ function channel(key, sendDirection) {
   };
 }
 
-/** `name` says what the device is called and `kind` what it is ("phone" when left out); Macs from before both ignore them. */
-export function phoneHello({ phone, host, token, random, name, kind }) {
+/**
+ * `name` says what the device is called, `kind` what it is ("phone" when left out) and `caps` what it takes ("batch": a
+ * window of messages as one frame); Macs from before ignore all three.
+ */
+export function phoneHello({ phone, host, token, random, name, kind, caps }) {
   withRandom(random);
   const ephemeral = nacl.box.keyPair();
   const nonce = random(24);
   const inner = { token, eph: b64url(ephemeral.publicKey) };
   if (typeof name === "string" && name) inner.name = name;
   if (kind) inner.kind = kind;
+  if (Array.isArray(caps) && caps.length) inner.caps = caps.filter((cap) => typeof cap === "string").slice(0, MAX_CAPS);
   const box = nacl.box(json(inner), nonce, host, phone.secretKey);
   const message = new Uint8Array(1 + 32 + 32 + 24 + box.length);
   message[0] = HELLO;
@@ -165,6 +172,7 @@ export function hostAccept({ host, hello, isKnown, canPair = false, token, rando
     firstPairing,
     kind: inner.kind ?? "phone",
     name: helloName(inner.name),
+    caps: Array.isArray(inner.caps) ? inner.caps.filter((cap) => typeof cap === "string" && cap.length <= MAX_CAP).slice(0, MAX_CAPS) : [],
     channel: channel(nacl.box.before(eph, mine.secretKey), HOST_TO_PHONE),
   };
 }

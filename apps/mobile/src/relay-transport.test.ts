@@ -62,7 +62,7 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
   const sockets: FakeSocket[] = [];
   const seen: Seen[] = [];
   const sent: Uint8Array[] = [];
-  const state = { mode: "host" as Mode, ping: 0, names: [] as (string | null)[] };
+  const state = { mode: "host" as Mode, ping: 0, names: [] as (string | null)[], caps: [] as string[][] };
   class FakeSocket implements RelaySocket {
     binaryType = "blob";
     target = new EventTarget();
@@ -120,6 +120,7 @@ function relay(answer: (seen: Seen) => Answer = () => ({ body: '{"v":1,"result":
         try {
           const accepted = hostAccept({ host, hello: bytes, isKnown: () => true, token: TOKEN, random });
           state.names.push(accepted.name);
+          state.caps.push(accepted.caps);
           this.channel = accepted.channel;
           // An impostor cannot read the hello, so the closest thing is a reply that was not sealed for this phone and host.
           if (state.mode === "impostor") {
@@ -653,4 +654,30 @@ test("the hello carries the phone's name when it has one", async () => {
   await unnamed.transport.ready();
   unnamed.transport.close();
   assert.deepEqual(fake.state.names, ["Victor's iPhone", null]);
+});
+
+test("the hello asks for batches, and a batch from the Mac is dispatched one message at a time, in order", async () => {
+  const fake = relay();
+  const { transport } = transportFor(fake);
+  const seen: string[] = [];
+  const live = transport.live(
+    "/live",
+    (data) => seen.push(data),
+    () => {},
+  );
+  await settle();
+  assert.deepEqual(fake.state.caps, [["batch"]]);
+  const socket = fake.sockets[0]!;
+  const pings = fake.state.ping;
+  socket.say({
+    t: "batch",
+    items: [{ t: "live", id: 1, data: "a" }, { t: "ping" }, { t: "live", id: 1, data: "b" }, { t: "live-close", id: 1 }],
+  });
+  await settle();
+  await settle();
+  assert.deepEqual(seen, ["a", "b"]);
+  assert.equal(fake.sent.filter((bytes) => bytes.length > 0).length >= 2, true, "the ping inside the batch was answered");
+  assert.equal(pings, fake.state.ping, "a ping from the Mac is answered with a pong, not a ping");
+  live.close();
+  transport.close();
 });
