@@ -33,6 +33,7 @@ const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
+const { createComputersLane } = require("./computers-lane.cjs");
 protocol.registerSchemesAsPrivileged([
   { scheme: "milagre-artifact", privileges: { standard: true, secure: true } },
   { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -42,6 +43,8 @@ async function startDesktop() {
   let mainWindow = null;
   let runtime;
   let computerUnlock;
+  /** @type {ReturnType<typeof createComputersLane> | null} */
+  let computersLane = null;
   const nativeCommands = require("./desktop-commands.cjs").createDesktopCommandAdapter({
     ipcMain: electronIpcMain,
     runtime: () => runtime,
@@ -322,6 +325,7 @@ async function startDesktop() {
           connectionState = payload;
           // A host started again after it went away can be newer, with more commands. (Not yet set during the first connect.)
           if (payload.connected && runtime) {
+            computersLane?.reset();
             registerHostMethods();
             nativeCommands.publish();
             readAutoUpdate();
@@ -348,6 +352,15 @@ async function startDesktop() {
     return;
   }
   const environmentReady = loadLoginEnvironment();
+  // Paired computers' calls wait on their route; they go over a daemon connection of their own (computers-lane.cjs).
+  const lane = createComputersLane({
+    dataDir: app.getPath("userData"),
+    available: () => connectionState.connected === true,
+    fallback: (method, args) => runtime.invoke(method, args),
+  });
+  computersLane = lane;
+  /** @param {string} method @param {unknown[]} args */
+  const invokeHost = (method, args) => (lane.handles(method) ? lane.invoke(method, args) : runtime.invoke(method, args));
   // The host's commands. A restarted host can bring more (an older one lacked some), so this runs again after a restart.
   const registered = new Set(["app:version"]);
   function registerHostMethods() {
@@ -370,7 +383,7 @@ async function startDesktop() {
           signInRequested = args[0]?.window === true;
           signInAttempt++;
         }
-        const answer = runtime.invoke(method, args);
+        const answer = invokeHost(method, args);
         if (method === "linear:connect") {
           const attempt = signInAttempt;
           const newest = () => attempt === signInAttempt;
@@ -418,7 +431,7 @@ async function startDesktop() {
         .filter((computer) => computer.state === "online")
         .map(async (computer) => {
           try {
-            const snapshot = await runtime.invoke("computers:invoke", [computer.id, "chat:inbox", []]);
+            const snapshot = await lane.invoke("computers:invoke", [computer.id, "chat:inbox", []]);
             const label = (item) => ({ ...item, computer: computer.name });
             return { agents: snapshot.agents.map(label), items: snapshot.items.map(label) };
           } catch {
@@ -539,6 +552,7 @@ async function startDesktop() {
       floating.dispose();
       // The daemon owns local and remote connections; quitting disconnects this window only.
       await runtime.close();
+      computersLane?.close();
     })().catch((error) => {
       quitPrepared = null;
       quitting = false;
