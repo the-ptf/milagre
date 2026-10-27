@@ -14505,3 +14505,60 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
     react.cleanup();
   }
 });
+
+test("Add computer can remove the public fallback before pairing a pasted invitation", async () => {
+  const pairing = require("@milagre/shared/pairing-link");
+  const identity = { hostId: "h".repeat(22), key: "k".repeat(43) };
+  const direct = ["ws://192.168.1.20:8798", "ws://100.107.136.115:8798"];
+  const invitation = `milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=${identity.hostId}&key=${identity.key}&token=${"a".repeat(64)}&direct=${encodeURIComponent(JSON.stringify(direct))}`;
+  const host = hookHost();
+  const connected = [];
+  const { default: AddComputer } = load("app/add-computer.tsx", {
+    react: host,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", StyleSheet: { absoluteFill: {} }, Linking: {} },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { dismissAll() {}, replace() {}, back() {} } },
+    "expo-camera": { CameraView: "CameraView", useCameraPermissions: () => [{ granted: false }, () => {}] },
+    "expo-clipboard": { getStringAsync: async () => invitation },
+    "@hugeicons/core-free-icons": require("@hugeicons/core-free-icons"),
+    "@milagre/shared/ai-consent": require("@milagre/shared/ai-consent"),
+    "@milagre/shared/pairing-link": pairing,
+    "../pairing": pairing,
+    "../session": {
+      useSession: () => ({
+        connect: async (value) => {
+          connected.push(value);
+          return false;
+        },
+      }),
+    },
+    "../icons": { Icon: "Icon" },
+    "../settings-list": { Group: "Group", Row: "Row" },
+    "../ui": {
+      CircleButton: "CircleButton",
+      ErrorNotice: "ErrorNotice",
+      Field: "Field",
+      PageScroll: "PageScroll",
+      PillButton: "PillButton",
+      RowSwitch: "RowSwitch",
+      useStyles: () => ({}),
+    },
+  });
+  const render = () => {
+    host.begin();
+    return AddComputer();
+  };
+  find(render(), (node) => node.props.title === "LAN or Tailscale only").props.onPress();
+  find(render(), (node) => node.type === "Pressable" && texts(node).includes("Enter address and token")).props.onPress();
+  assert.match(
+    find(render(), (node) => node.type === "ErrorNotice").props.message,
+    /For private pairing, scan or paste/,
+    "manual HTTPS entry cannot bypass private mode",
+  );
+  find(render(), (node) => node.type === "Pressable" && texts(node).includes("Paste pairing link")).props.onPress();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(connected.length, 1);
+  assert.equal(connected[0].relay.url, direct[0]);
+  assert.deepEqual(Array.from(connected[0].relay.direct), direct);
+  assert.equal(connected[0].relay.key, identity.key);
+});

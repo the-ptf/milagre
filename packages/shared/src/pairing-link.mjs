@@ -25,8 +25,23 @@ export function localEndpoint(input) {
   return url.origin;
 }
 
+/** An encrypted device channel may use plain WebSockets on a private network. Public endpoints require TLS. */
+export function privateDeviceEndpoint(input, { allowLocalRelay = false } = {}) {
+  let url;
+  try {
+    url = new URL(input);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "ws:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) return false;
+  const parts = url.hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b] = parts;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (allowLocalRelay && a === 127);
+}
+
 /**
- * How a device reaches a Mac with no tunnel: the public relay, the Mac's id there, and its pinned box key.
+ * An encrypted device channel: a private address or public relay, the Mac's identity, and its pinned box key.
  * `allowLocalRelay` also takes a relay on this machine (ws://127.0.0.1), which only tests run.
  */
 export function validRelay(value, { allowLocalRelay = false } = {}) {
@@ -38,13 +53,34 @@ export function validRelay(value, { allowLocalRelay = false } = {}) {
   } catch {
     throw damaged();
   }
-  const local = allowLocalRelay && url.protocol === "ws:" && url.hostname === "127.0.0.1";
+  const local = privateDeviceEndpoint(url.href, { allowLocalRelay });
   if ((url.protocol !== "wss:" && !local) || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw damaged();
   if (!/^[A-Za-z0-9_-]{22}$/.test(String(relay?.hostId)) || !/^[A-Za-z0-9_-]{43}$/.test(String(relay?.key))) throw damaged();
-  return { url: url.origin, hostId: String(relay.hostId), key: String(relay.key) };
+  if (
+    relay.direct !== undefined &&
+    (!Array.isArray(relay.direct) || relay.direct.length > 4 || !relay.direct.every((endpoint) => privateDeviceEndpoint(endpoint, { allowLocalRelay })))
+  )
+    throw damaged();
+  const direct = relay.direct ? [...new Set(relay.direct.map((endpoint) => new URL(endpoint).origin))] : [];
+  return {
+    url: url.origin,
+    hostId: String(relay.hostId),
+    key: String(relay.key),
+    ...(direct.length ? { direct } : {}),
+  };
 }
 /** A relay computer's address and saved id: there is no URL to show, so its id on the relay stands in. */
 export const relayAddress = (hostId) => `relay://${hostId}`;
+
+/** Removes the public fallback from a pairing invitation while keeping its pinned identity and private routes. */
+export function privatePairingLink(input) {
+  const pairing = parsePairing(input);
+  const relay = pairing.relay;
+  const direct = [...new Set([...(relay?.direct ?? []), ...(relay && privateDeviceEndpoint(relay.url) ? [relay.url] : [])])];
+  if (!relay || !direct.length)
+    throw new Error("This code has no private network address. Choose LAN or Tailscale only in Settings → Devices on your Mac and copy its new link.");
+  return `milagre://pair?relay=${encodeURIComponent(direct[0])}&host=${relay.hostId}&key=${relay.key}&token=${pairing.token}&name=${encodeURIComponent(pairing.name)}&direct=${encodeURIComponent(JSON.stringify(direct))}`;
+}
 
 /** Reads the link the host prints and encodes in its QR code: a direct address (scripts/mobile-pairing.cjs) or the relay (apps/daemon/src/mobile-pairing.cjs). */
 export function parsePairing(input, { allowLocalRelay = false } = {}) {
@@ -65,8 +101,19 @@ export function parsePairing(input, { allowLocalRelay = false } = {}) {
   if (params.relay !== undefined || params.host !== undefined || params.key !== undefined) {
     // A link names one way to reach the Mac; one with both was not made by Milagre.
     if (params.address !== undefined) throw new Error("This pairing link is damaged. Scan the code again in Settings → Devices on your Mac.");
-    const relay = validRelay({ url: params.relay, hostId: params.host, key: params.key }, { allowLocalRelay });
-    return { address: relayAddress(relay.hostId), token, name: (params.name || "").trim().slice(0, 80) || "Mac", relay };
+    let direct;
+    try {
+      direct = params.direct === undefined ? undefined : JSON.parse(params.direct);
+    } catch {
+      throw new Error("This pairing link is damaged. Scan the code again in Settings → Devices on your Mac.");
+    }
+    const relay = validRelay({ url: params.relay, hostId: params.host, key: params.key, direct }, { allowLocalRelay });
+    return {
+      address: relayAddress(relay.hostId),
+      token,
+      name: (params.name || "").trim().slice(0, 80) || "Mac",
+      relay,
+    };
   }
   const address = localEndpoint(params.address || "");
   const name = (params.name || "").trim().slice(0, 80) || address.replace(/^https?:\/\//, "").replace(/[:/].*$/, "");

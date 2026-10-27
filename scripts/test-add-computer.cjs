@@ -9,7 +9,8 @@ const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
-const LINK = "milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=hhhhhhhhhhhhhhhhhhhhhh&key=k&token=t&name=studio";
+const LINK = `milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=${"h".repeat(22)}&key=${"k".repeat(43)}&token=${"a".repeat(64)}&name=studio&direct=${encodeURIComponent(JSON.stringify(["ws://192.168.1.20:8798"]))}`;
+const PRIVATE_LINK = require("@milagre/shared/pairing-link").privatePairingLink(LINK);
 const OWN = "milagre://pair?relay=wss%3A%2F%2Frelay.milagre.cloud&host=oooooooooooooooooooooo&key=k&token=t&name=desk";
 
 const fixture = `
@@ -29,6 +30,7 @@ window.milagre = {
   computers: {
     preview: async (link) => {
       if (link === ${JSON.stringify(LINK)}) return { name: "studio", hostId: "h".repeat(22), relayHost: "relay.milagre.cloud" };
+      if (link === ${JSON.stringify(PRIVATE_LINK)}) return { name: "studio", hostId: "h".repeat(22), relayHost: "192.168.1.20:8798" };
       if (link === ${JSON.stringify(OWN)}) throw new Error("That's this Mac's own link. Copy the one on the other Mac.");
       throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac.");
     },
@@ -179,6 +181,18 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('dialog') && window.cancels === ${cancels + 1}`);
     assert.deepEqual(errors, []);
     console.log("PASS: an added computer closes the dialog, and Escape closes it with nothing mounted after; unmounting mid-pairing cancels it");
+    await evaluate(`document.querySelector('[data-open]').click()`);
+    await type("Pairing link", LINK);
+    await waitFor(`!!document.querySelector('[data-add-computer-found]')`);
+    await evaluate(`document.querySelector('[role="switch"][aria-label="LAN or Tailscale only"]').click()`);
+    await waitFor(`document.querySelector('[data-add-computer-found]')?.textContent.includes('192.168.1.20')`);
+    await screenshot("add-computer-private");
+    const privateCalls = await evaluate(`window.addCalls.length`);
+    await press("Add computer");
+    await waitFor(`window.addCalls.length === ${privateCalls + 1}`);
+    assert.equal(await evaluate(`window.addCalls.at(-1)[0]`), PRIVATE_LINK);
+    await evaluate(`window.answerAdd({ ok: false, code: "cancelled", message: "Cancelled." })`);
+    console.log("PASS: private pairing removes the remote fallback before Add is sent");
     app.exit(0);
   } catch (error) {
     console.error(error);

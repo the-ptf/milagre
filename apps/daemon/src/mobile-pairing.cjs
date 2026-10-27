@@ -30,7 +30,7 @@ function pairingLink({ address, token, name, access }) {
 }
 
 /** The QR for a Mac that is reached through the relay: the relay's origin, this Mac's id and public key, and the token. */
-function relayPairingLink({ relay, hostId, key, token, name }) {
+function relayPairingLink({ relay, hostId, key, token, name, direct }) {
   let url;
   try {
     url = new URL(relay);
@@ -41,7 +41,8 @@ function relayPairingLink({ relay, hostId, key, token, name }) {
   if (typeof hostId !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(hostId)) throw new Error("The host id must be 22 base64url characters.");
   if (typeof key !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(key)) throw new Error("The host key must be 43 base64url characters.");
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token)) throw new Error("The pairing token must be 64 hex characters.");
-  return `milagre://pair?relay=${encodeURIComponent(url.origin)}&host=${hostId}&key=${key}&token=${token}&name=${encodeURIComponent(name ?? "")}`;
+  const routes = direct?.length ? `&direct=${encodeURIComponent(JSON.stringify(direct))}` : "";
+  return `milagre://pair?relay=${encodeURIComponent(url.origin)}&host=${hostId}&key=${key}&token=${token}&name=${encodeURIComponent(name ?? "")}${routes}`;
 }
 
 module.exports = { computerName, pairingLink, relayPairingLink };

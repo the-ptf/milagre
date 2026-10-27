@@ -8,7 +8,11 @@ This preview connects an Expo mobile app to the Node daemon on your Mac. It grou
 2. In the installed phone app, add a computer and scan the pairing code.
 3. Open a Project from the sidebar to follow its Chats, or create a new Chat.
 
-Your Mac runs the agents and must stay awake and online. Desktop and phone share the same daemon, Chats and Worktrees. By default, the daemon uses the public encrypted relay at `relay.milagre.cloud`; no Cloudflare account or tunnel is needed. A configured named Cloudflare tunnel remains supported.
+Your Mac runs the agents and must stay awake and online. Desktop and phone share the same daemon, Chats and Worktrees. Automatic pairing tries the addresses in the link in order: LAN, then Tailscale, then the public encrypted relay at `relay.milagre.cloud`. No Cloudflare account or tunnel is needed. A configured named Cloudflare tunnel remains supported.
+
+For private access, join both devices to the same LAN or Tailscale tailnet and leave **Allow on local network** on. In desktop Settings > Devices > Pair a device, choose **LAN or Tailscale only**, then scan the QR code or copy the link to another Mac. The receiving desktop and phone also offer **LAN or Tailscale only** when adding a computer. Private pairing uses the pinned encryption key and the same ten-minute pairing window; a new desktop still needs the owner's Allow. Its saved link has no public relay fallback.
+
+Tailscale must already be installed and connected on both devices. Milagre uses its existing network interface; it does not install Tailscale or change the user's tailnet. Older pairing codes keep working; create a new code to include private addresses before the first connection.
 
 Repository-provided Worktree setup commands pause for review on desktop or phone, even with Full permissions. **Run once**, **Trust this version** and **Skip setup** have the same [scope and behavior on both clients](desktop-guide.md#permission-modes). Reconnecting the phone restores a pending review.
 

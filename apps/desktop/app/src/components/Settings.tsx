@@ -136,7 +136,11 @@ export type SettingsSection =
   | "project"
   | "computer";
 
-const SECTIONS: Array<{ key: SettingsSection; label: string; icon: ReactNode }> = [
+const SECTIONS: Array<{
+  key: SettingsSection;
+  label: string;
+  icon: ReactNode;
+}> = [
   { key: "general", label: "General", icon: <Icon icon={Settings01Icon} /> },
   { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} /> },
   { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
@@ -290,7 +294,10 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  const [about, setAbout] = useState<{ version: string | null; projects: string[] } | null>(null);
+  const [about, setAbout] = useState<{
+    version: string | null;
+    projects: string[];
+  } | null>(null);
   useEffect(() => setName(computer?.name ?? ""), [computer?.name]);
   useEffect(() => {
     setConfirming(false);
@@ -998,7 +1005,12 @@ function AppearanceSettings() {
               value={appearance.sidebarSize}
               onChange={(sidebarSize) => change("sidebar", { sidebarSize })}
               onOpenChange={preview.menu("sidebar")}
-              options={pxOptions(SIDEBAR_SIZES.map((size) => ({ id: size.id, px: 13 + size.delta })))}
+              options={pxOptions(
+                SIDEBAR_SIZES.map((size) => ({
+                  id: size.id,
+                  px: 13 + size.delta,
+                })),
+              )}
             />
           </Row>
           <Row label="Chat size" description="Messages and the composer." preview={preview.row("chat")}>
@@ -1320,6 +1332,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [pairingRoute, setPairingRoute] = useState("automatic");
+  const pairingOption = status?.pairingOptions?.find((option) => option.id === pairingRoute) ?? status?.pairingOptions?.[0];
   const copyTimer = useRef<number | null>(null);
   useEffect(
     () => () => {
@@ -1344,8 +1358,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
       .finally(() => setBusy(false));
   };
   const copyLink = () => {
-    // Another Mac can only pair through the relay, so the link to paste there is the relay's even behind a tunnel.
-    const link = status?.computerLink ?? status?.pairingLink;
+    const link = pairingOption?.link ?? status?.computerLink ?? status?.pairingLink;
     if (!link) return;
     void navigator.clipboard.writeText(link).then(
       () => {
@@ -1425,10 +1438,26 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
       </Group>
       {on && (
         <Group title="Pair a device">
+          {(status.pairingOptions?.length ?? 0) > 1 && (
+            <Row
+              label="Connect through"
+              description="Automatic tries LAN and Tailscale before the remote connection. Private pairing needs both devices on the same network or tailnet."
+            >
+              <Select
+                label="Pairing connection"
+                value={pairingOption?.id ?? "automatic"}
+                options={status.pairingOptions!.map(({ id, label }) => ({
+                  value: id,
+                  label,
+                }))}
+                onChange={setPairingRoute}
+              />
+            </Row>
+          )}
           <div className="flex items-start gap-5 px-4 py-4">
             <img
               data-phone-qr
-              src={phoneQrSrc(status.qrSvg!)}
+              src={phoneQrSrc(pairingOption?.qrSvg ?? status.qrSvg!)}
               alt="QR code to pair your phone"
               width={176}
               height={176}

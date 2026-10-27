@@ -41,8 +41,19 @@ function clock() {
   return { timers, run, queue };
 }
 
-type Answer = { status?: number; headers?: Record<string, string>; body?: Uint8Array | string } | "never";
-type Seen = { method: string; path: string; headers: Record<string, string>; body: Uint8Array };
+type Answer =
+  | {
+      status?: number;
+      headers?: Record<string, string>;
+      body?: Uint8Array | string;
+    }
+  | "never";
+type Seen = {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: Uint8Array;
+};
 type Mode = "host" | "offline" | "bad-token" | "reset" | "unknown-phone" | "impostor";
 
 /** A relay with a Mac behind it: each socket the phone opens gets its own hostAccept, as the daemon does per connection. */
@@ -190,6 +201,61 @@ function transportFor(fake: ReturnType<typeof relay>, extra: Partial<Parameters<
 }
 
 const GET = (transport: ReturnType<typeof transportFor>["transport"], path = "/rpc/ping") => transport.request("GET", path, { Accept: "application/json" });
+
+test("first pairing tries a reachable tailnet before opening the remote relay", async () => {
+  const fake = relay();
+  const opened: string[] = [];
+  const { transport } = transportFor(fake, {
+    direct: ["ws://192.168.1.20:8798", "ws://100.107.136.115:8798"],
+    probe: async (endpoint) => endpoint.includes("100.107"),
+    create: (url) => {
+      opened.push(url);
+      return fake.create(url);
+    },
+  });
+  await transport.ready();
+  assert.equal(opened.length, 1);
+  assert.ok(opened[0]!.startsWith("ws://100.107.136.115:8798/"));
+  assert.equal(decoder.decode((await GET(transport)).body), '{"v":1,"result":"pong"}');
+  transport.close();
+});
+
+test("an unavailable direct handshake falls back before sending an application request", async () => {
+  const fake = relay();
+  const opened: string[] = [];
+  const { transport } = transportFor(fake, {
+    direct: ["ws://100.107.136.115:8798"],
+    probe: async () => true,
+    create: (url) => {
+      opened.push(url);
+      fake.state.mode = url.startsWith("ws:") ? "offline" : "host";
+      return fake.create(url);
+    },
+  });
+  await GET(transport);
+  assert.equal(opened.length, 2);
+  assert.ok(opened[1]!.startsWith("wss://relay.milagre.cloud/"));
+  assert.equal(fake.seen.length, 1, "the application request is sent only once, after the handshake");
+  transport.close();
+});
+
+test("closing while private routes are being probed cancels the pending connection", async () => {
+  const fake = relay();
+  let finish!: (answer: boolean) => void;
+  const { transport } = transportFor(fake, {
+    direct: ["ws://100.107.136.115:8798"],
+    probe: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
+  const attempt = transport.ready();
+  await settle();
+  transport.close();
+  finish(true);
+  await assert.rejects(attempt, /cancelled/);
+  assert.equal(fake.sockets.length, 0);
+});
 
 test("request round trip over the relay", async () => {
   const fake = relay();

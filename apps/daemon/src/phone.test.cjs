@@ -175,7 +175,7 @@ test("without a tunnel the phone pairs through the relay", async (t) => {
   assert.equal(status.publicUrl, undefined);
   assert.match(
     status.pairingLink,
-    /^milagre:\/\/pair\?relay=wss%3A%2F%2Frelay\.milagre\.cloud&host=[A-Za-z0-9_-]{22}&key=[A-Za-z0-9_-]{43}&token=[a-f0-9]{64}&name=Test%20Mac$/,
+    /^milagre:\/\/pair\?relay=wss%3A%2F%2Frelay\.milagre\.cloud&host=[A-Za-z0-9_-]{22}&key=[A-Za-z0-9_-]{43}&token=[a-f0-9]{64}&name=Test%20Mac&direct=/,
   );
   assert.equal(new URL(status.pairingLink).searchParams.get("token"), bridges[0].token);
   assert.match(status.qrSvg, /^<svg[^>]*viewBox=/);
