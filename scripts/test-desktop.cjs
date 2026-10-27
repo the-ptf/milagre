@@ -442,6 +442,10 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         window.dispatchEvent(new Event("milagre:recent-projects-changed"));
         return link.id;
       })()`);
+      // A window at most 1024 px wide (the CI macOS runner's screen) starts with the sidebar collapsed, and a collapsed
+      // sidebar lists no scopes. The chooser below mounts a fresh sidebar, so it is expanded again there.
+      const expandSidebar = () => evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
+      await expandSidebar();
       await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"]')`), "remaining Link in sidebar");
       await evaluate(`document.querySelector('[data-sidebar-scope="${project}"] [data-scope-menu]').click()`);
       await waitFor(() => evaluate(`!!document.querySelector('[data-scope-menu-item="remove"]')`), "Project removal menu");
@@ -454,6 +458,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
       await waitFor(() => evaluate(`!!document.querySelector('[data-project-chooser]')`), "Project chooser after last local Project removal");
       assert.equal(await evaluate(`!!document.querySelector('[data-onboarding]')`), false);
+      await expandSidebar();
       await waitFor(
         () => evaluate(`!!document.querySelector('[data-sidebar-scope="milagre-link:${linkId}"] [data-scope-action]')`),
         "remaining Link is accessible",
