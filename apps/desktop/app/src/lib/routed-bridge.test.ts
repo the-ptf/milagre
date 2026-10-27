@@ -143,7 +143,7 @@ const ALLOWED: Record<string, string[]> = {
   // This Mac's Routines follow this device's AI sharing decision, from inside the decision's own write (the guarded
   // bridge would wait on it).
   "lib/ai-consent.ts": ["saveRoutinesEnabled"],
-  "lib/state-events.ts": ["onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
+  "lib/state-events.ts": ["onRuntimeSnapshot", "onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
   "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
   "lib/computers.ts": ["computers"],
   "lib/computers-store.ts": ["computers", "onComputersChanged"],

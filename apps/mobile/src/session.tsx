@@ -36,6 +36,12 @@ function useSessionState() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const designs = useDesigns(client, snapshot?.project.path, recent[0]?.path);
   const [error, setError] = useState("");
+  // How many times the connection came back after an error: the Chat on screen reads its pages again on each.
+  const [reconnects, setReconnects] = useState(0);
+  const lost = useRef(false);
+  useEffect(() => {
+    if (error) lost.current = true;
+  }, [error]);
   const [models, setModels] = useState<AgentModels | null>(null);
   const [cliStatus, setCliStatus] = useState<AgentCliStatus | null>(null);
   const [providerError, setProviderError] = useState("");
@@ -363,6 +369,10 @@ function useSessionState() {
         seen.current.set(`${client.url}|${projectPath}`, state);
         setSnapshot((previous) => reconcileState(previous ?? undefined, state));
         setError("");
+        if (lost.current) {
+          lost.current = false;
+          setReconnects((count) => count + 1);
+        }
       }
     } catch (error) {
       if (current === selection.current) throw error;
@@ -449,6 +459,7 @@ function useSessionState() {
     recent,
     snapshot,
     error,
+    reconnects,
     setError,
     models,
     cliStatus,

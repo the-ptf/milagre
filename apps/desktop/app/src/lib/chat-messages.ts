@@ -1,3 +1,4 @@
+import { readWithTimeout } from "@milagre/shared/read-timeout";
 import { rememberChat } from "./offline-cache.ts";
 import { bridgeForKey, isRemoteKey } from "./computer-bridge.ts";
 import { computerOfKey } from "@milagre/shared/chat-scopes";
@@ -81,14 +82,20 @@ function load(scope: string, chatId: number) {
   const key = keyOf(scope, chatId);
   let loading = loads.get(key);
   if (!loading) {
+    const current = windows.get(key);
+    if (current) set(key, { ...current, loading: true, error: undefined });
     recallRemote(scope, chatId, key);
-    loading = bridgeForKey(scope)
-      .readChatMessages(scope, chatId, { turns: TURNS })
+    loading = readWithTimeout(() => bridgeForKey(scope).readChatMessages(scope, chatId, { turns: TURNS }))
       .then(
-        (page) => set(key, { messages: page.messages, hasMore: page.hasMore, total: page.total, loading: false }),
-        (error: Error) => set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error.message }),
+        (page) => {
+          if (loads.get(key) === loading) set(key, { messages: page.messages, hasMore: page.hasMore, total: page.total, loading: false });
+        },
+        (error: Error) => {
+          if (loads.get(key) === loading) set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error.message });
+        },
       )
       .finally(() => {
+        if (loads.get(key) !== loading) return;
         loads.delete(key);
         if (stale.delete(key)) void load(scope, chatId);
       });
@@ -108,11 +115,14 @@ async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
   const request = bridgeForKey(scope)
     .readChatMessages(scope, chatId, { before: first.id, turns })
     .then((page) => {
+      if (earlierLoads.get(key) !== request) return;
       const latest = windows.get(key);
       const next = prependChatPage(latest, first.id, page);
       if (next && next !== latest) set(key, next);
     })
-    .finally(() => earlierLoads.delete(key));
+    .finally(() => {
+      if (earlierLoads.get(key) === request) earlierLoads.delete(key);
+    });
   earlierLoads.set(key, request);
   return request;
 }
@@ -131,19 +141,30 @@ function follow() {
   if (following) return;
   following = true;
   stateEvents.onMessages(({ scope, changes, reset }) => {
+    if (reset) {
+      // A reconnect's old read may never answer. Replace it now; only the current read may commit its result.
+      const keys = new Set([...loads.keys(), ...earlierLoads.keys(), ...windows.keys()]);
+      for (const key of keys) {
+        if (!key.startsWith(`${scope}#`)) continue;
+        loads.delete(key);
+        earlierLoads.delete(key);
+        stale.delete(key);
+        void load(scope, Number(key.slice(scope.length + 1)));
+      }
+      return;
+    }
     // A read on its way may have been answered before a change to its Chat: it reads again (a new Chat's reply can beat
     // its first page).
     for (const key of loads.keys()) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
-      if (reset || changes?.removed.length || changes?.changed.some(({ message }) => message.session_id === chatId)) stale.add(key);
+      if (changes?.removed.length || changes?.changed.some(({ message }) => message.session_id === chatId)) stale.add(key);
     }
     // A copy: set() moves a window to the end of the Map, and walking the Map itself would reach it again.
     for (const [key, current] of Array.from(windows)) {
       if (!key.startsWith(`${scope}#`)) continue;
       const chatId = Number(key.slice(scope.length + 1));
-      if (reset) void load(scope, chatId);
-      else if (changes) {
+      if (changes) {
         const next = applyChanges(current, chatId, changes);
         if (next !== current) set(key, next);
       }
@@ -185,10 +206,11 @@ export function useChatMessages(scope: string | null | undefined, chatId: number
   useEffect(() => {
     if (!key) return;
     follow();
-    if (!windows.has(key)) void load(scope!, chatId!);
+    if (!windows.has(key) || windows.get(key)?.error) void load(scope!, chatId!);
   }, [key, scope, chatId]);
   return {
     ...chat,
+    retry: useCallback(() => (key ? load(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
     loadEarlier: useCallback(() => (key ? loadEarlier(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
     loadAll: useCallback((signal?: AbortSignal) => (key ? loadAll(scope!, chatId!, signal) : Promise.resolve()), [key, scope, chatId]),
   };

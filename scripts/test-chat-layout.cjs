@@ -6,7 +6,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-import React, { useState } from "react";
+import React, { Activity, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { PersistenceNotices } from "/src/components/PersistenceNotice";
@@ -28,6 +28,10 @@ function Fixture() {
   window.resizeLastImage = setImageHeight;
   const [count, setCount] = useState(50);
   const [sessionId, setSessionId] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(undefined);
+  window.failLoad = () => flushSync(() => { setLoading(false); setLoadError("Read interrupted"); });
+  window.setLoading = value => flushSync(() => setLoading(value));
   window.switchChat = (id, count) => flushSync(() => { setSessionId(id); setCount(count); });
   const [draft, setDraft] = useState("");
   const [model, setModel] = useState(MODEL_CATALOG[0]);
@@ -60,7 +64,7 @@ function Fixture() {
   return <div style={{ height: "100%", padding: 12 }}>
     <PersistenceNotices scopes={saveScopes}>{disconnected && <div data-save-connection>Reconnecting to your computer</div>}</PersistenceNotices>
     {/* Exercise the fully expanded history, as when Find is open; paging has its own regression. */}
-    <ChatComposer findOpen messages={[...messages, ...extra]}
+    <ChatComposer findOpen loadError={loadError} onRetryLoad={() => { setLoadError(undefined); setLoading(false); setCount(100); }} loading={loading} agentChatId={"/fixture#" + sessionId} scrollKey={sessionId} messages={[...messages, ...extra]}
       imageDraft={{ images: [], files: [], removeFile: noop, attachFiles: noop, loading: false, error: "", onPaste: noop, clear: noop, remove: noop }}
       projectPath="/fixture" draft={draft} onDraftChange={setDraft} onSend={noop} isSending={sending} sendBlocked={false}
       pullRequestAction={prAction ? { ...prAction, onRun: () => window.resolveClicks++ } : undefined}
@@ -73,7 +77,12 @@ function Fixture() {
   </div>;
 }
 document.documentElement.classList.add("dark");
-createRoot(document.getElementById("root")).render(<Fixture />);
+function Workspace() {
+  const [shown, setShown] = useState(true);
+  window.showWorkspace = value => flushSync(() => setShown(value));
+  return <Activity mode={shown ? "visible" : "hidden"}><Fixture /></Activity>;
+}
+createRoot(document.getElementById("root")).render(<Workspace />);
 `;
 
 async function browserChecks() {
@@ -193,6 +202,7 @@ async function browserChecks() {
       await window.webContents
         .capturePage()
         .then((image) => require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "message-rail.png"), image.toPNG()));
+    await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length === 15');
     assert.equal(await evaluate('document.querySelectorAll("[data-slot=preview-rail-item]").length'), 15, "Long Chats show at most 15 navigation lines");
     const jumpButton = `document.querySelector('button[aria-label="Go to bottom"]')`;
     const distanceFromBottom = `(() => { const v = document.querySelector('[aria-label="Conversation"]'); return v.scrollHeight - v.clientHeight - v.scrollTop; })()`;
@@ -284,6 +294,19 @@ async function browserChecks() {
       );
     }
     await waitFor('document.querySelectorAll("[data-slot=preview-rail-item]").length === 15');
+    // Return to a parked Chat before its message page arrives, then fill it in place.
+    await evaluate("window.setLoading(true); window.switchChat(900, 0)");
+    await waitFor('document.querySelector("[role=status]")?.textContent.includes("Loading Chat")');
+    await evaluate("window.failLoad()");
+    await waitFor('document.querySelector("[role=alert]")?.textContent.includes("Read interrupted")');
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      require("node:fs").writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "chat-load-error.png"), (await window.webContents.capturePage()).toPNG());
+    await evaluate('document.querySelector("[role=alert] button").click()');
+    await waitFor('document.querySelectorAll("[data-slot=message]").length === 100');
+    await evaluate("window.setLoading(true); window.switchChat(901, 80); window.switchChat(900, 0)");
+    await evaluate("window.switchChat(900, 100); window.setLoading(false)");
+    await waitFor('document.querySelectorAll("[data-slot=message]").length === 100');
+    await waitFor(`${distanceFromBottom} <= 1`);
     await evaluate("window.showImageChat(true)");
     await waitFor('document.querySelectorAll("article img").length === 50 && [...document.querySelectorAll("article img")].every(image => image.complete)');
     await waitFor(`${distanceFromBottom} <= 1`);
@@ -582,6 +605,19 @@ async function browserChecks() {
     console.log(
       "PASS: simultaneous Project/Link save warnings and disconnection stack without overlap; retry stays pending, offline retry is disabled, and confirmed recovery removes notices",
     );
+    // Both short and long Chats must survive the Activity lifecycle used by Project/Link workspaces.
+    for (const count of [2, 80, 4, 0, 6]) {
+      await evaluate("window.showWorkspace(false)");
+      await delay(50);
+      await evaluate(`window.switchChat(${10000}+${count}, ${count}); window.setLoading(${count === 0})`);
+      await evaluate("window.showWorkspace(true)");
+      if (count > 0) {
+        await waitFor(`document.querySelectorAll('[data-slot="message"]').length === ${count}`);
+        const height = await evaluate(`document.querySelector('[aria-label="Conversation"]').getBoundingClientRect().height`);
+        assert.ok(height > 100, "Restoring a workspace must attach its visible transcript");
+      } else await waitFor('document.querySelector("[role=status]")?.textContent.includes("Loading Chat")');
+    }
+    console.log("PASS: short and long Chats survive hidden workspace updates and restoration");
     app.exit(0);
   } catch (error) {
     console.error(error);

@@ -1,3 +1,4 @@
+import { readWithTimeout } from "@milagre/shared/read-timeout";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { TerminalList } from "@milagre/shared/terminal";
 import {
@@ -37,10 +38,12 @@ const fromOldDaemon = (error: unknown) => OLD_DAEMON.test((error as Error)?.mess
  * Mac's daemon has no such check yet, so the phone archives as it did before: hide only.
  */
 export async function checkArchive(client: ArchiveClient, state: CoordinatorState, sessionId: number, chatId?: string): Promise<ArchivePlan | null> {
-  const plan = await worktreePlan(client, state, sessionId);
-  if (!plan || !chatId) return plan;
-  const terminals = await busyTerminals(client, chatId);
-  return terminals.length ? { ...plan, terminals } : plan;
+  return readWithTimeout(async () => {
+    const plan = await worktreePlan(client, state, sessionId);
+    if (!plan || !chatId) return plan;
+    const terminals = await busyTerminals(client, chatId);
+    return terminals.length ? { ...plan, terminals } : plan;
+  }, 5_000).catch(() => HIDE_ONLY);
 }
 
 /** What the Chat's Terminals run, when it isn't the shell's prompt; none from a Mac without Terminals. */

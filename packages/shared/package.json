@@ -368,6 +368,10 @@
     "./attachment-upload": {
       "types": "./src/attachment-upload.d.mts",
       "default": "./src/attachment-upload.mjs"
+    },
+    "./read-timeout": {
+      "types": "./src/read-timeout.d.mts",
+      "default": "./src/read-timeout.mjs"
     }
   },
   "scripts": {

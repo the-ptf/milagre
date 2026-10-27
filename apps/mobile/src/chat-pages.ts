@@ -7,7 +7,7 @@ import { ChatWindowCache, prependChatPage } from "@milagre/shared/chat-window-ca
 // #300): its latest turns, earlier ones on request, and its last turns read again each time the snapshot changes.
 
 type PageClient = { url: string; chatMessages: (projectPath: string, chatId: number, options?: { before?: number; turns?: number }) => Promise<ChatPage> };
-export type ChatWindow = ChatPage & { loading: boolean };
+export type ChatWindow = ChatPage & { loading: boolean; error?: string };
 
 const TURNS = 20;
 const TAIL = 2;
@@ -63,17 +63,20 @@ function run(key: string, work: () => Promise<void>): Promise<void> {
 }
 
 async function load(key: string, client: PageClient, projectPath: string, chatId: number) {
+  const current = windows.get(key);
+  if (current) set(key, { ...current, loading: true, error: undefined });
   try {
+    // The client bounds the read itself (30 s, with retries while the Mac is busy); a shorter cap here would lose its answer.
     const page = await client.chatMessages(projectPath, chatId, { turns: TURNS });
     set(key, { ...page, loading: false });
-  } catch {
-    set(key, { ...(windows.get(key) ?? EMPTY), loading: false });
+  } catch (error) {
+    set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error instanceof Error ? error.message : String(error) });
   }
 }
 
 async function refreshTail(key: string, client: PageClient, projectPath: string, chatId: number) {
   const current = windows.get(key);
-  if (!current || current.loading) return load(key, client, projectPath, chatId);
+  if (!current || current.loading || current.error) return load(key, client, projectPath, chatId);
   try {
     const tail = await client.chatMessages(projectPath, chatId, { turns: TAIL });
     // Earlier messages can arrive while the tail is on its way; merge into the window that holds them now.
@@ -87,12 +90,15 @@ async function refreshTail(key: string, client: PageClient, projectPath: string,
 /**
  * The window of Chat `chatId`'s messages, read when first shown and its last turns again whenever `changed` (the
  * snapshot) changes; none while `client` (only a host that keeps messages by Chat), `projectPath` or `chatId` is missing.
+ * `reconnected` counts the connection's recoveries: a snapshot unchanged since the outage keeps its identity (the host
+ * answers 304), so a page that failed or went stale while the Mac was away reads again on it.
  */
 export function useChatPage(
   client: PageClient | null | undefined,
   projectPath: string | null | undefined,
   chatId: number | null | undefined,
   changed?: unknown,
+  reconnected?: number,
 ) {
   const key = client && projectPath && typeof chatId === "number" && chatId > 0 ? `${client.url}|${projectPath}#${chatId}` : null;
   const subscribe = useCallback(
@@ -114,7 +120,7 @@ export function useChatPage(
   useEffect(() => {
     if (!key) return;
     void run(key, () => (windows.has(key) ? refreshTail(key, client!, projectPath!, chatId!) : load(key, client!, projectPath!, chatId!)));
-  }, [key, client, projectPath, chatId, changed]);
+  }, [key, client, projectPath, chatId, changed, reconnected]);
   const loadEarlier = useCallback(() => {
     if (!key) return Promise.resolve();
     const pending = earlierLoads.get(key);
@@ -133,5 +139,9 @@ export function useChatPage(
     earlierLoads.set(key, request);
     return request;
   }, [key, client, projectPath, chatId]);
-  return { ...page, loadEarlier };
+  return {
+    ...page,
+    loadEarlier,
+    retry: useCallback(() => (key ? run(key, () => load(key, client!, projectPath!, chatId!)) : Promise.resolve()), [key, client, projectPath, chatId]),
+  };
 }

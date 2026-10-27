@@ -632,6 +632,8 @@ export function LinkWorkspace({
                         earlier={earlierMessages}
                         messages={messages}
                         loading={lean && chatWindow.loading && !messages.length && session !== undefined}
+                        loadError={lean ? chatWindow.error : undefined}
+                        onRetryLoad={() => void chatWindow.retry()}
                         imageDraft={imageDraft}
                         onSend={() => void send()}
                         onSendDesignMessage={(text) => send(text, true, false)}

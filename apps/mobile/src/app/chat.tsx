@@ -503,8 +503,14 @@ function ChatPane({
   const allMessages = session.snapshot?.project.state.messages;
   // A host that keeps messages by Chat sends the snapshot without them: the Chat on screen reads its own as pages.
   const lean = !!session.snapshot?.project.state.messagesInChats;
-  const page = useChatPage(lean ? connected : null, projectPath, params.id ? Number(params.id) : null, session.snapshot);
-  const canonicalPage = useChatPage(lean && pendingCanonicalId !== null ? connected : null, projectPath, pendingCanonicalId, session.snapshot);
+  const page = useChatPage(lean ? connected : null, projectPath, params.id ? Number(params.id) : null, session.snapshot, session.reconnects);
+  const canonicalPage = useChatPage(
+    lean && pendingCanonicalId !== null ? connected : null,
+    projectPath,
+    pendingCanonicalId,
+    session.snapshot,
+    session.reconnects,
+  );
   const media = useCallback((path: string) => connected!.image(projectPath!, path), [connected, projectPath]);
   const savedMessages = useMemo(
     () => (lean ? page.messages : params.id && allMessages ? allMessages.filter((m) => m.session_id === Number(params.id)) : []),
@@ -1792,7 +1798,7 @@ function ChatPane({
                 </View>
               )}
               {/* A new Chat's empty state is the centred "Start a new chat in" line instead. */}
-              {!messages.length && !run && !pageLoading && !startingChat && (
+              {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (
                 <View style={{ paddingVertical: 48, alignItems: "center", gap: 8 }}>
                   <Text style={styles.subtitle}>What are we working on?</Text>
                   <Text style={[styles.muted, { textAlign: "center" }]}>
@@ -1805,6 +1811,10 @@ function ChatPane({
                 </View>
               )}
               {newWorktree && branches?.error && !base ? <ErrorNotice message={branches.error} /> : null}
+              {pageLoading ? <LoadingLogo /> : null}
+              {lean && historyPage.error ? (
+                <ErrorNotice message={`Could not load this Chat: ${historyPage.error}`} retry={() => void historyPage.retry()} />
+              ) : null}
               {historyState.key === scrollKey && historyState.error ? <ErrorNotice message={historyState.error} retry={() => void showEarlier()} /> : null}
               {messages.length + remote > visible && (
                 <PillButton

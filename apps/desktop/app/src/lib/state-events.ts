@@ -4,7 +4,7 @@ import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
 import { bridgeForKey } from "./computer-bridge.ts";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import type { AgentEvent, CoordinatorState, LinkState } from "../model.ts";
-import type { MessageChanges } from "../electron.d.ts";
+import type { MessageChanges, RuntimeSnapshot } from "../electron.d.ts";
 
 // A host that sends state patches (state-patches-v1) puts what changed in a state event in place of the whole state,
 // which runs to megabytes in a large Project: `patch`, made from the state numbered `base`, gives the one numbered
@@ -71,6 +71,8 @@ async function readAgain(scope: string, first: Numbered) {
         bridgeForKey(scope).readState(scope),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("The state read took too long")), READ_TIMEOUT_MS)),
       ]);
+      // A reconnect's snapshot replaced this read and released the events held behind it.
+      if (reading.get(scope) !== pending) return;
       const current = { epoch: read.epoch, version: read.version, state: read.state as AnyState };
       let gap = false;
       // What arrived during the read: older patches are in the state read; newer ones follow it in order.
@@ -96,14 +98,40 @@ async function readAgain(scope: string, first: Numbered) {
   } catch {
     // The next state event reads it again.
   }
+  if (reading.get(scope) !== pending) return;
   held.delete(scope);
   reading.delete(scope);
+  release(pending);
+}
+
+/** The agent events held behind a read that gave no state: they go out as they came. */
+function release(pending: { events: HeldEvent[] }) {
   for (const { event } of pending.events) for (const listener of agentListeners) listener(event);
 }
 
 function announce(scope: string, state: AnyState) {
   if (isLinkScopeKey(scope)) for (const listener of linkListeners) listener({ linkId: scope.slice(linkPrefix.length), state: state as LinkState });
   else for (const listener of projectListeners) listener({ path: scope, state: state as CoordinatorState });
+}
+
+/**
+ * A reconnect restores metadata without message bodies: the Chats shown read their pages again even if the Chat stays
+ * idle. A read from before the reconnect is dropped (its events still go out); the last state read keeps its number, so
+ * the next patch applies to it when nothing changed meanwhile and reads again when something did.
+ */
+function restoreSnapshot(snapshot: RuntimeSnapshot) {
+  const scopes = [
+    ...(snapshot.projects ?? []).map(({ path, state }) => ({ scope: path, state })),
+    ...(snapshot.links ?? []).map(({ linkId, state }) => ({ scope: scopeKey({ kind: "link", linkId }), state })),
+  ];
+  for (const { scope, state } of scopes) {
+    const pending = reading.get(scope);
+    if (pending) {
+      reading.delete(scope);
+      release(pending);
+    }
+    if (isLean(state)) for (const listener of messageListeners) listener({ scope, reset: true });
+  }
 }
 
 function subscribe() {
@@ -148,12 +176,14 @@ function subscribe() {
     } else if (scope && state) held.delete(scope);
     for (const listener of agentListeners) listener({ ...event, ...(state ? { state } : {}) });
   };
+  window.milagre.onRuntimeSnapshot?.(restoreSnapshot);
   window.milagre.onProjectState?.(project);
   window.milagre.onLinkState?.(link);
   window.milagre.onAgentEvent?.(agent);
   // A paired computer's events arrive with keys that name it (computer-routing.cjs), so its scopes keep apart from this Mac's.
   window.milagre.onComputerEvent?.((event) => {
-    if (event.channel === "project:state") project(event.payload);
+    if (event.channel === "runtime:snapshot" && event.payload) restoreSnapshot(event.payload);
+    else if (event.channel === "project:state") project(event.payload);
     else if (event.channel === "link:state") link(event.payload);
     else if (event.channel === "agent:event") agent(event.payload);
   });

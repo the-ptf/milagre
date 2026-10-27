@@ -711,6 +711,8 @@ interface ChatComposerProps {
   messages: AppChatMessage[];
   /** A saved Chat's page is still being read, so an empty `messages` doesn't mean a new Chat. */
   loading?: boolean;
+  loadError?: string;
+  onRetryLoad?: () => void;
   /** Unsaved input appears below the reply still streaming while the backend prepares the send. */
   pendingMessageId?: number;
   draft: string;
@@ -1045,6 +1047,8 @@ export function ChatComposer({
   earlier,
   messages,
   loading = false,
+  loadError,
+  onRetryLoad,
   pendingMessageId,
   draft,
   onDraftChange,
@@ -1130,7 +1134,7 @@ export function ChatComposer({
   const chatId = messages[0]?.session_id ?? "new";
   // A first message, including its preview while setup runs, opens the conversation layout. A saved Chat whose page is
   // still on its way from the host is not a new one: its conversation layout waits, empty, instead of the new-chat header.
-  const isNewChat = messages.length === 0 && !loading;
+  const isNewChat = messages.length === 0 && !loading && !loadError;
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
   // bot's new Chat keeps the composer centred.
@@ -1307,7 +1311,17 @@ export function ChatComposer({
           messageCount={messages.length}
           element={
             isNewChat ? null : messages.length === 0 ? (
-              <div className="relative flex min-h-0 flex-1 flex-col" />
+              <div
+                className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2"
+                role={loadError ? "alert" : "status"}
+              >
+                <p>{loadError ? `Could not load this Chat: ${loadError}` : "Loading Chat..."}</p>
+                {loadError && onRetryLoad && (
+                  <button type="button" onClick={onRetryLoad} className="rounded-control border border-line px-3 py-1.5 hover:bg-hover">
+                    Try again
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
                 <MessageScroller

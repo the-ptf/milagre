@@ -3139,6 +3139,8 @@ function App() {
                         mentionContext={mentionContext}
                         messages={displayedMessages}
                         loading={messagesLoading}
+                        loadError={lean ? (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).error : undefined}
+                        onRetryLoad={() => void (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).retry()}
                         scrollKey={chatView.current}
                         pendingMessageId={pendingHere && pendingCanonicalId === null ? pendingSend?.message.id : undefined}
                         imageDraft={imageDraft}

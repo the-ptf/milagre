@@ -185,7 +185,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
       if (
-        ["@milagre/shared/chat-history", "@milagre/shared/chat-window-cache", "@milagre/shared/display-clock", "@milagre/shared/refresh-loop"].includes(id) &&
+        [
+          "@milagre/shared/chat-history",
+          "@milagre/shared/chat-window-cache",
+          "@milagre/shared/display-clock",
+          "@milagre/shared/refresh-loop",
+          "@milagre/shared/read-timeout",
+        ].includes(id) &&
         !(id in modules)
       )
         return require(id);
