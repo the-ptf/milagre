@@ -23,7 +23,7 @@ import {
   type BabysitStep,
   type BabysitWake,
 } from "@milagre/shared/babysit";
-import { createDebouncedSave, useBabysitSettings, type SaveState } from "../../lib/babysit-settings";
+import { createDebouncedSave, useBabysitSettings, type BabysitChange, type SaveState } from "../../lib/babysit-settings";
 import { Checkbox } from "../primitives/Checkbox";
 import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { Select } from "../primitives/Select";
@@ -31,7 +31,7 @@ import { Switch } from "../primitives/Switch";
 import { Group, Row } from "./SettingsGroup";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-type Save = (patch: Partial<BabysitSettings>) => Promise<void>;
+type Save = (change: BabysitChange) => Promise<void>;
 
 function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
@@ -193,13 +193,15 @@ function SaveMark({ state }: { state: SaveState }) {
 
 function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save }) {
   // Switches, menus and checkboxes save at once; a failure shows in the page's error line.
-  const change = (patch: Partial<BabysitSettings>) => void save(patch).catch(() => {});
+  // Values that build on the current ones (chips, number rules) are worked out from the latest settings, changes still on their way included.
+  const change = (patch: BabysitChange) => void save(patch).catch(() => {});
   const ownRule = useAutosave(settings.ownRuleText, "ownRuleText", save);
   const instructions = useAutosave(settings.instructions, "instructions", save);
-  const toggleWake = (kind: BabysitWake) => {
-    const on = settings.wake.includes(kind) ? settings.wake.filter((item) => item !== kind) : [...settings.wake, kind];
-    change({ wake: WAKE.map((item) => item.kind).filter((item) => on.includes(item)) });
-  };
+  const toggleWake = (kind: BabysitWake) =>
+    change((current) => {
+      const on = current.wake.includes(kind) ? current.wake.filter((item) => item !== kind) : [...current.wake, kind];
+      return { wake: WAKE.map((item) => item.kind).filter((item) => on.includes(item)) };
+    });
   return (
     <>
       <Group
@@ -303,7 +305,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           id="babysit-stop-days"
           label="It has watched the PR for"
           checked={settings.stopAfterDays.on}
-          onChange={(on) => change({ stopAfterDays: { ...settings.stopAfterDays, on } })}
+          onChange={(on) => change((current) => ({ stopAfterDays: { ...current.stopAfterDays, on } }))}
           trailing={
             <Select
               label="Watch the PR for"
@@ -312,7 +314,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               triggerClassName="disabled:opacity-50"
               value={String(settings.stopAfterDays.days)}
               options={options(DAYS_OPTIONS, "day", "days")}
-              onChange={(value) => change({ stopAfterDays: { ...settings.stopAfterDays, days: Number(value) } })}
+              onChange={(value) => change((current) => ({ stopAfterDays: { ...current.stopAfterDays, days: Number(value) } }))}
             />
           }
         />
@@ -320,7 +322,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           id="babysit-stop-failures"
           label="It failed to fix the same problem"
           checked={settings.stopAfterFailures.on}
-          onChange={(on) => change({ stopAfterFailures: { ...settings.stopAfterFailures, on } })}
+          onChange={(on) => change((current) => ({ stopAfterFailures: { ...current.stopAfterFailures, on } }))}
           trailing={
             <Select
               label="Failed to fix the same problem"
@@ -329,7 +331,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               triggerClassName="disabled:opacity-50"
               value={String(settings.stopAfterFailures.times)}
               options={options(FAILURE_OPTIONS, "time", "times")}
-              onChange={(value) => change({ stopAfterFailures: { ...settings.stopAfterFailures, times: Number(value) } })}
+              onChange={(value) => change((current) => ({ stopAfterFailures: { ...current.stopAfterFailures, times: Number(value) } }))}
             />
           }
         />

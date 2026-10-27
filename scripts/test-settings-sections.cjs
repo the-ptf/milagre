@@ -27,7 +27,10 @@ window.babysit = { enabled: false, intervalMinutes: 1, wake: ["comments", "check
 window.babysitSaves = [];
 window.milagre = {
   readBabysitSettings: async () => window.babysit,
-  saveBabysitSettings: async (patch) => { window.babysitSaves.push(patch); window.babysit = { ...window.babysit, ...patch }; return window.babysit; },
+  saveBabysitSettings: async (patch) => {
+    // The test sets failBabysitSave to make the next save fail, as when the daemon is down.
+    if (window.failBabysitSave) { window.failBabysitSave = false; throw new Error("Daemon is not running"); }
+    window.babysitSaves.push(patch); window.babysit = { ...window.babysit, ...patch }; return window.babysit; },
   onBabysitSettings: () => () => {},
   listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
@@ -333,11 +336,36 @@ async function browserChecks() {
     await waitFor(`window.babysitSaves.length === 7`);
     assert.deepEqual(await evaluate("window.babysitSaves[6]"), { ownRuleText: "The PR gets the do-not-merge label" });
     await screenshot("babysit-prs");
+    // A save the host refuses goes back and says why; typed text stays and shows Not saved.
+    const resolveSwitch = `document.querySelector('main [role="switch"][aria-label="Resolve threads it answered"]')`;
+    const pageText = `document.querySelector("main [data-babysit-prs-page]").textContent`;
+    await evaluate(`window.failBabysitSave = true; ${resolveSwitch}.click()`);
+    await waitFor(`${pageText}.includes("Daemon is not running")`);
+    await waitFor(`${resolveSwitch}.getAttribute("aria-checked") === "true"`);
+    assert.equal(await evaluate("window.babysitSaves.length"), 7, "the refused change is not kept");
+    await evaluate(`window.failBabysitSave = true`);
+    await typeInto('main textarea[aria-label="Your instructions"]', "Never force-push.");
+    await waitFor(`${pageText}.includes("Not saved")`);
+    assert.equal(await evaluate(`document.querySelector('main textarea[aria-label="Your instructions"]').value`), "Never force-push.", "the text stays");
+    await screenshot("babysit-prs-error");
+    await typeInto('main textarea[aria-label="Your instructions"]', "Never force-push. Keep one commit per round.");
+    await waitFor(`!!document.querySelector("main [data-saved]")`);
+    assert.equal(await evaluate(`${pageText}.includes("Daemon is not running") || ${pageText}.includes("Not saved")`), false, "a later save clears the error");
+    assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Never force-push. Keep one commit per round." });
     await evaluate(`document.querySelector("main [data-babysit-reset]").click()`);
     await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
     await waitFor(`document.querySelector('main textarea[aria-label="Your instructions"]').value === ""`);
     assert.equal(await evaluate(`!!document.querySelector('main input[aria-label="Your own rule"]')`), false, "reset turns Your own rule off");
     await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
+    // Typing then going Back at once still saves the text.
+    await evaluate(`${babysitRow}.click()`);
+    await waitFor(`!!document.querySelector('main textarea[aria-label="Your instructions"]')`);
+    await typeInto('main textarea[aria-label="Your instructions"]', "Report checks that fail outside this PR.");
+    await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
+    await delay(100);
+    // Well inside the 500 ms debounce: leaving the page saved it, not the timer.
+    assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Report checks that fail outside this PR." });
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
     assert.deepEqual(
       [...(await switches())].sort(),
