@@ -18,7 +18,7 @@ import { reconcileState } from "@milagre/shared/reconcile";
 import { applyAgentEvent } from "@milagre/shared/agent-runs";
 import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
 import { reportChatAction } from "./lib/chat-action";
-import { confirmHeldState, isLean, seedHeldState, stateEvents } from "./lib/state-events";
+import { confirmHeldState, isLean, numberedState, seedHeldState, stateEvents } from "./lib/state-events";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { cliName } from "@milagre/shared/providers";
@@ -341,6 +341,10 @@ function App() {
   const providerCache = useRef(
     new Map<string, { reported: AgentModels | null; cliStatus: AgentCliStatus | null; reportedAt?: number; cliStatusAt?: number }>(),
   );
+  // A CLI updated, or a sign-in that failed, changes the status every scope shows: each reads it again when next shown.
+  const staleProviders = () => {
+    for (const [scope, entry] of providerCache.current) providerCache.current.set(scope, { reported: entry.reported, cliStatus: entry.cliStatus });
+  };
   useEffect(() => {
     const reset = (dropCache: boolean) => {
       if (dropCache) providerCache.current.clear();
@@ -500,7 +504,8 @@ function App() {
     setUpdatingCli(provider);
     try {
       const result = await window.milagre.updateCli(provider);
-      // Updating the CLI is global; read authentication and models for the scope open now.
+      // Updating the CLI is global; read authentication and models for the scope open now, and for the others when shown.
+      staleProviders();
       refreshCliStatusRef.current();
       if (result.ok) {
         setNotice(`${cliName(provider)} updated to version ${result.version ?? "latest"} successfully!`);
@@ -518,7 +523,10 @@ function App() {
   const updateCliRef = useRef(updateCli);
   updateCliRef.current = updateCli;
   const handleUpdateCli = useCallback((provider: ModelProvider) => updateCliRef.current(provider), []);
-  const handleProvidersUpdated = useCallback(() => refreshCliStatusRef.current(), []);
+  const handleProvidersUpdated = useCallback(() => {
+    staleProviders();
+    refreshCliStatusRef.current();
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -1481,6 +1489,7 @@ function App() {
   useEffect(
     () =>
       onAnyAgentEvent(({ chatId, event }) => {
+        if (event.type === "turn-failed" && event.login) staleProviders();
         if (event.type === "subagent-update") {
           const path = projectOfKey(chatId);
           const linkId = isLinkScopeKey(path) ? path.slice("milagre-link:".length) : null;
@@ -1664,11 +1673,17 @@ function App() {
     seedHeldState(reply.path, reply);
     seedScopeState(reply.path, statesRef.current[reply.path]);
   }
-  /** The Project or Link on screen is being left: its group in the sidebars shows its chats from this window's latest state. */
+  /**
+   * The Project or Link on screen is being left: its group in the sidebars shows its chats from this window's latest
+   * state. A Link's comes from the sidebars' own copy when they hold one: link events reach it at once, and the window's
+   * linkStates only on its next render.
+   */
   function handOverShownScope() {
     const link = selectedLinkRef.current;
-    if (link) seedScopeState(`milagre-link:${link.link.id}`, linkStatesRef.current[link.link.id] ?? link.state);
-    else if (projectRef.current) seedScopeState(projectRef.current.path, statesRef.current[projectRef.current.path]);
+    if (link) {
+      const scope = `milagre-link:${link.link.id}`;
+      seedScopeState(scope, cachedScopeState(scope) ?? linkStatesRef.current[link.link.id] ?? link.state);
+    } else if (projectRef.current) seedScopeState(projectRef.current.path, statesRef.current[projectRef.current.path]);
   }
 
   // A Project's revalidated open, once the window shows it: its state (unless events brought a newer one while the open was
@@ -1689,28 +1704,27 @@ function App() {
   /**
    * Opens Project `projectPath` for this window. This Mac's Projects switch here (project:switch: the host shows it and
    * moves it to the top of its recent list). Another computer's Project is only read there (project:read), which loads
-   * it on that host without reordering its recent list or changing the Project it shows; when this window holds its state
-   * already, the read leaves the state out and the window keeps its copy (a host from before that sends it anyway).
+   * it on that host without reordering its recent list or changing the Project it shows. When this window holds the
+   * host's numbered state of it (kept current by its patches), the read leaves the state out and the window keeps that
+   * (a host from before the option sends the state anyway); a copy without a number is read whole.
    */
   function requestProject(projectPath: string): Promise<OpenProject & StateStamp> {
     return isRemoteKey(projectPath) ? readRemoteProject(projectPath) : bridgeForKey(projectPath).switchProject(projectPath);
   }
   async function readRemoteProject(projectPath: string): Promise<OpenProject & StateStamp> {
     const bridge = bridgeForKey(projectPath);
-    const held = () => statesRef.current[projectPath] ?? cachedProjectCopy(projectPath)?.state;
-    if (held()) {
+    const held = numberedState(projectPath);
+    if (held && "worktrees" in held) {
       const reply: ProjectRead = await bridge.readProject(projectPath, { state: false });
       if (reply.state?.sessions) return reply as OpenProject & StateStamp;
-      const kept = held();
-      if (kept) {
-        // Kept here, and checked against the host's number: a copy that missed a change is read again.
-        confirmHeldState(projectPath, reply);
-        // Without the reply's number: it names the host's state, not this copy.
-        const { version: _version, epoch: _epoch, ...header } = reply;
-        return { ...header, state: kept };
-      }
+      // Checked against the host's number: a copy that missed a change is read again.
+      confirmHeldState(projectPath, reply);
+      // Without the reply's number: it names the host's state, which the copy below follows.
+      const { version: _version, epoch: _epoch, ...header } = reply;
+      return { ...header, state: (numberedState(projectPath) as CoordinatorState | undefined) ?? held };
     }
-    return bridge.readProject(projectPath);
+    // With its options, so the host can tell a window opening the Project from a sidebar listing it.
+    return bridge.readProject(projectPath, { state: true });
   }
 
   // Opens a project in place of the one shown; a cancelled dialog, or the project already open, changes nothing.

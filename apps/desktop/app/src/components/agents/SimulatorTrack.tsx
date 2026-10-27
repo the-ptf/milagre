@@ -99,7 +99,10 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     void refresh();
     document.addEventListener("visibilitychange", visibility);
     // With nothing attached nothing is polled (the pill shows nothing then): a simulator joins the Chat when its agent
-    // attaches one with its tool, so that step finishing, and each turn's end, read the list again.
+    // attaches one with its tool, so that step finishing, and each turn's end, read the list again; so does coming back
+    // to the window, after one was attached from the phone or another window.
+    const focused = () => void refresh();
+    window.addEventListener("focus", focused);
     const simulatorSteps = new Set<string>();
     const offAgent = onAnyAgentEvent(({ chatId: from, event }) => {
       if (from !== chatId) return;
@@ -110,6 +113,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       disposed = true;
       refreshList.current = async () => {};
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", focused);
       offAgent();
     };
   }, [api, close, chatId]);

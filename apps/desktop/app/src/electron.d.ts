@@ -522,7 +522,8 @@ export type MilagreBridge = {
   /** Loads a recent project's chats without opening it; later changes arrive through onProjectState. */
   retrySave: (scope: string) => Promise<void>;
   readProject: {
-    (projectPath: string): Promise<OpenProject & StateStamp>;
+    /** No options: the sidebar's read of a Project it lists. With options: a window opening it (on another computer). */
+    (projectPath: string, options?: { state: true }): Promise<OpenProject & StateStamp>;
     /** `state: false`: only the Project's path, name and state number, for a window that holds its state already. */
     (projectPath: string, options: { state: false }): Promise<ProjectRead>;
   };

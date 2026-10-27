@@ -1,20 +1,26 @@
 import { useEffect, useState } from "react";
 import { computerOfKey } from "@milagre/shared/chat-scopes";
+import { retryKind } from "@milagre/shared/send-retry";
 import { bridgeForKey, isRemoteKey } from "./computer-bridge.ts";
 
 // Images of a remote chat, read through media:read and kept as data URLs while recent: thumbnails, the lightbox and
 // the image menus show the same bytes. What's kept is bounded by its size (a data URL's length), least recently used
-// out first. Each read is a round trip to the other Mac, so a read that failed (an image refused or gone) is remembered
-// for FAILED_MS and not asked for again on every mount; the next look after that tries again. At most MAX_READS reads
-// per computer are on their way at once, and the one asked for last goes first: a Chat paints its latest turns last,
-// at the bottom, where it opens, so the images nearest the screen are read first.
+// out first. Each read is a round trip to the other Mac, so a read that failed is remembered and not asked for again on
+// every mount: an image the computer refused or doesn't have for FAILED_MS, one it couldn't answer (away, busy, slow)
+// for TRIED_MS, so it shows once the computer is back. At most MAX_READS reads per computer are on their way at once,
+// and the one asked for last goes first: a Chat paints its latest turns last, at the bottom, where it opens, so the
+// images nearest the screen are read first.
 export const MAX_KEPT_BYTES = 64 * 1024 * 1024;
 export const FAILED_MS = 60_000;
+export const TRIED_MS = 5_000;
 export const MAX_READS = 6;
+// A failure that says the computer couldn't answer, not that it refused this image.
+const UNANSWERED = /offline|reach|answering another|too many|busy|timed out|took too long|disconnected|not sent|closed|closing/i;
+const unanswered = (error: unknown) => retryKind(error) !== null || UNANSWERED.test(error instanceof Error ? error.message : String(error));
 const MAX_FAILURES = 256;
 const reads = new Map<string, { read: Promise<string>; bytes: number }>();
 let kept = 0;
-const failures = new Map<string, { at: number; error: unknown }>();
+const failures = new Map<string, { until: number; error: unknown }>();
 // Per computer, the reads on their way and the ones waiting for a slot.
 type Queue = { running: number; waiting: Array<() => void>; draining: boolean };
 const queues = new Map<string, Queue>();
@@ -68,7 +74,7 @@ export function remoteImageDataUrl(scope: string, path: string): Promise<string>
     return known.read;
   }
   const failed = failures.get(key);
-  if (failed && Date.now() - failed.at < FAILED_MS) return Promise.reject(failed.error);
+  if (failed && Date.now() < failed.until) return Promise.reject(failed.error);
   failures.delete(key);
   const entry = { read: Promise.resolve(""), bytes: 0 };
   entry.read = inTurn(computerOfKey(scope), () => bridgeForKey(scope).readMedia({ scope, path })).then((media) => {
@@ -88,7 +94,7 @@ export function remoteImageDataUrl(scope: string, path: string): Promise<string>
   entry.read.catch((error: unknown) => {
     if (reads.get(key) !== entry) return;
     forget(key);
-    failures.set(key, { at: Date.now(), error });
+    failures.set(key, { until: Date.now() + (unanswered(error) ? TRIED_MS : FAILED_MS), error });
     for (const [oldest] of failures) {
       if (failures.size <= MAX_FAILURES) break;
       failures.delete(oldest);

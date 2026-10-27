@@ -72,7 +72,9 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     document.addEventListener("visibilitychange", visibility);
     // With no page nothing is polled (the list spawns a process on the host): a page comes from the Chat's agent, a
     // browser its commands start or one it attaches, so its steps finishing (at most once per POLL_MS) and each turn's
-    // end read the list again.
+    // end read the list again; so does coming back to the window, after one was attached from the phone.
+    const focused = () => void poll();
+    window.addEventListener("focus", focused);
     let readAt = 0;
     let soon: ReturnType<typeof setTimeout> | undefined;
     const read = () => {
@@ -90,6 +92,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
       clearTimeout(soon);
       pollList.current = async () => {};
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", focused);
       offAgent();
     };
   }, [api, chatId, close, refresh]);

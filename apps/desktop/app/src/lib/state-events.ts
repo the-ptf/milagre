@@ -130,6 +130,15 @@ export function seedHeldState(scope: string, reply: NumberedReply | null | undef
 }
 
 /**
+ * The scope's state as the host numbered it, kept current by its patches: a copy the window can keep when it opens the
+ * scope without its state. None while it is read again, after a read again gave up, or for a copy that came without a
+ * number (an older host's, or one main kept while the computer was away), which only a whole read can vouch for.
+ */
+export function numberedState(scope: string): CoordinatorState | LinkState | undefined {
+  return reading.has(scope) || behind.has(scope) ? undefined : held.get(scope)?.state;
+}
+
+/**
  * A reply that names the state the host holds without sending it (a Project read with `{ state: false }`): the window
  * keeps its own copy. When the copy here is of another host run or older, or a read again gave up on it, the scope is
  * read again, so a copy that missed a change doesn't stay on screen.

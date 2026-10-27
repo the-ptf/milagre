@@ -22,7 +22,7 @@ const host = { epoch: "host-1", version: 0, state: {} as any, reads: 0, hold: nu
     },
   },
 };
-const { confirmHeldState, seedHeldState, stateEvents } = await import("./state-events.ts");
+const { confirmHeldState, numberedState, seedHeldState, stateEvents } = await import("./state-events.ts");
 
 const project = "/code/shop";
 const states: any[] = [];
@@ -292,4 +292,23 @@ test("a copy whose read again gave up after a change is read again when its Proj
     host.fail = false;
     off();
   }
+});
+
+test("only a state the host numbered can be kept without reading it: not a copy without a number, a read under way or one that gave up", async () => {
+  const scope = "/code/numbered";
+  assert.equal(numberedState(scope), undefined, "a copy that came without a number (an older host's, main's offline copy)");
+  const opened = { sessions: { 1: { id: 1, title: "Numbered" } }, messages: [] };
+  seedHeldState(scope, { state: opened, version: 4, epoch: host.epoch });
+  assert.equal(numberedState(scope), opened);
+  let release!: () => void;
+  host.hold = new Promise((resolve) => (release = resolve));
+  host.fail = true;
+  for (const listener of raw.project) listener({ path: scope, resync: true, version: 5, epoch: host.epoch });
+  assert.equal(numberedState(scope), undefined, "while it is read again");
+  host.hold = null;
+  release();
+  await tick();
+  await tick();
+  host.fail = false;
+  assert.equal(numberedState(scope), undefined, "after the read again gave up");
 });

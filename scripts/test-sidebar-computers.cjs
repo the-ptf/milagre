@@ -50,8 +50,9 @@ window.remoteHiddenCalls = 0;
 window.sent = [];
 // Each computer's bridge, as main would answer it: keys already name the computer.
 const projectsOf = (id) => Object.values(remoteProjects).filter((project) => project.path.startsWith(id + "|"));
+// A host that numbers states says which state a read carries; the window keeps reads from now on from that number.
 const projectAt = async (key) => {
-  const project = structuredClone(Object.values(remoteProjects).find((project) => project.path === key));
+  const project = { ...structuredClone(Object.values(remoteProjects).find((project) => project.path === key)), version: 1, epoch: "fixture-host" };
   if (new URLSearchParams(location.search).has("race") && key === remoteProjects["c-arketa"].path && !window.remoteReadHeld) {
     window.remoteReadHeld = true;
     await new Promise(resolve => { window.finishRemoteRead = resolve; });
@@ -367,8 +368,9 @@ async function browserChecks() {
       `[...document.querySelectorAll('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`,
     );
     await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('The deploy check fails about one run in five.')`);
-    // The window holds the Project's state from the sidebar's read: the other Mac is only asked for its name and number
-    // (project:read without the state), never project:switch, which would reorder its recent list and change its open Project.
+    // The window holds the Project's numbered state from the sidebar's read: the other Mac is only asked for its name and
+    // number (project:read without the state), never project:switch, which would reorder its recent list and change its
+    // open Project.
     await waitFor(
       `window.remoteCalls.some(([method, key, options]) => method === 'readProject' && key === 'c-arketa|/Users/a/arketa-web' && options?.state === false)`,
     );
