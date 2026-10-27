@@ -61,6 +61,10 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
   };
   const paired = (computerId) => computers.list().some((item) => item.id === computerId);
   const snapshot = () => ({ thisMac: thisMac(), computers: computers.list() });
+  // An opened scope's copy waiting to be written after its answer, by computer and scope: a newer one replaces it, and a
+  // state the window remembers meanwhile (computers:remember) is newer still, so the waiting copy is dropped.
+  /** @type {Map<string, object>} */
+  const waiting = new Map();
 
   ipcMain.handle("computers:list", async () => {
     await computers.loaded;
@@ -130,15 +134,25 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
       return qualifyResult(computerId, method, kept);
     }
     const result = await computers.invoke(computerId, method, bare);
-    try {
-      // Removed while the call was out: its folder stays gone.
-      if (cache && paired(computerId) && KEPT_LISTS[method] && Array.isArray(result)) cache.put(computerId, KEPT_LISTS[method], "", result);
-      if (cache && paired(computerId) && KEPT_OBJECTS[method] && result && typeof result === "object") cache.put(computerId, KEPT_OBJECTS[method], "", result);
-      if (cache && paired(computerId) && OPENED.has(method) && result?.state && typeof result.path === "string")
-        cache.put(computerId, "scope", result.path, { name: result.name ?? nameOf(result.path, cache.get(computerId, "recent", "")), state: result.state });
-    } catch (error) {
-      warn(computerId, error); // the cache is a copy: a failed write never fails the call
-    }
+    // The copy is written once the answer is on its way: a Project's state is megabytes to serialize and write.
+    const scope = cache && OPENED.has(method) && result?.state && typeof result.path === "string" ? `${computerId}\n${result.path}` : null;
+    const mark = {};
+    if (scope) waiting.set(scope, mark);
+    if (cache && (KEPT_LISTS[method] || KEPT_OBJECTS[method] || scope))
+      setImmediate(() => {
+        const current = scope !== null && waiting.get(scope) === mark;
+        if (current) waiting.delete(scope);
+        // Removed while the call was out: its folder stays gone.
+        if (!paired(computerId)) return;
+        try {
+          if (KEPT_LISTS[method] && Array.isArray(result)) cache.put(computerId, KEPT_LISTS[method], "", result);
+          if (KEPT_OBJECTS[method] && result && typeof result === "object") cache.put(computerId, KEPT_OBJECTS[method], "", result);
+          if (current)
+            cache.put(computerId, "scope", result.path, { name: result.name ?? nameOf(result.path, cache.get(computerId, "recent", "")), state: result.state });
+        } catch (error) {
+          warn(computerId, error); // the cache is a copy: a failed write never fails the call
+        }
+      });
     return qualifyResult(computerId, method, result);
   });
   // The window forwards a remote scope's whole state and a chat's window as they change (offline-cache.ts).
@@ -148,6 +162,7 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
     const scope = stripComputer(computerId, entry.scope);
     try {
       if (entry.kind === "state" && entry.state && typeof entry.state === "object") {
+        waiting.delete(`${computerId}\n${scope}`);
         const recent = cache.get(computerId, "recent", "");
         const text = JSON.stringify({ name: nameOf(scope, recent), state: stripComputer(computerId, entry.state) });
         if (text.length <= MAX_REMEMBERED_CHARS) cache.put(computerId, "scope", scope, null, text);

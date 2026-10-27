@@ -68,3 +68,32 @@ test("a garbage file is closed and rebuilt, not left open", async (t) => {
   caches.put(ID, "recent", "", [3]);
   assert.deepEqual(caches.get(ID, "recent", ""), [3]);
 });
+
+test("a copy the same as the last one written is not written again, and a chat still counts as just opened", async (t) => {
+  const { dir, caches } = await setup(t);
+  const { DatabaseSync } = require("node:sqlite");
+  const file = path.join(dir, ID, "cache.sqlite");
+  const state = { name: "p", state: { sessions: { 1: { id: 1, title: "first" } } } };
+  caches.put(ID, "scope", "/p", state);
+  const look = new DatabaseSync(file);
+  t.after(() => look.close());
+  const at = (kind, key) => look.prepare("SELECT at FROM entries WHERE kind = ? AND key = ?").get(kind, key)?.at;
+  const written = at("scope", "/p");
+  caches.put(ID, "scope", "/p", structuredClone(state));
+  caches.put(ID, "scope", "/p", null, JSON.stringify(state));
+  assert.equal(at("scope", "/p"), written, "the same state isn't written again");
+  caches.put(ID, "scope", "/p", { ...state, name: "renamed" });
+  assert.ok(at("scope", "/p") > written, "a change is written");
+  assert.equal(caches.get(ID, "scope", "/p").name, "renamed");
+  // An unchanged chat is not written, but it is the newest opened again: it outlives older ones.
+  for (let id = 1; id <= 20; id++) caches.put(ID, "chat", `/p#${id}`, { messages: [], hasMore: false, total: id });
+  caches.put(ID, "chat", "/p#1", { messages: [], hasMore: false, total: 1 });
+  caches.put(ID, "chat", "/p#21", { messages: [], hasMore: false, total: 21 });
+  assert.notEqual(caches.get(ID, "chat", "/p#1"), null, "opened again, it is recent again");
+  assert.equal(caches.get(ID, "chat", "/p#2"), null);
+  // A chat past the last 20 comes back whole when opened again, even unchanged.
+  caches.put(ID, "chat", "/p#2", { messages: [], hasMore: false, total: 2 });
+  assert.deepEqual(caches.get(ID, "chat", "/p#2"), { messages: [], hasMore: false, total: 2 });
+  // The copy is written ahead of its file, without waiting on the disk.
+  assert.equal(look.prepare("PRAGMA journal_mode").get().journal_mode, "wal");
+});
