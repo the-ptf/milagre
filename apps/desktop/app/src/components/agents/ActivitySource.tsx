@@ -25,7 +25,7 @@ const ICONS = {
   other: Wrench01Icon,
 };
 
-export function ActivityIcon({ source, size = 14 }: { source: Source; size?: number }) {
+function ActivityIcon({ source, size = 14 }: { source: Source; size?: number }) {
   return source.linear ? (
     <LinearLogo size={size} />
   ) : (
