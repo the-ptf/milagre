@@ -55,6 +55,12 @@ test("non-shell step with gh text is ignored", async () => {
   assert.deepEqual(created, []);
 });
 
+test("a step whose output was cut down to its end, losing the command line, creates nothing", async () => {
+  const { created, run } = harness();
+  await run(`… truncated\ngh pr create --fill\n${URL}\n`);
+  assert.deepEqual(created, []);
+});
+
 test("a step seen only at its end, or a command that is not gh pr create, creates nothing", async () => {
   const { created, watch, run } = harness();
   await watch.observe(CHAT, { type: "step-completed", id: "unseen", status: "done", detail: OUTPUT });
