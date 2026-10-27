@@ -100,14 +100,24 @@ function afterHeredocs(text, newline, pending) {
   return at;
 }
 
+// Inside `(( … ))` or `$(( … ))`, `<<` is a shift, not a here-document: how many arithmetic groups are open after `index`.
+function arithmeticAt(text, index, open) {
+  if (text.startsWith("((", index)) return open + 1;
+  if (open && text.startsWith("))", index)) return open - 1;
+  return open;
+}
+
 // The end of a `$(` substitution starting at `start` (just past the paren), or the text's end.
 function closingParen(text, start) {
   let depth = 1;
   let quote = null;
+  // `$((` opens arithmetic.
+  let arithmetic = text[start] === "(" ? 1 : 0;
   const pending = [];
   for (let index = start; index < text.length; index += 1) {
     const char = text[index];
-    const heredoc = quote ? null : heredocAt(text, index);
+    if (!quote) arithmetic = arithmeticAt(text, index, arithmetic);
+    const heredoc = quote || arithmetic ? null : heredocAt(text, index);
     if (heredoc) {
       pending.push(heredoc);
       index = heredoc.end - 1;
@@ -122,19 +132,30 @@ function closingParen(text, start) {
   return text.length;
 }
 
+// A command that runs text as a script: a shell (`bash`, `sh -c`, `… | sh`), `eval`, `source` or `.`, or a command
+// whose name comes from a substitution (`$(cat <<EOF …)` runs what cat prints).
+const runsText = (words) => words.some((word) => SHELLS.has(base(word)) || word === "eval" || word === "source" || word === ".") || /\$\(\)|``/.test(words[0]);
+
 /**
  * A command line as its simple commands, each a list of words with quotes and escapes removed. Command substitutions
- * (`$(…)`, backticks) and what `sh -c` or `eval` run are split out as commands of their own.
+ * (`$(…)`, backticks) are commands of their own. A here-document's body is text for its command and is skipped, unless
+ * its line runs text as a script: then the body, every word on the line (`sh -c '…'`, `eval "…"`, `echo '…' | sh`) and
+ * the line's substitutions (`eval "$(cat <<EOF …)"`) are scripts too. `scripts` says the text itself is one of those.
  */
-function commandsOf(text, depth = 0) {
+function commandsOf(text, depth = 0, scripts = false) {
   if (depth > MAX_DEPTH) return [];
   const commands = [];
+  // [text, whether what it prints runs too]
   const nested = [];
   let words = [];
   let word = null;
   let quote = null;
-  // Here-documents opened on the current line, whose bodies start at its end.
+  let arithmetic = 0;
+  // The current line: where its commands start, its substitutions, and the here-documents opened on it with their bodies.
+  let lineStart = 0;
+  let substitutions = [];
   const heredocs = [];
+  let bodies = [];
   const endWord = () => {
     if (word !== null) words.push(word);
     word = null;
@@ -143,6 +164,19 @@ function commandsOf(text, depth = 0) {
     endWord();
     if (words.length) commands.push(words);
     words = [];
+  };
+  const endLine = () => {
+    endCommand();
+    const running = scripts || commands.slice(lineStart).some(runsText);
+    for (const script of substitutions) nested.push([script, running]);
+    if (running) {
+      // A plain word reads the same again; only one that holds more than a word can hide a command.
+      for (const each of commands.slice(lineStart)) for (const item of each) if (/[\s;&|()$`<'"\\]/.test(item)) nested.push([item, false]);
+      for (const body of bodies) nested.push([body, false]);
+    }
+    lineStart = commands.length;
+    substitutions = [];
+    bodies = [];
   };
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -158,7 +192,7 @@ function commandsOf(text, depth = 0) {
     }
     if (char === "$" && text[index + 1] === "(") {
       const end = closingParen(text, index + 2);
-      nested.push(text.slice(index + 2, end));
+      substitutions.push(text.slice(index + 2, end));
       word = (word ?? "") + "$()";
       index = end;
       continue;
@@ -166,7 +200,7 @@ function commandsOf(text, depth = 0) {
     if (char === "`") {
       const end = text.indexOf("`", index + 1);
       const stop = end < 0 ? text.length : end;
-      nested.push(text.slice(index + 1, stop));
+      substitutions.push(text.slice(index + 1, stop));
       word = (word ?? "") + "``";
       index = stop;
       continue;
@@ -176,7 +210,8 @@ function commandsOf(text, depth = 0) {
       else word += char;
       continue;
     }
-    const heredoc = heredocAt(text, index);
+    arithmetic = arithmeticAt(text, index, arithmetic);
+    const heredoc = arithmetic ? null : heredocAt(text, index);
     if (heredoc) {
       endWord();
       heredocs.push(heredoc);
@@ -184,25 +219,19 @@ function commandsOf(text, depth = 0) {
     } else if (char === "'" || char === '"') {
       quote = char;
       word ??= "";
-    } else if (char === "\n" && heredocs.length) {
-      endCommand();
-      index = afterHeredocs(text, index, heredocs) - 1;
+    } else if (char === "\n") {
+      if (heredocs.length) {
+        const end = afterHeredocs(text, index, heredocs);
+        bodies.push(text.slice(index + 1, end));
+        index = end - 1;
+      }
+      endLine();
     } else if (SEPARATORS.has(char)) endCommand();
     else if (/\s/.test(char)) endWord();
     else word = (word ?? "") + char;
   }
-  endCommand();
-  for (const command of commands) {
-    command.forEach((each, index) => {
-      // `bash -c '…'`, `zsh -lc '…'`: the word after the flag is a script.
-      if (SHELLS.has(base(each))) {
-        const flag = command.slice(index + 1).findIndex((item) => /^-[a-z]*c[a-z]*$/i.test(item));
-        if (flag >= 0 && command[index + 2 + flag] !== undefined) nested.push(command[index + 2 + flag]);
-      }
-      if (each === "eval") nested.push(command.slice(index + 1).join(" "));
-    });
-  }
-  return [...commands, ...nested.flatMap((script) => commandsOf(script, depth + 1))];
+  endLine();
+  return [...commands, ...nested.flatMap(([script, running]) => commandsOf(script, depth + 1, running))];
 }
 
 // `git … push`, after git's own options; also an alias set inline to push (`git -c alias.ship=push ship`).

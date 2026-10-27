@@ -166,6 +166,30 @@ test("a heredoc's body is text, not commands", () => {
   denied(`gh pr comment 4 --body-file - <<'EOF'\nFixed.\nEOF`, at(3));
 });
 
+test("a heredoc fed to a shell is a script, and its body is checked", () => {
+  for (const command of [
+    "bash <<'EOF'\ngit push\nEOF",
+    "sh <<EOF\ngit push\nEOF",
+    "cat <<EOF | sh\ngit push\nEOF",
+    "zsh -s <<-EOF\n\tnpm test && git push\n\tEOF",
+    "source /dev/stdin <<EOF\ngit push\nEOF",
+    "eval \"$(cat <<'EOF'\ngit push\nEOF\n)\"",
+    "$(cat <<EOF\ngit push\nEOF\n)",
+    "echo 'git push' | sh",
+  ])
+    denied(command, at(2));
+  assert.equal(babysitDenial("cat <<EOF | bash -s\ngh pr merge 4\nEOF", at(5)), "Babysitting never merges.");
+  // Text for a command that isn't a shell stays text.
+  allowed(`git commit -m "$(cat <<'EOF'\nDon't git push yet.\nEOF\n)"`, at(2));
+  allowed(`gh pr comment 4 --body-file - <<'EOF'\nI won't gh pr merge this.\nEOF`, at(4));
+});
+
+test("<< in arithmetic is a shift, not a heredoc", () => {
+  denied("(( x = 1 << 2 ))\ngit push", at(2));
+  denied("echo $((1<<2))\ngit push", at(2));
+  denied("(( y <<= 1 )); git push", at(2));
+});
+
 test("anything that isn't a guarded command passes", () => {
   for (const command of ["", "ls", "npm test", "gh pr checks 42 --watch", "gh run view 123 --log-failed", "git rebase origin/main", "git commit -am wip"])
     allowed(command, at(1));
