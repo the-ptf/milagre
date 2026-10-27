@@ -1,7 +1,25 @@
 const os = require("node:os");
 const { execFileSync } = require("node:child_process");
 
-function computerName({ platform = process.platform, run = execFileSync, hostname = os.hostname } = {}) {
+// This Mac's name is asked on every change to the computers list and every dial, and scutil holds the daemon's event
+// loop until it answers, so it is looked up once per host: a Mac renamed in System Settings keeps its old name here
+// until the host restarts.
+/** @type {string | null} */
+let thisMac = null;
+
+/**
+ * This Mac's name (System Settings › General › About), else its hostname. Asked with `options`, it is looked up again
+ * each time.
+ * @param {Parameters<typeof lookUpName>[0]} [options]
+ */
+function computerName(options) {
+  if (options === undefined && thisMac !== null) return thisMac;
+  const name = lookUpName(options);
+  if (options === undefined) thisMac = name;
+  return name;
+}
+
+function lookUpName({ platform = process.platform, run = execFileSync, hostname = os.hostname } = {}) {
   if (platform === "darwin") {
     try {
       const name = String(run("/usr/sbin/scutil", ["--get", "ComputerName"], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] })).trim();
