@@ -70,7 +70,7 @@
         "expo-audio",
         {
           "microphonePermission": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this device.",
-          "recordAudioAndroid": false,
+          "recordAudioAndroid": true,
           "enableBackgroundPlayback": false,
           "enableBackgroundRecording": false
         }

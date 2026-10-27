@@ -81,6 +81,8 @@ export function requiresAiConsent(method, args = []) {
     "live-activity:answer",
     "routines:run-now",
     "routines:create",
+    // The dictated text goes to the Chat's agent for its fix-up.
+    "dictation:polish",
   ].includes(method);
 }
 

@@ -91,7 +91,8 @@
       "node_modules/ws/**/*",
       "node_modules/mediabunny/**/*",
       "node_modules/@fastify/busboy/**/*",
-      "node_modules/@resvg/resvg-wasm/**/*"
+      "node_modules/@resvg/resvg-wasm/**/*",
+      "node_modules/@fugood/**/*"
     ],
     "files": [
       "dist/**/*",
@@ -102,7 +103,10 @@
       "!**/node_modules/shiki/**",
       "!**/node_modules/@shikijs/**",
       "!**/node_modules/node-pty/{deps,src,third_party,scripts}/**",
-      "!**/node_modules/node-pty/**/*.pdb"
+      "!**/node_modules/node-pty/**/*.pdb",
+      "!**/node_modules/@fugood/node-whisper-wasm/**",
+      "!**/node_modules/@fugood/node-whisper-*-cuda/**",
+      "!**/node_modules/@fugood/node-whisper-*-vulkan/**"
     ],
     "directories": {
       "output": "release",
@@ -117,6 +121,11 @@
         "zip"
       ],
       "hardenedRuntime": true,
+      "entitlements": "apps/desktop/build/entitlements.mac.plist",
+      "entitlementsInherit": "apps/desktop/build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this computer."
+      },
       "files": [
         "!**/node_modules/node-pty/prebuilds/win32-*/**"
       ],

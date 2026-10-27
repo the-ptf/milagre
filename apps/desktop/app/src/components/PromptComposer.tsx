@@ -4,7 +4,16 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { ComponentProps, KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Attachment01Icon, ClipboardPasteIcon, FlashIcon, SecurityCheckIcon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Attachment01Icon,
+  ClipboardPasteIcon,
+  FlashIcon,
+  Mic01Icon,
+  SecurityCheckIcon,
+} from "@hugeicons/core-free-icons";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -30,6 +39,8 @@ import { ContextRing } from "./ContextRing";
 import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
 import { useChatMentions } from "./ChatMentions";
 import { offlinePlaceholder } from "../lib/computers";
+import { insertDictation } from "@milagre/shared/voice-dictation";
+import { useDictation } from "./useDictation";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -103,6 +114,13 @@ interface PromptComposerProps {
 }
 
 const NO_HISTORY: string[] = [];
+
+const DICTATION_LABELS = {
+  idle: "Dictate",
+  preparing: "Starting dictation",
+  recording: "Stop dictation",
+  transcribing: "Transcribing",
+} as const;
 
 const POPOVER_GAP = 12;
 // In the tall layout the controls sit on the composer's bottom row, so a popover opens just above its own button.
@@ -449,6 +467,22 @@ export function PromptComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
+
+  // The words land where the caret was when the mic was clicked, in the draft as it is when they arrive.
+  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
+    const edit = insertDictation(draftLatest.current, anchor.selection, text);
+    if (!edit) return;
+    setCaret(edit.caret);
+    onDraftChange(edit.value);
+    inputRef.current?.setSelection(edit.caret);
+  });
+  const { error: dictationError, dismiss: dismissDictationError } = dictation;
+  useEffect(() => {
+    // A permission refusal stays until the user acts on it; the other messages clear themselves.
+    if (!dictationError || dictationError.kind === "permission") return;
+    const timer = setTimeout(dismissDictationError, 6000);
+    return () => clearTimeout(timer);
+  }, [dictationError, dismissDictationError]);
 
   function insertImages(promise: Promise<number[]>, range = inputRef.current?.getSelection() ?? { start: caret, end: caret }) {
     const original = draftLatest.current;
@@ -802,6 +836,20 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
+          {dictation.download && (
+            <div role="status" className="px-2 text-xs text-ink-3">
+              Downloading the speech model, once: {Math.round((dictation.download.received / dictation.download.total) * 100)}% of{" "}
+              {Math.round(dictation.download.total / 1e6)} MB
+            </div>
+          )}
+          {dictationError && (
+            <div role="alert" className="flex items-center gap-2 px-2 text-xs text-red">
+              <span className="min-w-0 flex-1">{dictationError.message}</span>
+              <button type="button" onClick={dismissDictationError} className="shrink-0 text-ink-3 hover:text-ink">
+                Dismiss
+              </button>
+            </div>
+          )}
 
           <div
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
@@ -914,6 +962,40 @@ export function PromptComposer({
                   compactBlocked={running ? "Wait for the agent to finish." : sendBlocked ? "Not available right now." : null}
                 />
               )}
+              <button
+                ref={(node) => {
+                  dictation.meter.current = node;
+                }}
+                type="button"
+                aria-label={DICTATION_LABELS[dictation.phase]}
+                title={DICTATION_LABELS[dictation.phase]}
+                aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                onClick={() => {
+                  if (dictation.phase === "recording") return void dictation.stop();
+                  void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
+                }}
+                className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"} ${dictation.phase === "transcribing" || dictation.phase === "preparing" ? "animate-pulse" : ""}`}
+              >
+                {dictation.phase === "recording" && (
+                  <>
+                    {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
+                    <span
+                      aria-hidden
+                      className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
+                      style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
+                    />
+                    <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
+                  </>
+                )}
+                <span className="relative">
+                  {dictation.phase === "recording" ? (
+                    <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
+                  ) : (
+                    <Icon icon={Mic01Icon} size={16} />
+                  )}
+                </span>
+              </button>
               <button
                 type="button"
                 aria-label={canStop ? "Stop agent" : "Send"}

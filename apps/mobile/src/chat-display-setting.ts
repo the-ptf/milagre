@@ -1,6 +1,15 @@
 import { useSyncExternalStore } from "react";
 import type { ChatList, ToolCallDisplay } from "@milagre/shared/chat-display";
-import { readChatList, readExpandReasoning, readToolCallDisplay, saveChatList, saveExpandReasoning, saveToolCallDisplay } from "./hosts-native";
+import {
+  readChatList,
+  readDictationLanguage,
+  readExpandReasoning,
+  readToolCallDisplay,
+  saveChatList,
+  saveDictationLanguage,
+  saveExpandReasoning,
+  saveToolCallDisplay,
+} from "./hosts-native";
 
 // Settings › Chat on this phone, read once and shared by Settings and every Chat.
 
@@ -43,3 +52,6 @@ export const useExpandReasoning = phoneSetting(false, readExpandReasoning, saveE
 
 /** Settings › Chat › Chat list: the sidebar's One list, or a group per Project that folds. */
 export const useChatList = phoneSetting<ChatList>("list", readChatList, saveChatList);
+
+/** Desktop's Dictation language: what the mic listens for, a language code or "auto". */
+export const useDictationLanguage = phoneSetting<string>("auto", readDictationLanguage, saveDictationLanguage);

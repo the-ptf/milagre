@@ -4,7 +4,7 @@ import { Mic01Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import type { DictationPhase } from "./voice-dictation";
+import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
 const SIZE = 32;
 const LABELS: Record<DictationPhase, string> = {
