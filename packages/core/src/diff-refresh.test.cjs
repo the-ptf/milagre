@@ -74,6 +74,29 @@ test("focus refreshes only the visible Project, throttled per Project", async ()
   assert.deepEqual(reads.map((read) => read.worktreePath).sort(), ["/a", "/a", "/b"]);
 });
 
+test("a Chat opened reads only its own worktree, throttled per worktree, and a focus read of its Project covers it", async () => {
+  let clock = 0;
+  const { diffs, states, reads } = harness({ now: () => clock });
+  await states.update("/a", (state) => ({ ...state, sessions: { ...state.sessions, 9: { id: 9, worktree_id: 2 } } }));
+  diffs.focusedChat("/a#9");
+  await waitUntil(() => reads.length === 1);
+  assert.deepEqual(reads, [{ worktreePath: "/a-idle", base: undefined }]);
+  clock = 4000;
+  diffs.focusedChat("/a#9");
+  diffs.focusedChat("/a#7");
+  await waitUntil(() => reads.length === 2);
+  assert.equal(reads[1].worktreePath, "/a");
+  clock = 10000;
+  diffs.focused("/a");
+  await waitUntil(() => reads.length === 3);
+  clock = 11000;
+  diffs.focusedChat("/a#7");
+  diffs.focusedChat("/never#1");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(reads.length, 3);
+  diffs.close();
+});
+
 test("thinking completions do not read Git", async () => {
   const { diffs, states, reads } = harness();
   await states.get("/a");

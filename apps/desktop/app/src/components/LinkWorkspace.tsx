@@ -17,7 +17,8 @@ import { DiffToolbar, useDiffPreferences } from "./changes/DiffPrefs";
 import { useDiffComments } from "./changes/useDiffComments";
 import { formatCommentsMessage } from "../lib/diff-comments";
 import { messageCommands, messageCommandsFrom } from "../lib/message-commands";
-import { useChatMessages } from "../lib/chat-messages";
+import { prefetchChatMessages, useChatMessages } from "../lib/chat-messages";
+import { beginChatSwitch } from "../lib/chat-switch-timing";
 import { isLean } from "../lib/state-events";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import type { AgentPorts, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
@@ -342,6 +343,11 @@ export function LinkWorkspace({
     return () => window.removeEventListener("keydown", shortcut);
   }, [chatId, run, findOpen, session, changes.toggle, canvasOpen, terminalChatId]);
   function pick(id: number | null) {
+    // Another Chat: its page read goes out before this pick renders anything, and the switch is measured from here.
+    if (id !== null && Number.isSafeInteger(id) && id > 0 && id !== sessionId) {
+      if (lean) prefetchChatMessages(owner, id);
+      beginChatSwitch(chatKeyForScope(scope, id));
+    }
     latest.current.selection++;
     drafts.newSelection(scope);
     setCanvasOpen(false);

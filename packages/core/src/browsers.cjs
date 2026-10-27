@@ -8,6 +8,12 @@ const BUTTONS = new Set(["left", "middle", "right", "none"]);
 const COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "redo"]);
 const NAVIGATION = new Set(["back", "forward", "reload"]);
 const MAX_ATTACHED = 16;
+// How old a reading of the process table may be. Every window and phone asks for each Chat on screen every 15 s, and
+// a reading starts processes (ps, lsof). A Chat that can own no page now (its agent isn't running, and no browser was
+// attached to it or started by it) only learns of other browsers from one, so it takes one this old; a Chat that can
+// own one, like attach and open, takes one at most FRESH_MS old. While an agent runs the lineage tick reads every 5 s.
+const FRESH_MS = 2000;
+const UNOWNED_MS = 30_000;
 
 function identifier() {
   return randomBytes(24).toString("base64url");
@@ -142,9 +148,9 @@ function createBrowsers(options = {}) {
     return v;
   }
 
-  /** The OS process tree is the ownership evidence; it is read again at most every two seconds. */
-  async function snapshot() {
-    if (cache && now() - cache.at < 2000) return cache.world;
+  /** The OS process tree is the ownership evidence; it is read again once the last reading is `maxAge` old. */
+  async function snapshot(maxAge = FRESH_MS) {
+    if (cache && now() - cache.at < maxAge) return cache.world;
     discovering ??= (async () => {
       try {
         const world = await adapter.discover();
@@ -173,6 +179,12 @@ function createBrowsers(options = {}) {
       }
     })();
     return discovering;
+  }
+  /** Whether a page can belong to this Chat now: its agent runs, or a browser was attached to it or started by its agent. */
+  function mayOwn(chatId) {
+    if (attachments.has(chatId) || roots().has(chatId)) return true;
+    for (const known of lineage.values()) if (known.chatId === chatId) return true;
+    return false;
   }
   function view(world, chatId) {
     const targets = [],
@@ -282,7 +294,7 @@ function createBrowsers(options = {}) {
       const chatId = requireChat(request);
       if (!supported) return { supported: false, targets: [], others: [] };
       try {
-        return view(await snapshot(), chatId);
+        return view(await snapshot(mayOwn(chatId) ? FRESH_MS : UNOWNED_MS), chatId);
       } catch {
         return { supported: true, targets: [], others: [], error: "Could not list browsers on this computer." };
       }

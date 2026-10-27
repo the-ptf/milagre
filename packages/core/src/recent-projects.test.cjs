@@ -65,6 +65,30 @@ test("opening a listed project again moves it to the top without a second entry"
   assert.equal(list[0].openedAt, "2026-10-01T10:00:04.000Z");
 });
 
+test("opening the project already at the top leaves the file as it is", async (t) => {
+  const base = await tempDir(t);
+  const [alpha, beta] = await folders(base, "alpha", "beta");
+  const file = path.join(base, "recent-projects.json");
+  const recent = createRecentProjects(file, { now: clock() });
+  await recent.add(alpha);
+  await recent.add(beta);
+  const saved = await fs.readFile(file, "utf8");
+  const { mtimeMs } = await fs.stat(file);
+
+  const list = await recent.add(beta);
+
+  assert.deepEqual(
+    list.map((entry) => entry.name),
+    ["beta", "alpha"],
+  );
+  assert.equal(await fs.readFile(file, "utf8"), saved, "only its openedAt would change");
+  assert.equal((await fs.stat(file)).mtimeMs, mtimeMs);
+  assert.deepEqual(
+    (await recent.add(alpha)).map((entry) => entry.name),
+    ["alpha", "beta"],
+  );
+});
+
 test("the list keeps the 10 most recent projects", async (t) => {
   const base = await tempDir(t);
   const names = Array.from({ length: MAX_RECENT + 2 }, (_, index) => `project-${index}`);

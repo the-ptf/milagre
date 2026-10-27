@@ -125,6 +125,8 @@ test("while a computer isn't online, the window's reads come from its cache; any
     chatId: 4,
     window: { messages: [{ id: 9, body: "kept" }], hasMore: true, total: 30 },
   });
+  // The copies an answer carries are written once the answer is on its way.
+  await new Promise(setImmediate);
   await call("computers:remember", ID, { kind: "state", scope: `${ID}|/p`, state: { sessions: { 4: { id: 4, title: "newer" } } } });
 
   state = "offline";
@@ -181,7 +183,62 @@ test("while a computer isn't online, the window's reads come from its cache; any
   listed = false;
   await call("computers:remember", ID, { kind: "chat", scope: `${ID}|/p`, chatId: 4, window: { messages: [], hasMore: false, total: 0 } });
   await call("computers:invoke", ID, "project:recent", []);
+  await new Promise(setImmediate);
   await assert.rejects(fs.stat(path.join(dir, ID)), { code: "ENOENT" });
+});
+
+test("the copy an opened Project's state leaves is written after the answer, once per change", async (t) => {
+  const fs = require("node:fs/promises");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createComputerCaches } = require("./computer-cache.cjs");
+  const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "computers-ipc-after-"));
+  const cache = createComputerCaches({ dir });
+  t.after(async () => {
+    cache.close();
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  });
+  const puts = [];
+  const put = cache.put.bind(cache);
+  cache.put = (...args) => {
+    puts.push(args[2]);
+    return put(...args);
+  };
+  let title = "first";
+  const { call } = setup(
+    {
+      list: () => [{ ...studio, id: ID }],
+      invoke: async () => ({ path: "/p", name: "p", state: { sessions: { 4: { id: 4, title } } } }),
+    },
+    { cache },
+  );
+  assert.equal((await call("computers:invoke", ID, "project:read", [`${ID}|/p`])).path, `${ID}|/p`);
+  assert.deepEqual(puts, [], "the answer goes first");
+  await new Promise(setImmediate);
+  assert.deepEqual(puts, ["/p"]);
+  assert.deepEqual(cache.get(ID, "scope", "/p"), { name: "p", state: { sessions: { 4: { id: 4, title: "first" } } } });
+  // Opened again unchanged, then changed: only the change is written (the cache skips what it already holds).
+  const { DatabaseSync } = require("node:sqlite");
+  const look = new DatabaseSync(path.join(dir, ID, "cache.sqlite"));
+  t.after(() => look.close());
+  const at = () => look.prepare("SELECT at FROM entries WHERE kind = 'scope' AND key = '/p'").get().at;
+  const first = at();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
+  await new Promise(setImmediate);
+  assert.equal(at(), first, "an unchanged state is not written again");
+  title = "second";
+  await call("computers:invoke", ID, "project:switch", [`${ID}|/p`]);
+  await new Promise(setImmediate);
+  assert.ok(at() > first);
+  assert.equal(cache.get(ID, "scope", "/p").state.sessions[4].title, "second");
+  // A state the window remembers before the answer's copy is written is newer: the waiting copy is dropped.
+  title = "third";
+  await call("computers:invoke", ID, "project:read", [`${ID}|/p`]);
+  await call("computers:remember", ID, { kind: "state", scope: `${ID}|/p`, state: { sessions: { 4: { id: 4, title: "remembered" } } } });
+  await new Promise(setImmediate);
+  assert.equal(cache.get(ID, "scope", "/p").state.sessions[4].title, "remembered");
 });
 
 test("a damaged cache file is deleted so it rebuilds, warns once, and never fails the call", async (t) => {
@@ -213,6 +270,7 @@ test("a damaged cache file is deleted so it rebuilds, warns once, and never fail
   assert.equal(warnings.length, 1, "warned once for this computer and kind of error");
   state = "online";
   await call("computers:invoke", ID, "project:recent", []);
+  await new Promise(setImmediate);
   assert.deepEqual(cache.get(ID, "recent", ""), [{ path: "/p", name: "p" }], "it rebuilds");
 });
 

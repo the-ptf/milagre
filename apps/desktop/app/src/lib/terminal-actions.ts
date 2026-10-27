@@ -16,10 +16,34 @@ export function takeFocusRequest(id: string) {
   return true;
 }
 
+// The Chats whose Terminal list this window holds as the host has it: read once, then kept by the host's terminal:changed
+// events. A change to a Chat that isn't on screen (or arrives while its list is being read) counts it out, so showing it
+// again reads it again; so does a host's reconnect, whose snapshot follows events this window may have missed.
+const listed = new Set<string>();
+const changes = new Map<string, number>();
+let following = false;
+function countChange(payload: { chatId?: string } | undefined) {
+  if (!payload?.chatId) return;
+  listed.delete(payload.chatId);
+  changes.set(payload.chatId, (changes.get(payload.chatId) ?? 0) + 1);
+}
+function follow() {
+  if (following || !window.milagre) return;
+  following = true;
+  window.milagre.onTerminalsChanged?.(countChange);
+  window.milagre.onRuntimeSnapshot?.(() => listed.clear());
+  window.milagre.onComputerEvent?.((event) => {
+    if (event.channel === "terminal:changed") countChange(event.payload);
+    else if (event.channel === "runtime:snapshot") listed.clear();
+  });
+}
+
 async function refreshTerminals(chatId: string) {
+  const change = changes.get(chatId) ?? 0;
   const { terminals } = await bridgeForKey(chatId).terminals.list({ chatId });
   pruneTerminals(chatId, new Set(terminals.map((terminal) => terminal.id)));
   applyTerminalList(chatId, terminals);
+  if ((changes.get(chatId) ?? 0) === change) listed.add(chatId);
 }
 
 export async function openTerminal(chatId: string, cwd?: string): Promise<TerminalInfo> {
@@ -66,11 +90,15 @@ export async function closeTerminal(terminal: TerminalInfo) {
   await refreshTerminals(terminal.chatId).catch(() => {});
 }
 
-/** Keeps the shown Chat's Terminals in step with the host: on opening it, and whenever the host says they changed. */
+/**
+ * Keeps the shown Chat's Terminals in step with the host: read when it is first shown (and again after it changed out of
+ * sight), and whenever the host says they changed. A Chat shown again with nothing changed shows its list as it was.
+ */
 export function useTerminalSync(chatId: string | null) {
   useEffect(() => {
     if (!chatId) return;
-    void refreshTerminals(chatId).catch(() => {});
+    follow();
+    if (!listed.has(chatId)) void refreshTerminals(chatId).catch(() => {});
     const changed = (payload: { chatId: string }) => {
       if (payload?.chatId === chatId) void refreshTerminals(chatId).catch(() => {});
     };
