@@ -1315,6 +1315,23 @@ test("a chat the usage limit stopped continues on the turn's options after its a
   assert.equal(await host.continueAfterLimit(BETA, 1, "claude", "me@work.com"), false);
 });
 
+test("a babysit Run continued after a usage limit keeps its guard", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const babysit = { level: 1, resolveThreads: false };
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
+  const run = await host.send(message(ALPHA, "PR #4 changed", { context }));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "session-started", nativeId: "native-7" });
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-failed", message: "You've hit your session limit", notice: true, limit: { provider: "claude" } });
+  await waitUntil(() => saved.get(ALPHA)?.messages.length === 2);
+  assert.equal(await host.continueAfterLimit(ALPHA, run.sessionId, "claude", "me@work.com"), true);
+  await waitUntil(() => session(ALPHA)?.turns.length === 2);
+  // The continued turn is still the Run: its level stays enforced.
+  assert.deepEqual(session(ALPHA).turns[1].guard, { level: 1, resolveThreads: false });
+});
+
 test("a chat whose agent hadn't started when Milagre quit is sent its prompt again", async (t) => {
   const { host, manager, saved, session } = harness();
   t.after(() => manager.closeAll());
