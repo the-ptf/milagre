@@ -1,5 +1,5 @@
-import type { ChatMessage, CoordinatorState, ModelOption, ModelProvider, PermissionDecision } from "../model";
-import { chatInProject, chatKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
+import type { AgentEvent, ChatMessage, CoordinatorState, ModelOption, ModelProvider, PermissionDecision } from "../model";
+import { applyRunEvent, chatInProject, chatKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { AgentRun, AgentRuns, SentAnswer } from "@milagre/shared/agent-runs";
@@ -119,3 +119,96 @@ export function modelForOpenChat(
   const lastUsed = messages.findLast((message) => usable(message.model));
   return usable(picked) ?? usable(lastUsed?.model) ?? modelForChat(fallback, provider, [], catalog);
 }
+
+/** An agent event waiting for the next frame: `model` names a starting turn's model, read when the event arrived. */
+export interface QueuedRunEvent {
+  chatId: string;
+  event: AgentEvent;
+  model: string;
+}
+
+/** `runs` with each queued event applied in the order it arrived, as one state. */
+export const applyRunEvents = (runs: AgentRuns, batch: readonly QueuedRunEvent[]) =>
+  batch.reduce((next, { chatId, event, model }) => applyRunEvent(next, chatId, event, model), runs);
+
+/**
+ * Events that change what the user must see or do now (a turn starts or ends, a card appears or goes, their own message
+ * lands): applied at once, with whatever streamed before them, instead of waiting for the next frame.
+ */
+const URGENT_EVENTS = new Set<AgentEvent["type"]>([
+  "message-sent",
+  "answers-sent",
+  "turn-started",
+  "turn-completed",
+  "turn-cancelled",
+  "turn-failed",
+  "permission-request",
+  "permission-resolved",
+  "question-request",
+  "question-resolved",
+  "session-started",
+  "session-reset",
+]);
+export const isUrgentRunEvent = (event: AgentEvent) => URGENT_EVENTS.has(event.type);
+
+/** Runs `flush` once, soon; returns a cancel. */
+export type FrameScheduler = (flush: () => void) => () => void;
+
+/**
+ * The next animation frame, or a 16 ms timer where there is none or the page is hidden. A window macOS occludes stops
+ * firing frames while it still counts as visible, so a 100 ms timer races the frame and whichever comes first flushes.
+ */
+export const nextFrame: FrameScheduler = (flush) => {
+  const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+  if (typeof requestAnimationFrame !== "function" || hidden) {
+    const timer = setTimeout(flush, 16);
+    return () => clearTimeout(timer);
+  }
+  let done = false;
+  const once = () => {
+    if (done) return;
+    done = true;
+    cancelAnimationFrame(frame);
+    clearTimeout(timer);
+    flush();
+  };
+  const frame = requestAnimationFrame(once);
+  const timer = setTimeout(once, 100);
+  return () => {
+    done = true;
+    cancelAnimationFrame(frame);
+    clearTimeout(timer);
+  };
+};
+
+/**
+ * Collects items and hands them to `apply` in one batch, in arrival order: at the scheduled flush, or at once when an
+ * item is pushed with `now`, or when `flush()` is called (before anything else writes the state the batch feeds).
+ */
+export function createCoalescer<T>(apply: (batch: T[]) => void, schedule: FrameScheduler = nextFrame) {
+  let queue: T[] = [];
+  let cancel: (() => void) | null = null;
+  const flush = () => {
+    cancel?.();
+    cancel = null;
+    if (queue.length === 0) return;
+    const batch = queue;
+    queue = [];
+    apply(batch);
+  };
+  return {
+    push(item: T, now = false) {
+      queue.push(item);
+      if (now) flush();
+      else cancel ??= schedule(flush);
+    },
+    flush,
+    /** Drops what is queued, without applying it. */
+    dispose() {
+      cancel?.();
+      cancel = null;
+      queue = [];
+    },
+  };
+}
+export type Coalescer<T> = ReturnType<typeof createCoalescer<T>>;
