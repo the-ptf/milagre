@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, File01Icon, Message01Icon, Tick02Icon, Upload01Icon, UserCheck01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { BABYSIT_DEFAULTS, BABYSIT_LEVELS, DAYS_OPTIONS, FAILURE_OPTIONS, INTERVAL_OPTIONS, type BabysitStep, type BabysitWake } from "@milagre/shared/babysit";
@@ -41,7 +41,7 @@ const FAILURES = options(FAILURE_OPTIONS, (value) => plural(value, "time", "time
  * A typed field that saves itself shortly after typing stops and when it loses focus or the screen closes. `reset` (Reset
  * all to defaults) drops what was typed, leaves the field and shows the default.
  */
-function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save, input: RefObject<TextInput | null>) {
+function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: Save, input: RefObject<TextInputInstance | null>) {
   const [value, setValue] = useState(saved);
   // Text the Mac already holds counts as saved until it is edited.
   const [state, setState] = useState<SaveState>(saved ? "saved" : "idle");
@@ -106,8 +106,8 @@ export function BabysitSection() {
     }, [store, host]),
   );
   const save = useCallback<Save>((change) => (host ? store.save(host, change) : Promise.resolve()), [store, host]);
-  const ownRuleInput = useRef<TextInput>(null);
-  const instructionsInput = useRef<TextInput>(null);
+  const ownRuleInput = useRef<TextInputInstance>(null);
+  const instructionsInput = useRef<TextInputInstance>(null);
   const ownRule = useAutosave(state.settings?.ownRuleText ?? "", "ownRuleText", save, ownRuleInput);
   const instructions = useAutosave(state.settings?.instructions ?? "", "instructions", save, instructionsInput);
   // Babysitting runs as a Heartbeat: a Mac that may not run Routines watches no PR.
