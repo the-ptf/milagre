@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { readMedia, MAX_MEDIA } = require("./media-access.cjs");
+const { readMedia, MAX_MEDIA, scopeRootsVia } = require("./media-access.cjs");
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
 
@@ -52,4 +52,59 @@ test("anything the phone can't get is refused, and no bytes leave", async (t) =>
   await refused({ scope: project, path: path.join(project, ".milagre", "images", "gone.png") }, "NOT_FOUND");
   await refused({ scope: project, path: "shot.png" }, "BAD_REQUEST");
   await refused({ scope: "relative", path: path.join(project, "x.png") }, "BAD_REQUEST");
+});
+
+test("a Chat's images ask for their scope's Worktrees once, and a Worktree made since is still served", async (t) => {
+  const { project, root, options } = await scope(t);
+  const worktree = path.join(root, "worktree");
+  await fs.mkdir(worktree);
+  await fs.writeFile(path.join(worktree, "new.png"), PNG);
+  let clock = 0;
+  let worktrees = [project];
+  const asked = [];
+  const scopeRoots = scopeRootsVia({
+    dataDir: options.dataDir,
+    now: () => clock,
+    call: async (method, args) => {
+      asked.push([method, ...args]);
+      return [...worktrees];
+    },
+  });
+  const read = (file) => readMedia({ scope: project, path: file }, { ...options, scopeRoots });
+  const images = await Promise.all(Array.from({ length: 30 }, () => read(path.join(project, ".milagre", "images", "shot.png"))));
+  assert.equal(images.length, 30);
+  assert.deepEqual(asked, [["project:worktree-paths", project]], "30 reads, one question");
+  // The scope gains a Worktree: an image there is not among the kept folders, so they are read again before refusing.
+  worktrees = [project, worktree];
+  assert.equal((await read(path.join(worktree, "new.png"))).type, "image/png");
+  assert.equal(asked.length, 2);
+  await read(path.join(worktree, "new.png"));
+  assert.equal(asked.length, 2, "and kept again");
+  // A Worktree gone is out of the folders once the kept answer ages.
+  worktrees = [project];
+  clock += 5000;
+  await assert.rejects(read(path.join(worktree, "new.png")), { code: "NOT_SERVED" });
+  // What is refused is refused on fresh folders, every time.
+  await assert.rejects(read(path.join(root, "home", ".ssh", "id_rsa.png")), { code: "NOT_SERVED" });
+  await assert.rejects(read(path.join(project, "link.png")), { code: "NOT_SERVED" });
+  assert.ok(asked.length >= 5, "each refusal asked again");
+});
+
+test("a scope's Worktrees that couldn't be read are not kept", async (t) => {
+  const { project, options } = await scope(t);
+  let failing = true;
+  let asked = 0;
+  const scopeRoots = scopeRootsVia({
+    dataDir: options.dataDir,
+    call: async () => {
+      asked++;
+      if (failing) throw new Error("Open the project before reading its worktrees.");
+      return [project];
+    },
+  });
+  assert.deepEqual(await scopeRoots(project), []);
+  failing = false;
+  assert.deepEqual(await scopeRoots(project), [project]);
+  assert.deepEqual(await scopeRoots(project), [project]);
+  assert.equal(asked, 2);
 });

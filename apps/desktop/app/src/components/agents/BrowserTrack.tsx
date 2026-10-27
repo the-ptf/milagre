@@ -8,7 +8,10 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { PillMorph } from "../motion/PillMorph";
 import { viewerTheme } from "./viewerTheme";
-import { useBridge } from "../../lib/computer-bridge";
+import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
+import { isTurnEnd } from "@milagre/shared/agent-runs";
+
+const POLL_MS = 15_000;
 
 /** Pages of browsers this Chat's agent started, or that were attached to this Chat. Never inferred from a URL. Hidden until the Chat has a page. */
 export function BrowserTrack({ chatId }: { chatId?: string }) {
@@ -46,6 +49,8 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
       if (mounted.current) setLoading(false);
     }
   }, [api, chatId]);
+  // The list read, for the poll below; a no-op while unmounted.
+  const pollList = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!api || !chatId) return;
     let busy = false;
@@ -62,15 +67,43 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
       if (document.hidden) close();
       else void poll();
     };
+    pollList.current = poll;
     void poll();
-    const timer = setInterval(poll, 15000);
     document.addEventListener("visibilitychange", visibility);
+    // With no page nothing is polled (the list spawns a process on the host): a page comes from the Chat's agent, a
+    // browser its commands start or one it attaches, so its steps finishing (at most once per POLL_MS) and each turn's
+    // end read the list again; so does coming back to the window, after one was attached from the phone.
+    const focused = () => void poll();
+    window.addEventListener("focus", focused);
+    let readAt = 0;
+    let soon: ReturnType<typeof setTimeout> | undefined;
+    const read = () => {
+      clearTimeout(soon);
+      soon = undefined;
+      readAt = Date.now();
+      void poll();
+    };
+    const offAgent = onAnyAgentEvent(({ chatId: from, event }) => {
+      if (from !== chatId) return;
+      if (isTurnEnd(event)) read();
+      else if (event.type === "step-completed" && !soon) soon = setTimeout(read, Math.max(0, readAt + POLL_MS - Date.now()));
+    });
     return () => {
-      clearInterval(timer);
+      clearTimeout(soon);
+      pollList.current = async () => {};
       document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", focused);
+      offAgent();
     };
   }, [api, chatId, close, refresh]);
   const visible = !!api && !!chatId && list.supported && list.targets.length > 0;
+  // While the Chat has a page (or one is being attached), the list is polled: pages open, close and navigate on their own.
+  const polling = visible || opened || attaching !== null;
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(() => void pollList.current(), POLL_MS);
+    return () => clearInterval(timer);
+  }, [polling]);
   const open = () => {
     setSelected(list.targets.length === 1 ? (list.targets[0] ?? null) : null);
     setOpened(true);

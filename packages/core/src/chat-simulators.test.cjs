@@ -161,3 +161,44 @@ test("shutdown stops the underlying helper while an open is still pending", asyn
   await pending;
   await f.api.close();
 });
+
+test("a Chat with nothing attached is answered without listing devices when it asks only for attached ones", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "chat-simulators-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  let listed = 0;
+  let supported = true;
+  const api = createChatSimulators({
+    file: path.join(dir, "attachments.json"),
+    validateChat: async (id) => {
+      if (!["chat-a", "chat-b"].includes(id)) throw Error("Unknown Chat");
+    },
+    simulators: {
+      list: async () => {
+        listed++;
+        return { devices: supported ? [A, B] : [], supported };
+      },
+      closeViewer: async () => {},
+      disconnect: async () => {},
+      close: async () => {},
+    },
+  });
+  t.after(() => api.close());
+  assert.deepEqual(await api.list({ chatId: "chat-a", attachedOnly: true }), { chatId: "chat-a", attached: [], devices: [], available: [], supported: true });
+  assert.equal(listed, 0, "no device list for a Chat with nothing attached");
+  await assert.rejects(api.list({ chatId: "unknown", attachedOnly: true }), /Chat/, "the Chat is still checked");
+  // The agent's simulator_list and a plain list still see every running device.
+  const [tool] = simulatorToolDefinitions("chat-a", api);
+  assert.equal(JSON.parse(await tool.run({})).available.length, 2);
+  assert.equal((await api.list({ chatId: "chat-a" })).available.length, 2);
+  assert.equal(listed, 2);
+  // Once something is attached, the Chat's list names its running devices again.
+  await api.attach({ chatId: "chat-a", deviceId: A.id });
+  const attached = await api.list({ chatId: "chat-a", attachedOnly: true });
+  assert.deepEqual([attached.devices, attached.available.length], [[A], 1]);
+  assert.equal(listed, 5, "attach lists twice, then this list once");
+  // A host that can't show simulators says so, as its last list did.
+  supported = false;
+  await api.list({ chatId: "chat-b" });
+  assert.equal((await api.list({ chatId: "chat-b", attachedOnly: true })).supported, false);
+  assert.equal(listed, 6);
+});

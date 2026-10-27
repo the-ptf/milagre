@@ -50,6 +50,12 @@ export function pollWhileActive(refresh: () => void, lastRefresh: () => number):
 // again starts from them, so its rows keep their chips while gh answers instead of losing and regaining them.
 const lastPullRequests = new Map<string, Record<string, PullRequest | null>>();
 const lastChatPullRequests = new Map<string, Record<string, Record<PullRequestRef, PullRequest | null>>>();
+// When each Worktree's PRs were read (by `${projectPath}\n${path}`; for chats' PRs, which ones): a Project opened again
+// within POLL_MS shows them from above and asks gh only for the rest, leaving them to the poll and turn ends.
+const branchReadAt = new Map<string, number>();
+const chatReadAt = new Map<string, { at: number; refs: ReadonlySet<PullRequestRef> }>();
+const readKey = (projectPath: string, path: string) => `${projectPath}\n${path}`;
+const recent = (at: number | undefined) => at !== undefined && Date.now() - at < POLL_MS;
 
 /** PRs stay transient: refresh on opening a project, focus, turn completion, and while visible. */
 export function useWorktreePullRequests(projectPath: string, state: CoordinatorState | null) {
@@ -108,6 +114,7 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
               .readPullRequest(path)
               .catch(() => null);
             if (!disposed) {
+              branchReadAt.set(readKey(projectPath, path), Date.now());
               setDismissedBlockers((current) => updateBlockerDismissals(current, pr));
               setSnapshot((current) => {
                 const prs = { ...(current.projectPath === projectPath ? current.prs : (lastPullRequests.get(projectPath) ?? {})), [path]: pr };
@@ -121,7 +128,10 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
         }),
       );
     };
-    void refresh();
+    // Worktrees read moments ago (this Project was open then) keep that answer until the next poll.
+    const unread = paths.filter((path) => !recent(branchReadAt.get(readKey(projectPath, path))));
+    if (unread.length) void refresh(unread);
+    else lastRefresh = Date.now();
     const stopPolling = pollWhileActive(
       () => void refresh(),
       () => lastRefresh,
@@ -168,8 +178,9 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
     if (!entries.length) return;
     let disposed = false;
     let lastRefresh = 0;
-    // A merged PR can't change again, so it's read once; new and open ones follow the branch PR's refreshes.
-    const refresh = async (only?: string) => {
+    // A merged PR can't change again, so it's read once; new and open ones follow the branch PR's refreshes. `fresh`
+    // leaves out the Worktrees whose PRs were all read moments ago.
+    const refresh = async (only?: string, fresh = false) => {
       lastRefresh = Date.now();
       const known = chatSnapshotRef.current.projectPath === projectPath ? chatSnapshotRef.current.prs : (lastChatPullRequests.get(projectPath) ?? {});
       await Promise.all(
@@ -177,10 +188,13 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
           if (only && path !== only) return;
           const selected = refs.filter((ref) => known[path]?.[ref]?.state !== "MERGED");
           if (!selected.length) return;
+          const read = chatReadAt.get(readKey(projectPath, path));
+          if (fresh && read && recent(read.at) && selected.every((ref) => read.refs.has(ref))) return;
           const prs = await bridgeForKey(projectPath)
             .readPullRequests(path, selected)
             .catch(() => selected.map(() => null));
           if (disposed) return;
+          chatReadAt.set(readKey(projectPath, path), { at: Date.now(), refs: new Set(selected) });
           // The composer can offer these PRs' actions too, so their reads clear a fixed blocker's dismissal.
           setDismissedBlockers((current) => prs.reduce((next, pr) => updateBlockerDismissals(next, pr), current));
           setChatSnapshot((current) => {
@@ -193,7 +207,7 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
         }),
       );
     };
-    void refresh();
+    void refresh(undefined, true);
     const stopPolling = pollWhileActive(
       () => void refresh(),
       () => lastRefresh,

@@ -879,29 +879,100 @@ test("a client that takes state patches gets what changed, one that doesn't stil
   assert.equal(applyStatePatch(applied, next.payload.patch).sessions[session.id].title, "Again");
 });
 
-test("a state the client can't patch from, or a patch over the event limit, says to read the state again", async (t) => {
+test("an open's reply carries its state's number, so the first change is a patch on it; one over the event limit says to read again", async (t) => {
   // An 8 KB frame: the event limit is 2 KB, so a reply longer than that can't go as a patch.
   const { project, client } = await fixture(t);
   const desktop = await client();
   const events = [];
   desktop.on("event", (event) => events.push(event));
-  await desktop.call("daemon:state-patches");
+  const { epoch } = await desktop.call("daemon:state-patches");
   const opened = await desktop.call("project:open", [project]);
+  // Nothing was sent for this Project yet: its numbers start at the state the open answered with.
+  assert.equal(opened.epoch, epoch);
+  assert.equal(typeof opened.version, "number");
   const session = Object.values(opened.state.sessions)[0];
   const states = () => events.filter((event) => event.channel === "project:state");
   await desktop.call("chat:patch", [project, session.id, { title: "First" }]);
-  // The first state sent for this Project has nothing before it to patch from, so it says to read it.
-  const first = await waitFor(() => states()[0]);
-  assert.equal(first.payload.resync, true);
-  assert.equal("state" in first.payload, false);
-  const held = await desktop.call("state:read", [project]);
+  // The first change follows on from the reply, instead of sending the window to read the whole state again.
+  const first = await waitFor(() => states().find((event) => event.payload.version > opened.version));
+  assert.equal(first.payload.base, opened.version);
+  assert.equal("resync" in first.payload, false);
+  const patched = applyStatePatch(opened.state, first.payload.patch);
+  assert.deepEqual(patched, (await desktop.call("project:snapshot", [project])).state);
+  // Opening it again answers with the state sent last, under its number.
+  const reopened = await desktop.call("project:open", [project]);
+  assert.equal(reopened.version, first.payload.version);
+  assert.deepEqual(reopened.state, patched);
   await desktop.call("chat:git-note", [`${project}#${session.id}`, "x".repeat(5000)]);
-  const large = await waitFor(() => states().find((event) => event.payload.version > held.version));
+  const large = await waitFor(() => states().find((event) => event.payload.version > first.payload.version));
   assert.equal(large.payload.resync, true);
   assert.equal("patch" in large.payload, false);
   const again = await desktop.call("state:read", [project]);
   assert.equal(again.version, large.payload.version);
   assert.equal(again.state.messages.at(-1).body.length, 5000);
+});
+
+test("a reply whose state differs from the last sent only in a Chat it loaded keeps that number, for lean and whole clients", async (t) => {
+  const { daemon, project, client } = await fixture(t, { lazyMessages: { idleMs: 0, sweepMs: 0 } });
+  const lean = await client();
+  await lean.call("daemon:state-patches", [{ messages: false }]);
+  const whole = await client();
+  const wholeEvents = [];
+  whole.on("event", (event) => wholeEvents.push(event));
+  await whole.call("daemon:state-patches", [{}]);
+  const opened = await lean.call("project:open", [project]);
+  const session = Object.values(opened.state.sessions)[0];
+  await lean.call("chat:git-note", [`${project}#${session.id}`, "First note"]);
+  await lean.call("daemon:flush");
+  // The Chat leaves memory (a state sent to every client), then its page loads it back: a state sent to nobody.
+  await daemon.unloadIdle();
+  const sent = await whole.call("state:read", [project]);
+  await lean.call("chat:messages", [project, session.id, { turns: 5 }]);
+  const leanOpen = await lean.call("project:open", [project]);
+  const wholeOpen = await whole.call("project:open", [project]);
+  assert.equal(leanOpen.version, sent.version);
+  assert.equal(wholeOpen.version, sent.version);
+  assert.deepEqual(wholeOpen.state, sent.state);
+  // The next change is a patch on that number, and gives the state a fresh read does.
+  await lean.call("chat:patch", [project, session.id, { title: "Renamed" }]);
+  const change = await waitFor(() => wholeEvents.find((event) => event.channel === "project:state" && event.payload.version > sent.version));
+  assert.equal(change.payload.base, sent.version);
+  assert.deepEqual(applyStatePatch(wholeOpen.state, change.payload.patch), (await whole.call("state:read", [project])).state);
+});
+
+test("project:read with { state: false } opens the Project without its state, under the number of the state last sent", async (t) => {
+  const { project, client } = await fixture(t);
+  const desktop = await client();
+  const { epoch } = await desktop.call("daemon:state-patches", [{ messages: false }]);
+  const opened = await desktop.call("project:open", [project]);
+  assert.deepEqual(await desktop.call("project:read", [project, { state: false }]), {
+    path: project,
+    name: path.basename(project),
+    git: true,
+    version: opened.version,
+    epoch,
+  });
+  // Without it, as before, with the number beside the state.
+  const read = await desktop.call("project:read", [project]);
+  assert.deepEqual([read.version, read.epoch, read.state.sessions], [opened.version, epoch, opened.state.sessions]);
+});
+
+test("a connection's Project follows a sidebar open, and a Link it opens has none", async (t) => {
+  const { project, client } = await fixture(t);
+  const other = path.join(path.dirname(project), "other");
+  await fs.mkdir(other);
+  execFileSync("git", ["init", "-b", "main", other], { stdio: "ignore" });
+  const desktop = await client();
+  await desktop.call("project:open", [other]);
+  await desktop.call("project:open", [project]);
+  assert.equal((await desktop.call("project:current")).path, project);
+  assert.equal((await desktop.call("canvas:open-project", [other])).path, other);
+  assert.equal((await desktop.call("project:current")).path, other, "the sidebar's open is the connection's Project");
+  const ids = Object.fromEntries((await desktop.call("project:registry")).map((entry) => [entry.path, entry.id]));
+  const link = await desktop.call("link:create", [{ name: "Both", projectIds: [ids[project], ids[other]] }]);
+  await desktop.call("link:open", [link.id]);
+  // With a Link open there is no Project of its own: the window's next start opens the launch Project.
+  assert.equal((await desktop.call("project:current")).path, project);
 });
 
 test("a client that reads transcripts on demand gets each subagent with the end of its transcript", async (t) => {

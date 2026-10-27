@@ -66,6 +66,27 @@ class DiffRefresher {
     void this.refresh(projectPath).catch(() => {});
   }
 
+  /**
+   * Refresh only the Worktree of a Chat a window opens, throttled per Worktree as focus is per Project (a focus read of
+   * its Project within the throttle covers it too). A switch between Chats never reads the Project's other Worktrees.
+   */
+  focusedChat(chatId) {
+    const projectPath = typeof chatId === "string" ? projectOfKey(chatId) : null;
+    if (this.closed || !projectPath || !this.states.has(projectPath)) return;
+    void this.refreshOpened(projectPath, sessionIdFromKey(chatId)).catch(() => {});
+  }
+
+  async refreshOpened(projectPath, sessionId) {
+    const worktreeId = (await this.states.get(projectPath)).sessions[sessionId]?.worktree_id;
+    if (worktreeId === undefined || this.closed) return;
+    const key = `${projectPath}\0${worktreeId}`;
+    const now = this.now();
+    const recent = (read) => now - (this.lastFocus.get(read) ?? -Infinity) < this.throttleMs;
+    if (recent(projectPath) || recent(key)) return;
+    this.lastFocus.set(key, now);
+    await this.refresh(projectPath, [worktreeId]);
+  }
+
   read(worktree) {
     if (this.closed || !worktree) return Promise.resolve(null);
     return new Promise((resolve) => {

@@ -201,6 +201,8 @@ function fakeMac({ lan = [], hello = "accept" } = {}) {
   return mac;
 }
 
+// What a LAN address that answers says to its probe (lan-host.cjs /v1/hello).
+const helloAnswer = () => ({ ok: true, json: async () => ({ v: 1, hostId: HOST }) });
 const macLink = (mac) => link().replace(`key=${"k".repeat(43)}`, `key=${mac.hostKey}`);
 
 async function until(check, label, ms = 3000) {
@@ -399,6 +401,36 @@ test("the LAN is used when the computer gave an address that answers, the relay 
   mac.lan = [];
   for (const socket of mac.sockets.filter((item) => item.url.startsWith(LAN))) socket.closeWith(1000);
   await until(() => computers.list()[0].route === "relay" && state() === "online", "back on the relay");
+});
+
+test("a LAN address that doesn't answer doesn't hold a reconnect off the relay, and the runtime moves there once it does", async (t) => {
+  const mac = fakeMac({ lan: [LAN] });
+  // The saved LAN address is on another network: its probe waits (up to PROBE_TIMEOUT in the app) until the test says.
+  let lanAnswers = false;
+  const probes = [];
+  const { computers, changes, state } = await paired(t, mac, {
+    lanWaitMs: 50,
+    fetch: () => new Promise((resolve) => (lanAnswers ? resolve(helloAnswer()) : probes.push(() => resolve(helloAnswer())))),
+  });
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  await until(() => probes.length > 0, "the LAN address learned and probed");
+  const dropped = Date.now();
+  mac.drop();
+  await until(() => state() === "reconnecting", "the drop");
+  await until(() => state() === "online", "online again over the relay");
+  assert.ok(Date.now() - dropped < 1500, `the reconnect didn't wait for the LAN probe: ${Date.now() - dropped}ms`);
+  assert.equal(computers.list()[0].route, "relay");
+  const seen = changes.length;
+  lanAnswers = true;
+  for (const reply of probes.splice(0)) reply();
+  await until(() => computers.list()[0].route === "lan" && state() === "online", "on the LAN once it answers");
+  assert.equal(
+    changes.slice(seen).some((list) => list[0]?.state === "reconnecting"),
+    false,
+    "moving to the LAN is a switch, not an outage",
+  );
 });
 
 test("the runtime's events are passed on with the computer's id, except its connection state", async (t) => {

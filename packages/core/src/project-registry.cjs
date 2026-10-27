@@ -42,6 +42,25 @@ async function present(entry) {
   }
 }
 
+// Whether an entry's folder (its main checkout, or a folder outside Git) or its repository's common Git directory went
+// away, found without starting Git: what a list checks between writes, which check every entry with present.
+async function gone(entry) {
+  const isFolder = (folder) =>
+    fs.stat(folder).then(
+      (stats) => stats.isDirectory(),
+      () => false,
+    );
+  const [folder, repository] = await Promise.all([
+    isFolder(entry.path),
+    entry.id === entry.path ||
+      fs.stat(entry.id).then(
+        () => true,
+        () => false,
+      ),
+  ]);
+  return !folder || !repository;
+}
+
 function validEntry(entry) {
   return entry && typeof entry.id === "string" && path.isAbsolute(entry.id) && typeof entry.path === "string" && path.isAbsolute(entry.path);
 }
@@ -129,10 +148,15 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
       });
       return updated;
     },
-    // Called when the canvas first needs the registry. The marker is persisted even if the scan finds nothing.
-    list: () =>
-      update(async (data) => {
-        if (data.scanned) return data;
+    // The sidebar, the canvas and every Project open ask for it. The first list scans for coordination files (the marker
+    // is persisted even if the scan finds nothing), and every write checks each entry with Git (present). Between them a
+    // list is the file as it is, unless an entry's folder went away: that list goes through a write, which drops it.
+    list: async () => {
+      await queue.catch(() => {});
+      const data = await read();
+      if (data.scanned && !(await Promise.all(data.projects.map(gone))).some(Boolean)) return data.projects;
+      return update(async (current) => {
+        if (current.scanned) return current;
         for (const folder of await coordinationProjects(roots)) {
           let identity;
           try {
@@ -140,22 +164,38 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
           } catch {
             continue;
           }
-          if (!data.projects.some((entry) => entry.id === identity.id)) {
-            data.projects.push({ ...identity, position: null, openedAt: now().toISOString() });
+          if (!current.projects.some((entry) => entry.id === identity.id)) {
+            current.projects.push({ ...identity, position: null, openedAt: now().toISOString() });
           }
         }
-        data.scanned = true;
-        return data;
-      }),
-    add: (identity) =>
-      update(async (data) => {
-        const previous = data.projects.find((entry) => entry.id === identity.id);
-        data.projects = [
-          { ...identity, position: previous?.position ?? null, openedAt: now().toISOString() },
-          ...data.projects.filter((entry) => entry.id !== identity.id),
-        ];
-        return data;
-      }),
+        current.scanned = true;
+        return current;
+      });
+    },
+    // Every open puts its Project first. One first already, as it was, leaves the file as it is: only its openedAt would
+    // change. Any other moves up without checking every entry with Git, which each switch between Projects would pay:
+    // an entry whose folder went away is dropped, as a list drops it, and so is the same folder under another identity
+    // (a plain folder that became a repository). Every other write checks them all.
+    add: (identity) => {
+      const next = queue
+        .catch(() => {})
+        .then(async () => {
+          const data = await read();
+          const top = data.projects[0];
+          if (top && Object.keys(identity).every((key) => top[key] === identity[key])) return data.projects;
+          const missing = await Promise.all(data.projects.map(gone));
+          const previous = data.projects.find((entry) => entry.id === identity.id);
+          const projects = [
+            { ...identity, position: previous?.position ?? null, openedAt: now().toISOString() },
+            ...data.projects.filter((entry, index) => !missing[index] && entry.id !== identity.id && entry.path !== identity.path),
+          ];
+          const kept = (id) => projects.some((project) => project.id === id);
+          await write({ ...data, projects, links: data.links.filter((link) => kept(link.a?.project_id) && kept(link.b?.project_id)) });
+          return projects;
+        });
+      queue = next;
+      return next;
+    },
     setPosition: (id, position) =>
       update(async (data) => {
         if (typeof id !== "string" || !position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) throw new Error("Invalid Project position.");
@@ -164,8 +204,9 @@ function createProjectRegistry(file, { roots = DEFAULT_ROOTS, now = () => new Da
         entry.position = { x: position.x, y: position.y };
         return data;
       }),
+    // The file as it is, after the writes asked for before it (a refused one, an invalid position, leaves it as it was).
     snapshot: async () => {
-      await queue;
+      await queue.catch(() => {});
       const data = await read();
       return { projects: data.projects, links: data.links, projectGroups: data.projectGroups ?? [], worktreePositions: data.worktreePositions };
     },
