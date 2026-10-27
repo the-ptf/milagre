@@ -162,6 +162,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/prompt-mentions" ||
           id === "@milagre/shared/themes" ||
           id === "@milagre/shared/file-kinds" ||
+          id === "@milagre/shared/streaming-blocks" ||
           id === "@milagre/shared/step-sweep") &&
         !(id in modules)
       )
@@ -1696,6 +1697,28 @@ test("Markdown code copies exact current content, replaces its feedback timer, a
   }
 });
 
+test("a streaming Markdown reply renders at most every 50 ms, and its newest text always follows", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
+  const screen = markdownHost();
+  assert.equal(textOf(screen.render("First", true)), "First");
+  // Each render reads the hook's state as the last timer left it: this harness doesn't re-render on its own.
+  assert.equal(textOf(screen.render("First words", true)), "First", "a batch waits for the next frame");
+  t.mock.timers.tick(0);
+  assert.equal(textOf(screen.render("First words", true)), "First words", "the first batch after a pause shows at once");
+  assert.equal(textOf(screen.render("First words\n\nSecond", true)), "First words");
+  t.mock.timers.tick(49);
+  assert.equal(textOf(screen.render("First words\n\nSecond", true)), "First words", "inside 50 ms the reply holds");
+  t.mock.timers.tick(1);
+  assert.equal(
+    find(screen.render("First words\n\nSecond", true), (node) => node.type === "View" && node.props.style?.gap === 12).props.children.length,
+    2,
+    "the trailing batch shows, in its blocks",
+  );
+  assert.equal(textOf(screen.render("Another reply", true)), "Another reply", "a text that doesn't continue the shown one shows at once");
+  assert.equal(textOf(screen.render("First words\n\nSecond and the end", false)), "First wordsSecond and the end", "a finished reply shows whole");
+  screen.unmount();
+});
+
 test("Markdown code ignores stale clipboard completion, failure and resolution after unmount", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const requests = [];
@@ -2314,13 +2337,18 @@ test("the session fetches on live signals and polls only while the live socket i
   await snapshots(4, "it catches up once the socket opens");
   t.mock.timers.tick(30000);
   await snapshots(4, "no polling while live");
+  const before = render().snapshot;
   sockets[0].options.onSignal("runs");
   await settle();
   assert.equal(fetched.runs, 1);
-  assert.equal(render().snapshot.runs.runs["A#1"].text, "streaming");
-  assert.equal(render().snapshot.project.path, "A");
+  const live = render();
+  assert.equal(live.snapshot, before, "a runs read leaves the snapshot every screen reads as it is");
+  const runsNow = () => render().runsStore.runsFor(`${render().client.url}|A`, render().snapshot);
+  assert.equal(runsNow().runs["A#1"].text, "streaming", "its runs show from the runs store");
+  assert.equal(live.snapshot.project.path, "A");
   sockets[0].options.onSignal("project");
   await snapshots(5);
+  assert.deepEqual(runsNow().runs, {}, "a whole read after it is newer: its runs show");
   sockets[0].options.onStatus(false);
   await snapshots(6, "losing the socket fetches at once");
   t.mock.timers.tick(4000);
@@ -2572,7 +2600,15 @@ function chatHost({
     "../chat-row-store": { useActivityClock: (on) => (on ? now : 0) },
     "../use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
     "../choice-store": { showChoiceSheet: (request) => choices.push(request) },
-    "../session": { useSession: () => session, useMainSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "../session": {
+      useSession: () => session,
+      useMainSession: () => session,
+      useComposer: () => session,
+      usePendingChats: () => session,
+      // The Chat's streaming turn, read live from the test's snapshot as the session's runs store would hand it out.
+      useRun: (key) => (key ? session.snapshot?.runs?.runs[key] : undefined),
+      sameSession: (a, b) => a === b,
+    },
     "../pending-chats": require("../apps/mobile/src/pending-chats.ts"),
     "@milagre/shared/send-retry": require("@milagre/shared/send-retry"),
     "../attachment-picker": { pickAttachments, preparePastedImage, discardPastedImage() {} },
@@ -3165,10 +3201,12 @@ function navigationHost(
     ...require("@milagre/shared/chats"),
     isListedChat: (chat, count, waiting) => !require("@milagre/shared/chats").isHiddenRunChat(chat, waiting),
   };
+  // A row renders apart (NavigationRow, memoized); renderItem hands the tests the row as drawn, as before.
+  const drawRows = (type, props, key) => (type?.name === "NavigationRow" ? type(props) : jsx(type, props, key));
   const { ProjectNavigation } = load("project-navigation.tsx", {
     "./update-sheet": { UpdateSettingsBadge: "UpdateSettingsBadge" },
-    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
-    "react/jsx-runtime": { jsx, jsxs: jsx },
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read(), memo: (component) => component, useLayoutEffect: (fn) => fn() },
+    "react/jsx-runtime": { jsx: drawRows, jsxs: drawRows },
     "./hosts-native": {
       // No new Chat has started on this phone yet, so New Chat opens in the open Project.
       savedChatDefaults: { readLastProject: () => null },
@@ -3195,7 +3233,7 @@ function navigationHost(
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
     "@milagre/shared/message-search": require("@milagre/shared/message-search"),
-    "./session": { useSession: () => session, useComposer: () => session, usePendingChats: () => session },
+    "./session": { useSession: () => session, useListSnapshot: () => session.snapshot ?? null, useComposer: () => session, usePendingChats: () => session },
     "./live": require("../apps/mobile/src/live.ts"),
     "./use-links": { useLinks: () => links },
     "./chat-links": chatLinks(),
@@ -14329,7 +14367,14 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
   };
   let visibleChat;
   const { AttentionPill } = load("attention.tsx", {
-    react: { ...react, useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    // Subscribing starts the shared poller, as React does on mount; a new subscribe (another client) subscribes again.
+    react: {
+      ...react,
+      useSyncExternalStore: (subscribe, snapshot) => {
+        react.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
+    },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { AppState: { currentState: "active" }, Pressable: "Pressable", Text: "Text", View: "View" },
     "expo-router": { router: { replace: (route) => opened.push(route) } },

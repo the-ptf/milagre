@@ -1,5 +1,5 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
@@ -30,7 +30,7 @@ import type { AgentSession, PullRequest } from "@milagre/shared/model";
 import type { LinearIssue } from "@milagre/shared/linear";
 import type { ChatSearchMatch, Client, RegisteredProject, Snapshot } from "./client";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
-import { useComposer, usePendingChats, useSession, type MobilePendingChat } from "./session";
+import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
 import { newChatProjects, pickNewChatProject } from "./new-chat-project";
 import { UpdateSettingsBadge } from "./update-sheet";
@@ -277,20 +277,61 @@ type NavigationProps = {
   /** Drawn on a card's surface color (the pinned sidebar and the one sliding over) instead of the page's. */
   surface?: boolean;
 };
-export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible = true, docked = false, surface = docked }: NavigationProps) {
+/** What the list reads from the session, held as it was while the list is off screen. */
+type Watched = { session: Session; snapshot: Snapshot | null; pendingChats: Record<string, MobilePendingChat> };
+/** The last value it was given while `live`: a sidebar off screen keeps what it showed, so nothing under it re-renders. */
+class Held<T> {
+  private value: { current: T } | null = null;
+  pick(live: boolean, value: T): T {
+    if (live || !this.value) this.value = { current: value };
+    return this.value.current;
+  }
+}
+/**
+ * The sidebar stays mounted under the Chat once it has opened. Off screen (`visible` false) it renders what it last
+ * showed: the session's changes (a Project read, a turn's runs, a keystroke in the composer) reach it once it shows again,
+ * which is when it wakes after sliding in (side-panels.tsx), so no render lands on the slide's frames.
+ */
+export function ProjectNavigation(props: NavigationProps) {
+  const session = useSession();
+  // Only what the rows show of the turns: a streaming turn doesn't re-render the list, its start, question or end does.
+  const snapshot = useListSnapshot();
+  const { pendingChats } = usePendingChats();
+  // The composer changes on every keystroke; the list reads it only when "Link and ask" sends.
+  const composer = useComposer();
+  const latestComposer = useRef(composer);
+  useLayoutEffect(() => {
+    latestComposer.current = composer;
+  }, [composer]);
+  const readComposer = useCallback(() => latestComposer.current, []);
+  const [held] = useState(() => new Held<Watched>());
+  const watched = held.pick(props.visible ?? true, { session, snapshot, pendingChats });
+  return <NavigationBody {...props} session={watched.session} snapshot={watched.snapshot} pendingChats={watched.pendingChats} readComposer={readComposer} />;
+}
+
+type BodyProps = NavigationProps & Watched & { readComposer: () => ReturnType<typeof useComposer> };
+const NavigationBody = memo(function NavigationBody({
+  onNavigate,
+  onClose,
+  activeChatId,
+  visible = true,
+  docked = false,
+  surface = docked,
+  session,
+  snapshot,
+  pendingChats,
+  readComposer,
+}: BodyProps) {
   const s = useS();
   const { colors } = useTheme();
   const styles = useStyles();
-  const session = useSession();
-  const composer = useComposer();
-  const { pendingChats } = usePendingChats();
   const links = useLinks(session.client);
   // An older Mac or a confined phone has no Routines to show, so the dock leaves the button out.
   const routinesAvailable = useRoutinesAvailable(session.client);
   const insets = useSafeAreaInsets();
   const attention = useAttention();
   const { reloadProjects, cachedProject } = session;
-  const currentPath = session.snapshot?.project.path;
+  const currentPath = snapshot?.project.path;
   const currentHostId = session.client?.url;
   // A wide iPad can open another Chat, of any Project on any computer that answers, beside the open one.
   const wide = useSplitLayout().widthClass === "wide";
@@ -331,12 +372,21 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
     if (visible) void reloadProjects().catch((e) => setError(e.message));
   }, [reloadProjects, visible]);
 
-  const clientOf = (hostId: string): Client | null => (hostId === session.client?.url ? session.client : allComputers.clientFor(hostId));
-  // The copy of a Project this list reads: the open one's live snapshot, otherwise the last answer of its computer.
-  const copyOf = (hostId: string, projectPath: string): ProjectCopy | undefined =>
-    hostId === currentHostId && projectPath === currentPath && session.snapshot
-      ? session.snapshot
-      : (allComputers.viewOf(hostId)?.copies.get(projectPath) ?? (hostId === currentHostId ? cachedProject(projectPath) : undefined));
+  const currentClient = session.client;
+  const clientOf = useCallback(
+    (hostId: string): Client | null => (hostId === currentClient?.url ? currentClient : allComputers.clientFor(hostId)),
+    [currentClient],
+  );
+  // The copy of a Project this list reads: the open one's snapshot (its runs as the rows read them: whether each Chat
+  // runs, asks or waits), otherwise the last answer of its computer.
+  const copyOf = useCallback(
+    (hostId: string, projectPath: string): ProjectCopy | undefined =>
+      hostId === currentHostId && projectPath === currentPath && snapshot
+        ? snapshot
+        : (allComputers.viewOf(hostId)?.copies.get(projectPath) ?? (hostId === currentHostId ? cachedProject(projectPath) : undefined)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- views changes exactly when a computer's copies do.
+    [currentHostId, currentPath, snapshot, cachedProject, views],
+  );
   const load = (hostId: string, projectPath: string): Promise<unknown> =>
     hostId === currentHostId && projectPath === currentPath ? session.refresh() : allComputers.refreshProject(hostId, projectPath).catch(() => {});
 
@@ -347,13 +397,13 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
       archives.chats.has(`${projectPath}#${chatId}`) && (hostId === currentHostId || archiveRequests.has(`${hostId}|${projectPath}#${chatId}`));
     const next = views.map((view) => {
       const current = view.hostId === currentHostId;
-      const deps = [view, needle, show, pendingChats, archives.chats, current ? session.snapshot : null, current ? cachedProject : null, current];
+      const deps = [view, needle, show, pendingChats, archives.chats, current ? snapshot : null, current ? cachedProject : null, current];
       const held = cache.get(view.hostId);
       if (held && sameDeps(held.deps, deps)) return held.build;
       const build = buildHost(view, {
         needle,
         currentHostId,
-        snapshot: session.snapshot,
+        snapshot,
         pendingChats,
         archiving: archiving(view.hostId),
         fallback: cachedProject,
@@ -364,7 +414,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
     });
     for (const id of cache.keys()) if (!views.some((view) => view.hostId === id)) cache.delete(id);
     return next;
-  }, [views, needle, show, pendingChats, archives.chats, session.snapshot, cachedProject, currentHostId, cache, archiveRequests]);
+  }, [views, needle, show, pendingChats, archives.chats, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
 
   const manyHosts = builds.length > 1;
   const { rows, searchable, projectHits } = useMemo(() => {
@@ -598,26 +648,37 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   );
   const linearIssues = useWorktreeLinearIssues(session.client, linearActive ? linearPaths : []);
   // A Link's other end is named by its Project and, when this phone holds that Project, the Worktree's branch.
-  const endNames = endNamer(
-    links.projects,
-    (projectPath, worktreePath) =>
-      Object.values(copyOf(currentHostId ?? "", projectPath)?.project.state.worktrees ?? {}).find((worktree) => worktree.path === worktreePath)?.name,
+  const endNames = useMemo(
+    () =>
+      endNamer(
+        links.projects,
+        (projectPath, worktreePath) =>
+          Object.values(copyOf(currentHostId ?? "", projectPath)?.project.state.worktrees ?? {}).find((worktree) => worktree.path === worktreePath)?.name,
+      ),
+    [links.projects, copyOf, currentHostId],
   );
   // Only a local Project's Chat with its own Worktree joins Links; a shared Link Chat (prPath unset) never does.
-  const worktreeForLinks = (projectPath: string, worktreePath?: string) => {
-    const projectId = links.available && worktreePath ? links.projectIdOf(projectPath) : undefined;
-    return projectId && worktreePath ? { project_id: projectId, worktree_path: worktreePath } : undefined;
-  };
-  const displayedRows = listRows.map((row) => {
-    if (row.kind !== "chat" || row.hostId !== currentHostId) return row;
-    const status = row.prPath ? prStatus[row.prPath] : undefined;
-    return {
-      ...row,
-      pullRequests: chatPullRequests(row.prRefs || [], status?.found || {}, status?.branch),
-      linearIssue: row.prPath ? linearIssues[row.prPath] : undefined,
-      linked: linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label),
-    };
-  });
+  const worktreeForLinks = useCallback(
+    (projectPath: string, worktreePath?: string) => {
+      const projectId = links.available && worktreePath ? links.projectIdOf(projectPath) : undefined;
+      return projectId && worktreePath ? { project_id: projectId, worktree_path: worktreePath } : undefined;
+    },
+    [links],
+  );
+  const displayedRows = useMemo(
+    () =>
+      listRows.map((row) => {
+        if (row.kind !== "chat" || row.hostId !== currentHostId) return row;
+        const status = row.prPath ? prStatus[row.prPath] : undefined;
+        return {
+          ...row,
+          pullRequests: chatPullRequests(row.prRefs || [], status?.found || {}, status?.branch),
+          linearIssue: row.prPath ? linearIssues[row.prPath] : undefined,
+          linked: linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label),
+        };
+      }),
+    [listRows, currentHostId, prStatus, linearIssues, links.links, worktreeForLinks, endNames],
+  );
 
   /** Where a Chat or a new Chat goes on the computer `hostId`, which is the connected one by now. */
   function navigateTo(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
@@ -755,6 +816,7 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
   async function askChat(projectPath: string, chat: AgentSession, message: { body: string; prompt: string }) {
     const copy = copyOf(currentHostId ?? "", projectPath);
     const client = session.client;
+    const composer = readComposer();
     if (!copy || !client) throw new Error("Connection lost. Reconnect to your computer.");
     const key = `${copy.project.path}#${chat.id}`;
     const preferences = composer.preferences[key] || composer.defaults;
@@ -905,6 +967,68 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
     else setShow(id as Show);
   }
 
+  // The rows render apart (NavigationRow), from what they show and actions that always run the latest closures: a render of
+  // the list that changes nothing a row shows (a search keystroke elsewhere, a poll that found nothing new) skips them.
+  const latestActions = useRef<RowActions | null>(null);
+  useLayoutEffect(() => {
+    latestActions.current = { enter, act, projectAction, startNewChat, load };
+  });
+  const actions = useMemo<RowActions>(
+    () => ({
+      enter: (...args) => latestActions.current!.enter(...args),
+      act: (...args) => latestActions.current!.act(...args),
+      projectAction: (...args) => latestActions.current!.projectAction(...args),
+      startNewChat: (...args) => latestActions.current!.startNewChat(...args),
+      load: (...args) => latestActions.current!.load(...args),
+    }),
+    [],
+  );
+  const rowView = useMemo<RowView>(
+    () => ({
+      currentHostId,
+      currentPath,
+      activeChatId,
+      busy,
+      wide,
+      beside,
+      query,
+      now,
+      rowShow,
+      chatList,
+      selectedFill,
+      attention,
+      links,
+      archivingChats: archives.chats,
+      archiveRequests,
+      copyOf,
+      clientOf,
+      worktreeForLinks,
+      actions,
+    }),
+    [
+      currentHostId,
+      currentPath,
+      activeChatId,
+      busy,
+      wide,
+      beside,
+      query,
+      now,
+      rowShow,
+      chatList,
+      selectedFill,
+      attention,
+      links,
+      archives.chats,
+      archiveRequests,
+      copyOf,
+      clientOf,
+      worktreeForLinks,
+      actions,
+    ],
+  );
+  const renderItem = useCallback(({ item }: { item: Row }) => <NavigationRow item={item} view={rowView} />, [rowView]);
+
   // ⌘N, ⌘K and ⌘1 to ⌘9 act on the list on screen; one that opens for a shortcut picks it up as it shows.
   const runCommand = useRef<(command: NavigationCommand) => void>(() => {});
   useEffect(() => {
@@ -1012,448 +1136,8 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
           />
         }
         ListEmptyComponent={<Text style={[styles.muted, { padding: 20 }]}>{emptyText}</Text>}
-        renderItem={({ item }) => {
-          if (item.kind === "section")
-            return <Text style={[s.detail, { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
-          if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
-          if (item.kind === "start")
-            return (
-              <View style={s.startEmpty}>
-                <Icon icon={SearchRemoveIcon} tone="ink3" size={30} />
-                <Text style={s.startTitle}>No chat matches “{query.trim()}”</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Start a new chat with your search"
-                  disabled={busy}
-                  onPress={() => {
-                    tap();
-                    startNewChat(query.trim());
-                  }}
-                  style={({ pressed }) => [s.startCard, pressed && { backgroundColor: colors.hover }]}
-                >
-                  {/* Liquid Glass like the controls under it; only its position may animate, never its alpha. */}
-                  <LiquidGlassView
-                    pointerEvents="none"
-                    glassType="regular"
-                    isInteractive={false}
-                    reducedTransparencyFallbackColor={colors.surface}
-                    style={[StyleSheet.absoluteFill, { borderRadius: 18, borderCurve: "continuous" }]}
-                  />
-                  <Icon icon={PencilEdit02Icon} tone="ink" size={20} />
-                  <Text style={[s.secondary, { flex: 1, color: colors.ink, fontWeight: "600" }]}>Start a new chat with your search</Text>
-                </Pressable>
-              </View>
-            );
-          const offline = item.reach === "offline";
-          if (item.kind === "projectHit")
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`New Chat in ${item.name}${item.many ? `, ${item.hostName}` : ""}`}
-                disabled={busy || offline}
-                onPress={() => void enter(item.hostId, item.path)}
-                style={({ pressed }) => [s.projectHit, { opacity: offline ? 0.55 : 1, backgroundColor: pressed ? colors.hover : "transparent" }]}
-              >
-                {item.members ? (
-                  <ProjectIcons client={clientOf(item.hostId)} projects={item.members} />
-                ) : (
-                  <ProjectIcon client={clientOf(item.hostId)} path={item.path} />
-                )}
-                <Text numberOfLines={1} style={[s.secondary, { flex: 1, color: colors.ink }]}>
-                  {item.name}
-                </Text>
-                {item.many && <Text style={s.detail}>{item.hostName}</Text>}
-              </Pressable>
-            );
-          if (item.kind === "project") {
-            const linked = item.link;
-            const client = clientOf(item.hostId);
-            const unsaved = copyOf(item.hostId, item.path)?.project.state.persistence;
-            const menu = [
-              {
-                items: [
-                  { id: "new", title: "New Chat", systemImage: "square.and.pencil" },
-                  { id: "copy", title: linked ? "Copy Link name" : "Copy path", systemImage: "doc.on.doc" },
-                  ...(linked && item.hostId === currentHostId ? [{ id: "edit", title: "Edit Link", systemImage: "pencil" }] : []),
-                ],
-              },
-              ...(!linked ? [{ items: [{ id: "remove", title: "Remove from list", systemImage: "minus.circle", destructive: true }] }] : []),
-            ];
-            const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
-            // A tap folds the group; a long press opens the Project's menu.
-            return (
-              <View style={[s.project, { opacity: offline ? 0.55 : 1 }]}>
-                <PullDown
-                  label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
-                  title={item.name}
-                  sections={menu}
-                  onSelect={choose}
-                  onPress={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
-                  style={{ flex: 1 }}
-                >
-                  <View style={s.projectTitle}>
-                    {item.members ? <ProjectIcons client={client} projects={item.members} /> : <ProjectIcon client={client} path={item.path} />}
-                    <Text numberOfLines={1} style={[s.secondary, { flexShrink: 1, fontWeight: "500", color: colors.ink }]}>
-                      {item.name}
-                    </Text>
-                    {(item.chip || !item.expanded) && (
-                      <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                        {[
-                          item.chip ? item.hostName + (offline ? ", offline" : "") : "",
-                          item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </Text>
-                    )}
-                    <View style={{ flex: 1 }} />
-                    {unsaved && (
-                      <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.red }]}>
-                        Unsaved
-                      </Text>
-                    )}
-                    {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
-                    <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
-                  </View>
-                </PullDown>
-                <IconButton
-                  label={`New Chat in ${item.name}`}
-                  icon={Add01Icon}
-                  size={44}
-                  disabled={busy || offline}
-                  onPress={() => void enter(item.hostId, item.path)}
-                />
-              </View>
-            );
-          }
-          if (item.kind === "message") {
-            const [start, end] = item.highlight;
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${item.snippet}, in ${item.title}, ${item.project}`}
-                onPress={() => void enter(item.hostId, item.path, item.chat.id)}
-                style={({ pressed }) => [s.chat, { backgroundColor: pressed ? colors.hover : "transparent" }]}
-              >
-                <View style={[s.chatBody, { flex: 1 }]}>
-                  <View style={{ flex: 1, gap: 5 }}>
-                    <Text numberOfLines={2} style={s.chatTitle}>
-                      {item.snippet.slice(0, start)}
-                      <Text style={{ fontWeight: "600" }}>{item.snippet.slice(start, end)}</Text>
-                      {item.snippet.slice(end)}
-                    </Text>
-                    <Text numberOfLines={1} style={s.detail}>
-                      {[item.title, item.project, item.many ? item.hostName : ""].filter(Boolean).join(" · ")}
-                    </Text>
-                  </View>
-                </View>
-              </Pressable>
-            );
-          }
-          if (item.kind === "notice")
-            return (
-              <Pressable
-                accessibilityRole={item.failed ? "button" : "text"}
-                disabled={!item.failed}
-                onPress={() => void (item.retry === "project" ? load(item.hostId, item.path) : allComputers.refreshAll())}
-                style={s.notice}
-              >
-                <Text style={s.detail}>{item.message}</Text>
-              </Pressable>
-            );
-          const title = item.title;
-          const besideRow = { hostId: item.hostId, projectPath: item.path, chatId: item.chat.id, archived: item.chat.archived, offline };
-          const offerBeside = canOpenBeside(besideRow, { wide, hostId: currentHostId, projectPath: currentPath, chatId: activeChatId }, beside);
-          // The Chat open beside the open one is selected too.
-          const isBeside =
-            wide && activeChatId !== undefined && beside?.hostId === item.hostId && beside.projectPath === item.path && beside.chatId === item.chat.id;
-          const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside;
-          const tone = chatMarkTone(item.mark);
-          const pullRequests = rowShow.pullRequests ? item.pullRequests || [] : [];
-          const linearIssue = rowShow.linearIssue ? item.linearIssue : undefined;
-          const hasChips = pullRequests.length > 0 || !!linearIssue;
-          const copy = copyOf(item.hostId, item.path);
-          const worktreeDiff = rowShow.diff && !copy?.project.link ? copy?.project.state.worktrees[item.chat.worktree_id]?.diff : undefined;
-          const diff = worktreeDiff && (worktreeDiff.added > 0 || worktreeDiff.removed > 0) ? worktreeDiff : undefined;
-          const lastAt = rowShow.lastActivity ? item.chat.summary?.lastAt : undefined;
-          // The diff and the last activity sit after the branch, or after the chips.
-          const facts = (
-            <>
-              {diff && (
-                <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>
-                  <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
-                </Text>
-              )}
-              {lastAt !== undefined && chatList === "grouped" && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
-            </>
-          );
-          const branchLine = copy?.project.link ? `Shared Chat · ${copy.project.link.projects.length} Projects` : rowShow.branch ? item.worktree : "";
-          const linked = item.linked ?? [];
-          // A linked Chat shows the Link glyph beside its pin, as desktop's sidebar does.
-          const linkedIcon = linked.length ? (
-            <View accessible accessibilityLabel={linkedAccessibilityLabel(linked)}>
-              <Icon icon={Link04Icon} tone="ink3" size={12} />
-            </View>
-          ) : null;
-          const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
-          const markColor = tone === "accent" ? colors.accentInk : colors[tone];
-          // A PR link opens the Chat and then its PR there, for a Chat of this computer with a Worktree of its own.
-          const openPullRequest =
-            item.hostId === currentHostId && !copy?.project.link && !item.pending
-              ? (pr: PullRequest) => {
-                  requestPullRequest(`${item.path}#${item.chat.id}`, pr.number);
-                  void enter(item.hostId, item.path, item.chat.id);
-                }
-              : undefined;
-          const menu = chatMenu(
-            item.chat,
-            copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
-            item.hostId === currentHostId
-              ? linkMenuSection({ available: links.available, worktreePath: worktreeForLinks(item.path, item.prPath)?.worktree_path, linked: linked.length })
-              : null,
-            offerBeside,
-          );
-          // While it archives, the row stays put under the progress and takes no taps.
-          const archiving =
-            archives.chats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
-            (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
-          const grouped = chatList === "grouped";
-          const label = `${title}${item.chat.pinned ? ", pinned" : ""}, ${grouped ? item.worktree : `${item.project}, ${item.worktree}`}${markLabel ? `, ${markLabel}` : ""}${item.many ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`;
-          const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
-          // One list: inbox rows. The Project's icon, then the title with its time (a spinner while it runs, a dot when unread),
-          // then one line naming the Project, its pull requests and Linear issue, what the Chat is doing, the diff, and the
-          // computer when it isn't the open one. A tap opens the Chat and a long press opens its menu: the menu covers the row,
-          // under the pull request links, which keep their own taps.
-          if (!grouped) {
-            const running = item.mark === "running" || item.mark === "background";
-            const word = item.mark === "unread" ? "" : markLabel;
-            const unreadColor = colors[chatMarkTone("unread")];
-            const otherComputer = item.many && (item.hostId !== currentHostId || offline);
-            const separator = <Text style={s.inboxSeparator}>·</Text>;
-            // What VoiceOver reads for the row: what it shows, without the branch.
-            const inboxLabel = [
-              title,
-              item.chat.pinned ? "pinned" : "",
-              item.chat.unread ? "unread" : "",
-              copy?.project.link ? `${copy.project.link.projects.length} Projects` : item.project,
-              word,
-              otherComputer ? `${item.hostName}${offline ? ", offline" : ""}` : "",
-              linked.length ? linkedAccessibilityLabel(linked) : "",
-            ]
-              .filter(Boolean)
-              .join(", ");
-            // The second line's parts, " · " between them; the pull request links keep their own taps.
-            const parts: { key: string; node: ReactNode; links?: boolean }[] = [
-              {
-                key: "project",
-                node: copy?.project.link ? (
-                  <>
-                    <Icon icon={Link04Icon} tone="ink3" size={13} />
-                    <Text numberOfLines={1} style={s.inboxText}>
-                      {copy.project.link.projects.length} Projects
-                    </Text>
-                  </>
-                ) : (
-                  <Text numberOfLines={1} style={[s.inboxText, { flexShrink: 1 }]}>
-                    {item.project}
-                  </Text>
-                ),
-              },
-              ...(hasChips
-                ? [
-                    {
-                      key: "links",
-                      links: true,
-                      node: (
-                        <InlinePullRequestLinks
-                          pullRequests={pullRequests}
-                          linearIssue={linearIssue}
-                          separator={separator}
-                          onOpenPullRequest={openPullRequest}
-                        />
-                      ),
-                    },
-                  ]
-                : []),
-              ...(word
-                ? [
-                    {
-                      key: "mark",
-                      node: (
-                        <Text numberOfLines={1} style={[s.inboxText, { color: markColor, flexShrink: 1 }]}>
-                          {word}
-                        </Text>
-                      ),
-                    },
-                  ]
-                : []),
-              ...(diff
-                ? [
-                    {
-                      key: "diff",
-                      node: (
-                        <Text style={[s.inboxText, { fontVariant: ["tabular-nums"] }]}>
-                          <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
-                        </Text>
-                      ),
-                    },
-                  ]
-                : []),
-              ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
-            ];
-            return (
-              <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
-                <HoverView
-                  style={[s.inbox, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
-                  hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
-                >
-                  <PullDown
-                    label={inboxLabel}
-                    title={title}
-                    sections={item.pending || archiving ? [] : menu}
-                    onSelect={(action) => {
-                      if (!item.pending && !archiving) void act(item, action);
-                    }}
-                    onPress={() => {
-                      if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
-                    }}
-                    style={StyleSheet.absoluteFill}
-                    fill
-                  >
-                    <View style={{ flex: 1 }} />
-                  </PullDown>
-                  <View
-                    pointerEvents="box-none"
-                    style={[s.inboxContent, { opacity: archiving ? 0.3 : 1 }]}
-                    accessibilityElementsHidden={archiving}
-                    importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
-                  >
-                    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                      {item.members?.[0] ? (
-                        <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
-                      ) : (
-                        <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
-                      )}
-                    </View>
-                    <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
-                      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
-                        {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={13} />}
-                        {linkedIcon}
-                        <Text numberOfLines={1} style={[s.inboxTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
-                          {title}
-                        </Text>
-                        {running ? (
-                          <SpinnerRing size={14} tone="accent" />
-                        ) : (
-                          <>
-                            {lastAt !== undefined && (
-                              <Text style={[s.inboxTime, item.chat.unread && { color: unreadColor, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
-                            )}
-                            {item.chat.unread && <View style={[s.unread, { backgroundColor: unreadColor }]} />}
-                          </>
-                        )}
-                      </View>
-                      <View pointerEvents="box-none" style={s.inboxLine}>
-                        {parts.map((part, at) => (
-                          <View
-                            key={part.key}
-                            pointerEvents={part.links ? "box-none" : "none"}
-                            accessibilityElementsHidden={!part.links}
-                            importantForAccessibility={part.links ? "auto" : "no-hide-descendants"}
-                            style={[s.inboxPart, !part.links && { flexShrink: 1 }]}
-                          >
-                            {at > 0 && <View pointerEvents="none">{separator}</View>}
-                            {part.node}
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                  </View>
-                  {archiving && <ArchivingOverlay title={title} />}
-                </HoverView>
-              </View>
-            );
-          }
-          // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
-          return (
-            <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
-              <HoverView
-                style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
-                hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
-              >
-                <View
-                  style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
-                  accessibilityElementsHidden={archiving}
-                  importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
-                >
-                  <PullDown
-                    label={label}
-                    title={title}
-                    sections={item.pending || archiving ? [] : menu}
-                    onSelect={(action) => {
-                      if (!item.pending && !archiving) void act(item, action);
-                    }}
-                    onPress={() => {
-                      if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
-                    }}
-                    style={{ flex: 1 }}
-                  >
-                    <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
-                      <ChatMarkIcon mark={item.mark} background={item.background} />
-                      <View style={{ flex: 1, gap: 3 }}>
-                        <Text
-                          numberOfLines={hasChips ? 1 : 2}
-                          style={[
-                            s.chatTitle,
-                            { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" },
-                          ]}
-                        >
-                          {title}
-                        </Text>
-                        {!hasChips && secondLine && (
-                          <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
-                            {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                            {linkedIcon}
-                            {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
-                            {!!branchLine && (
-                              <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                                {branchLine}
-                              </Text>
-                            )}
-                            {facts}
-                            {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </PullDown>
-                  {hasChips && (
-                    <View>
-                      <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue} onOpenPullRequest={openPullRequest}>
-                        {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
-                        {linkedIcon}
-                        {facts}
-                        {!!markLabel && (
-                          <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: markColor }]}>
-                            {markLabel}
-                          </Text>
-                        )}
-                      </ChatPullRequestChips>
-                    </View>
-                  )}
-                </View>
-                {!item.pending && !archiving && (
-                  <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-                    <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
-                      <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
-                    </View>
-                  </PullDown>
-                )}
-                {archiving && <ArchivingOverlay title={title} />}
-              </HoverView>
-            </View>
-          );
-        }}
+        extraData={rowView}
+        renderItem={renderItem}
       />
       <ChatListControls
         hidden={controls.hidden}
@@ -1478,7 +1162,489 @@ export function ProjectNavigation({ onNavigate, onClose, activeChatId, visible =
       )}
     </View>
   );
-}
+});
+
+type RowActions = {
+  enter: (hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) => Promise<void>;
+  act: (row: { hostId: string; path: string; chat: AgentSession }, action: string) => Promise<void>;
+  projectAction: (hostId: string, projectPath: string, name: string, action: string) => Promise<void>;
+  startNewChat: (prefill?: string) => void;
+  load: (hostId: string, projectPath: string) => Promise<unknown>;
+};
+/** What every row reads besides its own item; a change re-renders the rows on screen. */
+type RowView = {
+  currentHostId?: string;
+  currentPath?: string;
+  activeChatId?: number;
+  busy: boolean;
+  wide: boolean;
+  beside: ReturnType<typeof useBesideChat>;
+  query: string;
+  now: number;
+  rowShow: ReturnType<typeof useChatRowShow>;
+  chatList: ReturnType<typeof useChatList>[0];
+  selectedFill: string;
+  attention: string[];
+  links: ReturnType<typeof useLinks>;
+  archivingChats: ReturnType<typeof useArchiveActivity>["chats"];
+  archiveRequests: Set<string>;
+  copyOf: (hostId: string, projectPath: string) => ProjectCopy | undefined;
+  clientOf: (hostId: string) => Client | null;
+  worktreeForLinks: (projectPath: string, worktreePath?: string) => { project_id: string; worktree_path: string } | undefined;
+  actions: RowActions;
+};
+/** One row of the list; memoized, so only a row whose item or view changed renders again. */
+const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; view: RowView }) {
+  const s = useS();
+  const { colors } = useTheme();
+  const {
+    currentHostId,
+    currentPath,
+    activeChatId,
+    busy,
+    wide,
+    beside,
+    query,
+    now,
+    rowShow,
+    chatList,
+    selectedFill,
+    attention,
+    links,
+    archivingChats,
+    archiveRequests,
+    copyOf,
+    clientOf,
+    worktreeForLinks,
+    actions: { enter, act, projectAction, startNewChat, load },
+  } = view;
+  if (item.kind === "section")
+    return <Text style={[s.detail, { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
+  if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
+  if (item.kind === "start")
+    return (
+      <View style={s.startEmpty}>
+        <Icon icon={SearchRemoveIcon} tone="ink3" size={30} />
+        <Text style={s.startTitle}>No chat matches “{query.trim()}”</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Start a new chat with your search"
+          disabled={busy}
+          onPress={() => {
+            tap();
+            startNewChat(query.trim());
+          }}
+          style={({ pressed }) => [s.startCard, pressed && { backgroundColor: colors.hover }]}
+        >
+          {/* Liquid Glass like the controls under it; only its position may animate, never its alpha. */}
+          <LiquidGlassView
+            pointerEvents="none"
+            glassType="regular"
+            isInteractive={false}
+            reducedTransparencyFallbackColor={colors.surface}
+            style={[StyleSheet.absoluteFill, { borderRadius: 18, borderCurve: "continuous" }]}
+          />
+          <Icon icon={PencilEdit02Icon} tone="ink" size={20} />
+          <Text style={[s.secondary, { flex: 1, color: colors.ink, fontWeight: "600" }]}>Start a new chat with your search</Text>
+        </Pressable>
+      </View>
+    );
+  const offline = item.reach === "offline";
+  if (item.kind === "projectHit")
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`New Chat in ${item.name}${item.many ? `, ${item.hostName}` : ""}`}
+        disabled={busy || offline}
+        onPress={() => void enter(item.hostId, item.path)}
+        style={({ pressed }) => [s.projectHit, { opacity: offline ? 0.55 : 1, backgroundColor: pressed ? colors.hover : "transparent" }]}
+      >
+        {item.members ? (
+          <ProjectIcons client={clientOf(item.hostId)} projects={item.members} />
+        ) : (
+          <ProjectIcon client={clientOf(item.hostId)} path={item.path} />
+        )}
+        <Text numberOfLines={1} style={[s.secondary, { flex: 1, color: colors.ink }]}>
+          {item.name}
+        </Text>
+        {item.many && <Text style={s.detail}>{item.hostName}</Text>}
+      </Pressable>
+    );
+  if (item.kind === "project") {
+    const linked = item.link;
+    const client = clientOf(item.hostId);
+    const unsaved = copyOf(item.hostId, item.path)?.project.state.persistence;
+    const menu = [
+      {
+        items: [
+          { id: "new", title: "New Chat", systemImage: "square.and.pencil" },
+          { id: "copy", title: linked ? "Copy Link name" : "Copy path", systemImage: "doc.on.doc" },
+          ...(linked && item.hostId === currentHostId ? [{ id: "edit", title: "Edit Link", systemImage: "pencil" }] : []),
+        ],
+      },
+      ...(!linked ? [{ items: [{ id: "remove", title: "Remove from list", systemImage: "minus.circle", destructive: true }] }] : []),
+    ];
+    const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
+    // A tap folds the group; a long press opens the Project's menu.
+    return (
+      <View style={[s.project, { opacity: offline ? 0.55 : 1 }]}>
+        <PullDown
+          label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
+          title={item.name}
+          sections={menu}
+          onSelect={choose}
+          onPress={() => void savedFoldedProjects.toggle(item.hostId, item.path)}
+          style={{ flex: 1 }}
+        >
+          <View style={s.projectTitle}>
+            {item.members ? <ProjectIcons client={client} projects={item.members} /> : <ProjectIcon client={client} path={item.path} />}
+            <Text numberOfLines={1} style={[s.secondary, { flexShrink: 1, fontWeight: "500", color: colors.ink }]}>
+              {item.name}
+            </Text>
+            {(item.chip || !item.expanded) && (
+              <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+            )}
+            <View style={{ flex: 1 }} />
+            {unsaved && (
+              <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.red }]}>
+                Unsaved
+              </Text>
+            )}
+            {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
+            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
+          </View>
+        </PullDown>
+        <IconButton
+          label={`New Chat in ${item.name}`}
+          icon={Add01Icon}
+          size={44}
+          disabled={busy || offline}
+          onPress={() => void enter(item.hostId, item.path)}
+        />
+      </View>
+    );
+  }
+  if (item.kind === "message") {
+    const [start, end] = item.highlight;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${item.snippet}, in ${item.title}, ${item.project}`}
+        onPress={() => void enter(item.hostId, item.path, item.chat.id)}
+        style={({ pressed }) => [s.chat, { backgroundColor: pressed ? colors.hover : "transparent" }]}
+      >
+        <View style={[s.chatBody, { flex: 1 }]}>
+          <View style={{ flex: 1, gap: 5 }}>
+            <Text numberOfLines={2} style={s.chatTitle}>
+              {item.snippet.slice(0, start)}
+              <Text style={{ fontWeight: "600" }}>{item.snippet.slice(start, end)}</Text>
+              {item.snippet.slice(end)}
+            </Text>
+            <Text numberOfLines={1} style={s.detail}>
+              {[item.title, item.project, item.many ? item.hostName : ""].filter(Boolean).join(" · ")}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+    );
+  }
+  if (item.kind === "notice")
+    return (
+      <Pressable
+        accessibilityRole={item.failed ? "button" : "text"}
+        disabled={!item.failed}
+        onPress={() => void (item.retry === "project" ? load(item.hostId, item.path) : allComputers.refreshAll())}
+        style={s.notice}
+      >
+        <Text style={s.detail}>{item.message}</Text>
+      </Pressable>
+    );
+  const title = item.title;
+  const besideRow = { hostId: item.hostId, projectPath: item.path, chatId: item.chat.id, archived: item.chat.archived, offline };
+  const offerBeside = canOpenBeside(besideRow, { wide, hostId: currentHostId, projectPath: currentPath, chatId: activeChatId }, beside);
+  // The Chat open beside the open one is selected too.
+  const isBeside = wide && activeChatId !== undefined && beside?.hostId === item.hostId && beside.projectPath === item.path && beside.chatId === item.chat.id;
+  const selected = (currentHostId === item.hostId && currentPath === item.path && activeChatId === item.chat.id) || isBeside;
+  const tone = chatMarkTone(item.mark);
+  const pullRequests = rowShow.pullRequests ? item.pullRequests || [] : [];
+  const linearIssue = rowShow.linearIssue ? item.linearIssue : undefined;
+  const hasChips = pullRequests.length > 0 || !!linearIssue;
+  const copy = copyOf(item.hostId, item.path);
+  const worktreeDiff = rowShow.diff && !copy?.project.link ? copy?.project.state.worktrees[item.chat.worktree_id]?.diff : undefined;
+  const diff = worktreeDiff && (worktreeDiff.added > 0 || worktreeDiff.removed > 0) ? worktreeDiff : undefined;
+  const lastAt = rowShow.lastActivity ? item.chat.summary?.lastAt : undefined;
+  // The diff and the last activity sit after the branch, or after the chips.
+  const facts = (
+    <>
+      {diff && (
+        <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>
+          <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
+        </Text>
+      )}
+      {lastAt !== undefined && chatList === "grouped" && <Text style={[s.detail, { fontVariant: ["tabular-nums"] }]}>{activityAgo(lastAt, now)}</Text>}
+    </>
+  );
+  const branchLine = copy?.project.link ? `Shared Chat · ${copy.project.link.projects.length} Projects` : rowShow.branch ? item.worktree : "";
+  const linked = item.linked ?? [];
+  // A linked Chat shows the Link glyph beside its pin, as desktop's sidebar does.
+  const linkedIcon = linked.length ? (
+    <View accessible accessibilityLabel={linkedAccessibilityLabel(linked)}>
+      <Icon icon={Link04Icon} tone="ink3" size={12} />
+    </View>
+  ) : null;
+  const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
+  const markColor = tone === "accent" ? colors.accentInk : colors[tone];
+  // A PR link opens the Chat and then its PR there, for a Chat of this computer with a Worktree of its own.
+  const openPullRequest =
+    item.hostId === currentHostId && !copy?.project.link && !item.pending
+      ? (pr: PullRequest) => {
+          requestPullRequest(`${item.path}#${item.chat.id}`, pr.number);
+          void enter(item.hostId, item.path, item.chat.id);
+        }
+      : undefined;
+  const menu = chatMenu(
+    item.chat,
+    copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
+    item.hostId === currentHostId
+      ? linkMenuSection({ available: links.available, worktreePath: worktreeForLinks(item.path, item.prPath)?.worktree_path, linked: linked.length })
+      : null,
+    offerBeside,
+  );
+  // While it archives, the row stays put under the progress and takes no taps.
+  const archiving =
+    archivingChats.has(`${copy?.project.path ?? item.path}#${item.chat.id}`) &&
+    (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
+  const grouped = chatList === "grouped";
+  const label = `${title}${item.chat.pinned ? ", pinned" : ""}, ${grouped ? item.worktree : `${item.project}, ${item.worktree}`}${markLabel ? `, ${markLabel}` : ""}${item.many ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`;
+  const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
+  // One list: inbox rows. The Project's icon, then the title with its time (a spinner while it runs, a dot when unread),
+  // then one line naming the Project, its pull requests and Linear issue, what the Chat is doing, the diff, and the
+  // computer when it isn't the open one. A tap opens the Chat and a long press opens its menu: the menu covers the row,
+  // under the pull request links, which keep their own taps.
+  if (!grouped) {
+    const running = item.mark === "running" || item.mark === "background";
+    const word = item.mark === "unread" ? "" : markLabel;
+    const unreadColor = colors[chatMarkTone("unread")];
+    const otherComputer = item.many && (item.hostId !== currentHostId || offline);
+    const separator = <Text style={s.inboxSeparator}>·</Text>;
+    // What VoiceOver reads for the row: what it shows, without the branch.
+    const inboxLabel = [
+      title,
+      item.chat.pinned ? "pinned" : "",
+      item.chat.unread ? "unread" : "",
+      copy?.project.link ? `${copy.project.link.projects.length} Projects` : item.project,
+      word,
+      otherComputer ? `${item.hostName}${offline ? ", offline" : ""}` : "",
+      linked.length ? linkedAccessibilityLabel(linked) : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    // The second line's parts, " · " between them; the pull request links keep their own taps.
+    const parts: { key: string; node: ReactNode; links?: boolean }[] = [
+      {
+        key: "project",
+        node: copy?.project.link ? (
+          <>
+            <Icon icon={Link04Icon} tone="ink3" size={13} />
+            <Text numberOfLines={1} style={s.inboxText}>
+              {copy.project.link.projects.length} Projects
+            </Text>
+          </>
+        ) : (
+          <Text numberOfLines={1} style={[s.inboxText, { flexShrink: 1 }]}>
+            {item.project}
+          </Text>
+        ),
+      },
+      ...(hasChips
+        ? [
+            {
+              key: "links",
+              links: true,
+              node: <InlinePullRequestLinks pullRequests={pullRequests} linearIssue={linearIssue} separator={separator} onOpenPullRequest={openPullRequest} />,
+            },
+          ]
+        : []),
+      ...(word
+        ? [
+            {
+              key: "mark",
+              node: (
+                <Text numberOfLines={1} style={[s.inboxText, { color: markColor, flexShrink: 1 }]}>
+                  {word}
+                </Text>
+              ),
+            },
+          ]
+        : []),
+      ...(diff
+        ? [
+            {
+              key: "diff",
+              node: (
+                <Text style={[s.inboxText, { fontVariant: ["tabular-nums"] }]}>
+                  <Text style={{ color: colors.add }}>+{diff.added}</Text> <Text style={{ color: colors.remove }}>−{diff.removed}</Text>
+                </Text>
+              ),
+            },
+          ]
+        : []),
+      ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
+    ];
+    return (
+      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
+        <HoverView
+          style={[s.inbox, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
+          hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
+        >
+          <PullDown
+            label={inboxLabel}
+            title={title}
+            sections={item.pending || archiving ? [] : menu}
+            onSelect={(action) => {
+              if (!item.pending && !archiving) void act(item, action);
+            }}
+            onPress={() => {
+              if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
+            }}
+            style={StyleSheet.absoluteFill}
+            fill
+          >
+            <View style={{ flex: 1 }} />
+          </PullDown>
+          <View
+            pointerEvents="box-none"
+            style={[s.inboxContent, { opacity: archiving ? 0.3 : 1 }]}
+            accessibilityElementsHidden={archiving}
+            importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
+          >
+            <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              {item.members?.[0] ? (
+                <ProjectIcon client={clientOf(item.hostId)} path={item.members[0].path} size={32} />
+              ) : (
+                <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
+              )}
+            </View>
+            <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
+              <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
+                {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={13} />}
+                {linkedIcon}
+                <Text numberOfLines={1} style={[s.inboxTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
+                  {title}
+                </Text>
+                {running ? (
+                  <SpinnerRing size={14} tone="accent" />
+                ) : (
+                  <>
+                    {lastAt !== undefined && (
+                      <Text style={[s.inboxTime, item.chat.unread && { color: unreadColor, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
+                    )}
+                    {item.chat.unread && <View style={[s.unread, { backgroundColor: unreadColor }]} />}
+                  </>
+                )}
+              </View>
+              <View pointerEvents="box-none" style={s.inboxLine}>
+                {parts.map((part, at) => (
+                  <View
+                    key={part.key}
+                    pointerEvents={part.links ? "box-none" : "none"}
+                    accessibilityElementsHidden={!part.links}
+                    importantForAccessibility={part.links ? "auto" : "no-hide-descendants"}
+                    style={[s.inboxPart, !part.links && { flexShrink: 1 }]}
+                  >
+                    {at > 0 && <View pointerEvents="none">{separator}</View>}
+                    {part.node}
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+          {archiving && <ArchivingOverlay title={title} />}
+        </HoverView>
+      </View>
+    );
+  }
+  // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
+  return (
+    <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
+      <HoverView
+        style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
+        hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
+      >
+        <View
+          style={{ flex: 1, opacity: archiving ? 0.3 : 1 }}
+          accessibilityElementsHidden={archiving}
+          importantForAccessibility={archiving ? "no-hide-descendants" : "auto"}
+        >
+          <PullDown
+            label={label}
+            title={title}
+            sections={item.pending || archiving ? [] : menu}
+            onSelect={(action) => {
+              if (!item.pending && !archiving) void act(item, action);
+            }}
+            onPress={() => {
+              if (!archiving) void enter(item.hostId, item.path, item.chat.id, item.pending);
+            }}
+            style={{ flex: 1 }}
+          >
+            <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
+              <ChatMarkIcon mark={item.mark} background={item.background} />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text
+                  numberOfLines={hasChips ? 1 : 2}
+                  style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
+                >
+                  {title}
+                </Text>
+                {!hasChips && secondLine && (
+                  <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+                    {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                    {linkedIcon}
+                    {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
+                    {!!branchLine && (
+                      <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
+                        {branchLine}
+                      </Text>
+                    )}
+                    {facts}
+                    {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
+                  </View>
+                )}
+              </View>
+            </View>
+          </PullDown>
+          {hasChips && (
+            <View>
+              <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue} onOpenPullRequest={openPullRequest}>
+                {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
+                {linkedIcon}
+                {facts}
+                {!!markLabel && (
+                  <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: markColor }]}>
+                    {markLabel}
+                  </Text>
+                )}
+              </ChatPullRequestChips>
+            </View>
+          )}
+        </View>
+        {!item.pending && !archiving && (
+          <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
+            <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+              <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
+            </View>
+          </PullDown>
+        )}
+        {archiving && <ArchivingOverlay title={title} />}
+      </HoverView>
+    </View>
+  );
+});
 
 /** A button in the list's header capsule; the capsule draws the glass behind them all. */
 function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
