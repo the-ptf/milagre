@@ -17,6 +17,12 @@ const FORBIDDEN = {
   reply: "Do not request a new review.",
 };
 
+// What a babysit Run's prompt ends with, in place of the heartbeat's "If nothing needs doing" hint (scheduler.cjs). A
+// "(pass)" folds the Run into a quiet line, and a problem on the same head commit is never handed over again, so a problem
+// the Run was handed and left unfixed must be said in plain words.
+const BABYSIT_PASS_HINT =
+  '\n\nIf you were handed a problem and did not fix it, because this level only reports or because you could not or would not, do not start your reply with "(pass)": say plainly what is still wrong and why you didn\'t fix it. Start with "(pass)" and a short reason only when there was nothing to do, such as a problem already resolved or a comment that asks for nothing.';
+
 const levelOf = (level) => BABYSIT_LEVELS.find((entry) => entry.level === level) ?? BABYSIT_LEVELS[0];
 
 /** The level the Run goes at: the setting's, or report only when the Worktree is not on the PR's branch. */
@@ -78,4 +84,4 @@ function babysitPrompt({ settings, event, pr, onBranch, headBranch = null, routi
   return lines.join("\n");
 }
 
-module.exports = { babysitPrompt, effectiveLevel, effectiveResolve };
+module.exports = { BABYSIT_PASS_HINT, babysitPrompt, effectiveLevel, effectiveResolve };

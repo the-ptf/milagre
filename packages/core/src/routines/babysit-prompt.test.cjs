@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { normalizeBabysitSettings } = require("@milagre/shared/babysit");
-const { babysitPrompt, effectiveLevel } = require("./babysit-prompt.cjs");
+const { BABYSIT_PASS_HINT, babysitPrompt, effectiveLevel } = require("./babysit-prompt.cjs");
 
 const pr = { url: "https://github.com/acme/app/pull/7", number: 7 };
 const event = {
@@ -101,4 +101,16 @@ test("the settings are never printed", () => {
   assert.ok(!text.includes("intervalMinutes"));
   assert.ok(!text.includes("stopAfter"));
   assert.ok(!text.includes("{"));
+});
+
+test("a problem handed over and left unfixed is never a pass", () => {
+  // The heartbeat hint invites "(pass)" whenever nothing needs doing; a babysit Run's says when it may not.
+  assert.ok(BABYSIT_PASS_HINT.startsWith("\n\n"));
+  assert.ok(!BABYSIT_PASS_HINT.includes("If nothing needs doing"));
+  assert.match(BABYSIT_PASS_HINT, /did not fix it.*do not start your reply with "\(pass\)"/s);
+  assert.match(BABYSIT_PASS_HINT, /say plainly what is still wrong and why you didn't fix it/);
+  assert.match(BABYSIT_PASS_HINT, /only reports/);
+  assert.match(BABYSIT_PASS_HINT, /Start with "\(pass\)" and a short reason only when there was nothing to do/);
+  // The prompt itself leaves passing to the hint.
+  assert.ok(!prompt().includes("(pass)"));
 });

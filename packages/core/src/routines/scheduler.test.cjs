@@ -6,6 +6,7 @@ const test = require("node:test");
 const { UNTRUSTED_NOTE } = require("@milagre/shared/routine-prompt");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler } = require("./scheduler.cjs");
+const { BABYSIT_PASS_HINT } = require("./babysit-prompt.cjs");
 
 const START = Date.UTC(2026, 0, 5, 10, 0, 0);
 const PASS_HINT = '\n\nIf nothing needs doing, reply starting with "(pass)" and a short reason.';
@@ -1716,7 +1717,9 @@ test("a pull-request run is sent to its own chat with the babysit prompt", async
   assert.match(sent.prompt, /Check failed: lint 1/);
   assert.match(sent.prompt, /Fix, push and reply/);
   assert.match(sent.prompt, /## Your instructions\nBe brief\./);
-  assert.ok(sent.prompt.endsWith(PASS_HINT));
+  // Its own pass hint: a problem it was handed and didn't fix is reported, never passed.
+  assert.ok(sent.prompt.endsWith(BABYSIT_PASS_HINT));
+  assert.ok(!sent.prompt.includes(PASS_HINT));
   assert.equal(sent.body, "PR #7 changed:\nCheck failed: lint 1");
   assert.equal(ctx.store.runs(routine.id)[0].status, "running");
 });

@@ -2,7 +2,7 @@ const { isTurnEnd } = require("@milagre/shared/agent-runs");
 const { clock, parsePass } = require("@milagre/shared/routines");
 const { renderRoutinePrompt } = require("@milagre/shared/routine-prompt");
 const { linearIssueUrl } = require("@milagre/shared/linear-issue");
-const { babysitPrompt, effectiveLevel, effectiveResolve } = require("./babysit-prompt.cjs");
+const { BABYSIT_PASS_HINT, babysitPrompt, effectiveLevel, effectiveResolve } = require("./babysit-prompt.cjs");
 
 const TICK_MS = 1000;
 const BUSY = "chat was busy";
@@ -361,7 +361,7 @@ function createRoutineScheduler({
       label: `PR #${number}`,
       babysit: { level, resolveThreads: effectiveResolve(settings, level), ...(onBranch ? {} : { offBranch: true }) },
     };
-    await deliver(chatId, entry, { body, prompt: text + PASS_HINT, context, settings: claimedSettings(routine) });
+    await deliver(chatId, entry, { body, prompt: text + BABYSIT_PASS_HINT, context, settings: claimedSettings(routine) });
   }
 
   async function dispatch(routine, run) {
