@@ -19,7 +19,12 @@ function createLocalMcpRegistry({ connection }) {
           if (latest.revision !== grant.revision) throw Error("Connection changed or revoked; list tools again");
           if (!group.enabled()) throw Error("Tool group disabled");
         };
-        for (const tool of group.tools({ scope: structuredClone(scope), assertActive, connectionId: id, connectionLabel: grant.label })) {
+        const currentScope = () => {
+          const latest = connection(id).grants[group.id];
+          if (!latest) throw Error("Connection changed or revoked; list tools again");
+          return structuredClone(latest);
+        };
+        for (const tool of group.tools({ scope: structuredClone(scope), currentScope, assertActive, connectionId: id, connectionLabel: grant.label })) {
           if (!tool.capability || !scope.capabilities.includes(tool.capability)) continue;
           if (tools.some((item) => item.name === tool.name)) throw Error(`Duplicate MCP tool: ${tool.name}`);
           tools.push({

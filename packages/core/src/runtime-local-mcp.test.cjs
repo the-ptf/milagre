@@ -5,6 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
+const { PendingPermissions } = require("./agents/permissions.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
 
 async function fixture(t) {
@@ -47,17 +48,21 @@ async function fixture(t) {
           options,
           turns: [],
           turnActive: false,
-          permissions: { mode: "ask" },
+          permissions: new PendingPermissions(options.emit),
+          respondToPermission: (requestId, decision) => session.permissions.resolve(requestId, decision),
           startTurn: async (request) => {
             session.turns.push(request);
-            session.permissions.mode = request.permissionMode;
+            session.permissions.setMode(request.permissionMode);
             session.turnActive = true;
             options.emit({ type: "turn-started", turnId: "turn" });
             return { turnId: "turn" };
           },
-          close: async () => {},
+          close: async () => {
+            session.permissions.cancelAll();
+          },
           interrupt: async () => {
             session.turnActive = false;
+            session.permissions.cancelAll();
             options.emit({ type: "turn-cancelled" });
           },
         };
@@ -328,4 +333,119 @@ test("a Chat mention reaches an active steering turn without repeating linked co
   assert.ok(steering.includes("<chat_mentions>"));
   assert.ok(steering.includes(`chatId: "${f.project}#${source.id}"`));
   assert.ok(!steering.includes("<linked_worktrees>"));
+});
+
+test("a running Chat can add a Project mid-chat, create Worktrees in it, and delegate to it without a canvas Link; All Projects clients see it immediately", async (t) => {
+  const f = await fixture(t);
+  const second = path.join(f.directory, "second-repo");
+  await fs.mkdir(second);
+  execFileSync("git", ["init", "-qb", "main", second]);
+  execFileSync("git", [
+    "-C",
+    second,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.test",
+    "-c",
+    "commit.gpgsign=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "Initial",
+  ]);
+
+  // Configure an outside client on a single Project first, then widen to All Projects in place without rotating its token.
+  const firstClient = await f.runtime.invoke("local-mcp:enableClient", [
+    "claude-code",
+    { label: "Claude Code CLI", grants: { projects: { projectPaths: [f.project], capabilities: ["read"] } } },
+  ]);
+  const initialToken = JSON.parse(await fs.readFile(firstClient.configPath, "utf8")).mcpServers["milagre-local"].headers.Authorization.slice(7);
+  await f.runtime.invoke("local-mcp:enableClient", [
+    "claude-code",
+    {
+      label: "Claude Code CLI",
+      grants: {
+        projects: { projectPaths: "*", capabilities: ["read"] },
+        worktrees: { projectPaths: "*", capabilities: ["read"] },
+      },
+    },
+  ]);
+  const updatedToken = JSON.parse(await fs.readFile(firstClient.configPath, "utf8")).mcpServers["milagre-local"].headers.Authorization.slice(7);
+  assert.equal(updatedToken, initialToken, "saving widened scope preserves the running client's bearer token");
+  const external = { url: JSON.parse(await fs.readFile(firstClient.configPath, "utf8")).mcpServers["milagre-local"].url, token: initialToken };
+
+  // Start a Chat in the first Project before the second Project is registered in Milagre.
+  const caller = Object.values(f.opened.state.sessions)[0];
+  await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, sessionId: caller.id, body: "Set up second repo", provider: "claude", model: "fixture", permissionMode: "full" },
+  ]);
+  await waitUntil(() => f.sessions.length === 1 && f.sessions[0].turns.length === 1);
+  const agent = { url: await f.sessions[0].options.linked.url(), token: "" };
+
+  // Registering an internal folder inside dataDir is refused even in Full mode.
+  const insideData = path.join(f.directory, "data/internal-repo");
+  await fs.mkdir(insideData, { recursive: true });
+  execFileSync("git", ["init", "-qb", "main", insideData]);
+  await assert.rejects(call(agent, "project_add", { projectPath: insideData }), /belongs to Milagre's internal state/);
+
+  // Register the second Project mid-chat with project_add: recent/registry lists and local-mcp:changed update before any Worktree mutation.
+  const added = await call(agent, "project_add", { projectPath: second });
+  assert.deepEqual(added, { id: path.join(second, ".git"), path: second, name: "second-repo", created: true, inScope: true });
+  assert.ok((await f.runtime.invoke("project:recent")).some((item) => item.path === second));
+  assert.ok((await f.runtime.invoke("project:registry")).some((item) => item.path === second));
+  assert.ok(f.events.some((event) => event.channel === "local-mcp:changed" && event.payload?.projectAdded === true));
+  assert.deepEqual(await call(agent, "project_list"), [
+    { id: path.join(second, ".git"), path: second, name: "second-repo", inScope: true },
+    { id: path.join(f.project, ".git"), path: f.project, name: "project", inScope: true },
+  ]);
+  const wt = await call(agent, "worktree_create", { projectPath: second, baseBranch: "main", requestId: "second-wt" });
+  const tree = (await call(agent, "worktree_list", { projectPath: second })).find((item) => item.id === wt.worktreeId);
+  const delegateTool = f.sessions[0].options.linked.tools.find((tool) => tool.name === "delegate");
+  const delegated = await delegateTool.run({ worktree: tree.path, chat: "new", message: "Implement shared types" });
+  assert.match(delegated, /Delegation sent to second-repo/);
+  await waitUntil(() => f.sessions.length === 2 && f.sessions[1].turns.length === 1);
+
+  // The already-running outside client with All Projects sees the newly added Project and its Worktrees immediately.
+  const outsideProjects = await call(external, "project_list");
+  assert.deepEqual(
+    outsideProjects.map((item) => item.path),
+    [second, f.project],
+  );
+  assert.ok((await call(external, "worktree_list", { projectPath: second })).some((item) => item.id === wt.worktreeId));
+
+  // An Ask-mode Chat prompts on a Milagre card for an out-of-scope Project, persists Always allow, and loses the grant on project:forget.
+  const askTurn = await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, worktreeId: caller.worktree_id, body: "Ask mode check", provider: "claude", model: "fixture", permissionMode: "ask" },
+  ]);
+  await waitUntil(() => f.sessions.length === 3 && f.sessions[2].turns.length === 1);
+  const askChatId = `${f.project}#${askTurn.sessionId}`;
+  const askAgent = { url: await f.sessions[2].options.linked.url(), token: "" };
+  const pendingList = call(askAgent, "worktree_list", { projectPath: second });
+  await waitUntil(() =>
+    f.events.some((event) => event.channel === "agent:event" && event.payload?.chatId === askChatId && event.payload.event?.type === "permission-request"),
+  );
+  const reqEvent = f.events.findLast(
+    (event) => event.channel === "agent:event" && event.payload?.chatId === askChatId && event.payload.event?.type === "permission-request",
+  );
+  await f.runtime.invoke("agent:respond-permission", [{ chatId: askChatId, requestId: reqEvent.payload.event.requestId, decision: "allow-for-chat" }]);
+  assert.ok((await pendingList).some((item) => item.id === wt.worktreeId));
+  await f.runtime.invoke("project:forget", [second]);
+  const afterForget = call(askAgent, "worktree_list", { projectPath: second });
+  await waitUntil(() =>
+    f.events.some(
+      (event) =>
+        event.channel === "agent:event" &&
+        event.payload?.chatId === askChatId &&
+        event.payload.event?.type === "permission-request" &&
+        event.payload.event.requestId !== reqEvent.payload.event.requestId,
+    ),
+  );
+  const secondReq = f.events.findLast(
+    (event) => event.channel === "agent:event" && event.payload?.chatId === askChatId && event.payload.event?.type === "permission-request",
+  );
+  await f.runtime.invoke("agent:respond-permission", [{ chatId: askChatId, requestId: secondReq.payload.event.requestId, decision: "deny" }]);
+  await assert.rejects(afterForget, /declined access/);
 });

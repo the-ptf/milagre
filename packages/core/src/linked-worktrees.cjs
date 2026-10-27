@@ -30,6 +30,7 @@ function createLinkedWorktrees({
   dataDir,
   registry,
   linkProjects = async () => [],
+  grantedProjects = () => [],
   project,
   messages = async (projectPath, chatIds) => {
     const all = (await project(projectPath)).messages;
@@ -99,15 +100,23 @@ function createLinkedWorktrees({
   }
 
   /**
-   * An active Worktree of the Chat's own Project as a Delegation target, with no Link, or null. A shared Link Chat's own
-   * Projects are its Link's members; its own Worktrees there belong to it alone (ADR-0005), so they are refused.
+   * An active Worktree of the Chat's own Project (or a Project granted to this Chat) as a Delegation target, with no
+   * Link, or null. A shared Link Chat's own Projects are its Link's members; its own Worktrees there belong to it alone
+   * (ADR-0005), so they are refused.
    */
   async function ownWorktree(chatId, worktreePath) {
     const scope = projectOfKey(chatId);
-    const candidates = isLinkScopeKey(scope)
+    const { projects } = await registry().snapshot();
+    const base = isLinkScopeKey(scope)
       ? await linkProjects(scopeFromKey(scope).linkId)
-      : [(await registry().snapshot()).projects.find((item) => item.path === scope) ?? { path: scope, name: path.basename(scope) }];
-    for (const candidate of candidates) {
+      : [projects.find((item) => item.path === scope) ?? { path: scope, name: path.basename(scope) }];
+    const extra = botOf(chatId)
+      ? []
+      : (await grantedProjects(chatId))
+          .filter((projectPath) => !base.some((item) => item.path === projectPath))
+          .map((projectPath) => projects.find((item) => item.path === projectPath))
+          .filter(Boolean);
+    for (const candidate of [...base, ...extra]) {
       const state = await project(candidate.path);
       const worktree = Object.values(state.worktrees).find((item) => item.path === worktreePath);
       if (!worktree || !(await active(candidate.path)).includes(worktreePath)) continue;

@@ -234,7 +234,10 @@ class Delegations {
       );
     }
     const target = await this.ports.target(fromChat, worktree);
-    if (!target) throw new Error("That Worktree isn't linked to this Chat. Use linked_overview to see the ones that are.");
+    if (!target)
+      throw new Error(
+        "That Worktree isn't linked to this Chat. Use linked_overview to see the ones that are, link it with worktree_link, or grant this Chat access to its Project first.",
+      );
     const toLabel = chat === "new" ? `${target.projectName} / ${target.branch} / a new Chat` : await this.chatLabel(chat, worktree);
     const from = await this.ports.chat(fromChat);
     // A Link reaches another Project's Chats, so the user approves it in Ask mode. The Chat's own Project needs no card:

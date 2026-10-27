@@ -206,6 +206,7 @@ function makeBridge(invoke, listen, send) {
       revoke: (id) => invoke("local-mcp:revoke", id),
       enableClient: (id, input) => invoke("local-mcp:enableClient", id, input),
       disableClient: (id) => invoke("local-mcp:disableClient", id),
+      onChanged: (callback) => listen("local-mcp:changed", callback),
     },
     onLinearStatusChanged: (callback) => listen("linear:status-changed", callback),
     onLinearEnabledChanged: (callback) => listen("linear:enabled-changed", callback),

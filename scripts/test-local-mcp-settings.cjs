@@ -73,8 +73,14 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('form')`);
     await evaluate(`document.querySelector('[role=radio][data-state=checked]').focus()`);
     win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
+    await waitFor(`document.querySelector('[role=radio][aria-label="All Projects"]').getAttribute('aria-checked')==='true'`);
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
     await waitFor(`document.querySelector('[role=radio][aria-label="Designs only"]').getAttribute('aria-checked')==='true'`);
     win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
+    await waitFor(`document.querySelector('[role=radio][aria-label="All Projects"]').getAttribute('aria-checked')==='true'`);
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Left" });
     win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
     await waitFor(`document.querySelector('[role=radio][aria-label="Projects"]').getAttribute('aria-checked')==='true'`);
     win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Left" });
@@ -85,6 +91,13 @@ async function browserChecks() {
     await click("Enable Claude Code CLI");
     await waitFor(`document.querySelector('[data-local-client="claude-code"] [role=switch]').getAttribute('aria-checked')==='true'`);
     assert.deepEqual(await evaluate("window.created[0].grants.projects.projectPaths"), ["/test/project"]);
+    await evaluate(`document.querySelector('[data-local-client="gemini"] [role=switch]').click()`);
+    await waitFor(`!!document.querySelector('form')`);
+    await evaluate(`document.querySelector('[role=radio][aria-label="All Projects"]').click()`);
+    await click("Enable Gemini CLI");
+    await waitFor(`document.querySelector('[data-local-client="gemini"] [role=switch]').getAttribute('aria-checked')==='true'`);
+    assert.equal(await evaluate("window.created[1].grants.projects.projectPaths"), "*");
+    assert.equal(await evaluate(`document.querySelector('[data-local-client="gemini"]').textContent.includes('All Projects')`), true);
     await evaluate(`document.querySelector('[data-local-client="codex"] [role=switch]').click()`);
     await waitFor(`!!document.querySelector('form')`);
     await evaluate(`document.querySelector('[role=radio][aria-label="Designs only"]').click()`);
@@ -94,7 +107,7 @@ async function browserChecks() {
     await shot("local-mcp-client-access");
     await click("Enable Codex CLI");
     await waitFor(`document.querySelector('[data-local-client="codex"] [role=switch]').getAttribute('aria-checked')==='true'`);
-    assert.deepEqual(await evaluate("window.created[1].grants"), { designs: { chatId: "/test/project#2", designIds: ["one", "two"], capabilities: ["read"] } });
+    assert.deepEqual(await evaluate("window.created[2].grants"), { designs: { chatId: "/test/project#2", designIds: ["one", "two"], capabilities: ["read"] } });
     await evaluate(`document.querySelector('h1').scrollIntoView()`);
     await shot("local-mcp-clients-dark");
     await evaluate(`document.documentElement.classList.remove('dark')`);
@@ -105,7 +118,10 @@ async function browserChecks() {
     await waitFor(`document.querySelector('[data-local-client="codex"] [role=switch]').getAttribute('aria-checked')==='false'`);
     await evaluate(`document.querySelector('[role=switch][aria-label="Custom MCP"]').click()`);
     await waitFor(`!!document.querySelector('#custom-mcp-settings form')`);
+    await evaluate(`document.querySelector('#custom-mcp-settings [role=radio][aria-label="All Projects"]').click()`);
+    assert.equal(await evaluate(`document.querySelector('#custom-mcp-settings button[type=submit]').disabled`), true);
     await fill("Connection name", "Design editor");
+    assert.equal(await evaluate(`document.querySelector('#custom-mcp-settings button[type=submit]').disabled`), false);
     await evaluate(`document.querySelector('[role=radio][aria-label="Designs only"]').click()`);
     await fill("Chat reference", "/test/project#2");
     await fill("Design IDs", "one, two");

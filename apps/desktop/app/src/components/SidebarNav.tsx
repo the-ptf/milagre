@@ -81,7 +81,7 @@ import {
   withHeartbeats,
 } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
-import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 
 type HugeIconProps = { size?: number; className?: string };
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -677,7 +677,13 @@ export default memo(function SidebarNav({
   useEffect(() => {
     const changed = () => setListsChanged((count) => count + 1);
     window.addEventListener(RECENT_PROJECTS_CHANGED, changed);
-    return () => window.removeEventListener(RECENT_PROJECTS_CHANGED, changed);
+    const stopLocalMcp = bridgeFor(LOCAL_COMPUTER).localMcp?.onChanged?.((payload) => {
+      if (payload?.projectAdded) window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+    });
+    return () => {
+      window.removeEventListener(RECENT_PROJECTS_CHANGED, changed);
+      stopLocalMcp?.();
+    };
   }, []);
   // Another window saved a new group order: follow it.
   const [, setOrderSynced] = useState(0);

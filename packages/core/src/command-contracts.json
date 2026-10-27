@@ -5229,15 +5229,22 @@
       "type": "object",
       "properties": {
         "projectPaths": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
         },
         "capabilities": {
           "type": "array",
           "items": {
-            "const": "read"
+            "enum": ["read", "create"]
           }
         }
       },
@@ -5248,10 +5255,17 @@
       "type": "object",
       "properties": {
         "projectPaths": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
         },
         "capabilities": {
           "type": "array",
@@ -5267,10 +5281,17 @@
       "type": "object",
       "properties": {
         "projectPaths": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "const": "*"
+            }
+          ]
         },
         "capabilities": {
           "type": "array",
