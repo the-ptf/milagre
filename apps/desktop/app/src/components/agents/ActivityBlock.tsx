@@ -1,5 +1,8 @@
-import { useRef, useState } from "react";
-import type { ComponentProps } from "react";
+import { createContext, useContext, useRef, useState } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { activityDuration, stepDisplayTitle } from "@milagre/shared/tool-activity";
+import { useDisplayValue } from "../../lib/display-clock";
+import { ActivitySources } from "./ActivitySource";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
@@ -12,6 +15,7 @@ import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
 
 const NO_WAITING_STEPS: string[] = [];
+export const ActivityApprovalContext = createContext<{ stepId: string; content: ReactNode } | null>(null);
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -23,7 +27,7 @@ function Title({ step, running }: { step: ChatStep; running: boolean }) {
   const sweep = useStepTitleSweep(step, running);
   return (
     <>
-      {titleSpans(step.title).map((span, index) =>
+      {titleSpans(stepDisplayTitle(step, running)).map((span, index) =>
         span.code ? (
           <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`} style={sweep.style}>
             {span.text}
@@ -61,13 +65,22 @@ export function ActivityBlock({
   // An earlier step can resume or need approval. Reveal it permanently, without evicting rows.
   if (boundary !== null && hidden < boundary) setBoundary(hidden);
   const { toolCallDisplay } = useSettings();
+  const approval = useContext(ActivityApprovalContext);
+  const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
+  const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, streaming, now), streaming);
+  const inlineApproval = streaming && approval && steps.some((step) => step.id === approval.stepId) ? approval : null;
   if (!entries.length) return null;
   if (toolCallDisplay === "full")
     return (
       <div data-slot="activity-inline" className="-mx-1.5 my-1 flex min-w-0 flex-col">
         {entries.map((entry, index) =>
           entry.type === "step" ? (
-            <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
+            <StepRow
+              key={entry.step.id}
+              step={entry.step}
+              waiting={waitingStepIds.includes(entry.step.id)}
+              after={entry.step.id === inlineApproval?.stepId ? inlineApproval.content : undefined}
+            />
           ) : (
             <div key={`text-${index}`} className="px-1.5 py-1.5">
               <Markdown text={entry.text} />
@@ -77,10 +90,12 @@ export function ActivityBlock({
       </div>
     );
   const first = entries[0];
-  if (entries.length === 1 && first?.type === "step") return <StepRow key={first.step.id} step={first.step} waiting={waitingStepIds.includes(first.step.id)} />;
+  if (entries.length === 1 && first?.type === "step")
+    return <StepRow key={first.step.id} step={first.step} waiting={waitingStepIds.includes(first.step.id)} after={inlineApproval?.content} />;
 
-  const steps = entries.flatMap((entry): ChatStep[] => (entry.type === "step" ? [entry.step] : []));
-  const current = streaming ? steps.findLast((step) => step.status === "running") : undefined;
+  const current = streaming
+    ? (steps.find((step) => step.status === "running" && waitingStepIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
+    : undefined;
   const waiting = current ? waitingStepIds.includes(current.id) : false;
   const summary = activitySummary(steps);
 
@@ -95,19 +110,29 @@ export function ActivityBlock({
         }}
         className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left text-[12.5px] leading-[1.4] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
       >
-        <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" className="shrink-0" fill={current ? "var(--ink-2)" : "var(--ink-3)"}>
-          <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
-        </svg>
+        <ActivitySources steps={steps} />
         <span role="status" className="min-w-0 truncate">
-          {current ? <Title key={current.id} step={current} running={!waiting} /> : summary.text}
+          {current ? (
+            steps.filter((step) => step.status === "running").length > 1 && !waiting ? (
+              `Running ${steps.filter((step) => step.status === "running").length} calls`
+            ) : (
+              <Title key={current.id} step={current} running={!waiting} />
+            )
+          ) : streaming ? (
+            "Working"
+          ) : (
+            summary.text
+          )}
         </span>
         {waiting && <span className="shrink-0 text-[11.5px] text-ink-3">Waiting for approval</span>}
-        {!current && summary.failed > 0 && (
+        {summary.failed > 0 && (
           <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-red">
             <Icon icon={Alert02Icon} size={13} />
             {summary.failed} failed
           </span>
         )}
+        {streaming && <span className="shrink-0 text-[11.5px] text-ink-3">{steps.length} calls</span>}
+        {elapsed && <span className="shrink-0 text-[11.5px] text-ink-3 tabular-nums">{elapsed}</span>}
         <span aria-hidden className={`shrink-0 text-ink-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
@@ -144,7 +169,12 @@ export function ActivityBlock({
             {boundary !== null &&
               entries.slice(hidden).map((entry, index) =>
                 entry.type === "step" ? (
-                  <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
+                  <StepRow
+                    key={entry.step.id}
+                    step={entry.step}
+                    waiting={waitingStepIds.includes(entry.step.id)}
+                    after={open && entry.step.id === inlineApproval?.stepId ? inlineApproval.content : undefined}
+                  />
                 ) : (
                   <div key={`text-${hidden + index}`} className="px-1.5 py-1 text-[12.5px] leading-[1.55] text-ink-2">
                     <Markdown text={entry.text} />
@@ -154,6 +184,7 @@ export function ActivityBlock({
           </div>
         </div>
       </div>
+      {!open && inlineApproval && <div className="mt-2 ml-6">{inlineApproval.content}</div>}
     </div>
   );
 }

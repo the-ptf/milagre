@@ -387,7 +387,10 @@ test("a Codex subagent's design call is an artifact step of the reply, named for
   const started = mapCodexNotification("item/started", { threadId: "child", item: call }, state);
   assert.deepEqual(
     started.find((event) => event.type === "step-started"),
-    { type: "step-started", step: { id: "d1", kind: "artifact", title: "Showed `Card`", tool: "design_show", agent: "child" } },
+    {
+      type: "step-started",
+      step: { id: "d1", kind: "artifact", title: "Showed `Card`", tool: "design_show", agent: "child", source: { name: "design_show", server: "milagre" } },
+    },
   );
   const text = JSON.stringify({ id: "card", version: 1, title: "Card", format: "design" });
   const completed = mapCodexNotification(

@@ -2,6 +2,7 @@ const path = require("node:path");
 const { capText } = require("./permissions.cjs");
 const { capOutput, code, routineRef, thinkingEnd, thinkingStep } = require("./steps.cjs");
 const { acpPlanTasks } = require("./tasks.cjs");
+const { toolMetadata } = require("@milagre/shared/tool-activity");
 
 // ACP session/update notifications -> Milagre's AgentEvents (see steps.cjs for the step shapes). The
 // mapper keeps its own state per session:
@@ -120,7 +121,9 @@ function compact(object) {
 function acpStep(call, diffs = diffsOf(call)) {
   const id = String(call.toolCallId);
   const file = fileOf(call);
-  const step = (kind, title, detail, stepFile) => compact({ id, kind, title, detail, file: stepFile });
+  const mcp = meta(call).mcp;
+  const metadata = mcp?.server && mcp?.tool ? toolMetadata(mcp.server, mcp.tool, call.rawInput) : {};
+  const step = (kind, title, detail, stepFile) => compact({ id, kind, title, detail, file: stepFile, ...metadata });
   switch (call.kind) {
     case "execute": {
       const command = commandOf(call);

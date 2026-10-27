@@ -19,6 +19,7 @@ const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@mil
 const { framedBrief, renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
+const { summarizeStep } = require("@milagre/shared/tool-activity");
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 const { PERMISSION_MODES } = require("./permissions.cjs");
@@ -587,7 +588,21 @@ class ChatHost {
           // running step keeps its original deadline, including while it waits for approval.
           if (event.type === "step-started") {
             const startedAt = this.runs[chatId]?.steps.find((step) => step.id === event.step.id)?.startedAt ?? this.now();
-            event = { ...event, step: { ...event.step, startedAt } };
+            const command =
+              ["shell", "setup"].includes(event.step.kind) && event.step.detail?.startsWith("$ ") && event.step.detail.endsWith("\n")
+                ? event.step.detail.slice(2, -1)
+                : undefined;
+            const input = command && command.length <= 4000 ? command : event.step.input;
+            event = { ...event, step: { ...event.step, ...(input ? { input } : {}), startedAt } };
+          }
+          if (event.type === "step-completed") {
+            const step = this.runs[chatId]?.steps.find((item) => item.id === event.id);
+            if (step) {
+              const endedAt = this.now();
+              const durationMs = event.durationMs ?? (step.startedAt == null ? undefined : Math.max(0, endedAt - step.startedAt));
+              const facts = summarizeStep({ ...step, ...event });
+              event = { ...event, ...facts, endedAt, ...(durationMs === undefined ? {} : { durationMs }) };
+            }
           }
           const result = applyAgentEvent(state, this.runs, projectPath, chatId, event);
           this.runs = result.runs;

@@ -163,7 +163,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/themes" ||
           id === "@milagre/shared/file-kinds" ||
           id === "@milagre/shared/streaming-blocks" ||
-          id === "@milagre/shared/step-sweep") &&
+          id === "@milagre/shared/step-sweep" ||
+          id === "@milagre/shared/tool-activity") &&
         !(id in modules)
       )
         return require(id);
@@ -197,6 +198,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       )
         return require(id);
       if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
+      if (relative === "activity-source" && !(id in modules)) return { ActivitySources: "ActivitySources", ActivityIcon: "ActivityIcon" };
+      if (relative === "step-output" && !(id in modules))
+        return load("step-output.tsx", { ...modules, "expo-clipboard": { setStringAsync: async () => {} } }, "", cache);
       // Long-press message actions are an iOS-only wrapper: tests see the message as it is without it, with its text selectable.
       if (base === "message-actions" && !(id in modules))
         return { MessageActions: messageActionsStub, messageActionProps: () => ({}), selectableMessageText: true };
@@ -5990,7 +5994,7 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
     "@milagre/shared/use-step-sweep": {
       useStepSweep: (start, enabled) => (enabled ? require("@milagre/shared/step-sweep").sweepRemainingMs(start, Date.now()) : 0),
     },
-    "./display-clock": { useScreenActive: () => active },
+    "./display-clock": { useScreenActive: () => active, useDisplayValue: (_interval, compute) => compute(Date.now()) },
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./ui": {
       colors: palette,
@@ -9634,6 +9638,144 @@ test("mobile Full detail shows each tool call and the notes between them in the 
     ["Running the tests.", "a", "Tests pass, reading the config.", "b", "c", "Done."],
     "Full detail: every step and note, in order",
   );
+  const opened = [];
+  const live = { text: "", steps: steps.map((step) => ({ ...step, offset: 0, status: "running" })), approvals: [{ stepId: "b" }], questions: [] };
+  const tree = reply("full")({ ...props, message: undefined, run: live, onActivity: (...args) => opened.push(args) });
+  find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.onPress();
+  assert.deepEqual(opened, [["run", "b"]], "tapping a call opens that exact call in the sheet");
+  assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "a").props.waiting, false);
+  assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.waiting, true);
+});
+
+test("mobile activity sheet opens the selected call without paging and tethers approval to its own row", async () => {
+  const react = hookHost();
+  let params = { id: "1", message: "run", stepId: "b" };
+  const answers = [];
+  const steps = ["a", "b", "c"].map((id) => ({ id, kind: "shell", title: `Ran ${id}`, status: "running" }));
+  const run = { text: "", steps, approvals: [{ requestId: "approval-b", stepId: "b" }], questions: [] };
+  const { default: ActivitySheet } = load("app/activity.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { useLocalSearchParams: () => params, router: { back() {} } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "cancel" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "../tool-row": { ToolRow: "ToolRow" },
+    "../markdown": { Markdown: "Markdown" },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../questions": { Approval: "Approval" },
+    "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
+    "../session": {
+      useSession: () => ({
+        snapshot: { project: { path: "/project", state: { messages: [] } }, runs: { runs: { "/project#1": run } } },
+        client: {
+          call: async (...args) => {
+            answers.push(args);
+            return true;
+          },
+        },
+      }),
+    },
+  });
+  const render = () => {
+    react.begin();
+    return ActivitySheet();
+  };
+  let tree = render();
+  assert.equal(find(tree, (node) => node.type === "Text" && node.props.accessibilityRole === "header").props.children, "Tool call");
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.expanded, true);
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "the selected call has no paging controls",
+  );
+  await find(tree, (node) => node.type === "Approval").props.respond("allow");
+  await Promise.resolve();
+  assert.equal(JSON.stringify(answers), JSON.stringify([["agent:respond-permission", [{ chatId: "/project#1", requestId: "approval-b", decision: "allow" }]]]));
+  params = { ...params, stepId: "c" };
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "another call never inherits this approval",
+  );
+  params = { id: "1", message: "run" };
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "Approval").props.approval.stepId, "b", "the all-calls view also exposes its waiting approval");
+});
+
+test("mobile tool output retries after reconnect and clears the failed-read controls after success", async () => {
+  const react = hookHost({ effects: true });
+  const requests = [];
+  const saved = {
+    id: 9,
+    session_id: 1,
+    role: "assistant",
+    body: "Checked.",
+    steps: [{ id: "call", kind: "shell", title: "Ran tests", status: "done", hasDetail: true }],
+  };
+  const session = {
+    reconnects: 0,
+    snapshot: { project: { path: "/project", state: { messages: [saved] } }, runs: { runs: {} } },
+    client: {
+      message: () => {
+        const request = deferred();
+        requests.push(request);
+        return request.promise;
+      },
+    },
+  };
+  const { default: ActivitySheet } = load("app/activity.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { useLocalSearchParams: () => ({ id: "1", message: "9", stepId: "call" }), router: { back() {} } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "cancel" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "../tool-row": { ToolRow: "ToolRow" },
+    "../markdown": { Markdown: "Markdown" },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../questions": { Approval: "Approval" },
+    "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
+    "../session": { useSession: () => session },
+  });
+  const render = () => {
+    react.begin();
+    return ActivitySheet();
+  };
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  render();
+  requests[0].reject(new Error("Connection lost"));
+  await settle();
+  let tree = render();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Try again").props.onPress();
+  render();
+  assert.equal(requests.length, 2, "manual retry starts a fresh read");
+  requests[1].reject(new Error("Still offline"));
+  await settle();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === "PillButton" && node.props.title === "Try again"));
+  session.reconnects++;
+  tree = render();
+  assert.equal(requests.length, 3, "the same client automatically retries on reconnect");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "a new connection leaves the stale error state",
+  );
+  requests[2].resolve({ ...saved, steps: [{ ...saved.steps[0], detail: "$ tests\n38 passed" }] });
+  await settle();
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.step.detail, "$ tests\n38 passed");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "success removes the old retry button",
+  );
+  react.unmount();
 });
 
 test("mobile usage identifies the account by email, falls back to its label, and accepts older hosts", () => {

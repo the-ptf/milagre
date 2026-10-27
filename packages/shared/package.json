@@ -57,6 +57,10 @@
   ],
   "type": "module",
   "exports": {
+    "./tool-activity": {
+      "types": "./src/tool-activity.d.mts",
+      "default": "./src/tool-activity.mjs"
+    },
     "./chat-window-cache": "./src/chat-window-cache.ts",
     "./display-clock": "./src/display-clock.ts",
     "./step-sweep": "./src/step-sweep.ts",

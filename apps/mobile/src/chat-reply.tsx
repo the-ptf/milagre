@@ -1,6 +1,8 @@
-import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useEffect, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, Text, View, type ImageSourcePropType, type ViewInstance } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { activityDuration, stepDisplayTitle, waitingStepIds } from "@milagre/shared/tool-activity";
+import { useDisplayValue } from "./display-clock";
+import { ActivitySources } from "./activity-source";
 import { router } from "expo-router";
 import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
@@ -168,39 +170,42 @@ function GeneratedImage({ step, media }: { step: ChatStep; media: MediaSource })
     </Pressable>
   );
 }
-const SPARKLE = "M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z";
-/** Desktop's ActivityBlock header: a sparkle, the running step's shimmering title or the summary, and failures. */
-function ActivityRow({ steps, live, waiting, onPress }: { steps: ChatStep[]; live: boolean; waiting: boolean; onPress: () => void }) {
+/** Desktop's activity header, with the pending call ahead of other parallel work. */
+function ActivityRow({ steps, live, waitingIds, onPress }: { steps: ChatStep[]; live: boolean; waitingIds: string[]; onPress: () => void }) {
   const { colors } = useTheme();
-  const current = live ? steps.findLast((step) => step.status === "running") : undefined;
+  const current = live
+    ? (steps.find((step) => step.status === "running" && waitingIds.includes(step.id)) ?? steps.findLast((step) => step.status === "running"))
+    : undefined;
+  const waiting = !!current && waitingIds.includes(current.id);
   const summary = activitySummary(steps);
-  const label = current ? current.title : summary.text || "Activity";
+  const elapsed = useDisplayValue(1000, (now) => activityDuration(steps, live, now), live);
+  const runningCount = steps.filter((step) => step.status === "running").length;
+  const label = current ? stepDisplayTitle(current, !waiting) : live ? "Working" : summary.text || "Activity";
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${label.replace(/`/g, "")}${waiting ? ", waiting for approval" : ""}${!current && summary.failed ? `, ${summary.failed} failed` : ""}. Show activity`}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 36, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, opacity: pressed ? 0.5 : 1 })}
     >
-      <Svg width={16} height={16} viewBox="0 0 24 24">
-        <Path d={SPARKLE} fill={current ? colors.ink2 : colors.ink3} />
-      </Svg>
+      <ActivitySources steps={steps} />
       <View style={{ flexShrink: 1 }}>
-        {current ? (
-          <ActivityTitle key={current.id} title={current.title} startedAt={current.startedAt} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
+        {current && (runningCount <= 1 || waiting) ? (
+          <ActivityTitle key={current.id} title={label} startedAt={current.startedAt} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
         ) : (
           <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 14 }}>
-            {label}
+            {current && runningCount > 1 ? `Running ${runningCount} calls` : label}
           </Text>
         )}
       </View>
       {waiting && <Text style={{ color: colors.ink3, fontSize: 12.5 }}>Waiting for approval</Text>}
-      {!current && summary.failed > 0 && (
+      {summary.failed > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Icon icon={Alert02Icon} tone="red" size={13} />
           <Text style={{ color: colors.red, fontSize: 12.5 }}>{summary.failed} failed</Text>
         </View>
       )}
+      {!!elapsed && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
       <View style={{ flex: 1 }} />
       <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
     </Pressable>
@@ -238,6 +243,7 @@ export const ChatReply = memo(function ChatReply({
   message,
   run,
   onActivity,
+  approvalForStep,
   media,
   basePath,
   chatId,
@@ -254,7 +260,8 @@ export const ChatReply = memo(function ChatReply({
   /** The task in Undo changes' view: its message is outlined, as on desktop. */
   highlighted?: boolean;
   run?: AgentRun;
-  onActivity: (message: string) => void;
+  onActivity: (message: string, stepId?: string) => void;
+  approvalForStep?: (stepId?: string) => ReactNode;
   media: MediaSource;
   basePath?: string;
   /** The Chat's key, to open the designs its replies showed. */
@@ -284,13 +291,13 @@ export const ChatReply = memo(function ChatReply({
   );
   const [toolCallDisplay] = useToolCallDisplay();
   const savedMedia = useCallback((path: string) => media(message?.images?.find((image) => image.sourcePath === path)?.path || path), [media, message?.images]);
-  const openActivity = () => onActivity(message ? String(message.id) : "run");
+  const openActivity = (stepId?: string) => onActivity(message ? String(message.id) : "run", stepId);
   const text = run?.text ?? message?.body ?? "";
   const allSteps = run?.steps ?? message?.steps ?? [];
   // A heartbeat_create step that set a Heartbeat shows as its card, not as one more activity row.
   const reply = replyActivity(text, allSteps);
   const heartbeats = reply.heartbeats;
-  const waiting = !!(run?.approvals.length || run?.questions.length);
+  const waitingIds = waitingStepIds(run?.approvals);
   // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
   // So does a PR-blocker pill's action, instead of the skill prompt the agent read.
@@ -418,13 +425,16 @@ export const ChatReply = memo(function ChatReply({
     <View style={{ gap: 14, paddingVertical: 8 }}>
       {linked && <LinkedHeader context={linked} onOpenChat={onOpenChat} />}
       {reply.setup.map((step) => (
-        <ToolRow key={step.id} step={step} live={!!run} waiting={waiting} onPress={openActivity} />
+        <ToolRow key={step.id} step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
       ))}
       {/* Full detail (Settings › Chat › Tool call display): every tool call is its own row, with the notes between them. */}
       {toolCallDisplay === "full" ? (
         reply.activity.map((entry, index) =>
           entry.type === "step" ? (
-            <ToolRow key={entry.step.id} step={entry.step} live={!!run} waiting={waiting} onPress={openActivity} />
+            <View key={entry.step.id}>
+              <ToolRow step={entry.step} live={!!run} waiting={waitingIds.includes(entry.step.id)} onPress={() => openActivity(entry.step.id)} />
+              {approvalForStep?.(entry.step.id)}
+            </View>
           ) : (
             <MessageActions key={`text-${index}`} text={entry.text} markdown>
               {(openActions) => (
@@ -434,20 +444,27 @@ export const ChatReply = memo(function ChatReply({
           ),
         )
       ) : reply.activity.length === 1 && reply.activity[0]?.type === "step" ? (
-        <ToolRow key={reply.activity[0].step.id} step={reply.activity[0].step} live={!!run} waiting={waiting} onPress={openActivity} />
+        <ToolRow
+          key={reply.activity[0].step.id}
+          step={reply.activity[0].step}
+          live={!!run}
+          waiting={waitingIds.includes(reply.activity[0].step.id)}
+          onPress={() => openActivity(reply.activity[0]!.type === "step" ? reply.activity[0]!.step.id : undefined)}
+        />
       ) : (
         reply.activity.length > 0 && (
           <ActivityRow
             steps={reply.activity.flatMap((entry) => (entry.type === "step" ? [entry.step] : []))}
             live={!!run}
-            waiting={waiting}
-            onPress={openActivity}
+            waitingIds={waitingIds}
+            onPress={() => openActivity()}
           />
         )
       )}
+      {toolCallDisplay !== "full" && approvalForStep?.()}
       {reply.images.map((step) => (
         <View key={step.id} style={{ gap: 6 }}>
-          <ToolRow step={step} live={!!run} waiting={waiting} onPress={openActivity} />
+          <ToolRow step={step} live={!!run} waiting={waitingIds.includes(step.id)} onPress={() => openActivity(step.id)} />
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
