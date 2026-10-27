@@ -31,6 +31,8 @@ const held = new Map<string, { epoch: string; version: number; state: AnyState }
 // removes its run, so it waits for the state with its saved reply and both reach the window together.
 type HeldEvent = { event: Omit<AgentEventUpdate, "state">; withState: boolean };
 const reading = new Map<string, { patches: Numbered[]; events: HeldEvent[] }>();
+// Scopes whose read again gave up after a change: the window's copy may miss that change until the next one reads it.
+const behind = new Set<string>();
 const projectListeners = new Set<(update: ProjectStateUpdate) => void>();
 const linkListeners = new Set<(update: LinkStateUpdate) => void>();
 const agentListeners = new Set<(update: AgentEventUpdate) => void>();
@@ -87,6 +89,7 @@ async function readAgain(scope: string, first: Numbered) {
       }
       if (gap) continue;
       held.set(scope, current);
+      behind.delete(scope);
       reading.delete(scope);
       // Message changes in the gap are lost: the Chats shown read their messages again.
       if (isLean(current.state)) for (const listener of messageListeners) listener({ scope, reset: true });
@@ -100,8 +103,46 @@ async function readAgain(scope: string, first: Numbered) {
   }
   if (reading.get(scope) !== pending) return;
   held.delete(scope);
+  behind.add(scope);
   reading.delete(scope);
   release(pending);
+}
+
+/** What an open reply (a Project's open or read, a Link's) carries: its state, and from a host that numbers states,
+ * that state's number (`version`) and the host's run (`epoch`). */
+export type NumberedReply = { state?: unknown; version?: number; epoch?: string };
+const numberOf = (reply: NumberedReply | null | undefined) =>
+  reply && typeof reply.version === "number" && typeof reply.epoch === "string" ? { version: reply.version, epoch: reply.epoch } : null;
+
+/**
+ * Keeps an open reply's state as the scope's last numbered state, so the host's next patch applies to it instead of
+ * reading the whole state again. Only a numbered state with its sessions counts; a held state of the same host as new
+ * or newer, or a read under way, stays.
+ */
+export function seedHeldState(scope: string, reply: NumberedReply | null | undefined) {
+  const number = numberOf(reply);
+  const state = reply?.state as AnyState | undefined;
+  if (!number || !state?.sessions || reading.has(scope)) return;
+  const last = held.get(scope);
+  if (last && last.epoch === number.epoch && last.version >= number.version) return;
+  held.set(scope, { ...number, state });
+  behind.delete(scope);
+}
+
+/**
+ * A reply that names the state the host holds without sending it (a Project read with `{ state: false }`): the window
+ * keeps its own copy. When the copy here is of another host run or older, or a read again gave up on it, the scope is
+ * read again, so a copy that missed a change doesn't stay on screen.
+ */
+export function confirmHeldState(scope: string, reply: NumberedReply | null | undefined) {
+  const number = numberOf(reply);
+  if (!number || reading.has(scope)) return;
+  const last = held.get(scope);
+  const stale = last ? last.epoch !== number.epoch || last.version < number.version : behind.has(scope);
+  if (!stale) return;
+  subscribe();
+  // A first payload with no number: nothing of it applies to what the read brings.
+  void readAgain(scope, { resync: true });
 }
 
 /** The agent events held behind a read that gave no state: they go out as they came. */

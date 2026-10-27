@@ -21,7 +21,8 @@ import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } f
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
 import { usePanelWidth } from "./panel-width";
-import { useBridge } from "../../lib/computer-bridge";
+import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
+import { isTurnEnd } from "@milagre/shared/agent-runs";
 
 /** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
@@ -64,6 +65,8 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     width: 390,
     height: 650,
   });
+  // The list read, for the poll below; a no-op while unmounted.
+  const refreshList = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     if (!api) return;
     let disposed = false,
@@ -92,13 +95,22 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     const visibility = () => {
       if (!document.hidden) void refresh();
     };
+    refreshList.current = refresh;
     void refresh();
-    const timer = setInterval(refresh, 5000);
     document.addEventListener("visibilitychange", visibility);
+    // With nothing attached nothing is polled (the pill shows nothing then): a simulator joins the Chat when its agent
+    // attaches one with its tool, so that step finishing, and each turn's end, read the list again.
+    const simulatorSteps = new Set<string>();
+    const offAgent = onAnyAgentEvent(({ chatId: from, event }) => {
+      if (from !== chatId) return;
+      if (event.type === "step-started" && /simulator/i.test(event.step.title ?? "")) simulatorSteps.add(event.step.id);
+      else if ((event.type === "step-completed" && simulatorSteps.delete(event.id)) || isTurnEnd(event)) void refresh();
+    });
     return () => {
       disposed = true;
-      clearInterval(timer);
+      refreshList.current = async () => {};
       document.removeEventListener("visibilitychange", visibility);
+      offAgent();
     };
   }, [api, close, chatId]);
   const mutate = async (method: "attach" | "detach", device: SimulatorDevice) => {
@@ -119,6 +131,13 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
     }
   };
   const attachedCount = list.attached?.length ?? 0;
+  // While a device is attached, or the panel is open to attach one, the list is polled: devices come and go on their own.
+  const polling = Boolean(api && (attachedCount > 0 || opened));
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(() => void refreshList.current(), 5000);
+    return () => clearInterval(timer);
+  }, [polling]);
   const sole = list.devices.length === 1 ? list.devices[0] : null;
   const open = useCallback(() => {
     if (opened) {

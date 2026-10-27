@@ -3,7 +3,8 @@ import test from "node:test";
 import type { ChatMessage } from "../model.ts";
 
 (globalThis as { window?: unknown }).window = { milagre: {} };
-const { applyChanges } = await import("./chat-messages.ts");
+const { applyChanges, noteScopeOpening, peekChatWindow, prefetchChatMessages } = await import("./chat-messages.ts");
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const message = (id: number, session_id = 1, body = `m${id}`) => ({ id, session_id, body, role: "user", context: null }) as ChatMessage;
 const held = (ids: number[], hasMore = false) => ({ messages: ids.map((id) => message(id)), hasMore, total: ids.length + (hasMore ? 10 : 0), loading: false });
@@ -33,4 +34,43 @@ test("a message after one before the window stays out of it until older messages
   const next = applyChanges(window, 1, { changed: [{ message: message(3), after: 2 }], removed: [] });
   assert.deepEqual(ids(next), [5, 6]);
   assert.equal(next.total, window.total + 1);
+});
+
+test("a page read that reaches the host before its Project's open waits for the open, then reads again", async () => {
+  let calls = 0;
+  (globalThis as any).window.milagre.readChatMessages = async (_scope: string, chatId: number) => {
+    calls++;
+    if (calls === 1) throw new Error("Error invoking remote method 'computers:invoke': Error: Open the Project before reading its messages.");
+    return { messages: [message(7, chatId)], hasMore: false, total: 1 };
+  };
+  let opened!: () => void;
+  // A switch reads the Chat's page first, then sends the Project's open.
+  prefetchChatMessages("/code/late", 4);
+  noteScopeOpening("/code/late", new Promise<void>((resolve) => (opened = resolve)));
+  await tick();
+  assert.equal(calls, 1);
+  assert.equal(peekChatWindow("/code/late", 4)?.error, undefined, "no error shows while the open is on its way");
+  opened();
+  await tick();
+  assert.equal(calls, 2);
+  assert.deepEqual(ids(peekChatWindow("/code/late", 4)!), [7]);
+});
+
+test("without an open on its way, the read's error is the window's, and asking for the Chat again reads it again", async () => {
+  let calls = 0;
+  (globalThis as any).window.milagre.readChatMessages = async (_scope: string, chatId: number) => {
+    calls++;
+    if (calls === 1) throw new Error("Open the Project before reading its messages.");
+    return { messages: [message(8, chatId)], hasMore: false, total: 1 };
+  };
+  prefetchChatMessages("/code/closed", 5);
+  await tick();
+  assert.match(peekChatWindow("/code/closed", 5)?.error ?? "", /Open the Project/);
+  prefetchChatMessages("/code/closed", 5);
+  await tick();
+  assert.equal(calls, 2);
+  assert.deepEqual(ids(peekChatWindow("/code/closed", 5)!), [8]);
+  prefetchChatMessages("/code/closed", 5);
+  await tick();
+  assert.equal(calls, 2, "a window read already is left alone");
 });

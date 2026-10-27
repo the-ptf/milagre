@@ -4,8 +4,12 @@ import { mergeSnapshot, seedSnapshot } from "./format";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
 const POLL_MS = 5 * 60_000;
-// Each scope's last numbers, so switching Projects shows them at once instead of an empty usage row.
+// A switch back to a scope read this recently shows its last numbers and reads nothing (usage:read runs the provider's
+// CLI on the scope's computer); the poll, a turn's end and the host's pushes keep them current.
+const FRESH_MS = 60_000;
+// Each scope's last numbers, so switching Projects shows them at once instead of an empty usage row, and when they were read.
 const lastSnapshots = new Map<string, UsageSnapshot>();
+const lastReads = new Map<string, number>();
 
 export function useUsage(scopeKey?: string) {
   const bridge = useMemo(() => bridgeForKey(scopeKey), [scopeKey]);
@@ -30,6 +34,7 @@ export function useUsage(scopeKey?: string) {
         cacheGeneration.current++;
         setSnapshotScope(scopeKey);
         lastReadAt.current = Date.now();
+        if (scopeKey) lastReads.set(scopeKey, lastReadAt.current);
         setSnapshot((previous) => {
           const merged = mergeSnapshot(previous, next, Date.now());
           if (scopeKey && merged) lastSnapshots.set(scopeKey, merged);
@@ -56,33 +61,36 @@ export function useUsage(scopeKey?: string) {
   useEffect(() => {
     generation.current++;
     inFlight.current = null;
-    lastReadAt.current = 0;
     const last = scopeKey ? lastSnapshots.get(scopeKey) : undefined;
+    lastReadAt.current = scopeKey ? (lastReads.get(scopeKey) ?? 0) : 0;
     setSnapshotScope(scopeKey);
     setSnapshot(last ?? null);
     setLoading(false);
-    // Saved numbers first, so the sidebar isn't empty while the first read runs.
     const version = generation.current;
-    bridge
-      .getCachedUsage(scopeKey)
-      .then((cached) => {
-        if (version === generation.current && currentScope.current === scopeKey) {
-          setSnapshotScope(scopeKey);
-          setSnapshot((current) => {
-            const seeded = seedSnapshot(current, cached);
-            if (scopeKey && seeded) lastSnapshots.set(scopeKey, seeded);
-            return seeded;
-          });
-        }
-      })
-      .catch(() => {});
-    void refresh();
+    if (!last || Date.now() - lastReadAt.current >= FRESH_MS) {
+      // Saved numbers first, so the sidebar isn't empty while the first read runs.
+      bridge
+        .getCachedUsage(scopeKey)
+        .then((cached) => {
+          if (version === generation.current && currentScope.current === scopeKey) {
+            setSnapshotScope(scopeKey);
+            setSnapshot((current) => {
+              const seeded = seedSnapshot(current, cached);
+              if (scopeKey && seeded) lastSnapshots.set(scopeKey, seeded);
+              return seeded;
+            });
+          }
+        })
+        .catch(() => {});
+      void refresh();
+    }
     const timer = window.setInterval(() => void refresh(), POLL_MS);
     const off = bridge.onAccountsChanged?.(() => {
       generation.current++;
       inFlight.current = null;
       lastReadAt.current = 0;
       lastSnapshots.clear();
+      lastReads.clear();
       // The numbers on screen stay until the new read replaces them (mergeSnapshot drops another account's),
       // so switching accounts from the usage card doesn't unmount the sidebar rows and the card with them.
       void refresh();

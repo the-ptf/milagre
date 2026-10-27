@@ -88,13 +88,43 @@ export function useReplyChatId(): string | null {
   return useContext(Artifacts).chatId;
 }
 
+// What each Chat had when it was last shown (its comments, its saved designs, which unmarked design ids are HTML pages),
+// so a Chat shown again has them at once while they are read again; the most recently shown Chats, a bounded few.
+type HostComments = { comments: ArtifactComment[]; resolutions: Map<string, string> };
+const NO_COMMENTS: HostComments = { comments: [], resolutions: new Map() };
+const KEPT_CHATS = 64;
+const lastComments = new Map<string, HostComments>();
+/** A Chat's saved designs as last read (see ArtifactsProvider). */
+type SavedDesigns = {
+  chatId: string | null;
+  refs: ArtifactRef[];
+  htmlAliases?: string[];
+  /** The replies' designs when `refs` was read: a design they showed then and `refs` lacks was deleted. */
+  revisionKey?: string;
+  /** Designs deleted here, hidden before the catalog is read again. */
+  deleted?: string[];
+};
+const NO_SAVED_DESIGNS: SavedDesigns = { chatId: null, refs: [] };
+const lastSavedDesigns = new Map<string, SavedDesigns>();
+const hostCommentsOf = (chatId: string | null) => (chatId ? lastComments.get(chatId) : undefined) ?? NO_COMMENTS;
+// An unmarked design id's format never changes: it is asked once per Chat and id.
+const htmlAliasOf = new Map<string, boolean>();
+function remember<T>(kept: Map<string, T>, key: string, value: T, limit = KEPT_CHATS) {
+  kept.delete(key);
+  kept.set(key, value);
+  for (const oldest of kept.keys()) {
+    if (kept.size <= limit) break;
+    kept.delete(oldest);
+  }
+}
+
 /**
  * The comments the host kept for the Chat and the agent's notes on the ones it resolved, by comment id, read again
  * when `moved` (designActivity) changes: the agent resolves comments with a tool call, which the transcript shows as a
  * step. `reread` reads them again, once the host has recorded comments just sent.
  */
 function useHostComments(chatId: string | null, moved: number) {
-  const [state, setState] = useState<{ comments: ArtifactComment[]; resolutions: Map<string, string> }>(() => ({ comments: [], resolutions: new Map() }));
+  const [state, setState] = useState<HostComments & { chatId: string | null }>(() => ({ chatId, ...hostCommentsOf(chatId) }));
   const [reads, setReads] = useState(0);
   useEffect(() => {
     const comments = chatId && window.milagre ? bridgeForKey(chatId).artifacts?.comments : undefined;
@@ -102,7 +132,9 @@ function useHostComments(chatId: string | null, moved: number) {
     let live = true;
     comments({ chatId })
       .then((comments) => {
-        if (live) setState({ comments, resolutions: resolutionNotes(comments) });
+        const read = { comments, resolutions: resolutionNotes(comments) };
+        remember(lastComments, chatId, read);
+        if (live) setState({ chatId, ...read });
       })
       // A host from before comments were kept has none to resolve.
       .catch(() => {});
@@ -111,7 +143,9 @@ function useHostComments(chatId: string | null, moved: number) {
     };
   }, [chatId, moved, reads]);
   const reread = useCallback(() => setReads((count) => count + 1), []);
-  return { ...state, reread };
+  // Another Chat's comments never show: until its read answers, the ones it had when it was last shown.
+  const shown = state.chatId === chatId ? state : hostCommentsOf(chatId);
+  return { comments: shown.comments, resolutions: shown.resolutions, reread };
 }
 
 /** The newest version of each design among a Chat's steps, in the order they were first shown. */
@@ -497,15 +531,11 @@ export function ArtifactsProvider({
   // The catalog is read again when the replies show a new version, or the agent deleted a design.
   const deletes = steps.filter((step) => step.status === "done" && /\bdesign_delete\b/.test(step.title)).length;
   const revisionKey = `${[...fromSteps.values()].map((design) => `${design.id}:${design.version}`).join("|")}#${deletes}`;
-  const [savedDesigns, setSavedDesigns] = useState<{
-    chatId: string | null;
-    refs: ArtifactRef[];
-    htmlAliases?: string[];
-    /** The replies' designs when `refs` was read: a design they showed then and `refs` lacks was deleted. */
-    revisionKey?: string;
-    /** Designs deleted here, hidden before the catalog is read again. */
-    deleted?: string[];
-  }>({ chatId: null, refs: [] });
+  const [savedDesigns, setSavedDesigns] = useState<SavedDesigns>(() => (chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
+  // The catalog this Chat had when it was last shown stands in until its read answers (the read still goes out).
+  useEffect(() => {
+    if (savedDesigns.chatId) remember(lastSavedDesigns, savedDesigns.chatId, savedDesigns);
+  }, [savedDesigns]);
   // Direct edits create versions without a new Chat reply. Read their metadata on open and when agent versions change.
   useEffect(() => {
     if (!chatId || !window.milagre) return;
@@ -520,8 +550,12 @@ export function ArtifactsProvider({
         const unknown = [...fromSteps.values()].filter((ref) => !ref.format && !known.has(ref.id));
         const aliases = await Promise.all(
           unknown.map(async (ref) => {
+            const key = `${chatId}\n${ref.id}`;
+            const html = htmlAliasOf.get(key);
+            if (html !== undefined) return html ? ref.id : null;
             try {
               const artifact = await bridgeForKey(chatId).artifacts.get({ chatId, id: ref.id });
+              remember(htmlAliasOf, key, artifact.format === "html", 1024);
               return artifact.format === "html" ? ref.id : null;
             } catch {
               return null;
@@ -575,8 +609,10 @@ export function ArtifactsProvider({
       window.removeEventListener(DESIGN_DELETED, deleted);
     };
   }, [chatId, enabled]);
+  // Another Chat's catalog never shows: until this one's read answers, the one it had when it was last shown.
+  const shownDesigns = savedDesigns.chatId === chatId ? savedDesigns : ((chatId ? lastSavedDesigns.get(chatId) : undefined) ?? NO_SAVED_DESIGNS);
   const latest = useMemo(() => {
-    const saved = savedDesigns.chatId === chatId ? savedDesigns : null;
+    const saved = shownDesigns.chatId === chatId ? shownDesigns : null;
     const deleted = new Set(saved?.deleted);
     // Read for the replies as they are now, the catalog has every design they showed that wasn't deleted.
     const current = saved?.revisionKey === revisionKey ? new Set(saved.refs.map((ref) => ref.id)) : null;
@@ -588,15 +624,15 @@ export function ArtifactsProvider({
     }
     // Unmarked historical refs are resolved only after the saved catalog has answered.
     // A previous HTML id still opens the Chat's current artifact page.
-    const catalog = savedDesigns.chatId === chatId ? savedDesigns.refs : [];
+    const catalog = saved?.refs ?? [];
     const currentHtml = catalog.find((ref) => ref.format === "html");
-    const aliases = new Set(savedDesigns.chatId === chatId ? savedDesigns.htmlAliases : []);
+    const aliases = new Set(saved?.htmlAliases ?? []);
     if (currentHtml)
       for (const [id, ref] of fromSteps) {
         if (ref.format === "html" || aliases.has(id)) refs.set(id, { ...currentHtml, title: ref.title });
       }
     return refs;
-  }, [fromSteps, savedDesigns, chatId, enabled, revisionKey]);
+  }, [fromSteps, shownDesigns, chatId, enabled, revisionKey]);
   const chosen = useMemo(() => chosenDesign(userMessages.map((message) => message.body)), [userMessages]);
   const moved = useMemo(
     () =>
@@ -690,7 +726,7 @@ export function ArtifactsProvider({
     if (opened?.kind === "designs" && !designRefs.length && !designing) setOpenedIn(null);
   }, [opened?.kind, designRefs.length, designing]);
   // The saved catalog owns the one current HTML page; older transcript refs still open it.
-  const currentHtml = (savedDesigns.chatId === chatId ? savedDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
+  const currentHtml = (shownDesigns.chatId === chatId ? shownDesigns.refs : []).find((ref) => ref.format === "html") ?? artifactRefs.at(-1);
   const togglePanel = (kind: "designs" | "artifacts") => {
     if (document.querySelector("[data-slot=design-editor]")) return;
     if (opened?.kind === kind) setOpenedIn(null);
