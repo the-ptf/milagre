@@ -917,6 +917,8 @@ function createRoutines({
         expiresAt: now() + days * 864e5,
       });
       changed();
+      // A hidden Run Chat that opened the PR is kept, or its sweep would end the Heartbeat before it babysat.
+      await keepTarget(routine);
       return routine;
     },
     // A Routine from the Routines form: always the user's, whatever the input says.

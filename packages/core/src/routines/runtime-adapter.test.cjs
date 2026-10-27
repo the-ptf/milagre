@@ -1972,7 +1972,7 @@ test("headBranch reads the branch checked out in the Chat's Worktree, or null", 
 });
 
 // A Routines whose Chat /project#2 exists, for the Heartbeat a Chat's `gh pr create` adds (babysit-watch.cjs).
-function babysitRoutines(t, clock) {
+function babysitRoutines(t, clock, keepChat) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const routines = createRoutines({
@@ -1983,6 +1983,7 @@ function babysitRoutines(t, clock) {
     cachedState: () => undefined,
     openState: async () => ({ sessions: { 2: { id: 2 } } }),
     projects: async () => [{ path: "/project" }],
+    ...(keepChat ? { keepChat } : {}),
     timers: {
       now: () => clock,
       setInterval: () => ({ unref() {} }),
@@ -2029,4 +2030,22 @@ test("createBabysit with no day rule lasts 30 days, and does nothing while Routi
   const routine = await routines.createBabysit(babysitInput({ on: false, days: 3 }));
   assert.equal(routine.expiresAt, clock + 30 * 864e5);
   await routines.save(false);
+});
+
+test("a babysit heartbeat keeps a hidden run chat, and a failed keep leaves the heartbeat saved", async (t) => {
+  const kept = [];
+  const routines = babysitRoutines(t, Date.UTC(2026, 9, 27), async (id) => void kept.push(id));
+  await routines.save(true, AI_CONSENT_VERSION);
+  await routines.createBabysit(babysitInput({ on: true, days: 3 }));
+  assert.deepEqual(kept, ["/project#2"]);
+  await routines.save(false);
+
+  const warn = t.mock.method(console, "warn", () => {});
+  const failing = babysitRoutines(t, Date.UTC(2026, 9, 27), async () => {
+    throw new Error("no keep");
+  });
+  await failing.save(true, AI_CONSENT_VERSION);
+  assert.ok(await failing.createBabysit(babysitInput({ on: true, days: 3 })));
+  assert.equal(warn.mock.callCount(), 1);
+  await failing.save(false);
 });

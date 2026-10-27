@@ -37,7 +37,10 @@ function createBabysitWatch({ settings, routines }) {
       if (!ids?.delete(event.id)) return undefined;
       if (ids.size === 0) shellSteps.delete(chatId);
       if (event.status !== "done" || !/\bgh\s+pr\s+create\b/.test(event.detail ?? "")) return undefined;
-      return opened(chatId, event.detail).catch((error) => console.warn("[babysit] could not watch the pull request:", error.message));
+      return opened(chatId, event.detail).catch((error) => {
+        // Another Run's Heartbeat for the same PR won the race: nothing to say.
+        if (!/already being babysat/.test(error.message)) console.warn("[babysit] could not watch the pull request:", error.message);
+      });
     },
   };
 }

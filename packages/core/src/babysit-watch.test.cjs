@@ -68,7 +68,7 @@ test("an error from the Routines never escapes observe", async (t) => {
   const routines = {
     findPullRequest: () => undefined,
     createBabysit: async () => {
-      throw new Error("already being babysat");
+      throw new Error("no such Chat");
     },
   };
   const watch = createBabysitWatch({ settings: { read: () => SETTINGS }, routines });
@@ -83,4 +83,18 @@ test("a turn's end forgets steps that never completed", async () => {
   watch.observe(CHAT, { type: "turn-completed" });
   await watch.observe(CHAT, { type: "step-completed", id: "s", status: "done", detail: OUTPUT });
   assert.deepEqual(created, []);
+});
+
+test("the already-being-babysat race is skipped quietly", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const routines = {
+    findPullRequest: () => undefined,
+    createBabysit: async () => {
+      throw new Error("Pull request #42 is already being babysat");
+    },
+  };
+  const watch = createBabysitWatch({ settings: { read: () => SETTINGS }, routines });
+  watch.observe(CHAT, { type: "step-started", step: { id: "s", kind: "shell", detail: "$ gh pr create\n" } });
+  await watch.observe(CHAT, { type: "step-completed", id: "s", status: "done", detail: OUTPUT });
+  assert.equal(warn.mock.callCount(), 0);
 });
