@@ -81,11 +81,12 @@ async function readPullRequestSnapshot({ repo, number }, { exec = defaultExec, e
   if (threadsReply?.errors?.length) throw new Error(text(threadsReply.errors[0]?.message) || "GitHub didn't answer.");
 
   const comments = new Map();
-  const add = (id, body, author, threadId) => {
-    if (id && !comments.has(id)) comments.set(id, { id, body, author, threadId });
+  // A review's own body is marked `review`; a thread's comments carry their thread; the rest are top-level comments.
+  const add = (id, body, author, threadId, review = false) => {
+    if (id && !comments.has(id)) comments.set(id, { id, body, author, threadId, ...(review ? { review: true } : {}) });
   };
   for (const node of view.comments ?? []) add(text(node?.id), text(node?.body), login(node?.author), null);
-  for (const node of view.reviews ?? []) if (text(node?.body).trim()) add(text(node?.id), text(node.body), login(node?.author), null);
+  for (const node of view.reviews ?? []) if (text(node?.body).trim()) add(text(node?.id), text(node.body), login(node?.author), null, true);
   const unresolvedThreads = [];
   for (const thread of threadsReply?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? []) {
     const threadId = text(thread?.id);
@@ -139,7 +140,8 @@ function diffSnapshots(prev, next, settings) {
     const known = new Set(prev.comments.map((entry) => entry.id));
     for (const entry of next.comments) {
       if (known.has(entry.id) || entry.body.includes(BABYSIT_MARKER)) continue;
-      changes.push({ id: `comment:${entry.id}`, text: `Review comment from @${entry.author}: ${entry.body.slice(0, COMMENT_PREVIEW)}` });
+      const what = entry.review || entry.threadId ? "Review comment" : "Comment";
+      changes.push({ id: `comment:${entry.id}`, text: `${what} from @${entry.author}: ${entry.body.slice(0, COMMENT_PREVIEW)}` });
     }
   }
   if (wake.has("checks")) {

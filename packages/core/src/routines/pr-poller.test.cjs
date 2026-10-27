@@ -141,8 +141,8 @@ test("new comment enqueues one event", async () => {
   assert.equal(event.kind, "pull-request");
   assert.match(event.key, /^pr:github\.com\/acme\/app#7:[0-9a-f]{40}$/);
   assert.equal(event.branch, "feature");
-  assert.deepEqual(event.changes, [{ id: "comment:c1", text: "Review comment from @alice: Looks off" }]);
-  assert.equal(event.summary, "Review comment from @alice: Looks off");
+  assert.deepEqual(event.changes, [{ id: "comment:c1", text: "Comment from @alice: Looks off" }]);
+  assert.equal(event.summary, "Comment from @alice: Looks off");
   // The same state again changes nothing.
   ctx.clock.t += MINUTE;
   await ctx.poll();
@@ -292,7 +292,7 @@ test("a green poll with new comments hands them over and stops on the next poll"
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.delivered.length, 1);
-  assert.deepEqual(ctx.delivered[0].event.changes, [{ id: "comment:c1", text: "Review comment from @alice: Approve, with a nit" }]);
+  assert.deepEqual(ctx.delivered[0].event.changes, [{ id: "comment:c1", text: "Comment from @alice: Approve, with a nit" }]);
   assert.ok(!ctx.store.get(routine.id).completedAt);
   // Its Run takes the comment and ends.
   const [claimed] = ctx.store.claimQueued(ctx.clock.t);

@@ -39,13 +39,23 @@ test("new comment wakes", () => {
   const prev = snapshot({ comments: [comment("c1")] });
   const next = snapshot({ comments: [comment("c1"), comment("c2", "Looks off, can you check the loop?", "bob")] });
   const { changes, stop } = diffSnapshots(prev, next, settings({ stopWhenGreen: false }));
-  assert.deepEqual(changes, [{ id: "comment:c2", text: "Review comment from @bob: Looks off, can you check the loop?" }]);
+  assert.deepEqual(changes, [{ id: "comment:c2", text: "Comment from @bob: Looks off, can you check the loop?" }]);
   assert.equal(stop, null);
+});
+
+test("a review or a review thread's comment is a review comment, a top-level one only a comment", () => {
+  const next = snapshot({
+    comments: [comment("c1", "top level"), { ...comment("r1", "needs work", "bob"), review: true }, comment("t1", "inline", "carol", "T_1")],
+  });
+  assert.deepEqual(
+    diffSnapshots(snapshot(), next, settings()).changes.map((change) => change.text),
+    ["Comment from @alice: top level", "Review comment from @bob: needs work", "Review comment from @carol: inline"],
+  );
 });
 
 test("long comments are cut to 200 characters", () => {
   const { changes } = diffSnapshots(snapshot(), snapshot({ comments: [comment("c1", "x".repeat(500))] }), settings());
-  assert.equal(changes[0].text, `Review comment from @alice: ${"x".repeat(200)}`);
+  assert.equal(changes[0].text, `Comment from @alice: ${"x".repeat(200)}`);
 });
 
 test("marked comment is ignored", () => {
@@ -217,7 +227,7 @@ test("readPullRequestSnapshot reads the PR, its threads and its checks", async (
     totalChecks: 7,
     comments: [
       { id: "IC_1", body: "top level", author: "alice", threadId: null },
-      { id: "PRR_1", body: "needs work", author: "bob", threadId: null },
+      { id: "PRR_1", body: "needs work", author: "bob", threadId: null, review: true },
       { id: "RC_1", body: "inline", author: "carol", threadId: "T_1" },
       { id: "RC_2", body: "done", author: "ghost", threadId: "T_2" },
     ],
