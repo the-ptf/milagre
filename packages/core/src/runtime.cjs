@@ -80,7 +80,7 @@ const { saveProjectState, readProjectState, compactProjectState, stateFile } = r
 const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
 const { agentFolders } = require("./agent-folders.cjs");
 const { createOnboardingProjects } = require("./onboarding-projects.cjs");
-const { activeWorktrees, resolveProject } = require("./project-identity.cjs");
+const { activeWorktrees, inspectProject, mainCheckoutWorktrees, resolveProject } = require("./project-identity.cjs");
 const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
@@ -100,6 +100,11 @@ const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs")
 const { createBotStore } = require("./bots/store.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
+
+/** A registered Project's Worktrees; a Git Project's main checkout needs only its Worktree list (one git call). */
+async function registeredWorktrees(project) {
+  return (project.git !== false && (await mainCheckoutWorktrees(project.path))) || activeWorktrees(project.path);
+}
 
 // The composition root shared by Electron and the local daemon. Storage paths and
 // OS/UI actions belong to the host; command names and payloads match the preload.
@@ -340,7 +345,8 @@ function createRuntime(options) {
 
   async function discoverWorktrees(projectPath) {
     // A failed read is not evidence that every Worktree was removed.
-    return activeWorktrees(projectPath);
+    // A Project read before as a Git checkout needs only its Worktree list (one git call), while it is still that checkout.
+    return (projectsWithGit.get(projectPath) && (await mainCheckoutWorktrees(projectPath))) || activeWorktrees(projectPath);
   }
 
   async function readStoredState(projectPath) {
@@ -479,9 +485,14 @@ function createRuntime(options) {
   // A subagent saved as running without a live agent session behind it (after a restart) is marked disconnected.
   // Whether each Project read this run is a Git repository, for snapshots that don't read it again.
   const projectsWithGit = new Map();
-  async function readProject(projectPath) {
+  // Projects read once this run, and per Project the resume of the Chats a quit stopped (see readProject). A bot's home
+  // closed when its bot is deleted leaves both, so a home made again reads as new.
+  const readOnce = new Set();
+  const resumes = new Map();
+  // `discovered`: the Worktrees git lists now, when the caller just read them (an open, see openProject).
+  async function readProject(projectPath, { discovered: listed } = {}) {
     await ownProject(projectPath);
-    const discovered = await discoverWorktrees(projectPath);
+    const discovered = listed ?? (await discoverWorktrees(projectPath));
     const live = (sessionId) => {
       const entry = agents.sessions.get(`${projectPath}#${sessionId}`);
       return Boolean(entry && !entry.session.closed);
@@ -491,26 +502,40 @@ function createRuntime(options) {
     // on disk instead of reconciling them away.
     const git = !discovered.some((worktree) => worktree.plain);
     projectsWithGit.set(projectPath, git);
+    // Read before the change, outside this Project's queue: a Link busy with its own changes never holds it up.
+    const owned = await linkStore.ownedWorktrees();
     let state = await updateProject(
       projectPath,
       async (current) => {
         if (!git && Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath))
           throw new Error(`${projectName(projectPath)} is no longer a Git repository, so its Worktree Chats can't open. Restore its .git folder.`);
-        const next = reconcileState(current, projectName(projectPath), discovered, await linkStore.ownedWorktrees());
+        const next = reconcileState(current, projectName(projectPath), discovered, owned);
         return migrateImages(projectPath, markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live))));
       },
       { chats: [] },
     );
     // A chat a quit stopped continues now; its message is saved before the project is returned, so the window shows it.
+    // It runs once per Project per run, and every read until it is done waits for it.
     // A bot's thread continues only while its bot takes turns (Bots on, not paused); until then its resume waits.
-    if (bots?.takesTurns(projectPath) ?? true)
-      await chats.resumeInterrupted(projectPath, state).catch((error) => console.warn("Milagre couldn't resume a chat:", error.message));
+    if (bots?.takesTurns(projectPath) ?? true) {
+      if (!resumes.has(projectPath))
+        resumes.set(
+          projectPath,
+          chats.resumeInterrupted(projectPath, state).catch((error) => console.warn("Milagre couldn't resume a chat:", error.message)),
+        );
+      await resumes.get(projectPath);
+    }
     state = await states.get(projectPath);
-    chatTitles.resume(projectPath, state);
-    // Run Chats saved before they could be hidden are decided, and hidden ones whose Run left the store are archived.
-    void track(() => routines.sweepRunChats(projectPath, state), background);
-    void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
-    void diffs.refresh(projectPath).catch(() => {});
+    // The rest of a first read happens once per run: a later one (each switch back to the Project) only matches its
+    // Worktrees with git's. Its diff stats then follow agent steps, window focus and the Chat on screen (DiffRefresher).
+    if (!readOnce.has(projectPath)) {
+      readOnce.add(projectPath);
+      chatTitles.resume(projectPath, state);
+      // Run Chats saved before they could be hidden are decided, and hidden ones whose Run left the store are archived.
+      void track(() => routines.sweepRunChats(projectPath, state), background);
+      void chats.recoverHandoffs(projectPath, state).catch((error) => console.warn("Milagre couldn't recover a handoff:", error.message));
+      void diffs.refresh(projectPath).catch(() => {});
+    }
     return { path: projectPath, name: projectName(projectPath), git, state };
   }
 
@@ -1795,10 +1820,11 @@ function createRuntime(options) {
   let registryStore = null;
   const projectRegistry = () =>
     (registryStore ??= createProjectRegistry(path.join(dataDir, "project-registry.json"), options.registryRoots ? { roots: options.registryRoots } : {}));
+  // Every registered Project's Worktrees.
   async function canvasActiveWorktrees() {
     const projects = await projectRegistry().list();
     return Object.fromEntries(
-      await Promise.all(projects.map(async (project) => [project.id, (await activeWorktrees(project.path)).map((worktree) => worktree.path)])),
+      await Promise.all(projects.map(async (project) => [project.id, (await registeredWorktrees(project)).map((worktree) => worktree.path)])),
     );
   }
   // Links whose Worktree endpoint went away are dropped, with what was waiting to travel along them.
@@ -2144,14 +2170,22 @@ function createRuntime(options) {
     void linked.computerRemoved(computerId).catch((error) => console.warn("Milagre couldn't settle a removed computer's Delegations:", error.message));
   });
   commands.handle("linked:stop-negotiation", (_event, id) => (typeof id === "string" ? linked.stop({ negotiationId: id }) : undefined));
+  // Each Project an open resolved this run, by its path (see openProject).
+  const openedIdentities = new Map();
   // Each way a project opens (launch, the folder dialog, a switch) puts it at the top of the recent list.
   // `takeNotice`: this open is a desktop window's, which shows the restored-chats notice. Over the daemon only the
   // desktop asks for it, so the phone's bridge opening the project first doesn't use the notice up.
   async function openProject(projectPath, { takeNotice = true } = {}) {
-    const identity = await resolveProject(projectPath);
-    const project = await readProject(identity.path);
+    // One look at git gives the Project and its Worktrees, which the read reconciles with. A Project opened before by
+    // this path (a switch back to it) keeps the identity read then while its Worktree list still starts at it.
+    const known = openedIdentities.get(projectPath);
+    const listed = known?.git ? await mainCheckoutWorktrees(projectPath) : null;
+    const { identity, worktrees } = listed ? { identity: known, worktrees: listed } : await inspectProject(projectPath);
+    openedIdentities.set(identity.path, identity);
+    const project = await readProject(identity.path, { discovered: worktrees });
     await projectRegistry().add(identity);
-    await rememberProject(recentProjects(), identity.path);
+    // The identity says what rememberProject would ask git again: its path is a checkout's top folder, or outside Git.
+    await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
     shownProjectPath = identity.path;
     // The first window to open the project after chats came back says so, once. A read at startup (resuming a turn)
     // or after removing a worktree keeps the notice for it.
@@ -2299,9 +2333,19 @@ function createRuntime(options) {
     await projectRegistry().restoreLink(link, await canvasActiveWorktrees());
     return linksChanged();
   });
-  // The Links alone, for the sidebar's and the phone's chat rows, without every Project's state the canvas reads.
+  // The Links alone, for the sidebar's and the phone's chat rows, without every Project's state the canvas reads. They
+  // ask on every switch: Links whose Worktree went away are looked for (with git, in every registered Project) at most
+  // every LINKS_PRUNE_MS, and reads meanwhile share the one running. A Worktree Milagre removes prunes its Links at once.
+  const LINKS_PRUNE_MS = 5000;
+  let linksPrune = { at: -Infinity, running: null };
   commands.handle("canvas:links", async () => {
-    await pruneLinks(await canvasActiveWorktrees());
+    if (!linksPrune.running && Date.now() - linksPrune.at >= LINKS_PRUNE_MS) {
+      const running = pruneLinks().finally(() => {
+        linksPrune = { at: Date.now(), running: null };
+      });
+      linksPrune = { ...linksPrune, running };
+    }
+    await linksPrune.running;
     return (await projectRegistry().snapshot()).links;
   });
   commands.handle("linked:grant", (_event, chatId, linkId) => linked.grant(chatId, linkId));
@@ -2331,9 +2375,14 @@ function createRuntime(options) {
     return withHidden(await recentProjects().list());
   });
   // Reads a recent Project's chats for the all-Projects sidebar without making it the open one or reordering the list.
-  commands.handle("project:read", async (_event, projectPath) => {
+  // `{ state: false }`: { path, name, git } alone, for a window that holds the state already and only needs the Project
+  // open on this host (the daemon adds the number of the state it last sent, see server.cjs).
+  commands.handle("project:read", async (_event, projectPath, read) => {
     if (!(await recentProjects().list()).some((item) => item.path === projectPath)) throw new Error("Open this project in Milagre first.");
-    return readProject(projectPath);
+    const project = await readProject(projectPath);
+    if (read?.state !== false) return project;
+    const { state: _state, ...rest } = project;
+    return rest;
   });
   // A retry only flushes the newest pending state. It never replays a Chat command or sends a message.
   commands.handle("scope:retry-save", async (_event, scope) => {
@@ -2354,8 +2403,13 @@ function createRuntime(options) {
     return withDetails(scopeStates.storageDirectory(scope), message);
   });
   // A page of one Chat's messages, and search across a Project's Chats, for a client that doesn't hold every message.
-  const readScope = async (scope) => {
+  // An open Project, or a Link (read like link:snapshot does). Checked without its state: a read that only needs the
+  // check waits behind the scope's queued changes once, in its own read, not twice.
+  const checkReadable = (scope) => {
     if (typeof scope !== "string" || (!isLinkScopeKey(scope) && !states.has(scope))) throw new Error("Open the Project before reading its messages.");
+  };
+  const readScope = async (scope) => {
+    checkReadable(scope);
     return scopeStates.get(scope);
   };
   // Every message of a Project or Link, in its order, for a reader that needs them all where a state may leave out an
@@ -2363,13 +2417,13 @@ function createRuntime(options) {
   // only { id, session_id, role, outcome, clientMessageId } of each, what a chat list reads, without reading them whole.
   // `withState` answers { state, messages }, both from one read of the state, so they never disagree.
   commands.handle("chat:all-messages", async (_event, scope, options) => {
-    await readScope(scope);
+    checkReadable(scope);
     const read = { withState: options?.withState === true };
     return options?.marks === true ? scopeStates.messageMarks(scope, read) : scopeStates.allMessages(scope, read);
   });
   // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too.
   commands.handle("chat:messages", async (_event, scope, chatId, options) => {
-    await readScope(scope);
+    checkReadable(scope);
     return chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, options ?? {});
   });
   // A search reads the bodies of unloaded Chats from chats.db, without loading them.
@@ -2476,6 +2530,10 @@ function createRuntime(options) {
       }
       await states.forget(home);
     }
+    readOnce.delete(home);
+    resumes.delete(home);
+    openedIdentities.delete(home);
+    projectsWithGit.delete(home);
     const common = await git.commonDir(home).catch(() => null);
     projectOwners.get(home)?.owner.release();
     projectOwners.delete(home);
@@ -2669,10 +2727,21 @@ function createRuntime(options) {
       runs: chats.snapshot(),
       ports: ports.snapshot(),
     }),
+    /** The state a Project or Link holds now, without waiting for its queued changes; undefined when it isn't read. */
+    stateOf: (scope) => (isLinkScopeKey(scope) ? linkStore.cached(scopeFromKey(scope).linkId) : states.states.get(scope)),
+    // A window regains focus over `view` ({ projectPath, chatId }): its Chat is read and its Project's diff stats are
+    // read again (edits made outside Milagre), at most every few seconds.
     focused: (view) =>
       accept(() => {
         diffs.focused(view ? view.projectPath : shownProjectPath);
         return readOpenChat(view ? view.chatId : chats.openChat);
+      }),
+    // A window shows `chatId` now (chat:set-open): it is read, and only its own Worktree's diff stat is read again, at
+    // most every few seconds. A switch between Chats never reads a whole Project's Worktrees.
+    chatOpened: (chatId) =>
+      accept(() => {
+        diffs.focusedChat(chatId);
+        return readOpenChat(chatId);
       }),
     /** Unloads the idle Chats of every open Project and Link now, as the sweep does every minute (see ProjectStates). */
     unloadIdle: () => Promise.all([states.unloadIdle(), linkStore.unloadIdle()]).then(() => undefined),

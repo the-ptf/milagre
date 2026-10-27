@@ -259,7 +259,13 @@ function makeBridge(invoke, listen, send) {
     setUpGit: (folder) => invoke("onboarding:init-git", folder),
     setProjectHidden: (projectPath, hidden) => invoke("project:set-hidden", projectPath, hidden),
     retrySave: (scope) => invoke("scope:retry-save", scope),
-    readProject: (projectPath) => invoke("project:read", projectPath),
+    /**
+     * `{ state: false }`: the Project opened on its host without its state, `{ path, name, git, version, epoch }`, for a
+     * window that already holds the state.
+     * @param {string} projectPath
+     * @param {{ state?: boolean }} [options]
+     */
+    readProject: (projectPath, options) => invoke("project:read", projectPath, options),
     listNamedLinks: () => invoke("link:list"),
     createNamedLink: (request) => invoke("link:create", request),
     updateNamedLink: (request) => invoke("link:update", request),
