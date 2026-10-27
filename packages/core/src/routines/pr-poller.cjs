@@ -86,7 +86,10 @@ function createPullRequestPoller({
   /**
    * What to hand the agent now, or the reason to stop instead. A comment is handed once. A failing check, a conflict or
    * the branch being behind is handed when it first appears, and again once a Run has finished since and it is still
-   * there; each such repeat counts as a failed attempt, and the Routine can end after too many.
+   * there; each such repeat counts as a failed attempt, and the Routine can end after too many. A check keeps its
+   * attempts while others are still pending (a push restarts them), so failing again after a push is a repeat too; it
+   * starts over only once it passes with nothing pending. A conflict or the branch being behind starts over as soon as
+   * it is resolved.
    */
   function decide(routine, stored, next, at) {
     const settings = routine.trigger.settings;
@@ -97,9 +100,9 @@ function createPullRequestPoller({
     const present = new Set(remaining.map((change) => change.id));
     const handed = {};
     const attempts = {};
-    // A problem that has gone away is forgotten, so it starts over if it comes back.
     for (const [id, when] of Object.entries(record(stored?.handed))) {
-      if (!present.has(id)) continue;
+      const kept = present.has(id) || (id.startsWith("check:") && next.pendingChecks > 0);
+      if (!kept) continue;
       handed[id] = when;
       if (Number.isFinite(stored?.attempts?.[id])) attempts[id] = stored.attempts[id];
     }
@@ -107,6 +110,12 @@ function createPullRequestPoller({
     const handing = [...fresh];
     const ids = new Set(fresh.map((change) => change.id));
     const repeated = [];
+    // A change that fails again while its attempts are still kept is a repeat.
+    for (const change of fresh) {
+      if (isComment(change.id) || attempts[change.id] === undefined) continue;
+      repeated.push(change.id);
+      attempts[change.id] += 1;
+    }
     for (const change of remaining) {
       const since = handed[change.id];
       if (ids.has(change.id) || since === undefined) continue;
@@ -144,34 +153,45 @@ function createPullRequestPoller({
     const current = () => running && states.get(id) === state;
     try {
       const { repo, number, settings } = before.trigger;
-      const next = await read({ repo, number, settings });
-      if (!current()) return;
-      // What happened while the read was out: the Routine may have ended or been deleted.
-      const routine = store.get(id);
-      if (!live(routine)) return void drop(id);
-      const at = now();
-      const decision = decide(routine, store.prSnapshot(id), next, at);
-      if (decision.stop) {
-        store.complete(id, decision.stop);
-        drop(id);
-        onChange();
-        return;
-      }
-      const { handing, kept } = decision;
-      // Handed over before the snapshot moves on: a crash in between hands the same changes over again (the store
-      // refuses a key it has seen), where the other order would lose them.
-      if (handing.length) scheduler.enqueueEvents([{ at, routineId: id, event: eventOf(routine, handing, kept, next, at) }]);
-      store.setPrSnapshot(id, kept);
-      state.delay = base;
-      setError(routine, null);
-    } catch (error) {
-      if (!current()) return;
-      state.delay = Math.min((state.delay ?? base) * 2, Math.max(MAX_DELAY_MS, base));
-      console.warn(`[routines] pull request poll of ${id} failed`, error?.message ?? error);
+      let next = null;
       try {
-        setError(store.get(id) ?? before, ghMessage(error));
-      } catch (storeError) {
-        console.warn("[routines] could not record a pull request poll error", storeError);
+        next = await read({ repo, number, settings });
+      } catch (error) {
+        // Only a failed read is GitHub's trouble: it is shown on the Routine and the next try waits longer.
+        if (!current()) return;
+        state.delay = Math.min((state.delay ?? base) * 2, Math.max(MAX_DELAY_MS, base));
+        console.warn(`[routines] pull request poll of ${id} failed`, error?.message ?? error);
+        try {
+          setError(store.get(id) ?? before, ghMessage(error));
+        } catch (storeError) {
+          console.warn("[routines] could not record a pull request poll error", storeError);
+        }
+      }
+      if (next) {
+        if (!current()) return;
+        state.delay = base;
+        try {
+          // What happened while the read was out: the Routine may have ended or been deleted.
+          const routine = store.get(id);
+          if (!live(routine)) return void drop(id);
+          const at = now();
+          const decision = decide(routine, store.prSnapshot(id), next, at);
+          if (decision.stop) {
+            store.complete(id, decision.stop);
+            drop(id);
+            onChange();
+            return;
+          }
+          const { handing, kept } = decision;
+          // Handed over before the snapshot moves on: a crash in between hands the same changes over again, perhaps as
+          // a second Run (the key holds the time), where the other order would lose them.
+          if (handing.length) scheduler.enqueueEvents([{ at, routineId: id, event: eventOf(routine, handing, kept, next, at) }]);
+          store.setPrSnapshot(id, kept);
+          setError(routine, null);
+        } catch (error) {
+          // Not GitHub's doing: logged, and the normal schedule goes on.
+          console.warn(`[routines] pull request poll of ${id} could not be applied`, error?.message ?? error);
+        }
       }
     } finally {
       state.polling = false;

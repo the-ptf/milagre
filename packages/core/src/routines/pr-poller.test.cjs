@@ -53,8 +53,9 @@ function setup({ file, settings = {}, enabled = true } = {}) {
   const delivered = [];
   const scheduler = {
     enqueueEvents(items) {
+      const results = store.enqueueMany(items);
       delivered.push(...items);
-      return store.enqueueMany(items);
+      return results;
     },
   };
   const changes = [];
@@ -179,14 +180,23 @@ test("read failure sets lastError and backs off", async () => {
 });
 
 test("restart reuses stored snapshot", async () => {
+  const failing = snapshot({ failingChecks: ["lint"] });
+  // Without a stored reading, the failing check is news.
+  const cold = setup();
+  cold.routine();
+  cold.world.next = failing;
+  cold.poller.start();
+  await cold.poll();
+  assert.equal(cold.delivered.length, 1);
+
   const ctx = setup();
-  ctx.routine();
-  ctx.poller.start();
-  ctx.world.next = snapshot({ comments: [comment("c1")] });
-  await ctx.poll();
+  const routine = ctx.routine();
+  ctx.store.setPrSnapshot(routine.id, { snapshot: failing, attempts: { "check:lint": 0 }, handed: { "check:lint": START } });
+  assert.notEqual(ctx.store.prSnapshot(routine.id), undefined);
   ctx.poller.stop();
   const again = setup({ file: ctx.file });
-  again.world.next = snapshot({ comments: [comment("c1")] });
+  assert.notEqual(again.store.prSnapshot(routine.id), undefined);
+  again.world.next = failing;
   again.poller.start();
   await again.poll();
   assert.deepEqual(again.delivered, []);
@@ -277,4 +287,75 @@ test("stop clears every timer", async () => {
   ctx.poller.start();
   ctx.poller.stop();
   assert.deepEqual(ctx.timers.pending(), []);
+});
+
+test("failure cap survives a push that turns checks pending", async () => {
+  const ctx = setup({ settings: { stopAfterFailures: { on: true, times: 2 } } });
+  const routine = ctx.routine();
+  ctx.poller.start();
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 1);
+  for (const attempt of [1, 2]) {
+    ctx.clock.t += MINUTE;
+    finishedRun(ctx, routine);
+    // The push restarted the checks: nothing is failing, one is pending, and the attempts stay.
+    ctx.world.next = snapshot({ pendingChecks: 1, totalChecks: 1 });
+    ctx.clock.t += MINUTE;
+    await ctx.poll();
+    assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], attempt - 1);
+    // It fails again: that is a repeat.
+    ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+    ctx.clock.t += MINUTE;
+    await ctx.poll();
+    if (attempt === 1) {
+      assert.equal(ctx.delivered.length, 2);
+      assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], 1);
+      assert.ok(!ctx.store.get(routine.id).completedAt);
+    }
+  }
+  assert.equal(ctx.delivered.length, 2);
+  assert.ok(ctx.store.get(routine.id).completedAt);
+});
+
+test("a check that passes with nothing pending resets its attempts", async () => {
+  const ctx = setup({ settings: { stopWhenGreen: false, stopAfterFailures: { on: true, times: 2 } } });
+  const routine = ctx.routine();
+  ctx.poller.start();
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  await ctx.poll();
+  ctx.clock.t += MINUTE;
+  finishedRun(ctx, routine);
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], 1);
+  ctx.world.next = snapshot({ totalChecks: 1 });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.deepEqual(ctx.store.prSnapshot(routine.id).attempts, {});
+  ctx.world.next = snapshot({ failingChecks: ["lint"], totalChecks: 1 });
+  ctx.clock.t += MINUTE;
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 3);
+  assert.equal(ctx.store.prSnapshot(routine.id).attempts["check:lint"], 0);
+  assert.ok(!ctx.store.get(routine.id).completedAt);
+});
+
+test("a failure to hand changes over is not reported as a GitHub error", async () => {
+  const ctx = setup();
+  const routine = ctx.routine();
+  ctx.poller.start();
+  ctx.world.next = snapshot({ failingChecks: ["lint"] });
+  const enqueue = ctx.store.enqueueMany;
+  ctx.store.enqueueMany = () => {
+    throw new Error("disk full");
+  };
+  await ctx.poll();
+  ctx.store.enqueueMany = enqueue;
+  assert.equal(ctx.store.get(routine.id).lastError, undefined);
+  assert.equal(ctx.timers.pending().at(-1).ms, MINUTE);
+  // The snapshot didn't move on, so the next poll hands the change over.
+  await ctx.poll();
+  assert.equal(ctx.delivered.length, 1);
 });
