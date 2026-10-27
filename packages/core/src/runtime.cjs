@@ -559,6 +559,10 @@ function createRuntime(options) {
   });
   async function attachmentAccess(file) {
     if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("Choose an attached file or a file in an open Worktree.");
+    // A file in an open Worktree needs no link to it. The search below reads every open Project's saved messages
+    // synchronously: from a cold disk it held a busy host for 28 s, nearly the 30 s a paired computer waits for an answer.
+    const roots = scopeStates.worktreePaths();
+    if (await require("./attachment-preview.cjs").insideRoots(file, roots)) return { roots, attached: [] };
     const { sharedFilePaths, chatFolder } = require("./chat-files.cjs");
     // Search by basename too: a shared link may be relative, URL-encoded or have a line suffix. Unloaded Chats
     // stay unloaded; only candidate rows are read, and the parsed link must name this exact file.
@@ -576,8 +580,10 @@ function createRuntime(options) {
         const body = JSON.stringify(message.body || message.text || "");
         if (needles.some((needle) => body.includes(needle)) && sharedFilePaths(message, chatFolder(state, message, project)).has(file)) attached.push(file);
       }
+      // One Chat that shared it is enough; the other Projects' saved messages stay unread.
+      if (attached.includes(file)) break;
     }
-    return { roots: scopeStates.worktreePaths(), attached };
+    return { roots, attached };
   }
   commands.handle("attachment:preview", async (_event, file) => {
     const { roots, attached } = await attachmentAccess(file);
