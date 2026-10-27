@@ -6,7 +6,10 @@ import {
   localMcpConfiguration,
   localMcpDescription,
   localMcpDraftFor,
+  localMcpDraftValid,
   localMcpReadOnly,
+  setLocalMcpDraftKind,
+  toggleLocalMcpDraftProject,
   type LocalMcpClient,
   type LocalMcpDraft,
   type LocalMcpStatus,
@@ -67,11 +70,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         )}
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
         <div className="flex gap-2">
-          <button
-            type="submit"
-            className={`${buttonBase} bg-ink text-surface hover:opacity-90`}
-            disabled={local.busy || !draft.label.trim() || !(draft.kind === "designs" ? draft.chatId.trim() : draft.projectPaths.length)}
-          >
+          <button type="submit" className={`${buttonBase} bg-ink text-surface hover:opacity-90`} disabled={local.busy || !localMcpDraftValid(draft)}>
             {local.busy ? "Saving..." : client ? (client.enabled ? "Save access" : `Enable ${client.label}`) : "Create configuration"}
           </button>
           <button type="button" className={button} disabled={local.busy} onClick={() => setSetup(null)}>
@@ -137,7 +136,8 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
       </div>
       <div className="flex items-start justify-between gap-4">
         <p className="max-w-prose text-[12px] leading-relaxed text-ink-2">
-          Enabled clients are set up when Milagre starts. Restart the client after setup. Access stays on the computer running Milagre.
+          Enabled clients are set up when Milagre starts. Restart a client after enabling it; scope changes apply at once. Access stays on the computer running
+          Milagre.
         </p>
         <button
           type="button"
@@ -260,6 +260,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
     </section>
   );
 }
+const scopeKindLabel = (kind: LocalMcpDraft["kind"]) => (kind === "projects" ? "Projects" : kind === "all-projects" ? "All Projects" : "Designs only");
 function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChange: (draft: LocalMcpDraft) => void; status: LocalMcpStatus }) {
   return (
     <>
@@ -269,13 +270,13 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
           aria-label="Allow access to"
           orientation="horizontal"
           value={draft.kind}
-          onValueChange={(kind) => onChange({ ...draft, kind: kind as LocalMcpDraft["kind"] })}
-          className="grid-cols-[auto_auto] justify-start gap-4 text-[13px] text-ink"
+          onValueChange={(kind) => onChange(setLocalMcpDraftKind(draft, kind as LocalMcpDraft["kind"]))}
+          className="grid-cols-[auto_auto_auto] justify-start gap-4 text-[13px] text-ink"
         >
-          {(["projects", "designs"] as const).map((kind) => (
+          {(["projects", "all-projects", "designs"] as const).map((kind) => (
             <label key={kind} className="flex items-center gap-2">
-              <RadioGroupItem value={kind} aria-label={kind === "projects" ? "Projects" : "Designs only"} />
-              {kind === "projects" ? "Projects" : "Designs only"}
+              <RadioGroupItem value={kind} aria-label={scopeKindLabel(kind)} />
+              {scopeKindLabel(kind)}
             </label>
           ))}
         </RadioGroup>
@@ -289,14 +290,7 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
                 aria-label={project.name}
                 className="mt-1"
                 checked={draft.projectPaths.includes(project.path)}
-                onCheckedChange={() =>
-                  onChange({
-                    ...draft,
-                    projectPaths: draft.projectPaths.includes(project.path)
-                      ? draft.projectPaths.filter((p) => p !== project.path)
-                      : [...draft.projectPaths, project.path],
-                  })
-                }
+                onCheckedChange={() => onChange(toggleLocalMcpDraftProject(draft, project.path))}
               />
               <span className="min-w-0">
                 {project.name}
@@ -305,6 +299,8 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
             </label>
           ))}
         </ScrollArea>
+      ) : draft.kind === "all-projects" ? (
+        <p className="text-[12px] text-ink-2">Includes every Project open in Milagre now and any Project added later.</p>
       ) : (
         <>
           <label className="block text-[12px] text-ink-2">

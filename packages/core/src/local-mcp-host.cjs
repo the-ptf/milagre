@@ -9,6 +9,7 @@ const { queueStatus } = require("@milagre/shared/queued-messages");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 // A tool never gives a Chat more than its caller has without the user's say.
 const { callerMode: asCaller, raisesMode } = require("./agents/permissions.cjs");
+const { inspectProject } = require("./project-identity.cjs");
 const IMAGE_MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
 
 /** The answers as the Chat shows them in the user's message, as the question card writes them. */
@@ -63,11 +64,15 @@ function createLocalMcpHost({
   models = async () => ({}),
   worktreeStatus,
   removeWorktree,
+  registerProject = async () => {
+    throw Error("Adding Projects is unavailable");
+  },
+  assertRegistrableProject = async () => {},
   botOf = () => null,
 }) {
   const validateProject = async (projectPath) => {
     if (!(await projects()).some((project) => project.path === projectPath) || realpathSync(projectPath) !== projectPath)
-      throw Error("Open this Project in Milagre first; its canonical path is required");
+      throw Error("Project is outside scope until opened in Milagre (or registered with project_add); its canonical path is required");
   };
   const project = async (projectPath) => {
     await validateProject(projectPath);
@@ -178,17 +183,91 @@ function createLocalMcpHost({
     return real;
   };
   const endpoint = async (projectPath, worktreeId) => {
-    const worktree = (await project(projectPath)).worktrees[worktreeId];
-    if (!worktree) throw Error(`Worktree ${worktreeId} isn't in ${projectPath}`);
+    const state = await project(projectPath);
+    const worktree = worktreeId === undefined ? Object.values(state.worktrees).find((item) => item.path === projectPath) : state.worktrees[worktreeId];
+    if (!worktree)
+      throw Error(worktreeId === undefined ? `No main Worktree in ${projectPath}; pass targetWorktreeId` : `Worktree ${worktreeId} isn't in ${projectPath}`);
     if (!(await activeWorktrees(projectPath)).includes(worktree.path)) throw Error("That Worktree is archived or gone.");
     const registered = (await projects()).find((item) => item.path === projectPath);
     return { project_id: registered.id, worktree_path: worktree.path };
   };
   const sameEnd = (a, b) => a.project_id === b.project_id && a.worktree_path === b.worktree_path;
+  const scopeRequests = new Map();
+  const requestProjectScope = async (caller, projectPath, onGrant) => {
+    if (!caller) throw Error("Project is outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.");
+    notBots(caller);
+    await validateProject(projectPath);
+    if (callerMode(caller) === "full") return;
+    const key = `${caller}\0${projectPath}`;
+    let running = scopeRequests.get(key);
+    if (!running) {
+      running = (async () => {
+        const registered = (await projects()).find((item) => item.path === projectPath);
+        const name = registered?.name || path.basename(projectPath);
+        const decision = await approve(caller, {
+          requestId: `mcp-${crypto.randomUUID()}`,
+          kind: "other",
+          tool: "Milagre",
+          allowForChat: true,
+          title: `Allow this Chat to access "${name}"?`,
+          description: "Its agent could inspect and manage Worktrees and Chats in that Project.",
+          detail: JSON.stringify({ projectPath }, null, 2),
+        });
+        if (decision === "allow-for-chat") onGrant?.(projectPath);
+        if (decision === "cancelled") throw Error("The approval card closed before the user answered.");
+        if (decision !== "allow" && decision !== "allow-for-chat")
+          throw Error(
+            "The user declined access to that Project. Link the Projects on the canvas or with worktree_link if cross-Project collaboration is needed.",
+          );
+      })().finally(() => {
+        if (scopeRequests.get(key) === running) scopeRequests.delete(key);
+      });
+      scopeRequests.set(key, running);
+    }
+    return running;
+  };
   return {
     projects,
     validateProject,
+    requestProjectScope,
     validateChat: validateDesignChat,
+    async addProject({ projectPath }, caller, inScope = () => false, onGrant) {
+      if (caller) notBots(caller);
+      const { identity } = await inspectProject(projectPath).catch((error) => {
+        if (error?.code === "ENOENT") throw Error(`No such folder: ${projectPath}`);
+        throw error;
+      });
+      if (!identity.git) throw Error(`${identity.path} isn't a Git repository. Initialize Git there before registering it with project_add.`);
+      await assertRegistrableProject(identity.path);
+      const existing = (await projects()).find((item) => item.path === identity.path);
+      if (existing) {
+        const name = existing.name || identity.name;
+        if (!inScope(identity.path)) {
+          if (!caller)
+            throw Error(
+              "Project is already registered in Milagre, and outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.",
+            );
+          if (callerMode(caller) !== "full")
+            await confirm(caller, {
+              title: `Grant this Chat access to "${name}"?`,
+              description: "Project is already in Milagre. Grants this Chat access to inspect and manage its Worktrees and Chats.",
+              detail: JSON.stringify({ projectPath: identity.path }, null, 2),
+            });
+          onGrant?.(identity.path);
+        }
+        return { id: existing.id, path: existing.path, name, created: false, ...(caller ? { inScope: true } : {}) };
+      }
+      if (!caller || callerMode(caller) !== "full")
+        await confirm(caller, {
+          title: `Add Project "${identity.name}" to Milagre?`,
+          description: "Registers this repository in Milagre and lets this Chat inspect and manage its Worktrees and Chats.",
+          detail: JSON.stringify({ projectPath: identity.path }, null, 2),
+        });
+      await registerProject(identity.path);
+      if (caller) onGrant?.(identity.path);
+      const added = (await projects()).find((item) => item.path === identity.path);
+      return { id: added?.id ?? identity.id, path: identity.path, name: added?.name ?? identity.name, created: true, ...(caller ? { inScope: true } : {}) };
+    },
     async worktrees(projectPath) {
       return Object.values((await project(projectPath)).worktrees).map(({ id, name, path, base }) => ({ id, name, path, base }));
     },

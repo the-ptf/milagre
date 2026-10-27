@@ -9,7 +9,10 @@ import {
   localMcpConfiguration,
   localMcpDescription,
   localMcpDraftFor,
+  localMcpDraftValid,
   localMcpReadOnly,
+  setLocalMcpDraftKind,
+  toggleLocalMcpDraftProject,
   type LocalMcpApi,
   type LocalMcpClient,
   type LocalMcpDraft,
@@ -34,6 +37,21 @@ export function LocalMcpSection() {
             revoke: (id) => client.call("local-mcp:revoke", [id]),
             enableClient: (id, input) => client.call("local-mcp:enableClient", [id, input]),
             disableClient: (id) => client.call("local-mcp:disableClient", [id]),
+            onChanged: client.live
+              ? (callback) => {
+                  let down = false;
+                  const live = client.live("", {
+                    onSignal: (signal) => {
+                      if (signal === "mcp") callback({});
+                    },
+                    onStatus: (up) => {
+                      if (up && down) callback({});
+                      down = !up;
+                    },
+                  });
+                  return () => live.close();
+                }
+              : undefined,
           }
         : undefined,
     [client],
@@ -68,7 +86,7 @@ export function LocalMcpSection() {
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
         <Button
           title={local.busy ? "Saving..." : item ? (item.enabled ? "Save access" : `Enable ${item.label}`) : "Create configuration"}
-          disabled={local.busy || !draft.label.trim() || !(draft.kind === "designs" ? draft.chatId.trim() : draft.projectPaths.length)}
+          disabled={local.busy || !localMcpDraftValid(draft)}
           onPress={() => void submit(item)}
         />
         <Button title="Cancel" secondary disabled={local.busy} onPress={() => setSetup(null)} />
@@ -119,7 +137,8 @@ export function LocalMcpSection() {
       </View>
       <View style={{ gap: 12 }}>
         <Text style={styles.muted}>
-          Enabled clients are set up when Milagre starts. Restart the client after setup. Access stays on the computer running Milagre.
+          Enabled clients are set up when Milagre starts. Restart a client after enabling it; scope changes apply at once. Access stays on the computer running
+          Milagre.
         </Text>
         <Button title="Refresh" secondary disabled={local.busy} onPress={() => void local.refresh()} />
       </View>
@@ -217,19 +236,20 @@ export function LocalMcpSection() {
     </View>
   );
 }
+const scopeKindLabel = (kind: LocalMcpDraft["kind"]) => (kind === "projects" ? "Projects" : kind === "all-projects" ? "All Projects" : "Designs only");
 function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChange: (draft: LocalMcpDraft) => void; status: LocalMcpStatus }) {
   const styles = useStyles();
   return (
     <>
       <Text style={styles.muted}>Allow access to</Text>
       <View accessibilityRole="radiogroup" accessibilityLabel="Allow access to">
-        {(["projects", "designs"] as const).map((kind) => (
+        {(["projects", "all-projects", "designs"] as const).map((kind) => (
           <ScopeChoice
             key={kind}
             radio
-            title={kind === "projects" ? "Projects" : "Designs only"}
+            title={scopeKindLabel(kind)}
             selected={draft.kind === kind}
-            onPress={() => onChange({ ...draft, kind })}
+            onPress={() => onChange(setLocalMcpDraftKind(draft, kind))}
           />
         ))}
       </View>
@@ -241,17 +261,12 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
               key={project.path}
               title={`${project.name} (${project.path})`}
               selected={draft.projectPaths.includes(project.path)}
-              onPress={() =>
-                onChange({
-                  ...draft,
-                  projectPaths: draft.projectPaths.includes(project.path)
-                    ? draft.projectPaths.filter((p) => p !== project.path)
-                    : [...draft.projectPaths, project.path],
-                })
-              }
+              onPress={() => onChange(toggleLocalMcpDraftProject(draft, project.path))}
             />
           ))}
         </>
+      ) : draft.kind === "all-projects" ? (
+        <Text style={styles.muted}>Includes every Project open in Milagre now and any Project added later.</Text>
       ) : (
         <>
           <Field label="Chat reference" placeholder="/path/to/project#123" value={draft.chatId} onChangeText={(chatId) => onChange({ ...draft, chatId })} />

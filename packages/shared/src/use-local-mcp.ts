@@ -38,10 +38,14 @@ export function useLocalMcp(api: LocalMcpApi | undefined) {
     setBusy(false);
     acting.current = false;
     void refresh();
+    const stop = api?.onChanged?.(() => {
+      if (!acting.current) void refresh();
+    });
     return () => {
+      stop?.();
       generation.current++;
     };
-  }, [refresh]);
+  }, [api, refresh]);
   const act = async (
     action: () => Promise<LocalMcpCredential | unknown>,
     failure = "Could not save the connection. Check its scope and computer connection, then retry. If creation lost its reply, revoke the listed connection and create another.",

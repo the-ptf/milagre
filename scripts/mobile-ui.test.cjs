@@ -12035,13 +12035,26 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
   find(
     render(),
-    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
   ).props.onPress();
-  find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
   find(render(), (node) => node.type === "Button" && node.props.title === "Enable Codex CLI").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
-  assert.deepEqual(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants, {
+  assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only"));
+  assert.equal(calls.find((call) => call.method === "local-mcp:enableClient").args[1].grants.projects.projectPaths, "*");
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "button" && node.props.accessibilityLabel === "Set up Codex CLI",
+  ).props.onPress();
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
+  ).props.onPress();
+  find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
+  find(render(), (node) => node.type === "Button" && node.props.title === "Save access").props.onPress();
+  await settle();
+  assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
+  assert.deepEqual(calls.findLast((call) => call.method === "local-mcp:enableClient").args[1].grants, {
     designs: { chatId: "/project#2", designIds: "*", capabilities: ["read"] },
   });
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.onPress();
@@ -12052,7 +12065,13 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     undefined,
   );
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
+  find(
+    render(),
+    (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
+  ).props.onPress();
+  assert.equal(find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.disabled, true);
   find(render(), (node) => node.type === "Field" && node.props.label === "Connection name").props.onChangeText("Designs phone");
+  assert.equal(find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.disabled, false);
   find(
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",

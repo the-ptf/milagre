@@ -89,6 +89,22 @@ function createLocalMcpClients({ directory, store, url, ...options }) {
         previous = records[id];
       const read = readConfig(client);
       if (!owned(previous, read.entry)) throw Error("Client configuration changed outside Milagre. Its entry will not be overwritten.");
+      const existing = previous?.enabled ? active(previous) : null;
+      const token = read.entry ? entryToken(read.entry) : null;
+      let reusable = false;
+      if (existing && token) {
+        try {
+          reusable = store.authenticate(token).id === existing.id;
+        } catch {}
+      }
+      if (reusable) {
+        const needsRefresh = digest(read.entry) !== digest(clientEntry(id, url(), token));
+        if (needsRefresh) prepareEdit(client, read, clientEntry(id, url(), token));
+        const connection = store.update(existing.id, input);
+        problems.delete(id);
+        if (needsRefresh) install(client, { connection, token }, read, previous);
+        return statusOf(client);
+      }
       // Validate the config layout before issuing a credential. The placeholder is never written.
       prepareEdit(client, read, clientEntry(id, url(), "x".repeat(43)));
       const made = store.create(input, { clientId: id });

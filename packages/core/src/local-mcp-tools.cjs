@@ -3,16 +3,24 @@ const projectInput = { projectPath: z.string().min(1).max(8192) };
 const requestId = z.string().min(1).max(128);
 const permissionMode = z.enum(["ask", "auto", "full"]);
 const callerOf = (connectionId) => (connectionId.startsWith("agent:") ? connectionId.slice(6) : undefined);
+const inProjectScope = (scope, projectPath) => scope.projectPaths === "*" || scope.projectPaths.includes(projectPath);
 
-function managementToolGroups({ host, operations }) {
+function managementToolGroups({ host, operations, grantChatProject = () => {} }) {
   return ["projects", "worktrees", "chats"].map((id) => ({
     id,
     enabled: () => true,
-    tools: ({ scope, assertActive, connectionId, connectionLabel }) => {
+    tools: ({ scope, currentScope = () => scope, assertActive, connectionId, connectionLabel }) => {
+      const caller = callerOf(connectionId);
       const permit = async (projectPath) => {
         assertActive();
-        if (!scope.projectPaths.includes(projectPath)) throw Error("Project is outside this connection's scope");
-        await host.validateProject(projectPath);
+        if (inProjectScope(currentScope(), projectPath)) {
+          await host.validateProject(projectPath);
+          assertActive();
+          return;
+        }
+        if (!caller || !host.requestProjectScope)
+          throw Error("Project is outside this connection's scope. Grant access to it (or select All Projects) in Milagre Settings > Milagre.");
+        await host.requestProjectScope(caller, projectPath, (granted) => grantChatProject(caller, granted));
         assertActive();
       };
       const read = (name, description, input, run) => ({
@@ -70,31 +78,64 @@ function managementToolGroups({ host, operations }) {
       });
       if (id === "projects")
         return [
-          read("project_list", "List only the Projects granted to this connection.", {}, async () =>
-            (await host.projects()).filter((item) => scope.projectPaths.includes(item.path)).map(({ id, path, name }) => ({ id, path, name })),
+          read(
+            "project_list",
+            "List Projects in Milagre (with inScope for this Chat, or only the Projects granted to an outside connection).",
+            {},
+            async () => {
+              const activeScope = currentScope();
+              const all = await host.projects();
+              if (caller && activeScope?.capabilities?.includes("create"))
+                return all.map(({ id: projectId, path, name }) => ({ id: projectId, path, name, inScope: inProjectScope(activeScope, path) }));
+              return all.filter((item) => inProjectScope(activeScope, item.path)).map(({ id: projectId, path, name }) => ({ id: projectId, path, name }));
+            },
           ),
+          {
+            name: "project_add",
+            description:
+              "Register a local Git repository folder in Milagre and grant this Chat access to it. Unless this Chat runs in Full permission, the user approves first on a card in this Chat: wait for its result, don't end the turn or move on.",
+            input: projectInput,
+            readOnly: false,
+            capability: "create",
+            run: async (args) => {
+              assertActive();
+              const result = await host.addProject(
+                args,
+                caller,
+                (projectPath) => inProjectScope(currentScope(), projectPath),
+                (granted) => grantChatProject(caller, granted),
+              );
+              assertActive();
+              return JSON.stringify(result);
+            },
+          },
         ];
       if (id === "worktrees")
         return [
-          read("worktree_list", "List registered Worktrees in an allowed Project.", projectInput, (args) => host.worktrees(args.projectPath)),
+          read(
+            "worktree_list",
+            "List registered Worktrees in a Project. From a Chat, targeting another Project asks the user on a card first: wait for its result, don't end the turn or move on.",
+            projectInput,
+            (args) => host.worktrees(args.projectPath),
+          ),
           mutate(
             "worktree_create",
-            "Create and register a Worktree using Milagre's normal file copy and setup. Reuse requestId when retrying the same creation.",
+            "Create and register a Worktree using Milagre's normal file copy and setup. From a Chat, targeting another Project asks the user on a card first: wait for its result. Reuse requestId when retrying the same creation.",
             "create",
             { ...projectInput, baseBranch: z.string().min(1).max(1024), prompt: z.string().max(10000).default("") },
             (args, operationId, assertActive) => host.createWorktree(args, operationId, assertActive),
           ),
           act(
             "worktree_link",
-            "Link a Worktree to another Project's Worktree, as drawing a Link on the canvas does, so this Chat can read it and delegate to it. From an agent in Ask mode the user approves first. The call can wait minutes for the user's answer on that card: wait for its result, don't end the turn or move on.",
+            "Link a Worktree to another Project's Worktree (its main Worktree when targetWorktreeId is omitted), as drawing a Link on the canvas does, so this Chat can read it and delegate to it. From an agent in Ask mode the user approves first. The call can wait minutes for the user's answer on that card: wait for its result, don't end the turn or move on.",
             "create",
             {
               ...projectInput,
               worktreeId: z.number().int().positive(),
               targetProjectPath: z.string().min(1).max(8192),
-              targetWorktreeId: z.number().int().positive(),
+              targetWorktreeId: z.number().int().positive().optional(),
             },
-            (args) => host.linkWorktrees(args, callerOf(connectionId), (projectPath) => scope.projectPaths.includes(projectPath)),
+            (args) => host.linkWorktrees(args, caller, (projectPath) => inProjectScope(currentScope(), projectPath)),
           ),
           act(
             "worktree_remove",

@@ -1891,6 +1891,7 @@ function createRuntime(options) {
     dataDir,
     remote,
     registry: projectRegistry,
+    grantedProjects: (chatId) => localMcp.grantedProjects(chatId),
     // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
     linkProjects: async (linkId) => {
       const link = await linkRuntime.definition(linkId);
@@ -2175,7 +2176,7 @@ function createRuntime(options) {
   // Each way a project opens (launch, the folder dialog, a switch) puts it at the top of the recent list.
   // `takeNotice`: this open is a desktop window's, which shows the restored-chats notice. Over the daemon only the
   // desktop asks for it, so the phone's bridge opening the project first doesn't use the notice up.
-  async function openProject(projectPath, { takeNotice = true } = {}) {
+  async function openProject(projectPath, { takeNotice = true, focus = true } = {}) {
     // One look at git gives the Project and its Worktrees, which the read reconciles with. A Project opened before by
     // this path (a switch back to it) keeps the identity read then while its Worktree list still starts at it.
     const known = openedIdentities.get(projectPath);
@@ -2186,7 +2187,7 @@ function createRuntime(options) {
     await projectRegistry().add(identity);
     // The identity says what rememberProject would ask git again: its path is a checkout's top folder, or outside Git.
     await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
-    shownProjectPath = identity.path;
+    if (focus) shownProjectPath = identity.path;
     // The first window to open the project after chats came back says so, once. A read at startup (resuming a turn)
     // or after removing a worktree keeps the notice for it.
     const restored = takeNotice ? restoredChats.get(identity.path) : undefined;
@@ -2448,7 +2449,16 @@ function createRuntime(options) {
     return Object.values((await states.get(projectPath)).worktrees ?? {}).map((worktree) => worktree.path);
   });
   commands.handle("project:switch", async (_event, requested) => openProject(await switchTarget(recentProjects(), requested)));
-  commands.handle("project:forget", async (_event, projectPath) => withHidden(await recentProjects().forget(projectPath)));
+  const realDataDir = realpathSync(dataDir);
+  const assertRegistrableProject = (folder) => {
+    const relative = path.relative(realDataDir, folder);
+    const insideDataDir = !relative || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    if (bots.isHome(folder) || insideDataDir) throw Error("That folder belongs to Milagre's internal state and cannot be registered as a Project.");
+  };
+  commands.handle("project:forget", async (_event, projectPath) => {
+    localMcp.forgetProjectGrants(projectPath);
+    return withHidden(await recentProjects().forget(projectPath));
+  });
   // The phone's project search: Git repositories under the home folder, matched by name (see project-finder.cjs).
   const projectFinder = createProjectFinder(options.projectSearchRoot || require("node:os").homedir());
   commands.handle("project:find", (_event, query) => projectFinder.search(typeof query === "string" ? query.slice(0, 200) : ""));
@@ -2476,6 +2486,12 @@ function createRuntime(options) {
     models: (projectPath) => handlers.get("agent:models")(null, projectPath),
     worktreeStatus,
     removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
+    assertRegistrableProject,
+    registerProject: async (folder) => {
+      assertRegistrableProject(folder);
+      await openProject(folder, { takeNotice: false, focus: false });
+      emit("local-mcp:changed", { projectAdded: true });
+    },
     botOf: (chatId) => botRunning(chatId),
     validateDesignChat: async (chatId) => {
       const scope = projectOfKey(chatId);
@@ -2506,7 +2522,7 @@ function createRuntime(options) {
       const botChat = Boolean(botRunning(chatId));
       return {
         ...designGrant,
-        projects: { projectPaths, capabilities: ["read"] },
+        projects: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create"] },
         worktrees: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create"] },
         chats: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create", "start"] },
       };

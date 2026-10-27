@@ -74,7 +74,7 @@ test("Codex: only Milagre's own plan tools and routine_list are auto-approved; r
   assert.deepEqual(PLAN_TOOL_NAMES, ["tasks_set", "task_update", "tasks_read", "phase_set"]);
   for (const name of [...PLAN_TOOL_NAMES, "routine_list"]) assert.equal(isCodexPlanToolApproval(params(name)), true, name);
   for (const name of ROUTINE_WRITES) assert.equal(isCodexPlanToolApproval(params(name)), false, name);
-  for (const name of ["worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"])
+  for (const name of ["project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"])
     assert.equal(isCodexPlanToolApproval(params(name)), true, `${name} asks on its own card`);
   assert.equal(isCodexPlanToolApproval(params("design_delete")), false);
   assert.equal(isCodexPlanToolApproval(params("chat_start")), false);
@@ -121,7 +121,7 @@ test("the Milagre tools every provider runs without its own card: reads, plan, o
   const ungated = (name, readOnly = false) => isUngatedMilagreTool({ name, readOnly });
   assert.equal(ungated("linear_issue", true), true);
   const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
-  for (const name of [...PLAN_TOOL_NAMES, ...own, "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
+  for (const name of [...PLAN_TOOL_NAMES, ...own, "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"]) {
     assert.equal(ungated(name), true, name);
     // Codex in Ask or Auto, and Antigravity, get Milagre's answer instead of a card.
     assert.equal(isCodexPlanToolApproval(codexApproval(name)), true, name);
@@ -137,7 +137,16 @@ test("Bot rules keep only the Milagre tools that stay inside the Chat", () => {
   for (const name of ["routine_list", "chat_read", "linear_issue", "linked_overview", "memory_read"]) assert.equal(kept(name, true), true, name);
   const own = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment"];
   for (const name of [...PLAN_TOOL_NAMES, ...own, "memory_write", "chat_open", "chat_send"]) assert.equal(kept(name), true, name);
-  const outside = ["delegate", "conclude_negotiation", "worktree_create", "worktree_link", "worktree_remove", "worktree_unlink", "link_worktree_create"];
+  const outside = [
+    "project_add",
+    "delegate",
+    "conclude_negotiation",
+    "worktree_create",
+    "worktree_link",
+    "worktree_remove",
+    "worktree_unlink",
+    "link_worktree_create",
+  ];
   const chats = ["chat_create", "chat_start", "chat_stop", "chat_set_mode", "chat_respond", "chat_update"];
   const rest = ["linear_create_issue", "linear_update_issue", "linear_comment", "design_delete", "browser_attach", "simulator_attach", "advisor_stop"];
   for (const name of [...ROUTINE_WRITES, ...outside, ...chats, ...rest, "a_tool_added_later"]) assert.equal(kept(name), false, name);

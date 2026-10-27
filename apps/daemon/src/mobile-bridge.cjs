@@ -694,7 +694,7 @@ async function startMobileBridge({
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
       if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
-      if (channel === "mcp:changed" && !confine) signal(entry, "mcp", 0);
+      if ((channel === "mcp:changed" || channel === "local-mcp:changed") && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
       // Project-less socket is refused), so the phone's Routines screen reads on focus instead of on this signal.

@@ -4,11 +4,11 @@ const { randomBytes, randomUUID, createHash } = require("node:crypto");
 const { z } = require("zod");
 const { preparePrivateDirectory, assertPrivate, windowsAcl } = require("./private-files.cjs");
 
-const paths = z.array(z.string().max(8192).refine(path.isAbsolute, "Absolute Project paths are required")).max(100);
+const paths = z.union([z.literal("*"), z.array(z.string().max(8192).refine(path.isAbsolute, "Absolute Project paths are required")).max(100)]);
 const capabilities = (values) => z.array(z.enum(values)).min(1);
 const grantsSchema = z
   .strictObject({
-    projects: z.strictObject({ projectPaths: paths, capabilities: capabilities(["read"]) }).optional(),
+    projects: z.strictObject({ projectPaths: paths, capabilities: capabilities(["read", "create"]) }).optional(),
     worktrees: z.strictObject({ projectPaths: paths, capabilities: capabilities(["read", "create"]) }).optional(),
     chats: z.strictObject({ projectPaths: paths, capabilities: capabilities(["read", "create", "start"]) }).optional(),
     designs: z
