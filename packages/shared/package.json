@@ -171,6 +171,10 @@
       "types": "./src/routines.d.mts",
       "default": "./src/routines.mjs"
     },
+    "./babysit": {
+      "types": "./src/babysit.d.mts",
+      "default": "./src/babysit.mjs"
+    },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
