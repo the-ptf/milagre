@@ -7,6 +7,8 @@ const NEVER_MERGES = "Babysitting never merges.";
 const NEVER_CLOSES = "Babysitting never closes or reopens the PR.";
 // A GraphQL body in a file can't be read here (no I/O), so it could hold any mutation; no setting allows it.
 const UNREADABLE_GRAPHQL = "Babysitting can't check a GraphQL request read from a file, so it's blocked.";
+// A REST edit of a PR or issue whose body comes from a file (or stdin fed from one) could close it; no setting allows it.
+const UNREADABLE_BODY = "Babysitting can't check a request body read from a file, so it's blocked.";
 
 // What each guarded action is called in the denial, and whether a Run's guard ({ level, resolveThreads }, already the
 // Run's effective values) allows it. Merging, closing and unreadable GraphQL are never allowed and have their own reasons.
@@ -38,8 +40,10 @@ const ENDPOINTS = [
   ["rerequest", /\/requested_reviewers$/],
   ["reply", /\/(?:comments|replies|reviews)(?:\/|$)/],
   ["push", /\/git\/refs(?:\/|$)|\/contents(?:\/|$)|\/update-branch$|\/merge-upstream$/],
-  // Editing the PR itself; one that sets its state closes or reopens it (see apiActions).
+  // Editing the PR or issue itself (title, body, assignees, milestone); one that sets its state closes or reopens it (see
+  // apiActions).
   ["reply", /\/(?:pulls|issues)\/\d+$/],
+  ["reply", /\/issues\/\d+\/(?:labels|assignees)(?:\/|$)/],
 ];
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
@@ -70,6 +74,44 @@ const API_VALUE_OPTIONS = new Set([
 const MAX_DEPTH = 8;
 
 const base = (word) => path.basename(word).replace(/\.exe$/i, "");
+
+const ESCAPES = { n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", e: "\x1b", E: "\x1b", f: "\f", v: "\v", "\\": "\\", "'": "'", '"': '"', "?": "?" };
+
+// An ANSI-C quoted word (`$'…'`) starting at `start` (just past the `$'`): its text with the escapes bash decodes, and the
+// index of its closing quote (or the text's end).
+function ansiC(text, start) {
+  let value = "";
+  let index = start;
+  while (index < text.length && text[index] !== "'") {
+    const char = text[index];
+    if (char !== "\\") {
+      value += char;
+      index += 1;
+      continue;
+    }
+    const next = text[index + 1] ?? "";
+    const code = (pattern, from, radix) => {
+      const match = pattern.exec(text.slice(from));
+      if (!match) return false;
+      const point = Number.parseInt(match[0], radix);
+      value += point <= 0x10ffff ? String.fromCodePoint(point) : "\uFFFD";
+      index = from + match[0].length;
+      return true;
+    };
+    if (next === "x" && code(/^[0-9a-fA-F]{1,2}/, index + 2, 16)) continue;
+    if (next === "u" && code(/^[0-9a-fA-F]{1,4}/, index + 2, 16)) continue;
+    if (next === "U" && code(/^[0-9a-fA-F]{1,8}/, index + 2, 16)) continue;
+    if (/[0-7]/.test(next) && code(/^[0-7]{1,3}/, index + 1, 8)) continue;
+    if (next === "c" && text[index + 2]) {
+      value += String.fromCharCode(text.charCodeAt(index + 2) & 31);
+      index += 3;
+      continue;
+    }
+    value += ESCAPES[next] ?? `\\${next}`;
+    index += 2;
+  }
+  return { value, end: index };
+}
 
 // A here-document's operator at `index` (`<<WORD`, `<<'WORD'`, `<<"WORD"`, `<<-WORD`): its terminator, whether tabs
 // before the terminator are ignored, and where the operator ends. Null for `<<<` or anything else.
@@ -133,7 +175,11 @@ function closingParen(text, start) {
     } else if (char === "\n" && !quote && pending.length) index = afterHeredocs(text, index, pending) - 1;
     else if (char === "\\" && quote !== "'") index += 1;
     else if (quote) {
-      if (char === quote) quote = null;
+      // `$` stands for an ANSI-C quote (`$'…'`): it ends at a `'`, and a backslash escapes in it.
+      if (char === (quote === "$" ? "'" : quote)) quote = null;
+    } else if (char === "$" && text[index + 1] === "'") {
+      quote = "$";
+      index += 1;
     } else if (char === "'" || char === '"') quote = char;
     else if (char === "(") depth += 1;
     else if (char === ")" && (depth -= 1) === 0) return index;
@@ -220,6 +266,13 @@ function commandsOf(text, depth = 0, scripts = false) {
       else word += char;
       continue;
     }
+    // ANSI-C quoting: read as bash decodes it, so `$'git' push` is a push.
+    if (char === "$" && text[index + 1] === "'") {
+      const { value, end } = ansiC(text, index + 2);
+      word = (word ?? "") + value;
+      index = end;
+      continue;
+    }
     arithmetic = arithmeticAt(text, index, arithmetic);
     if (text.startsWith("<<<", index)) {
       endWord();
@@ -274,6 +327,7 @@ function apiActions(words, line) {
   let fields = false;
   let endpoint = null;
   let unreadable = false;
+  let input = null;
   const values = [];
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index];
@@ -291,6 +345,7 @@ function apiActions(words, line) {
       if ((value ?? "").startsWith("query=@")) unreadable = true;
     } else if (name === "--input") {
       fields = true;
+      input = String(value ?? "");
       if (value !== "-") unreadable = true;
     } else if (!word.startsWith("-") && endpoint === null) endpoint = word;
   }
@@ -301,7 +356,16 @@ function apiActions(words, line) {
     .replace(/^\/+/, "")
     .replace(/\/+$/, "")}`;
   const match = ENDPOINTS.find(([, pattern]) => pattern.test(route));
-  if (match && /\/(?:pulls|issues)\/\d+$/.test(route) && values.some((value) => value.startsWith("state="))) return ["close"];
+  if (match && /\/(?:pulls|issues)\/\d+$/.test(route)) {
+    // An edit that sets the state closes or reopens it: a field, or a JSON body seen on the line (piped in or a
+    // here-string). A body that can't be seen (a file, or stdin fed from one) could too.
+    if (values.some((value) => value.startsWith("state="))) return ["close"];
+    if (input !== null) {
+      if (input !== "-") return ["body-file"];
+      if (/["']?\bstate["']?\s*:/.test(line)) return ["close"];
+      if (!line.includes("{")) return ["body-file"];
+    }
+  }
   return match ? [match[0]] : [];
 }
 
@@ -322,7 +386,8 @@ function ghActions(words, line) {
   const rest = words.slice(index);
   if (group === "api") return apiActions(words.slice(words.indexOf("api") + 1), line);
   if (group === "pr" && command === "merge") return ["merge"];
-  if (group === "pr" && (command === "close" || command === "reopen")) return ["close"];
+  if ((group === "pr" || group === "issue") && (command === "close" || command === "reopen")) return ["close"];
+  if (group === "issue" && command === "edit") return ["reply"];
   if (group === "pr" && command === "ready") return ["reply"];
   // Both write commits to a branch on GitHub.
   if ((group === "pr" && command === "update-branch") || (group === "repo" && command === "sync")) return ["push"];
@@ -343,7 +408,10 @@ function ghActions(words, line) {
   return [];
 }
 
-/** The guarded actions a command line takes: "push", "reply", "rerequest", "resolve", "merge", "close" or "graphql-file". */
+/**
+ * The guarded actions a command line takes: "push", "reply", "rerequest", "resolve", "merge", "close", "graphql-file" or
+ * "body-file".
+ */
 function actionsOf(line) {
   const actions = new Set();
   for (const words of commandsOf(line)) {
@@ -370,6 +438,7 @@ function babysitDenial(command, guard) {
   if (actions.has("merge")) return NEVER_MERGES;
   if (actions.has("close")) return NEVER_CLOSES;
   if (actions.has("graphql-file")) return UNREADABLE_GRAPHQL;
+  if (actions.has("body-file")) return UNREADABLE_BODY;
   const refused = ORDER.find((action) => actions.has(action) && !ACTIONS[action].allowed(guard));
   if (!refused) return null;
   const title = (BABYSIT_LEVELS.find((entry) => entry.level === guard.level) ?? BABYSIT_LEVELS[0]).title;

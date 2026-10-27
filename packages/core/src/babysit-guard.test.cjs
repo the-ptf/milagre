@@ -4,6 +4,7 @@ const { babysitDenial } = require("./babysit-guard.cjs");
 
 const at = (level, resolveThreads = level >= 4) => ({ level, resolveThreads });
 const SETTINGS = "Change it in Settings › Experimental › Babysit PRs.";
+const UNREADABLE = "Babysitting can't check a request body read from a file, so it's blocked.";
 const denied = (command, guard) => assert.notEqual(babysitDenial(command, guard), null, command);
 const allowed = (command, guard) => assert.equal(babysitDenial(command, guard), null, command);
 
@@ -204,6 +205,70 @@ test("closing or reopening the PR is always denied", () => {
     assert.equal(babysitDenial(`gh api graphql -f query='mutation { closePullRequest(input: {pullRequestId: "x"}) { clientMutationId } }'`, at(level)), reason);
     assert.equal(babysitDenial("gh api -X PATCH repos/o/r/pulls/42 -f state=closed", at(level)), reason);
   }
+});
+
+test("a REST edit of a PR or issue that sets its state, or whose body can't be read, never runs", () => {
+  const close = "Babysitting never closes or reopens the PR.";
+  for (const level of [4, 5]) {
+    assert.equal(babysitDenial(`echo '{"state":"closed"}' | gh api -X PATCH repos/o/r/pulls/42 --input -`, at(level)), close);
+    assert.equal(babysitDenial(`gh api -X PATCH repos/o/r/issues/42 --input - <<< '{"state": "open"}'`, at(level)), close);
+    assert.equal(babysitDenial("gh api -X PATCH repos/o/r/pulls/42 -F state=closed", at(level)), close);
+    assert.equal(babysitDenial("gh api -X PATCH repos/o/r/pulls/42 --raw-field=state=closed", at(level)), close);
+    assert.equal(babysitDenial("gh api -X PATCH repos/o/r/pulls/42 --input body.json", at(level)), UNREADABLE);
+    assert.equal(babysitDenial("cat body.json | gh api -X PATCH repos/o/r/pulls/42 --input -", at(level)), UNREADABLE);
+  }
+  // A body piped in that only edits the title is a reply.
+  allowed(`echo '{"title":"Better"}' | gh api -X PATCH repos/o/r/pulls/42 --input -`, at(4));
+  denied(`echo '{"title":"Better"}' | gh api -X PATCH repos/o/r/pulls/42 --input -`, at(3));
+});
+
+test("closing or reopening an issue is always denied; editing or commenting on one is a reply", () => {
+  const close = "Babysitting never closes or reopens the PR.";
+  for (const level of [1, 5]) {
+    assert.equal(babysitDenial("gh issue close 42", at(level)), close);
+    assert.equal(babysitDenial("gh issue close 42 --reason 'not planned'", at(level)), close);
+    assert.equal(babysitDenial("gh issue reopen 42", at(level)), close);
+  }
+  const reply = `Babysit level Fix and push doesn't allow replying on GitHub. ${SETTINGS}`;
+  assert.equal(babysitDenial("gh issue edit 42 --add-label bug", at(3)), reply);
+  assert.equal(babysitDenial("gh issue comment 42 --body hi", at(3)), reply);
+  for (const command of ["gh issue edit 42 --add-label bug", "gh issue comment 42 --body hi"]) allowed(command, at(4));
+  allowed("gh issue view 42", at(1));
+});
+
+test("ANSI-C quoting is decoded, so it can't hide a command", () => {
+  for (const command of [
+    `bash -c $'git push'`,
+    `echo $'git push' | sh`,
+    `$'git' push`,
+    `$'\\x67it' push`,
+    `$'\\147it' push`,
+    `$'\\u0067it' push`,
+    `bash -c $'git\\tpush'`,
+    `sh -c $'gh pr merge 1'`,
+  ])
+    denied(command, at(1));
+  assert.equal(babysitDenial(`sh -c $'gh pr merge 1'`, at(5)), "Babysitting never merges.");
+  allowed(`echo $'line one\\nline two'`, at(1));
+  allowed(`grep $'git push' notes.txt`, at(1));
+  // An escape past Unicode's end reads as a replacement character, never a throw.
+  allowed(`echo $'\\U7fffffff'`, at(1));
+});
+
+test("labels, assignees and milestones on a PR or issue are reply-level writes", () => {
+  for (const command of [
+    "gh api -X POST repos/o/r/issues/42/labels -f 'labels[]=bug'",
+    "gh api -X DELETE repos/o/r/issues/42/labels/bug",
+    "gh api -X PUT repos/o/r/issues/42/labels -f 'labels[]=bug'",
+    "gh api -X POST repos/o/r/issues/42/assignees -f 'assignees[]=me'",
+    "gh api -X DELETE repos/o/r/issues/42/assignees -f 'assignees[]=me'",
+    "gh api -X PATCH repos/o/r/issues/42 -F milestone=3",
+    "gh api -X PATCH repos/o/r/pulls/42 -f 'assignees[]=me'",
+  ]) {
+    denied(command, at(3));
+    allowed(command, at(4));
+  }
+  allowed("gh api repos/o/r/issues/42/labels", at(1));
 });
 
 test("editing the PR or marking it ready is a reply", () => {
