@@ -3,7 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { canRunNow, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
+import { canEditRoutine, canRunNow, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { useSession } from "../session";
 import { useRoutines, type RoutineWithRuns } from "../use-routines";
 import { useProjectStates } from "../use-project-states";
@@ -272,8 +272,9 @@ function RoutineRow({
         sections={[
           {
             items: [
-              { id: "edit", title: "Edit", systemImage: "pencil" },
-              // Linear and webhook Routines run only on their event; the scheduler refuses Run now for them.
+              // A babysit Heartbeat follows the Babysit PRs settings: no form edits it.
+              ...(canEditRoutine(routine) ? [{ id: "edit", title: "Edit", systemImage: "pencil" }] : []),
+              // Linear and webhook Routines run only on their event (a babysit Heartbeat on its PR's); the scheduler refuses Run now for them.
               ...(canRunNow(routine) ? [{ id: "run", title: "Run now", systemImage: "play", disabled: !routine.enabled }] : []),
               { id: "open", title: heartbeat ? "Open Chat" : "Open last Chat", systemImage: "bubble.left", disabled: !hasChat },
               ...(unread ? [{ id: "read", title: "Mark as read", systemImage: "checkmark" }] : []),

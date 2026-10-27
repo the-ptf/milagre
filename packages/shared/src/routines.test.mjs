@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canOpenRunChat,
+  canEditRoutine,
   canRunNow,
   chatLeft,
   chatRoutine,
@@ -339,6 +340,17 @@ test("canRunNow: schedules and Heartbeats run now; Linear and webhook triggers h
   assert.equal(canRunNow({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId: "c" } }), true);
   assert.equal(canRunNow({ trigger: { kind: "linear", workspace: "w", event: "assigned" }, target: newChat }), false);
   assert.equal(canRunNow({ trigger: { kind: "webhook", hookId: "a", signed: false }, target: newChat }), false);
+});
+
+test("a babysit Heartbeat neither runs now nor opens the form; every other Routine edits", () => {
+  const babysit = {
+    trigger: { kind: "pull-request", url: "https://github.com/o/r/pull/7", repo: "github.com/o/r", number: 7 },
+    target: { kind: "chat", chatId: "c" },
+  };
+  assert.equal(canRunNow(babysit), false);
+  assert.equal(canEditRoutine(babysit), false);
+  assert.equal(canEditRoutine({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId: "c" } }), true);
+  assert.equal(canEditRoutine({ trigger: { kind: "webhook", hookId: "a", signed: false }, target: { kind: "new-chat", projectPath: "/p" } }), true);
 });
 
 const run = (id, status, extra = {}) => ({ id, routineId: "r", startedAt: 100 - Number(id), status, ...extra });

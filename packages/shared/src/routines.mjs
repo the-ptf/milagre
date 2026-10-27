@@ -169,9 +169,17 @@ export function triggerText(trigger) {
 }
 
 /** Whether Run now works for the Routine: a schedule (Heartbeats are schedules too) has nothing to wait for; a Linear or
- * webhook trigger has no event to run with, so the Mac refuses it. */
+ * webhook trigger has no event to run with, and a babysit Heartbeat runs only on what changed on its PR, so the Mac
+ * refuses it. */
 export function canRunNow(routine) {
+  if (routine?.trigger?.kind === "pull-request") return false;
   return routine?.target?.kind === "chat" || routine?.trigger?.kind === "schedule";
+}
+
+/** Whether the Routine form can edit the Routine: not a babysit Heartbeat, which Milagre sets up from the Babysit PRs
+ * settings when a Chat opens a PR. It can still be paused and deleted. */
+export function canEditRoutine(routine) {
+  return routine?.trigger?.kind !== "pull-request";
 }
 
 /** Whether a Run folds into a stretch on the Runs list: it did nothing (quiet, skipped, missed) or was refused before it ran. */

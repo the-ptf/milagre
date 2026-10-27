@@ -13339,6 +13339,35 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   );
 });
 
+// A babysit Heartbeat runs only on what changed on its PR and follows the Babysit PRs settings: no Run now, no Edit.
+const babysitRoutine = (heartbeat) => ({
+  ...heartbeat,
+  id: "pr",
+  name: "Babysit PR #7",
+  trigger: { kind: "pull-request", url: "https://github.com/o/r/pull/7", repo: "github.com/o/r", number: 7, settings: {} },
+  maxRuns: undefined,
+  expiresAt: Date.UTC(2026, 9, 24),
+  runs: [],
+});
+
+test("a phone babysit Heartbeat has no Run now or Edit, on its row or its screen, and its row still deletes it", async () => {
+  const [heartbeat] = routineFixtures();
+  const list = routinesHost({ routines: [babysitRoutine(heartbeat)] });
+  list.render();
+  await list.settle();
+  const [row] = list.rows(list.render());
+  const menu = find(row, (node) => node.type === "PullDown");
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Open Chat", "Delete"]);
+  const screen = routineHost({ id: "pr", routines: [babysitRoutine(heartbeat)] });
+  const toolbar = allNodes(screen.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel);
+  assert.deepEqual(toolbar, []);
+  const other = routineHost({ id: "hb", routines: [{ ...heartbeat, runs: [] }] });
+  assert.deepEqual(
+    allNodes(other.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel),
+    ["Run now", "Edit"],
+  );
+});
+
 test("a phone Run row gives its words all the room: flex 1 with no minimum, the dot's padding taken back, and the time never squeezed", () => {
   const [, trigger] = routineFixtures();
   const title = "Add exponential backoff retries to payments webhook";

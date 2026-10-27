@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
-import { canRunNow } from "@milagre/shared/routines";
+import { canEditRoutine, canRunNow } from "@milagre/shared/routines";
 import GlideMenu from "../primitives/GlideMenu";
 import { Switch } from "../primitives/Switch";
 import { useDismiss } from "../../lib/use-dismiss";
@@ -192,7 +192,7 @@ export function RoutineRow({
   const heartbeat = isHeartbeat(routine);
   const problem = routineProblem(routine);
   const entries: MenuEntry[] = [
-    { key: "edit", label: "Edit", icon: PencilEdit02Icon, onSelect: onEdit },
+    ...(canEditRoutine(routine) ? [{ key: "edit", label: "Edit", icon: PencilEdit02Icon, onSelect: onEdit }] : []),
     ...(canRunNow(routine) ? [{ key: "run", label: "Run now", icon: PlayIcon, onSelect: onRunNow }] : []),
     ...(chat ? [{ key: "chat", label: heartbeat ? "Open Chat" : "Open last Chat", icon: BubbleChatIcon, onSelect: () => onOpenChat(chat) }] : []),
     ...(unread && onMarkRead ? [{ key: "read", label: "Mark as read", icon: Tick02Icon, onSelect: onMarkRead }] : []),
