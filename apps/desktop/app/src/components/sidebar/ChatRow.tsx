@@ -1,3 +1,4 @@
+import { readWithTimeout } from "@milagre/shared/read-timeout";
 import { linkChatWorktreesLabel } from "@milagre/shared/worktree-link";
 import { ChatTitle } from "./ChatTitle";
 import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/linear";
@@ -1370,7 +1371,7 @@ function ChatMenu({
     if (!actions.onArchiveCheck || !actions.onArchive) return;
     let live = true;
     // A worktree that can't be checked only hides the chat, as before.
-    actions.onArchiveCheck(item.id).then(
+    readWithTimeout(() => actions.onArchiveCheck!(item.id), 5_000).then(
       // oxlint-disable-next-line promise/no-callback-in-promise -- the handler receives the resolved value, not a Node-style callback
       (next) => live && setPlan(next),
       () => live && setPlan(HIDE_ONLY),

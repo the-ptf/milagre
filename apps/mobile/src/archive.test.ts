@@ -414,3 +414,17 @@ test("checkArchive names what the Chat's Terminals run, and leaves idle ones out
   const old = { "terminal:list": () => Promise.reject(new Error("terminal:list is not available from mobile")) };
   assert.deepEqual(await checkArchive(fakeClient(old).client, state(), 2, "/repo#2"), { milagreOwned: true, shared: false, status: clean });
 });
+
+for (const method of ["worktree:roots", "worktree:status", "terminal:list"]) {
+  test(`a stalled ${method} check falls back to archiving without removing the Worktree`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const { client } = fakeClient({ [method]: () => new Promise(() => {}) });
+    const checking = checkArchive(client, state(), 2, "/work/shop#2");
+    t.mock.timers.tick(5_000);
+    const plan = await checking;
+    assert.deepEqual(
+      archiveDialog(plan, false).choices.map((choice) => choice.mode),
+      ["hide"],
+    );
+  });
+}

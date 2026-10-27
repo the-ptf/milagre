@@ -129,6 +129,21 @@ async function browserChecks() {
     await press("Enter");
     assert.deepEqual(await evaluate("window.calls"), ["unread:true"], "Enter on another row runs that row only");
 
+    // A check that never answers must not leave Archive disabled forever.
+    await evaluate("window.calls = []");
+    await openMenu();
+    await delay(5_100);
+    await waitFor(`!document.querySelector('${archiveRow}').disabled`);
+    await click(archiveRow);
+    assert.equal(await evaluate('document.querySelector("[data-archive-choice]")?.textContent'), "Confirm archive");
+    // A late response cannot change an already displayed confirmation into Worktree deletion.
+    await evaluate("window.releaseCheck()");
+    await delay(50);
+    assert.equal(await evaluate('document.querySelector("[data-archive-choice]")?.textContent'), "Confirm archive");
+    await press("Enter");
+    assert.deepEqual(await evaluate("window.calls"), ["archive:hide"]);
+    await evaluate("window.finishArchive()");
+
     console.log("PASS: check runs on open, Archive waits for it with no checking row, Enter confirms wherever focus is, arrowed rows keep Enter");
     app.exit(0);
   } catch (error) {

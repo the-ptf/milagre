@@ -21,7 +21,7 @@ export default function ActivitySheet() {
   const chatId = `${project?.path}#${id}`;
   const run = message === "run" ? session.snapshot?.runs.runs[chatId] : undefined;
   // A host that keeps messages by Chat sends the snapshot without them: the sheet reads its Chat's as a page.
-  const page = useChatPage(project?.state.messagesInChats ? session.client : null, project?.path, Number(id), session.snapshot);
+  const page = useChatPage(project?.state.messagesInChats ? session.client : null, project?.path, Number(id), session.snapshot, session.reconnects);
   const chatMessages = project?.state.messagesInChats ? page.messages : (project?.state.messages ?? []);
   // When the live turn ends while the sheet is open, its saved reply takes over.
   const saved =

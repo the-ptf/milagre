@@ -4,10 +4,12 @@ import { diffState } from "@milagre/shared/state-patch";
 
 // A stand-in for the preload: the test plays the host's events and answers state:read.
 type Listener = (update: any) => void;
-const raw: Record<string, Listener[]> = { project: [], link: [], agent: [] };
+const raw: Record<string, Listener[]> = { project: [], link: [], agent: [], snapshot: [], computer: [] };
 const host = { epoch: "host-1", version: 0, state: {} as any, reads: 0, hold: null as null | Promise<void> };
 (globalThis as any).window = {
   milagre: {
+    onRuntimeSnapshot: (listener: Listener) => (raw.snapshot.push(listener), () => {}),
+    onComputerEvent: (listener: Listener) => (raw.computer.push(listener), () => {}),
     onProjectState: (listener: Listener) => (raw.project.push(listener), () => {}),
     onLinkState: (listener: Listener) => (raw.link.push(listener), () => {}),
     onAgentEvent: (listener: Listener) => (raw.agent.push(listener), () => {}),
@@ -123,4 +125,98 @@ test("a turn's end that needs a read waits for it, with the events behind it, so
   assert.equal(ended.state.messages.at(-1).body, "saved reply");
   assert.equal(delta.event.type, "message-delta");
   assert.equal("state" in delta, false);
+});
+
+for (const remote of [false, true]) {
+  test(`${remote ? "paired computer" : "local host"} reconnect refreshes Chat pages without waiting for a new message`, () => {
+    const resets: string[] = [];
+    const off = stateEvents.onMessages((update) => {
+      if (update.reset) resets.push(update.scope);
+    });
+    const prefix = remote ? "remote|" : "";
+    const snapshot = {
+      projects: [
+        { path: `${prefix}/shop`, state: { messages: [], messagesInChats: true } },
+        { path: `${prefix}/legacy`, state: { messages: [] } },
+      ],
+      links: [{ linkId: `${prefix}11111111-1111-4111-8111-111111111111`, state: { messages: [], messagesInChats: true } }],
+    };
+    try {
+      if (remote) for (const listener of raw.computer) listener({ channel: "runtime:snapshot", payload: snapshot });
+      else for (const listener of raw.snapshot) listener(snapshot);
+      assert.deepEqual(resets, [`${prefix}/shop`, `milagre-link:${prefix}11111111-1111-4111-8111-111111111111`]);
+    } finally {
+      off();
+    }
+  });
+}
+
+test("a state read from before reconnect cannot restore stale state after the snapshot", async () => {
+  let release!: () => void;
+  host.hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  change({ ...host.state, sessions: { 1: { id: 1, title: "Before reconnect" } } }, { resync: true });
+  await tick();
+  for (const listener of raw.snapshot) listener({ projects: [{ path: project, state: { messages: [], messagesInChats: true } }] });
+  const announced = states.length;
+  host.hold = null;
+  release();
+  await tick();
+  assert.equal(states.length, announced, "a cancelled read must not replace the reconnect snapshot");
+  change({ ...host.state, sessions: { 1: { id: 1, title: "After reconnect" } } });
+  await tick();
+  assert.equal(states.at(-1).sessions[1].title, "After reconnect");
+});
+
+test("a reconnect keeps the last state's number: the next patch applies without a read", async () => {
+  change({ ...host.state, sessions: { 1: { id: 1, title: "Settled" } } }, { resync: true });
+  await tick();
+  const reads = host.reads;
+  for (const listener of raw.snapshot) listener({ projects: [{ path: project, state: { messages: [], messagesInChats: true } }] });
+  change({ ...host.state, sessions: { 1: { id: 1, title: "After reconnect, unchanged meanwhile" } } });
+  await tick();
+  assert.equal(host.reads, reads, "no state read when nothing changed during the disconnect");
+  assert.equal(states.at(-1).sessions[1].title, "After reconnect, unchanged meanwhile");
+});
+
+test("a reconnect releases the agent events held behind the read it drops", async () => {
+  const events: any[] = [];
+  const off = stateEvents.onAgentEvent((update) => events.push(update));
+  let release!: () => void;
+  host.hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  change({ ...host.state, sessions: { 1: { id: 1, title: "Reading" } } }, { resync: true });
+  await tick();
+  for (const listener of raw.agent) listener({ chatId: `${project}#1`, event: { type: "turn-end" } });
+  assert.equal(events.length, 0, "held while the scope is read");
+  try {
+    for (const listener of raw.snapshot) listener({ projects: [{ path: project, state: { messages: [], messagesInChats: true } }] });
+    assert.equal(events.length, 1, "released by the reconnect");
+    assert.equal(events[0].event.type, "turn-end");
+    host.hold = null;
+    release();
+    await tick();
+    assert.equal(events.length, 1, "not delivered twice when the dropped read answers");
+  } finally {
+    off();
+  }
+});
+
+test("a paired computer's snapshot without Projects resets its Links only", () => {
+  const resets: string[] = [];
+  const off = stateEvents.onMessages((update) => {
+    if (update.reset) resets.push(update.scope);
+  });
+  try {
+    for (const listener of raw.computer)
+      listener({
+        channel: "runtime:snapshot",
+        payload: { links: [{ linkId: "remote|22222222-2222-4222-8222-222222222222", state: { messages: [], messagesInChats: true } }] },
+      });
+    assert.deepEqual(resets, ["milagre-link:remote|22222222-2222-4222-8222-222222222222"]);
+  } finally {
+    off();
+  }
 });
