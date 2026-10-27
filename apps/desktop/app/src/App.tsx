@@ -133,7 +133,7 @@ import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
 import { beginChatSwitch } from "./lib/chat-switch-timing";
-import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
+import { PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
 import { isModalOpen } from "./lib/modal";
@@ -1626,7 +1626,7 @@ function App() {
       }
     } catch (error) {
       if (navigation !== projectNavigation.current) return;
-      if (!projectRef.current) setStartupError(ipcErrorMessage(error));
+      if (!projectRef.current && onboarding) setStartupError(ipcErrorMessage(error));
       setNotice(ipcErrorMessage(error));
     }
   }
@@ -1634,6 +1634,36 @@ function App() {
   // With other computers, Add project asks which computer first; with this Mac alone, the folder dialog.
   const openProject = () => (pairedComputers.length > 0 ? Promise.resolve(setAddProjectOpen(true)) : replaceProject(() => window.milagre.openProject()));
   const switchProject = (projectPath: string) => replaceProject(() => bridgeForKey(projectPath).switchProject(projectPath), projectPath);
+  const onProjectRemoved = useEvent((event: Event) => {
+    const removed = (event as CustomEvent<string>).detail;
+    if (settingsProject?.path === removed) {
+      setSettingsProject(null);
+      setView("chat");
+    }
+    if (projectRef.current?.path !== removed || selectedLinkRef.current) return;
+    const navigation = ++projectNavigation.current;
+    scopeDrafts.save({ kind: "project", projectPath: removed }, { text: draftStore.get(), sessionId: selectedSessionRef.current });
+    advanceChatView();
+    projectRef.current = null;
+    setProject(null);
+    setSelectedSessionId(null);
+    setSelectedWorktreeId(null);
+    // An established window keeps its Project/Link picker, even when no local Project remains.
+    setOnboarding(false);
+    setView("chat");
+    void window.milagre
+      .listRecentProjects()
+      .then((list) => {
+        const next = list.find((entry) => !entry.hidden && entry.path !== removed);
+        if (next && navigation === projectNavigation.current && !projectRef.current) return switchProject(next.path);
+        return undefined;
+      })
+      .catch(() => {});
+  });
+  useEffect(() => {
+    window.addEventListener(PROJECT_REMOVED, onProjectRemoved);
+    return () => window.removeEventListener(PROJECT_REMOVED, onProjectRemoved);
+  }, [onProjectRemoved]);
   async function selectLink(id: string, sessionId?: number, { keepView = false } = {}) {
     leaveBots();
     const navigation = ++projectNavigation.current;
@@ -2598,7 +2628,7 @@ function App() {
       }}
     />
   ) : null;
-  if (selectedLink && view === "settings")
+  if ((selectedLink || !project) && view === "settings")
     return (
       <DotBackground>
         {saveNotices}
@@ -2607,9 +2637,13 @@ function App() {
         <div className="flex h-screen gap-3 pr-3">
           <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
             <SettingsNav
-              showProjectSettings={false}
+              showProjectSettings={!selectedLink || !!settingsProject}
+              project={settingsProject ?? undefined}
               section={settingsSection}
-              onSelectProject={() => {}}
+              onSelectProject={(picked) => {
+                setSettingsProject(picked);
+                setSettingsSection("project");
+              }}
               onSelect={setSettingsSection}
               computerId={settingsComputer ?? undefined}
               onSelectComputer={selectSettingsComputer}
@@ -2619,6 +2653,7 @@ function App() {
           <main className="min-w-0 flex-1 pb-3">
             <SettingsPanel
               section={settingsSection}
+              project={settingsProject ?? undefined}
               computerId={settingsComputer ?? undefined}
               accountScope={accountScope}
               models={models}
@@ -2690,6 +2725,55 @@ function App() {
         {linkWorkspace}
         {linkDialogs}
       </>
+    );
+
+  if (!loading && !project && splash !== "intro")
+    return (
+      <DotBackground>
+        {saveNotices}
+        <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
+        <div data-project-chooser className="flex h-screen w-full gap-3 text-ink">
+          <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
+            <SidebarNav
+              fill
+              workspaceName="Projects"
+              recents={[]}
+              onOpenProject={openProjectFromSidebar}
+              onSwitchProject={switchProjectFromSidebar}
+              onSwitchLink={(id) => void selectLink(id)}
+              onLinkProject={() => setLinkDialogOpen(true)}
+              onEditLink={(id) => void editLink(id)}
+              onAddComputer={() => setAddComputerOpen(true)}
+              onOpenComputerSettings={openComputerSettings}
+              onOpenProjectSettings={openProjectSettings}
+              onNewChatInScope={newChatInScope}
+              onOpenScopeChat={openScopeChat}
+              onHoverChat={hoverChat}
+              onOpenSettings={() => {
+                setSettingsSection("general");
+                setView("settings");
+              }}
+              runningKeys={sidebarRunKeys.running}
+              waitingKeys={sidebarRunKeys.waiting}
+              askingKeys={sidebarRunKeys.asking}
+              attentionPaths={attentionPaths}
+            />
+          </div>
+          <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+            {notice && (
+              <p role="alert" className="break-words text-[13px] text-red">
+                {notice}
+              </p>
+            )}
+            <h1 className="text-[22px] font-semibold">Choose a Project</h1>
+            <p className="text-[14px] text-ink-3">Open a Project or Link from the sidebar, or add a Project.</p>
+            <button type="button" onClick={openProjectFromSidebar} className="rounded-control bg-ink px-4 py-2 text-[13px] font-medium text-surface">
+              Add Project
+            </button>
+          </main>
+        </div>
+        {linkDialogs}
+      </DotBackground>
     );
 
   if (loading || !project || !state || splash === "intro") {

@@ -103,6 +103,7 @@ import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { WorkspaceIcon } from "./WorkspaceIcon";
+import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/project-list";
 import type { RecentProject } from "../lib/project-list";
 import { setProjectImage, useProjectImages } from "../lib/project-images";
@@ -2273,6 +2274,7 @@ export function MainSyncSetting({ projectPath }: { projectPath: string }) {
 }
 
 function ProjectSettings({ project, onManageAccounts }: { project: SettingsProject; onManageAccounts: () => void }) {
+  const [removing, setRemoving] = useState(false);
   return (
     <>
       <Group title="Appearance">
@@ -2290,6 +2292,14 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
         <FilesToCopy projectPath={project.path} />
         <SetupCommand projectPath={project.path} />
       </Group>
+      <Group title="Remove Project">
+        <Row label="Remove from Projects list" description="Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.">
+          <button type="button" data-project-remove className={DANGER_BUTTON} onClick={() => setRemoving(true)}>
+            Remove Project
+          </button>
+        </Row>
+      </Group>
+      {removing && <RemoveProjectDialog project={project} onClose={() => setRemoving(false)} />}
     </>
   );
 }
