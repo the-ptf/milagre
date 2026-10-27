@@ -362,7 +362,8 @@ function apiActions(words, line) {
     if (values.some((value) => value.startsWith("state="))) return ["close"];
     if (input !== null) {
       if (input !== "-") return ["body-file"];
-      if (/["']?\bstate["']?\s*:/.test(line)) return ["close"];
+      // Read with every quote and backslash taken out, so no quoting or escaping of the key hides it.
+      if (/\bstate\s*:/.test(line.replace(/["'\\]/g, ""))) return ["close"];
       if (!line.includes("{")) return ["body-file"];
     }
   }

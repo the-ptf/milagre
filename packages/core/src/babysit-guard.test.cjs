@@ -217,6 +217,13 @@ test("a REST edit of a PR or issue that sets its state, or whose body can't be r
     assert.equal(babysitDenial("gh api -X PATCH repos/o/r/pulls/42 --input body.json", at(level)), UNREADABLE);
     assert.equal(babysitDenial("cat body.json | gh api -X PATCH repos/o/r/pulls/42 --input -", at(level)), UNREADABLE);
   }
+  // However the key is quoted or escaped, a visible body that sets state is a close.
+  for (const command of [
+    `echo "{\\"state\\":\\"closed\\"}" | gh api -X PATCH repos/o/r/pulls/42 --input -`,
+    `gh api -X PATCH repos/o/r/pulls/42 --input - <<< "{\\"state\\":\\"closed\\"}"`,
+    `echo '{"st'ate'":"closed"}' | gh api -X PATCH repos/o/r/issues/42 --input -`,
+  ])
+    assert.equal(babysitDenial(command, at(5)), "Babysitting never closes or reopens the PR.", command);
   // A body piped in that only edits the title is a reply.
   allowed(`echo '{"title":"Better"}' | gh api -X PATCH repos/o/r/pulls/42 --input -`, at(4));
   denied(`echo '{"title":"Better"}' | gh api -X PATCH repos/o/r/pulls/42 --input -`, at(3));
