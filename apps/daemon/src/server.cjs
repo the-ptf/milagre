@@ -279,6 +279,31 @@ function stateScope(channel, payload) {
   return null;
 }
 
+// Requests whose reply is the Project a window shows from then on: its first open, a sidebar row, a switch, onboarding.
+const SHOWN_PROJECT = new Set([
+  "project:open",
+  "project:current",
+  "project:switch",
+  "canvas:open-project",
+  "onboarding:create",
+  "onboarding:clone",
+  "onboarding:init-git",
+]);
+// Replies that carry the state of the Project or Link they open or read: `state` beside its `path`, or beside its `link`.
+const STATE_REPLIES = new Set([...SHOWN_PROJECT, "project:read", "project:snapshot", "link:open", "link:snapshot"]);
+/** The Project or Link (scope key) whose state a reply to `method` carries; null for one without a state. */
+function replyScope(method, result) {
+  if (!STATE_REPLIES.has(method) || !hasState(result)) return null;
+  if (method.startsWith("link:")) return typeof result.link?.id === "string" ? scopeKey({ kind: "link", linkId: result.link.id }) : null;
+  return typeof result.path === "string" ? result.path : null;
+}
+/** Whether two states differ in nothing but their messages: which Chats' messages are in memory (message-store.cjs). */
+function sameButMessages(a, b) {
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const keys = Object.keys(b);
+  return keys.length === Object.keys(a).length && keys.every((key) => key === "messages" || (Object.hasOwn(a, key) && a[key] === b[key]));
+}
+
 // A project's state is encoded once per state object (states are replaced, never changed in place) and reused by every
 // event, reply and client, so a burst of events and the reads that follow them serialise it once.
 const encodedStates = new WeakMap();
@@ -485,6 +510,22 @@ async function startDaemon({
         return forms.get(key);
       },
     };
+  }
+  /**
+   * The number of the state a reply carries (see statePatch), so the window that holds it takes the scope's next change
+   * as a patch on it instead of reading the state again. A scope that has sent no state yet is numbered from this one;
+   * the last state sent keeps its number; so does a newer one that differs from it only in which Chats' messages are in
+   * memory, which every client sees the same. Null for any other (an older state, or one with changes not sent yet): the
+   * window reads the state again on the next change, as before.
+   */
+  function replyNumber(scope, state) {
+    const sent = sentStates.get(scope);
+    if (!sent) {
+      sentStates.set(scope, { version: 1, state });
+      return 1;
+    }
+    if (sent.state === state) return sent.version;
+    return runtime.stateOf(scope) === state && sameButMessages(sent.state, state) ? sent.version : null;
   }
   /**
    * A scope's state with its number, for a client that takes patches, beside the rest of its snapshot (a Project's path
@@ -814,8 +855,9 @@ async function startDaemon({
           computers.setFocused([...views.values()].some((view) => view.focused));
           if (view.focused) await runtime.focused(view);
         } else if (request.method === "chat:set-open") {
+          // A Chat switch reads that Chat and its own Worktree's diff stat, never a whole Project's (see daemon:focus).
           view.chatId = typeof request.args[0] === "string" ? request.args[0] : null;
-          await runtime.focused(view);
+          await runtime.chatOpened(view.chatId);
         } else if (request.method === "daemon:stop") {
           await runtime.close();
           result = { stopping: true };
@@ -843,8 +885,17 @@ async function startDaemon({
         }
         // An open may finish after its caller disconnects. Dispose that late session as well.
         if (isClosed() && /^(simulator|browser):/.test(request.method)) await runtime.disconnect?.(context.clientId);
-        if (request.method === "link:open" && result?.link) view.linkId = result.link.id;
-        if (["project:open", "project:current", "project:switch"].includes(request.method) && result?.path) view.projectPath = result.path;
+        // The window's Project is the one it shows: a Link it opens has none (its focus reads no Project's diff stats).
+        if (request.method === "link:open" && result?.link) {
+          view.linkId = result.link.id;
+          view.projectPath = null;
+        }
+        if (SHOWN_PROJECT.has(request.method) && result?.path) view.projectPath = result.path;
+        const scope = replyScope(request.method, result);
+        if (scope) {
+          const number = replyNumber(scope, result.state);
+          if (number !== null) result = { ...result, version: number, epoch };
+        }
         await reply(result ?? null);
         if (request.method === "daemon:stop") void close().catch(onError);
       } catch (error) {
