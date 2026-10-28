@@ -25,6 +25,14 @@ export function createDraftStore(initialKey = "") {
       else values.delete(key);
       notify();
     },
+    /** Hands over the draft kept under `other` and clears it there: text typed in a screen that is being left. */
+    take: (other: string) => {
+      const value = values.get(other) ?? "";
+      if (!value) return "";
+      values.delete(other);
+      if (other === key) notify();
+      return value;
+    },
     select: (next: string) => {
       if (next === key) return;
       key = next;

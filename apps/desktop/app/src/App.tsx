@@ -560,6 +560,8 @@ function App() {
     setChatView(chatView.current);
   }
   const sendInFlight = useRef(false);
+  // A new Chat's draft is on its way to another Project (moveNewChat): Enter waits for it to get there.
+  const movingDraft = useRef(false);
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSendIds = useRef(createResendMemory());
   const [preparingView, setPreparingView] = useState<number | null>(null);
@@ -1987,6 +1989,7 @@ function App() {
     issue?: LinearIssue,
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
+    if (movingDraft.current) return false;
     if (readOnly) {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return false;
@@ -2548,6 +2551,17 @@ function App() {
   const moveNewChat = useEvent(async (key: string, home?: Pick<ChatsHome, "exists">) => {
     const from = projectRef.current?.path;
     if (selectedLinkRef.current || !from || from === key) return;
+    // The prompt keeps the keys while the draft moves (ChatComposer focuses it on the pick): what is typed here until the
+    // new Chat opens there goes along with it, and Enter waits for it to arrive instead of sending here.
+    const typedKey = draftKey(from, selectedSessionRef.current);
+    movingDraft.current = true;
+    try {
+      await moveDraftTo(key, from, typedKey, home);
+    } finally {
+      movingDraft.current = false;
+    }
+  });
+  async function moveDraftTo(key: string, from: string, typedKey: string, home?: Pick<ChatsHome, "exists">) {
     if (home && !home.exists) {
       try {
         await bridgeForKey(key).ensureChatsHome();
@@ -2563,17 +2577,22 @@ function App() {
     // The text leaves this Project's new Chat, so it isn't waiting here too on the way back.
     if (carried) setDraft("");
     const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
-    const start = () => startNewChat(carried || (remembered.sessionId === null ? remembered.text : ""));
+    const start = () => {
+      // Keys typed after the text left, while the switch was on its way, landed in the screen being left: they follow.
+      const late = draftStore.take(typedKey);
+      if (late) scopeDrafts.save({ kind: "project", projectPath: from }, { text: "", sessionId: null });
+      startNewChat(carried + late || (remembered.sessionId === null ? remembered.text : ""));
+    };
     const arrived = () => !selectedLinkRef.current && projectRef.current?.path === key;
     const switched = switchProject(key);
     if (arrived()) start();
-    else
-      void switched.then(() => {
-        if (arrived()) start();
-        // The switch failed: the text comes back where it was typed.
-        else if (carried && !selectedLinkRef.current && projectRef.current?.path === from && !draftStore.get()) setDraft(carried);
-      });
-  });
+    else {
+      await switched;
+      if (arrived()) start();
+      // The switch failed: the text comes back where it was typed.
+      else if (carried && !selectedLinkRef.current && projectRef.current?.path === from) setDraft(carried + draftStore.get());
+    }
+  }
   // The sidebar Chats group's +: a new Chat without a Project on this Mac, in its Chats home, made first when missing.
   const newChatWithoutProject = useEvent(async () => {
     leaveBots();

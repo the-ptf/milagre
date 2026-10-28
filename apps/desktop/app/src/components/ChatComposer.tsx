@@ -1336,6 +1336,12 @@ export function ChatComposer({
   const focusPrompt = useCallback(() => {
     requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }, []);
+  // The prompt takes the keys at once after a pick, not the heading's button: what is typed while the draft moves to
+  // the picked Project lands in the prompt, and goes along with it (App's moveNewChat).
+  const moveDraft = useEvent((key: string, home?: Pick<ChatsHome, "exists">) => {
+    root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
+    newChatChange?.(key, home);
+  });
   useEffect(() => {
     if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [highlightId]);
@@ -1456,7 +1462,7 @@ export function ChatComposer({
               projectKind={newChatProject?.kind}
               groups={projectGroups}
               noProject={noProjectGroup}
-              onProjectChange={newChatProject?.onChange}
+              onProjectChange={newChatChange ? moveDraft : undefined}
               onOpenChange={setHeadingOpen}
             />
           </div>
