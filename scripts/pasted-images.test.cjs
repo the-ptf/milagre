@@ -57,8 +57,8 @@ function imageDraft({ owner, upload = async () => ({ file: { id: "uploaded", pat
         ? react
         : name === "../lib/attachment-uploads"
           ? {
-              uploadFile: async (owner, name, base64) => {
-                const result = await bridge.uploadAttachment({ projectPath: owner, name, base64 });
+              uploadFile: async (owner, name, base64, current, onProgress) => {
+                const result = await bridge.uploadAttachment({ projectPath: owner, name, base64, onProgress });
                 if (result.error) throw new context.Error(result.error.message);
                 return result.file;
               },
@@ -177,4 +177,61 @@ test("remote files above the upload limit fail before reading or uploading", asy
   assert.equal(uploads.length, 0);
   assert.equal(render().files.length, 0);
   assert.equal(render().error, "large.zip is larger than 50 MiB.");
+});
+
+test("a remote batch shows every file as an upload tile that fills, then attaches them", async () => {
+  const complete = [];
+  const { render, finish } = imageDraft({
+    owner: "computer|/project",
+    upload: ({ name, onProgress }) => {
+      onProgress(4, 10);
+      return new Promise((resolve) => complete.push(() => resolve({ file: { path: `/remote/uploads/${name}` } })));
+    },
+  });
+  const read = render().attachFiles([
+    { name: "archive.zip", size: 10, type: "application/zip" },
+    { name: "notes.txt", size: 2, type: "text/plain" },
+  ]);
+  const tiles = () => render().uploads.map(({ name, sentBytes, totalBytes }) => `${name} ${sentBytes}/${totalBytes}`);
+  assert.equal(JSON.stringify(tiles()), '["archive.zip 0/10","notes.txt 0/2"]');
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(JSON.stringify(tiles()), '["archive.zip 4/10","notes.txt 0/2"]');
+  complete.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  complete.shift()();
+  await read;
+  assert.equal(render().uploads.length, 0);
+  assert.equal(JSON.stringify(render().files), '["/remote/uploads/archive.zip","/remote/uploads/notes.txt"]');
+});
+
+test("cancelling one upload tile drops that file and keeps the rest of the batch", async () => {
+  const complete = [];
+  const { render, finish } = imageDraft({
+    owner: "computer|/project",
+    upload: ({ name }) => new Promise((resolve) => complete.push(() => resolve({ file: { path: `/remote/uploads/${name}` } }))),
+  });
+  const read = render().attachFiles([
+    { name: "archive.zip", size: 10, type: "application/zip" },
+    { name: "notes.txt", size: 2, type: "text/plain" },
+  ]);
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  render().cancelUpload(render().uploads[0].id);
+  assert.equal(
+    render()
+      .uploads.map((upload) => upload.name)
+      .join(),
+    "notes.txt",
+  );
+  complete.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  complete.shift()();
+  await read;
+  assert.equal(render().error, "");
+  assert.equal(JSON.stringify(render().files), '["/remote/uploads/notes.txt"]');
 });

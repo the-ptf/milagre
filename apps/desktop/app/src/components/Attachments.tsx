@@ -3,6 +3,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { File01Icon } from "@hugeicons/core-free-icons";
 import type { ImageAttachment } from "../model";
+import type { AttachmentUpload } from "./usePastedImages";
 import { mediaKind, mediaUrl } from "../lib/media";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import { lazyView } from "../lib/lazy-view";
@@ -12,6 +13,7 @@ import { useRemoteMedia } from "../lib/remote-media";
 
 const NO_IMAGES: ImageAttachment[] = [];
 const NO_FILES: string[] = [];
+const NO_UPLOADS: AttachmentUpload[] = [];
 
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
@@ -30,6 +32,8 @@ export function Attachments({
   leading,
   previewId,
   onPreview,
+  uploads = NO_UPLOADS,
+  cancelUpload,
 }: {
   images?: ImageAttachment[];
   files?: string[];
@@ -40,6 +44,9 @@ export function Attachments({
   leading?: ReactNode;
   previewId?: string | null;
   onPreview?: (id: string | null) => void;
+  /** Files still uploading to the Chat's computer: each shows as a tile that fills as it goes. */
+  uploads?: AttachmentUpload[];
+  cancelUpload?: (id: string) => void;
 }) {
   // The open item's id; its thumbnail hides while the viewer shows it.
   const [ownPreview, setOwnPreview] = useState<string | null>(null);
@@ -93,7 +100,7 @@ export function Attachments({
   const setOpen = (index: number) => setOpenId(media[index]?.id ?? null);
   const thumbFor = useCallback((id: string) => thumbs.current.get(id), []);
   const showing = (id: string) => openId === id;
-  if (!items.length && !leading) return null;
+  if (!items.length && !uploads.length && !leading) return null;
   return (
     <div className="mb-2 flex flex-wrap items-start gap-2" aria-label="Attachments">
       {leading}
@@ -155,6 +162,21 @@ export function Attachments({
           )}
         </div>
       ))}
+      {uploads.map((upload) => (
+        <div key={upload.id} className="relative max-w-full rounded-lg border border-line bg-inset p-1">
+          <UploadTile upload={upload} />
+          {cancelUpload && (
+            <button
+              type="button"
+              aria-label={`Cancel uploading ${upload.name}`}
+              onClick={() => cancelUpload(upload.id)}
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      ))}
       {open !== null && media[open] && <MediaLightbox items={media} start={open} thumbFor={thumbFor} onIndexChange={setOpen} close={close} />}
     </div>
   );
@@ -194,5 +216,37 @@ function FileTile({ path, name, file, unavailable }: { path: string; name: strin
       </button>
       {open && <AttachmentPreview file={file} path={path} name={name} close={() => setOpen(false)} />}
     </>
+  );
+}
+
+const MB = 1024 * 1024;
+// One decimal under 10 MB, so a small file's count still moves; the total sets it for both numbers.
+const megabytes = (bytes: number, total: number) => (bytes / MB).toFixed(total < 10 * MB ? 1 : 0);
+
+/** A file on its way to the Chat's computer: the file tile, its percentage, and a bar along the bottom that fills. */
+function UploadTile({ upload }: { upload: AttachmentUpload }) {
+  const percent = upload.totalBytes ? Math.min(100, Math.round((upload.sentBytes / upload.totalBytes) * 100)) : 0;
+  return (
+    <span
+      data-attachment-upload
+      title={`Uploading ${upload.name}: ${megabytes(upload.sentBytes, upload.totalBytes)} of ${megabytes(upload.totalBytes, upload.totalBytes)} MB`}
+      className="block rounded"
+    >
+      <span className="relative flex size-20 flex-col items-center justify-center gap-1 overflow-hidden rounded bg-surface text-ink-3">
+        <HugeiconsIcon icon={File01Icon} size={22} strokeWidth={1.6} color="currentColor" aria-hidden />
+        <span className="text-[10px] font-medium tabular-nums">{percent}%</span>
+        <span
+          role="progressbar"
+          aria-label={`Uploading ${upload.name}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-hover"
+        >
+          <span className="block h-full rounded-full bg-ink transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
+        </span>
+      </span>
+      <span className="block max-w-20 truncate px-1 text-center text-[10px] text-ink-2">{upload.name}</span>
+    </span>
   );
 }
