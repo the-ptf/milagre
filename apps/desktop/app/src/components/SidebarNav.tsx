@@ -147,6 +147,8 @@ type SidebarNavProps = {
   className?: string;
   fill?: boolean;
   onNewChat?: () => void;
+  /** The open scope's own header +: a Link's starts a Link Chat while New chat elsewhere starts on this Mac. Defaults to `onNewChat`. */
+  onNewCurrentScopeChat?: () => void;
   onPick?: (id: string, label: string, prompt?: string) => void;
   onOpenSettings?: () => void;
   onOpenCanvas?: () => void;
@@ -553,6 +555,7 @@ export default memo(function SidebarNav({
   className = "",
   fill = false,
   onNewChat,
+  onNewCurrentScopeChat,
   onPick,
   onOpenSettings,
   onOpenCanvas,
@@ -1350,7 +1353,7 @@ export default memo(function SidebarNav({
                                     current
                                       ? () => {
                                           if (activeTitle === undefined) setDemoActiveTitle(null);
-                                          onNewChat?.();
+                                          (onNewCurrentScopeChat ?? onNewChat)?.();
                                         }
                                       : () => onNewChatInScope?.(scope.key)
                                   }
