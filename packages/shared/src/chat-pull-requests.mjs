@@ -11,7 +11,7 @@ export function pullRequestRefs(messages) {
   for (const step of messages.flatMap((message) => message.steps ?? [])) {
     // Saved shell steps are "$ command" then the output; a failed one has no PR to show.
     if (step.kind !== "shell" || step.status !== "done" || !step.detail?.startsWith("$ ")) continue;
-    if (/\bgh\s+pr\s+create\b/.test(step.detail)) add(createdUrl(step.detail));
+    if (/\bgh\s+pr\s+create\b/.test(step.detail)) add(createdPullRequestUrl(step.detail));
     for (const match of step.detail.matchAll(/\bgh\s+pr\s+merge\b([^\n;&|]*)/g)) add(mergedRef(match[1]));
   }
   // A number that a created URL already covers is the same PR (both run in the chat's repository).
@@ -32,8 +32,9 @@ export function pullRequestRefsCache() {
     return refs;
   };
 }
+/** The URL `gh pr create` printed, from a shell step's detail; null when there is none. */
 // gh prints the new PR's URL alone on the last line; URLs in the body come before it.
-function createdUrl(detail) {
+export function createdPullRequestUrl(detail) {
   const lines = detail
     .split("\n")
     .map((line) => line.trim())

@@ -19,6 +19,7 @@ const { catchUpStart, handoffKind, isHandoff, lastTurnProvider } = require("@mil
 const { framedBrief, renderTranscript } = require("./handover.cjs");
 const { providerCapabilities } = require("@milagre/shared/provider-capabilities");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
+const { summarizeStep } = require("@milagre/shared/tool-activity");
 const { providerName } = require("@milagre/shared/providers");
 const { accountSwitchText } = require("@milagre/shared/usage-limit");
 const { PERMISSION_MODES } = require("./permissions.cjs");
@@ -228,7 +229,8 @@ class ChatHost {
   /** The settings of the chat's latest turn this run (provider, model, permission mode…), or null. */
   turnSettings(chatId) {
     if (!this.turns.has(chatId)) return null;
-    const { prompt: _prompt, ...settings } = this.turns.get(chatId);
+    // A babysit Run's guard belongs to its own turn: a message sent on these settings is not that Run.
+    const { prompt: _prompt, guard: _guard, ...settings } = this.turns.get(chatId);
     return settings;
   }
 
@@ -584,10 +586,24 @@ class ChatHost {
         (state) => {
           if (resolve) event = resolve(state.sessions[sessionId]);
           // One host timestamp goes to live clients and reload snapshots alike. A title update for the same
-          // running step keeps its original deadline, including while it waits for approval.
+          // running step keeps its original start, so its duration doesn't reset, including while it waits for approval.
           if (event.type === "step-started") {
             const startedAt = this.runs[chatId]?.steps.find((step) => step.id === event.step.id)?.startedAt ?? this.now();
-            event = { ...event, step: { ...event.step, startedAt } };
+            const command =
+              ["shell", "setup"].includes(event.step.kind) && event.step.detail?.startsWith("$ ") && event.step.detail.endsWith("\n")
+                ? event.step.detail.slice(2, -1)
+                : undefined;
+            const input = command && command.length <= 4000 ? command : event.step.input;
+            event = { ...event, step: { ...event.step, ...(input ? { input } : {}), startedAt } };
+          }
+          if (event.type === "step-completed") {
+            const step = this.runs[chatId]?.steps.find((item) => item.id === event.id);
+            if (step) {
+              const endedAt = this.now();
+              const durationMs = event.durationMs ?? (step.startedAt == null ? undefined : Math.max(0, endedAt - step.startedAt));
+              const facts = summarizeStep({ ...step, ...event });
+              event = { ...event, ...facts, endedAt, ...(durationMs === undefined ? {} : { durationMs }) };
+            }
           }
           const result = applyAgentEvent(state, this.runs, projectPath, chatId, event);
           this.runs = result.runs;
@@ -1032,6 +1048,10 @@ class ChatHost {
       seq,
     );
     if (state.sessions[target.sessionId].titlePending) void this.nameChat(projectPath, target.sessionId).catch(() => {});
+    // A babysit Run's level, enforced by the agent's session on each command (babysit-guard.cjs). A turn continued after
+    // a usage limit (continueAfterLimit) brings the guard of the turn it continues.
+    const babysit = routineRunOf(request)?.babysit;
+    const guard = babysit ? { level: babysit.level, resolveThreads: babysit.resolveThreads === true } : request.guard;
     const turn = {
       provider: runProvider,
       model: runModel,
@@ -1041,6 +1061,7 @@ class ChatHost {
       fastMode: request.fastMode,
       replies: request.replies,
       tldrEnabled: request.tldrEnabled,
+      ...(guard ? { guard } : {}),
       prompt: brief !== undefined ? withLead(framedBrief(brief), request.prompt || body) : request.prompt || body || "Describe the attached images.",
     };
     this.turns.set(target.chatId, turn);

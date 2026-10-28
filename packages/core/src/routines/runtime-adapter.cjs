@@ -6,12 +6,16 @@ const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
 const { shortTitle } = require("@milagre/shared/chats");
 const { routineIssueContext } = require("@milagre/shared/linear-issue");
 const { routineRunOf } = require("@milagre/shared/routines");
+const { babysitStoppedText } = require("@milagre/shared/babysit");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
+const { createGit } = require("../git/client.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
+const { createPullRequestPoller } = require("./pr-poller.cjs");
+const { readPullRequestSnapshot } = require("./pull-request-watch.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
 const OFF = "Routines can't run on this computer until AI sharing is allowed. Open Routines and choose Allow.";
@@ -29,6 +33,14 @@ const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 const STOP_WAIT_MS = 5000;
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
+// Reads the branch a Chat's Worktree is on (a babysit Run waits on it), through the shared Git client's limits.
+const git = createGit();
+// How long a Babysit Heartbeat lasts when its settings don't name a number of days.
+const BABYSIT_DEFAULT_DAYS = 30;
+const DAY_MS = 864e5;
+// The reasons a babysit Heartbeat ends that its Chat hears about. Its Chat gone or archived leaves nowhere to say it;
+// a deletion says it from removeRoutine.
+const BABYSIT_STOPS = new Set(["merged", "closed", "green", "failures", "expired"]);
 // What a Chat a Routine started can't do while it is still its Run's: make, change or delete Routines, or start their Runs,
 // so a Run never sets off another. A Run Chat the user kept is a normal Chat and gets them.
 const WITHHELD = new Set(["heartbeat_create", "routine_create", "routine_run_now", "routine_update", "routine_delete"]);
@@ -276,6 +288,19 @@ function routineChats({
     return best?.chatId ?? null;
   }
 
+  // The branch checked out in a Chat's Worktree, or null when it has none (a detached HEAD) or it can't be read: a babysit
+  // Run goes at its level only while this is the PR's branch.
+  function headBranch(chatId) {
+    const state = cachedState(projectOfKey(chatId));
+    const target = session(chatId);
+    const cwd = target?.workspacePath ?? state?.worktrees?.[target?.worktree_id]?.path;
+    if (!cwd) return Promise.resolve(null);
+    return git.read
+      .checked(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+      .then(({ stdout }) => stdout.trim() || null)
+      .catch(() => null);
+  }
+
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
   async function archive(chatId, { removeWorktree = false } = {}) {
     const projectPath = projectOfKey(chatId);
@@ -385,6 +410,7 @@ function routineChats({
       }
     },
     archive: (chatId, options) => archive(chatId, options),
+    headBranch: (chatId) => headBranch(chatId),
     linkedChat: (issue) => linkedChat(issue),
     // `session` patches the Chat in the same change (see ChatHost.patchMessageContext). A Linear Run's card keeps its
     // divider in `context.routine`, so the patch goes there.
@@ -470,7 +496,6 @@ function routineTargets({ projects, openState, botOf = () => null, botHome = () 
 function createRoutines({
   file,
   chats,
-  keepAwake,
   emit,
   cachedState,
   openState,
@@ -522,12 +547,22 @@ function createRoutines({
     if (!webhooksReady) return void purgedEarly.push(...ids);
     for (const routineId of ids) webhooks.forget(routineId);
   };
-  const store = createRoutineStore({ file, now, onPurged: forgetPurged, onRunsDropped: runsDropped });
+  const store = createRoutineStore({
+    file,
+    now,
+    onPurged: forgetPurged,
+    onRunsDropped: runsDropped,
+    onEnded: (ended) => {
+      for (const { routine, reason } of ended) if (BABYSIT_STOPS.has(reason)) noteBabysitStopped(routine, reason);
+    },
+  });
   let poller = null;
-  // Every change may add, remove or switch a Linear Routine, so the poller looks again (a cheap scan).
+  let prPoller = null;
+  // Every change may add, remove or switch a Linear or pull-request Routine, so the pollers look again (a cheap scan).
   const changed = () => {
     emit("routines:changed", { enabled: store.enabled() });
     poller?.sync();
+    prPoller?.sync();
   };
   const hooksNow = () => {
     try {
@@ -566,7 +601,6 @@ function createRoutines({
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,
-    keepAwake,
     now,
     ...(timers.setInterval ? { setInterval: timers.setInterval } : {}),
     ...(timers.clearInterval ? { clearInterval: timers.clearInterval } : {}),
@@ -586,6 +620,16 @@ function createRoutines({
     scheduler,
     // Only an issue a Chat is linked to takes comments; the rest are dropped before they make a Run.
     linkedIssue: async (issue) => Boolean(await routineChatsView.linkedChat(issue)),
+    onChange: changed,
+    now,
+    ...(timers.setTimeout ? { setTimeout: timers.setTimeout } : {}),
+    ...(timers.clearTimeout ? { clearTimeout: timers.clearTimeout } : {}),
+  });
+  prPoller = createPullRequestPoller({
+    store,
+    scheduler,
+    // The Routine's own settings decide what is read (the commits behind are only counted when behind wakes the agent).
+    read: (pr) => readPullRequestSnapshot(pr, { settings: pr.settings }),
     onChange: changed,
     now,
     ...(timers.setTimeout ? { setTimeout: timers.setTimeout } : {}),
@@ -616,7 +660,7 @@ function createRoutines({
     store,
     scheduler,
     checkTarget,
-    remove: (routineId) => removeRoutine(routineId),
+    remove: (routineId, by) => removeRoutine(routineId, by),
     keepChat: (chatId) => keepRunChat(chatId),
     chatSettings,
     defaultTimezone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -627,11 +671,35 @@ function createRoutines({
   const webhooks = createWebhooks({ store, scheduler, hooks: hooksNow, changed });
   webhooksReady = true;
   forgetPurged(purgedEarly.splice(0));
-  // A Routine deleted from anywhere (the form, an agent's routine_delete) takes its webhook secret with it.
-  function removeRoutine(routineId) {
+  // A Routine deleted from anywhere (the form, an agent's routine_delete) takes its webhook secret with it. A live babysit
+  // Heartbeat says in its Chat that it stopped: its own Chat deleting it with the own stop rule on is that rule holding
+  // (the prompt asks for nothing else), anything else a deletion.
+  function removeRoutine(routineId, { byChat } = {}) {
+    const before = store.get(routineId);
     const removed = store.remove(routineId);
     if (removed) webhooks.forget(routineId);
+    if (removed && before && !before.completedAt) {
+      const ownRule = byChat !== undefined && before.target?.kind === "chat" && byChat === before.target.chatId && before.trigger.settings?.ownRule === true;
+      noteBabysitStopped(before, ownRule ? "own-rule" : "deleted");
+    }
     return removed;
+  }
+
+  /**
+   * The line a babysit Heartbeat leaves in its Chat when it ends (babysitStoppedText): a note, so no turn starts and no
+   * push goes out. Any other Routine, or one whose Chat is gone, leaves none. Written in the background, waited for at stop.
+   */
+  function noteBabysitStopped(routine, reason) {
+    if (routine?.trigger?.kind !== "pull-request" || routine.target?.kind !== "chat" || typeof chats.addNote !== "function") return;
+    const context = { kind: "babysit-stopped", routineId: routine.id, pr: routine.trigger.number, reason };
+    const times = routine.trigger.settings?.stopAfterFailures?.times;
+    if (reason === "failures" && Number.isInteger(times)) context.times = times;
+    if (reason === "expired" && Number.isFinite(routine.expiresAt)) context.days = Math.max(1, Math.round((routine.expiresAt - routine.createdAt) / DAY_MS));
+    const task = Promise.resolve()
+      .then(() => chats.addNote(routine.target.chatId, { body: babysitStoppedText(context), context }))
+      .catch((error) => console.warn("[routines] couldn't say in its Chat that babysitting stopped", error));
+    sweeps.add(task);
+    void task.finally(() => sweeps.delete(task));
   }
 
   // A Heartbeat set on a Chat keeps it: a Heartbeat's Chat is ongoing work, whoever set it. A Chat that isn't a hidden Run
@@ -778,10 +846,12 @@ function createRoutines({
     if (enabled) {
       scheduler.start();
       poller.start();
+      prPoller.start();
     } else {
       poller.stop();
-      // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again. A comment
-      // already on its way goes back to its queue; this resolves once it has.
+      prPoller.stop();
+      // Off: one last tick, and the timer stops until the switch is on again. A comment already on its way goes back to
+      // its queue; this resolves once it has.
       await scheduler.tick();
       scheduler.stop();
       await settleWithin();
@@ -831,6 +901,7 @@ function createRoutines({
       if (!store.enabled()) return;
       scheduler.start();
       poller.start();
+      prPoller.start();
     },
     // One tick now, and what the scheduler still has going off the tick (for tests that wait for a positive signal).
     tick: () => scheduler.tick(),
@@ -842,6 +913,7 @@ function createRoutines({
     stop() {
       scheduler.stop();
       poller.stop();
+      prPoller.stop();
       return settleWithin();
     },
     // `enabled` is whether this computer may run Routines: a device that allowed AI sharing said so (there is no switch
@@ -857,6 +929,31 @@ function createRoutines({
       return {
         routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) }, mayRun ? {} : { nextRunAt: null })),
       };
+    },
+    // The live Routine babysitting a pull request (host/owner/repo, number), if any: babysit-watch.cjs asks before it adds one.
+    findPullRequest: (repo, number) => store.findPullRequest(repo, number),
+    /**
+     * The `Babysit PR #<n>` Heartbeat for a pull request the Chat opened, made as its agent's: a heartbeat_create does the
+     * same. It ends after `stopAfterDays` when that rule is on, else after 30 days, and follows the Chat's own provider,
+     * model and permission mode. Does nothing (null) while this computer may not run Routines, as the tools refuse then.
+     */
+    async createBabysit({ chatId, url, repo, number, settings }) {
+      if (!store.enabled()) return null;
+      const target = await checkTarget({ kind: "chat", chatId });
+      const days = settings.stopAfterDays?.on ? settings.stopAfterDays.days : BABYSIT_DEFAULT_DAYS;
+      const name = `Babysit PR #${number}`;
+      const routine = store.create({
+        name,
+        prompt: name,
+        trigger: { kind: "pull-request", url, repo, number, settings: { ...settings } },
+        target,
+        createdBy: { kind: "agent", chatId: target.chatId },
+        expiresAt: now() + days * 864e5,
+      });
+      changed();
+      // A hidden Run Chat that opened the PR is kept, or its sweep would end the Heartbeat before it babysat.
+      await keepTarget(routine);
+      return routine;
     },
     // A Routine from the Routines form: always the user's, whatever the input says.
     async create(input, consentVersion) {

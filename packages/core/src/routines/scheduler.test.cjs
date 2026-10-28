@@ -6,6 +6,7 @@ const test = require("node:test");
 const { UNTRUSTED_NOTE } = require("@milagre/shared/routine-prompt");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler } = require("./scheduler.cjs");
+const { BABYSIT_PASS_HINT } = require("./babysit-prompt.cjs");
 
 const START = Date.UTC(2026, 0, 5, 10, 0, 0);
 const PASS_HINT = '\n\nIf nothing needs doing, reply starting with "(pass)" and a short reason.';
@@ -47,12 +48,10 @@ function setup({ enabled = true, chatOptions = {} } = {}) {
     },
     ...chatOptions,
   };
-  const awakeCalls = [];
-  const keepAwake = { setRoutinesActive: (active) => awakeCalls.push(active) };
   let changes = 0;
-  const make = () => createRoutineScheduler({ store, chats, keepAwake, now: () => clock.t, onChange: () => (changes += 1) });
+  const make = () => createRoutineScheduler({ store, chats, now: () => clock.t, onChange: () => (changes += 1) });
   const routine = store.upsertHeartbeat(base);
-  return { store, storeOptions, clock, state, calls, awakeCalls, routine, make, scheduler: make(), changes: () => changes };
+  return { store, storeOptions, clock, state, calls, routine, make, scheduler: make(), changes: () => changes };
 }
 
 const due = (ctx) => (ctx.clock.t = ctx.routine.nextRunAt);
@@ -263,20 +262,12 @@ test("a gone target completes the Routine and fails the Run", async () => {
   assert.deepEqual(ctx.store.list(), []);
 });
 
-test("start completes heartbeats of an archived Chat and keep-awake goes inactive", () => {
+test("start completes heartbeats of an archived Chat", () => {
   const ctx = setup();
   ctx.state.archived = true;
   ctx.scheduler.start();
   ctx.scheduler.stop();
   assert.deepEqual(ctx.store.list(), []);
-  assert.deepEqual(ctx.awakeCalls, [false]);
-});
-
-test("start reports keep-awake active while a Routine is enabled", () => {
-  const ctx = setup();
-  ctx.scheduler.start();
-  ctx.scheduler.stop();
-  assert.deepEqual(ctx.awakeCalls, [true]);
 });
 
 test("chatArchived completes that Chat's heartbeats", () => {
@@ -289,9 +280,6 @@ test("chatArchived completes that Chat's heartbeats", () => {
     ctx.store.list().map((routine) => routine.id),
     [kept.id],
   );
-  assert.equal(ctx.awakeCalls.at(-1), true);
-  ctx.scheduler.chatArchived("c2");
-  assert.equal(ctx.awakeCalls.at(-1), false);
 });
 
 test("a claim lost to a crash fails once on restart and does not fire again", async () => {
@@ -309,7 +297,6 @@ test("a claim lost to a crash fails once on restart and does not fire again", as
       send: async (...args) => ctx.calls.send.push(args) && { started: Promise.resolve(null) },
       replyText: () => "",
     },
-    keepAwake: { setRoutinesActive() {} },
     now: () => ctx.clock.t,
   });
   scheduler.start();
@@ -335,13 +322,12 @@ test("recovery runs once: a timer stopped and started again leaves a Run in flig
   assert.equal(lastRun(ctx).status, "running");
 });
 
-test("with the flag off ticks send nothing and keep-awake stays inactive", async () => {
+test("with the flag off ticks send nothing", async () => {
   const ctx = setup({ enabled: false });
   due(ctx);
   await ctx.scheduler.tick();
   assert.equal(ctx.calls.send.length, 0);
   assert.deepEqual(ctx.store.runs(ctx.routine.id), []);
-  assert.deepEqual(ctx.awakeCalls, [false]);
 });
 
 test("tick expires a Routine past its expiresAt before claiming", async () => {
@@ -372,7 +358,6 @@ test("start ticks on an interval that is unref'd, and stop clears it", () => {
   const scheduler = createRoutineScheduler({
     store: ctx.store,
     chats: { exists: () => true, archived: () => false, busy: () => false },
-    keepAwake: { setRoutinesActive() {} },
     now: () => ctx.clock.t,
     setInterval: (fn, ms) => {
       const handle = { fn, ms, unref: () => (handle.unrefd = true) };
@@ -706,7 +691,6 @@ function triggers({ chatOptions = {} } = {}) {
   const raw = createRoutineScheduler({
     store: spied,
     chats,
-    keepAwake: { setRoutinesActive() {} },
     now: () => clock.t,
     onChange: () => (changes += 1),
   });
@@ -1464,7 +1448,7 @@ test("a schedule with no next run pauses itself, and a heartbeat due in the same
     replyText: () => "",
     async patchRunContext() {},
   };
-  const scheduler = createRoutineScheduler({ store, chats, keepAwake: { setRoutinesActive() {} }, now: () => clock.t });
+  const scheduler = createRoutineScheduler({ store, chats, now: () => clock.t });
   scheduler.start();
   scheduler.stop();
   assert.equal(store.get(bad.id).pausedReason, "schedule has no next run");
@@ -1680,4 +1664,172 @@ test("a comment whose Chat lookup keeps failing is logged once, not on every ret
   }
   assert.equal(ctx.calls.linked.length, 4, "it tried four times");
   assert.equal(warn.mock.callCount(), 1);
+});
+
+// Babysit PRs: a pull-request event goes into the Routine's own Chat, with Milagre's babysit prompt.
+const PR_URL = "https://github.com/acme/app/pull/7";
+const createBabysit = (ctx, settings = {}, over = {}) =>
+  ctx.store.create({
+    name: "Babysit PR #7",
+    prompt: "babysit",
+    trigger: { kind: "pull-request", url: PR_URL, repo: "github.com/acme/app", number: 7, settings },
+    target: { kind: "chat", chatId: "c1" },
+    createdBy: { kind: "user" },
+    ...over,
+  });
+const prEvent = (n, over = {}) => ({
+  kind: "pull-request",
+  key: `pr7:${n}`,
+  summary: `Check failed: lint ${n}`,
+  changes: [{ id: "check:lint", text: `Check failed: lint ${n}` }],
+  branch: "feature",
+  ...over,
+});
+const onFeature = { headBranch: async () => "feature" };
+
+test("a pull-request run is sent to its own chat with the babysit prompt", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx, { level: 4, instructions: "Be brief." });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.start.length, 0, "no Chat is made");
+  assert.equal(ctx.calls.send.length, 1);
+  const sent = ctx.calls.send[0];
+  assert.equal(sent.chatId, "c1");
+  assert.match(sent.prompt, /https:\/\/github\.com\/acme\/app\/pull\/7/);
+  assert.match(sent.prompt, /Check failed: lint 1/);
+  assert.match(sent.prompt, /Fix, push and reply/);
+  assert.match(sent.prompt, /## Your instructions\nBe brief\./);
+  // Its own pass hint: a problem it was handed and didn't fix is reported, never passed.
+  assert.ok(sent.prompt.endsWith(BABYSIT_PASS_HINT));
+  assert.ok(!sent.prompt.includes(PASS_HINT));
+  assert.equal(sent.body, "PR #7 changed:\nCheck failed: lint 1");
+  assert.equal(ctx.store.runs(routine.id)[0].status, "running");
+});
+
+test("busy chat defers the pull-request run", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx);
+  ctx.state.busy.add("c1");
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 0);
+  assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.calls.defer[0].notBefore, START + 15_000);
+  assert.equal(ctx.store.get(routine.id).runCount, 0);
+
+  ctx.state.busy.delete("c1");
+  ctx.clock.t = START + 15_000;
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 1);
+});
+
+test("a pull-request run whose chat got busy as it was sent waits too", async () => {
+  const busy = Object.assign(new Error("busy"), { busy: true });
+  let refuse = true;
+  const ctx = triggers({
+    chatOptions: {
+      ...onFeature,
+      async send() {
+        if (refuse) throw busy;
+        return { started: Promise.resolve({ turnId: "t" }) };
+      },
+    },
+  });
+  const routine = createBabysit(ctx);
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.defer.length, 1);
+  assert.equal(ctx.calls.defer[0].notBefore, START + 15_000);
+  assert.equal(ctx.store.get(routine.id).runCount, 0);
+  refuse = false;
+  ctx.clock.t = START + 15_000;
+  await ctx.scheduler.tick();
+  assert.equal(ctx.store.runs(routine.id)[0].status, "running");
+});
+
+test("context carries the effective level", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx, { level: 4, resolveThreads: false });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  const run = ctx.store.runs(routine.id)[0];
+  assert.deepEqual(ctx.calls.send[0].context, {
+    kind: "routine-run",
+    routineId: routine.id,
+    runId: run.id,
+    name: "Babysit PR #7",
+    at: START,
+    label: "PR #7",
+    babysit: { level: 4, resolveThreads: false },
+  });
+});
+
+test("a Worktree on another branch makes the run report only", async () => {
+  const ctx = triggers({ chatOptions: { headBranch: async () => "main" } });
+  const routine = createBabysit(ctx, { level: 5 });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  // resolveThreads is the effective value: a report-only Run resolves nothing, whatever the setting says.
+  assert.deepEqual(ctx.calls.send[0].context.babysit, { level: 1, resolveThreads: false, offBranch: true });
+  assert.match(ctx.calls.send[0].prompt, /this Worktree is on `main`, not the PR's `feature`/);
+});
+
+test("on the branch, resolveThreads is the setting at a level that replies", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const high = createBabysit(ctx, { level: 4, resolveThreads: true });
+  ctx.scheduler.enqueueEvent(high.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.deepEqual(ctx.calls.send[0].context.babysit, { level: 4, resolveThreads: true });
+});
+
+test("a pull-request run's branch lookup never holds up a heartbeat in the same tick", async () => {
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const ctx = triggers({ chatOptions: { headBranch: () => gate.then(() => "feature") } });
+  const routine = createBabysit(ctx);
+  const beat = ctx.store.upsertHeartbeat({ ...base, chatId: "c2", name: "beat" });
+  ctx.clock.t = beat.nextRunAt;
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await within(ctx.raw.tick());
+  assert.deepEqual(
+    ctx.calls.send.map((call) => call.chatId),
+    ["c2"],
+  );
+  release();
+  await ctx.raw.idle();
+  assert.deepEqual(
+    ctx.calls.send.map((call) => call.chatId),
+    ["c2", "c1"],
+  );
+});
+
+test("a branch that can't be read counts as another branch", async () => {
+  const ctx = triggers({
+    chatOptions: {
+      headBranch: async () => {
+        throw new Error("no git");
+      },
+    },
+  });
+  const routine = createBabysit(ctx, { level: 5 });
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send[0].context.babysit.level, 1);
+});
+
+test("a pull-request run for a gone chat ends the Routine", async () => {
+  const ctx = triggers({ chatOptions: { ...onFeature, exists: () => false } });
+  const routine = createBabysit(ctx);
+  ctx.scheduler.enqueueEvent(routine.id, prEvent(1));
+  await ctx.scheduler.tick();
+  assert.equal(ctx.calls.send.length, 0);
+  assert.ok(ctx.store.get(routine.id).completedAt);
+});
+
+test("a babysit Routine can't be run now", async () => {
+  const ctx = triggers({ chatOptions: onFeature });
+  const routine = createBabysit(ctx);
+  await assert.rejects(ctx.scheduler.runNow(routine.id), /A babysit Routine runs when its PR changes/);
+  assert.equal(ctx.calls.send.length, 0);
 });

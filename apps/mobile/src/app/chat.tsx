@@ -69,12 +69,14 @@ import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
+import { BabysitStoppedDivider } from "../babysit-stopped-divider";
 import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
+import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
 import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
@@ -651,11 +653,13 @@ function ChatPane({
                   ? `Go to ${accountSwitchText(message.context)}, ${position}.`
                   : isChatReload(message)
                     ? `Go to ${RELOAD_TEXT}, ${position}.`
-                    : run
-                      ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
-                      : isCheckpointRestore(message)
-                        ? `Go to ${message.body}, ${position}.`
-                        : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+                    : isBabysitStopped(message)
+                      ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
+                      : run
+                        ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
+                        : isCheckpointRestore(message)
+                          ? `Go to ${message.body}, ${position}.`
+                          : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
         };
       }),
     [shownEntries, handoffModels],
@@ -695,7 +699,10 @@ function ChatPane({
     showBrief(brief, title);
     router.push("/handoff-brief");
   }, []);
-  const openActivity = useCallback((message: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message } }), [params.id]);
+  const openActivity = useCallback(
+    (message: string, stepId?: string) => router.push({ pathname: "/activity", params: { id: String(params.id), message, ...(stepId ? { stepId } : {}) } }),
+    [params.id],
+  );
   // The Chat a Delegation came from or went to, on the same computer, as the attention pill opens one. The Chat beside
   // opens it in its own place, so the routed Chat and the open Project stay.
   const openOtherChat = useCallback(
@@ -774,7 +781,7 @@ function ChatPane({
   }, [prefillKey, params.prefill, setDrafts]);
   // The Projects a new Chat can switch to, on every shown computer.
   const newChatProjects = useNewChatProjects();
-  // The "Start a new chat in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
+  // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
   const keyboard = useReanimatedKeyboardAnimation();
   // The keyboard's height once it has settled (0 closed): read on show and hide only, never per frame.
@@ -961,7 +968,7 @@ function ChatPane({
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
-  // A new Chat before its first message: "Start a new chat in <Project>" in the middle of the screen picks its Project.
+  // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
   const projectName = project.name || project.path.split("/").findLast(Boolean) || "Project";
   const hostIds = new Set(newChatProjects.map((item) => item.hostId));
@@ -971,7 +978,7 @@ function ChatPane({
   function chooseProject() {
     if (busy) return;
     showChoiceSheet({
-      title: "Start a new chat in",
+      title: "Start building in",
       placeholder: "Search projects",
       emptyLabel: "No projects",
       items: newChatProjects.map((item) => ({
@@ -1705,6 +1712,19 @@ function ChatPane({
   // The host's message replaces the preview as soon as the transcript grows by it.
   const answerPreview = answering && sentAnswers.count === messages.length ? sentAnswers.message : null;
   const pendingInput = pending && pendingCanonicalId === null ? pending.preview.message : null;
+  const renderToolApproval = (approval: NonNullable<typeof run>["approvals"][number]) => (
+    <Approval
+      key={approval.requestId}
+      approval={approval}
+      busy={actionBusy}
+      respond={(decision) =>
+        void action(async () => {
+          const accepted = await client.call("agent:respond-permission", [{ chatId, requestId: approval.requestId, decision }]);
+          if (!accepted) throw new Error("This approval is no longer pending. Refresh the Chat.");
+        }, true)
+      }
+    />
+  );
   const liveReply = run ? (
     <ChatReply
       key="run"
@@ -1805,7 +1825,7 @@ function ChatPane({
                   />
                 </View>
               )}
-              {/* A new Chat's empty state is the centred "Start a new chat in" line instead. */}
+              {/* A new Chat's empty state is the centred "Start building in" line instead. */}
               {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (
                 <View style={{ paddingVertical: 48, alignItems: "center", gap: 8 }}>
                   <Text style={styles.subtitle}>What are we working on?</Text>
@@ -1871,6 +1891,8 @@ function ChatPane({
                           <AccountSwitchDivider context={message.context} />
                         ) : isChatReload(message) ? (
                           <ChatReloadDivider />
+                        ) : isBabysitStopped(message) ? (
+                          <BabysitStoppedDivider context={message.context} />
                         ) : isRoutineRun(message) ? (
                           <RoutineRunDivider context={message.context} merged={merged} />
                         ) : isCheckpointRestore(message) ? (
@@ -1963,7 +1985,7 @@ function ChatPane({
               >
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Start a new chat in ${projectName}${hostIds.size > 1 ? ` on ${hostName}` : ""}. Change project`}
+                  accessibilityLabel={`Start building in ${hostName ? `${hostName} / ` : ""}${projectName}. Change project`}
                   disabled={busy}
                   onPress={chooseProject}
                   style={({ pressed }) => ({
@@ -1975,20 +1997,15 @@ function ChatPane({
                     opacity: pressed ? 0.6 : 1,
                   })}
                 >
-                  <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start a new chat in</Text>
+                  <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
                     <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                      {hostName ? <Text style={{ color: colors.ink3 }}>{hostName} / </Text> : null}
                       {projectName}
                     </Text>
                     <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
                   </View>
                 </Pressable>
-                {hostIds.size > 1 && (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Icon icon={LaptopIcon} tone="ink3" size={13} />
-                    <Text style={styles.caption}>on {hostName}</Text>
-                  </View>
-                )}
               </Animated.View>
             )}
             {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
@@ -2070,19 +2087,7 @@ function ChatPane({
                     onRemove={(id) => void action(() => client.call("chat:queue-remove", [chatId, id]), true)}
                   />
                 ) : null}
-                {run?.approvals.map((approval) => (
-                  <Approval
-                    key={approval.requestId}
-                    approval={approval}
-                    busy={actionBusy}
-                    respond={(decision) =>
-                      void action(async () => {
-                        const accepted = await client.call("agent:respond-permission", [{ chatId, requestId: approval.requestId, decision }]);
-                        if (!accepted) throw new Error("This approval is no longer pending. Refresh the Chat.");
-                      }, true)
-                    }
-                  />
-                ))}
+                {run?.approvals.map(renderToolApproval)}
                 {question && (
                   // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
                   <View style={answering ? { display: "none" } : undefined}>
@@ -2354,6 +2359,8 @@ function ChatPane({
                             : undefined
                         }
                         onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
+                        chatTitle={title}
+                        provider={chat?.provider ?? actualProvider}
                         images={attachments.filter((item) => item.image).length}
                         onImagePaste={(image) => void pasteImage(image)}
                         known={knownFiles.current}

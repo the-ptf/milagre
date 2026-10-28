@@ -525,6 +525,12 @@ test("Codex: command requests", () => {
   });
 });
 
+test("Codex: a command that writes to GitHub can't be allowed for the whole Chat", () => {
+  for (const command of ["/bin/zsh -lc 'git push origin HEAD'", "gh pr comment 4 --body hi", "gh pr merge 4"])
+    assert.equal(codexCommandRequest("srv-1", { command }).allowForChat, false, command);
+  assert.equal(codexCommandRequest("srv-1", { command: "git status" }).allowForChat, true);
+});
+
 test("Codex: file requests show the changes Codex reported when the edit started", () => {
   const changes = [{ path: "/repo/notes.txt", kind: { type: "add" }, diff: "hello\n" }];
   assert.deepEqual(codexFileRequest("srv-2", { itemId: "p", reason: "Write notes" }, changes), {

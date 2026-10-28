@@ -47,6 +47,8 @@ const METHODS = new Set([
   "limits:auto-switch:save",
   "app-update:auto:read",
   "app-update:auto:save",
+  "babysit:settings:read",
+  "babysit:settings:save",
   "routines:enabled:read",
   "routines:enabled:save",
   "routines:list",
@@ -174,6 +176,9 @@ const METHODS = new Set([
   "skills:list",
   "project:files",
   "skills:read",
+  // Dictation: the project's words for the recognizer, and the AI fix-up of an Apple transcript.
+  "dictation:context",
+  "dictation:polish",
   "worktree:create",
   "worktree:link-issue",
   "worktree:unlink-issue",

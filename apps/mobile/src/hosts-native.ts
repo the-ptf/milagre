@@ -1,11 +1,13 @@
 import * as SecureStore from "expo-secure-store";
 import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { dictationLanguage } from "@milagre/shared/dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
 import { createProjectOrderStore } from "./project-order-store";
 import { createFoldedProjectsStore } from "./folded-projects-store";
 import { createHiddenProjectsStore } from "./hidden-projects-store";
+import { createProviderUpdateDismissals } from "./provider-update-dismissals";
 
 export const savedProjectOrder = createProjectOrderStore({
   getItemAsync: SecureStore.getItemAsync,
@@ -14,6 +16,12 @@ export const savedProjectOrder = createProjectOrderStore({
 
 /** The Projects and Links hidden from the Projects list on this phone, per paired computer. */
 export const savedHiddenProjects = createHiddenProjectsStore({
+  getItemAsync: SecureStore.getItemAsync,
+  setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+});
+
+/** Provider update cards dismissed on this phone, per paired computer. */
+export const savedProviderUpdateDismissals = createProviderUpdateDismissals({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });
@@ -143,6 +151,22 @@ export async function readExpandReasoning(): Promise<boolean> {
 export async function saveExpandReasoning(on: boolean) {
   try {
     await SecureStore.setItemAsync(expandReasoningKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+const dictationLanguageKey = "milagre.dictation-language.v1";
+/** Settings › Chat › Dictation: a language code, or "auto" (the phone's language on iPhone, detected each take on Android). */
+export async function readDictationLanguage(): Promise<string> {
+  try {
+    return dictationLanguage(await SecureStore.getItemAsync(dictationLanguageKey));
+  } catch {
+    return "auto";
+  }
+}
+export async function saveDictationLanguage(language: string) {
+  try {
+    await SecureStore.setItemAsync(dictationLanguageKey, language);
   } catch {
     /* best effort */
   }

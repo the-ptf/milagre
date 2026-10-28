@@ -637,6 +637,13 @@ test("a confined phone reads Designs availability but cannot change the host set
   await assert.rejects(confine.checkCall("designs:enabled:save", [false]), { status: 403, message: REFUSED });
 });
 
+// Babysit settings go into every future babysit Run on the Mac, in every Chat: a confined phone only reads them.
+test("a confined phone reads the Babysit PRs settings but can't change them", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("babysit:settings:read", []);
+  await assert.rejects(confine.checkCall("babysit:settings:save", [{ level: 5 }]), { status: 403, message: REFUSED });
+});
+
 // Routines reach every Chat on the Mac: a confined (demo) phone sees them, and changes nothing.
 test("a confined phone reads Routines but can't switch, create, change, delete or run them, or list the owner's Linear choices", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });

@@ -2,6 +2,7 @@ const path = require("node:path");
 const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 const { BOT_TOOL_NAMES } = require("../bots/tools.cjs");
+const { babysitDenial } = require("../babysit-guard.cjs");
 
 // Approval requests from both agents, in the shape of the `permission-request` event, and the
 // replies each agent expects for the user's answer. A request is
@@ -100,18 +101,24 @@ function unwrapShell(command) {
   return command;
 }
 
+// Whether a shell command writes to GitHub (pushes, replies, merges…): what the lowest babysit level refuses. Such a
+// command is only ever allowed once. An agent that cached "allow for this Chat" would run it again without asking, so
+// a later babysit Run's guard would never see it.
+const writesRemote = (command) => babysitDenial(command, { level: 1, resolveThreads: false }) !== null;
+
 // item/commandExecution/requestApproval params -> request.
 function codexCommandRequest(id, params) {
   const host = params.networkApprovalContext?.host;
+  const command = unwrapShell(String(params.command ?? ""));
   return compact({
     requestId: String(id),
     kind: "command",
     tool: "Shell",
     title: host ? `Allow network access to ${host}?` : "Run this command?",
-    command: unwrapShell(String(params.command ?? "")),
+    command,
     cwd: params.cwd ?? undefined,
     reason: params.reason ?? undefined,
-    allowForChat: true,
+    allowForChat: !writesRemote(command),
     stepId: params.itemId ?? undefined,
   });
 }
@@ -463,4 +470,5 @@ module.exports = {
   codexMcpRequest,
   codexMcpResponse,
   unwrapShell,
+  writesRemote,
 };

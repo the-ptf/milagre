@@ -7,11 +7,12 @@ export function RadioGroup({ className = "", ...props }: ComponentProps<typeof R
   return <RadioGroupPrimitive.Root data-slot="radio-group" className={`grid gap-3 ${className}`} {...props} />;
 }
 
-export function RadioGroupItem({ className = "", ...props }: ComponentProps<typeof RadioGroupPrimitive.Item>) {
+/** Ink when checked, or the theme accent with `tone="accent"` (Babysit PRs). */
+export function RadioGroupItem({ className = "", tone = "ink", ...props }: ComponentProps<typeof RadioGroupPrimitive.Item> & { tone?: "ink" | "accent" }) {
   return (
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
-      className={`aspect-square size-4 shrink-0 rounded-full border border-ink-3 bg-surface text-ink outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red data-[state=checked]:border-ink ${className}`}
+      className={`aspect-square size-4 shrink-0 rounded-full border border-ink-3 bg-surface outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red ${tone === "accent" ? "text-surface data-[state=checked]:border-accent data-[state=checked]:bg-accent" : "text-ink data-[state=checked]:border-ink"} ${className}`}
       {...props}
     >
       <RadioGroupPrimitive.Indicator data-slot="radio-group-indicator" className="flex items-center justify-center">

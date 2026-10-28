@@ -5,8 +5,6 @@
   "files": [
     "src/chat-window-cache.ts",
     "src/display-clock.ts",
-    "src/step-sweep.ts",
-    "src/use-step-sweep.ts",
     "src/chat-history.ts",
     "src/*.mjs",
     "src/design-catalog-fonts/*",
@@ -50,6 +48,7 @@
     "src/message-search.mjs",
     "src/message-search.d.mts",
     "src/agent-activity.ts",
+    "src/qa-personas.ts",
     "src/advisor-result.ts",
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
@@ -57,10 +56,12 @@
   ],
   "type": "module",
   "exports": {
+    "./tool-activity": {
+      "types": "./src/tool-activity.d.mts",
+      "default": "./src/tool-activity.mjs"
+    },
     "./chat-window-cache": "./src/chat-window-cache.ts",
     "./display-clock": "./src/display-clock.ts",
-    "./step-sweep": "./src/step-sweep.ts",
-    "./use-step-sweep": "./src/use-step-sweep.ts",
     "./chat-history": "./src/chat-history.ts",
     "./live-activity": {
       "types": "./src/live-activity.d.mts",
@@ -170,6 +171,10 @@
     "./routines": {
       "types": "./src/routines.d.mts",
       "default": "./src/routines.mjs"
+    },
+    "./babysit": {
+      "types": "./src/babysit.d.mts",
+      "default": "./src/babysit.mjs"
     },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
@@ -344,6 +349,7 @@
       "default": "./src/file-syntax.mjs"
     },
     "./agent-activity": "./src/agent-activity.ts",
+    "./qa-personas": "./src/qa-personas.ts",
     "./advisor-result": "./src/advisor-result.ts",
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
@@ -374,7 +380,12 @@
     "./read-timeout": {
       "types": "./src/read-timeout.d.mts",
       "default": "./src/read-timeout.mjs"
-    }
+    },
+    "./dictation": {
+      "types": "./src/dictation.d.mts",
+      "default": "./src/dictation.mjs"
+    },
+    "./voice-dictation": "./src/voice-dictation.ts"
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

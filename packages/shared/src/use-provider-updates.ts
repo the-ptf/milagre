@@ -4,13 +4,17 @@ import type { ProviderUpdate } from "./model";
 export interface ProviderUpdateTransport {
   read: () => Promise<ProviderUpdate[]>;
   install: (update: ProviderUpdate) => Promise<{ ok: boolean; error?: string }>;
+  /** Keeps dismissed releases (`provider:version`) past a reconnect or relaunch. Without it they last until the transport changes. */
+  dismissals?: { load: () => Promise<string[]>; add: (key: string) => Promise<void> };
 }
 const keyOf = (update: ProviderUpdate) => `${update.provider}:${update.version}`;
 
-/** One queue per connected computer. Dismissing a release lasts until this app session ends. */
+/** One queue per connected computer. A dismissed release stays hidden; a newer one shows again. */
 export function useProviderUpdates(transport: ProviderUpdateTransport | null) {
   const [updates, setUpdates] = useState<ProviderUpdate[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  // With saved dismissals, nothing shows until they are read, so a dismissed card never flashes back.
+  const [dismissalsRead, setDismissalsRead] = useState(!transport?.dismissals);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const generation = useRef(0);
@@ -35,9 +39,19 @@ export function useProviderUpdates(transport: ProviderUpdateTransport | null) {
     setSource(transport);
     setUpdates([]);
     setDismissed(new Set());
+    setDismissalsRead(!transport?.dismissals);
     setWorking(false);
     setError("");
     installing.current = false;
+    const active = generation.current;
+    const dismissals = transport?.dismissals;
+    if (dismissals)
+      void (async () => {
+        const keys = await dismissals.load().catch(() => []);
+        if (generation.current !== active) return;
+        setDismissed((previous) => new Set([...previous, ...keys]));
+        setDismissalsRead(true);
+      })();
     void refresh();
     const timer = setInterval(() => {
       if (!installing.current) void refresh();
@@ -47,9 +61,13 @@ export function useProviderUpdates(transport: ProviderUpdateTransport | null) {
       clearInterval(timer);
     };
   }, [transport, refresh]);
-  const current = source === transport ? updates.find((update) => !dismissed.has(keyOf(update))) : undefined;
+  const current = source === transport && dismissalsRead ? updates.find((update) => !dismissed.has(keyOf(update))) : undefined;
   const dismiss = () => {
-    if (current && !working) setDismissed((previous) => new Set([...previous, keyOf(current)]));
+    if (current && !working) {
+      const key = keyOf(current);
+      setDismissed((previous) => new Set([...previous, key]));
+      void transport?.dismissals?.add(key).catch(() => {});
+    }
     setError("");
   };
   const install = async () => {

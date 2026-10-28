@@ -94,7 +94,17 @@ test("Claude: a subagent's design call is an artifact step of the reply, named f
   const state = clock();
   const call = { type: "tool_use", id: "toolu_sub", name: "mcp__milagre__design_show", input: { title: "Card" } };
   assert.deepEqual(mapClaudeMessage({ type: "assistant", parent_tool_use_id: "toolu_agent", message: { content: [call] } }, state), [
-    { type: "step-started", step: { id: "toolu_sub", kind: "artifact", title: "Showed `Card`", tool: "design_show", agent: "toolu_agent" } },
+    {
+      type: "step-started",
+      step: {
+        id: "toolu_sub",
+        kind: "artifact",
+        title: "Showed `Card`",
+        tool: "design_show",
+        agent: "toolu_agent",
+        source: { name: "design_show", server: "milagre" },
+      },
+    },
   ]);
   const result = JSON.stringify({ id: "card", version: 1, title: "Card", format: "design" });
   const events = mapClaudeMessage(

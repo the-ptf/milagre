@@ -186,3 +186,36 @@ test("Codex latest upgrade uses npm and verifies the newly activated version on 
   assert.equal(result.ok, true);
   assert.match(JSON.stringify(commands), /@openai\/codex@latest/);
 });
+
+test("a Codex release upgrade runs codex update through its own install first, with its folder first on PATH", async () => {
+  let version = "0.163.0";
+  const calls = [];
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.165.0",
+    platform: "darwin",
+    inspect: async () => ({ command: "/opt/homebrew/bin/codex", version }),
+    execImpl: (cmd, opts, callback) => {
+      calls.push({ cmd, first: opts.env.PATH.split(":")[0] });
+      version = "0.165.0";
+      callback(null, "", "");
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [{ cmd: "/opt/homebrew/bin/codex update", first: "/opt/homebrew/bin" }]);
+});
+
+test("when codex update leaves the old release, npm runs next and the error names the codex still on PATH", async () => {
+  const commands = [];
+  const result = await runCliUpdate("codex", {
+    targetVersion: "0.165.0",
+    platform: "darwin",
+    inspect: async () => ({ command: "/Users/me/Library/Application Support/bin/codex", version: "0.163.0" }),
+    execImpl: (cmd, _opts, callback) => {
+      commands.push(cmd);
+      callback(null, "", "");
+    },
+  });
+  assert.deepEqual(commands, ["'/Users/me/Library/Application Support/bin/codex' update", "npm install -g @openai/codex@latest"]);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /codex at \/Users\/me\/Library\/Application Support\/bin\/codex is still 0\.163\.0/);
+});

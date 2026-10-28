@@ -330,6 +330,35 @@ test("step deadlines agree in live events and reload snapshots, including duplic
   assert.equal(reloaded[chatId].approvals.length, 0);
 });
 
+test("tool facts and completion time agree in live events, snapshots and saved messages", async (t) => {
+  let now = NOW;
+  const { host, manager, published, session, states } = harness({ now: () => now });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "check"));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  const input = "printf one\nprintf two";
+  session(ALPHA).emit({ type: "step-started", step: { id: "tool", kind: "shell", title: "Ran check", detail: `$ ${input}\n` } });
+  await waitUntil(() => host.runs[chatId]?.steps.length);
+  now += 4200;
+  session(ALPHA).emit({ type: "step-completed", id: "tool", status: "failed", detail: `$ ${input}\nError: missing header` });
+  await waitUntil(() => host.runs[chatId].steps[0].status === "failed");
+  const step = host.runs[chatId].steps[0];
+  assert.equal(step.input, input);
+  assert.equal(step.durationMs, 4200);
+  assert.equal(step.endedAt, now);
+  assert.equal(step.error, "Error: missing header");
+  const completion = published.find((item) => item.event.type === "step-completed").event;
+  assert.equal(completion.durationMs, step.durationMs);
+  assert.equal(completion.error, step.error);
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const saved = (await states.get(ALPHA)).messages.at(-1).steps[0];
+  assert.equal(saved.durationMs, 4200);
+  assert.equal(saved.input, input);
+  assert.equal(saved.error, step.error);
+});
+
 test("a turn that ends in the open chat while no window has focus leaves it unread", async (t) => {
   const { host, manager, saved, session } = harness({ focused: false });
   t.after(() => manager.closeAll());
@@ -1081,6 +1110,28 @@ test("a quit saves no resume for a Routine's turn, which the scheduler owns; a u
   assert.equal(saved.get(BETA).sessions[user.sessionId].resumeTurn.prompt, "fix the api");
 });
 
+test("a babysit Run's turn carries its level as a guard to the agent; other turns and the turn settings don't", async (t) => {
+  const { host, manager, session } = harness();
+  t.after(() => manager.closeAll());
+  const babysit = { level: 2, resolveThreads: false, offBranch: true };
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
+  const run = await host.send(message(ALPHA, "PR #4 changed", { permissionMode: "full", context }));
+  await waitUntil(() => session(ALPHA)?.turns.length === 1);
+  assert.deepEqual(session(ALPHA).turns[0].guard, { level: 2, resolveThreads: false });
+  const chatId = `${ALPHA}#${run.sessionId}`;
+  // Settings read for the Chat's next message (a Delegation, a beat) never pass the guard on.
+  assert.equal("guard" in host.turnSettings(chatId), false);
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  // A heartbeat's beat and a user's message are not guarded.
+  await host.send(
+    message(ALPHA, "Check CI", { sessionId: run.sessionId, context: { kind: "routine-run", routineId: "r2", runId: "run-2", name: "CI", at: NOW } }),
+  );
+  await waitUntil(() => session(ALPHA).turns.length === 2);
+  assert.equal(session(ALPHA).turns[1].guard, undefined);
+});
+
 test("a Run's new Chat starts hidden, with the Routine's name as a generated title that a user's name beats", async (t) => {
   const { host, manager, states, saved, broadcasts } = harness();
   t.after(() => manager.closeAll());
@@ -1291,6 +1342,23 @@ test("a chat the usage limit stopped continues on the turn's options after its a
   assert.equal(turn.effort, "high");
   // A chat Milagre knows no turn of (it restarted since) waits for the user.
   assert.equal(await host.continueAfterLimit(BETA, 1, "claude", "me@work.com"), false);
+});
+
+test("a babysit Run continued after a usage limit keeps its guard", async (t) => {
+  const { host, manager, saved, session } = harness();
+  t.after(() => manager.closeAll());
+  const babysit = { level: 1, resolveThreads: false };
+  const context = { kind: "routine-run", routineId: "r1", runId: "run-1", name: "Babysit PR #4", at: NOW, label: "PR #4", babysit };
+  const run = await host.send(message(ALPHA, "PR #4 changed", { context }));
+  await waitUntil(() => session(ALPHA));
+  session(ALPHA).emit({ type: "session-started", nativeId: "native-7" });
+  session(ALPHA).emit({ type: "turn-started", turnId: "t1" });
+  session(ALPHA).emit({ type: "turn-failed", message: "You've hit your session limit", notice: true, limit: { provider: "claude" } });
+  await waitUntil(() => saved.get(ALPHA)?.messages.length === 2);
+  assert.equal(await host.continueAfterLimit(ALPHA, run.sessionId, "claude", "me@work.com"), true);
+  await waitUntil(() => session(ALPHA)?.turns.length === 2);
+  // The continued turn is still the Run: its level stays enforced.
+  assert.deepEqual(session(ALPHA).turns[1].guard, { level: 1, resolveThreads: false });
 });
 
 test("a chat whose agent hadn't started when Milagre quit is sent its prompt again", async (t) => {

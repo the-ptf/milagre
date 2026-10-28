@@ -163,7 +163,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/themes" ||
           id === "@milagre/shared/file-kinds" ||
           id === "@milagre/shared/streaming-blocks" ||
-          id === "@milagre/shared/step-sweep") &&
+          id === "@milagre/shared/tool-activity") &&
         !(id in modules)
       )
         return require(id);
@@ -187,16 +187,22 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
       if (
         [
+          "@milagre/shared/archive",
           "@milagre/shared/chat-history",
           "@milagre/shared/chat-window-cache",
           "@milagre/shared/display-clock",
           "@milagre/shared/refresh-loop",
           "@milagre/shared/read-timeout",
+          "@milagre/shared/qa-personas",
+          "@milagre/shared/voice-dictation",
         ].includes(id) &&
         !(id in modules)
       )
         return require(id);
       if (relative === "display-clock" && !(id in modules)) return load("display-clock.ts", modules, "", cache);
+      if (relative === "activity-source" && !(id in modules)) return { ActivitySources: "ActivitySources", ActivityIcon: "ActivityIcon" };
+      if (relative === "step-output" && !(id in modules))
+        return load("step-output.tsx", { ...modules, "expo-clipboard": { setStringAsync: async () => {} } }, "", cache);
       // Long-press message actions are an iOS-only wrapper: tests see the message as it is without it, with its text selectable.
       if (base === "message-actions" && !(id in modules))
         return { MessageActions: messageActionsStub, messageActionProps: () => ({}), selectableMessageText: true };
@@ -204,7 +210,6 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "expo-font" && !(id in modules)) return { isLoaded: () => false, loadAsync: async () => {} };
       if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
       // Dictation is not available in a test: no microphone, no on-device transcriber.
-      if (base === "voice-dictation" && !(id in modules)) return load("voice-dictation.ts", modules, "", cache);
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
@@ -2737,6 +2742,8 @@ function chatHost({
     "../compaction-divider": { CompactionDivider: "CompactionDivider" },
     "../account-switch-divider": { AccountSwitchDivider: "AccountSwitchDivider" },
     "../chat-reload-divider": { ChatReloadDivider: "ChatReloadDivider" },
+    "../babysit-stopped-divider": { BabysitStoppedDivider: "BabysitStoppedDivider" },
+    "@milagre/shared/babysit": require("@milagre/shared/babysit"),
     "../routine-run-divider": { RoutineRunDivider: "RoutineRunDivider" },
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-reload": require("@milagre/shared/chat-reload"),
@@ -5341,6 +5348,32 @@ test("the message that continued a Chat on another account is a line, not a repl
   assert.equal(rail.props.items.at(-1).label, "Go to Switched to me@work.com after the usage limit, 2 of 2.");
 });
 
+test("a Chat whose babysit Heartbeat ended shows the line saying why, and the rail names it", () => {
+  const screen = chatHost();
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.sessions[42] = { id: 42, provider: "claude" };
+  const context = { kind: "babysit-stopped", routineId: "r1", pr: 7, reason: "merged" };
+  state.messages = [
+    { id: 1, session_id: 42, role: "user", body: "Open a PR" },
+    { id: 2, session_id: 42, role: "assistant", body: "Stopped babysitting PR #7: merged.", context },
+  ];
+  const tree = screen.render();
+  const dividers = [];
+  find(tree, (node) => {
+    if (node.type === "BabysitStoppedDivider") dividers.push(node.props.context);
+    return false;
+  });
+  assert.deepEqual(dividers, [context]);
+  // Not drawn as a reply too.
+  assert.deepEqual(
+    transcriptMessages(screen).map((message) => message.id),
+    [1],
+  );
+  const rail = find(tree, (node) => node.type === "MessageNavigation");
+  assert.equal(rail.props.items.at(-1).label, "Go to Stopped babysitting PR #7: merged, 2 of 2.");
+});
+
 test("quiet heartbeats collapse into one line and their replies are hidden", () => {
   const screen = chatHost();
   screen.params.id = "42";
@@ -5964,6 +5997,7 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
       },
       View: "AnimatedView",
       modulo: (value, divisor) => ({ value, divisor }),
+      loop: (animation) => Object.assign(animation, { looped: true }),
       timing: (value, config) => {
         const animation = {
           value,
@@ -5987,10 +6021,7 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
     "react-native": native,
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
-    "@milagre/shared/use-step-sweep": {
-      useStepSweep: (start, enabled) => (enabled ? require("@milagre/shared/step-sweep").sweepRemainingMs(start, Date.now()) : 0),
-    },
-    "./display-clock": { useScreenActive: () => active },
+    "./display-clock": { useScreenActive: () => active, useDisplayValue: (_interval, compute) => compute(Date.now()) },
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./ui": {
       colors: palette,
@@ -6055,67 +6086,56 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
   };
 }
 
-test("phone titles resume only the remaining sweep and settle code chips to running ink", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: 11_700 });
-  const host = activityItemHost({ effects: true });
-  t.after(() => host.unmount());
-  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
-  host.title(props);
-  await Promise.resolve();
-  const moving = host.title(props);
-  assert.ok(find(moving, (node) => node.type === "MaskedView"));
-  const animation = host.animations.at(-1);
-  assert.equal(animation.config.duration, 700);
-  assert.ok(Math.abs(animation.value.value - (320 * 1700) / 1200) < 0.000001);
-  assert.equal(animation.config.toValue, 640);
-  assert.equal(animation.config.useNativeDriver, true);
-  assert.equal(animation.config.isInteraction, false);
-  const overlay = find(moving, (node) => node.type === "AnimatedView" && node.props.pointerEvents === "none");
-  assert.deepEqual([...overlay.props.style[1].opacity.outputRange], [1, 1, 0], "native completion hides the band even during a JS stall");
-  t.mock.timers.tick(700);
-  const settled = host.title(props);
-  assert.equal(
-    find(settled, (node) => node.type === "MaskedView"),
-    undefined,
-  );
-  const chip = find(settled, (node) => node.type === "Text" && node.props.children === "check");
-  assert.equal(chip.props.style.color, "#666");
-  assert.equal(chip.props.style.backgroundColor, "#222");
-  assert.equal(host.animations.length, 1);
-  const finished = host.title({ ...props, shimmer: false });
-  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
-});
-
-test("phone reduced motion reacts without restart, inactive screens and old hosts stay static", async (t) => {
+test("phone titles sweep in one native loop for the whole run and finish with normal chips", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
   const host = activityItemHost({ effects: true });
   t.after(() => host.unmount());
-  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+  const props = { title: "Ran `check`", shimmer: true };
+  host.title(props);
+  await Promise.resolve();
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  const animation = host.animations.at(-1);
+  assert.equal(animation.looped, true);
+  assert.equal(animation.config.toValue, 320);
+  assert.equal(animation.config.duration, 1200);
+  assert.equal(animation.config.useNativeDriver, true);
+  assert.equal(animation.config.isInteraction, false);
+  t.mock.timers.tick(60_000);
+  assert.ok(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    "a long call keeps sweeping",
+  );
+  assert.equal(host.animations.length, 1, "renders do not restart the loop");
+  const finished = host.title({ ...props, shimmer: false });
+  assert.equal(
+    find(finished, (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
+});
+
+test("phone reduced motion and inactive screens keep running titles static with running ink", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true };
   host.title(props);
   await Promise.resolve();
   assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
   host.reduce(true);
+  const reduced = host.title(props);
   assert.equal(
-    find(host.title(props), (node) => node.type === "MaskedView"),
+    find(reduced, (node) => node.type === "MaskedView"),
     undefined,
   );
-  t.mock.timers.tick(3000);
+  const chip = find(reduced, (node) => node.type === "Text" && node.props.children === "check");
+  assert.equal(chip.props.style.color, "#666");
+  assert.equal(chip.props.style.backgroundColor, "#222");
   host.reduce(false);
-  assert.equal(
-    find(host.title(props), (node) => node.type === "MaskedView"),
-    undefined,
-    "motion changes cannot replay expired steps",
-  );
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
   host.activate(false);
   assert.equal(
-    find(host.title({ ...props, startedAt: 13_000 }), (node) => node.type === "MaskedView"),
-    undefined,
-  );
-  host.activate(true);
-  host.title({ ...props, startedAt: undefined });
-  await Promise.resolve();
-  assert.equal(
-    find(host.title({ ...props, startedAt: undefined }), (node) => node.type === "MaskedView"),
+    find(host.title(props), (node) => node.type === "MaskedView"),
     undefined,
   );
 });
@@ -6125,7 +6145,7 @@ test("phone reactivation waits for fresh reduced-motion permission, including a 
     const pending = deferred();
     let calls = 0;
     const host = activityItemHost({ effects: true, permissionQuery: () => (++calls === 1 ? Promise.resolve(false) : pending.promise) });
-    const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+    const props = { title: "Ran `check`", shimmer: true };
     host.title(props);
     await Promise.resolve();
     assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
@@ -9634,6 +9654,176 @@ test("mobile Full detail shows each tool call and the notes between them in the 
     ["Running the tests.", "a", "Tests pass, reading the config.", "b", "c", "Done."],
     "Full detail: every step and note, in order",
   );
+  const opened = [];
+  const live = { text: "", steps: steps.map((step) => ({ ...step, offset: 0, status: "running" })), approvals: [{ stepId: "b" }], questions: [] };
+  const tree = reply("full")({ ...props, message: undefined, run: live, onActivity: (...args) => opened.push(args) });
+  find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.onPress();
+  assert.deepEqual(opened, [["run", "b"]], "tapping a call opens that exact call in the sheet");
+  assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "a").props.waiting, false);
+  assert.equal(find(tree, (node) => node.type === "ToolRow" && node.props.step.id === "b").props.waiting, true);
+});
+
+test("mobile activity sheet opens the selected call without paging and keeps approval asks in Chat", () => {
+  const react = hookHost();
+  let params = { id: "1", message: "run", stepId: "b" };
+  const steps = ["a", "b", "c"].map((id) => ({ id, kind: "shell", title: `Ran ${id}`, status: "running" }));
+  const run = { text: "", steps, approvals: [{ requestId: "approval-b", stepId: "b" }], questions: [] };
+  const { default: ActivitySheet } = load("app/activity.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { useLocalSearchParams: () => params, router: { back() {} } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "cancel" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "../tool-row": { ToolRow: "ToolRow" },
+    "../markdown": { Markdown: "Markdown" },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../questions": { Approval: "Approval" },
+    "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
+    "../session": {
+      useSession: () => ({
+        snapshot: { project: { path: "/project", state: { messages: [] } }, runs: { runs: { "/project#1": run } } },
+        client: null,
+      }),
+    },
+  });
+  const render = () => {
+    react.begin();
+    return ActivitySheet();
+  };
+  let tree = render();
+  assert.equal(find(tree, (node) => node.type === "Text" && node.props.accessibilityRole === "header").props.children, "Tool call");
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.expanded, true);
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "the selected call has no paging controls",
+  );
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.waiting, true);
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "selected call details never contain an approval ask",
+  );
+  params = { ...params, stepId: "c" };
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "another call never inherits this approval",
+  );
+  params = { id: "1", message: "run" };
+  tree = render();
+  assert.equal(
+    find(tree, (node) => node.type === "Approval"),
+    undefined,
+    "the all-calls view keeps asks in Chat too",
+  );
+});
+
+test("mobile Chat shows linked and unlinked approval asks once in its normal approval area", async () => {
+  const screen = ongoingChatHost();
+  const answers = [];
+  const original = screen.session.client.call;
+  screen.session.client.call = (method, args) => {
+    if (method !== "agent:respond-permission") return original(method, args);
+    answers.push(args[0]);
+    return Promise.resolve(true);
+  };
+  screen.session.snapshot.runs.runs["/p#7"] = {
+    text: "Checking.",
+    startedAt: Date.now(),
+    questions: [],
+    answered: {},
+    steps: [{ id: "shell", kind: "shell", title: "Ran tests", status: "running" }],
+    approvals: [{ requestId: "linked", stepId: "shell" }, { requestId: "unlinked" }],
+  };
+  const approvals = [];
+  find(screen.render(), (node) => {
+    if (node.type === "Approval") approvals.push(node);
+    return false;
+  });
+  assert.deepEqual(
+    approvals.map((node) => node.props.approval.requestId),
+    ["linked", "unlinked"],
+  );
+  approvals[0].props.respond("allow");
+  await settle();
+  assert.equal(JSON.stringify(answers), JSON.stringify([{ chatId: "/p#7", requestId: "linked", decision: "allow" }]));
+});
+
+test("mobile tool output retries after reconnect and clears the failed-read controls after success", async () => {
+  const react = hookHost({ effects: true });
+  const requests = [];
+  const saved = {
+    id: 9,
+    session_id: 1,
+    role: "assistant",
+    body: "Checked.",
+    steps: [{ id: "call", kind: "shell", title: "Ran tests", status: "done", hasDetail: true }],
+  };
+  const session = {
+    reconnects: 0,
+    snapshot: { project: { path: "/project", state: { messages: [saved] } }, runs: { runs: {} } },
+    client: {
+      message: () => {
+        const request = deferred();
+        requests.push(request);
+        return request.promise;
+      },
+    },
+  };
+  const { default: ActivitySheet } = load("app/activity.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { Text: "Text", View: "View" },
+    "expo-router": { useLocalSearchParams: () => ({ id: "1", message: "9", stepId: "call" }), router: { back() {} } },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "cancel" },
+    "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
+    "../tool-row": { ToolRow: "ToolRow" },
+    "../markdown": { Markdown: "Markdown" },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../questions": { Approval: "Approval" },
+    "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
+    "../session": { useSession: () => session },
+  });
+  const render = () => {
+    react.begin();
+    return ActivitySheet();
+  };
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  render();
+  requests[0].reject(new Error("Connection lost"));
+  await settle();
+  let tree = render();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Try again").props.onPress();
+  render();
+  assert.equal(requests.length, 2, "manual retry starts a fresh read");
+  requests[1].reject(new Error("Still offline"));
+  await settle();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === "PillButton" && node.props.title === "Try again"));
+  session.reconnects++;
+  tree = render();
+  assert.equal(requests.length, 3, "the same client automatically retries on reconnect");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "a new connection leaves the stale error state",
+  );
+  requests[2].resolve({ ...saved, steps: [{ ...saved.steps[0], detail: "$ tests\n38 passed" }] });
+  await settle();
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "ToolRow").props.step.detail, "$ tests\n38 passed");
+  assert.equal(
+    find(tree, (node) => node.type === "PillButton"),
+    undefined,
+    "success removes the old retry button",
+  );
+  react.unmount();
 });
 
 test("mobile usage identifies the account by email, falls back to its label, and accepts older hosts", () => {
@@ -9682,6 +9872,7 @@ function subagentGlance() {
     "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
     "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
     "./theme": { fonts: { mono: "mono" } },
+    "react-native-svg": { default: "Svg", Circle: "Circle", Ellipse: "Ellipse", Polygon: "Polygon", Rect: "Rect" },
   });
   // Function components render in place, so the tree shows what they draw.
   const draw = (node) => {
@@ -9753,6 +9944,16 @@ test("mobile subagent rows say what it does now and how far it got, and a finish
   assert.ok(finished.includes("10s"), "a finished subagent's time stops at its end");
 });
 
+test("mobile draws a QA persona subagent with its name, QA tag and persona card", () => {
+  const { SubagentRow, WholeSubagentDetail, render } = subagentGlance();
+  const agent = { ...glanceAgent, agentType: "qa-mobile", title: "Checkout on a phone" };
+  const row = texts(render(SubagentRow, { agent, provider: "claude", now: 66000, onPress() {} }));
+  for (const text of ["Mobile", "QA", "Now running the auth suite."]) assert.ok(row.includes(text), text);
+  assert.ok(!row.includes("Checkout on a phone"), "the persona's name stands in for the title");
+  const detail = texts(render(WholeSubagentDetail, { agent, read: async () => agent }));
+  for (const text of ["The mobile user", "Does everything on a small phone over slow 3G", "375 × 812", "Slow 3G"]) assert.ok(detail.includes(text), text);
+});
+
 test("mobile subagent detail shows its plan with what it does now, else its steps; the log waits behind Full log", () => {
   const { WholeSubagentDetail, render } = subagentGlance();
   const tasks = [
@@ -9798,6 +9999,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
     "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
     "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
     "./theme": { fonts: { mono: "mono" } },
+    "react-native-svg": { default: "Svg", Circle: "Circle", Ellipse: "Ellipse", Polygon: "Polygon", Rect: "Rect" },
   });
   const tail = { ...glanceAgent, transcript: glanceAgent.transcript.slice(-2), transcriptLength: 4 };
   let reads = 0;
@@ -10101,6 +10303,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
   assert.ok(find(milagre, (n) => n.type === "PublishedPagesSection"));
   assert.ok(find(milagre, (n) => n.type === "Text" && n.props.children === "Designs and artifacts"));
   page("app/(settings)/experimental.tsx", "Experimental", "experimental-section", "ExperimentalSection");
+  page("app/(settings)/babysit-prs.tsx", "Babysit PRs", "babysit-section", "BabysitSection");
 });
 
 test("mobile Linear page shows the Mac's Linear switch and status, re-read on focus", async () => {
@@ -10187,6 +10390,7 @@ test("mobile Linear page shows the Mac's Linear switch and status, re-read on fo
     "./icons": { Icon: "Icon" },
     "@hugeicons/core-free-icons": {},
     "./session": { useSession: () => ({ designs: designsOn, client }) },
+    "./settings-list": { Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
   }).ExperimentalSection;
   react.begin();
@@ -10294,6 +10498,7 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/notification-chimes": require("@milagre/shared/notification-chimes"),
     "./session": { useSession: () => ({ designs: { ...designsOn }, ...session }) },
+    "./settings-list": { Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PillButton: "PillButton", Toggle: "Toggle", styles: {} },
   });
   const { ExperimentalSection } = load("experimental-section.tsx", modules({ client }));
@@ -10308,6 +10513,183 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     find(render(), (n) => n.props?.title === "Routines"),
     undefined,
   );
+});
+
+test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const pushed = [];
+  let answer = { enabled: true };
+  const client = {
+    async call(method) {
+      if (method === "babysit:settings:read") return answer;
+      return null;
+    },
+  };
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push: (path) => pushed.push(path) } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const row = () => find(render(), (n) => n.type === "Row" && n.props.title === "Babysit PRs");
+  assert.equal(row(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row().props.value, "On");
+  assert.ok(
+    find(render(), (n) => n.type === "Text" && n.props.children === "Watch every PR a Chat opens and fix review comments, failed checks and conflicts."),
+  );
+  row().props.onPress();
+  assert.deepEqual(pushed, ["/babysit-prs"]);
+  // Turned off on the Mac while the phone was on the page: coming back shows it.
+  answer = { enabled: false };
+  render();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row().props.value, "Off");
+  answer = null;
+  render();
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(row(), undefined, "an older Mac answers null: no row");
+});
+
+test("mobile Babysit PRs page shows the four groups and saves each change to the Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const babysit = require("@milagre/shared/babysit");
+  let stored = { ...babysit.BABYSIT_DEFAULTS, wake: [...babysit.BABYSIT_DEFAULTS.wake] };
+  const saves = [];
+  const client = {
+    async call(method, args) {
+      if (method === "babysit:settings:read") return stored;
+      if (method === "babysit:settings:save") {
+        // The page runs in its own realm; a plain copy compares by value.
+        saves.push(JSON.parse(JSON.stringify(args[0])));
+        stored = { ...stored, ...args[0] };
+        return stored;
+      }
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  const store = load("babysit-settings.ts", {});
+  const { BabysitSection } = load("babysit-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, key) => key }),
+    "@milagre/shared/babysit": babysit,
+    "./babysit-settings": store,
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Group: "Group", Row: "Row" },
+    "./ui": { ErrorNotice: "ErrorNotice", Segmented: "Segmented", Toggle: "Toggle" },
+    "./use-routines": { useRoutines: () => ({ enabled: routinesEnabled }) },
+  });
+  let routinesEnabled = true;
+  const render = () => {
+    react.begin();
+    return BabysitSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const node = (predicate) => find(render(), predicate);
+  const toggle = (title) => node((n) => n.type === "Toggle" && n.props.title === title);
+  assert.equal(render(), null, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  const tree = render();
+  const groups = [];
+  (function walk(n) {
+    if (!n || typeof n !== "object") return;
+    if (n.type === "Group" && n.props.title) groups.push(n.props.title);
+    for (const child of [n.props?.children].flat(Infinity)) walk(child);
+  })(tree);
+  assert.deepEqual(groups, ["Babysit PRs", "When something needs fixing", "Stop babysitting when", "Your instructions"]);
+  assert.equal(toggle("Babysit new PRs").props.selected, false);
+  assert.ok(
+    node(
+      (n) =>
+        n.type === "Text" &&
+        n.props.children === "Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.",
+    ),
+  );
+  toggle("Babysit new PRs").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { enabled: true });
+  assert.equal(toggle("Babysit new PRs").props.selected, true);
+  // Each level is a radio card; Fix and push is the default and starts selected.
+  const level = (title) => node((n) => n.props?.accessibilityRole === "radio" && String(n.props.accessibilityLabel).startsWith(title));
+  assert.equal(level("Fix and push.").props.accessibilityState.checked, true);
+  level("Fix, push, reply and re-request review.").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { level: 5 });
+  assert.equal(level("Fix, push, reply and re-request review.").props.accessibilityState.checked, true);
+  // Wake chips toggle and keep the settings' order.
+  node((n) => n.props?.accessibilityLabel === "Branch behind base").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { wake: ["comments", "checks", "conflicts", "behind"] });
+  // A number rule always sends its whole object.
+  node((n) => n.type === "Segmented" && n.props.label === "Watch the PR for").props.onChange("14");
+  await settle();
+  assert.deepEqual(saves.at(-1), { stopAfterDays: { on: true, days: 14 } });
+  toggle("It failed to fix the same problem").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { stopAfterFailures: { on: true, times: 3 } });
+  node((n) => n.type === "Segmented" && n.props.label === "Check every").props.onChange("5");
+  await settle();
+  assert.deepEqual(saves.at(-1), { intervalMinutes: 5 });
+  // Instructions save when the field loses focus, with only a Saved mark under it.
+  const field = () => node((n) => n.type === "TextInput" && n.props.accessibilityLabel === "Your instructions");
+  assert.equal(
+    node((n) => n.type === "Text" && n.props.children === "Saved"),
+    undefined,
+  );
+  field().props.onFocus();
+  field().props.onChangeText("Never force-push.");
+  render();
+  field().props.onBlur();
+  await settle();
+  assert.deepEqual(saves.at(-1), { instructions: "Never force-push." });
+  assert.ok(node((n) => n.type === "Text" && n.props.children === "Saved"));
+  assert.equal(field().props.value, "Never force-push.");
+  // Reset puts every value back, even with a field focused and half typed: the typed text is dropped.
+  field().props.onFocus();
+  field().props.onChangeText("Half typed");
+  render();
+  const savesBeforeReset = saves.length;
+  node((n) => n.type === "Row" && n.props.title === "Reset all to defaults").props.onPress();
+  await settle();
+  assert.deepEqual(saves.at(-1), { ...babysit.BABYSIT_DEFAULTS });
+  assert.equal(toggle("Babysit new PRs").props.selected, false);
+  assert.equal(field().props.value, "");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(saves.length, savesBeforeReset + 1, "only the reset saves, not the half-typed text");
+  assert.equal(field().props.value, "");
+  // Each PR keeps its settings; and a Mac that may not run Routines babysits nothing, which the screen says.
+  assert.equal(
+    node((n) => n.type === "Group" && n.props.title === "When something needs fixing").props.footer,
+    "Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.",
+  );
+  const routinesNote =
+    "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.";
+  assert.equal(
+    node((n) => n.type === "Text" && n.props.children === routinesNote),
+    undefined,
+  );
+  routinesEnabled = false;
+  assert.ok(node((n) => n.type === "Text" && n.props.children === routinesNote));
 });
 
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
@@ -13179,6 +13561,35 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   );
 });
 
+// A babysit Heartbeat runs only on what changed on its PR and follows the Babysit PRs settings: no Run now, no Edit.
+const babysitRoutine = (heartbeat) => ({
+  ...heartbeat,
+  id: "pr",
+  name: "Babysit PR #7",
+  trigger: { kind: "pull-request", url: "https://github.com/o/r/pull/7", repo: "github.com/o/r", number: 7, settings: {} },
+  maxRuns: undefined,
+  expiresAt: Date.UTC(2026, 9, 24),
+  runs: [],
+});
+
+test("a phone babysit Heartbeat has no Run now or Edit, on its row or its screen, and its row still deletes it", async () => {
+  const [heartbeat] = routineFixtures();
+  const list = routinesHost({ routines: [babysitRoutine(heartbeat)] });
+  list.render();
+  await list.settle();
+  const [row] = list.rows(list.render());
+  const menu = find(row, (node) => node.type === "PullDown");
+  assert.deepEqual(Array.from(menu.props.sections.flatMap((section) => section.items.map((item) => item.title))), ["Open Chat", "Delete"]);
+  const screen = routineHost({ id: "pr", routines: [babysitRoutine(heartbeat)] });
+  const toolbar = allNodes(screen.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel);
+  assert.deepEqual(toolbar, []);
+  const other = routineHost({ id: "hb", routines: [{ ...heartbeat, runs: [] }] });
+  assert.deepEqual(
+    allNodes(other.render(), (node) => node.type === "ToolbarButton").map((node) => node.props.accessibilityLabel),
+    ["Run now", "Edit"],
+  );
+});
+
 test("a phone Run row gives its words all the room: flex 1 with no minimum, the dot's padding taken back, and the time never squeezed", () => {
   const [, trigger] = routineFixtures();
   const title = "Add exponential backoff retries to payments webhook";
@@ -14017,9 +14428,16 @@ test("provider update cards on the phone install the advertised release on the c
         return state;
       },
     },
+    "./hosts-native": {
+      savedProviderUpdateDismissals: {
+        load: async (hostId) => (calls.push(["load", hostId]), []),
+        add: async (hostId, key) => void calls.push(["add", hostId, key]),
+      },
+    },
     "./session": {
       useSession: () => ({
         client: {
+          url: "https://studio.local:7788",
           call: async (...args) => {
             calls.push(args);
             return { ok: true };
@@ -14050,6 +14468,51 @@ test("provider update cards on the phone install the advertised release on the c
   const failed = ProviderUpdateNotice();
   assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
   assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+  await transport.dismissals.add("codex:0.163.0");
+  await transport.dismissals.load();
+  assert.deepEqual(
+    calls.slice(-2),
+    [
+      ["add", "https://studio.local:7788", "codex:0.163.0"],
+      ["load", "https://studio.local:7788"],
+    ],
+    "dismissals are saved on the phone for the connected computer",
+  );
+});
+
+test("a provider update dismissed on the phone stays dismissed when the connection is rebuilt", async () => {
+  const react = hookHost({ effects: true });
+  const source = fs.readFileSync(path.join(__dirname, "../packages/shared/src/use-provider-updates.ts"), "utf8");
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {};
+  vm.runInNewContext(compiled, { exports, require: (id) => (id === "react" ? react : require(id)), setInterval, clearInterval });
+  const saved = new Set();
+  const transport = () => ({
+    read: async () => [
+      { provider: "codex", version: "0.165.0", installedVersion: "0.163.0" },
+      { provider: "claude", version: "2.1.312", installedVersion: "2.1.300" },
+    ],
+    install: async () => ({ ok: true }),
+    dismissals: { load: async () => [...saved], add: async (key) => void saved.add(key) },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  let current = transport();
+  const render = () => {
+    react.begin();
+    return exports.useProviderUpdates(current);
+  };
+  assert.equal(render().current, undefined, "nothing shows before the saved dismissals are read");
+  await settle();
+  const first = render();
+  assert.equal(first.current.provider, "codex");
+  first.dismiss();
+  assert.equal(render().current.provider, "claude");
+  assert.deepEqual([...saved], ["codex:0.165.0"]);
+  current = transport(); // a reconnect builds a new client and so a new transport
+  assert.equal(render().current, undefined);
+  await settle();
+  assert.equal(render().current.provider, "claude", "the dismissed Codex release does not come back");
+  react.unmount();
 });
 
 test("provider logos preserve their shapes and use white or black in Simplified mode", () => {

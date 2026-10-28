@@ -9,7 +9,7 @@ const stored = new Map<string, string>();
 };
 const dispatched: string[] = [];
 (globalThis as any).window = { milagre: {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: (event: Event) => dispatched.push(event.type) };
-const { bySection, computerScopes, computerSections, mergeScopes, withLocalVisibility, withoutLocal } = await import("./computer-scopes.ts");
+const { bySection, computerAlias, computerScopes, computerSections, mergeScopes, withLocalVisibility, withoutLocal } = await import("./computer-scopes.ts");
 const { readHiddenComputers, setComputerHidden } = await import("./hidden-projects.ts");
 
 const A = "c-arketa";
@@ -103,4 +103,13 @@ test("a hidden computer is saved on this Mac, and the same set comes back until 
   assert.equal(stored.has("milagre.hiddenComputers"), false, "nothing hidden leaves nothing saved");
   stored.set("milagre.hiddenComputers", "not json");
   assert.equal(readHiddenComputers().size, 0, "a broken list hides nothing");
+});
+
+test("computerAlias keeps a computer's first word, without a possessive, splitting hostnames too", () => {
+  assert.equal(computerAlias("Victor’s MacBook Pro"), "Victor");
+  assert.equal(computerAlias("victor's mac"), "victor");
+  assert.equal(computerAlias("victor-mbp"), "victor");
+  assert.equal(computerAlias("Victors-MacBook-Pro.local"), "Victors");
+  assert.equal(computerAlias("  Deer  "), "Deer");
+  assert.equal(computerAlias("’s"), "’s", "a name that is only a possessive stays whole");
 });

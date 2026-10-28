@@ -88,6 +88,8 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createBabysitSettings } = require("./babysit-settings.cjs");
+const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
 const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
@@ -95,6 +97,7 @@ const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
 const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
+const { dictationContext, polishDictation, createDictationModels } = require("./dictation.cjs");
 const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
@@ -559,6 +562,10 @@ function createRuntime(options) {
   });
   async function attachmentAccess(file) {
     if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("Choose an attached file or a file in an open Worktree.");
+    // A file in an open Worktree needs no link to it. The search below reads every open Project's saved messages
+    // synchronously: from a cold disk it held a busy host for 28 s, nearly the 30 s a paired computer waits for an answer.
+    const roots = scopeStates.worktreePaths();
+    if (await require("./attachment-preview.cjs").insideRoots(file, roots)) return { roots, attached: [] };
     const { sharedFilePaths, chatFolder } = require("./chat-files.cjs");
     // Search by basename too: a shared link may be relative, URL-encoded or have a line suffix. Unloaded Chats
     // stay unloaded; only candidate rows are read, and the parsed link must name this exact file.
@@ -576,8 +583,10 @@ function createRuntime(options) {
         const body = JSON.stringify(message.body || message.text || "");
         if (needles.some((needle) => body.includes(needle)) && sharedFilePaths(message, chatFolder(state, message, project)).has(file)) attached.push(file);
       }
+      // One Chat that shared it is enough; the other Projects' saved messages stay unread.
+      if (attached.includes(file)) break;
     }
-    return { roots: scopeStates.worktreePaths(), attached };
+    return { roots, attached };
   }
   commands.handle("attachment:preview", async (_event, file) => {
     const { roots, attached } = await attachmentAccess(file);
@@ -594,6 +603,18 @@ function createRuntime(options) {
       return (await Promise.all(roots.map(async (member) => (await searchFiles(member.worktreePath, query)).map((file) => `${member.alias}/${file}`)))).flat();
     }
     return searchFiles(root, query);
+  });
+  // Dictation: the words a Chat's project gives the recognizer, and the AI fix-up of a phone's Apple transcript.
+  commands.handle("dictation:context", async (_event, { cwd, chatTitle } = {}) => {
+    await knownFolder(cwd);
+    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+  });
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
+    await knownFolder(cwd);
+    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    const models =
+      options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
+    return polishDictation({ text, terms, chatTitle, provider }, { models });
   });
   // Path-taking commands only serve folders the user opened: an open project, one of its worktrees, or a recent
   // project (the switcher shows their avatars). Any renderer or paired phone script otherwise reaches any folder.
@@ -988,7 +1009,7 @@ function createRuntime(options) {
     await environmentReady;
     return (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
   });
-  // While any chat's turn or a new worktree's setup runs the Mac stays awake (the screen can still sleep).
+  // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
   // On until the renderer pushes the saved setting.
   const keepAwake = options.keepAwake ?? new KeepAwake({ powerSaveBlocker: { start: () => 0, isStarted: () => true, stop() {} }, enabled: false });
   commands.handle("app:set-keep-awake", (_event, enabled) => keepAwake.setEnabled(enabled === true));
@@ -997,9 +1018,12 @@ function createRuntime(options) {
   let limitSwitch = null;
   // Set up once the Chats are (below); agent events only arrive after start.
   let routines = null;
+  // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
+  let babysitWatch = null;
   function publishAgentEvent(chatId, event, state, seq) {
     // First, before anyone hears the event: a heartbeat's "(pass)" marks its turn's end quiet, so no push goes out.
     routines?.observe(chatId, event);
+    babysitWatch?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     options.observeAgentEvent?.(chatId, event);
@@ -1008,7 +1032,6 @@ function createRuntime(options) {
       void Promise.resolve()
         .then(() => limitSwitch.observe(chatId, event))
         .catch((error) => console.warn("Milagre couldn't switch accounts after a usage limit:", error.message));
-    keepAwake.observe(chatId, event);
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
     if (!isLinkScopeKey(projectOfKey(chatId)))
@@ -1039,7 +1062,6 @@ function createRuntime(options) {
     linkedFor: (chatId) => linked.forChat(chatId),
     // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).
     permissionPolicy: (chatId) => bots?.policyFor(chatId),
-    onSessionClosed: (chatId) => keepAwake.chatClosed(chatId),
     onTurnStarted: () => ports.wake(),
     // The host's name and the addresses a phone or a paired Mac reach it on (`hostNetwork`, from the daemon).
     hostInstructions: () => {
@@ -1138,8 +1160,6 @@ function createRuntime(options) {
       else if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       return started;
     } catch (error) {
-      // A start that throws sends no event, so the hold a setup handed to this turn would never be released.
-      keepAwake.turnNotStarted(request.chatId);
       if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       throw error;
     } finally {
@@ -1242,7 +1262,6 @@ function createRuntime(options) {
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
-    keepAwake,
     emit,
     cachedState: heldState,
     // A Project not open yet opens here, as a Delegation's does.
@@ -1303,6 +1322,11 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
+  const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
+  commands.handle("babysit:settings:read", () => babysitSettings.read());
+  commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
+  babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),
@@ -1352,7 +1376,6 @@ function createRuntime(options) {
   const setupReview = new SetupReview({ read: readSetupCommand, settings: projectSettings, send: (chatId, event) => chats.receive(chatId, event) });
   const worktreeSetups = new WorktreeSetups({
     send: (chatId, event) => void chats.receive(chatId, event),
-    keepAwake,
     file: path.join(dataDir, "worktree-setups.json"),
     review: (request) => setupReview.review(request),
   });
@@ -2063,10 +2086,7 @@ function createRuntime(options) {
     contextFor: advisorContext,
     providersFor: advisorProviders,
     publish: async (chatId, agent) => {
-      if (["initializing", "running", "waiting"].includes(agent.status)) {
-        keepAwake.turnStarted(agent.id);
-        ports.wake();
-      } else keepAwake.turnEnded(agent.id);
+      if (["initializing", "running", "waiting"].includes(agent.status)) ports.wake();
       await chats.receive(chatId, { type: "subagent-update", agent });
     },
     completed: (chatId, result) => advisorDelivery.enqueue(chatId, result),

@@ -91,6 +91,8 @@ import { HandoffDivider } from "./Handover";
 import { WorktreeLinkDivider } from "./WorktreeLinkDivider";
 import { AccountSwitchDivider } from "./AccountSwitchDivider";
 import { ChatReloadDivider } from "./ChatReloadDivider";
+import { BabysitStoppedDivider } from "./BabysitStoppedDivider";
+import { isBabysitStopped } from "@milagre/shared/babysit";
 import { isChatReload } from "@milagre/shared/chat-reload";
 import { groupQuietRuns, isRoutineRun, routineRunOf } from "@milagre/shared/routines";
 import { RoutineRunDivider } from "./RoutineRunDivider";
@@ -344,6 +346,7 @@ const MessageSection = memo(function MessageSection({
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
   if (isChatReload(message)) return <ChatReloadDivider />;
+  if (isBabysitStopped(message)) return <BabysitStoppedDivider context={message.context} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
   if (isCheckpointRestore(message)) return <CheckpointRestoreDivider context={message.context} onPreview={onCheckpointPreview} />;
   const linked = linkedContext(message);
@@ -838,7 +841,7 @@ interface ChatComposerProps {
   permissionLocked?: boolean;
   onRecommendationSelect: (option: string) => void;
   approval?: ReactNode;
-  /** The Project a new Chat starts in, named in the "Start a new chat in" heading; its dropdown moves the new Chat to another. */
+  /** The Project a new Chat starts in, named in the "Start building in" heading; its dropdown moves the new Chat to another. */
   newChatProject?: { key: string; name: string; onChange?: (key: string) => void };
   worktrees: Array<{ id: number; name: string; path: string }>;
   selectedWorktreeId?: number;
@@ -1322,7 +1325,7 @@ export function ChatComposer({
     >
       <div
         ref={root}
-        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat && !projectNewChat ? "justify-center" : ""}`}
+        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
             event.preventDefault();
@@ -1345,7 +1348,7 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
-            className="chat-gutter mx-auto flex min-h-0 w-full max-w-[var(--chat-width)] flex-1 flex-col items-center px-3 pt-[max(48px,24vh)] [@container(max-height:560px)]:pt-4"
+            className="chat-gutter relative z-30 mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6"
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
             <NewChatHeading

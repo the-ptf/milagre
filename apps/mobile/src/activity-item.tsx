@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { titleSpans } from "@milagre/shared/reply-parts";
-import { useStepSweep } from "@milagre/shared/use-step-sweep";
 import { Icon, type IconData } from "./icons";
 import { ShimmerText, useShimmerReducedMotion } from "./running-logo";
 import { useScreenActive } from "./display-clock";
@@ -10,26 +9,24 @@ import { fonts, useTheme } from "./theme";
 import { PageScroll, useStyles } from "./ui";
 
 type ActivityState = "idle" | "running" | "waiting" | "failed";
+const TITLE_LINE = 20;
 
 /** Activity titles share code chips and the running shimmer, including reduced-motion handling. */
 export function ActivityTitle({
   title,
   shimmer,
-  startedAt,
   numberOfLines = 1,
   style: styleProp,
 }: {
   title: string;
   shimmer: boolean;
-  startedAt?: number;
   numberOfLines?: number;
   style?: TextStyle;
 }) {
   const { colors } = useTheme();
   const active = useScreenActive();
   const reduced = useShimmerReducedMotion(active && shimmer);
-  const remaining = useStepSweep(startedAt, shimmer && active && !reduced);
-  const sweeping = remaining > 0;
+  const sweeping = shimmer && active && !reduced;
   const style = styleProp ?? { color: colors.ink2, fontSize: 14 };
   const spans = (moving: boolean) =>
     titleSpans(title).map((span, index) =>
@@ -50,7 +47,7 @@ export function ActivityTitle({
       ),
     );
   return sweeping ? (
-    <ShimmerText startedAt={startedAt!} settledChildren={spans(false)} style={style} numberOfLines={numberOfLines}>
+    <ShimmerText settledChildren={spans(false)} style={style} numberOfLines={numberOfLines}>
       {spans(true)}
     </ShimmerText>
   ) : (
@@ -63,8 +60,11 @@ export function ActivityTitle({
 /** Shared tool/subagent disclosure. Adapters supply their data and output; presentation lives here. */
 export function ActivityItem({
   title,
-  startedAt,
   icon,
+  leading,
+  summary,
+  duration,
+  error,
   state = "idle",
   status,
   note,
@@ -75,8 +75,11 @@ export function ActivityItem({
   expanded: expandedByDefault = false,
 }: {
   title: string;
-  startedAt?: number;
   icon: IconData;
+  leading?: ReactNode;
+  summary?: string;
+  duration?: string;
+  error?: string;
   state?: ActivityState;
   status?: string;
   note?: string;
@@ -97,24 +100,31 @@ export function ActivityItem({
   const label = [title.replace(/`/g, ""), stateLabel, note].filter(Boolean).join(", ");
   const action = () => (onPress ? onPress() : setToggled(!expanded));
   const accessibilityState = expandable ? { expanded } : undefined;
-  const headerStyle: ViewStyle = { minHeight: 36, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
+  const headerStyle: ViewStyle = { minHeight: 44, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
+  // The icon sits in a box one title line tall, so it centers on the first line whether the title wraps or not.
   const heading = (
-    <>
-      <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : state === "idle" ? "ink3" : "ink2"} size={16} />
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+      <View style={{ height: TITLE_LINE, justifyContent: "center" }}>
+        {leading ?? <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : "ink2"} size={16} />}
+      </View>
       <View style={{ flex: 1, gap: 2 }}>
         <ActivityTitle
           title={title}
-          startedAt={startedAt}
           shimmer={state === "running"}
           numberOfLines={disclosureOnly && expanded ? 0 : 1}
-          style={{ color: failed ? colors.red : colors.ink2, fontSize: 14 }}
+          style={{ color: colors.ink2, fontSize: 14, lineHeight: TITLE_LINE }}
         />
         {!!note && <Text style={styles.label}>{note}</Text>}
       </View>
-    </>
+    </View>
   );
   const trailing = (
     <>
+      {!!summary && (
+        <Text numberOfLines={1} style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.red : colors.ink3, fontSize: 12 }}>
+          {summary}
+        </Text>
+      )}
       {!!status && <Text style={{ color: failed ? colors.red : state === "waiting" ? colors.orange : colors.ink3, fontSize: 12 }}>{status}</Text>}
       {(onPress || expandable) &&
         (onPress ? (
@@ -124,6 +134,7 @@ export function ActivityItem({
             <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
           </View>
         ))}
+      {!!duration && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{duration}</Text>}
     </>
   );
   return (
@@ -164,6 +175,14 @@ export function ActivityItem({
           {heading}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>{trailing}</View>
         </Pressable>
+      )}
+      {!!error && (
+        <Text
+          selectable
+          style={[styles.code, { marginLeft: 26, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: colors.red, color: colors.ink2, fontSize: 12 }]}
+        >
+          {error}
+        </Text>
       )}
       {!onPress && expanded && expandable && (
         <PageScroll

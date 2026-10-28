@@ -7,6 +7,7 @@ import { useProviderUpdates } from "@milagre/shared/use-provider-updates";
 import type { ProviderUpdate } from "@milagre/shared/model";
 import { providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
+import { savedProviderUpdateDismissals } from "./hosts-native";
 import { ProviderLogo } from "./icons";
 import { IconButton, PillButton } from "./ui";
 import { useTheme } from "./theme";
@@ -27,6 +28,11 @@ export function ProviderUpdateNotice() {
               const result = await client.call<{ ok: boolean; error?: string }>("agent:update-cli", [update.provider, update.version]);
               if (result.ok) void refreshRef.current();
               return result;
+            },
+            // Saved on the phone: a reconnect builds a new client, which would otherwise bring the card back.
+            dismissals: {
+              load: () => savedProviderUpdateDismissals.load(client.url),
+              add: (key: string) => savedProviderUpdateDismissals.add(client.url, key),
             },
           }
         : null,

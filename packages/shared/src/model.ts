@@ -479,6 +479,8 @@ export interface Routine {
   /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
   signingHeader?: string;
   completedAt?: number;
+  /** Why it ended, when whatever ended it said: a babysit stop reason, "expired", "max runs", "chat gone"… */
+  completedReason?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -515,8 +517,29 @@ export type RoutineRunContext = {
   name: string;
   at: number;
   label?: string;
+  /**
+   * A Babysit PRs Run: the level it went at (1 when the Worktree is on another branch, which `offBranch` says) and whether it
+   * may resolve threads (the setting, at a level that replies).
+   */
+  babysit?: { level: number; resolveThreads: boolean; offBranch?: boolean };
   quiet?: boolean;
   summary?: string;
+};
+
+/** Why a babysit Heartbeat ended: the PR merged or closed, a stop rule held, it ran out of time, or it was deleted. */
+export type BabysitStopReason = "merged" | "closed" | "green" | "failures" | "expired" | "own-rule" | "deleted";
+
+/**
+ * The line Milagre writes in a Chat when the Heartbeat babysitting its PR ended (babysitStoppedText in babysit.mjs says it).
+ * `times` is the failures rule's count, `days` how long the Heartbeat watched.
+ */
+export type BabysitStoppedContext = {
+  kind: "babysit-stopped";
+  routineId: string;
+  pr: number;
+  reason: BabysitStopReason;
+  times?: number;
+  days?: number;
 };
 
 /**
@@ -547,6 +570,7 @@ export type ChatContext =
   | ChatReloadContext
   | BotContext
   | RoutineRunContext
+  | BabysitStoppedContext
   | CheckpointRestoreContext
   | "handover"
   | null;
@@ -619,8 +643,17 @@ export interface ArtifactRef {
 export interface ChatStep {
   id: string;
   kind: StepKind;
-  /** Host time when this step first started. Older hosts omit it; clients leave their titles static. */
+  /** Host time when this step first started. Older hosts omit it; clients show no duration for the running step. */
   startedAt?: number;
+  /** Host completion time; together with startedAt gives wall time without adding parallel calls. */
+  endedAt?: number;
+  /** MCP identity, independent of the human title and artifact tool field. */
+  source?: { name: string; server?: string };
+  /** Bounded, redacted arguments for the detail panel. Large documents are not retained here. */
+  input?: string;
+  /** Small facts retained even when detail is fetched lazily. */
+  summary?: string;
+  error?: string;
   /** What it did, e.g. "Ran `npm test`"; text between backticks is code. */
   title: string;
   /** Saved steps are done or failed; only a reply still streaming has running ones. */
@@ -638,7 +671,7 @@ export interface ChatStep {
   file?: string;
   /** Muted text after the title, e.g. "3s" or "exited with code 1 after 4s". */
   note?: string;
-  /** How long a thinking step took. */
+  /** How long the step took, measured by the host or reported by the provider. */
   durationMs?: number;
   /** Where the step sits in the reply: the length of the reply's text when it started. */
   offset?: number;
@@ -739,6 +772,8 @@ export interface Subagent {
   parentId?: string;
   /** Launched by the chat to run in the background: its result wakes the chat with a turn of its own. */
   background?: boolean;
+  /** The agent type it was launched as (Claude's subagent_type), such as a QA persona ("qa-mobile", qa-personas.ts). */
+  agentType?: string;
   title: string;
   prompt?: string;
   status: "initializing" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "unknown";
@@ -866,6 +901,9 @@ export type AgentEvent =
       note?: string;
       detail?: string;
       durationMs?: number;
+      endedAt?: number;
+      summary?: string;
+      error?: string;
       file?: string;
       artifact?: ArtifactRef;
       routine?: { id: string; name: string };

@@ -1,7 +1,8 @@
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
+import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
 import { CHAT_LIST_TITLE, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
-import { useChatList, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
+import { useChatList, useDictationLanguage, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
 import { saveChatRowShow, useChatRowShow } from "./chat-row-store";
 import {
   ByProjectPreview,
@@ -25,6 +26,7 @@ export function ChatDisplaySection() {
   const [toolCallDisplay, setToolCallDisplay] = useToolCallDisplay();
   const [chatList, setChatList] = useChatList();
   const rowShow = useChatRowShow();
+  const [dictation, setDictation] = useDictationLanguage();
   return (
     <View style={{ gap: 10 }}>
       <Text style={styles.section}>{CHAT_LIST_TITLE}</Text>
@@ -70,6 +72,18 @@ export function ChatDisplaySection() {
           { value: "full", title: "Full detail", description: "Each call on its own row.", preview: <FullToolsPreview /> },
         ]}
       />
+      <Text style={[styles.section, { marginTop: 14 }]}>Dictation language</Text>
+      <View style={[styles.card, { gap: 4 }]}>
+        {DICTATION_LANGUAGES.map((language) => (
+          <Toggle
+            key={language.code}
+            // iPhone dictation can't detect the language: "auto" is the phone's own.
+            title={language.code === "auto" && Platform.OS === "ios" ? "Phone language" : language.name}
+            selected={dictation === language.code}
+            onPress={() => setDictation(language.code)}
+          />
+        ))}
+      </View>
     </View>
   );
 }

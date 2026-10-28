@@ -1,11 +1,11 @@
 import { AudioModule, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, setIsAudioActiveAsync } from "expo-audio";
 import { File } from "expo-file-system";
-import { RECORDING_LIMIT_SECONDS } from "./voice-dictation";
+import { RECORDING_LIMIT_SECONDS } from "@milagre/shared/voice-dictation";
 import { createTakeLock, VoiceTake, type AudioPort, type RecorderLike } from "./voice-take";
 
 const PRESET = RecordingPresets.HIGH_QUALITY;
 // The native constructor takes platform-flattened options, which is what `useAudioRecorder` builds with its internal helper.
-// Dictation only runs on iOS (see voice-transcription), so the iOS half of the preset is the one that applies.
+// This recorder runs on iOS (Android records PCM through voice-recorder.android.ts), so the iOS half of the preset applies.
 const OPTIONS = {
   extension: PRESET.extension,
   sampleRate: PRESET.sampleRate,

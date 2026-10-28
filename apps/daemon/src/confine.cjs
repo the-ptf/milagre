@@ -134,6 +134,10 @@ const PATHS = Object.freeze({
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
   "app-update:auto:save": denied,
+  // Babysit PRs settings name no folder, but their level and instructions go into every future babysit Run in every Chat
+  // on the Mac: a confined phone only reads them.
+  "babysit:settings:read": none,
+  "babysit:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
@@ -222,6 +226,8 @@ const PATHS = Object.freeze({
   // The file search for the phone's @ menu: the root must be inside the folder; it names no other path.
   "project:files": ([root]) => [root],
   "skills:read": ([projectPath, file]) => [projectPath, file],
+  "dictation:context": ([value]) => [value?.cwd],
+  "dictation:polish": ([value]) => [value?.cwd],
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],
   "worktree:unlink-issue": ([value]) => [value?.projectPath],

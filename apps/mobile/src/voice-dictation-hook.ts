@@ -2,34 +2,53 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { tap } from "./primitives/tap";
-import { ERRORS, IDLE, METERING_INTERVAL_MS, dictationReducer, type Dictation, type DictationAction, type Selection } from "./voice-dictation";
+import { ERRORS, IDLE, METERING_INTERVAL_MS, dictationReducer, type Dictation, type DictationAction, type Selection } from "@milagre/shared/voice-dictation";
 import { askForMicrophone, newVoiceTake, type VoiceTake } from "./voice-recorder";
 import { createMicrophone } from "./voice-take";
 import { getTranscriber } from "./voice-transcription";
+import { useDictationLanguage } from "./chat-display-setting";
+import type { Client } from "./client";
 
 /** Where the transcript goes: the draft and caret as they were when the mic was tapped. */
 export type DictationAnchor = { draft: string; selection: Selection };
+
+/** The Chat a take is for: its folder's words guide the recognizer, and its agent fixes what Apple's misheard. */
+export type DictationChat = { client: Client; cwd: string; chatTitle?: string; provider?: string };
 
 /** The take that is preparing or recording anywhere in the app: one microphone, so starting another ends it quietly. */
 const microphone = createMicrophone();
 
 /**
  * Tap the mic to record, tap again to transcribe on the phone. `onTranscript` gets the text and the anchor the take began with.
+ * With a `chat`, the project's words go to the recognizer and, on iPhone, the transcript to the Chat's agent for its fix-up.
  * Backgrounding the app, leaving the screen or a recorder failure throws the take away. `available` is false where the phone
- * cannot transcribe on device (Android, before iOS 26, a build without the native module).
+ * cannot transcribe on device (before iOS 26, a build without the native module). `download` is how far the first
+ * take's model download is, 0..1, or null.
  */
-export function useVoiceDictation(onTranscript: (text: string, anchor: DictationAnchor) => void) {
+export function useVoiceDictation(onTranscript: (text: string, anchor: DictationAnchor) => void, chat?: DictationChat) {
   const [transcriber] = useState(getTranscriber);
   const [owner] = useState(Symbol);
   const [state, setState] = useState<Dictation>(IDLE);
+  const [download, setDownload] = useState<number | null>(null);
+  const [language] = useDictationLanguage();
   const level = useSharedValue(0);
   const phase = useRef<Dictation>(IDLE);
-  const take = useRef<{ id: number; recorder: VoiceTake; anchor: DictationAnchor; prepared: Promise<void> } | null>(null);
+  const take = useRef<{
+    id: number;
+    recorder: VoiceTake;
+    anchor: DictationAnchor;
+    prepared: Promise<void>;
+    terms: Promise<string[]>;
+    language: string;
+    chat?: DictationChat;
+  } | null>(null);
   const counter = useRef(0);
   const meter = useRef<ReturnType<typeof setInterval> | null>(null);
   const deliver = useRef(onTranscript);
+  const chatRef = useRef(chat);
   useEffect(() => {
     deliver.current = onTranscript;
+    chatRef.current = chat;
   });
 
   const move = useCallback((action: DictationAction) => {
@@ -86,12 +105,28 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     move({ type: "stop" });
     stopMeter();
     let uri: string | null = null;
+    // A model that couldn't be readied says why (an unsupported language, a download cut off); other failures don't.
+    let reason: string = ERRORS.failed.message;
     try {
       uri = await current.recorder.finish();
       release();
-      await current.prepared;
+      await current.prepared.catch((error: unknown) => {
+        if (error instanceof Error && error.message) reason = error.message;
+        throw error;
+      });
       if (take.current?.id !== current.id) return void current.recorder.discard(uri);
-      const text = uri && transcriber ? await transcriber.transcribe(uri) : "";
+      const heard = uri && transcriber ? await transcriber.transcribe(uri, { language: current.language, terms: await current.terms }) : "";
+      if (take.current?.id !== current.id) return void current.recorder.discard(uri);
+      const { chat: target } = current;
+      // Apple's recognizer has one language and few of the project's names: the Chat's agent fixes what it misheard.
+      // A Mac without the fix-up, no AI consent or no answer in time leaves the words as heard.
+      const text =
+        heard && transcriber?.polish && target?.cwd
+          ? await target.client
+              .call<{ text: string }>("dictation:polish", [{ cwd: target.cwd, text: heard, chatTitle: target.chatTitle, provider: target.provider }])
+              .then((result) => result?.text || heard)
+              .catch(() => heard)
+          : heard;
       if (take.current?.id !== current.id) return void current.recorder.discard(uri);
       take.current = null;
       void current.recorder.discard(uri);
@@ -103,7 +138,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       take.current = null;
       release();
       void current.recorder.discard(uri);
-      move({ type: "fail", error: ERRORS.failed });
+      move({ type: "fail", error: { kind: "failed", message: reason } });
     }
   }, [move, release, stopMeter, transcriber]);
 
@@ -117,9 +152,21 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       const id = (counter.current += 1);
       const recorder = newVoiceTake();
       // The language model downloads while the user talks; the transcript waits for it, the recording does not.
-      const prepared = transcriber.prepare();
+      const prepared = transcriber
+        .prepare(language, (fraction) => {
+          if (take.current?.id === id) setDownload(fraction < 1 ? fraction : null);
+        })
+        .finally(() => setDownload(null));
       prepared.catch(() => {});
-      take.current = { id, recorder, anchor, prepared };
+      const target = chatRef.current;
+      // The project's words are read while the user talks too.
+      const terms = target?.cwd
+        ? target.client.call<{ terms: string[] }>("dictation:context", [{ cwd: target.cwd, chatTitle: target.chatTitle }]).then(
+            (result) => result?.terms ?? [],
+            () => [],
+          )
+        : Promise.resolve([]);
+      take.current = { id, recorder, anchor, prepared, terms, language, chat: target };
       const live = () => take.current?.id === id;
       try {
         const permission = await askForMicrophone();
@@ -143,7 +190,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
         if (live()) fail(ERRORS.failed);
       }
     },
-    [cancel, fail, level, move, owner, stop, transcriber],
+    [cancel, fail, language, level, move, owner, stop, transcriber],
   );
 
   useEffect(() => {
@@ -167,6 +214,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
     available: transcriber !== null,
     phase: state.phase,
     error: state.error,
+    download,
     level,
     start,
     stop,

@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { AcpRpc } = require("./acp-rpc.cjs");
-const { AcpSession } = require("./acp-session.cjs");
+const { AcpSession, pickOption } = require("./acp-session.cjs");
 const { acpDiff, acpStepResult } = require("./acp-events.cjs");
 const { ANTIGRAVITY_MODES, antigravityAcp, antigravityEnv, crashDetail } = require("./antigravity-acp.cjs");
 const { MILAGRE_INSTRUCTIONS, RESUME_FAILED_MESSAGE, crashMessage, failedWith, isTerminal, loginMessage, missingCliMessage } = require("./events.cjs");
@@ -257,6 +257,54 @@ test("Full answers permission requests without a card", async (t) => {
   await ended(events);
   assert.equal(of(events, "permission-request").length, 0);
   assert.equal(replyText(events), "picked:allow");
+});
+
+test("guarded turn denies push", async (t) => {
+  const reason = "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.";
+  // In Ask the rest still waits for the user.
+  const ask = antigravity(t, { scenario: "guarded" });
+  await ask.session.startTurn({ ...TURN, permissionMode: "ask", guard: { level: 2, resolveThreads: false } });
+  await waitUntil(() => of(ask.events, "permission-request").length === 1);
+  const [request] = of(ask.events, "permission-request");
+  assert.equal(request.command, "ls build");
+  ask.session.respondToPermission(request.requestId, "allow");
+  await ended(ask.events);
+  assert.equal(replyText(ask.events), "picked:deny picked:allow");
+  // The step says why.
+  const step = of(ask.events, "step-completed").find((event) => event.id === "cmd-1");
+  assert.equal(step.detail, `$ git push origin HEAD\n${reason}`);
+
+  // Full runs the guarded turn in Auto's mode, so commands still ask, and Milagre allows the rest itself.
+  const full = antigravity(t, { scenario: "guarded" });
+  await full.session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await ended(full.events);
+  assert.equal(replyText(full.events), "picked:deny picked:allow");
+  assert.equal(of(full.events, "permission-request").length, 0);
+  // The Chat's next turn is the user's own: Full's own mode again.
+  await full.session.startTurn({ ...TURN, permissionMode: "full" });
+  await ended(full.events, 2);
+  const modes = (await sent(full.session, "session/set_config_option")).filter((params) => params.configId === "mode").map((params) => params.value);
+  assert.deepEqual(modes, ["auto_edit", "yolo"]);
+});
+
+test("a command that writes to GitHub is allowed once, never always", async (t) => {
+  const { session, events } = antigravity(t, { scenario: "guarded" });
+  await session.startTurn({ ...TURN, permissionMode: "ask" });
+  await waitUntil(() => of(events, "permission-request").length === 1);
+  const [push] = of(events, "permission-request");
+  assert.equal(push.command, "git push origin HEAD");
+  assert.equal(push.allowForChat, false);
+  session.respondToPermission(push.requestId, "allow-for-chat");
+  await waitUntil(() => of(events, "permission-request").length === 2);
+  const list = of(events, "permission-request")[1];
+  assert.equal(list.allowForChat, true);
+  session.respondToPermission(list.requestId, "allow-for-chat");
+  await ended(events);
+  assert.equal(replyText(events), "picked:allow picked:allow_always");
+  // An agent that offers no one-time allow gets no "always" for it either.
+  const always = [{ optionId: "allow_always", kind: "allow_always" }];
+  assert.equal(pickOption(always, "allow", { once: true }), null);
+  assert.equal(pickOption(always, "allow").optionId, "allow_always");
 });
 
 test("an edit shows its diff on the card and on the step that ran it", async (t) => {

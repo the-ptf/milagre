@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
+const { bundledAgents } = require("../bundled-skills.cjs");
 const {
   sessionInstructions,
   SUBAGENT_DESIGN_INSTRUCTIONS,
@@ -30,8 +31,11 @@ const {
 const { PendingQuestions, claudeQuestionRequest, claudeQuestionResult } = require("./questions.cjs");
 const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy } = require("./advisor-policy.cjs");
+const { babysitDenial } = require("../babysit-guard.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
+
+const QA_AGENTS = bundledAgents();
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
 // the user, through canUseTool, before edits and commands its rules don't already allow. Bot rules runs
@@ -181,6 +185,8 @@ class ClaudeSession {
     // Bot rules: the tool calls the PreToolUse hook asked about (toolUseID -> its gate, or null when the policy
     // failed), so canUseTool can't let one through on a second look.
     this.hookAsked = new Map();
+    // A babysit Run's level ({ level, resolveThreads }) while its turn runs, else null (see guardHook).
+    this.guard = null;
     this.questions = new PendingQuestions((event) => this.emit(event));
     // Settles once the running turn's own message is in Claude Code's input (or the turn failed to start).
     this.turnReady = Promise.resolve();
@@ -207,6 +213,7 @@ class ClaudeSession {
       return { turnId: null, steered: false };
     }
     this.turnActive = true;
+    this.guard = request.guard ?? null;
     this.implicitTurn = false;
     this.steeredTurn = false;
     this.hookAsked.clear();
@@ -305,6 +312,9 @@ class ClaudeSession {
     // reply, so the question is dismissed and the message reaches Claude right away.
     this.questions.dismissAll();
     this.steeredTurn = true;
+    // A message steered into a babysit Run doesn't lift its guard. A babysit Run itself never steers into a running turn
+    // (its delivery waits while the Chat is busy); one that did would still bring its guard.
+    if (request.guard) this.guard = request.guard;
     if (request.permissionMode) await this.setPermissionMode(request.permissionMode);
     this.inbox.push(userMessage(request.prompt, request.images));
     return { turnId: this.state.turnId, steered: true };
@@ -367,8 +377,16 @@ class ClaudeSession {
           ],
         },
       ];
-    if (!this.analysisOnly && this.permissions.mode === "bot" && this.permissionPolicy)
-      hooks.PreToolUse = [{ hooks: [(input, toolUseID) => this.gateHook(input, toolUseID)] }];
+    // Every Chat gets the hook, whatever its mode: hooks are fixed for the session, and a babysit Run's turn can come to a
+    // session that started without one. It lets everything through unless the turn is guarded or in Bot rules.
+    if (!this.analysisOnly)
+      hooks.PreToolUse = [
+        {
+          hooks: [
+            (input, toolUseID) => this.guardHook(input) ?? (this.permissions.mode === "bot" && this.permissionPolicy ? this.gateHook(input, toolUseID) : {}),
+          ],
+        },
+      ];
     this.query = sdk.query({
       prompt: this.inbox,
       options: {
@@ -395,6 +413,8 @@ class ClaudeSession {
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
         ...(Object.keys(hooks).length ? { hooks } : {}),
+        // The QA fleet's personas, launched as Agent subagent types (qa-fleet skill). Advisors don't launch agents.
+        ...(!this.analysisOnly && !this.executionAdvisor ? { agents: QA_AGENTS } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),
@@ -418,6 +438,16 @@ class ClaudeSession {
     // Thinking arrives as readable summaries rather than empty blocks, for the reply's thinking steps.
     // Only the display changes (null keeps the model's own thinking budget), so it suits every model.
     await this.query.setMaxThinkingTokens?.(null, "summarized").catch(() => {});
+  }
+
+  // A babysit Run: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "deny" holds even in
+  // bypassPermissions, so a command the Run's level doesn't allow is refused in every mode, subagents' included. The
+  // reason is what the agent reads and the step shows. Undefined lets the call go on.
+  guardHook(input) {
+    const command = input.tool_input?.command;
+    const reason = this.guard && typeof command === "string" ? babysitDenial(command, this.guard) : null;
+    if (!reason) return undefined;
+    return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
   }
 
   // Bot rules: Claude Code runs PreToolUse hooks before its permission rules, and a hook's "ask" is
@@ -456,6 +486,9 @@ class ClaudeSession {
     // A request that arrives once its turn has stopped has nobody to ask.
     if (!this.turnActive || this.cancelRequested || this.closed) return Promise.resolve(claudeResult("cancelled", input));
     const request = claudeRequest(toolName, input, options);
+    // The hook refused it already; this covers a Claude Code that skipped the hook.
+    const refused = this.guard && request.kind === "command" ? babysitDenial(request.command, this.guard) : null;
+    if (refused) return Promise.resolve({ behavior: "deny", message: refused });
     const flagged = this.hookAsked.has(options.toolUseID) ? { gate: this.hookAsked.get(options.toolUseID) ?? undefined } : undefined;
     this.hookAsked.delete(options.toolUseID);
     const decided = this.access.answer(claudeAccessRequest(toolName, input, request), this.permissions.mode);

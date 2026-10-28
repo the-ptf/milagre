@@ -1,4 +1,4 @@
-// Real title components: finite animation, original host deadlines, remounts and recycled title slots.
+// Real title components: running titles sweep for the whole call, pause for approval and stop when the call ends.
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
@@ -54,69 +54,46 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor("!!document.querySelector('code[role=link].step-sweep')");
     assert.equal(await evaluate(`${motion}.length`), 2, "plain label and FileLink both sweep");
-    assert.equal(await evaluate(`${motion}.every(a => a.effect.getTiming().iterations === 2)`), true);
-    await waitFor(staticTitles);
-    const staticCode = await evaluate(
-      "({ fill:getComputedStyle(document.querySelector('code')).backgroundColor, field:getComputedStyle(document.documentElement).getPropertyValue('--field') })",
-    );
-    assert.notEqual(staticCode.fill, "rgba(0, 0, 0, 0)", "settled file chips retain their fill");
-    await capture("settled-file");
+    assert.equal(await evaluate(`${motion}.every(a => a.effect.getTiming().iterations === Infinity)`), true);
+    await capture("sweeping");
 
-    await evaluate("window.start();");
-    await waitFor(`${motion}.length === 2`);
-    await delay(600);
+    // Long calls keep sweeping, and ordinary renders do not restart the loop.
+    await delay(2600);
+    assert.equal(await evaluate(`${motion}.length`), 2, "still sweeping after two periods");
     const first = await evaluate(`${motion}[0].currentTime`);
     await evaluate("window.rerender()");
     assert.ok(await evaluate(`${motion}[0].currentTime >= ${first}`), "ordinary renders do not restart");
-    await evaluate("window.start()");
-    await waitFor(`${motion}.length === 2 && ${motion}[0].currentTime < 300`);
+
+    // Approval pauses the sweep; the answer resumes it. Old hosts without a start time sweep too.
     await evaluate("window.wait(true)");
     await waitFor("!document.querySelector('.step-sweep')");
-    await delay(2450);
     await evaluate("window.wait(false)");
-    await waitFor(staticTitles);
-
-    // A partial remount resumes the remaining budget; a reload/remount after expiry never replays.
-    await evaluate("window.start(1700)");
     await waitFor(`${motion}.length === 2`);
-    assert.ok(await evaluate(`${motion}[0].effect.getTiming().delay <= -1700`));
-    await waitFor(staticTitles);
-    await evaluate("window.mount(false)");
-    await waitFor("!document.querySelector('.step-running')");
-    await evaluate("window.mount(true)");
-    await waitFor(staticTitles);
+    await evaluate("window.start(0, false)");
+    await waitFor(`${motion}.length === 2`);
 
-    // Park the DOM without unmounting React, as the transcript pool does.
-    await evaluate("window.start(); window.parked = document.getElementById('titles'); window.parked.remove()");
-    await delay(2500);
-    await evaluate("document.getElementById('root').append(window.parked)");
-    await waitFor(staticTitles);
-
-    // The folded header and its first expansion agree on one deadline, including code spans.
+    // The folded header and its expansion sweep together, code spans included.
     await evaluate("window.folded(true); window.start(3000)");
     await waitFor("!!document.querySelector('[data-slot=activity]')");
     await evaluate("document.querySelector('[data-slot=activity] > button').click()");
-    await waitFor("document.querySelectorAll('.step-running').length === 4");
-    await waitFor(staticTitles);
-    await evaluate("window.start()");
-    await waitFor(`${motion}.length === 4`);
-    await waitFor(staticTitles);
-    await capture("settled-folded");
+    await waitFor(`document.querySelectorAll('.step-running').length === 4 && ${motion}.length === 4`);
+    await evaluate("window.folded(false)");
 
     await window.webContents.debugger.attach("1.3");
     await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
     await evaluate("window.start()");
     await waitFor(staticTitles);
     assert.equal(await evaluate("[...document.querySelectorAll('code.step-running')].every(e=>getComputedStyle(e).animationName === 'none')"), true);
+    const staticCode = await evaluate("getComputedStyle(document.querySelector('code')).backgroundColor");
+    assert.notEqual(staticCode, "rgba(0, 0, 0, 0)", "static file chips retain their fill");
     await capture("reduced");
     await window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
-    await evaluate("window.start(0, false)");
-    await waitFor(staticTitles);
     await evaluate("window.finish('done')");
     await waitFor("!document.querySelector('.step-running')");
+    assert.equal(await evaluate(`${motion}.length`), 0, "a finished call stops sweeping");
     await evaluate("window.start(); window.finish('failed')");
     await waitFor("!document.querySelector('.step-running')");
-    console.log("PASS step sweeps: two cycles, static chips, identity, waiting, remount, parked DOM, folded rows, old hosts and reduced motion");
+    console.log("PASS step sweeps: whole-call loop, no restart on render, approval pause, old hosts, folded rows, reduced motion and finish");
   } finally {
     window.destroy();
     app.quit();

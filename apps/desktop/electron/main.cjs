@@ -25,6 +25,7 @@ const { connectDesktopRuntime } = require("./daemon-runtime.cjs");
 const { loadLoginEnvironment } = require("@milagre/core/agents/environment");
 const { detectEditors, openInEditor, requireWorktreeRoot } = require("@milagre/core/editors");
 const { copyImage, saveImage } = require("./generated-images.cjs");
+const { createDictation } = require("./dictation.cjs");
 const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
@@ -194,6 +195,15 @@ async function startDesktop() {
       },
       name,
     );
+  // Dictation runs on this computer even when the window shows a paired one: the microphone is here.
+  // Its model download reports progress to the window that asked.
+  const dictation = createDictation({ dataDir: app.getPath("userData") });
+  ipcMain.handle("app:dictation-status", async () => ({ ready: await dictation.ready(), size: dictation.size }));
+  ipcMain.handle("app:dictation-transcribe", (event, request) =>
+    dictation.transcribe(request ?? {}, (received, total) => {
+      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
+    }),
+  );
   ipcMain.handle("image:copy", (_event, file) => copyImageFile(file));
   ipcMain.handle("image:save", (event, file, name) => saveImageFile(event, file, name));
   ipcMain.handle("image:menu", (event, file, name) => {

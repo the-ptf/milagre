@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canOpenRunChat,
+  canEditRoutine,
   canRunNow,
   chatLeft,
   chatRoutine,
@@ -47,8 +48,15 @@ test("parsePass ignores a (pass) that is not at the start", () => {
   assert.deepEqual(parsePass(""), { quiet: false });
 });
 
-test("parsePass caps the summary at 80 characters", () => {
-  assert.equal(parsePass("(pass) " + "x".repeat(200)).summary.length, 80);
+test("parsePass caps the summary at 80 characters, with an ellipsis where it cut", () => {
+  assert.equal(parsePass("(pass) " + "x".repeat(200)).summary, `${"x".repeat(79)}\u2026`);
+  // Exactly 80 fits as it is.
+  assert.equal(parsePass("(pass) " + "y".repeat(80)).summary, "y".repeat(80));
+  // A cut ends on a whole word: the QA reply that lost its last word mid-way.
+  const long = "I did not fix the `check` failure, because the only fix is a file you told me not to add.";
+  const { summary } = parsePass(`(pass) ${long}`);
+  assert.equal(summary, "I did not fix the `check` failure, because the only fix is a file you told me\u2026");
+  assert.ok(summary.length <= 80);
 });
 
 const context = (over = {}) => ({
@@ -339,6 +347,17 @@ test("canRunNow: schedules and Heartbeats run now; Linear and webhook triggers h
   assert.equal(canRunNow({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId: "c" } }), true);
   assert.equal(canRunNow({ trigger: { kind: "linear", workspace: "w", event: "assigned" }, target: newChat }), false);
   assert.equal(canRunNow({ trigger: { kind: "webhook", hookId: "a", signed: false }, target: newChat }), false);
+});
+
+test("a babysit Heartbeat neither runs now nor opens the form; every other Routine edits", () => {
+  const babysit = {
+    trigger: { kind: "pull-request", url: "https://github.com/o/r/pull/7", repo: "github.com/o/r", number: 7 },
+    target: { kind: "chat", chatId: "c" },
+  };
+  assert.equal(canRunNow(babysit), false);
+  assert.equal(canEditRoutine(babysit), false);
+  assert.equal(canEditRoutine({ trigger: { kind: "schedule", cron: "*/15 * * * *", timezone: "UTC" }, target: { kind: "chat", chatId: "c" } }), true);
+  assert.equal(canEditRoutine({ trigger: { kind: "webhook", hookId: "a", signed: false }, target: { kind: "new-chat", projectPath: "/p" } }), true);
 });
 
 const run = (id, status, extra = {}) => ({ id, routineId: "r", startedAt: 100 - Number(id), status, ...extra });
@@ -675,4 +694,8 @@ test("routineEnd says how many Runs are left or when the Routine ends", () => {
   assert.equal(routineEnd({ maxRuns: 1, runCount: 0 }, now), "1 of 1 Run left");
   assert.equal(routineEnd({ expiresAt: now + 5 * 3600e3 }, now), "ends in 5 h");
   assert.equal(routineEnd({}, now), null);
+});
+
+test("triggerText words a pull-request trigger", () => {
+  assert.equal(triggerText({ kind: "pull-request", repo: "github.com/acme/app", number: 7 }), "PR #7");
 });

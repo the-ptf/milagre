@@ -140,6 +140,9 @@ function makeBridge(invoke, listen, send) {
     searchProjectFiles: (root, query) => invoke("project:files", root, query),
     listSkills: (projectPath) => invoke("skills:list", projectPath),
     readSkill: (projectPath, file) => invoke("skills:read", projectPath, file),
+    dictationContext: (request) => invoke("dictation:context", request),
+    // The phone's fix-up of an Apple transcript; the desktop transcribes with Whisper and has no use for it.
+    polishDictation: (request) => invoke("dictation:polish", request),
     openSkill: (request) => invoke("skills:open", request),
     revealSkill: (projectPath, file) => invoke("skills:reveal", projectPath, file),
     listBranches: (projectPath) => invoke("project:branches", projectPath),
@@ -174,6 +177,9 @@ function makeBridge(invoke, listen, send) {
     readAutoUpdate: () => invoke("app-update:auto:read"),
     saveAutoUpdate: (value) => invoke("app-update:auto:save", value),
     onAutoUpdate: (callback) => listen("app-update:auto", callback),
+    readBabysitSettings: () => invoke("babysit:settings:read"),
+    saveBabysitSettings: (patch) => invoke("babysit:settings:save", patch),
+    onBabysitSettings: (callback) => listen("babysit:settings", callback),
     readRoutinesEnabled: () => invoke("routines:enabled:read"),
     saveRoutinesEnabled: (value, consentVersion) => invoke("routines:enabled:save", value, consentVersion),
     listRoutines: () => invoke("routines:list"),
@@ -505,6 +511,12 @@ const bridge = {
   onComputersChanged: (callback) => listenHere("computers:changed", callback),
   onComputerAddPending: (callback) => listenHere("computers:pending", () => callback()),
   onComputerEvent: (callback) => listenAnyComputer(callback),
+  // Dictation records and transcribes on this computer, whichever computer the Chat is on (dictation.cjs).
+  dictation: {
+    status: () => ipcRenderer.invoke("app:dictation-status"),
+    transcribe: (request) => ipcRenderer.invoke("app:dictation-transcribe", request),
+    onProgress: (callback) => listenHere("app:dictation-progress", callback),
+  },
 };
 // Window decoration belongs to this window, even when its Chat uses a paired computer's bridge.
 const controls = process.argv.find((argument) => argument.startsWith("--milagre-window-controls="))?.split("=")[1];

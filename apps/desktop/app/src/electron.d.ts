@@ -1,3 +1,4 @@
+import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
@@ -305,6 +306,10 @@ export type MilagreBridge = {
   listSkills: (projectPath: string) => Promise<SkillCatalog>;
   /** The text of a SKILL.md the catalog listed (a shadowed one included), up to 256 KiB. */
   readSkill: (projectPath: string, file: string) => Promise<string>;
+  /** The words a dictated message about this folder likely holds, for the recognizer. */
+  dictationContext: (request: { cwd: string; chatTitle?: string }) => Promise<{ terms: string[] }>;
+  /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
+  polishDictation: (request: { cwd: string; text: string; chatTitle?: string; provider?: string }) => Promise<{ text: string; polished: boolean }>;
   /** Opens a listed SKILL.md in an editor, wherever it lives (user skills are outside any checkout). */
   openSkill: (request: { projectPath: string; file: string; editor?: string }) => Promise<Result<null>>;
   /** Shows a listed SKILL.md in the file manager. */
@@ -388,6 +393,12 @@ export type MilagreBridge = {
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
   /** The switch changed, here or from another device. */
   onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
+  /** Settings › Babysit PRs: the one global configuration every Chat's babysitting follows. Kept by the host, so a paired desktop or the phone edits it too. */
+  readBabysitSettings: () => Promise<BabysitSettings>;
+  /** Merges the patch over the stored settings and returns the normalized result. */
+  saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
+  /** The settings changed, here or from another device. */
+  onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
   /** Whether this Mac may run Routines: a device that allowed AI sharing authorized it (with a Routine write, or `true` here). `false` stops them. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;
@@ -755,6 +766,12 @@ declare global {
       onComputerAddPending: (callback: () => void) => () => void;
       /** Every computer's runtime events. */
       onComputerEvent: (callback: (event: ComputerEvent) => void) => () => void;
+      /** Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM; the model downloads on first use. */
+      dictation: {
+        status: () => Promise<{ ready: boolean; size: number }>;
+        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
+        onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+      };
     };
   }
 }
