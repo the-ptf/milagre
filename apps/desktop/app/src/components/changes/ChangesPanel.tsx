@@ -142,6 +142,7 @@ export function ChangesPanel({
 }
 
 export function ComparisonControls({ comparison: c }: { comparison: Comparison }) {
+  if (c.unavailable) return null;
   const data = c.data?.isRepo ? c.data : undefined;
   const options = [
     { value: "", label: "Automatic", description: "Recorded base or project default" },
@@ -190,7 +191,7 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
   if (!c.data.isRepo) return <Notice>{c.data.message}</Notice>;
   return (
     <div className="space-y-2 p-2" data-commit-history>
-      {!c.data.commits.length && <Notice>{c.data.message ?? "No commits since the comparison branch."}</Notice>}
+      {!c.data.commits.length && <Notice>{c.loading ? "Reading commits…" : (c.data.message ?? "No commits since the comparison branch.")}</Notice>}
       {c.data.commits.map((commit) => (
         <details key={commit.sha} className="rounded-control border border-line px-2.5 py-2 text-[12px]">
           <summary className="cursor-pointer break-words font-medium text-ink">
@@ -211,7 +212,7 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
         </details>
       ))}
       {c.data.hasMore && c.limit < 300 && (
-        <button type="button" onClick={c.more} className="w-full rounded-control p-2 text-[12px] text-ink-2 hover:bg-hover">
+        <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-[12px] text-ink-2 hover:bg-hover">
           Show more commits
         </button>
       )}

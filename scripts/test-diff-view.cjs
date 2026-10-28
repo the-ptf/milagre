@@ -45,13 +45,24 @@ const FILES = {
 };
 const entries = Object.entries(FILES).map(([path, f]) => ({ path, status: f.status, added: f.added, removed: f.removed, binary: Boolean(f.binary) }));
 window.listCalls = [];
+window.historyCalls = [];
+window.historyHeld = false;
+window.historyError = null;
+window.historyWaiters = [];
+window.releaseHistory = () => { window.historyHeld = false; window.historyWaiters.splice(0).forEach(resolve => resolve()); };
 window.externalCommit = false;
 window.externalEdit = false;
 window.fileCalls = [];
 window.milagre = {
   git: {
-    history: async request => ({ isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }], hasMore: false,
-      commits: request.limit ? [{ sha: "a".repeat(40), author: "Maria", email: "maria@example.com", date: "2026-10-28T10:00:00Z", message: "Current feature commit\\n\\nDetailed explanation", files: 2, added: 7, removed: 3 }] : [] }),
+    history: async request => {
+      window.historyCalls.push(request);
+      if (window.historyHeld) await new Promise(resolve => window.historyWaiters.push(resolve));
+      if (window.historyError) throw new Error(window.historyError);
+      const commit = { sha: "a".repeat(40), author: "Maria", email: "maria@example.com", date: "2026-10-28T10:00:00Z", message: "Current feature commit\\n\\nDetailed explanation", files: 2, added: 7, removed: 3 };
+      return { isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }], hasMore: request.limit === 30,
+        commits: !request.limit ? [] : request.limit >= 60 ? [commit, { ...commit, sha: "b".repeat(40), message: "Earlier feature commit" }] : [commit] };
+    },
     diffFiles: async request => {
       window.listCalls.push(request.mode);
       if (request.mode === "committed") window.lastBase = request.base;
@@ -68,7 +79,11 @@ window.milagre = {
 };
 window.endTurn = () => listeners.forEach(listener => listener({ chatId: "chat-1", event: { type: "turn-completed" } }));
 function Fixture() {
-  const changes = useChanges({ cwd: "/fixture", base: "main", chatId: "chat-1", available: true });
+  const [panelLists, setPanelLists] = useState(true);
+  window.setPanelLists = setPanelLists;
+  window.fixturePanelLists = panelLists;
+  const changes = useChanges({ cwd: "/fixture", base: "main", chatId: "chat-1", available: true, panelLists });
+  window.refreshChanges = changes.refresh;
   const comments = useDiffComments("chat-1", changes);
   const prefs = useDiffPreferences();
   const diff = changes.diffOpen;
@@ -333,10 +348,43 @@ async function browserChecks() {
       fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "comparison-history.png"), (await window.webContents.capturePage()).toPNG());
     }
+    // A slow larger page keeps the visible commit card, its expansion and branch metadata in place.
+    await evaluate(
+      'window.historyHeld = true; window.retainedCommit = document.querySelector("[data-commit-history] details"); [...document.querySelectorAll("button")].find(button => button.textContent === "Show more commits").click()',
+    );
+    await waitFor("window.historyWaiters.length > 0");
+    assert.equal(await evaluate('document.querySelector("[data-commit-history] details") === window.retainedCommit && window.retainedCommit.open'), true);
+    assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.textContent === "Files").click()');
+    assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
+    assert.ok(await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).textContent.includes("parent")'));
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.textContent === "Commits").click()');
+    await waitFor('document.querySelectorAll("[data-commit-history] details").length === 1');
+    await evaluate("window.releaseHistory()");
+    await waitFor('document.querySelectorAll("[data-commit-history] details").length === 2');
+
+    // An older host keeps file diffs usable without an unavailable-history error card.
+    await evaluate('window.historyError = "Unknown command: git:history"; window.refreshChanges()');
+    await waitFor('!document.querySelector(`[aria-label="Comparison branch"]`) && !!document.querySelector("[data-diff-tree-file]")');
+    assert.equal(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("Unknown command")'), false);
+    await evaluate("window.historyError = null; window.refreshChanges()");
+    await waitFor('!!document.querySelector(`[aria-label="Comparison branch"]`)');
+
     // Closing the panel returns to Chat.
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!document.querySelector("[data-changes-panel]") && !document.querySelector("[data-diff-view]")');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), false);
+    // Link panels own their member histories. This unused reader stays inactive for every refresh route.
+    await evaluate("window.setPanelLists(false)");
+    await waitFor("window.fixturePanelLists === false");
+    const historyCalls = await evaluate("window.historyCalls.length");
+    await evaluate('document.querySelector("[data-changes-toggle]").click()');
+    await waitFor('!!document.querySelector("[data-changes-panel]")');
+    await evaluate("window.refreshChanges()");
+    await evaluate("window.endTurn()");
+    await delay(200);
+    assert.equal(await evaluate("window.historyCalls.length"), historyCalls, "Link diff readers never request the member histories owned by their panel");
+
     console.log(
       "PASS: panel tree with merged folders and counts, file click opens the diff, Back slides it out, unified gutters and word tint, split pairing, large and binary files, committed section, turn-end and external-change refresh",
     );

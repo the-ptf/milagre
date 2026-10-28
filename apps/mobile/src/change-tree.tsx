@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ArrowDown01Icon, ArrowRight01Icon, File01Icon } from "@hugeicons/core-free-icons";
-import type { DiffFileEntry, DiffFilesResult, DiffMode, GitHistory, GitCommit } from "@milagre/shared/git-diff";
+import { isGitHistoryUnavailable, type DiffFileEntry, type DiffFilesResult, type DiffMode, type GitHistory, type GitCommit } from "@milagre/shared/git-diff";
 import { buildDiffTree, type DiffTreeNode } from "@milagre/shared/diff-tree";
 import type { Client } from "./client";
 import type { DiffTarget } from "./app/diff";
@@ -91,10 +91,11 @@ export function ChangeSections({
   const active = useScreenActive();
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [view, setView] = useState<"files" | "commits">("files");
-  const [limit, setLimit] = useState(30);
+  const [limit, setLimit] = useState(0);
   const selected = choices[cwd] ?? "";
   const comparisonBase = selected || base;
-  const history = useRpc<GitHistory>(client, "git:history", [{ cwd, base: comparisonBase, limit: view === "commits" ? limit : 0 }], active);
+  const history = useRpc<GitHistory>(client, "git:history", [{ cwd, base: comparisonBase, limit }], active, JSON.stringify([cwd, comparisonBase]));
+  const unavailable = isGitHistoryUnavailable(history.error);
   const data = history.data?.isRepo ? history.data : undefined;
   const uncommitted = useRpc<DiffFilesResult>(client, "git:diff-files", [{ cwd, base, mode: "uncommitted" }], active);
   const committed = useRpc<DiffFilesResult>(client, "git:diff-files", [{ cwd, base: comparisonBase, mode: "committed" }], active);
@@ -113,7 +114,7 @@ export function ChangeSections({
   // A list that can't be read says so above the one that could.
   const failed = SECTIONS.filter(({ mode }) => reads[mode].error);
   const notice = failed[0] ? <ErrorNotice message={reads[failed[0].mode].error} retry={() => failed.forEach(({ mode }) => reads[mode].refresh())} /> : null;
-  const controls = (
+  const controls = unavailable ? null : (
     <View style={[styles.card, { gap: 10 }]}>
       <Text style={styles.label}>Branch: {data?.branch ?? (history.data ? "Detached HEAD" : "…")}</Text>
       <Pressable
@@ -130,7 +131,7 @@ export function ChangeSections({
             ],
             onSelect: (value) => {
               setChoices((previous) => ({ ...previous, [cwd]: value === "automatic" ? "" : value }));
-              setLimit(30);
+              setLimit(view === "commits" ? 30 : 0);
             },
           })
         }
@@ -149,7 +150,10 @@ export function ChangeSections({
             key={item}
             accessibilityRole="button"
             accessibilityState={{ selected: view === item }}
-            onPress={() => setView(item)}
+            onPress={() => {
+              setView(item);
+              if (item === "commits") setLimit((value) => Math.max(value, 30));
+            }}
             style={{ minHeight: 44, flex: 1, justifyContent: "center" }}
           >
             <Text style={view === item ? styles.label : styles.muted}>{item === "files" ? "Files" : "Commits"}</Text>
@@ -159,7 +163,7 @@ export function ChangeSections({
       {history.error ? <ErrorNotice message={history.error} retry={history.refresh} /> : null}
     </View>
   );
-  if (view === "commits")
+  if (view === "commits" && !unavailable)
     return (
       <>
         {controls}
@@ -167,11 +171,14 @@ export function ChangeSections({
         {data?.commits.map((commit) => (
           <CommitCard key={commit.sha} commit={commit} />
         ))}
-        {data && !data.commits.length && <Text style={styles.muted}>{data.message ?? "No commits since the comparison branch."}</Text>}
+        {data && !data.commits.length && (
+          <Text style={styles.muted}>{history.loading ? "Reading commits…" : (data.message ?? "No commits since the comparison branch.")}</Text>
+        )}
         {history.data && !history.data.isRepo && <Text style={styles.muted}>{history.data.message}</Text>}
         {data?.hasMore && limit < 300 && (
           <Pressable
             accessibilityRole="button"
+            disabled={history.loading}
             onPress={() => setLimit((value) => Math.min(value + 30, 300))}
             style={{ minHeight: 44, justifyContent: "center" }}
           >

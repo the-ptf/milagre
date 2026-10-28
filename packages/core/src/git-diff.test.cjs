@@ -284,3 +284,37 @@ test("history handles unborn, detached and unrelated branches", async (t) => {
   assert.match(result.message, /shares no history/);
   assert.deepEqual(result.commits, []);
 });
+
+test("history counts merge changes against the first parent without Git 2.31 options", async (t) => {
+  const { cwd, git, write } = await fixture(t);
+  git("checkout", "-b", "feature");
+  await write("first.txt", "first\n");
+  git("add", ".");
+  git("commit", "-m", "First change");
+  git("checkout", "-b", "side");
+  await write("side.txt", "one\ntwo\n");
+  git("add", ".");
+  git("commit", "-m", "Side change");
+  git("checkout", "feature");
+  await write("own.txt", "own\n");
+  git("add", ".");
+  git("commit", "-m", "Own change");
+  git("merge", "--no-ff", "side", "-m", "Merge side");
+  const real = require("node:child_process").execFile;
+  const diff = createGitDiff({
+    execFile(command, args, options, callback) {
+      if (args.some((arg) => arg.startsWith("--diff-merges"))) {
+        callback(Object.assign(new Error("unsupported Git option"), { code: 129 }), "", "unsupported Git option");
+        return;
+      }
+      return real(command, args, options, callback);
+    },
+  });
+  const result = await diff.history({ cwd, base: "main" });
+  assert.equal(result.commits.length, 4);
+  const merge = result.commits.find((commit) => commit.message === "Merge side");
+  assert.equal(merge.files, 1);
+  assert.equal(merge.added, 2);
+  assert.equal(merge.removed, 0);
+  assert.equal("parent" in merge, false);
+});

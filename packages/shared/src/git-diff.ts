@@ -41,3 +41,9 @@ export type GitHistory =
       hasMore: boolean;
       message?: string;
     };
+
+/** Older desktop hosts can reject this optional read while still serving file diffs. */
+export function isGitHistoryUnavailable(error: unknown): boolean {
+  const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error ?? "");
+  return message === "Command is not available from mobile" || /Unknown command: git:history(?:[. ]|$)/.test(message);
+}

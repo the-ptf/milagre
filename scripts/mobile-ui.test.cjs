@@ -15200,6 +15200,7 @@ test("phone changes choose a comparison branch and keep its base when opening a 
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
     "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
     "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
     "./choice-store": { showChoiceSheet: (request) => (picker = request) },
     "./display-clock": { useScreenActive: () => true },
@@ -15257,4 +15258,110 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   assert.ok(textOf(details).includes("maria@example.com"));
   assert.ok(textOf(details).includes("Detailed explanation"));
   assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
+});
+
+test("phone history retains metadata and commits during pagination, but never across repositories or clients", async () => {
+  const react = hookHost({ effects: true });
+  const pending = [];
+  let client = {
+    call: () => {
+      const request = deferred();
+      pending.push(request);
+      return request.promise;
+    },
+  };
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) => {
+        void options.refresh();
+        return () => {};
+      },
+    },
+  });
+  let cwd = "/project",
+    limit = 0;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:history", [{ cwd, base: "main", limit }], true, JSON.stringify([cwd, "main"]));
+    react.flush();
+    return result;
+  };
+  render();
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: [] });
+  await settle();
+  limit = 30;
+  assert.equal(render().data.branch, "feature", "metadata stays while the initial commits load");
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: ["first"] });
+  await settle();
+  limit = 60;
+  assert.deepEqual(render().data.commits, ["first"], "pagination retains the loaded list");
+  pending.shift().reject(new Error("Connection dropped"));
+  await settle();
+  assert.deepEqual(render().data.commits, ["first"], "a failed page keeps the prior list for retry");
+  assert.equal(render().error, "Connection dropped");
+  limit = 90;
+  render();
+  const old = pending.shift();
+  cwd = "/another-project";
+  assert.equal(render().data, null, "a different repository never borrows the old result");
+  old.resolve({ branch: "old", commits: ["wrong"] });
+  await settle();
+  assert.equal(render().data, null, "late answers for the prior repository are discarded");
+  pending.shift().resolve({ branch: "new", commits: ["new"] });
+  await settle();
+  assert.equal(render().data.branch, "new");
+  client = { call: () => new Promise(() => {}) };
+  assert.equal(render().data, null, "another computer with the same path cannot reuse this computer's result");
+  react.unmount();
+});
+
+test("older hosts without git history keep phone file diffs usable; network errors still offer retry", () => {
+  const react = hookHost();
+  let historyError = "Command is not available from mobile";
+  const { ChangeSections } = load("change-tree.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet() {} },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method) =>
+        method === "git:history"
+          ? { data: null, error: historyError, refresh() {} }
+          : { data: { isRepo: true, base: "main", files: [{ path: "changed.txt", added: 1, removed: 0 }] }, error: "", refresh() {} },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  });
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: {}, cwd: "/project", onOpen: (...args) => opened.push(args) });
+  };
+  for (const message of ["Command is not available from mobile", "Unknown command: git:history"]) {
+    historyError = message;
+    const tree = render();
+    assert.equal(
+      find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch"),
+      undefined,
+    );
+    assert.equal(
+      find(tree, (node) => node.type === "ErrorNotice"),
+      undefined,
+    );
+    const files = find(tree, (node) => node.type?.name === "ChangeTree");
+    assert.ok(files, "ordinary files remain visible on an older host");
+    files.props.onOpen({ path: "changed.txt" });
+  }
+  assert.equal(opened.length, 2);
+  historyError = "Connection dropped";
+  const retry = find(render(), (node) => node.type === "ErrorNotice");
+  assert.equal(retry.props.message, historyError);
+  assert.equal(typeof retry.props.retry, "function");
 });

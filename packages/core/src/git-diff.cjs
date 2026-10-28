@@ -176,31 +176,29 @@ function createGitDiff(options = {}) {
     const mergeBase = await gitOut(cwd, ["merge-base", resolved.ref, "HEAD"]);
     if (!mergeBase) return { ...result, message: `This branch shares no history with ${resolved.name}.` };
     const count = Number.isInteger(limit) ? Math.max(1, Math.min(limit, 300)) : 30;
-    const log = await checked(cwd, ["log", "-z", `--max-count=${count + 1}`, "--format=%H%x00%an%x00%ae%x00%aI%x00%B", `${mergeBase}..HEAD`, "--"]);
+    const log = await checked(cwd, ["log", "-z", `--max-count=${count + 1}`, "--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%B", `${mergeBase}..HEAD`, "--"]);
     const fields = log.stdout.split("\0");
     const commits = [];
-    for (let i = 0; i + 4 < fields.length; i += 5) {
-      const [sha, author, email, date, message] = fields.slice(i, i + 5);
-      commits.push({ sha, author, email, date, message: message.trim() });
+    for (let i = 0; i + 5 < fields.length; i += 6) {
+      const [sha, parents, author, email, date, message] = fields.slice(i, i + 6);
+      commits.push({ sha, parent: parents.split(" ")[0], author, email, date, message: message.trim() });
     }
     const detailed = [];
     for (let i = 0; i < Math.min(commits.length, count); i += 4) {
       detailed.push(
         ...(await Promise.all(
-          commits.slice(i, Math.min(i + 4, count)).map(async (commit) => {
+          commits.slice(i, Math.min(i + 4, count)).map(async ({ parent, ...commit }) => {
             const key = `${cwd}\0${commit.sha}`;
             if (commitStats.has(key)) return { ...commit, ...commitStats.get(key) };
-            // First-parent stats also give merge commits useful, non-duplicated totals.
+            // Compare the first parent explicitly, including merges, without requiring Git 2.31 --diff-merges.
             const stat = await checked(cwd, [
-              "show",
-              "--format=",
+              ...(parent ? ["diff"] : ["show", "--format="]),
               "--no-ext-diff",
               "--no-textconv",
-              "--diff-merges=first-parent",
               "--numstat",
               "-z",
               "-M",
-              commit.sha,
+              ...(parent ? [parent, commit.sha] : [commit.sha]),
               ...PATHSPEC,
             ]);
             const files = [...parseNumstat(stat.stdout).values()];
