@@ -227,7 +227,7 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     return listed.filter(Boolean);
   }
   const commonDir = async (cwd) => fs.realpath(path.resolve(cwd, (await text(cwd, ["rev-parse", "--git-common-dir"])).trim()));
-  const read = Object.freeze({ run, checked, text, out, commitOf, refExists, resolveBase, chatBase, worktreeList, commonDir });
+  const read = Object.freeze({ run, checked, text, out, commitOf, refExists, resolveBase, createdFrom, chatBase, worktreeList, commonDir });
   const writeRun = (cwd, args, options) => {
     if (analysisOnly) throw new Error("Analysis Git is read-only.");
     return executeGit(cwd, args, { profile: "WRITE", ...options });

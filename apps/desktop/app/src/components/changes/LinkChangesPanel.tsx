@@ -211,11 +211,18 @@ function ProjectChanges({
       </div>
       {!collapsed && (
         <div className="pl-5">
-          <ComparisonControls comparison={comparison} />
+          <ComparisonControls comparison={comparison} fileCount={changedFileCount(lists)} />
           {comparison.view === "commits" ? (
             <CommitHistory comparison={comparison} />
           ) : (
-            <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+            <ChangesSections
+              compactComparison={!comparison.unavailable}
+              lists={lists}
+              mode={mode}
+              onSelectFile={onSelectFile}
+              activePath={activePath}
+              commentCounts={commentCounts}
+            />
           )}
         </div>
       )}

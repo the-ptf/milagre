@@ -67,7 +67,7 @@ function registerGitHandlers(
   }
 
   ipcMain.handle("git:changes", async (_event, { cwd, base } = {}) => actions.readChanges({ cwd: await folder(cwd), base }));
-  ipcMain.handle("git:history", async (_event, { cwd, base, limit } = {}) => diff.history({ cwd: await folder(cwd), base, limit }));
+  ipcMain.handle("git:history", async (_event, { cwd, base, recordedBase, limit } = {}) => diff.history({ cwd: await folder(cwd), base, recordedBase, limit }));
   ipcMain.handle("git:diff-files", async (_event, { cwd, base, mode } = {}) => diff.listDiffFiles({ cwd: await folder(cwd), base, mode }));
   ipcMain.handle("git:diff-file", async (_event, { cwd, base, mode, path: file, oldPath, untracked } = {}) =>
     diff.readDiffFile({ cwd: await folder(cwd), base, mode, path: file, oldPath, untracked }),

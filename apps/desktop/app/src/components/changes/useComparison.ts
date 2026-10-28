@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { isGitHistoryUnavailable, type GitHistory } from "@milagre/shared/git-diff";
 import type { MilagreBridge } from "../../electron";
 import { useGitRefresh } from "./useGitRefresh";
@@ -15,7 +15,7 @@ export function useComparison(
   const [limit, setLimit] = useState(0);
   const selected = choice?.value ?? choices.get(bridge)?.[cwd] ?? "";
   const comparisonBase = selected || base;
-  const repository = JSON.stringify([cwd, comparisonBase]);
+  const repository = JSON.stringify([cwd, comparisonBase, base]);
   const scope = JSON.stringify([repository, limit]);
   const [loaded, setLoaded] = useState<{
     repository: string;
@@ -25,8 +25,8 @@ export function useComparison(
     error?: string;
     unavailable?: boolean;
   }>();
-  const current = useRef({ cwd, base: comparisonBase, limit, repository, scope, bridge, active });
-  current.current = { cwd, base: comparisonBase, limit, repository, scope, bridge, active };
+  const current = useRef({ cwd, base: comparisonBase, recordedBase: base, limit, repository, scope, bridge, active });
+  current.current = { cwd, base: comparisonBase, recordedBase: base, limit, repository, scope, bridge, active };
   const refresh = useCallback(async () => {
     const request = current.current;
     if (!request.active || !request.cwd) return;
@@ -35,7 +35,7 @@ export function useComparison(
         setLoaded({ repository: request.repository, scope: request.scope, bridge, unavailable: true });
         return;
       }
-      const data = await bridge.git.history({ cwd: request.cwd, base: request.base, limit: request.limit });
+      const data = await bridge.git.history({ cwd: request.cwd, base: request.base, recordedBase: request.recordedBase, limit: request.limit });
       if (request.scope === current.current.scope && request.bridge === current.current.bridge)
         setLoaded({ repository: request.repository, scope: request.scope, bridge: request.bridge, data });
     } catch (error) {
@@ -52,14 +52,30 @@ export function useComparison(
   }, [bridge]);
   useGitRefresh(active && !!cwd, scope, refresh);
   const retained = loaded?.repository === repository && loaded.bridge === bridge ? loaded : undefined;
-  return {
-    base: comparisonBase,
-    selected,
-    select: (value: string) => {
+  const [missing, setMissing] = useState<{ cwd: string; bridge: MilagreBridge; name: string }>();
+  const select = useCallback(
+    (value: string) => {
       if (choice) choice.onChange(value);
       else setChoices((previous) => new Map(previous).set(bridge, { ...previous.get(bridge), [cwd]: value }));
       setLimit(view === "commits" ? 30 : 0);
     },
+    [choice, bridge, cwd, view],
+  );
+  const data = retained?.data?.isRepo ? retained.data : undefined;
+  useEffect(() => {
+    if (!active || !selected || !data || data.branches.some((branch) => branch.ref === selected)) return;
+    select("");
+    setMissing({ cwd, bridge, name: selected.replace(/^refs\/(heads|remotes)\//, "") });
+  }, [active, selected, data, select, cwd, bridge]);
+  return {
+    base: comparisonBase,
+    selected,
+    select: (value: string) => {
+      setMissing(undefined);
+      select(value);
+    },
+    missing: missing?.cwd === cwd && missing.bridge === bridge ? missing.name : undefined,
+    dismissMissing: () => setMissing(undefined),
     view: retained?.unavailable ? ("files" as const) : view,
     setView: (next: "files" | "commits") => {
       setView(next);

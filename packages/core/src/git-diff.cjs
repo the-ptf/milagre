@@ -24,7 +24,7 @@ function checkPath(file) {
 }
 
 function createGitDiff(options = {}) {
-  const { run, checked, out: gitOut, refExists, chatBase } = createGit(options).read;
+  const { run, checked, out: gitOut, refExists, resolveBase, createdFrom, chatBase } = createGit(options).read;
 
   const commitStats = new Map();
 
@@ -158,23 +158,49 @@ function createGitDiff(options = {}) {
   }
 
   /** Bounded, read-only history for the same comparison the file tree uses. */
-  async function history({ cwd, base, limit = 30 } = {}) {
+  async function history({ cwd, base, recordedBase, limit = 30 } = {}) {
     if (!(await run(cwd, ["rev-parse", "--is-inside-work-tree"])).ok) return { isRepo: false, message: NOT_REPO };
-    const [branch, branches, resolved] = await Promise.all([
+    const [branch, branches, resolved, automatic, projectDefault, source, head] = await Promise.all([
       gitOut(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
       checked(cwd, ["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"]),
       chatBase(cwd, base),
+      chatBase(cwd, recordedBase),
+      resolveBase(cwd),
+      createdFrom(cwd),
+      gitOut(cwd, ["rev-parse", "--verify", "HEAD"]),
     ]);
     const choices = branches.stdout
       .trim()
       .split("\n")
       .filter((ref) => ref && !ref.endsWith("/HEAD"))
       .map((ref) => ({ ref, name: ref.replace(/^refs\/(heads|remotes)\//, "") }));
-    const result = { isRepo: true, branch, base: resolved.name, comparisonRef: resolved.ref, branches: choices, commits: [], hasMore: false };
-    if (limit === 0 || !(await refExists(cwd, "HEAD"))) return result;
+    const recorded = !!recordedBase && (await refExists(cwd, recordedBase));
+    const suggestionSource = recorded ? recordedBase : source;
+    const suggested =
+      suggestionSource && (await refExists(cwd, suggestionSource)) ? await gitOut(cwd, ["rev-parse", "--symbolic-full-name", suggestionSource]) : null;
+    const result = {
+      isRepo: true,
+      branch,
+      head,
+      base: resolved.name,
+      comparisonRef: resolved.ref,
+      branches: choices,
+      automatic: {
+        ...automatic,
+        reason: recorded ? "the recorded base" : !recordedBase && source && suggested ? "the branch it was created from" : "the project default",
+      },
+      projectDefault,
+      suggested,
+      commits: [],
+      hasMore: false,
+      total: 0,
+    };
+    if (!head) return result;
     if (!resolved.ref) return { ...result, message: "No comparison branch available." };
     const mergeBase = await gitOut(cwd, ["merge-base", resolved.ref, "HEAD"]);
     if (!mergeBase) return { ...result, message: `This branch shares no history with ${resolved.name}.` };
+    result.total = Number(await gitOut(cwd, ["rev-list", "--count", `${mergeBase}..HEAD`, "--"])) || 0;
+    if (limit === 0) return result;
     const count = Number.isInteger(limit) ? Math.max(1, Math.min(limit, 300)) : 30;
     const log = await checked(cwd, ["log", "-z", `--max-count=${count + 1}`, "--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%B", `${mergeBase}..HEAD`, "--"]);
     const fields = log.stdout.split("\0");

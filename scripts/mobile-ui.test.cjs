@@ -15183,7 +15183,11 @@ test("Add computer can remove the public fallback before pairing a pasted invita
 test("phone changes choose a comparison branch and keep its base when opening a diff; commit details expand", () => {
   const react = hookHost();
   const calls = [];
+  const copied = [];
   let picker;
+  let deleted = false;
+  let unrelated = false;
+  const phoneClient = {};
   const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
   const commit = {
     sha: "a".repeat(40),
@@ -15198,6 +15202,12 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   const modules = {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {
+      setStringAsync: async (sha) => {
+        copied.push(sha);
+        return true;
+      },
+    },
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
@@ -15215,7 +15225,17 @@ test("phone changes choose a comparison branch and keep its base when opening a 
                   isRepo: true,
                   branch: "current",
                   base,
-                  branches: [{ ref: "refs/heads/parent", name: "parent" }],
+                  total: 1,
+                  suggested: "refs/heads/parent",
+                  projectDefault: { name: "main", ref: "refs/heads/main" },
+                  comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
+                  message: unrelated && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
+                  automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" },
+                  branches: [
+                    { ref: "refs/heads/parent", name: "parent" },
+                    { ref: "refs/heads/current", name: "current" },
+                    { ref: "refs/remotes/origin/main", name: "origin/main" },
+                  ].filter((branch) => !deleted || branch.ref !== "refs/heads/parent"),
                   commits: request.limit ? [commit] : [],
                   hasMore: false,
                 }
@@ -15234,17 +15254,20 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   const opened = [];
   const render = () => {
     react.begin();
-    return ChangeSections({ client: {}, cwd: "/worktree", base: "main", onOpen: (...args) => opened.push(args) });
+    return ChangeSections({ client: phoneClient, cwd: "/worktree", base: "main", onOpen: (...args) => opened.push(args) });
   };
   let tree = render();
   find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
-  assert.ok(picker.items.some((item) => item.id === "refs/heads/parent"));
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/parent" && item.section === "Suggested"));
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/current" && item.disabled && item.subtitle === "current"));
+  assert.ok(picker.items.some((item) => item.id === "refs/remotes/origin/main" && item.section === "Remote · origin"));
+  assert.equal(picker.items[0].subtitle, "main, the recorded base");
   picker.onSelect("refs/heads/parent");
   tree = render();
   assert.equal(calls.findLast((call) => call.method === "git:diff-files" && call.request.mode === "committed").request.base, "refs/heads/parent");
   find(tree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
   assert.deepEqual(opened[0], [file, "committed", "refs/heads/parent"]);
-  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Commits").props.onPress();
+  find(tree, (node) => node.props?.accessibilityLabel === "Commits").props.onPress();
   tree = render();
   assert.ok(find(tree, (node) => node.type === CommitCard));
   assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
@@ -15257,7 +15280,23 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   details = card({ commit });
   assert.ok(textOf(details).includes("maria@example.com"));
   assert.ok(textOf(details).includes("Detailed explanation"));
+  find(details, (node) => node.props?.accessibilityLabel === "Copy SHA").props.onPress();
+  assert.deepEqual(copied, [commit.sha]);
   assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
+  unrelated = true;
+  tree = render();
+  assert.ok(textOf(tree).includes("shares no history"));
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Compare with main instead").props.onPress();
+  render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "refs/heads/main");
+  picker.onSelect("refs/heads/parent");
+  deleted = true;
+  render();
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "main");
+  assert.ok(textOf(tree).includes("parent no longer exists. Showing changes since main."));
+  find(tree, (node) => node.props?.accessibilityLabel === "Dismiss missing branch notice").props.onPress();
+  assert.equal(textOf(render()).includes("no longer exists"), false);
 });
 
 test("phone history retains metadata and commits during pagination, but never across repositories or clients", async () => {
@@ -15322,6 +15361,7 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const { ChangeSections } = load("change-tree.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {},
     "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),

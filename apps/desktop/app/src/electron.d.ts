@@ -458,7 +458,7 @@ export type MilagreBridge = {
   showImageMenu: (file: string, name?: string) => Promise<void>;
   /** The "Commit and open PR" dialog: git and gh run in the chat's folder (`cwd`). */
   git: {
-    history: (request: { cwd: string; base?: string; limit?: number }) => Promise<import("@milagre/shared/git-diff").GitHistory>;
+    history: (request: { cwd: string; base?: string; recordedBase?: string; limit?: number }) => Promise<import("@milagre/shared/git-diff").GitHistory>;
     changes: (request: { cwd: string; base?: string }) => Promise<GitChanges>;
     /** Files a chat's folder changed: `uncommitted` against HEAD (untracked included), `committed` since the merge-base with the base branch. */
     diffFiles: (request: { cwd: string; base?: string; mode: DiffMode }) => Promise<DiffFilesResult>;

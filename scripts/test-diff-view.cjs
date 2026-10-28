@@ -48,6 +48,8 @@ window.listCalls = [];
 window.historyCalls = [];
 window.historyHeld = false;
 window.historyError = null;
+window.branchDeleted = false;
+window.noSharedHistory = false;
 window.historyWaiters = [];
 window.releaseHistory = () => { window.historyHeld = false; window.historyWaiters.splice(0).forEach(resolve => resolve()); };
 window.externalCommit = false;
@@ -60,7 +62,10 @@ window.milagre = {
       if (window.historyHeld) await new Promise(resolve => window.historyWaiters.push(resolve));
       if (window.historyError) throw new Error(window.historyError);
       const commit = { sha: "a".repeat(40), author: "Maria", email: "maria@example.com", date: "2026-10-28T10:00:00Z", message: "Current feature commit\\n\\nDetailed explanation", files: 2, added: 7, removed: 3 };
-      return { isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }], hasMore: request.limit === 30,
+      return { head: "c".repeat(40), total: 2, automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" }, projectDefault: { name: "main", ref: "refs/heads/main" }, suggested: "refs/heads/parent",
+        comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
+        message: window.noSharedHistory && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
+        isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }, { ref: "refs/heads/feature/current", name: "feature/current" }, { ref: "refs/remotes/origin/main", name: "origin/main" }].filter(branch => !window.branchDeleted || branch.ref !== "refs/heads/parent"), hasMore: request.limit === 30,
         commits: !request.limit ? [] : request.limit >= 60 ? [commit, { ...commit, sha: "b".repeat(40), message: "Earlier feature commit" }] : [commit] };
     },
     diffFiles: async request => {
@@ -308,7 +313,7 @@ async function browserChecks() {
 
     // The branch's commits are their own section, since its base; a file there opens the committed diff.
     assert.equal(await evaluate(`document.querySelectorAll("[data-changes-section='On this branch'] [data-diff-tree-file]").length`), 1);
-    assert.ok(await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-base]").textContent.includes("main")`));
+    assert.ok(await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).textContent.includes("main")'));
     await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-tree-file]").click()`);
     await waitFor('window.fileCalls.some(call => call.startsWith("committed:"))');
     await waitFor('document.querySelectorAll("[data-diff-view] [data-diff-file]").length === 1');
@@ -333,10 +338,10 @@ async function browserChecks() {
     await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
     await waitFor('!!document.querySelector("[role=listbox]")');
     await evaluate('[...document.querySelectorAll("[role=option]")].find(row => row.textContent === "parent").click()');
-    await waitFor('document.querySelector(`[data-changes-section="On this branch"] [data-diff-base]`)?.textContent.includes("parent")');
+    await waitFor('document.querySelector(`[aria-label="Comparison branch"]`)?.textContent.includes("parent")');
     assert.equal(await evaluate("window.lastBase"), "refs/heads/parent");
     assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
-    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.textContent === "Commits").click()');
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.dataset.comparisonView === "commits").click()');
     await waitFor('!!document.querySelector("[data-commit-history] details")');
     await evaluate('document.querySelector("[data-commit-history] summary").click()');
     assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("maria@example.com")'));
@@ -355,13 +360,39 @@ async function browserChecks() {
     await waitFor("window.historyWaiters.length > 0");
     assert.equal(await evaluate('document.querySelector("[data-commit-history] details") === window.retainedCommit && window.retainedCommit.open'), true);
     assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
-    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.textContent === "Files").click()');
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.dataset.comparisonView === "files").click()');
     assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
     assert.ok(await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).textContent.includes("parent")'));
-    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.textContent === "Commits").click()');
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.dataset.comparisonView === "commits").click()');
     await waitFor('document.querySelectorAll("[data-commit-history] details").length === 1');
     await evaluate("window.releaseHistory()");
     await waitFor('document.querySelectorAll("[data-commit-history] details").length === 2');
+
+    assert.equal(await evaluate('document.querySelector(`[data-comparison-view="commits"] span`).textContent'), "2");
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
+    await waitFor('!!document.querySelector("[role=listbox]")');
+    assert.ok(
+      await evaluate(
+        '[...document.querySelectorAll("[role=option]")].some(row => row.textContent.includes("feature/current") && row.getAttribute("aria-disabled") === "true")',
+      ),
+    );
+    assert.ok(
+      await evaluate(
+        'document.querySelector("[role=listbox]").textContent.includes("Suggested") && document.querySelector("[role=listbox]").textContent.includes("Remote · origin")',
+      ),
+    );
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click(); window.noSharedHistory = true; window.refreshChanges()');
+    await waitFor('document.querySelector("[data-comparison-controls]").textContent.includes("shares no history")');
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Compare with main instead").click()');
+    await waitFor('window.lastBase === "refs/heads/main"');
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
+    await waitFor('!!document.querySelector("[role=listbox]")');
+    await evaluate('[...document.querySelectorAll("[role=option]")].find(row => row.textContent === "parent").click()');
+    await waitFor('window.lastBase === "refs/heads/parent"');
+    await evaluate("window.noSharedHistory = false; window.branchDeleted = true; window.refreshChanges()");
+    await waitFor('window.lastBase === "main" && document.querySelector("[role=status]")?.textContent.includes("parent no longer exists")');
+    await evaluate('document.querySelector(`[aria-label="Dismiss missing branch notice"]`).click()');
+    assert.equal(await evaluate('!!document.querySelector("[role=status]")'), false);
 
     // An older host keeps file diffs usable without an unavailable-history error card.
     await evaluate('window.historyError = "Unknown command: git:history"; window.refreshChanges()');

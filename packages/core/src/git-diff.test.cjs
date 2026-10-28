@@ -262,6 +262,13 @@ test("comparison history excludes inherited commits with a chosen branch and inc
   const metadata = await diff.history({ cwd, base: "main", limit: 0 });
   assert.deepEqual(metadata.commits, []);
   assert.equal(metadata.branch, "current-feature");
+  assert.equal(metadata.total, 2);
+  assert.equal(metadata.head, commit.sha);
+  assert.equal(metadata.automatic.name, "main");
+  assert.equal(metadata.projectDefault.ref, "refs/heads/main");
+  const recorded = await diff.history({ cwd, base: "main", recordedBase: "parent-feature", limit: 0 });
+  assert.equal(recorded.automatic.name, "parent-feature");
+  assert.equal(recorded.automatic.reason, "the recorded base");
   const files = await diff.listDiffFiles({ cwd, base: "refs/heads/parent-feature", mode: "committed" });
   assert.deepEqual(
     files.files.map((file) => file.path),
@@ -277,12 +284,29 @@ test("history handles unborn, detached and unrelated branches", async (t) => {
   git("add", ".");
   git("commit", "-m", "first");
   git("checkout", "--detach");
-  assert.equal((await diff.history({ cwd, base: "main" })).branch, null);
+  const detached = await diff.history({ cwd, base: "main", limit: 0 });
+  assert.equal(detached.branch, null);
+  assert.equal(detached.head, git("rev-parse", "HEAD").trim());
   git("checkout", "--orphan", "unrelated");
   git("commit", "-m", "unrelated");
   const result = await diff.history({ cwd, base: "main" });
   assert.match(result.message, /shares no history/);
   assert.deepEqual(result.commits, []);
+  assert.match((await diff.history({ cwd, base: "main", limit: 0 })).message, /shares no history/);
+});
+
+test("history suggests the branch's creation source and resolves automatic independently of a manual selection", async (t) => {
+  const { cwd, git, diff } = await fixture(t);
+  git("checkout", "-b", "parent");
+  git("checkout", "-b", "feature", "parent");
+  const metadata = await diff.history({ cwd, base: "main", limit: 0 });
+  assert.equal(metadata.suggested, "refs/heads/parent");
+  assert.equal(metadata.automatic.name, "parent");
+  assert.equal(metadata.automatic.reason, "the branch it was created from");
+  git("branch", "-D", "parent");
+  const after = await diff.history({ cwd, base: "refs/heads/parent", limit: 0 });
+  assert.equal(after.suggested, null);
+  assert.equal(after.automatic.name, "main");
 });
 
 test("history counts merge changes against the first parent without Git 2.31 options", async (t) => {

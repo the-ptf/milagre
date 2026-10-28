@@ -4,6 +4,12 @@ import {
   ArrowDown01Icon,
   ArrowRight01Icon,
   Comment01Icon,
+  ArrowLeft01Icon,
+  CloudIcon,
+  GitBranchIcon,
+  GitCommitIcon,
+  Copy01Icon,
+  Cancel01Icon,
   File01Icon,
   FileDiffIcon,
   GitMergeIcon,
@@ -11,6 +17,8 @@ import {
   GitPullRequestIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
+import { branchName, commitInitials, comparisonOptions } from "@milagre/shared/git-diff";
+import type { GitCommit } from "@milagre/shared/git-diff";
 import type { PullRequest } from "@milagre/shared/model";
 import { pullRequestPresentation } from "@milagre/shared/pr-blockers";
 import type { DiffFileEntry, DiffMode } from "../../electron";
@@ -127,12 +135,19 @@ export function ChangesPanel({
         pullRequest.body
       ) : (
         <>
-          {comparison && <ComparisonControls comparison={comparison} />}
+          {comparison && <ComparisonControls comparison={comparison} fileCount={changedFileCount(lists)} />}
           <ScrollArea className="flex-1 py-1.5">
             {comparison?.view === "commits" ? (
               <CommitHistory comparison={comparison} />
             ) : (
-              <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+              <ChangesSections
+                compactComparison={!!comparison && !comparison.unavailable}
+                lists={lists}
+                mode={mode}
+                onSelectFile={onSelectFile}
+                activePath={activePath}
+                commentCounts={commentCounts}
+              />
             )}
           </ScrollArea>
         </>
@@ -141,44 +156,89 @@ export function ChangesPanel({
   );
 }
 
-export function ComparisonControls({ comparison: c }: { comparison: Comparison }) {
+/** Both ends stay visible when a branch exceeds the row's available width. */
+function BranchLabel({ name }: { name: string }) {
+  const split = Math.ceil(name.length * 0.55);
+  return (
+    <span title={name} className="flex min-w-0 flex-1 text-left">
+      <span className="min-w-0 truncate">{name.slice(0, split)}</span>
+      <span className="max-w-[45%] shrink-0 overflow-hidden whitespace-nowrap [direction:rtl]">{name.slice(split)}</span>
+    </span>
+  );
+}
+
+export function ComparisonControls({ comparison: c, fileCount }: { comparison: Comparison; fileCount?: number }) {
   if (c.unavailable) return null;
   const data = c.data?.isRepo ? c.data : undefined;
-  const options = [
-    { value: "", label: "Automatic", description: "Recorded base or project default" },
-    ...(data?.branches ?? []).map((branch) => ({ value: branch.ref, label: branch.name })),
-  ];
-  if (c.selected && !options.some((option) => option.value === c.selected))
-    options.push({ value: c.selected, label: c.selected.replace(/^refs\/(heads|remotes)\//, "") });
+  const base = branchName(data?.comparisonRef || c.selected || data?.base || "Automatic");
+  const current = data?.branch ?? data?.head?.slice(0, 8) ?? (c.data ? "HEAD" : "…");
+  const icon = (remote: boolean) => <HugeiconsIcon icon={remote ? CloudIcon : GitBranchIcon} size={14} className="shrink-0 text-ink-3" />;
+  const options = comparisonOptions(data).map((option) => ({
+    ...option,
+    wrapLabel: true,
+    icon: icon(option.value === c.selected ? !!data?.comparisonRef?.startsWith("refs/remotes/") : option.remote),
+    display: <BranchLabel name={base} />,
+  }));
+  const fallback = data?.projectDefault;
   return (
-    <div className="space-y-2 border-b border-line px-3 py-2">
-      <p className="truncate text-[12px] font-medium text-ink" title={data?.branch ?? "Detached HEAD"}>
-        Branch: {data?.branch ?? (c.data ? "Detached HEAD" : "…")}
-      </p>
-      <div className="flex items-center gap-2 text-[11.5px] text-ink-3">
-        <span className="shrink-0">Compare with</span>
-        <Select label="Comparison branch" value={c.selected} options={options} onChange={c.select} searchable compact triggerClassName="min-w-0 flex-1" />
+    <div className="@container border-b border-line" data-comparison-controls>
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-[12px] text-ink-3">
+        <Select
+          label="Comparison branch"
+          value={c.selected}
+          options={options}
+          onChange={c.select}
+          searchable
+          compact
+          variant="chip"
+          triggerClassName="min-w-[64px] max-w-[50%] shrink"
+        />
+        <HugeiconsIcon icon={ArrowLeft01Icon} size={14} className="hidden shrink-0 @[300px]:block" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5" aria-label={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}>
+          <HugeiconsIcon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
+          <BranchLabel name={current} />
+          {data && !data.branch && <span className="shrink-0 rounded bg-hover px-1 text-[10px]">detached</span>}
+        </span>
       </div>
-      {data?.base && (
-        <p className="break-words text-[11px] text-ink-3">
-          Changes in {data.branch ?? "HEAD"} since {(data.comparisonRef ?? data.base).replace(/^refs\/(heads|remotes)\//, "")}
-        </p>
-      )}
-      <div className="flex gap-1" aria-label="Changes view">
+      <div className="flex gap-5 px-3" aria-label="Changes view" role="tablist" onKeyDown={moveTab}>
         {(["files", "commits"] as const).map((view) => (
           <button
             key={view}
             type="button"
-            aria-pressed={c.view === view}
+            role="tab"
+            aria-selected={c.view === view}
+            tabIndex={c.view === view ? 0 : -1}
+            data-comparison-view={view}
             onClick={() => c.setView(view)}
-            className={`flex-1 rounded-control px-2 py-1 text-[12px] ${c.view === view ? "bg-hover text-ink" : "text-ink-3 hover:bg-hover"}`}
+            className={`flex items-center gap-1.5 border-b-2 py-2 text-[12px] ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
           >
             {view === "files" ? "Files" : "Commits"}
+            <span className="font-normal tabular-nums text-ink-3">{view === "files" ? fileCount : data?.total}</span>
           </button>
         ))}
       </div>
+      {c.missing && (
+        <div role="status" className="flex items-start gap-2 px-3 py-2 text-[11px] text-ink-3">
+          <p className="min-w-0 flex-1 break-words">
+            {c.missing} no longer exists. {data?.base ? `Showing changes since ${data.base}.` : "Restoring the automatic base…"}
+          </p>
+          <button type="button" aria-label="Dismiss missing branch notice" onClick={c.dismissMissing}>
+            <HugeiconsIcon icon={Cancel01Icon} size={13} />
+          </button>
+        </div>
+      )}
+      {data?.message && (
+        <div className="px-3 py-2 text-[11px] text-ink-3">
+          <p>{data.message}</p>
+          {fallback?.ref && fallback.ref !== data.comparisonRef && (
+            <button type="button" onClick={() => c.select(fallback.ref!)} className="mt-1 text-accent-ink hover:underline">
+              Compare with {fallback.name} instead
+            </button>
+          )}
+        </div>
+      )}
       {c.error && (
-        <button type="button" onClick={() => void c.refresh()} className="text-left text-[11px] text-red">
+        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-[11px] text-red">
           {c.error}. Retry
         </button>
       )}
@@ -190,26 +250,12 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
   if (!c.data) return <Notice>{c.error ?? "Reading commits…"}</Notice>;
   if (!c.data.isRepo) return <Notice>{c.data.message}</Notice>;
   return (
-    <div className="space-y-2 p-2" data-commit-history>
-      {!c.data.commits.length && <Notice>{c.loading ? "Reading commits…" : (c.data.message ?? "No commits since the comparison branch.")}</Notice>}
+    <div className="divide-y divide-line px-3" data-commit-history>
+      {!c.data.commits.length && !c.data.message && (
+        <Notice>{c.loading ? "Reading commits…" : (c.data.message ?? "No commits since the comparison branch.")}</Notice>
+      )}
       {c.data.commits.map((commit) => (
-        <details key={commit.sha} className="rounded-control border border-line px-2.5 py-2 text-[12px]">
-          <summary className="cursor-pointer break-words font-medium text-ink">
-            {commit.message.split("\n")[0]}
-            <span className="mt-1 block text-[11px] font-normal text-ink-3">
-              {commit.author} · {new Date(commit.date).toLocaleString()}
-            </span>
-            <span className="mt-1 flex items-center justify-between gap-2 font-normal text-ink-2">
-              <span>{commit.files} files</span>
-              <Counts added={commit.added} removed={commit.removed} />
-            </span>
-          </summary>
-          <p className="mt-2 whitespace-pre-wrap break-words text-ink-2">{commit.message}</p>
-          <p className="mt-1 break-words text-ink-3">
-            {commit.author} &lt;{commit.email}&gt;
-          </p>
-          <p className="mt-1 break-all font-mono text-[11px] text-ink-3">{commit.sha}</p>
-        </details>
+        <CommitRow key={commit.sha} commit={commit} />
       ))}
       {c.data.hasMore && c.limit < 300 && (
         <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-[12px] text-ink-2 hover:bg-hover">
@@ -218,6 +264,54 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
       )}
       {c.data.hasMore && c.limit >= 300 && <Notice>Showing the latest 300 commits. Choose a closer comparison branch to narrow the history.</Notice>}
     </div>
+  );
+}
+
+function CommitRow({ commit }: { commit: GitCommit }) {
+  const [copy, setCopy] = useState("Copy SHA");
+  return (
+    <details className="py-2.5 text-[12px]">
+      <summary className="cursor-pointer list-none font-medium text-ink">
+        <span className="line-clamp-2 break-words">{commit.message.split("\n")[0]}</span>
+        <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-ink-3">
+          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover text-[8px] text-ink-2">
+            {commitInitials(commit.author)}
+          </span>
+          <span className="min-w-0 truncate" title={`${commit.author} <${commit.email}>`}>
+            {commit.author}
+          </span>
+          <time className="shrink-0" dateTime={commit.date} title={new Date(commit.date).toLocaleString()}>
+            {new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+          </time>
+          <span className="ml-auto shrink-0">
+            {commit.files} {commit.files === 1 ? "file" : "files"}
+          </span>
+          <Counts added={commit.added} removed={commit.removed} />
+        </span>
+      </summary>
+      <div className="mt-2 border-l-2 border-line pl-2.5">
+        <p className="whitespace-pre-wrap break-words text-ink-2">{commit.message}</p>
+        <p className="mt-2 break-words text-[11px] text-ink-3">
+          {commit.author} &lt;{commit.email}&gt; · {new Date(commit.date).toLocaleString()}
+        </p>
+        <button
+          type="button"
+          title={commit.sha}
+          aria-label={copy}
+          onClick={() =>
+            void navigator.clipboard.writeText(commit.sha).then(
+              () => setCopy("SHA copied"),
+              () => setCopy("Copy failed. Retry"),
+            )
+          }
+          className="mt-2 flex items-center gap-1.5 rounded-control bg-hover px-2 py-1 font-mono text-[11px] text-ink-2"
+        >
+          {commit.sha.slice(0, 8)}
+          <HugeiconsIcon icon={Copy01Icon} size={12} />
+          <span className="sr-only">{copy}</span>
+        </button>
+      </div>
+    </details>
   );
 }
 
@@ -389,12 +483,14 @@ const SECTIONS = [
  * the section the diff shows (`mode`), since a file can be in both.
  */
 export function ChangesSections({
+  compactComparison = false,
   lists,
   mode,
   onSelectFile,
   activePath,
   commentCounts,
 }: {
+  compactComparison?: boolean;
   lists: ChangesLists;
   mode: ChangesMode;
   onSelectFile: (path: string, mode: DiffMode) => void;
@@ -412,6 +508,7 @@ export function ChangesSections({
         <ChangesSection
           key={section.mode}
           label={section.label}
+          compactComparison={compactComparison}
           list={lists[section.mode]}
           onSelectFile={(path) => onSelectFile(path, section.mode)}
           activePath={mode === section.mode ? activePath : undefined}
@@ -424,7 +521,7 @@ export function ChangesSections({
   );
 }
 
-function ChangesSection({ label, list, ...treeProps }: { label: string; list: DiffList } & TreeProps) {
+function ChangesSection({ label, list, compactComparison, ...treeProps }: { label: string; list: DiffList; compactComparison: boolean } & TreeProps) {
   const files = filesOf(list);
   const tree = useMemo(() => buildDiffTree(files), [files]);
   const base = list.state === "ready" && list.isRepo ? list.base : null;
@@ -433,7 +530,8 @@ function ChangesSection({ label, list, ...treeProps }: { label: string; list: Di
       <h3 className="flex h-7 items-center gap-1.5 px-3 text-[11.5px] text-ink-3">
         <span className="font-medium text-ink-2">{label}</span>
         <span className="tabular-nums">{files.length}</span>
-        {base && (
+        {label === "Not committed" && <span className="text-[10px]">vs HEAD</span>}
+        {base && !compactComparison && (
           <span data-diff-base className="min-w-0 truncate">
             since <span className="font-mono">{base}</span>
           </span>
