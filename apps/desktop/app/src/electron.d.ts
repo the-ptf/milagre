@@ -1,3 +1,4 @@
+import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
@@ -385,6 +386,12 @@ export type MilagreBridge = {
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
   /** The switch changed, here or from another device. */
   onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
+  /** Settings › Babysit PRs: the one global configuration every Chat's babysitting follows. Kept by the host, so a paired desktop or the phone edits it too. */
+  readBabysitSettings: () => Promise<BabysitSettings>;
+  /** Merges the patch over the stored settings and returns the normalized result. */
+  saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
+  /** The settings changed, here or from another device. */
+  onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
   /** Whether this Mac may run Routines: a device that allowed AI sharing authorized it (with a Routine write, or `true` here). `false` stops them. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;

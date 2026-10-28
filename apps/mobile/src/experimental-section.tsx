@@ -1,5 +1,9 @@
+import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
+import { useSession } from "./session";
+import { Row } from "./settings-list";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { Toggle, useStyles } from "./ui";
 
@@ -9,6 +13,24 @@ export function ExperimentalSection() {
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
+  const session = useSession();
+  // Babysit PRs lives on the connected Mac; null until it answers, and an older Mac never has it. Re-read on focus: its
+  // page or the Mac may have changed it.
+  const [babysit, setBabysit] = useState<boolean | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      const client = session.client;
+      if (!client) return;
+      let live = true;
+      client.call<{ enabled: boolean } | null>("babysit:settings:read", []).then(
+        (value) => live && setBabysit(value ? value.enabled === true : null),
+        () => live && setBabysit(null),
+      );
+      return () => {
+        live = false;
+      };
+    }, [session.client]),
+  );
   return (
     <View style={{ gap: 8 }}>
       <View style={[styles.card, { gap: 4 }]}>
@@ -29,6 +51,12 @@ export function ExperimentalSection() {
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.
         </Text>
       </View>
+      {session.client && babysit !== null && (
+        <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
+          <Row title="Babysit PRs" value={babysit ? "On" : "Off"} onPress={() => router.push("/babysit-prs")} />
+          <Text style={[styles.caption, { paddingBottom: 12 }]}>Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</Text>
+        </View>
+      )}
     </View>
   );
 }

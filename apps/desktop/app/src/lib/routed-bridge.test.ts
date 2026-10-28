@@ -153,6 +153,8 @@ const ALLOWED: Record<string, string[]> = {
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   // This Mac's own switch for its Chats delegating to other computers.
   "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
+  // This Mac's own Babysit PRs settings, which its daemon's poller follows.
+  "lib/babysit-settings.ts": ["readBabysitSettings", "saveBabysitSettings", "onBabysitSettings"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
   // The microphone is on this computer: Whisper transcribes here whichever computer the Chat is on.
   "components/useDictation.ts": ["dictation"],

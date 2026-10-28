@@ -1,7 +1,9 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const util = require("node:util");
 const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
+const { normalizeBabysitSettings } = require("@milagre/shared/babysit");
 const { everyToCron, nextRun } = require("./cron.cjs");
 
 const DEFAULT_EXPIRY_MS = 7 * 864e5;
@@ -36,6 +38,10 @@ const PROMPT_MAX = 4000;
 const MAX_RUNS_LIMIT = 1000;
 const LINEAR_EVENTS = ["assigned", "label-added", "state", "comment"];
 const HOOK_ID = /^[0-9a-f]{64}$/i;
+// A pull request's repository as the Babysit poller names it: host/owner/repo, no spaces.
+const PR_REPO = /^[^/\s]+(\/[^/\s]+){2,}$/;
+// A babysit Routine works one pull request at a time, and its events wait for their turn in order.
+const PULL_REQUEST_RUNS = 1;
 // Events of a Linear or webhook Routine wait here when it already has this many Runs going, in order.
 const CONCURRENT_RUNS = 3;
 const QUEUE_MAX = 20;
@@ -97,6 +103,15 @@ function checkExpiresAt(value, at) {
   return value;
 }
 
+function isHttpUrl(value) {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 // A trigger with only the fields its kind has. A schedule's cron and timezone are checked by `nextRun`, which the caller
 // runs because it needs the time anyway.
 function checkTrigger(value) {
@@ -118,8 +133,15 @@ function checkTrigger(value) {
       // hookId is a lowercase sha256 everywhere else, so one spelling is all a lookup has to know. Unsigned unless it says so.
       return { kind: "webhook", hookId: value.hookId.toLowerCase(), signed: value.signed === undefined ? false : checkFlag(value.signed, "signed") };
     }
+    case "pull-request": {
+      if (typeof value.url !== "string" || !isHttpUrl(value.url)) throw new Error("url must be an http(s) address");
+      if (typeof value.repo !== "string" || !PR_REPO.test(value.repo)) throw new Error("repo must look like host/owner/repo");
+      if (!Number.isInteger(value.number) || value.number < 1) throw new Error("number must be a positive whole number");
+      // The settings are the ones in force when the PR is first watched; this Routine keeps its own copy.
+      return { kind: "pull-request", url: value.url, repo: value.repo, number: value.number, settings: normalizeBabysitSettings(value.settings) };
+    }
     default:
-      throw new Error("trigger kind must be schedule, linear or webhook");
+      throw new Error("trigger kind must be schedule, linear, webhook or pull-request");
   }
 }
 
@@ -160,8 +182,9 @@ function issueNames(event) {
 }
 
 function assertEvent(value) {
-  if (!isObject(value) || (value.kind !== "linear" && value.kind !== "webhook") || typeof value.key !== "string" || value.key === "") {
-    throw new Error("An event needs a kind of linear or webhook, and a key");
+  const kinds = ["linear", "webhook", "pull-request"];
+  if (!isObject(value) || !kinds.includes(value.kind) || typeof value.key !== "string" || value.key === "") {
+    throw new Error("An event needs a kind of linear, webhook or pull-request, and a key");
   }
 }
 
@@ -173,6 +196,7 @@ function markCompleted(state, routine, at) {
   // Nothing it waited for will run, and nothing it sees will start a Run.
   delete state.queues[routine.id];
   delete state.seen[routine.id];
+  delete state.pullRequests[routine.id];
 }
 
 // `countsToFailures` is false for a failed Run that must not add to the streak (see recoverInterrupted).
@@ -233,7 +257,7 @@ function trimRuns(runs) {
 const rejectedKeys = (state, routineId) => (state.runs[routineId] ?? []).filter((run) => run.rejected === true && run.event).map((run) => run.event.key);
 
 function empty() {
-  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {}, removed: {} };
+  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {}, removed: {}, pullRequests: {} };
 }
 
 // The entries of a saved object that pass `valid`; what a damaged file holds besides that is left out.
@@ -249,6 +273,9 @@ function validTrigger(trigger) {
   if (trigger.kind === "schedule") return text(trigger.cron) && text(trigger.timezone);
   if (trigger.kind === "linear") return text(trigger.workspace) && LINEAR_EVENTS.includes(trigger.event);
   if (trigger.kind === "webhook") return text(trigger.hookId);
+  if (trigger.kind === "pull-request") {
+    return text(trigger.url) && text(trigger.repo) && Number.isInteger(trigger.number) && trigger.number >= 1 && isObject(trigger.settings);
+  }
   return false;
 }
 
@@ -325,6 +352,7 @@ function maintain(state, at, purgedIds = []) {
       delete state.queues[routine.id];
       delete state.seen[routine.id];
       delete state.rejections[routine.id];
+      delete state.pullRequests[routine.id];
     }
     const read = new Set(state.routines.filter((routine) => routine.trigger.kind === "linear").map((routine) => lower(routine.trigger.workspace)));
     for (const routine of purged) {
@@ -363,6 +391,20 @@ function assertHookFree(state, hookId, exceptId) {
   if (taken) throw new Error("Another Routine already uses that webhook");
 }
 
+// Whether a Routine is the live babysitter of pull request `number` of `repo` (host/owner/repo, any case).
+const watchesPullRequest = (routine, repo, number) =>
+  !routine.completedAt && routine.trigger.kind === "pull-request" && routine.trigger.number === number && lower(routine.trigger.repo) === lower(repo);
+
+// One live Routine per pull request: two would answer every change twice.
+function assertPullRequestFree(state, repo, number, exceptId) {
+  if (state.routines.some((routine) => routine.id !== exceptId && watchesPullRequest(routine, repo, number))) {
+    throw new Error(`Pull request #${number} is already being babysat`);
+  }
+}
+
+// How many Runs a Routine may have going at once: a babysit Routine one, any other `limit`.
+const slots = (routine, limit) => (routine.trigger.kind === "pull-request" ? Math.min(limit, PULL_REQUEST_RUNS) : limit);
+
 const isDue = (routine, at) => routine.enabled && !routine.completedAt && routine.nextRunAt != null && routine.nextRunAt <= at;
 
 const expired = (routine, at) => !routine.completedAt && routine.expiresAt !== undefined && routine.expiresAt <= at;
@@ -394,7 +436,14 @@ function chatRuns(state) {
  * that had a Chat and are no longer in the store (trimmed, deleted with their Routine, or purged, on load too), once per
  * write or load, after it, so the Chats they left can be tidied. A Run without a Chat is never reported.
  */
-function createRoutineStore({ file, now = Date.now, id = () => crypto.randomBytes(4).toString("hex"), onPurged = () => {}, onRunsDropped = () => {} }) {
+function createRoutineStore({
+  file,
+  now = Date.now,
+  id = () => crypto.randomBytes(4).toString("hex"),
+  onPurged = () => {},
+  onRunsDropped = () => {},
+  onEnded = () => {},
+}) {
   // Why every mutation is refused, or null.
   let readOnly = null;
   let maintainedAt = now();
@@ -408,6 +457,16 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   publish(data);
   if (purgedOnLoad.length) told(purgedOnLoad);
   toldDropped(droppedSince(chatRunsOnLoad));
+
+  // The Routines a change ended, each once, with why ("expired" or what complete was given), after the write.
+  function toldEnded(ended) {
+    if (ended.length === 0) return;
+    try {
+      onEnded(ended);
+    } catch (error) {
+      console.warn("[routines] couldn't follow up on ended Routines", error);
+    }
+  }
 
   function told(ids) {
     try {
@@ -509,6 +568,8 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       linear: keepValid(parsed.linear, Number.isFinite),
       // Files saved before deleted Routines were remembered have none.
       removed: keepValid(parsed.removed, Number.isFinite),
+      // What the babysit poller last saw of each pull request (the store never reads inside it). Older files have none.
+      pullRequests: keepValid(parsed.pullRequests, isObject),
     };
     if (invalid.routines.length || invalid.runs.length) {
       try {
@@ -641,6 +702,10 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     const nextRunAt = nextRun(expression, timezone, at);
     return transact((state, tx) => {
       const existing = state.routines.find((routine) => !routine.completedAt && routine.name === name && routine.target.chatId === chatId);
+      // Milagre's own babysit Routine is not a Heartbeat an agent can set again: it would turn into a schedule.
+      if (existing?.trigger.kind === "pull-request") {
+        throw new Error(`Babysit PR #${existing.trigger.number} is watched by Milagre; delete it from its Routine page first`);
+      }
       // Set again with no end of its own, a heartbeat keeps the end it had rather than run 7 more days.
       const keepEnd = expiresIn === undefined && maxRuns === undefined && existing && (existing.expiresAt !== undefined || existing.maxRuns !== undefined);
       const runsCap = keepEnd ? existing.maxRuns : maxRuns;
@@ -678,8 +743,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
   }
 
   /**
-   * A new Routine of any trigger. `trigger`, `target` and `createdBy` are required; only a schedule trigger can target an
-   * existing Chat (a Heartbeat, which always ends: 7 days unless it names an end), and every other Routine may run forever.
+   * A new Routine of any trigger. `trigger`, `target` and `createdBy` are required; only a schedule or pull-request trigger
+   * can target an existing Chat (a Heartbeat, which always ends: 7 days unless it names an end), a pull-request trigger can
+   * target nothing else, and every other Routine may run forever.
    */
   function create(input) {
     assertWritable();
@@ -693,16 +759,19 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     const prompt = checkText(input.prompt, "prompt", PROMPT_MAX);
     const trigger = checkTrigger(input.trigger);
     const target = checkTarget(input.target);
+    if (trigger.kind === "pull-request" && target.kind !== "chat") throw new Error("A pull-request trigger must target an existing Chat");
     const createdBy = checkCreatedBy(input.createdBy);
     const routine = { id: id(), name, prompt, trigger, target, enabled: true, createdBy, runCount: 0, createdAt: at, updatedAt: at };
     for (const key of ["provider", "model", "permissionMode"]) if (input[key] != null) routine[key] = checkText(input[key], key);
     if (input.maxRuns != null) routine.maxRuns = checkMaxRuns(input.maxRuns);
     if (input.signingHeader != null) routine.signingHeader = checkSigningHeader(input.signingHeader, trigger);
     if (input.expiresAt != null) routine.expiresAt = checkExpiresAt(input.expiresAt, at);
-    else if (target.kind === "chat" && routine.maxRuns === undefined) routine.expiresAt = at + DEFAULT_EXPIRY_MS;
+    // A pull-request Routine only advances on events, so a maxRuns alone would never end it: it always has an expiry.
+    else if (target.kind === "chat" && (routine.maxRuns === undefined || trigger.kind === "pull-request")) routine.expiresAt = at + DEFAULT_EXPIRY_MS;
     if (trigger.kind === "schedule") routine.nextRunAt = nextRun(trigger.cron, trigger.timezone, at);
     return transact((state, tx) => {
       if (trigger.kind === "webhook") assertHookFree(state, trigger.hookId);
+      if (trigger.kind === "pull-request") assertPullRequestFree(state, trigger.repo, trigger.number);
       state.routines.push(routine);
       tx.changed = true;
       return copy(routine);
@@ -731,13 +800,16 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       }
       if (patch.maxRuns === null) delete next.maxRuns;
       else if (patch.maxRuns !== undefined) next.maxRuns = checkMaxRuns(patch.maxRuns);
-      if (patch.expiresAt === null) delete next.expiresAt;
-      else if (patch.expiresAt !== undefined) next.expiresAt = checkExpiresAt(patch.expiresAt, at);
+      if (patch.expiresAt === null) {
+        if (routine.trigger.kind === "pull-request") throw new Error("A babysit Routine always has an end: keep expiresAt");
+        delete next.expiresAt;
+      } else if (patch.expiresAt !== undefined) next.expiresAt = checkExpiresAt(patch.expiresAt, at);
       if (patch.trigger !== undefined) {
         if (!isObject(patch.trigger)) throw new Error("trigger must be an object");
         if (patch.trigger.kind !== routine.trigger.kind) throw new Error("Can't change a Routine's trigger kind");
         next.trigger = checkTrigger(patch.trigger);
         if (next.trigger.kind === "webhook") assertHookFree(state, next.trigger.hookId, routine.id);
+        if (next.trigger.kind === "pull-request") assertPullRequestFree(state, next.trigger.repo, next.trigger.number, routine.id);
       }
       if (patch.target !== undefined) {
         if (!isObject(patch.target)) throw new Error("target must be an object");
@@ -781,6 +853,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       delete state.queues[routineId];
       delete state.seen[routineId];
       delete state.rejections[routineId];
+      delete state.pullRequests[routineId];
       (state.removed ??= {})[routineId] = now();
       tx.changed = true;
       return true;
@@ -918,7 +991,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     if (!queue?.length || !routine.enabled || routine.completedAt) return false;
     const running = (data.runs[routine.id] ?? []).filter((run) => run.status === "running").length;
     if (routine.maxRuns !== undefined && routine.runCount >= routine.maxRuns && running === 0) return true;
-    const room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
+    const room = Math.min(slots(routine, limit) - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
+    // A pull-request event goes in order and never expires: only the head can start, once it is due.
+    if (routine.trigger.kind === "pull-request") return room > 0 && (queue[0].notBefore ?? 0) <= at;
     return queue.some(
       (item) =>
         (item.event.kind === "linear" && item.event.change === "comment" && at - item.enqueuedAt > COMMENT_MAX_WAIT_MS) ||
@@ -945,8 +1020,10 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
           tx.changed = true;
           continue;
         }
-        let room = Math.min(limit - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
+        let room = Math.min(slots(routine, limit) - running, routine.maxRuns === undefined ? Infinity : routine.maxRuns - routine.runCount - running);
         const waiting = [];
+        // A pull-request event may not start ahead of one that came before it and still waits.
+        const inOrder = routine.trigger.kind === "pull-request";
         // The issues of the comments left waiting so far in this pass.
         const held = new Set();
         for (const item of queue) {
@@ -965,7 +1042,7 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
               error: "comment waited 2 h",
               event,
             });
-          } else if (room > 0 && (item.notBefore ?? 0) <= at && !issue.some((name) => held.has(name))) {
+          } else if (room > 0 && (item.notBefore ?? 0) <= at && !issue.some((name) => held.has(name)) && !(inOrder && waiting.length > 0)) {
             // scheduledFor is when the event arrived, which deferRun hands back to the queue.
             const run = { id: id(), routineId: routine.id, scheduledFor: item.enqueuedAt, startedAt: at, status: "running", event };
             appendRun(state, routine.id, run);
@@ -1075,6 +1152,30 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     });
   }
 
+  // The live Routine babysitting pull request `number` of `repo` (host/owner/repo, any case), in any Chat.
+  function findPullRequest(repo, number) {
+    return copy(data.routines.find((routine) => watchesPullRequest(routine, repo, number)));
+  }
+
+  // What the babysit poller last saw of a Routine's pull request. The store keeps it whole and never reads inside it. A
+  // poll that saw nothing new hands back what is kept already: compared as the file holds it, that writes nothing.
+  const prSnapshot = (routineId) => copy(data.pullRequests[routineId]);
+  const asSaved = (value) => JSON.parse(JSON.stringify(value));
+  function setPrSnapshot(routineId, snapshot) {
+    if (!isObject(snapshot)) throw new Error("A pull request snapshot must be an object");
+    const kept = data.pullRequests[routineId];
+    const live = data.routines.some((routine) => routine.id === routineId && !routine.completedAt);
+    if (live && kept !== undefined && util.isDeepStrictEqual(asSaved(kept), asSaved(snapshot))) return true;
+    return transact((state, tx) => {
+      const routine = find(state, routineId);
+      // A Routine deleted or ended while the poller was reading has no snapshot to keep.
+      if (!routine || routine.completedAt) return false;
+      state.pullRequests[routineId] = copy(snapshot);
+      tx.changed = true;
+      return true;
+    });
+  }
+
   // How far a Linear workspace has been read, as a time in milliseconds.
   function linearCursor(workspace) {
     checkText(workspace, "workspace");
@@ -1098,26 +1199,38 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
       .map((routine) => routine.trigger.hookId);
   }
 
-  function complete(routineId, _reason) {
-    return transact((state, tx) => {
+  // Ends a Routine and keeps why (a babysit stop reason, "max runs", "chat gone"…). Ending one that already ended keeps
+  // the first reason and tells nobody again.
+  function complete(routineId, reason) {
+    const ended = [];
+    const result = transact((state, tx) => {
       const routine = find(state, routineId);
       if (!routine) return null;
+      const first = !routine.completedAt;
       markCompleted(state, routine, now());
+      if (first && typeof reason === "string" && reason) routine.completedReason = reason;
+      if (first) ended.push({ routine: copy(routine), reason: routine.completedReason });
       tx.changed = true;
       return copy(routine);
     });
+    toldEnded(ended);
+    return result;
   }
 
   function expireDue(at) {
     assertWritable();
     if (!maintenanceDue() && !data.routines.some((routine) => expired(routine, at))) return;
+    const ended = [];
     transact((state, tx) => {
       for (const routine of state.routines) {
         if (!expired(routine, at)) continue;
         markCompleted(state, routine, at);
+        routine.completedReason = "expired";
+        ended.push({ routine: copy(routine), reason: "expired" });
         tx.changed = true;
       }
     });
+    toldEnded(ended);
   }
 
   // Runs left running by a stop fail, and queued events stay queued. A restart is one failure however many Runs it cut
@@ -1171,6 +1284,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     runningCount: () => Object.values(data.runs).reduce((count, runs) => count + runs.filter((run) => run.status === "running").length, 0),
     // Whether a Run is still in the store.
     hasRun: (runId) => runIndex.has(runId),
+    // Whether Routine `routineId` has an event waiting (deferred ones included) or a Run under way: completing it now would
+    // drop what it was handed.
+    hasPending: (routineId) => (data.queues[routineId]?.length ?? 0) > 0 || (data.runs[routineId] ?? []).some((run) => run.status === "running"),
     // Whether Routine `routineId` was deleted or purged here, ever.
     wasRemoved: (routineId) => Object.hasOwn(data.removed ?? {}, routineId),
     // Why every write is refused (a file this Milagre can't read or understand), or null when the store writes.
@@ -1180,6 +1296,9 @@ function createRoutineStore({ file, now = Date.now, id = () => crypto.randomByte
     setLastError,
     linearCursor,
     setLinearCursor,
+    findPullRequest,
+    prSnapshot,
+    setPrSnapshot,
     hookIds,
     expireDue,
     recoverInterrupted,

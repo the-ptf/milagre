@@ -27,8 +27,19 @@ export function isRoutineRun(message) {
 }
 
 /**
+ * A summary cut to 80 characters: on a word when the cut leaves most of the line (else mid-word), and ending in "…" so
+ * the divider shows it goes on.
+ */
+function capSummary(line) {
+  if (line.length <= SUMMARY_LIMIT) return line;
+  const cut = line.slice(0, SUMMARY_LIMIT - 1);
+  const word = cut.replace(/\s+\S*$/, "");
+  return `${(word.length >= SUMMARY_LIMIT / 2 ? word : cut).trimEnd()}\u2026`;
+}
+
+/**
  * Whether a heartbeat reply is a pass: it starts with "(pass)" (leading whitespace, "*" and "_" ignored, any case), and the
- * rest of that line is the summary, at most 80 characters.
+ * rest of that line is the summary, at most 80 characters (capSummary).
  */
 export function parsePass(text) {
   const match = /^[\s*_]*\(pass\)(.*)/i.exec(String(text ?? ""));
@@ -37,7 +48,7 @@ export function parsePass(text) {
     .split("\n")[0]
     .replace(/^[\s*_]+/, "")
     .trim();
-  return { quiet: true, summary: line.slice(0, SUMMARY_LIMIT) };
+  return { quiet: true, summary: capSummary(line) };
 }
 
 /**
@@ -161,15 +172,25 @@ export function triggerText(trigger) {
       return linearText(trigger);
     case "webhook":
       return "Webhook";
+    case "pull-request":
+      return `PR #${trigger.number}`;
     default:
       return String(trigger?.kind ?? "");
   }
 }
 
 /** Whether Run now works for the Routine: a schedule (Heartbeats are schedules too) has nothing to wait for; a Linear or
- * webhook trigger has no event to run with, so the Mac refuses it. */
+ * webhook trigger has no event to run with, and a babysit Heartbeat runs only on what changed on its PR, so the Mac
+ * refuses it. */
 export function canRunNow(routine) {
+  if (routine?.trigger?.kind === "pull-request") return false;
   return routine?.target?.kind === "chat" || routine?.trigger?.kind === "schedule";
+}
+
+/** Whether the Routine form can edit the Routine: not a babysit Heartbeat, which Milagre sets up from the Babysit PRs
+ * settings when a Chat opens a PR. It can still be paused and deleted. */
+export function canEditRoutine(routine) {
+  return routine?.trigger?.kind !== "pull-request";
 }
 
 /** Whether a Run folds into a stretch on the Runs list: it did nothing (quiet, skipped, missed) or was refused before it ran. */

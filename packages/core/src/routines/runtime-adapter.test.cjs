@@ -1938,3 +1938,189 @@ async function eventuallyTrue(check, timeoutMs = 2000) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+test("headBranch reads the branch checked out in the Chat's Worktree, or null", async () => {
+  const { execFileSync } = require("node:child_process");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-head-"));
+  const git = (...args) => execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
+  git("init", "-q", "-b", "feature");
+  git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "first");
+  const state = { sessions: { 2: { id: 2, worktree_id: 1 }, 3: { id: 3, worktree_id: 9 } }, worktrees: { 1: { id: 1, path: dir } }, messages: [] };
+  const adapter = routineChats({
+    chats: { runs: {}, isBusy: () => false },
+    cachedState: (scope) => (scope === "/project" ? state : undefined),
+    openState: async () => state,
+    isClosing: () => false,
+  });
+  assert.equal(await adapter.headBranch("/project#2"), "feature");
+  // A detached HEAD, a Worktree the state doesn't know, a Chat that isn't there and a Project not loaded: null.
+  git("checkout", "-q", "--detach");
+  assert.equal(await adapter.headBranch("/project#2"), null);
+  assert.equal(await adapter.headBranch("/project#3"), null);
+  assert.equal(await adapter.headBranch("/project#8"), null);
+  assert.equal(await adapter.headBranch("/other#2"), null);
+  // A folder that is gone.
+  fs.rmSync(dir, { recursive: true });
+  assert.equal(await adapter.headBranch("/project#2"), null);
+});
+
+// A Routines whose Chat /project#2 exists, for the Heartbeat a Chat's `gh pr create` adds (babysit-watch.cjs).
+function babysitRoutines(t, clock, keepChat) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: { turnSettings: () => null },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => ({ sessions: { 2: { id: 2 } } }),
+    projects: async () => [{ path: "/project" }],
+    ...(keepChat ? { keepChat } : {}),
+    timers: {
+      now: () => clock,
+      setInterval: () => ({ unref() {} }),
+      clearInterval() {},
+      setTimeout: () => ({ unref() {} }),
+      clearTimeout() {},
+    },
+  });
+  return routines;
+}
+
+const babysitInput = (stopAfterDays) => ({
+  chatId: "/project#2",
+  url: "https://github.com/the-ptf/milagre-ade/pull/42",
+  repo: "github.com/the-ptf/milagre-ade",
+  number: 42,
+  settings: { enabled: true, stopAfterDays },
+});
+
+test("createBabysit makes the Babysit Heartbeat in the Chat, ending after the days the rule names", async (t) => {
+  const clock = Date.UTC(2026, 9, 27);
+  const routines = babysitRoutines(t, clock);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const routine = await routines.createBabysit(babysitInput({ on: true, days: 3 }));
+  assert.equal(routine.name, "Babysit PR #42");
+  assert.equal(routine.prompt, "Babysit PR #42");
+  assert.equal(routine.trigger.kind, "pull-request");
+  assert.equal(routine.trigger.number, 42);
+  assert.deepEqual(routine.target, { kind: "chat", chatId: "/project#2" });
+  assert.deepEqual(routine.createdBy, { kind: "agent", chatId: "/project#2" });
+  assert.equal(routine.expiresAt, clock + 3 * 864e5);
+  for (const key of ["provider", "model", "permissionMode"]) assert.equal(key in routine, false, key);
+  assert.equal(routines.findPullRequest("github.com/The-PTF/milagre-ade", 42)?.id, routine.id);
+  await assert.rejects(routines.createBabysit(babysitInput({ on: true, days: 3 })), /already being babysat/);
+  await routines.save(false);
+});
+
+test("createBabysit with no day rule lasts 30 days, and does nothing while Routines are off", async (t) => {
+  const clock = Date.UTC(2026, 9, 27);
+  const routines = babysitRoutines(t, clock);
+  assert.equal(await routines.createBabysit(babysitInput({ on: true, days: 3 })), null);
+  assert.equal(routines.list().routines.length, 0);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const routine = await routines.createBabysit(babysitInput({ on: false, days: 3 }));
+  assert.equal(routine.expiresAt, clock + 30 * 864e5);
+  await routines.save(false);
+});
+
+test("a babysit heartbeat keeps a hidden run chat, and a failed keep leaves the heartbeat saved", async (t) => {
+  const kept = [];
+  const routines = babysitRoutines(t, Date.UTC(2026, 9, 27), async (id) => void kept.push(id));
+  await routines.save(true, AI_CONSENT_VERSION);
+  await routines.createBabysit(babysitInput({ on: true, days: 3 }));
+  assert.deepEqual(kept, ["/project#2"]);
+  await routines.save(false);
+
+  const warn = t.mock.method(console, "warn", () => {});
+  const failing = babysitRoutines(t, Date.UTC(2026, 9, 27), async () => {
+    throw new Error("no keep");
+  });
+  await failing.save(true, AI_CONSENT_VERSION);
+  assert.ok(await failing.createBabysit(babysitInput({ on: true, days: 3 })));
+  assert.equal(warn.mock.callCount(), 1);
+  await failing.save(false);
+});
+
+// The line a Chat gets when its babysit Heartbeat ends: a note Milagre writes (ChatHost.addNote), never a turn.
+function babysitNotes(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-adapter-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const clock = { t: Date.UTC(2026, 9, 27) };
+  const notes = [];
+  const sent = [];
+  const routines = createRoutines({
+    file: path.join(dir, "routines.json"),
+    chats: {
+      turnSettings: () => null,
+      addNote: async (chatId, note) => void notes.push({ chatId, ...note }),
+      send: async (request) => void sent.push(request),
+    },
+    keepAwake: { setRoutinesActive() {} },
+    emit() {},
+    cachedState: () => undefined,
+    openState: async () => ({ sessions: { 2: { id: 2 } } }),
+    projects: async () => [{ path: "/project" }],
+    timers: {
+      now: () => clock.t,
+      setInterval: () => ({ unref() {} }),
+      clearInterval() {},
+      setTimeout: () => ({ unref() {} }),
+      clearTimeout() {},
+    },
+  });
+  return { routines, clock, notes, sent, settle: settleNotes };
+}
+const settleNotes = () => new Promise((resolve) => setImmediate(resolve));
+
+test("a babysit Heartbeat that runs out of time leaves a line in its Chat saying so", async (t) => {
+  const { routines, clock, notes, sent, settle } = babysitNotes(t);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const routine = await routines.createBabysit(babysitInput({ on: true, days: 7 }));
+  clock.t += 7 * 864e5 + 1;
+  await routines.tick();
+  await settle();
+  assert.deepEqual(notes, [
+    {
+      chatId: "/project#2",
+      body: "Stopped babysitting PR #42: watched for 7 days.",
+      context: { kind: "babysit-stopped", routineId: routine.id, pr: 42, reason: "expired", days: 7 },
+    },
+  ]);
+  assert.deepEqual(sent, [], "no turn starts");
+  // Ended once, told once.
+  await routines.tick();
+  await settle();
+  assert.equal(notes.length, 1);
+  await routines.save(false);
+});
+
+test("a babysit Heartbeat deleted by its own Chat's stop rule, or by hand, says which", async (t) => {
+  const { routines, notes, settle } = babysitNotes(t);
+  await routines.save(true, AI_CONSENT_VERSION);
+  const own = await routines.createBabysit({
+    ...babysitInput({ on: true, days: 3 }),
+    settings: { enabled: true, ownRule: true, ownRuleText: "Two approvals" },
+  });
+  const remove = routines.definitions("/project#2").find((tool) => tool.name === "routine_delete");
+  await remove.run({ id: own.id });
+  await settle();
+  assert.equal(notes.at(-1).body, "Stopped babysitting PR #42: your own stop rule held.");
+  assert.equal(notes.at(-1).context.reason, "own-rule");
+
+  const byHand = await routines.createBabysit(babysitInput({ on: true, days: 3 }));
+  routines.remove(byHand.id);
+  await settle();
+  assert.equal(notes.at(-1).body, "Stopped babysitting PR #42: its Heartbeat was deleted.");
+  assert.equal(notes.length, 2);
+
+  // An ordinary Heartbeat deleted leaves no line.
+  const tools = routines.definitions("/project#2");
+  await tools.find((tool) => tool.name === "heartbeat_create").run({ name: "watch", prompt: "look", every: "15m" });
+  const heartbeat = routines.list().routines.find((item) => item.name === "watch");
+  routines.remove(heartbeat.id);
+  await settle();
+  assert.equal(notes.length, 2);
+  await routines.save(false);
+});

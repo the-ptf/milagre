@@ -88,6 +88,8 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createBabysitSettings } = require("./babysit-settings.cjs");
+const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
 const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
@@ -1016,9 +1018,12 @@ function createRuntime(options) {
   let limitSwitch = null;
   // Set up once the Chats are (below); agent events only arrive after start.
   let routines = null;
+  // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
+  let babysitWatch = null;
   function publishAgentEvent(chatId, event, state, seq) {
     // First, before anyone hears the event: a heartbeat's "(pass)" marks its turn's end quiet, so no push goes out.
     routines?.observe(chatId, event);
+    babysitWatch?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
     options.observeAgentEvent?.(chatId, event);
@@ -1317,6 +1322,11 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
+  const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
+  commands.handle("babysit:settings:read", () => babysitSettings.read());
+  commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
+  babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),

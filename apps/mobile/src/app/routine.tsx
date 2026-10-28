@@ -6,6 +6,7 @@ import type { RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import {
+  canEditRoutine,
   canOpenRunChat,
   canRunNow,
   clock,
@@ -89,7 +90,8 @@ function StatusPill({ on }: { on: boolean }) {
 /**
  * One Routine, as desktop's Routine page: On or Paused with its switch, its settings as chips, when it runs next and last
  * ran, then its Runs by day, filtered by All, Acted, Failed or Unread, with the stretches that did nothing folded. Run now
- * and Edit sit in the header; Delete is in Edit.
+ * and Edit sit in the header; Delete is in Edit. A babysit Heartbeat has no Edit (no form edits it): the Routines list's
+ * menu deletes it.
  */
 /** This phone's time zone: a schedule chip in another one names its zone. */
 const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -143,6 +145,7 @@ export default function RoutineScreen() {
   // Linear and webhook Routines run only on their event; the scheduler refuses Run now for them.
   const runnable = Boolean(routine && client && canRunNow(routine));
   const canStart = runnable && Boolean(routine?.enabled) && !starting;
+  const editable = !routine || canEditRoutine(routine);
   // Stack.Toolbar takes its buttons as direct children (a Fragment is refused), so each slot picks its own element.
   const toolbar = (
     <Stack.Toolbar placement="right">
@@ -155,7 +158,7 @@ export default function RoutineScreen() {
           </Stack.Toolbar.View>
         )
       ) : null}
-      {Platform.OS === "ios" ? (
+      {!editable ? null : Platform.OS === "ios" ? (
         <Stack.Toolbar.Button icon="pencil" accessibilityLabel="Edit" disabled={!routine || !client} onPress={edit} />
       ) : (
         <Stack.Toolbar.View>

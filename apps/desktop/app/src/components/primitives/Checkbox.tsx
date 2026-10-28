@@ -5,11 +5,17 @@ import { Tick02Icon } from "@hugeicons/core-free-icons";
 
 // shadcn/ui Checkbox, adapted to Milagre's tokens and icon set.
 // https://ui.shadcn.com/docs/components/radix/checkbox
-export function Checkbox({ className = "", ...props }: ComponentProps<typeof CheckboxPrimitive.Root>) {
+const CHECKED = {
+  ink: "data-[state=checked]:border-ink data-[state=checked]:bg-ink data-[state=indeterminate]:border-ink data-[state=indeterminate]:bg-ink",
+  accent: "data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent",
+};
+
+/** Ink when checked, or the theme accent with `tone="accent"` (Babysit PRs). */
+export function Checkbox({ className = "", tone = "ink", ...props }: ComponentProps<typeof CheckboxPrimitive.Root> & { tone?: "ink" | "accent" }) {
   return (
     <CheckboxPrimitive.Root
       data-slot="checkbox"
-      className={`peer size-4 shrink-0 rounded-[4px] border border-ink-3 bg-surface outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red data-[state=checked]:border-ink data-[state=checked]:bg-ink data-[state=checked]:text-surface data-[state=indeterminate]:border-ink data-[state=indeterminate]:bg-ink data-[state=indeterminate]:text-surface ${className}`}
+      className={`peer size-4 shrink-0 rounded-[4px] border border-ink-3 bg-surface outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red data-[state=checked]:text-surface data-[state=indeterminate]:text-surface ${CHECKED[tone]} ${className}`}
       {...props}
     >
       <CheckboxPrimitive.Indicator data-slot="checkbox-indicator" className="grid place-content-center text-current">

@@ -17,11 +17,17 @@ test("a Chat's summary holds what the lists show, in the Project's order", () =>
     // A message re-sent after a split reply sits after it with a lower id.
     message(6, { role: "user", body: "and again", model: "sonnet" }),
     message(8, { role: "assistant", context: { kind: "git-action" } as never, body: "Committed" }),
+    // Babysitting the PR stopping is a line Milagre wrote, not the last reply.
+    message(9, {
+      role: "assistant",
+      context: { kind: "babysit-stopped", routineId: "r1", pr: 12, reason: "merged" },
+      body: "Stopped babysitting PR #12: merged.",
+    }),
   ];
   assert.deepEqual(summarizeChat(messages), {
-    count: 5,
+    count: 6,
     firstId: 4,
-    lastId: 8,
+    lastId: 9,
     titleLine: "Fix the login",
     lastOutcome: "failed",
     pullRequests: ["https://github.com/a/b/pull/12"],

@@ -70,12 +70,14 @@ import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
 import { AccountSwitchDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
+import { BabysitStoppedDivider } from "../babysit-stopped-divider";
 import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
 import { isCheckpointRestore } from "@milagre/shared/checkpoint-restore";
 import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "../undo-panel";
 import { isChatReload, RELOAD_TEXT } from "@milagre/shared/chat-reload";
+import { babysitStoppedText, isBabysitStopped } from "@milagre/shared/babysit";
 import { RoutineRunDivider } from "../routine-run-divider";
 import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText, routineRunOf, routineRunText } from "@milagre/shared/routines";
 import { CompactionDivider } from "../compaction-divider";
@@ -650,11 +652,13 @@ function ChatPane({
                   ? `Go to ${accountSwitchText(message.context)}, ${position}.`
                   : isChatReload(message)
                     ? `Go to ${RELOAD_TEXT}, ${position}.`
-                    : run
-                      ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
-                      : isCheckpointRestore(message)
-                        ? `Go to ${message.body}, ${position}.`
-                        : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+                    : isBabysitStopped(message)
+                      ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
+                      : run
+                        ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
+                        : isCheckpointRestore(message)
+                          ? `Go to ${message.body}, ${position}.`
+                          : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
         };
       }),
     [shownEntries, handoffModels],
@@ -1886,6 +1890,8 @@ function ChatPane({
                           <AccountSwitchDivider context={message.context} />
                         ) : isChatReload(message) ? (
                           <ChatReloadDivider />
+                        ) : isBabysitStopped(message) ? (
+                          <BabysitStoppedDivider context={message.context} />
                         ) : isRoutineRun(message) ? (
                           <RoutineRunDivider context={message.context} merged={merged} />
                         ) : isCheckpointRestore(message) ? (

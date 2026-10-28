@@ -30,8 +30,13 @@ export function groupQuietRuns(messages: ChatMessage[]): Array<{
  * "Linear · new comment" for Linear; "Webhook".
  */
 export function triggerText(trigger: RoutineTrigger): string;
-/** Whether Run now works for the Routine: schedules and Heartbeats, not Linear or webhook triggers (no event to run with). */
+/**
+ * Whether Run now works for the Routine: schedules and Heartbeats, not Linear or webhook triggers (no event to run with)
+ * or a babysit Heartbeat (it runs only on what changed on its PR).
+ */
 export function canRunNow(routine: Pick<Routine, "trigger" | "target">): boolean;
+/** Whether the Routine form can edit the Routine: not a babysit Heartbeat (pull-request trigger), which can still be paused and deleted. */
+export function canEditRoutine(routine: Pick<Routine, "trigger">): boolean;
 
 /** One entry of the Runs list: a Run that did something, or a stretch of Runs that did not. */
 export type RunEntry =

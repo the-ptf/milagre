@@ -62,6 +62,7 @@ class SessionManager {
         ultracode: request.ultracode,
         fastMode: request.fastMode,
         replies: request.replies,
+        ...(request.guard ? { guard: request.guard } : {}),
       });
     };
     const entry = await this.serial(request.chatId, () => this.currentEntry(request));
