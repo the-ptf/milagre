@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
-import type { PullRequestDetail, PullRequestDetailResult, PullRequestWriteResult, ReviewGuideResult } from "@milagre/shared/pull-request-review";
+import type { PullRequestDetail, PullRequestDetailResult, PullRequestWriteResult } from "@milagre/shared/pull-request-review";
 import type { Client } from "./client";
 
-// One PR's detail and review guide, shared by every page of the PR sheet and the iPad panel, so going from the overview
+// One PR's detail, shared by every page of the PR sheet and the iPad panel, so going from the overview
 // to a file and back reads GitHub once. Reads refresh every 30 s while something shows them and after every write.
 
 type Entry = { pr: PullRequestDetail | null; error: string; loading: boolean };
-type GuideEntry = { result: ReviewGuideResult | null };
 
 const details = new Map<string, Entry>();
-const guides = new Map<string, GuideEntry>();
 const listeners = new Map<string, Set<() => void>>();
 const inflight = new Map<string, Promise<void>>();
+// Bumped as a write starts and ends: a read begun before then may show the PR from before the write, so its answer is dropped.
+const generations = new Map<string, number>();
 const EMPTY: Entry = { pr: null, error: "", loading: true };
-const NO_GUIDE: GuideEntry = { result: null };
 
 const prKey = (cwd: string, number: number) => `${cwd}#${number}`;
 
@@ -36,25 +35,31 @@ function setEntry(key: string, entry: Entry) {
   emit(key);
 }
 
-/** Reads the PR again; calls arriving together share one read. Never throws. */
-function loadDetail(client: Client, cwd: string, number: number) {
+const bump = (key: string) => generations.set(key, (generations.get(key) ?? 0) + 1);
+
+/** Reads the PR again; calls arriving together share one read unless `fresh`. Never throws. */
+function loadDetail(client: Client, cwd: string, number: number, fresh = false) {
   const key = prKey(cwd, number);
   const running = inflight.get(key);
-  if (running) return running;
+  if (running && !fresh) return running;
+  const generation = generations.get(key) ?? 0;
   const task = (async () => {
     const current = details.get(key) ?? EMPTY;
     if (!current.pr) setEntry(key, { ...current, loading: true });
+    let next: Entry;
     try {
       const result = await client.call<PullRequestDetailResult>("pr:detail", [{ cwd, number }]);
-      if (result.ok) setEntry(key, { pr: result.pr, error: "", loading: false });
-      else setEntry(key, { pr: current.pr, error: result.message, loading: false });
+      next = result.ok ? { pr: result.pr, error: "", loading: false } : { pr: (details.get(key) ?? current).pr, error: result.message, loading: false };
     } catch (error) {
-      setEntry(key, { pr: (details.get(key) ?? current).pr, error: error instanceof Error ? error.message : String(error), loading: false });
-    } finally {
-      inflight.delete(key);
+      next = { pr: (details.get(key) ?? current).pr, error: error instanceof Error ? error.message : String(error), loading: false };
     }
+    if ((generations.get(key) ?? 0) === generation) setEntry(key, next);
   })();
   inflight.set(key, task);
+  // A fresh read may have taken the slot meanwhile.
+  void task.finally(() => {
+    if (inflight.get(key) === task) inflight.delete(key);
+  });
   return task;
 }
 
@@ -66,8 +71,8 @@ export function patchDetail(cwd: string, number: number, change: (pr: PullReques
 }
 
 /**
- * A review write through the Mac (`pr:comment`, `pr:merge`, …), with an optional optimistic change. The PR is read again
- * whatever happens, so a failed write shows GitHub's state again. Never throws: `ok: false` carries the reason.
+ * A review write through the Mac (`pr:comment`, `pr:merge`, …), with an optional optimistic change, taken back when the
+ * write fails. The PR is read again afresh whatever happens, so it shows GitHub's state. Never throws: `ok: false` carries the reason.
  */
 export async function writePr(
   client: Client,
@@ -77,14 +82,22 @@ export async function writePr(
   request: Record<string, unknown>,
   optimistic?: (pr: PullRequestDetail) => PullRequestDetail,
 ): Promise<PullRequestWriteResult> {
+  const key = prKey(cwd, number);
+  bump(key);
+  const before = details.get(key)?.pr;
   if (optimistic) patchDetail(cwd, number, optimistic);
+  const patched = details.get(key)?.pr;
   let result: PullRequestWriteResult;
   try {
     result = await client.call<PullRequestWriteResult>(method, [{ cwd, number, ...request }]);
   } catch (error) {
     result = { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
-  await loadDetail(client, cwd, number);
+  // ponytail: only undone while nothing else changed the PR since; otherwise the read below puts GitHub's state back.
+  const current = details.get(key);
+  if (!result.ok && optimistic && before && current && current.pr === patched) setEntry(key, { ...current, pr: before });
+  bump(key);
+  await loadDetail(client, cwd, number, true);
   return result;
 }
 
@@ -112,60 +125,4 @@ export function usePrDetail(client: Client | null, cwd: string | undefined, numb
     if (client && cwd) void loadDetail(client, cwd, number);
   }, [client, cwd, number]);
   return { ...entry, refresh };
-}
-
-async function loadGuide(client: Client, cwd: string, url: string) {
-  try {
-    const result = await client.call<ReviewGuideResult>("pr:guide", [{ cwd, url }]);
-    guides.set(url, { result });
-  } catch (error) {
-    guides.set(url, { result: { ok: false, message: error instanceof Error ? error.message : String(error) } });
-  }
-  emit(`guide:${url}`);
-}
-
-/** The PR's review guide: read when shown, every 3 s while one is being written. */
-export function usePrGuide(client: Client | null, cwd: string | undefined, url: string | undefined, active = true) {
-  const key = url ? `guide:${url}` : "";
-  const entry = useSyncExternalStore(
-    useCallback((listener) => (key ? subscribe(key, listener) : () => {}), [key]),
-    () => (url ? (guides.get(url) ?? NO_GUIDE) : NO_GUIDE),
-  );
-  const writing = entry.result?.ok === true && entry.result.writing;
-  useEffect(() => {
-    if (!client || !cwd || !url || !active) return;
-    void loadGuide(client, cwd, url);
-    if (!writing) return;
-    const timer = setInterval(() => void loadGuide(client, cwd, url), 3000);
-    return () => clearInterval(timer);
-  }, [client, cwd, url, active, writing]);
-  const write = useCallback(
-    async (number: number, provider?: string) => {
-      if (!client || !cwd || !url) return;
-      const started = await client
-        .call<{ ok: true; writing: true } | { ok: false; message: string }>("pr:write-guide", [{ cwd, number, url, provider }])
-        .catch((error: unknown) => ({ ok: false as const, message: error instanceof Error ? error.message : String(error) }));
-      const current = guides.get(url)?.result;
-      guides.set(url, {
-        result: started.ok
-          ? { ok: true, guide: current?.ok ? current.guide : null, read: current?.ok ? current.read : [], writing: true }
-          : { ok: false, message: started.message },
-      });
-      emit(key);
-    },
-    [client, cwd, url, key],
-  );
-  const markRead = useCallback(
-    (stop: number) => {
-      if (!client || !cwd || !url) return;
-      const current = guides.get(url)?.result;
-      if (current?.ok && !current.read.includes(stop)) {
-        guides.set(url, { result: { ...current, read: [...current.read, stop] } });
-        emit(key);
-      }
-      void client.call("pr:guide-read", [{ cwd, url, stop, read: true }]).catch(() => {});
-    },
-    [client, cwd, url, key],
-  );
-  return { result: entry.result, write, markRead };
 }

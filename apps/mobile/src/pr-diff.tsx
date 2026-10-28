@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, CircleIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import type { DiffLine } from "@milagre/shared/diff-parse";
 import type { Range } from "@milagre/shared/diff-layout";
 import type { DiffFileResult, DiffFilesResult } from "@milagre/shared/git-diff";
@@ -15,9 +15,8 @@ import { ErrorNotice, PillButton, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { usePrDetail, writePr } from "./pr-store";
 import { sendToChat } from "./pr-chat";
-import { ThreadCard } from "./pr-lists";
-import { SmallButton } from "./pr-overview";
-import { attachThreads, fileName, lineMessage, lineTarget, neighbours, splitDiffRows, withViewed, type SplitDiffRow } from "./pr-review";
+import { SmallButton, ThreadCard } from "./pr-lists";
+import { attachThreads, fileName, lineMessage, lineTarget, neighbours, splitDiffRows, threadFixMessage, type SplitDiffRow } from "./pr-review";
 
 const MARKER = { add: "+", remove: "−", context: "" } as const;
 /** Wide enough to show old and new side by side (an iPad, a phone in landscape stays unified). */
@@ -88,7 +87,6 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
 
   if (!pr) return readError ? <ErrorNotice message={readError} retry={reread} retryTitle="Try again" /> : null;
   const { index, previous, next } = neighbours(pr.files, path);
-  const viewed = file?.viewed === "VIEWED";
   const failure = result && !("patch" in result) ? result.message : error;
   const emptyNote =
     entry?.binary || (result && "binary" in result && result.binary)
@@ -100,6 +98,14 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
           : result && "patch" in result && !patch
             ? (listed && "isRepo" in listed && listed.message) || "No diff for this file."
             : "";
+
+  function fix(thread: PullRequestThread) {
+    void sendToChat(chatKey, threadFixMessage(pr!, thread)).then((outcome) => {
+      if (outcome === "unavailable") setNotice("Open this PR's Chat to send that.");
+      else onChat();
+      return outcome;
+    });
+  }
 
   function comment(line: DiffLine | undefined, key: string) {
     const target = line && lineTarget(line);
@@ -116,35 +122,12 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
           {path}
         </Text>
         {file && <Counts added={file.additions} removed={file.deletions} />}
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityLabel="Viewed"
-          accessibilityState={{ checked: viewed }}
-          hitSlop={6}
-          onPress={() => {
-            tap();
-            void writePr(client, cwd, number, "pr:file-viewed", { path, viewed: !viewed }, (current) => withViewed(current, path, !viewed));
-          }}
-          style={({ pressed }) => ({
-            height: 30,
-            paddingHorizontal: 10,
-            borderRadius: 15,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 5,
-            backgroundColor: viewed ? colors.greenTint : colors.hover,
-            opacity: pressed ? 0.6 : 1,
-          })}
-        >
-          <Icon icon={viewed ? CheckmarkCircle02Icon : CircleIcon} tone={viewed ? "green" : "ink2"} size={14} />
-          <Text style={{ color: viewed ? colors.green : colors.ink2, fontSize: 13, fontWeight: "600" }}>Viewed</Text>
-        </Pressable>
       </View>
       {attached.detached.length > 0 && (
         <View style={{ gap: 8 }}>
           <Text style={styles.caption}>Not on this diff</Text>
           {attached.detached.map((thread) => (
-            <ThreadCard key={thread.id} client={client} cwd={cwd} number={number} chatKey={chatKey} onChat={onChat} pr={pr} thread={thread} />
+            <ThreadCard key={thread.id} client={client} cwd={cwd} pr={pr} thread={thread} onFix={() => fix(thread)} />
           ))}
         </View>
       )}
@@ -180,7 +163,7 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
               )
             ) : item.type === "thread" ? (
               <View style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.inset }}>
-                <ThreadCard client={client} cwd={cwd} number={number} chatKey={chatKey} onChat={onChat} pr={pr} thread={item.thread} />
+                <ThreadCard client={client} cwd={cwd} pr={pr} thread={item.thread} onFix={() => fix(item.thread)} />
               </View>
             ) : (
               <LineComposer

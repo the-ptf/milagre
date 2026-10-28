@@ -29,8 +29,8 @@ const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
         ... on CheckRun{name status conclusion detailsUrl checkSuite{workflowRun{workflow{name}}}}
         ... on StatusContext{context state targetUrl}
       }}}}}}
-      files(first:100){nodes{path additions deletions changeType viewerViewedState} pageInfo{hasNextPage endCursor}}
-      reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{name}}}}
+      files(first:100){nodes{path additions deletions changeType} pageInfo{hasNextPage endCursor}}
+      reviewRequests(first:20){nodes{requestedReviewer{... on User{login} ... on Team{combinedSlug}}}}
       latestReviews(first:30){nodes{author{login} state commit{oid}}}
       reviewThreads(first:100){nodes{id path line originalLine diffSide isResolved isOutdated
         comments(first:50){nodes{id body createdAt author{login} pullRequestReview{state}}}}}
@@ -42,7 +42,7 @@ const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
 
 const FILES_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String!){
   repository(owner:$owner,name:$name){pullRequest(number:$number){
-    files(first:100,after:$after){nodes{path additions deletions changeType viewerViewedState} pageInfo{hasNextPage endCursor}}
+    files(first:100,after:$after){nodes{path additions deletions changeType} pageInfo{hasNextPage endCursor}}
   }}
 }`;
 
@@ -92,7 +92,6 @@ const toFile = (node) => ({
   additions: Number(node.additions) || 0,
   deletions: Number(node.deletions) || 0,
   status: STATUS[node.changeType] ?? "modified",
-  viewed: node.viewerViewedState === "VIEWED" || node.viewerViewedState === "DISMISSED" ? node.viewerViewedState : "UNVIEWED",
 });
 
 // The check-run conclusions and commit-status states GitHub counts against the PR, as its merge box does.
@@ -131,9 +130,11 @@ function toReviewers(pr) {
   }
   for (const request of pr.reviewRequests?.nodes ?? []) {
     const who = request?.requestedReviewer;
-    const name = text(who?.login) || text(who?.name);
+    // A team goes by its org/slug, the name gh takes to add or remove it.
+    const team = text(who?.combinedSlug);
+    const name = text(who?.login) || team;
     // A re-requested review outranks the reviewer's last verdict.
-    if (name) reviewers.set(name, { login: name, state: "REQUESTED" });
+    if (name) reviewers.set(name, { login: name, state: "REQUESTED", ...(team && !who?.login && { team: true }) });
   }
   return [...reviewers.values()];
 }
@@ -210,6 +211,20 @@ function nodeId(value) {
   if (typeof value !== "string" || !/^[\w-]{4,200}$/.test(value)) throw new ReviewError("That review item no longer exists.");
   return value;
 }
+
+/** Label names or reviewer logins to add or remove, checked before they reach gh. */
+function names(value, pattern, what) {
+  const list = value ?? [];
+  if (!Array.isArray(list) || list.length > 100 || !list.every((item) => typeof item === "string" && pattern.test(item))) {
+    throw new ReviewError(`That isn't a ${what}.`);
+  }
+  return list;
+}
+const LABEL = /^[^\0\n]{1,100}$/;
+// gh reads list flags as CSV: quoted, a label's commas and quotes stay part of its name.
+const csv = (value) => `"${value.replaceAll('"', '""')}"`;
+// A user login, or an org/team slug.
+const REVIEWER = /^[\w.-]{1,100}(\/[\w.-]{1,100})?$/;
 
 function filePath(value) {
   if (typeof value !== "string" || !value || value.includes("\0") || value.startsWith("/") || value.split("/").includes("..")) {
@@ -395,11 +410,48 @@ function createPullRequestReview({ exec = defaultExec, env = process.env, diff =
         return { ok: true };
       }),
 
-    viewed: ({ cwd, number: n, path, viewed = true } = {}) =>
+    /** The repository's labels, for the labels picker. */
+    labels: ({ cwd } = {}) =>
       guard(async () => {
-        const { id } = await ids(cwd, number(n));
-        const name = viewed === false ? "unmarkFileAsViewed" : "markFileAsViewed";
-        await mutate(cwd, `mutation($pr:ID!,$path:String!){${name}(input:{pullRequestId:$pr,path:$path}){clientMutationId}}`, { pr: id, path: filePath(path) });
+        const listed = JSON.parse(await gh(cwd, ["label", "list", "--json", "name,color,description", "--limit", "1000"]));
+        return {
+          ok: true,
+          labels: (Array.isArray(listed) ? listed : [])
+            .map((label) => ({ name: text(label?.name), color: text(label?.color), description: text(label?.description) }))
+            .filter((label) => label.name),
+        };
+      }),
+
+    setLabels: ({ cwd, number: n, add, remove } = {}) =>
+      guard(async () => {
+        const flags = [
+          ...names(add, LABEL, "label").map((name) => `--add-label=${csv(name)}`),
+          ...names(remove, LABEL, "label").map((name) => `--remove-label=${csv(name)}`),
+        ];
+        if (flags.length) await gh(cwd, ["pr", "edit", String(number(n)), ...flags]);
+        return { ok: true };
+      }),
+
+    /** Who can be asked to review: the repository's assignable users. */
+    reviewerCandidates: ({ cwd } = {}) =>
+      guard(async () => {
+        const out = await gh(cwd, ["api", "repos/{owner}/{repo}/assignees", "--paginate", "--jq", ".[].login"]);
+        return {
+          ok: true,
+          logins: out
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean),
+        };
+      }),
+
+    requestReviewers: ({ cwd, number: n, add, remove } = {}) =>
+      guard(async () => {
+        const flags = [
+          ...names(add, REVIEWER, "GitHub user").map((name) => `--add-reviewer=${name}`),
+          ...names(remove, REVIEWER, "GitHub user").map((name) => `--remove-reviewer=${name}`),
+        ];
+        if (flags.length) await gh(cwd, ["pr", "edit", String(number(n)), ...flags]);
         return { ok: true };
       }),
 

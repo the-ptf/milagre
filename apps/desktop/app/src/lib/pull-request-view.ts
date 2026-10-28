@@ -1,8 +1,8 @@
-import type { GuideStop, MergeMethod, PullRequestCheck, PullRequestDetail, PullRequestThread, ReviewGuide } from "@milagre/shared/pull-request-review";
+import type { MergeMethod, PullRequestDetail, PullRequestThread } from "@milagre/shared/pull-request-review";
 import type { DiffLine } from "./diff-parse";
 
 // The PR panel's pure parts: where a GitHub thread sits in the diff, the counts the panel shows, the merge method
-// remembered per repository, and the messages "Fix in Chat" / "Ask in Chat" send to the Chat.
+// remembered per repository, and the message a thread's "Fix in Chat" sends to the Chat.
 
 /** The Changes panel's modes: a Chat's own changes, or the PR its branch opened. */
 export type ChangesMode = "uncommitted" | "committed" | "pr";
@@ -11,10 +11,6 @@ export type PrRange = { base: string; head: string };
 
 export function prRange(pr: Pick<PullRequestDetail, "baseRefOid" | "headRefOid"> | null | undefined): PrRange | undefined {
   return pr?.baseRefOid && pr.headRefOid ? { base: pr.baseRefOid, head: pr.headRefOid } : undefined;
-}
-
-export function viewedCount(pr: Pick<PullRequestDetail, "files">) {
-  return { viewed: pr.files.filter((file) => file.viewed === "VIEWED").length, total: pr.files.length };
 }
 
 const NO_THREADS: PullRequestThread[] = [];
@@ -101,28 +97,6 @@ export function threadFixMessage(pr: Pick<PullRequestDetail, "number">, thread: 
   const where = thread.line ? `${thread.path}:${thread.line}` : thread.path;
   const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quote(comment.body)}`);
   return `Address this review thread on PR #${pr.number}, at ${where}:\n\n${comments.join("\n\n")}\n\nMake the change, push it, and tell me what you did so I can reply and resolve the thread.`;
-}
-
-/** "Fix in Chat" on the failing checks. */
-export function checksFixMessage(pr: Pick<PullRequestDetail, "number">, checks: PullRequestCheck[]): string {
-  const failing = checks.filter((check) => check.outcome === "fail");
-  const list = failing.map((check) => `- ${check.workflow ? `${check.workflow} / ` : ""}${check.name}${check.url ? ` (${check.url})` : ""}`).join("\n");
-  return `These checks fail on PR #${pr.number}:\n\n${list}\n\nRead their logs (gh run view --log-failed), fix the cause, and push.`;
-}
-
-/** "Ask in Chat" on a guide stop. */
-export function stopAskMessage(pr: Pick<PullRequestDetail, "number">, stop: GuideStop, index: number): string {
-  const files = [...new Set([...stop.excerpts.map((excerpt) => excerpt.path), ...stop.files.map((file) => file.path)])];
-  return `About stop ${index + 1} of the review guide for PR #${pr.number}, "${stop.title}" (${files.join(", ")}):\n\n${stop.summary}\n\n`;
-}
-
-/** The guide was written for an older head: a push came after it. */
-export const guideStale = (guide: ReviewGuide, pr: Pick<PullRequestDetail, "headRefOid">) => guide.headRefOid !== pr.headRefOid;
-
-/** Where "Continue" picks up: the first stop not read, else the first. */
-export function nextStop(guide: ReviewGuide, read: number[]) {
-  const index = guide.stops.findIndex((_stop, at) => !read.includes(at));
-  return index === -1 ? 0 : index;
 }
 
 /** A relative age like "2h" for a GitHub timestamp. */

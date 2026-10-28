@@ -23,12 +23,12 @@ function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
 }
 
 function Title({ step, running }: { step: ChatStep; running: boolean }) {
-  const sweep = useStepTitleSweep(step, running);
+  const sweep = useStepTitleSweep(running);
   return (
     <>
       {titleSpans(stepDisplayTitle(step, running)).map((span, index) =>
         span.code ? (
-          <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`} style={sweep.style}>
+          <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`}>
             {span.text}
           </code>
         ) : (
@@ -123,10 +123,10 @@ export function ActivityBlock({
           </span>
         )}
         {streaming && <span className="shrink-0 text-[11.5px] text-ink-3">{steps.length} calls</span>}
-        {elapsed && <span className="shrink-0 text-[11.5px] text-ink-3 tabular-nums">{elapsed}</span>}
         <span aria-hidden className={`shrink-0 text-ink-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
+        {elapsed && <span className="shrink-0 text-[11.5px] text-ink-3 tabular-nums">{elapsed}</span>}
       </button>
 
       <div

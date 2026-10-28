@@ -239,7 +239,14 @@ export type ComputersApi = {
 };
 
 import type { DiffMode, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
-import type { MergeMethod, PullRequestDetailResult, PullRequestWriteResult, ReviewEvent, ReviewGuideResult } from "@milagre/shared/pull-request-review";
+import type {
+  MergeMethod,
+  PullRequestDetailResult,
+  PullRequestWriteResult,
+  RepoLabelsResult,
+  ReviewerCandidatesResult,
+  ReviewEvent,
+} from "@milagre/shared/pull-request-review";
 export type { DiffMode, DiffFileEntry, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
 
 /** `hostOutdated`: connected to a host from before result pages, which can't load very large Projects.
@@ -489,7 +496,6 @@ export type MilagreBridge = {
     deleteComment: (request: { cwd: string; commentId: string }) => Promise<PullRequestWriteResult>;
     submitReview: (request: { cwd: string; number: number; event: ReviewEvent; body: string }) => Promise<PullRequestWriteResult>;
     resolveThread: (request: { cwd: string; threadId: string; resolved: boolean }) => Promise<PullRequestWriteResult>;
-    fileViewed: (request: { cwd: string; number: number; path: string; viewed: boolean }) => Promise<PullRequestWriteResult>;
     /** Merges now, turns auto-merge on (`auto`) or off (`disableAuto`); `admin` bypasses unmet requirements where allowed. */
     merge: (request: {
       cwd: string;
@@ -501,15 +507,12 @@ export type MilagreBridge = {
     }) => Promise<PullRequestWriteResult>;
     /** Marks a draft ready for review, or turns it back into a draft (`draft`). */
     ready: (request: { cwd: string; number: number; draft?: boolean }) => Promise<PullRequestWriteResult>;
-    guide: (request: { cwd: string; url: string }) => Promise<ReviewGuideResult>;
-    /** Starts writing the guide with the Chat's provider first; `guide` reports `writing` until it is saved. */
-    writeGuide: (request: {
-      cwd: string;
-      number: number;
-      url: string;
-      provider?: ModelProvider;
-    }) => Promise<{ ok: true; writing: true } | { ok: false; message: string }>;
-    guideRead: (request: { cwd: string; url: string; stop: number; read: boolean }) => Promise<PullRequestWriteResult>;
+    /** The repository's labels, for the labels picker. */
+    labels: (request: { cwd: string }) => Promise<RepoLabelsResult>;
+    setLabels: (request: { cwd: string; number: number; add: string[]; remove: string[] }) => Promise<PullRequestWriteResult>;
+    /** Who can be asked to review: the repository's assignable users. */
+    reviewerCandidates: (request: { cwd: string }) => Promise<ReviewerCandidatesResult>;
+    requestReviewers: (request: { cwd: string; number: number; add: string[]; remove: string[] }) => Promise<PullRequestWriteResult>;
   };
   /** Code editors found on this Mac, in the order the first becomes the default. */
   listEditors: () => Promise<EditorInfo[]>;

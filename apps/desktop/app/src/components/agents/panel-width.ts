@@ -1,4 +1,4 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 /**
  * How wide each side panel is, dragged by its left edge like the sidebar by its right one. The width survives restarts
@@ -71,8 +71,21 @@ export function usePanelWidth(panel: ResizablePanel) {
     },
     [panel],
   );
+  // A window narrowed under a wide panel: show it narrower so the chat keeps MIN_CHAT_WIDTH, without forgetting the
+  // saved width, which comes back as the window widens. ponytail: measures on window resize only, not on sidebar toggles.
+  const [cap, setCap] = useState(Infinity);
+  useEffect(() => {
+    const fit = () => {
+      const main = document.querySelector<HTMLElement>("[data-workspace-main]") ?? document.querySelector<HTMLElement>("[data-chat-pane]");
+      if (!main) return;
+      const chat = main.getBoundingClientRect().width;
+      setCap((current) => Math.max(PANEL_WIDTHS[panel].min, Math.min(savedWidth(panel), current) + chat - MIN_CHAT_WIDTH));
+    };
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [panel]);
   return {
-    width: dragged ?? saved,
+    width: dragged ?? Math.min(saved, cap),
     resizing: dragged !== null,
     min: PANEL_WIDTHS[panel].min,
     reset: PANEL_WIDTHS[panel].default,

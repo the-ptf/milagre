@@ -292,9 +292,9 @@ async function main() {
     );
     assert.equal(await evaluate(`Math.round(document.querySelector('[data-changes-panel]').getBoundingClientRect().width)`), 320);
     assert.equal(
-      await evaluate(`document.querySelector('[data-changes-panel] [data-diff-counts="total"]').textContent`),
-      "+2−2",
-      "Totals include both Projects",
+      await evaluate(`document.querySelector('[data-changes-tab="changes"]').textContent`),
+      "Changes2",
+      "The Changes tab counts both Projects' files",
     );
     await shot("link-changes");
     const apiId = session.worktrees.find((member) => member.projectPath === projects[0]).projectId;
@@ -375,34 +375,26 @@ async function main() {
     );
     await shot("link-project-diff");
     await evaluate(`document.querySelector('[data-diff-back]').click()`);
-    await evaluate(`document.querySelector('button[aria-label="Changes mode"]').click()`);
-    await click("Committed");
-    await waitFor(
-      () =>
-        evaluate(
-          `document.querySelectorAll('[data-link-changes-project] [data-diff-tree-file]').length === 0 && document.querySelectorAll('[data-link-changes-project] [data-diff-base]').length === 2`,
-        ),
-      "each Project compares its own recorded base",
-    );
+    const committed = (id) => `${group(id)} [data-changes-section="On this branch"]`;
+    assert.equal(await evaluate(`document.querySelectorAll('[data-changes-section="On this branch"]').length`), 0, "Nothing committed yet: no branch sections");
     execFileSync("git", ["-C", apiRoot, "add", "status.txt"]);
     execFileSync("git", ["-C", apiRoot, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "API-only fixture change"]);
     await evaluate(`document.querySelector('[data-diff-refresh]').click()`);
     await waitFor(
       () =>
         evaluate(
-          `document.querySelectorAll('[data-link-changes-project] [data-diff-tree-file]').length === 1 && !!document.querySelector(${JSON.stringify(group(apiId) + ' [data-diff-tree-file="status.txt"]')})`,
+          `document.querySelectorAll('[data-changes-section="On this branch"] [data-diff-tree-file]').length === 1 && !!document.querySelector(${JSON.stringify(committed(apiId) + ' [data-diff-tree-file="status.txt"]')})`,
         ),
       "refresh shows committed changes in the API only",
     );
-    assert.equal(await evaluate(`document.querySelector('[data-changes-panel] [data-diff-counts="total"]').textContent`), "+1−1");
-    await evaluate(`document.querySelector('button[aria-label="Changes mode"]').click()`);
-    await click("Uncommitted");
+    assert.ok(await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + " [data-diff-base]")})`), "The API compares its own recorded base");
+    assert.match(await evaluate(`document.querySelector(${JSON.stringify(committed(apiId) + " h3")}).textContent`), /\+1−1$/);
     await waitFor(
       () =>
         evaluate(
-          `!!document.querySelector(${JSON.stringify(group(webId) + ' [data-diff-tree-file="status.txt"]')}) && !document.querySelector(${JSON.stringify(group(apiId) + ' [data-diff-tree-file="status.txt"]')})`,
+          `!!document.querySelector(${JSON.stringify(group(webId) + ' [data-changes-section="Not committed"] [data-diff-tree-file="status.txt"]')}) && !document.querySelector(${JSON.stringify(group(apiId) + ' [data-changes-section="Not committed"] [data-diff-tree-file="status.txt"]')})`,
         ),
-      "uncommitted mode excludes the committed member file",
+      "the committed file leaves the API's uncommitted section",
     );
     await fs.rename(webRoot, webRoot + "-moved");
     try {
@@ -412,7 +404,7 @@ async function main() {
         "an unavailable Worktree has its own notice",
       );
       assert.ok(
-        await evaluate(`document.querySelector(${JSON.stringify(group(apiId))}).textContent.includes('No uncommitted changes')`),
+        await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + ' [data-diff-tree-file="status.txt"]')})`),
         "One member error leaves the other Project readable",
       );
     } finally {

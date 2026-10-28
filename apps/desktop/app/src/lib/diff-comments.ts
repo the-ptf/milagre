@@ -1,5 +1,6 @@
 import { resolveCodeLanguage } from "./code-languages.ts";
 import type { DiffHunk, DiffLine } from "./diff-parse";
+import type { ChangesMode } from "./pull-request-view";
 
 export type DiffSide = "old" | "new";
 
@@ -13,6 +14,8 @@ export type DiffComment = {
   snippet: string[];
   body: string;
   createdAt: number;
+  /** The diff it was written on; a comment from before modes were kept belongs to the uncommitted one. */
+  mode?: ChangesMode;
 };
 
 export type DiffSelection = Pick<DiffComment, "side" | "start" | "end" | "snippet">;

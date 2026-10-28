@@ -1,24 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { PullRequestDetail, PullRequestThread, ReviewGuide } from "@milagre/shared/pull-request-review";
+import type { PullRequestDetail, PullRequestThread } from "@milagre/shared/pull-request-review";
 import { diffRows } from "./diff-rows.ts";
 import {
   ago,
+  agoLabel,
   attachThreads,
-  blockerMessage,
+  commentItems,
   filesByFolder,
-  guideRow,
+  lineMessage,
   lineTarget,
   middleTruncate,
   neighbours,
-  nextStop,
-  reviewsSummary,
+  notInPrLine,
+  repoOf,
   splitDiffRows,
-  threadMessage,
-  threadsMessage,
-  viewedCount,
+  withLabels,
   withResolved,
-  withViewed,
+  withReviewers,
 } from "./pr-review.ts";
 
 const thread = (overrides: Partial<PullRequestThread> = {}): PullRequestThread => ({
@@ -59,9 +58,9 @@ const pr: PullRequestDetail = {
   labels: [],
   commits: [],
   files: [
-    { path: "src/b.ts", additions: 1, deletions: 0, status: "added", viewed: "UNVIEWED" },
-    { path: "src/a.ts", additions: 8, deletions: 2, status: "modified", viewed: "VIEWED" },
-    { path: "README.md", additions: 1, deletions: 0, status: "modified", viewed: "DISMISSED" },
+    { path: "src/b.ts", additions: 1, deletions: 0, status: "added" },
+    { path: "src/a.ts", additions: 8, deletions: 2, status: "modified" },
+    { path: "README.md", additions: 1, deletions: 0, status: "modified" },
   ],
   threads: [thread()],
   comments: [],
@@ -70,7 +69,7 @@ const pr: PullRequestDetail = {
 
 const patch = ["@@ -1,3 +1,3 @@", " one", "-two", "+TWO", " three", ""].join("\n");
 
-test("files group under their folders, and only VIEWED counts as viewed", () => {
+test("files group under their folders", () => {
   assert.deepEqual(
     filesByFolder(pr.files).map((group) => [group.folder, group.files.map((file) => file.path)]),
     [
@@ -78,7 +77,6 @@ test("files group under their folders, and only VIEWED counts as viewed", () => 
       ["src", ["src/a.ts", "src/b.ts"]],
     ],
   );
-  assert.deepEqual(viewedCount(pr.files), { viewed: 1, total: 3 });
 });
 
 test("threads sit under their line, unified or side by side; the rest come back apart", () => {
@@ -102,37 +100,47 @@ test("a diff line comments on its new number, a removed one on its old number", 
   assert.deepEqual(lineTarget({ kind: "remove", text: "x", oldNumber: 3 }), { line: 3, side: "LEFT" });
 });
 
-test("messages to the Chat carry the PR, the place and what was said", () => {
-  const one = threadMessage(pr, thread());
-  assert.match(one, /PR #673 \(https:\/\/github\.com\/acme\/app\/pull\/673\), on src\/a\.ts:2/);
-  assert.match(one, /> Wait for the picker\?/);
-  assert.match(threadsMessage(pr, [thread(), thread({ id: "T2", path: "b.ts", line: 9 })]), /the 2 open review threads/);
-  const failing = blockerMessage(pr, { tone: "blocked", title: "Checks failing", detail: "" });
-  assert.match(failing ?? "", /- lint \(https:\/\/ci\/lint\)/);
-  assert.equal(blockerMessage(pr, { tone: "ready", title: "Ready to merge", detail: "" }), null);
+test("a line sent to the Chat carries the PR, the place and what was said", () => {
+  assert.equal(lineMessage(pr, "src/a.ts", 2, "RIGHT", " why? "), "About src/a.ts:2 in PR #673:\n\nwhy?");
+  assert.match(lineMessage(pr, "src/a.ts", 3, "LEFT", "x"), /src\/a\.ts, old line 3/);
 });
 
-test("optimistic writes change only their file or thread", () => {
-  assert.equal(withViewed(pr, "src/b.ts", true).files[0]?.viewed, "VIEWED");
-  assert.equal(withViewed(pr, "src/b.ts", true).files[1], pr.files[1]);
+test("optimistic writes change only their thread, labels or reviewers", () => {
   assert.equal(withResolved(pr, "T1", true).threads[0]?.resolved, true);
+  const labelled = withLabels({ ...pr, labels: [{ name: "bug", color: "d73a4a" }] }, ["enhancement"], ["bug"], [{ name: "enhancement", color: "a2eeef" }]);
+  assert.deepEqual(labelled.labels, [{ name: "enhancement", color: "a2eeef" }]);
+  const asked = withReviewers(pr, ["eric"], ["marcos"]);
+  assert.deepEqual(asked.reviewers, [{ login: "eric", state: "REQUESTED" }]);
 });
 
-test("the guide row starts, continues, waits or asks for a rewrite", () => {
-  const guide: ReviewGuide = { headRefOid: pr.headRefOid, provider: "claude", writtenAt: "", stops: [], notCovered: [] };
-  const stops = [1, 2, 3].map((n) => ({ title: `S${n}`, kind: "ui" as const, summary: "", excerpts: [], files: [], questions: [] }));
-  assert.equal(guideRow(null, pr).action, "start");
-  assert.equal(guideRow({ ok: true, guide: null, read: [], writing: true }, pr).action, "writing");
-  assert.deepEqual(guideRow({ ok: true, guide: { ...guide, stops }, read: [0], writing: false }, pr), { action: "open", value: "1 of 3 read", stale: false });
-  assert.equal(guideRow({ ok: true, guide: { ...guide, stops, headRefOid: "c".repeat(40) }, read: [], writing: false }, pr).stale, true);
-  assert.equal(guideRow({ ok: false, message: "Sign in" }, pr).error, "Sign in");
-  assert.equal(nextStop({ ...guide, stops }, [0, 1]), 2);
-  assert.equal(nextStop({ ...guide, stops }, [0, 1, 2]), 0);
+test("comments and open threads by time, resolved threads apart", () => {
+  const withComments = {
+    ...pr,
+    comments: [{ id: "P1", author: "eric", body: "LGTM", createdAt: "2026-10-25T11:00:00Z" }],
+    threads: [thread({ comments: [{ id: "C1", author: "jefo3", body: "?", createdAt: "2026-10-25T12:00:00Z" }] }), thread({ id: "T2", resolved: true })],
+  };
+  const newest = commentItems(withComments, true);
+  assert.deepEqual(
+    newest.items.map((item) => (item.type === "comment" ? item.comment.id : item.thread.id)),
+    ["T1", "P1"],
+  );
+  assert.deepEqual(
+    commentItems(withComments, false).items.map((item) => item.type),
+    ["comment", "thread"],
+  );
+  assert.deepEqual(
+    newest.resolved.map((entry) => entry.id),
+    ["T2"],
+  );
 });
 
-test("small words: reviews, branches, time, neighbours", () => {
-  assert.equal(reviewsSummary({ ...pr, threads: [] }), "Approved by marcos");
-  assert.equal(reviewsSummary(pr), "1 open thread");
+test("small words: repo, local work, branches, time, neighbours", () => {
+  assert.equal(repoOf(pr.url), "acme/app");
+  assert.equal(notInPrLine(2, 1), "2 files and 1 commit not in the PR yet");
+  assert.equal(notInPrLine(0, 3), "3 commits not in the PR yet");
+  assert.equal(notInPrLine(0, 0), "");
+  assert.equal(agoLabel("2026-10-25T11:21:00Z", Date.parse("2026-10-25T12:00:00Z")), "39m ago");
+  assert.equal(agoLabel("2026-10-25T12:00:00Z", Date.parse("2026-10-25T12:00:00Z")), "just now");
   assert.equal(middleTruncate("milagre/fix-shared-file-picker-error-aghp", 20), "milagre/fi…rror-aghp");
   assert.equal(ago("2026-10-25T10:00:00Z", Date.parse("2026-10-25T12:00:00Z")), "2h");
   const around = neighbours(pr.files, "src/a.ts");

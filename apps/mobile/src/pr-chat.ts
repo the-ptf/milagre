@@ -1,13 +1,20 @@
-import type { DiffMode } from "@milagre/shared/git-diff";
-
-// "Fix in Chat", "Ask in Chat" and "Send to Chat" from the PR sheet reach the Chat screen under it through this: the open
+// "Ask Chat" and "Send to Chat" from the PR sheet reach the Chat screen under it through this: the open
 // Chat registers how it sends and how it fills its composer, keyed like its drafts (`projectPath#id`).
 
 /**
  * One of the Chat's PRs, as its row lists them: what the PR menu offers. A Link Chat's PRs each come from one of its
  * Projects: `cwd` is that Project's Worktree, `project` its name.
  */
-export type PrChoice = { number: number; title: string; state: "OPEN" | "MERGED"; cwd?: string; project?: string; projectPath?: string };
+export type PrChoice = {
+  number: number;
+  title: string;
+  state: "OPEN" | "MERGED";
+  cwd?: string;
+  project?: string;
+  projectPath?: string;
+  /** Its tone and icon as the row shows them (blocked, checks running, ready, merged). */
+  look?: { tone: "green" | "orange" | "red" | "purple"; icon: "merged" | "ready" | "checking" | "open" };
+};
 
 /** Tells apart PRs with the same number in two of a Link Chat's repositories. */
 export const prChoiceKey = (choice: Pick<PrChoice, "number" | "cwd">) => `${choice.cwd ?? ""}#${choice.number}`;
@@ -19,8 +26,8 @@ type ChatHandle = {
   prefill: (text: string) => void;
   /** The Chat's PRs, in its row's order. */
   pullRequests?: () => PrChoice[];
-  /** Shows the Worktree's Changes beside the Chat, in a mode when given. */
-  changes?: (mode?: DiffMode) => void;
+  /** Shows the Worktree's Changes beside the Chat. */
+  changes?: () => void;
 };
 
 const handles = new Map<string, ChatHandle>();
@@ -49,10 +56,10 @@ export function chatPullRequestChoices(chatKey: string | undefined): PrChoice[] 
 }
 
 /** Shows the Chat's Changes; false when its screen isn't open. */
-export function showChatChanges(chatKey: string | undefined, mode?: DiffMode) {
+export function showChatChanges(chatKey: string | undefined) {
   const handle = chatKey ? handles.get(chatKey) : undefined;
   if (!handle?.changes) return false;
-  handle.changes(mode);
+  handle.changes();
   return true;
 }
 

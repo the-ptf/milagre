@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checksSummary, mergeStatus, notInPrLabel, openThreads, type PullRequestDetail } from "./pull-request-review.ts";
+import { checksProgress, checksSummary, mergeStatus, notInPrLabel, openThreads, type PullRequestCheck, type PullRequestDetail } from "./pull-request-review.ts";
 
 const base: PullRequestDetail = {
   number: 7,
@@ -76,4 +76,24 @@ test("notInPrLabel names the files and commits an open PR doesn't have", () => {
   assert.equal(notInPrLabel(0, 3), "3 commits");
   assert.equal(notInPrLabel(1, 0), "1 file");
   assert.equal(notInPrLabel(0, 0), "");
+});
+
+const checks = (...outcomes: PullRequestCheck["outcome"][]) => outcomes.map((outcome, index) => ({ name: `c${index}`, outcome }));
+
+test("checksProgress: failing first, then running, then passed", () => {
+  assert.deepEqual(checksProgress(checks("pass", "neutral", "skipped", "running", "fail")), {
+    passed: 2,
+    failed: 1,
+    running: 1,
+    skipped: 1,
+    total: 5,
+    label: "1 of 5 failing",
+    tone: "fail",
+  });
+  assert.equal(checksProgress(checks("pass", "running", "running")).label, "1 of 3 done");
+  assert.equal(checksProgress(checks("pass", "running")).tone, "running");
+  assert.deepEqual([checksProgress(checks("pass", "neutral", "skipped")).label, checksProgress(checks("pass")).tone], ["2 passed · 1 skipped", "pass"]);
+  assert.equal(checksProgress(checks("pass", "pass")).label, "2 passed");
+  assert.equal(checksProgress(checks("pass", "skipped")).label, checksSummary(checks("pass", "skipped")));
+  assert.deepEqual(checksProgress([]), { passed: 0, failed: 0, running: 0, skipped: 0, total: 0, label: "", tone: "none" });
 });
