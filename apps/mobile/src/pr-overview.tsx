@@ -23,7 +23,7 @@ import {
 import { canMergeNow, checksProgress, mergeStatus, type MergeMethod } from "@milagre/shared/pull-request-review";
 import type { Client } from "./client";
 import { Icon, type IconData, type Tone } from "./icons";
-import { Markdown } from "./markdown";
+import { PrMarkdown } from "./pr-markdown";
 import { confirm } from "./confirm-store";
 import { ErrorNotice, PageScroll, PillButton, PullDown, Segmented, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
@@ -373,7 +373,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             {!!description && (
               <Section title="Description" open={open.description} onToggle={() => toggle("description")}>
                 <View style={{ paddingHorizontal: 4 }}>
-                  <Markdown text={description} />
+                  <PrMarkdown text={description} client={client} cwd={cwd} />
                 </View>
               </Section>
             )}
