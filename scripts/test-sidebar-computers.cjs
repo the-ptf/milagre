@@ -231,9 +231,18 @@ async function browserChecks() {
     await waitFor(`document.querySelectorAll('[data-scope-computer]').length >= 3`);
     // Grouped, the computer sits in the Project's header, not on its rows.
     assert.equal(await evaluate(`document.querySelectorAll('[data-sidebar-scope] [data-chat-computer]').length`), 0);
-    assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor-mbp"]);
+    assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor"], "a hostname shows its first part");
     assert.deepEqual(await computerLines("c-arketa|/Users/a/arketa-web"), ["arketa"]);
-    assert.deepEqual(await computerLines("c-studio|/Users/s/homelab"), ["studio, offline"]);
+    assert.deepEqual(await computerLines("c-studio|/Users/s/homelab"), ["studio"]);
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(inScope("c-studio|/Users/s/homelab", "[data-scope-computer]"))}).hasAttribute('data-offline')`),
+      true,
+    );
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(inScope("c-studio|/Users/s/homelab", "[data-scope-toggle]"))}).getAttribute('aria-label')`),
+      "Collapse homelab on studio, offline",
+      "the header names its full computer for screen readers",
+    );
     assert.equal(
       await evaluate(`document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]').hasAttribute('data-offline')`),
       true,
@@ -250,6 +259,37 @@ async function browserChecks() {
     );
     await screenshot("merged-list");
     console.log("PASS: every computer's Projects in one list by name, each row naming its computer, the offline one dimmed");
+
+    // At the sidebar's narrowest, a long computer name shows its first word, and a long Project name truncates while
+    // the chip keeps its width, hovered too; the chip's tooltip has the full name.
+    const arketa = "c-arketa|/Users/a/arketa-web";
+    await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-arketa' ? { ...c, name: "Arketa’s Mac mini" } : c))`);
+    await waitFor(`document.querySelector(${JSON.stringify(inScope(arketa, "[data-scope-computer]"))})?.textContent.trim() === 'Arketa'`);
+    await evaluate(`document.querySelector(${JSON.stringify(inScope(arketa, "[data-scope-name]"))}).textContent = 'rd-events-admin-dashboard-and-docs'`);
+    const headerFit = () =>
+      evaluate(`(() => {
+        const header = document.querySelector(${JSON.stringify(inScope(arketa, "[data-scope-toggle]"))});
+        const name = header.querySelector('[data-scope-name]');
+        const chip = header.querySelector('[data-scope-computer]');
+        const alias = chip.lastElementChild;
+        return { nameCut: name.scrollWidth > name.clientWidth, aliasWhole: alias.scrollWidth <= alias.clientWidth, chipInside: chip.getBoundingClientRect().right <= header.getBoundingClientRect().right - 8 };
+      })()`);
+    assert.deepEqual(await headerFit(), { nameCut: true, aliasWhole: true, chipInside: true }, "the Project name gives way, not the chip");
+    await hover(inScope(arketa, "[data-scope-name]"));
+    await waitFor(
+      `!!document.querySelector(${JSON.stringify(inScope(arketa, "[data-scope-menu]"))}) && getComputedStyle(document.querySelector(${JSON.stringify(inScope(arketa, "[data-scope-menu]"))})).opacity === '1'`,
+    );
+    assert.deepEqual(await headerFit(), { nameCut: true, aliasWhole: true, chipInside: true }, "hovered, the actions don't cover the chip");
+    await hover(inScope(arketa, "[data-scope-computer]"));
+    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent === 'Arketa’s Mac mini'`);
+    await screenshot("long-names");
+    await evaluate(`document.querySelector(${JSON.stringify(inScope(arketa, "[data-scope-name]"))}).textContent = 'arketa-web'`);
+    await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-arketa' ? { ...c, name: "arketa" } : c))`);
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
+    await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    console.log(
+      "PASS: at the narrowest sidebar, a long Project name truncates before the computer chip, hovered too, and the chip's tooltip names the computer",
+    );
 
     // Filters › Projects lists every computer's Projects under its computer (This Mac first, then by name), hidden ones unchecked.
     const choices = () =>
