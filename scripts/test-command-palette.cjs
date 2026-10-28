@@ -357,10 +357,7 @@ async function browserChecks() {
     await waitFor(
       '!!document.querySelector("[data-new-chat-heading]") && document.querySelector("[data-prompt-editor]").textContent.includes("zebra crossing notes")',
     );
-    assert.ok(
-      await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start a new chat in")'),
-      "The new Chat names its Project",
-    );
+    assert.ok(await evaluate('document.querySelector("[data-new-chat-heading]").textContent.includes("Start building in")'), "The new Chat names its Project");
     assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The search waits in the composer, unsent");
     await screenshot("palette-started-chat.png");
     // The heading's Project dropdown lists the Projects with the open one checked; a pick switches to that Project and a

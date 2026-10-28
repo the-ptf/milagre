@@ -14,8 +14,8 @@ import { projectInitial, RECENT_PROJECTS_CHANGED, type RecentProject } from "../
 type ProjectChoice = { key: string; name: string; computer?: string };
 
 /**
- * "Start a new chat in [Project ▾]" over a new Chat. The Project is a dropdown listing every Project this window can
- * start a Chat in, the sidebar's other computers included; picking one moves the new Chat there.
+ * "Start building in [Computer / Project ▾]" over a new Chat. The Project is a dropdown listing every Project this window
+ * can start a Chat in, the sidebar's other computers included; picking one moves the new Chat there.
  */
 export function NewChatHeading({
   projectKey,
@@ -27,6 +27,15 @@ export function NewChatHeading({
   onProjectChange?: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const { thisMac, computers } = useComputers();
+  const computerId = computerOfKey(projectKey);
+  const computer = computerId === LOCAL_COMPUTER ? thisMac : (computers.find((item) => item.id === computerId)?.name ?? "Computer");
+  const place = (
+    <>
+      {computer && <span className="min-w-0 shrink truncate text-ink-3">{computer} /</span>}
+      <span className="max-w-[300px] shrink-0 truncate">{projectName}</span>
+    </>
+  );
   const trigger = useRef<HTMLButtonElement>(null);
   useDismiss(
     open,
@@ -39,7 +48,7 @@ export function NewChatHeading({
   };
   return (
     <div data-new-chat-heading className="relative flex flex-wrap items-center justify-center gap-1.5 text-[17px] font-medium text-ink">
-      <h1 className="font-medium">Start a new chat in</h1>
+      <h1 className="font-medium">Start building in</h1>
       {onProjectChange ? (
         <span className="relative">
           <button
@@ -48,7 +57,7 @@ export function NewChatHeading({
             data-new-chat-project
             aria-haspopup="listbox"
             aria-expanded={open}
-            aria-label={`Project: ${projectName}`}
+            aria-label={`Project: ${computer ? `${computer} / ` : ""}${projectName}`}
             onClick={() => setOpen((current) => !current)}
             onKeyDown={(event) => {
               if (event.key === "ArrowDown" && !open) {
@@ -56,9 +65,9 @@ export function NewChatHeading({
                 setOpen(true);
               }
             }}
-            className={`flex h-8 max-w-[360px] items-center gap-1 rounded-[8px] px-2 transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-field"}`}
+            className={`flex h-8 max-w-[480px] items-center gap-1 rounded-[8px] px-2 transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-field"}`}
           >
-            <span className="truncate">{projectName}</span>
+            {place}
             <span className="shrink-0 text-ink-3">
               <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
             </span>
@@ -76,7 +85,7 @@ export function NewChatHeading({
           )}
         </span>
       ) : (
-        <span className="flex h-8 items-center rounded-[8px] bg-field px-2">{projectName}</span>
+        <span className="flex h-8 max-w-[480px] items-center gap-1 rounded-[8px] bg-field px-2">{place}</span>
       )}
     </div>
   );
