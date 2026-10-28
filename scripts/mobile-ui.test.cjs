@@ -216,7 +216,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
         };
-      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton" };
+      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton", MIC_SIZE: 32 };
+      if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
       if (base === "all-computers" && !(id in modules))

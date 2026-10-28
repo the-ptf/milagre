@@ -2378,7 +2378,7 @@ function ChatPane({
                               borderColor: colors.lineStrong,
                               borderRadius: startTray ? 23 : 24,
                               borderCurve: "continuous",
-                              overflow: "hidden",
+                              // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
                               paddingHorizontal: 8,
                               paddingBottom: 6,

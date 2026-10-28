@@ -23,10 +23,13 @@ export type DictationAction =
 
 export const IDLE: Dictation = { phase: "idle", error: null };
 
+/** How long a message over the mic stays. A permission refusal stays until the user acts on it. */
+export const NOTICE_SECONDS = 3;
+
 export const ERRORS = {
-  permission: { kind: "permission", message: "Allow microphone access in Settings to dictate." },
-  "no-speech": { kind: "no-speech", message: "No speech heard. Try again." },
-  failed: { kind: "failed", message: "Could not transcribe that. Try again." },
+  permission: { kind: "permission", message: "Allow the microphone to dictate." },
+  "no-speech": { kind: "no-speech", message: "I didn't hear you. Try again." },
+  failed: { kind: "failed", message: "Couldn't transcribe that. Try again." },
   interrupted: { kind: "interrupted", message: "Dictation stopped when you left Milagre. Nothing was added." },
 } as const satisfies Record<DictationErrorKind, DictationError>;
 

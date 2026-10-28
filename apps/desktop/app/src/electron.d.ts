@@ -775,6 +775,8 @@ declare global {
         status: () => Promise<{ ready: boolean; size: number }>;
         transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
         onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+        /** The system's microphone privacy settings, where a refused microphone is allowed again. */
+        openSettings: () => Promise<void>;
       };
     };
   }

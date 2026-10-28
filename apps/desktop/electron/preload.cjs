@@ -517,6 +517,7 @@ const bridge = {
     status: () => ipcRenderer.invoke("app:dictation-status"),
     transcribe: (request) => ipcRenderer.invoke("app:dictation-transcribe", request),
     onProgress: (callback) => listenHere("app:dictation-progress", callback),
+    openSettings: () => ipcRenderer.invoke("app:dictation-open-settings"),
   },
 };
 // Window decoration belongs to this window, even when its Chat uses a paired computer's bridge.

@@ -17,9 +17,10 @@ import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import { useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
-import { insertDictation } from "@milagre/shared/voice-dictation";
+import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
-import { VoiceMicButton } from "./voice-mic-button";
+import { MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
@@ -31,7 +32,6 @@ const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") 
 const IMAGE_ICON = "#26a69a";
 // The mic sits over the field's trailing edge; the text stops short of it.
 const MIC_WIDTH = 34;
-const ERROR_SECONDS = 8;
 
 function useChipGlyphs() {
   const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
@@ -178,9 +178,9 @@ export function PromptField({
   );
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
-    // A permission refusal stays until the user acts on it; the other messages clear themselves.
+    // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
     if (!dictationError || dictationError.kind === "permission") return;
-    const timer = setTimeout(dismissDictationError, ERROR_SECONDS * 1000);
+    const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
     return () => clearTimeout(timer);
   }, [dictationError, dismissDictationError]);
   const [rendered, setRendered] = useState({ draft, parts: marks, restore: selection as typeof selection | undefined });
@@ -409,6 +409,17 @@ export function PromptField({
         </Field>
         {dictation.available ? (
           <View style={{ position: "absolute", right: 4, bottom: 6 }}>
+            {dictationError ? (
+              <DictationNotice
+                error={dictationError}
+                micSize={MIC_SIZE}
+                onDismiss={dismissDictationError}
+                onOpenSettings={() => {
+                  dismissDictationError();
+                  void Linking.openSettings();
+                }}
+              />
+            ) : null}
             <VoiceMicButton
               phase={dictation.phase}
               level={dictation.level}
@@ -422,35 +433,6 @@ export function PromptField({
           </View>
         ) : null}
       </View>
-      {dictationError ? (
-        <View
-          accessibilityRole="alert"
-          accessibilityLiveRegion="polite"
-          style={{ marginHorizontal: 10, marginBottom: 6, padding: 10, borderRadius: 10, backgroundColor: colors.redTint, gap: 6 }}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={dictationError.message}
-            accessibilityHint="Dismisses the message"
-            onPress={dismissDictationError}
-          >
-            <Text style={{ color: colors.red, fontSize: 13, lineHeight: 18 }}>{dictationError.message}</Text>
-          </Pressable>
-          {dictationError.kind === "permission" ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open Settings"
-              hitSlop={6}
-              onPress={() => {
-                dismissDictationError();
-                void Linking.openSettings();
-              }}
-            >
-              <Text style={{ color: colors.red, fontSize: 13, fontWeight: "600" }}>Open Settings</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
       {dictation.download !== null ? (
         <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 6, color: colors.ink3, fontSize: 13 }}>
           Downloading the speech model, once: {Math.round(dictation.download * 100)}%
