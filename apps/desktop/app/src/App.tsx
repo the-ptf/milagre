@@ -109,6 +109,7 @@ import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGri
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
@@ -209,7 +210,16 @@ const NO_REFS: string[] = [];
 const NO_KEYS: string[] = [];
 const NO_ROUTINES = new Set<string>();
 // `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
-type PendingSend = PendingChat & { view: number; projectPath: string; originSessionId: number | null; originWorktreeId: number; sent?: boolean };
+// `creatingWorktree`: the send waits for its new Worktree; `provider`: the one the picker sent it to.
+type PendingSend = PendingChat & {
+  view: number;
+  projectPath: string;
+  originSessionId: number | null;
+  originWorktreeId: number;
+  sent?: boolean;
+  creatingWorktree?: boolean;
+  provider?: ModelProvider;
+};
 const NO_WORKTREE = -1;
 // The model picked in each open chat, by chat key.
 const CHAT_MODELS_KEY = "milagre.chatModels";
@@ -1999,6 +2009,8 @@ function App() {
       projectPath: project.path,
       originSessionId: selectedSession?.id ?? null,
       originWorktreeId: selectedWorktree.id,
+      creatingWorktree: previewWorktreeId === NO_WORKTREE,
+      provider: model.provider,
     });
     if (!preserveComposer) {
       setDraft("");
@@ -2025,7 +2037,9 @@ function App() {
       if (!target) return false;
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
       setPendingSend((pending) =>
-        pending ? { ...pending, targetSessionId: target!.sessionId, session: { ...pending.session, worktree_id: target!.worktreeId } } : pending,
+        pending
+          ? { ...pending, creatingWorktree: false, targetSessionId: target!.sessionId, session: { ...pending.session, worktree_id: target!.worktreeId } }
+          : pending,
       );
       const sendTarget = target;
       // The main process saves the message, then starts the Chat's turn, even if the user has navigated away. A busy or
@@ -3507,6 +3521,7 @@ function App() {
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
+                        statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
                         subagents={subagents}

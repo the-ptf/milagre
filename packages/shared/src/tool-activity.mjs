@@ -1,5 +1,6 @@
 // Shared presentation data for desktop and phone. Only summarize facts in retained tool output.
 import { plainTaskOutput } from "./chat-activity.mjs";
+import { providerName } from "./providers.mjs";
 
 const INPUT_LIMIT = 4000;
 const SECRET = /(?:password|secret|token|authorization|api[_-]?key|credential)/i;
@@ -101,9 +102,41 @@ export function stepSections(step, detail = step.detail) {
   };
 }
 
+/** The Project a Link Chat's link_worktree_create step names, or null for another step or unreadable arguments. */
+export function linkWorktreeProject(step) {
+  if (step.source?.name !== "link_worktree_create") return null;
+  try {
+    const project = JSON.parse(step.input ?? "{}").project;
+    return typeof project === "string" && project.trim() ? project.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * What a running turn is busy with when it isn't the agent's own work, for the label beside the running mark: a Link
+ * Chat's Worktree being made, or a Worktree's setup. Null while the agent works, which the mark alone shows.
+ */
+export function runStatusLabel(steps = []) {
+  const running = steps.filter((step) => step.status === "running");
+  const creating = running.findLast((step) => linkWorktreeProject(step) !== null);
+  const project = creating ? linkWorktreeProject(creating) : null;
+  if (running.some((step) => step.kind === "setup")) return project ? `Running setup in ${project}` : "Running Worktree setup";
+  if (creating) return project ? `Creating Worktree in ${project}` : "Creating Worktree";
+  return null;
+}
+
+/** What a send waits on before its turn starts: its new Worktree, the host taking the message, then the agent starting. */
+export function sendStatusLabel({ creatingWorktree = false, sent = false, provider }) {
+  if (creatingWorktree) return "Creating Worktree";
+  return sent ? `Starting ${providerName(provider)}` : "Sending";
+}
+
 export function stepDisplayTitle(step, running = false) {
   let title = step.kind === "thinking" && Number.isFinite(step.durationMs) && step.title.startsWith("Thought for ") ? "Thought" : step.title;
-  if (step.source && /^Used (?:`|\w)/.test(title)) {
+  const project = linkWorktreeProject(step);
+  if (project !== null) title = project ? `Created Worktree in ${project}` : "Created Worktree";
+  else if (step.source && /^Used (?:`|\w)/.test(title)) {
     const verbs = {
       get_issue: "Read issue",
       list_issues: "Listed issues",

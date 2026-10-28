@@ -404,3 +404,55 @@ test("an undo saves its recovery copy of the files it writes, however full the W
   await store.restore(f.chatId, { token: back.token, decisions: decisions(back), approved: true });
   assert.equal(await f.read("a.txt"), "agent edit\n");
 });
+test("a later capture reads again every file whose stamp moved", async (t) => {
+  const f = await fixture(t);
+  const manifest = async (id) => JSON.parse(await fs.readFile(path.join(f.options.directory, id, "manifest.json"), "utf8"));
+  const past = new Date(Date.now() - 60_000);
+  for (const name of ["kept.txt", "same-size.txt", "fresh.txt"]) await f.write(name, `${name}\n`);
+  for (const name of ["kept.txt", "same-size.txt"]) await fs.utimes(path.join(f.root, name), past, past);
+  const first = await f.store.begin({ chatId: f.chatId, roots: [f.root] });
+  await f.store.finish(f.chatId);
+  const before = (await manifest(first.id)).before[0].files;
+  // Same size and mtime put back, but a new ctime: read again. A file written just before the last scan is too.
+  await f.write("same-size.txt", "same-sizE.txt\n");
+  await fs.utimes(path.join(f.root, "same-size.txt"), past, past);
+  await f.write("fresh.txt", "fresh.txT\n");
+  const second = await f.store.begin({ chatId: f.chatId + "x", roots: [f.root] });
+  await f.store.finish(f.chatId + "x");
+  const after = (await manifest(second.id)).before[0].files;
+  assert.deepEqual(after["kept.txt"], before["kept.txt"]);
+  assert.notEqual(after["same-size.txt"].hash, before["same-size.txt"].hash);
+  assert.notEqual(after["fresh.txt"].hash, before["fresh.txt"].hash);
+});
+test("a scan trusts a file's unchanged stamp and reads it again once any stamp field moves", async (t) => {
+  const f = await fixture(t);
+  const blobs = path.join(path.dirname(f.root), "blobs");
+  const scan = (known) => {
+    const stat = require("node:fs").statSync(f.root);
+    const request = {
+      op: "scan",
+      root: f.root,
+      identity: { dev: stat.dev, ino: stat.ino },
+      names: ["a.txt", "new.txt"],
+      blobDirectory: blobs,
+      known,
+      racyMs: 0,
+    };
+    const out = execFileSync(process.execPath, [path.join(__dirname, "checkpoint-files.cjs")], {
+      cwd: f.root,
+      input: JSON.stringify(request),
+      encoding: "utf8",
+    });
+    return JSON.parse(out).result;
+  };
+  await f.write("new.txt", "new\n");
+  const first = scan();
+  assert.ok(first.stamps["a.txt"] && first.stamps["new.txt"]);
+  // A planted entry with the file's own stamp is taken as it is, without reading the file.
+  const planted = first.files["new.txt"].hash;
+  const second = scan({ "a.txt": [...first.stamps["a.txt"].slice(0, 5), planted, first.stamps["a.txt"][6]] });
+  assert.equal(second.files["a.txt"].hash, planted);
+  // One stamp field off, and the file is read.
+  const third = scan({ "a.txt": [first.stamps["a.txt"][0] + 1, ...first.stamps["a.txt"].slice(1, 5), planted, first.stamps["a.txt"][6]] });
+  assert.equal(third.files["a.txt"].hash, first.files["a.txt"].hash);
+});

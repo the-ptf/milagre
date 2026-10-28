@@ -26,7 +26,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPr
 import type { AgentPorts, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
 import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
 import { showNotice } from "../lib/notice";
-import { chatTitle } from "@milagre/shared/chats";
+import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { attentionLabel, chatsNeedingAttention, waitingFor } from "@milagre/shared/attention";
 import { useHiddenProjects } from "../lib/hidden-projects";
 import { useSettings } from "../lib/settings";
@@ -38,7 +39,7 @@ import SidebarNav from "./SidebarNav";
 import { runKeys, scopeChats, useScopeStates } from "../lib/sidebar-scopes";
 import { DraftChatComposer } from "./DraftChatComposer";
 import { useComposerPreferences } from "../lib/use-composer-preferences";
-import { effortFor, type ChatMessage, type ModelOption, type ModelProvider } from "../model";
+import { effortFor, type ChatMessage, type CoordinatorState, type ModelOption, type ModelProvider } from "../model";
 import { createDraftStore, draftKey } from "../lib/draft-store";
 import { createScopeDrafts, memberWorktreeForAction } from "../lib/link-scope";
 import { usePastedImages } from "./usePastedImages";
@@ -191,6 +192,16 @@ export function LinkWorkspace({
     () => (lean ? chatWindow.messages : state.messages.filter((message) => message.session_id === sessionId)),
     [lean, chatWindow.messages, state.messages, sessionId],
   );
+  // The message just sent, shown at once while the host prepares the Chat (its Worktrees' checkpoint, the agent
+  // starting), as a Project Chat's and the phone's are. `sent`: the host took it, and the agent is starting.
+  const [pendingSend, setPendingSend] = useState<(PendingChat & { sent?: boolean; provider: ModelProvider }) | null>(null);
+  const pendingHere = pendingSend !== null && pendingSend.targetSessionId === (sessionId ?? null);
+  const shownMessages = useMemo(() => (pendingHere ? withPreview(messages, pendingSend) : messages), [pendingHere, pendingSend, messages]);
+  // The saved copy replaces the preview once this Chat's messages hold it.
+  useEffect(() => {
+    const id = pendingSend?.message.clientMessageId;
+    if (pendingSend?.sent && pendingHere && messages.some((message) => message.clientMessageId === id)) setPendingSend(null);
+  }, [pendingSend, pendingHere, messages]);
   const remoteCount = lean ? chatWindow.total - chatWindow.messages.length : 0;
   const earlierMessages = useMemo(
     () => (remoteCount > 0 ? { count: remoteCount, load: chatWindow.loadEarlier, loadAll: chatWindow.loadAll } : undefined),
@@ -376,6 +387,7 @@ export function LinkWorkspace({
     changes.closeDiff();
     setFindOpen(false);
     pendingOperation.current = null;
+    setPendingSend(null);
   }
   useEffect(() => {
     const settings = getSettings();
@@ -403,11 +415,31 @@ export function LinkWorkspace({
     pendingOperation.current = operation;
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
+    // A Link's state has no Worktrees (its Chats own theirs); the preview reads only its sessions and messages.
+    const preview = createPendingChat({
+      state: state as unknown as CoordinatorState,
+      worktreeId: 0,
+      sessionId,
+      body,
+      images,
+      files,
+      model: model.id,
+      provider: model.provider,
+    });
+    const previewId = preview.message.clientMessageId;
+    setPendingSend({ ...preview, provider: model.provider });
+    // The message shows in the Chat now, so it leaves the composer now; a failed send puts it back.
+    const clears = !preserve && draftStore.get().trim() === body;
+    if (clears) {
+      draftStore.set("");
+      imageDraft.clear();
+    }
     try {
       const request = {
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
+        clientMessageId: previewId,
         body,
         prompt: attachmentPrompt(body, files),
         images: await prepareImageUploads(owner, images),
@@ -424,16 +456,24 @@ export function LinkWorkspace({
       const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
       if (pendingOperation.current === operation) pendingOperation.current = null;
+      setPendingSend((pending) =>
+        pending && pending.message.clientMessageId === previewId
+          ? { ...pending, sent: true, targetSessionId: sent.sessionId, acceptedSessionId: sent.sessionId }
+          : pending,
+      );
       if (latest.current.active && latest.current.selection === selection) {
         setSessionId(sent.sessionId);
-        if (!preserve && draftStore.get().trim() === body) {
-          draftStore.set("");
-          imageDraft.clear();
-        }
       }
       return true;
     } catch (error) {
-      if (latest.current.active && latest.current.selection === selection) setError(ipcErrorMessage(error));
+      setPendingSend((pending) => (pending?.message.clientMessageId === previewId ? null : pending));
+      if (latest.current.active && latest.current.selection === selection) {
+        if (clears) {
+          const remapped = imageDraft.restore(images, files, draftStore.get());
+          draftStore.set([body, remapped].filter(Boolean).join("\n\n"));
+        }
+        setError(ipcErrorMessage(error));
+      }
       return false;
     } finally {
       if (latest.current.active) setPreparing(false);
@@ -651,19 +691,21 @@ export function LinkWorkspace({
                         projectPath={root}
                         messageScope={owner}
                         earlier={earlierMessages}
-                        messages={messages}
-                        loading={lean && chatWindow.loading && !messages.length && session !== undefined}
+                        messages={shownMessages}
+                        pendingMessageId={pendingHere ? pendingSend.message.id : undefined}
+                        loading={lean && chatWindow.loading && !shownMessages.length && session !== undefined}
                         loadError={lean ? chatWindow.error : undefined}
                         onRetryLoad={() => void chatWindow.retry()}
                         imageDraft={imageDraft}
                         onSend={() => void send()}
                         onSendDesignMessage={(text) => send(text, true, false)}
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
-                        isSending={Boolean(run && !approval && !question)}
+                        isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         sendBlocked={preparing}
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
-                        runStartedAt={run?.startedAt}
+                        runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}
+                        statusLabel={pendingHere && !run ? sendStatusLabel({ sent: pendingSend.sent, provider: pendingSend.provider }) : undefined}
                         runModelName={run?.model}
                         sessionProvider={session?.provider}
                         plan={session?.plan}

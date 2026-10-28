@@ -3,6 +3,9 @@ export type ActivitySource = { id: string; label: string; kind: StepKind; linear
 export function toolMetadata(server: string | undefined, name: string, input: unknown): { source: { name: string; server?: string }; input?: string };
 export function stepSource(step: ChatStep): ActivitySource;
 export function stepDisplayTitle(step: ChatStep, running?: boolean): string;
+export function linkWorktreeProject(step: ChatStep): string | null;
+export function sendStatusLabel(send: { creatingWorktree?: boolean; sent?: boolean; provider?: string }): string;
+export function runStatusLabel(steps?: readonly ChatStep[]): string | null;
 export function activitySources(steps: ChatStep[], limit?: number): ActivitySource[];
 export function formatStepDuration(ms: number | undefined): string;
 export function stepDuration(step: ChatStep, now: number): string;

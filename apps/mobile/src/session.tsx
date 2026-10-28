@@ -12,7 +12,7 @@ import { useDesigns } from "./use-designs";
 import { readPermission, savedChatDefaults, savedHiddenProjects, savedHosts, savedNavigation, savedProjectOrder, savePermission } from "./hosts-native";
 import type { ChatLocation } from "./navigation-store";
 import type { SavedHost } from "./hosts-store";
-import type { AgentCliStatus, AgentModels, PermissionMode } from "@milagre/shared/model";
+import type { AgentCliStatus, AgentModels, ModelProvider, PermissionMode } from "@milagre/shared/model";
 import type { Attachment } from "./attachments";
 import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
@@ -720,6 +720,8 @@ export type MobilePendingChat = {
   newWorktree: boolean;
   accepted: boolean;
   promoted?: boolean;
+  /** The provider the send went to, which the agent starting is named after. */
+  provider?: ModelProvider;
 };
 type PendingChats = {
   pendingChats: Record<string, MobilePendingChat>;
