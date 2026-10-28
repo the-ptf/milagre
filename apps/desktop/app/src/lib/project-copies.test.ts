@@ -15,7 +15,7 @@ const stored = new Map<string, string>();
   dispatchEvent() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { chatsGroup, pickedProjectKey, projectGroups, projectPickerRows } = await import("./project-copies.ts");
+const { chatsGroup, missingHomeAt, pickedProjectKey, projectGroups, projectPickerRows, withHome } = await import("./project-copies.ts");
 
 const STUDIO = "c-studio";
 const HOME = "/Users/v/Library/Application Support/Milagre/chats";
@@ -106,5 +106,21 @@ test("picker never lists the Chats home as a Project row before homes load", () 
       copy,
     }).map((group) => group.key),
     ["/code/happiergym", "/code/milagre-ade"],
+  );
+});
+
+test("a home that starts missing appears once a re-read reports it exists", () => {
+  const first = withHome({}, "local", { path: HOME, exists: false });
+  // The same read again changes nothing, so the group's memo holds.
+  assert.equal(withHome(first, "local", { path: HOME, exists: false }), first);
+  // A Chat made elsewhere (the phone, MCP, another window): a state for the missing home's path names its computer.
+  assert.equal(missingHomeAt(first, HOME), "local");
+  assert.equal(missingHomeAt(first, "/code/shop"), undefined);
+  const made = withHome(first, "local", { path: HOME, exists: true });
+  assert.notEqual(made, first);
+  assert.equal(missingHomeAt(made, HOME), undefined);
+  assert.deepEqual(
+    chatsGroup([{ computerId: "local", computer: "MacBook", home: made.local! }]).copies.map((copy) => copy.exists),
+    [true],
   );
 });

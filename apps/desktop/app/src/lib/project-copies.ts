@@ -6,6 +6,7 @@ import { bridgeFor } from "./computer-bridge.ts";
 import { useComputers, useHiddenComputers } from "./computers.ts";
 import { useComputerScopes, type ComputerProject } from "./computer-scopes.ts";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
+import { stateEvents } from "./state-events.ts";
 
 /**
  * A Project a new Chat can start in, on this Mac or another computer. `computer` is that computer's name. `exists` is set
@@ -81,6 +82,17 @@ export function projectPickerRows({ groups, noProject, query }: { groups: Projec
   return noProject && noProject.copies.length > 0 && matches(noProject) ? [noProject, ...projects] : projects;
 }
 
+/** The homes read so far with one computer's latest in place; the same object when neither its path nor `exists` changed. */
+export function withHome(homes: Record<string, ChatsHome>, computerId: string, home: ChatsHome): Record<string, ChatsHome> {
+  const known = homes[computerId];
+  return known?.path === home.path && known.exists === home.exists ? homes : { ...homes, [computerId]: home };
+}
+
+/** The computer whose home is held as missing at this path, if any. */
+export function missingHomeAt(homes: Record<string, ChatsHome>, path: string): string | undefined {
+  return Object.keys(homes).find((id) => homes[id]!.path === path && !homes[id]!.exists);
+}
+
 /**
  * The No project row for the new-chat picker: each computer's Chats home, This Mac's and every paired computer that
  * isn't off or hidden. A computer whose home can't be read is left out. Undefined until This Mac's is read.
@@ -97,18 +109,36 @@ export function useChatsGroup(enabled: boolean): ProjectGroup | undefined {
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    for (const read of reads.split("\n")) {
-      const id = read.split(" ")[0]!;
-      const readHome = async () => {
-        const home = await bridgeFor(id).chatsHome?.();
-        if (live && home?.path) setHomes((previous) => (previous[id]?.path === home.path ? previous : { ...previous, [id]: home }));
-      };
-      readHome().catch(() => {});
-    }
+    const readAll = () => {
+      for (const read of reads.split("\n")) {
+        const id = read.split(" ")[0]!;
+        const readHome = async () => {
+          const home = await bridgeFor(id).chatsHome?.();
+          if (live && home?.path) setHomes((previous) => withHome(previous, id, home));
+        };
+        readHome().catch(() => {});
+      }
+    };
+    readAll();
+    // Read again when the recent Projects change, as the other scope lists do.
+    window.addEventListener(RECENT_PROJECTS_CHANGED, readAll);
     return () => {
       live = false;
+      window.removeEventListener(RECENT_PROJECTS_CHANGED, readAll);
     };
   }, [enabled, reads]);
+  useEffect(() => {
+    if (!enabled) return;
+    // A home made elsewhere (the phone, MCP, another window, on any computer) announces itself with its first state: the
+    // daemon broadcasts every Project's changes to every window, a missing home's included, so no read is needed.
+    const offState = stateEvents.onProjectState(({ path }) =>
+      setHomes((previous) => {
+        const id = missingHomeAt(previous, path);
+        return id ? withHome(previous, id, { path, exists: true }) : previous;
+      }),
+    );
+    return offState;
+  }, [enabled]);
   return useMemo(() => {
     if (!enabled || !homes[LOCAL_COMPUTER]) return undefined;
     const list: Parameters<typeof chatsGroup>[0] = [{ computerId: LOCAL_COMPUTER, computer: thisMac, online: true, home: homes[LOCAL_COMPUTER] }];

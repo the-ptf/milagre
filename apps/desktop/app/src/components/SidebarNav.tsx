@@ -272,6 +272,7 @@ function ScopeHeader({
   icon,
   open,
   current,
+  plusIsCurrent = current,
   attention,
   computer,
   onToggle,
@@ -282,6 +283,8 @@ function ScopeHeader({
   icon: ReactNode;
   open: boolean;
   current: boolean;
+  /** Whether the + is the open scope's own (⌘N); defaults to `current`. */
+  plusIsCurrent?: boolean;
   attention: boolean;
   /** The computer the Project or Link lives on, once there are two or more: a chip with its short name, the full one in
    * a tooltip. Its rows then leave it out. */
@@ -359,11 +362,11 @@ function ScopeHeader({
       <div className="absolute right-1 flex items-center gap-0.5">
         {menu.length > 0 && <ScopeMenuButton name={name} items={menu} />}
         {onNewChat && (
-          <Tooltip label="New chat" shortcut={current ? "⌘N" : undefined} align="end">
+          <Tooltip label="New chat" shortcut={plusIsCurrent ? "⌘N" : undefined} align="end">
             <button
               type="button"
               data-scope-action
-              aria-label={current ? "New chat" : `New chat in ${name}`}
+              aria-label={plusIsCurrent ? "New chat" : `New chat in ${name}`}
               onClick={onNewChat}
               className={`${SCOPE_HEADER_BUTTON} opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100`}
             >
@@ -1235,7 +1238,9 @@ export default memo(function SidebarNav({
             </span>
           }
           open={chatsOpen}
-          current={false}
+          current={homeGroups.some(({ current }) => current)}
+          // ⌘N from a Chat without a Project starts in a real Project, so this + is never the open scope's own.
+          plusIsCurrent={false}
           attention={homeGroups.some(({ key, current }) => !current && attentionPaths.includes(key))}
           onToggle={() => toggleScope(CHATS_GROUP_KEY)}
           onNewChat={
