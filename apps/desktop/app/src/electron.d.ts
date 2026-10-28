@@ -705,7 +705,7 @@ export type MilagreBridge = {
   onAccountsChanged: (callback: () => void) => () => void;
   onUsageChanged: (callback: (payload: { scopeKey?: string }) => void) => () => void;
   readUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
-  /** Whether the Mac stays awake while an agent works (the screen can still sleep). */
+  /** Whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in, also with the lid closed). */
   setKeepAwake: (enabled: boolean) => Promise<void>;
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */

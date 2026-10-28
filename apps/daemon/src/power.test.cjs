@@ -10,7 +10,7 @@ test("Milagre holds one macOS assertion while it runs and releases it on quit or
     platform: "darwin",
     spawn(command, args) {
       assert.equal(command, "/usr/bin/caffeinate");
-      assert.deepEqual(args, ["-i", "-w", String(process.pid)]);
+      assert.deepEqual(args, ["-i", "-s", "-w", String(process.pid)]);
       const child = new EventEmitter();
       child.unref = () => {};
       child.kill = (signal) => {
