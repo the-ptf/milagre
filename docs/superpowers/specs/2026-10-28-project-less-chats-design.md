@@ -65,8 +65,9 @@ sidebar), `phone-drawer-no-project`, `phone-new-chat-no-project`. `desktop-chat-
 Each computer has one internal Git repository, the **Chats home**, at `~/.milagre/chats` (next to the worktree root,
 outside the data directory so the existing `assertRegistrableProject` guard doesn't refuse it). It is created on
 first use: `git init -b main` and one empty commit, the way `createBotHome` does it (`packages/core/src/bots/home.cjs`).
-It is opened as an ordinary registered Project, so every client path that needs the registry or the recent list
-(`project:read`, `project:switch`, the phone's `project:open`, Routines, the MCP host's `validateProject`) works.
+It is opened as an ordinary Project by the runtime but is not added to the registry or the recent list (see Marking
+it); `project:read`, `project:switch`, the phone's `project:open`, Routines and the MCP host's `validateProject` accept
+it explicitly. Its empty commit has its own identity, "Milagre".
 
 Each project-less Chat is a Chat in the Chats home on a new Milagre-made Worktree (isolation forced to `worktree`),
 so its folder is `~/.milagre/worktrees/chats/<slug>`, empty except for the empty commit. This reuses Worktree
@@ -79,15 +80,18 @@ homes, so the phone would never see these Chats and every one of those paths wou
 
 ### Marking it
 
-The daemon decides what the Chats home is (a path check, like `bots.isHome`) and tells clients: registry and recent
-entries for it carry `kind: "chats"`, and so does the Project in `project:read` and the daemon snapshot. Clients key
-everything below on `kind`, never on the path, because each computer's home is at its own path.
+Planning changed this (2026-10-28, two deviations). The daemon decides what the Chats home is (a path check, like
+`bots.isHome`) and leaves it out of the lists instead of flagging list entries for clients to filter. A phone on the
+previous OTA would show a Project named "chats" if the entries were only flagged.
 
-- The recent list keeps the Chats home regardless of the 10-entry cap and doesn't count it toward the cap. It never
-  shows as a recent Project.
-- `project_list` (Milagre MCP) leaves it out. The MCP tools still accept its path, so a project-less Chat's own
-  `chat_list`, `tasks_*`, Designs and artifacts work.
-- `project:forget`, Hide project and Choose projects never offer it.
+- `project:recent`, `project:registry`, the Milagre MCP `project_list` and the onboarding lists never carry it. Nothing
+  shows it as a recent Project, and it doesn't count toward the 10-entry cap.
+- It is not added to the registry. The gates that need it (`project:read`, `project:switch`, the MCP host, Routines)
+  accept it explicitly: MCP and Routines get an explicit home entry.
+- The daemon snapshot keeps it, marked `kind: "chats"`. Windows restore their Chats from the snapshot; phones don't
+  read it.
+- `projectName` returns "No project" for it, so the inbox and notices say "No project".
+- `project:forget`, Hide project and Choose projects never offer it, since it is in none of those lists.
 
 ### Archive
 
@@ -144,7 +148,7 @@ Project rows, desktop and phone. A usage-limit switch from one project-less Chat
 ### Phone
 
 - **Picker:** the centred "Start building in" choice sheet (`app/chat.tsx` `chooseProject`) and `newChatProjects`
-  (`new-chat-project.ts`) get **No project** first. It calls `chats:home` on the chosen computer, then `project:open`
+  (`new-chat-project.ts`) get **No project** first. It calls `chats:ensure` on the chosen computer, then `project:open`
   on the path it returns.
 - **Computer chip:** same as desktop, defaulting to the computer the phone last used for a Chat.
 - **Sidebar / Chat list:** a **Chats** section on top, same rules as desktop, one merged list across computers. The Chats home is left out of Choose
@@ -153,9 +157,10 @@ Project rows, desktop and phone. A usage-limit switch from one project-less Chat
 
 ### Daemon commands
 
-- A new `chats:home` command returns this computer's Chats home path, creating the repository and registering it on
-  first call. Desktop and phone call it when No project is picked. Everything after that is the normal New chat flow
-  (`chat:send` with `projectPath` = the home and a new Worktree).
+- `chats:home` returns `{ path, exists }` for this computer's Chats home and has no side effects.
+- `chats:ensure` creates the home if it is missing and opens it, without remembering it in recent, without registering
+  it and without changing the shown Project. Desktop and phone call it when No project is picked. Everything after that
+  is the normal New chat flow (`chat:send` with `projectPath` = the home and a new Worktree).
 
 ### Fix in the same PR: heading over the slash menu (Victor, 2026-10-28)
 
@@ -181,5 +186,5 @@ skill and file menus, and fix it there if it shows.
 - Where exactly `kind` is attached (registry entry, recent entry, `project:read`, snapshot) and the shared type.
 - Worktree slug naming for project-less Chats (the existing generator is fine).
 - Icon for the Chats section header and for No project in the picker (pick from the existing icon set).
-- Tests: daemon tests for `chats:home` creation and idempotence, the recent-list cap exemption, `project_list`
-  filtering, and archive in `remove` mode; desktop and phone component tests for the picker choice and the section.
+- Tests: daemon tests for `chats:home` and `chats:ensure` creation and idempotence, the lists leaving the home out,
+  `project_list` filtering, and archive in `remove` mode; desktop and phone component tests for the picker choice and the section.
