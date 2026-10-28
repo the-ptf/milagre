@@ -2,7 +2,8 @@ import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 
 /** A project in the recent list, as the main process keeps it (most recent first). */
 /** `hidden`: kept out of the all-Projects sidebar and the phone's Projects list. */
-export type RecentProject = { path: string; name: string; openedAt: string; hidden?: boolean };
+/** `origin`: the Git remote as "host/owner/repo", which ties the copies of one repository on several computers together. */
+export type RecentProject = { path: string; name: string; openedAt: string; hidden?: boolean; origin?: string };
 
 /** One project row in the project menu. */
 export type ProjectRow = { path: string; name: string; initial: string; current: boolean };

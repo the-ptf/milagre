@@ -103,6 +103,8 @@ import { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { undoableTasks, type Checkpoint, type CheckpointApi } from "@milagre/shared/checkpoints";
 import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
 import { bridgeForKey } from "../lib/computer-bridge";
+import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
+import { rememberProjectComputer, shortPath, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
@@ -915,7 +917,14 @@ type NewChatHeaderProps = Pick<
   | "linearActive"
   | "onStartFromIssue"
   | "noGit"
->;
+> & {
+  /** The open Project's copies on every computer with its repository; the computer chip shows once there are two. */
+  copies?: ProjectCopy[];
+  currentKey?: string;
+  onComputerChange?: (key: string) => void;
+};
+
+const NO_COPIES: ProjectCopy[] = [];
 
 function NewChatHeader({
   worktrees,
@@ -929,8 +938,13 @@ function NewChatHeader({
   linearActive = false,
   onStartFromIssue,
   noGit = false,
+  copies = NO_COPIES,
+  currentKey,
+  onComputerChange,
 }: NewChatHeaderProps) {
-  const [menu, setMenu] = useState<"isolation" | "branch" | "issue" | null>(null);
+  const [menu, setMenu] = useState<"computer" | "isolation" | "branch" | "issue" | null>(null);
+  const copy = copies.find((item) => item.key === currentKey);
+  const chooseComputer = copies.length > 1 && copy && onComputerChange;
   const [query, setQuery] = useState("");
   const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];
@@ -972,7 +986,7 @@ function NewChatHeader({
     },
   );
 
-  function toggle(next: "isolation" | "branch" | "issue", trigger: HTMLElement) {
+  function toggle(next: "computer" | "isolation" | "branch" | "issue", trigger: HTMLElement) {
     place(trigger);
     setQuery("");
     setMenu((current) => (current === next ? null : next));
@@ -990,13 +1004,23 @@ function NewChatHeader({
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
       {noGit && selected && (
-        <p data-no-git-note className="mb-2.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+        <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-[13px] text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
           {selected.name} has no Git, so this Chat works in the folder itself.
         </p>
       )}
       {!noGit && selected && (
-        <div data-new-chat-pickers className="relative mb-2 -ml-1.5 flex items-center gap-1">
+        <div data-new-chat-pickers className="relative mb-1 flex items-center gap-1">
+          {chooseComputer && (
+            <Tooltip label="Choose the computer">
+              <ChipButton
+                icon={LaptopIcon}
+                label={copy.computer}
+                open={menu === "computer"}
+                onClick={(trigger) => toggle("computer", trigger.parentElement ?? trigger)}
+              />
+            </Tooltip>
+          )}
           <Tooltip label="Choose the isolation level">
             <ChipButton
               icon={isolationOption.icon}
@@ -1013,6 +1037,28 @@ function NewChatHeader({
           />
           {linearActive && onStartFromIssue && (
             <ChipButton leading={<LinearLogo size={13} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
+          )}
+          {menu === "computer" && chooseComputer && (
+            <PickerPanel title="Run on" className={`absolute ${popoverEdge} w-[320px]`} style={popoverStyle}>
+              {copies.map((item) => (
+                <PickerRow
+                  key={item.key}
+                  icon={<Icon icon={LaptopIcon} size={14} />}
+                  label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · This Mac` : item.computer}
+                  description={shortPath(item.key)}
+                  trailing={item.online ? undefined : "Offline"}
+                  selected={item.key === currentKey}
+                  disabled={!item.online}
+                  wrapLabel
+                  onClick={() => {
+                    close();
+                    if (item.key === currentKey) return;
+                    rememberProjectComputer(item);
+                    onComputerChange(item.key);
+                  }}
+                />
+              ))}
+            </PickerPanel>
           )}
           {menu === "isolation" && (
             <PickerPanel title="Isolation" className={`absolute ${popoverEdge} w-[320px]`} style={popoverStyle}>
@@ -1187,6 +1233,10 @@ export function ChatComposer({
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
   // bot's new Chat keeps the composer centred.
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
+  const newChatProjectKey = newChatProject?.key ?? projectPath;
+  const newChatProjectName = newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
+  const projectGroups = useProjectGroups(projectNewChat && !!newChatProject?.onChange, newChatProjectKey, newChatProjectName);
+  const projectCopies = projectGroups.find((group) => group.copies.some((copy) => copy.key === newChatProjectKey))?.copies ?? [];
   const workingModelName = runModelName ?? selectedModel.name;
   const [scrolled, setScrolled] = useState(false);
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
@@ -1351,11 +1401,7 @@ export function ChatComposer({
             className="chat-gutter relative z-30 mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6"
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
-            <NewChatHeading
-              projectKey={newChatProject?.key ?? projectPath}
-              projectName={newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath}
-              onProjectChange={newChatProject?.onChange}
-            />
+            <NewChatHeading projectKey={newChatProjectKey} projectName={newChatProjectName} groups={projectGroups} onProjectChange={newChatProject?.onChange} />
           </div>
         )}
         <TranscriptSlots
@@ -1517,65 +1563,71 @@ export function ChatComposer({
         >
           {/* The update pill floats centred on the chip row's line, outside its flow. */}
           <UpdatePillSlot className="bottom-full mb-2" />
-          {projectNewChat && (
-            <NewChatHeader
-              worktrees={worktrees}
-              selectedWorktreeId={selectedWorktreeId}
-              onWorktreeChange={onWorktreeChange}
-              isolation={isolation}
-              onIsolationChange={onIsolationChange}
-              branches={branches}
-              baseBranch={baseBranch}
-              onBaseBranchChange={onBaseBranchChange}
-              linearActive={linearActive}
-              onStartFromIssue={onStartFromIssue}
-              noGit={noGit}
-            />
-          )}
           {isNewChat && starters && starters.length > 0 && <FirstChatStarters starters={starters} />}
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
-          {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
-          {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
-          {approval && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
-          {review.view !== "closed" && !isNewChat && (
-            <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
-          )}
-          <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
-            <PromptComposer
-              offlineName={offlineName}
-              imageDraft={imageDraft}
-              projectPath={projectPath}
-              draft={draft}
-              onDraftChange={onDraftChange}
-              history={promptHistory}
-              onSend={send}
-              canUndo={Boolean(runtimeChat)}
-              onStop={onStop}
-              onCompact={onCompact}
-              sendBlocked={sendBlocked}
-              running={isSending}
-              suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
-              models={models}
-              cliStatus={cliStatus}
-              onModelPickerOpen={onModelPickerOpen}
-              onUpdateCli={onUpdateCli}
-              updatingCli={updatingCli}
-              selectedModel={selectedModel}
-              onModelChange={onModelChange}
-              capability={capability}
-              effort={effort}
-              onEffortChange={onEffortChange}
-              ultracode={ultracode}
-              onUltracodeChange={onUltracodeChange}
-              fastMode={fastMode}
-              onFastModeChange={onFastModeChange}
-              permissionMode={permissionMode}
-              onPermissionModeChange={onPermissionModeChange}
-              permissionLocked={permissionLocked}
-              alwaysExpanded={isNewChat}
-              contextUsage={contextUsage}
-            />
+          {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
+          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[28px] border border-line bg-inset p-1.5 pt-1" : ""}>
+            {projectNewChat && (
+              <NewChatHeader
+                worktrees={worktrees}
+                selectedWorktreeId={selectedWorktreeId}
+                onWorktreeChange={onWorktreeChange}
+                isolation={isolation}
+                onIsolationChange={onIsolationChange}
+                branches={branches}
+                baseBranch={baseBranch}
+                onBaseBranchChange={onBaseBranchChange}
+                linearActive={linearActive}
+                onStartFromIssue={onStartFromIssue}
+                noGit={noGit}
+                copies={projectCopies}
+                currentKey={newChatProjectKey}
+                onComputerChange={newChatProject?.onChange}
+              />
+            )}
+            {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
+            {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
+            {approval && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
+            {review.view !== "closed" && !isNewChat && (
+              <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
+            )}
+            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+              <PromptComposer
+                offlineName={offlineName}
+                imageDraft={imageDraft}
+                projectPath={projectPath}
+                draft={draft}
+                onDraftChange={onDraftChange}
+                history={promptHistory}
+                onSend={send}
+                canUndo={Boolean(runtimeChat)}
+                onStop={onStop}
+                onCompact={onCompact}
+                sendBlocked={sendBlocked}
+                running={isSending}
+                suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}
+                models={models}
+                cliStatus={cliStatus}
+                onModelPickerOpen={onModelPickerOpen}
+                onUpdateCli={onUpdateCli}
+                updatingCli={updatingCli}
+                selectedModel={selectedModel}
+                onModelChange={onModelChange}
+                capability={capability}
+                effort={effort}
+                onEffortChange={onEffortChange}
+                ultracode={ultracode}
+                onUltracodeChange={onUltracodeChange}
+                fastMode={fastMode}
+                onFastModeChange={onFastModeChange}
+                permissionMode={permissionMode}
+                onPermissionModeChange={onPermissionModeChange}
+                permissionLocked={permissionLocked}
+                alwaysExpanded={isNewChat}
+                contextUsage={contextUsage}
+              />
+            </div>
           </div>
           {newChatError && (
             <p role="alert" className="mt-2 px-1 text-[12px] text-red">
