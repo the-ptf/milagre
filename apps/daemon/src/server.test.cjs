@@ -98,6 +98,7 @@ async function fixture(t, { createSession, lazyMessages, ...options } = {}) {
     maxFrameBytes: 8192,
     runtimeOptions: {
       cwd: project,
+      chatsHome: path.join(directory, "chats"),
       environmentReady: Promise.resolve(),
       titleModels: {},
       ...(lazyMessages === undefined ? {} : { lazyMessages }),
@@ -153,7 +154,7 @@ async function fixture(t, { createSession, lazyMessages, ...options } = {}) {
       await fs.rm(directory, { recursive: true, force: true });
     }
   });
-  return { daemon, dataDir, project, sessions, client };
+  return { daemon, dataDir, project, chatsHome: path.join(directory, "chats"), sessions, client };
 }
 
 test("independent clients reconnect to a running Chat and its pending approval", async (t) => {
@@ -1303,4 +1304,22 @@ test("a Chat the host unloaded reads back whole, and no client hears its message
   // And on disk: everything, in order.
   await lean.call("daemon:flush");
   assert.deepEqual(bodies((await readSavedState(project)).messages), ["First note", "A needle in here", "Third note"]);
+});
+
+test("chats:ensure opens the Chats home as the connection's Project, with its state's number, and a reconnect's open keeps it off the recent list", async (t) => {
+  const { project, chatsHome, client } = await fixture(t);
+  const desktop = await client();
+  const { epoch } = await desktop.call("daemon:state-patches");
+  await desktop.call("project:open", [project]);
+  const opened = await desktop.call("chats:ensure");
+  assert.equal(opened.path, chatsHome);
+  assert.equal(opened.kind, "chats");
+  assert.equal(opened.epoch, epoch);
+  assert.equal(typeof opened.version, "number");
+  // The window shows the home now (project:current answers the connection's Project).
+  assert.equal((await desktop.call("project:current")).kind, "chats");
+  // A reconnecting window (or the phone) opens it with project:open: still never recent.
+  assert.equal((await desktop.call("project:open", [chatsHome])).path, chatsHome);
+  assert.ok(!(await desktop.call("project:recent")).some((item) => item.path === chatsHome));
+  assert.deepEqual(await desktop.call("chats:home"), { path: chatsHome, exists: true });
 });

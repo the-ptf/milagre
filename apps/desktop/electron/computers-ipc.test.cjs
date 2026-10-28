@@ -187,6 +187,47 @@ test("while a computer isn't online, the window's reads come from its cache; any
   await assert.rejects(fs.stat(path.join(dir, ID)), { code: "ENOENT" });
 });
 
+test("a computer away still says where its Chats home is, and its kept home reads as the home", async (t) => {
+  const fs = require("node:fs/promises");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { createComputerCaches } = require("./computer-cache.cjs");
+  const ID = "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7";
+  const HOME = "/Users/a/.milagre/chats";
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "computers-ipc-chats-"));
+  const cache = createComputerCaches({ dir });
+  t.after(async () => {
+    cache.close();
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  });
+  let state = "online";
+  const { call } = setup(
+    {
+      list: () => [{ ...studio, id: ID, state }],
+      invoke: async (_id, method) =>
+        method === "chats:home"
+          ? { path: HOME, exists: true }
+          : method === "chats:ensure"
+            ? { path: HOME, name: "chats", kind: "chats", state: { sessions: { 1: { id: 1 } } } }
+            : null,
+    },
+    { cache },
+  );
+  assert.deepEqual(await call("computers:invoke", ID, "chats:home", []), { path: `${ID}|${HOME}`, exists: true });
+  assert.equal((await call("computers:invoke", ID, "chats:ensure", [])).kind, "chats");
+  await new Promise(setImmediate);
+  state = "offline";
+  assert.deepEqual(await call("computers:invoke", ID, "chats:home", []), { path: `${ID}|${HOME}`, exists: true });
+  assert.deepEqual(await call("computers:invoke", ID, "project:read", [`${ID}|${HOME}`]), {
+    path: `${ID}|${HOME}`,
+    name: "chats",
+    kind: "chats",
+    state: { sessions: { 1: { id: 1 } } },
+  });
+  // Making the home needs the computer.
+  await assert.rejects(call("computers:invoke", ID, "chats:ensure", []), { message: "studio is offline." });
+});
+
 test("the copy an opened Project's state leaves is written after the answer, once per change", async (t) => {
   const fs = require("node:fs/promises");
   const os = require("node:os");

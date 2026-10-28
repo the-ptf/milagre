@@ -275,6 +275,8 @@ function makeBridge(invoke, listen, send) {
      * @param {{ state?: boolean }} [options]
      */
     readProject: (projectPath, options) => invoke("project:read", projectPath, options),
+    chatsHome: () => invoke("chats:home"),
+    ensureChatsHome: () => invoke("chats:ensure"),
     listNamedLinks: () => invoke("link:list"),
     createNamedLink: (request) => invoke("link:create", request),
     updateNamedLink: (request) => invoke("link:update", request),

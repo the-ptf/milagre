@@ -21,10 +21,12 @@ async function fixture(t) {
   await fs.mkdir(project);
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const dataDir = path.join(dir, "profile");
+  const chatsHome = path.join(dir, "chats");
   const events = [];
   const options = {
     dataDir,
     cwd: project,
+    chatsHome,
     version: "9.8.7",
     environmentReady: Promise.resolve(),
     emit: (channel, payload) => events.push({ channel, payload }),
@@ -34,7 +36,7 @@ async function fixture(t) {
     runtimes.push(runtime);
     return runtime;
   };
-  return { project, dataDir, events, options, make };
+  return { project, dataDir, chatsHome, events, options, make };
 }
 
 test("the host Designs switch is always on, so saving it off changes nothing", async (t) => {
@@ -1561,4 +1563,102 @@ test("Project save failure and recovery publish status without another edit", as
   assert.equal(saved.sessions[session.id].title, "Newest title");
   assert.equal(saved.persistence, undefined);
   await assert.rejects(runtime.invoke("scope:retry-save", [path.join(project, "unopened")]), /Open the Project/);
+});
+
+test("chats:home reports a missing home without creating it", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: false });
+  await assert.rejects(fs.stat(chatsHome), { code: "ENOENT" });
+});
+
+test("chats:ensure opens the home with kind chats and isolation-ready worktrees", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
+  const opened = await runtime.invoke("chats:ensure");
+  assert.equal(opened.path, chatsHome);
+  assert.equal(opened.kind, "chats");
+  assert.notEqual(opened.git, false);
+  assert.ok(opened.state.worktrees);
+  assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: true });
+  // A second ensure (a double click) opens the same home without another git init.
+  assert.equal((await runtime.invoke("chats:ensure")).path, chatsHome);
+  const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
+  assert.ok(made.project.state.worktrees[made.worktreeId].path.startsWith(path.join(path.dirname(chatsHome), "worktrees", "chats") + path.sep));
+  // The snapshot holds the home's state for a reconnecting window, marked as the home.
+  const listed = runtime.snapshot().projects.find((project) => project.path === chatsHome);
+  assert.equal(listed?.kind, "chats");
+  assert.equal((await runtime.invoke("project:snapshot", [chatsHome])).kind, "chats");
+  const other = await runtime.invoke("project:current");
+  assert.equal("kind" in other, false);
+  assert.equal("kind" in (await runtime.invoke("project:snapshot", [other.path])), false);
+});
+
+test("openProject with remember:false leaves recent untouched", async (t) => {
+  const { make, project, chatsHome, dataDir } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  const recentBefore = await runtime.invoke("project:recent");
+  const registryBefore = await runtime.invoke("project:registry");
+  const plain = path.join(path.dirname(project), "notes");
+  await fs.mkdir(plain);
+  await runtime.openProject(plain, { remember: false, register: false });
+  assert.deepEqual(await runtime.invoke("project:recent"), recentBefore);
+  assert.deepEqual(await runtime.invoke("project:registry"), registryBefore);
+  // The home is never remembered, whichever way it opens: the phone's and a reconnect's project:open take the default.
+  await runtime.invoke("chats:ensure");
+  await runtime.openProject(chatsHome);
+  assert.deepEqual(await runtime.invoke("project:recent"), recentBefore);
+  assert.ok(!(await fs.readFile(path.join(dataDir, "recent-projects.json"), "utf8")).includes(chatsHome));
+  assert.ok(!(await fs.readFile(path.join(dataDir, "project-registry.json"), "utf8")).includes(chatsHome));
+  // Launch opens the last real Project, not the home.
+  assert.equal((await runtime.invoke("project:current")).path, project);
+});
+
+test("project:registry, project:recent and project_list leave the Chats home out", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  await runtime.invoke("chats:ensure");
+  for (const method of ["project:registry", "project:recent"]) {
+    const list = await runtime.invoke(method);
+    assert.ok(list.length > 0, method);
+    assert.ok(!list.some((item) => item.path === chatsHome), method);
+  }
+  const status = await runtime.invoke("local-mcp:status");
+  assert.ok(!status.projects.some((item) => item.path === chatsHome));
+});
+
+test("project:read and project:switch accept the Chats home without it being recent", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  await assert.rejects(runtime.invoke("project:read", [chatsHome]), /Open this project/);
+  await runtime.invoke("chats:ensure");
+  const read = await runtime.invoke("project:read", [chatsHome]);
+  assert.equal(read.kind, "chats");
+  assert.ok(read.state);
+  const lean = await runtime.invoke("project:read", [chatsHome, { state: false }]);
+  assert.equal(lean.kind, "chats");
+  assert.equal("state" in lean, false);
+  const switched = await runtime.invoke("project:switch", [chatsHome]);
+  assert.equal(switched.path, chatsHome);
+  assert.equal(switched.kind, "chats");
+  assert.ok(!(await runtime.invoke("project:recent")).some((item) => item.path === chatsHome));
+});
+
+test("a project-less Chat stopped by a quit continues on launch, though the home isn't recent", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const first = make();
+  const opened = await first.invoke("chats:ensure");
+  const session = Object.values(opened.state.sessions)[0];
+  await first.invoke("chat:patch", [chatsHome, session.id, { title: "Quick question" }]);
+  await first.close();
+  const file = path.join(chatsHome, ".milagre/coordination.json");
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  saved.sessions[session.id].resumeTurn = { stoppedAt: 0 };
+  await fs.writeFile(file, JSON.stringify(saved));
+  const second = make();
+  await second.resumeRecentProjects();
+  assert.equal((await second.invoke("project:snapshot", [chatsHome])).kind, "chats");
 });

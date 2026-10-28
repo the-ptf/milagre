@@ -30,6 +30,7 @@ const SHOWN_PROJECT = new Set([
   "project:open",
   "project:current",
   "project:switch",
+  "chats:ensure",
   "canvas:open-project",
   "onboarding:create",
   "onboarding:clone",

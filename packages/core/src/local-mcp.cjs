@@ -131,7 +131,7 @@ function createLocalMcp({ dataDir, host, designGroup, agentScope, clientOptions,
         connections: store.list(),
         clients: clientManager().status(),
         groups: registry.groups(),
-        projects: (await host.projects()).map(({ id, path, name }) => ({ id, path, name })),
+        projects: (await host.projects()).filter((project) => !project.kind).map(({ id, path, name }) => ({ id, path, name })),
       };
     },
     async create(input) {
