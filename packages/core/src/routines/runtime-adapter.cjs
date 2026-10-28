@@ -1,6 +1,5 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { execFile } = require("node:child_process");
 const { chatKey, isTurnEnd, lastUserModel, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
 const { backgroundWork, holdsAnnouncement } = require("@milagre/shared/chat-activity");
 const { isLinkScopeKey } = require("@milagre/shared/chat-scopes");
@@ -9,6 +8,7 @@ const { routineIssueContext } = require("@milagre/shared/linear-issue");
 const { routineRunOf } = require("@milagre/shared/routines");
 const { babysitStoppedText } = require("@milagre/shared/babysit");
 const { PERMISSION_MODES } = require("../agents/permissions.cjs");
+const { createGit } = require("../git/client.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
 const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
@@ -33,8 +33,8 @@ const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
 const STOP_WAIT_MS = 5000;
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
 const START_TIMEOUT_MS = 2 * 60 * 1000;
-// Reading the branch a Chat's Worktree is on (a babysit Run waits on it).
-const HEAD_BRANCH_TIMEOUT_MS = 5000;
+// Reads the branch a Chat's Worktree is on (a babysit Run waits on it), through the shared Git client's limits.
+const git = createGit();
 // How long a Babysit Heartbeat lasts when its settings don't name a number of days.
 const BABYSIT_DEFAULT_DAYS = 30;
 const DAY_MS = 864e5;
@@ -295,11 +295,10 @@ function routineChats({
     const target = session(chatId);
     const cwd = target?.workspacePath ?? state?.worktrees?.[target?.worktree_id]?.path;
     if (!cwd) return Promise.resolve(null);
-    return new Promise((resolve) => {
-      execFile("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd, timeout: HEAD_BRANCH_TIMEOUT_MS }, (error, stdout) => {
-        resolve(error ? null : stdout.trim() || null);
-      });
-    });
+    return git.read
+      .checked(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+      .then(({ stdout }) => stdout.trim() || null)
+      .catch(() => null);
   }
 
   // Archives a Chat a Run started; with `removeWorktree`, its Worktree goes too when nothing in it is worth keeping.
