@@ -2524,10 +2524,11 @@ function createRuntime(options) {
     if (chatsHome.isHome(requested) && (await chatsHome.exists())) return openProject(chatsHome.path, { remember: false, register: false });
     return openProject(await switchTarget(recentProjects(), requested));
   });
-  // chats:home only says where this computer's home is; chats:ensure makes it when missing and opens it as the window's
-  // Project (as project:open does), never registered or remembered.
+  // chats:home only says where this computer's home is; chats:ensure makes it when missing and reads it, never registered
+  // or remembered. It leaves the shown Project alone: another computer's window can ask for this home, and the window
+  // that moves to it does so with project:switch.
   commands.handle("chats:home", async () => ({ path: chatsHome.path, exists: await chatsHome.exists() }));
-  commands.handle("chats:ensure", async () => openProject(await chatsHome.ensure(), { takeNotice: false, remember: false, register: false }));
+  commands.handle("chats:ensure", async () => openProject(await chatsHome.ensure(), { takeNotice: false, focus: false, remember: false, register: false }));
   const realDataDir = realpathSync(dataDir);
   const assertRegistrableProject = (folder) => {
     const relative = path.relative(realDataDir, folder);

@@ -108,7 +108,7 @@ import { bridgeForKey } from "../lib/computer-bridge";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { newChatLook } from "../lib/new-chat-look";
-import type { ProjectKind } from "@milagre/shared/chats-home";
+import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
@@ -854,9 +854,10 @@ interface ChatComposerProps {
   approvalHidden?: boolean;
   /**
    * The Project a new Chat starts in, named in the "Start building in" heading; its dropdown moves the new Chat to another.
-   * `kind: "chats"` is a Chats home draft (No project); `onChange` gets that kind when the move is to a Chats home.
+   * `kind: "chats"` is a Chats home draft (No project); `onChange` gets `home` when the move is to a Chats home, saying
+   * whether that computer has made it yet.
    */
-  newChatProject?: { key: string; name: string; kind?: ProjectKind; onChange?: (key: string, kind?: ProjectKind) => void };
+  newChatProject?: { key: string; name: string; kind?: ProjectKind; onChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void };
   worktrees: Array<{ id: number; name: string; path: string }>;
   selectedWorktreeId?: number;
   onWorktreeChange: (id: number) => void;
@@ -1264,7 +1265,7 @@ export function ChatComposer({
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
   const newChatProjectKey = newChatProject?.key ?? projectPath;
   const newChatProjectName = newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
-  const projectGroups = useProjectGroups(projectNewChat && !!newChatProject?.onChange, newChatProjectKey, newChatProjectName);
+  const projectGroups = useProjectGroups(projectNewChat && !!newChatProject?.onChange, newChatProjectKey, newChatProjectName, newChatProject?.kind);
   const chatsDraft = newChatProject?.kind === "chats";
   const noProjectGroup = useChatsGroup(projectNewChat && !!newChatProject?.onChange);
   const projectCopies = chatsDraft
@@ -1273,8 +1274,11 @@ export function ChatComposer({
   const newChatChange = newChatProject?.onChange;
   // The chip on a Chats home draft moves it to another computer's Chats home.
   const changeComputer = useMemo(
-    () => (newChatChange && chatsDraft ? (key: string) => newChatChange(key, "chats") : newChatChange),
-    [newChatChange, chatsDraft],
+    () =>
+      newChatChange && chatsDraft
+        ? (key: string) => newChatChange(key, { exists: noProjectGroup?.copies.find((copy) => copy.key === key)?.exists ?? false })
+        : newChatChange,
+    [newChatChange, chatsDraft, noProjectGroup],
   );
   const workingModelName = runModelName ?? selectedModel.name;
   const [scrolled, setScrolled] = useState(false);

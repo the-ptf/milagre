@@ -13,7 +13,7 @@ import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import { isChatsHomeProject, type ProjectKind } from "@milagre/shared/chats-home";
+import { isChatsHomeProject, type ChatsHome } from "@milagre/shared/chats-home";
 import { BridgeContext, ScopeContext, bridgeFor, bridgeForKey, forgetBridge, isRemoteKey, onAnyAgentEvent } from "./lib/computer-bridge";
 import type { WorktreeRename } from "@milagre/shared/project-edits";
 import { reconcileState } from "@milagre/shared/reconcile";
@@ -2500,8 +2500,9 @@ function App() {
   }
   // New chat (⌘N, the sidebar's +, the command palette, a Link's) always opens the same screen on this Mac: the open
   // Project when it is this Mac's, else the one opened here last. Another computer's Project or a Link gets a new Chat
-  // from its own header's +, or the heading's Project dropdown. A Chat without a Project on screen is no Project to
-  // start in: only No project in the heading's dropdown starts one.
+  // from its own header's +, or the heading's Project dropdown. A Chat without a Project on screen goes to that last
+  // real Project instead (only No project in the heading's dropdown starts one), and stays in the Chats home only when
+  // this Mac has no real Project.
   const startNewChatOnThisMac = useEvent(async (draftText: string = "") => {
     const current = projectRef.current?.path;
     const currentKind = projectRef.current?.kind;
@@ -2512,7 +2513,7 @@ function App() {
     const recent = await window.milagre.listRecentProjects().catch((): RecentProject[] => []);
     const home = newChatProject({ currentPath: current, currentKind, recent });
     if (home) startNewChatIn(home, draftText);
-    // This Mac has no Project: the new Chat stays where it is.
+    // This Mac has no real Project: the new Chat stays where it is, the Chats home included.
     else if (!selectedLinkRef.current) startNewChat(draftText);
   });
   // A new Chat on this Mac whose draft points its agent at a triage playbook; the user writes what went wrong after it.
@@ -2521,11 +2522,12 @@ function App() {
     await startNewChatOnThisMac(prompt);
   });
   // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far. No project
-  // (or the computer chip on its draft) moves it to that computer's Chats home, made first when it isn't there yet.
-  const moveNewChat = useEvent(async (key: string, kind?: ProjectKind) => {
+  // (or the computer chip on its draft) moves it to that computer's Chats home, made first when it isn't there yet;
+  // making it doesn't open it anywhere, the switch below does.
+  const moveNewChat = useEvent(async (key: string, home?: Pick<ChatsHome, "exists">) => {
     const from = projectRef.current?.path;
     if (selectedLinkRef.current || !from || from === key) return;
-    if (kind === "chats") {
+    if (home && !home.exists) {
       try {
         await bridgeForKey(key).ensureChatsHome();
       } catch (error) {

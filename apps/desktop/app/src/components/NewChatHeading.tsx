@@ -2,7 +2,7 @@ import { Fragment, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ProjectKind } from "@milagre/shared/chats-home";
+import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import { useDismiss } from "../lib/use-dismiss";
@@ -32,7 +32,8 @@ export function NewChatHeading({
   groups: ProjectGroup[];
   /** The No project row: each computer's Chats home. */
   noProject?: ProjectGroup;
-  onProjectChange?: (key: string, kind?: ProjectKind) => void;
+  /** `home`: the key is a Chats home, and whether that computer has made it yet. */
+  onProjectChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { thisMac, computers } = useComputers();
@@ -88,9 +89,9 @@ export function NewChatHeading({
               groups={groups}
               noProject={noProject}
               currentKey={projectKey}
-              onPick={(key, kind) => {
+              onPick={(key, home) => {
                 close();
-                if (key !== projectKey) onProjectChange(key, kind);
+                if (key !== projectKey) onProjectChange(key, home);
               }}
               onClose={close}
             />
@@ -113,7 +114,7 @@ function ProjectPicker({
   groups: ProjectGroup[];
   noProject?: ProjectGroup;
   currentKey: string;
-  onPick: (key: string, kind?: ProjectKind) => void;
+  onPick: (key: string, home?: Pick<ChatsHome, "exists">) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -150,7 +151,10 @@ function ProjectPicker({
                 label={group.name}
                 selected={current}
                 // The Chats home of the computer the chip shows: This Mac's unless the draft is already on another's.
-                onClick={() => onPick(pickedProjectKey(group, currentKey), "chats")}
+                onClick={() => {
+                  const key = pickedProjectKey(group, currentKey);
+                  onPick(key, { exists: group.copies.find((copy) => copy.key === key)?.exists ?? false });
+                }}
               />
               {index < rows.length - 1 && <div className="mx-1.5 my-1 h-px bg-line" />}
             </Fragment>

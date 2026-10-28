@@ -72,6 +72,7 @@ async function fixture(t) {
     environmentReady: Promise.resolve(),
     registryRoots: [],
     worktreeRoot: path.join(dir, "worktrees"),
+    chatsHome: path.join(dir, "chats"),
   });
   t.after(async () => {
     try {
@@ -86,7 +87,7 @@ async function fixture(t) {
   }
   await runtime.invoke("project:registry");
   await settled();
-  return { project, other, runtime };
+  return { project, other, runtime, chatsHome: path.join(dir, "chats") };
 }
 
 test("a switch back to an open Project lists its Worktrees once and reads no diff stats, and still follows git", async (t) => {
@@ -149,4 +150,16 @@ test("the Project list, the Links and a Link's open check nothing with git betwe
     opened.projects.map((entry) => entry.path),
     [project, other],
   );
+});
+
+test("chats:ensure makes the Chats home without taking the shown Project from the window", async (t) => {
+  const { project, runtime, chatsHome } = await fixture(t);
+  assert.equal((await runtime.invoke("chats:ensure")).path, chatsHome);
+  await settled();
+  // Focus on the window still reads the Project it showed: picking another computer's No project made that
+  // computer's home, but only its own window's switch moves what it shows.
+  const focused = await gitDuring(() => runtime.focused(null));
+  const folders = new Set(focused.map((call) => call.folder));
+  assert.ok(folders.has(project), "the shown Project is read");
+  assert.ok(![...folders].some((folder) => folder.startsWith(chatsHome)), "the Chats home is not");
 });

@@ -15,7 +15,7 @@ const stored = new Map<string, string>();
   dispatchEvent() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { chatsGroup, pickedProjectKey, projectPickerRows } = await import("./project-copies.ts");
+const { chatsGroup, pickedProjectKey, projectGroups, projectPickerRows } = await import("./project-copies.ts");
 
 const STUDIO = "c-studio";
 const HOME = "/Users/v/Library/Application Support/Milagre/chats";
@@ -41,6 +41,11 @@ test("chatsGroup has one copy per computer, this Mac first", () => {
       // A computer whose home isn't made yet is still a place to start: picking it makes the home there.
       [STUDIO_HOME, STUDIO, "Studio", NO_PROJECT_LABEL],
     ],
+  );
+  // Whether each home is made yet travels with its copy, so a move makes only a missing one.
+  assert.deepEqual(
+    noProject.copies.map((copy) => copy.exists),
+    [true, false],
   );
   assert.equal(noProject.computerId, "local");
 });
@@ -75,4 +80,31 @@ test("picking No project calls onProjectChange with this Mac's home key", () => 
   // Already on another computer's home: picking No project again stays there.
   assert.equal(pickedProjectKey(noProject, STUDIO_HOME), STUDIO_HOME);
   assert.equal(pickedProjectKey(project("/code/happiergym", "happiergym"), "/code/milagre-ade"), "/code/happiergym");
+});
+
+test("picker never lists the Chats home as a Project row before homes load", () => {
+  const copy = (key: string, name: string) => ({ key, name, computerId: "local", computer: "MacBook", online: true });
+  const groups = projectGroups({
+    current: { key: HOME, name: NO_PROJECT_LABEL, kind: "chats" },
+    recent: [{ path: "/code/milagre-ade", name: "milagre-ade", openedAt: "" }],
+    remote: [],
+    hiddenComputers: new Set(),
+    copy,
+  });
+  // No project hasn't been read yet (noProject undefined): the home open as the draft's Project is still no row.
+  assert.deepEqual(
+    projectPickerRows({ groups, query: "" }).map((group) => group.key),
+    ["/code/milagre-ade"],
+  );
+  // A real Project open stays first, as before.
+  assert.deepEqual(
+    projectGroups({
+      current: { key: "/code/happiergym", name: "happiergym" },
+      recent: [{ path: "/code/milagre-ade", name: "milagre-ade", openedAt: "" }],
+      remote: [],
+      hiddenComputers: new Set(),
+      copy,
+    }).map((group) => group.key),
+    ["/code/happiergym", "/code/milagre-ade"],
+  );
 });

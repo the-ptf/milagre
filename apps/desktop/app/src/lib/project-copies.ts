@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
-import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome } from "@milagre/shared/chats-home";
+import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
 import { groupByOrigin } from "@milagre/shared/project-origin";
 import { bridgeFor } from "./computer-bridge.ts";
 import { useComputers, useHiddenComputers } from "./computers.ts";
-import { useComputerScopes } from "./computer-scopes.ts";
+import { useComputerScopes, type ComputerProject } from "./computer-scopes.ts";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
 
-/** A Project a new Chat can start in, on this Mac or another computer. `computer` is that computer's name. */
-export type ProjectCopy = { key: string; name: string; origin?: string; computerId: string; computer: string; online: boolean };
+/**
+ * A Project a new Chat can start in, on this Mac or another computer. `computer` is that computer's name. `exists` is set
+ * on a Chats home's copy only: false until that computer has made its home.
+ */
+export type ProjectCopy = { key: string; name: string; origin?: string; computerId: string; computer: string; online: boolean; exists?: boolean };
 /** One row of the new-chat Project picker: a Project and its copies on every computer that has the same repository. */
 export type ProjectGroup = ProjectCopy & { copies: ProjectCopy[] };
 
@@ -61,6 +64,7 @@ export function chatsGroup(homes: { computerId: string; computer: string; online
       computerId,
       computer,
       online: online ?? true,
+      exists: home.exists,
     }))
     .toSorted((a, b) => Number(b.computerId === LOCAL_COMPUTER) - Number(a.computerId === LOCAL_COMPUTER));
   const first = copies[0] ?? { key: CHATS_GROUP_KEY, name: NO_PROJECT_LABEL, computerId: LOCAL_COMPUTER, computer: "", online: true };
@@ -127,7 +131,7 @@ export function shortPath(key: string): string {
  * Projects, then other computers' by name, with the copies of one Git origin on several computers in one row. Sidebar
  * visibility does not limit where a Chat can start; a hidden computer's Projects are left out. Reads nothing while off.
  */
-export function useProjectGroups(enabled: boolean, currentKey: string, currentName: string): ProjectGroup[] {
+export function useProjectGroups(enabled: boolean, currentKey: string, currentName: string, currentKind?: ProjectKind): ProjectGroup[] {
   const [recent, setRecent] = useState<RecentProject[]>([]);
   useEffect(() => {
     if (!enabled) return;
@@ -160,18 +164,39 @@ export function useProjectGroups(enabled: boolean, currentKey: string, currentNa
       online: computerId === LOCAL_COMPUTER || computer?.state === "online",
     };
   };
+  return projectGroups({ current: { key: currentKey, name: currentName, kind: currentKind }, recent, remote: remote.projects, hiddenComputers, copy });
+}
+
+/**
+ * The picker's Project rows from the lists read: the open Project first, then This Mac's recent ones, then other
+ * computers' by name, grouped by Git origin. The open Project is left out when it is the Chats home, which is No
+ * project's row and never a Project's, however soon the picker opens.
+ */
+export function projectGroups({
+  current,
+  recent,
+  remote,
+  hiddenComputers,
+  copy,
+}: {
+  current: { key: string; name: string; kind?: ProjectKind };
+  recent: RecentProject[];
+  remote: ComputerProject[];
+  hiddenComputers: ReadonlySet<string>;
+  copy: (key: string, name: string, origin?: string) => ProjectCopy;
+}): ProjectGroup[] {
   const origins = new Map<string, string | undefined>([
     ...recent.map((project) => [project.path, project.origin] as const),
-    ...remote.projects.map((project) => [project.path, project.origin] as const),
+    ...remote.map((project) => [project.path, project.origin] as const),
   ]);
-  const seen = new Set<string>([currentKey]);
-  const choices: ProjectCopy[] = [copy(currentKey, currentName, origins.get(currentKey))];
+  const seen = new Set<string>([current.key]);
+  const choices: ProjectCopy[] = current.kind === "chats" ? [] : [copy(current.key, current.name, origins.get(current.key))];
   for (const project of recent) {
     if (seen.has(project.path) || hiddenComputers.has(computerOfKey(project.path))) continue;
     seen.add(project.path);
     choices.push(copy(project.path, project.name, project.origin));
   }
-  const others = remote.projects
+  const others = remote
     .filter((scope) => !scope.path.startsWith("milagre-link:") && !seen.has(scope.path) && !hiddenComputers.has(scope.computerId))
     .toSorted((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   for (const scope of others) {

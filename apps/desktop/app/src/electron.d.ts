@@ -549,7 +549,7 @@ export type MilagreBridge = {
   };
   /** Where this computer's Chats home is, the repository Chats without a Project run in, and whether it exists yet. */
   chatsHome: () => Promise<ChatsHome>;
-  /** Makes the Chats home when it is missing and opens it as the window's Project, never added to the recent list. */
+  /** Makes the Chats home when it is missing and reads it, leaving the shown Project alone; never added to the recent list. */
   ensureChatsHome: () => Promise<OpenProject & StateStamp & { kind: "chats" }>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
