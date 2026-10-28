@@ -1306,7 +1306,7 @@ test("a Chat the host unloaded reads back whole, and no client hears its message
   assert.deepEqual(bodies((await readSavedState(project)).messages), ["First note", "A needle in here", "Third note"]);
 });
 
-test("chats:ensure opens the Chats home as the connection's Project, with its state's number, and a reconnect's open keeps it off the recent list", async (t) => {
+test("chats:ensure opens the Chats home with its state's number, leaves the connection's Project alone, and a reconnect's open keeps it off the recent list", async (t) => {
   const { project, chatsHome, client } = await fixture(t);
   const desktop = await client();
   const { epoch } = await desktop.call("daemon:state-patches");
@@ -1316,8 +1316,10 @@ test("chats:ensure opens the Chats home as the connection's Project, with its st
   assert.equal(opened.kind, "chats");
   assert.equal(opened.epoch, epoch);
   assert.equal(typeof opened.version, "number");
-  // The window shows the home now (project:current answers the connection's Project).
-  assert.equal((await desktop.call("project:current")).kind, "chats");
+  // The window still shows its Project (project:current answers the connection's Project): only a switch moves it.
+  const shown = await desktop.call("project:current");
+  assert.equal(shown.path, project);
+  assert.equal(shown.kind, undefined);
   // A reconnecting window (or the phone) opens it with project:open: still never recent.
   assert.equal((await desktop.call("project:open", [chatsHome])).path, chatsHome);
   assert.ok(!(await desktop.call("project:recent")).some((item) => item.path === chatsHome));

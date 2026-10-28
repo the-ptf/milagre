@@ -281,18 +281,18 @@ function stateScope(channel, payload) {
 }
 
 // Requests whose reply is the Project a window shows from then on: its first open, a sidebar row, a switch, onboarding.
+// Not chats:ensure: it makes and opens the Chats home without moving what a window shows (the switch that follows does).
 const SHOWN_PROJECT = new Set([
   "project:open",
   "project:current",
   "project:switch",
-  "chats:ensure",
   "canvas:open-project",
   "onboarding:create",
   "onboarding:clone",
   "onboarding:init-git",
 ]);
 // Replies that carry the state of the Project or Link they open or read: `state` beside its `path`, or beside its `link`.
-const STATE_REPLIES = new Set([...SHOWN_PROJECT, "project:read", "project:snapshot", "link:open", "link:snapshot"]);
+const STATE_REPLIES = new Set([...SHOWN_PROJECT, "chats:ensure", "project:read", "project:snapshot", "link:open", "link:snapshot"]);
 /** The Project or Link (scope key) whose state a reply to `method` carries; null for one without a state. */
 function replyScope(method, result) {
   if (!STATE_REPLIES.has(method) || !hasState(result)) return null;
