@@ -157,12 +157,23 @@ async function nativeChecks() {
   assert.equal(await dock.webContents.executeJavaScript('document.querySelectorAll("[data-inbox-agent]").length'), 0);
   const overlay = view("drag");
   assert.equal(main.isVisible(), false);
-  const savedSettings = await dock.webContents.executeJavaScript('localStorage.getItem("milagre-settings")');
+  const savedSettings = await dock.webContents.executeJavaScript('window.milagrePreferences.get("milagre-settings").value ?? null');
   try {
     for (const theme of ["light", "dark"]) {
       await dock.webContents.executeJavaScript(
-        `localStorage.setItem('milagre-settings', JSON.stringify({...JSON.parse(localStorage.getItem('milagre-settings') || '{}'),theme:${JSON.stringify(theme)}})); window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}))`,
+        `(() => {
+          const preferences = window.milagrePreferences;
+          const result = preferences.set('milagre-settings', JSON.stringify({...JSON.parse(preferences.get('milagre-settings').value || '{}'),theme:${JSON.stringify(theme)}}));
+          if (result.error) throw new Error(result.error);
+          window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}));
+        })()`,
       );
+      await waitFor(
+        async () => (await main.webContents.executeJavaScript('document.documentElement.classList.contains("dark")')) === (theme === "dark"),
+        "native preference change reaches the main window",
+      );
+      const persisted = JSON.parse(await fs.readFile(path.join(profile, "preferences.json"), "utf8"));
+      assert.equal(JSON.parse(persisted["milagre-settings"]).theme, theme, "the floating window saves its theme in native preferences");
       for (const window of [dock, inbox, preview, overlay]) {
         if (window !== overlay)
           await waitFor(
@@ -180,7 +191,11 @@ async function nativeChecks() {
     }
   } finally {
     await dock.webContents.executeJavaScript(
-      `${savedSettings === null ? 'localStorage.removeItem("milagre-settings")' : `localStorage.setItem("milagre-settings",${JSON.stringify(savedSettings)})`}; window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}))`,
+      `(() => {
+        const result = window.milagrePreferences.set("milagre-settings",${JSON.stringify(savedSettings)});
+        if (result.error) throw new Error(result.error);
+        window.dispatchEvent(new StorageEvent('storage',{key:'milagre-settings'}));
+      })()`,
     );
   }
   if (process.env.MILAGRE_SCREENSHOT_DIR) {
