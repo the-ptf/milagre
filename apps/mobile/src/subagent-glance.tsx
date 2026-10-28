@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import Svg, { Circle, Ellipse, Polygon, Rect } from "react-native-svg";
 import { useDisplayNow } from "./display-clock";
 import { formatElapsed } from "@milagre/shared/display-clock";
 import { Pressable, Text, View } from "react-native";
@@ -16,6 +17,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { subagentActivityLabel, subagentRoleLabel } from "@milagre/shared/agent-activity";
 import type { AgentTask, ModelProvider, Subagent, ToolCategory } from "@milagre/shared/model";
+import { qaPersona, type BloubShape, type QaPersona } from "@milagre/shared/qa-personas";
 import { lastSaid, planCounts, plainTitle, subagentOutcome, subagentSteps, toolChips, toolSummary, type SubagentStep } from "@milagre/shared/subagent-glance";
 import { Icon, ProviderLogo, SpinnerRing, type IconData } from "./icons";
 import { fonts, useTheme } from "./theme";
@@ -30,6 +32,13 @@ const chipIcons: Record<ToolCategory, IconData> = {
   searches: Search01Icon,
   edits: PencilEdit01Icon,
   other: WrenchIcon,
+};
+// The face's shapes by SVG element name; their props come from qa-personas.ts as SVG attributes.
+const faceShapes: Record<BloubShape["type"], ComponentType<Record<string, string | number>>> = {
+  rect: Rect as ComponentType,
+  circle: Circle as ComponentType,
+  ellipse: Ellipse as ComponentType,
+  polygon: Polygon as ComponentType,
 };
 const PHASES = new Set(["Responding", "Thinking", "Finished"]);
 const entries = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
@@ -86,6 +95,61 @@ function useText() {
   };
 }
 
+/** A QA persona's face, as on desktop (qa-personas.ts): a solid blob with white eyes, the same in light and dark. */
+export function PersonaAvatar({ persona, size }: { persona: QaPersona; size: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="-50 -50 100 100" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {persona.face.map((shape, index) => {
+        const Shape = faceShapes[shape.type];
+        return <Shape key={index} {...shape.props} />;
+      })}
+    </Svg>
+  );
+}
+
+function QaTag({ persona }: { persona: QaPersona }) {
+  return (
+    <View style={{ borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1, backgroundColor: persona.tint }}>
+      <Text style={{ color: persona.ink, fontSize: 10, fontWeight: "700" }}>QA</Text>
+    </View>
+  );
+}
+
+/** Who the persona plays, above its plan. */
+function PersonaCard({ persona }: { persona: QaPersona }) {
+  return (
+    <View style={{ gap: 10, padding: 16, borderRadius: 16, backgroundColor: persona.tint }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <PersonaAvatar persona={persona} size={44} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: persona.ink, fontSize: 17, fontWeight: "600" }}>{persona.title}</Text>
+          <Text style={{ color: persona.ink, opacity: 0.8, fontSize: 15 }}>{persona.tagline}</Text>
+        </View>
+      </View>
+      {persona.chips && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {persona.chips.map((chip) => (
+            <Text
+              key={chip}
+              style={{
+                color: persona.ink,
+                fontSize: 13,
+                paddingHorizontal: 8,
+                paddingVertical: 2,
+                borderRadius: 6,
+                overflow: "hidden",
+                backgroundColor: "rgba(255,255,255,0.6)",
+              }}
+            >
+              {chip}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   if (subagentRunning(agent)) return <SpinnerRing size={16} />;
   if (agent.status === "failed") return <Icon icon={AlertCircleIcon} tone="ink3" size={18} />;
@@ -106,22 +170,37 @@ export function SubagentRow({ agent, provider, now, onPress }: { agent: Subagent
   ]
     .filter(Boolean)
     .join(" · ");
+  const persona = qaPersona(agent);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${agent.title}. ${subagentActivityLabel(agent)}. ${line}`}
+      accessibilityLabel={`${persona ? `${persona.name} QA persona, ${agent.title}` : agent.title}. ${subagentActivityLabel(agent)}. ${line}`}
       accessibilityHint="Opens what this subagent is doing"
       onPress={onPress}
       style={({ pressed }) => ({ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 12, opacity: pressed ? 0.5 : 1 })}
     >
-      <View style={{ width: 18, height: 22, alignItems: "center", justifyContent: "center" }}>
-        <StatusIcon agent={agent} provider={provider} />
-      </View>
+      {persona ? (
+        <PersonaAvatar persona={persona} size={36} />
+      ) : (
+        <View style={{ width: 18, height: 22, alignItems: "center", justifyContent: "center" }}>
+          <StatusIcon agent={agent} provider={provider} />
+        </View>
+      )}
       <View style={{ flex: 1, gap: 3 }}>
-        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-          <Text numberOfLines={1} style={{ flex: 1, color: running ? colors.ink : colors.ink2, fontSize: 17, fontWeight: "600" }}>
-            {agent.title}
+        <View style={{ flexDirection: "row", alignItems: persona ? "center" : "baseline", gap: 8 }}>
+          <Text
+            numberOfLines={1}
+            style={{ flex: persona ? undefined : 1, flexShrink: 1, color: running ? colors.ink : colors.ink2, fontSize: 17, fontWeight: "600" }}
+          >
+            {persona?.name ?? agent.title}
           </Text>
+          {persona && (
+            <>
+              <QaTag persona={persona} />
+              <View style={{ flex: 1 }} />
+              {running ? <SpinnerRing size={14} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} tone="ink3" size={16} />}
+            </>
+          )}
           <Text style={{ color: colors.ink3, fontSize: 13, fontVariant: ["tabular-nums"] }}>{elapsed(agent, now)}</Text>
         </View>
         {!!line && (
@@ -322,8 +401,10 @@ function SubagentDetail({ agent }: { agent: Subagent }) {
   result ??= agent.latestActivity && !PHASES.has(agent.latestActivity) && !running ? agent.latestActivity : undefined;
   const plan = agent.tasks?.length ? agent.tasks : undefined;
   const totals = toolSummary(agent.progress?.tools);
+  const persona = qaPersona(agent);
   return (
     <View style={{ gap: 22 }}>
+      {persona && <PersonaCard persona={persona} />}
       {plan ? (
         <PlanList tasks={plan} said={said} tool={running ? [tool, totals && `${totals} so far`].filter(Boolean).join(" · ") : undefined} />
       ) : (

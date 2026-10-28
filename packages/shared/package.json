@@ -50,6 +50,7 @@
     "src/message-search.mjs",
     "src/message-search.d.mts",
     "src/agent-activity.ts",
+    "src/qa-personas.ts",
     "src/advisor-result.ts",
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
@@ -344,6 +345,7 @@
       "default": "./src/file-syntax.mjs"
     },
     "./agent-activity": "./src/agent-activity.ts",
+    "./qa-personas": "./src/qa-personas.ts",
     "./advisor-result": "./src/advisor-result.ts",
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",

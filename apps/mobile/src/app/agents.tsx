@@ -6,7 +6,8 @@ import { advisorAction, subagentActivityLabel } from "@milagre/shared/agent-acti
 import { subagentFinished } from "@milagre/shared/project-edits";
 import type { Subagent } from "@milagre/shared/model";
 import { useSession } from "../session";
-import { WholeSubagentDetail, SubagentRow, elapsed, subagentRunning, useClock } from "../subagent-glance";
+import { qaFleetFirst, qaPersona } from "@milagre/shared/qa-personas";
+import { PersonaAvatar, WholeSubagentDetail, SubagentRow, elapsed, subagentRunning, useClock } from "../subagent-glance";
 import { Icon } from "../icons";
 import { CircleButton, ErrorNotice, IconButton, ListRow, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
@@ -34,6 +35,8 @@ export default function AgentsSheet() {
   const running = visible.filter(subagentRunning).length;
   const done = visible.filter(subagentFinished).length;
   const now = useClock(visible.some(subagentRunning));
+  // The QA fleet's personas come first, under their own header, as on desktop.
+  const { fleet, others } = qaFleetFirst(visible);
 
   async function control(action: "stop" | "retry", agentId: string) {
     if (pending.current || !session.client || !project || !chat) return;
@@ -90,7 +93,7 @@ export default function AgentsSheet() {
         )}
         <View style={{ flex: 1, alignItems: "center", gap: 1 }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-            {child ? child.title : "Subagents"}
+            {child ? (qaPersona(child)?.name ?? child.title) : "Subagents"}
           </Text>
           <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 13 }}>
             {child
@@ -130,7 +133,22 @@ export default function AgentsSheet() {
       ) : (
         <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
           {!visible.length && <Text style={[styles.muted, { paddingVertical: 16 }]}>No subagents to show.</Text>}
-          {visible.map((agent, index) => (
+          {fleet.length > 0 && (
+            <View accessibilityRole="header" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 2 }}>
+              <View style={{ flexDirection: "row", paddingLeft: 6 }}>
+                {fleet.slice(0, 5).map((agent) => (
+                  <View key={agent.id} style={{ marginLeft: -6 }}>
+                    <PersonaAvatar persona={qaPersona(agent)!} size={24} />
+                  </View>
+                ))}
+              </View>
+              <Text style={{ flex: 1, color: colors.ink2, fontSize: 15, fontWeight: "600" }}>QA fleet</Text>
+              <Text style={{ color: colors.ink3, fontSize: 13 }}>
+                {fleet.length} {fleet.length === 1 ? "persona" : "personas"}
+              </Text>
+            </View>
+          )}
+          {[...fleet, ...others].map((agent, index) => (
             <View key={agent.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 4, borderTopWidth: index ? 1 : 0, borderTopColor: colors.line }}>
               <SubagentRow agent={agent} provider={provider} now={now} onPress={() => setSelected(agent.id)} />
               {/* As on desktop, an advisor's Stop or Retry stays on its row. */}

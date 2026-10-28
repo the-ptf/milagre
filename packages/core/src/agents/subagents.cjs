@@ -71,6 +71,7 @@ function claudeSubagents(message, state) {
           update(state, block.id, {
             title: block.input?.description || "Subagent",
             prompt: block.input?.prompt,
+            ...(block.input?.subagent_type ? { agentType: block.input.subagent_type } : {}),
             ...(parent ? { parentId: parent } : {}),
             ...(background ? { background: true } : {}),
           }),
@@ -138,7 +139,11 @@ function claudeSubagents(message, state) {
     if (!known && !(message.subtype === "task_started" && (message.task_type === "local_agent" || message.subagent_type))) return events;
     id ??= message.task_id;
     state.taskAgents.set(message.task_id, id);
-    const patch = { ...(message.description ? { title: message.description } : {}), ...(message.prompt ? { prompt: message.prompt } : {}) };
+    const patch = {
+      ...(message.description ? { title: message.description } : {}),
+      ...(message.prompt ? { prompt: message.prompt } : {}),
+      ...(message.subagent_type ? { agentType: message.subagent_type } : {}),
+    };
     if (message.subtype === "task_started") patch.status = "running";
     if (message.subtype === "task_progress") patch.latestActivity = message.summary || message.last_tool_name || message.description;
     if (message.subtype === "task_notification") {
