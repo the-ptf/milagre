@@ -173,7 +173,15 @@ async function browserChecks() {
     await openChat("Other chat");
     assert.equal(await caret(), longDraft.length, "the other Chat also restores its draft end");
     await evaluate(`${editor}.value = ''`);
+    await draftIs("");
     await openChat("Chips chat");
+    await draftIs(longDraft + " continued");
+    await delay(120);
+    assert.equal(await caret(), (longDraft + " continued").length, "returning from an empty composer restores the draft end");
+    assert.ok(
+      await evaluate(`${editor}.scrollHeight - ${editor}.clientHeight - ${editor}.scrollTop < 2`),
+      "the expanded composer still shows the last line after layout settles",
+    );
     await evaluate(`${editor}.value = ''`);
     await draftIs("");
     console.log("PASS: switching Chats restores the caret and scroll to the end of a long draft");

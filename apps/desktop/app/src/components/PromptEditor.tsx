@@ -260,6 +260,13 @@ export function PromptEditor({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `layout`.
   }, [signature, renders, resetKey]);
 
+  // Expanding the composer changes its text metrics after the draft was restored. Reveal the end at its final size.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const end = live.current.value.length;
+    if (root && selection.current.start === end && selection.current.end === end) root.scrollTop = root.scrollHeight;
+  }, [className, maxHeight]);
+
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
