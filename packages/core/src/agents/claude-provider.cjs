@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { killTree } = require("./process-tree.cjs");
+const { bundledAgents } = require("../bundled-skills.cjs");
 const {
   sessionInstructions,
   SUBAGENT_DESIGN_INSTRUCTIONS,
@@ -32,6 +33,8 @@ const { mcpContent, runTool } = require("../linked-tools.cjs");
 const { advisorPolicy } = require("./advisor-policy.cjs");
 const { toClaudeConfig } = require("../mcp/definitions.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
+
+const QA_AGENTS = bundledAgents();
 
 // Milagre permission mode -> Claude Code permission mode. In Ask (`default`) Claude Code checks with
 // the user, through canUseTool, before edits and commands its rules don't already allow. Bot rules runs
@@ -395,6 +398,8 @@ class ClaudeSession {
         ...linked,
         ...(Object.keys(extraServers).length ? { mcpServers: { ...extraServers, ...linked.mcpServers } } : {}),
         ...(Object.keys(hooks).length ? { hooks } : {}),
+        // The QA fleet's personas, launched as Agent subagent types (qa-fleet skill). Advisors don't launch agents.
+        ...(!this.analysisOnly && !this.executionAdvisor ? { agents: QA_AGENTS } : {}),
         canUseTool: (toolName, input, options) =>
           toolName === "AskUserQuestion" ? this.askQuestion(input, options) : this.askPermission(toolName, input, options),
         ...(this.analysisOnly ? advisorPolicy("claude", this.linked?.tools ?? []) : {}),

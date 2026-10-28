@@ -193,6 +193,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           "@milagre/shared/display-clock",
           "@milagre/shared/refresh-loop",
           "@milagre/shared/read-timeout",
+          "@milagre/shared/qa-personas",
           "@milagre/shared/voice-dictation",
         ].includes(id) &&
         !(id in modules)
@@ -9856,6 +9857,7 @@ function subagentGlance() {
     "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
     "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
     "./theme": { fonts: { mono: "mono" } },
+    "react-native-svg": { default: "Svg", Circle: "Circle", Ellipse: "Ellipse", Polygon: "Polygon", Rect: "Rect" },
   });
   // Function components render in place, so the tree shows what they draw.
   const draw = (node) => {
@@ -9927,6 +9929,16 @@ test("mobile subagent rows say what it does now and how far it got, and a finish
   assert.ok(finished.includes("10s"), "a finished subagent's time stops at its end");
 });
 
+test("mobile draws a QA persona subagent with its name, QA tag and persona card", () => {
+  const { SubagentRow, WholeSubagentDetail, render } = subagentGlance();
+  const agent = { ...glanceAgent, agentType: "qa-mobile", title: "Checkout on a phone" };
+  const row = texts(render(SubagentRow, { agent, provider: "claude", now: 66000, onPress() {} }));
+  for (const text of ["Mobile", "QA", "Now running the auth suite."]) assert.ok(row.includes(text), text);
+  assert.ok(!row.includes("Checkout on a phone"), "the persona's name stands in for the title");
+  const detail = texts(render(WholeSubagentDetail, { agent, read: async () => agent }));
+  for (const text of ["The mobile user", "Does everything on a small phone over slow 3G", "375 × 812", "Slow 3G"]) assert.ok(detail.includes(text), text);
+});
+
 test("mobile subagent detail shows its plan with what it does now, else its steps; the log waits behind Full log", () => {
   const { WholeSubagentDetail, render } = subagentGlance();
   const tasks = [
@@ -9972,6 +9984,7 @@ test("mobile subagent detail reads the whole transcript when the host sent only 
     "@milagre/shared/subagent-glance": require("@milagre/shared/subagent-glance"),
     "./icons": { Icon: "Icon", ProviderLogo: "ProviderLogo", SpinnerRing: "SpinnerRing" },
     "./theme": { fonts: { mono: "mono" } },
+    "react-native-svg": { default: "Svg", Circle: "Circle", Ellipse: "Ellipse", Polygon: "Polygon", Rect: "Rect" },
   });
   const tail = { ...glanceAgent, transcript: glanceAgent.transcript.slice(-2), transcriptLength: 4 };
   let reads = 0;

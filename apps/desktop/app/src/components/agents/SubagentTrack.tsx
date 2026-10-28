@@ -18,6 +18,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { advisorAction, subagentRoleLabel, subagentActivityLabel } from "@milagre/shared/agent-activity";
 import { lastSaid, planCounts, plainTitle, subagentOutcome, subagentSteps, toolChips, toolSummary, type SubagentStep } from "@milagre/shared/subagent-glance";
+import { qaFleetFirst, qaPersona, type QaPersona } from "@milagre/shared/qa-personas";
 import type { AgentTask, ModelProvider, Subagent, ToolCategory } from "../../model";
 import { subagentActive, subagentFinished } from "../../lib/subagents";
 import { useSubagentDetails } from "../../lib/subagent-transcripts";
@@ -69,6 +70,56 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
     >
       {action === "stop" ? "Stop" : "Retry"}
     </button>
+  );
+}
+
+/** A QA persona's face (qa-personas.ts): a solid blob with white eyes, the same in light and dark. */
+function PersonaAvatar({ persona, size, overlap }: { persona: QaPersona; size: number; overlap?: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      data-qa-persona={persona.type}
+      viewBox="-50 -50 100 100"
+      width={size}
+      height={size}
+      className={`shrink-0 overflow-visible ${overlap ? "-ml-1.5 first:ml-0" : ""}`}
+    >
+      {persona.face.map(({ type: Shape, props }, index) => (
+        <Shape key={index} {...props} />
+      ))}
+    </svg>
+  );
+}
+
+function QaTag({ persona }: { persona: QaPersona }) {
+  return (
+    <span className="shrink-0 rounded px-1 py-px text-[9px] font-bold" style={{ background: persona.tint, color: persona.ink }}>
+      QA
+    </span>
+  );
+}
+
+/** Who the persona plays, above its plan: on its own colour, so it reads the same in light and dark. */
+function PersonaCard({ persona }: { persona: QaPersona }) {
+  return (
+    <section data-qa-persona-card className="flex flex-col gap-2.5 rounded-xl p-3.5" style={{ background: persona.tint, color: persona.ink }}>
+      <span className="flex items-center gap-3">
+        <PersonaAvatar persona={persona} size={40} />
+        <span className="flex min-w-0 flex-col">
+          <span className="text-[15px] font-semibold">{persona.title}</span>
+          <span className="text-[12px] opacity-80">{persona.tagline}</span>
+        </span>
+      </span>
+      {persona.chips && (
+        <span className="flex flex-wrap gap-1.5">
+          {persona.chips.map((chip) => (
+            <span key={chip} className="rounded-md bg-white/60 px-2 py-0.5 text-[11px]">
+              {chip}
+            </span>
+          ))}
+        </span>
+      )}
+    </section>
   );
 }
 
@@ -257,8 +308,10 @@ export const SubagentDetail = memo(function SubagentDetail({
     (agent.latestActivity && !PHASES.has(agent.latestActivity) ? agent.latestActivity : undefined);
   const plan = agent.tasks?.length ? agent.tasks : undefined;
   const totals = toolSummary(agent.progress?.tools);
+  const persona = qaPersona(agent);
   return (
     <div className="flex flex-col gap-4 p-3" data-slot="subagent-transcript">
+      {persona && <PersonaCard persona={persona} />}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-3">
         <span className="text-ink-2">{subagentActivityLabel(agent)}</span>
         <span className="tabular-nums">{elapsed(agent, now)}</span>
@@ -357,16 +410,28 @@ function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: Mode
   ]
     .filter(Boolean)
     .join(" · ");
+  const persona = qaPersona(agent);
   return (
     <span className="flex min-w-0 flex-1 items-start gap-2">
-      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-ink-3">
-        <StatusIcon agent={agent} provider={provider} />
-      </span>
+      {persona ? (
+        <PersonaAvatar persona={persona} size={28} />
+      ) : (
+        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-ink-3">
+          <StatusIcon agent={agent} provider={provider} />
+        </span>
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-baseline gap-2">
-          <span data-subagent-title className={`min-w-0 flex-1 truncate font-medium ${running ? "text-ink" : "text-ink-2"}`}>
-            {agent.title}
+        <span className="flex items-center gap-2">
+          <span data-subagent-title className={`min-w-0 truncate ${persona ? "font-semibold" : "flex-1 font-medium"} ${running ? "text-ink" : "text-ink-2"}`}>
+            {persona?.name ?? agent.title}
           </span>
+          {persona && (
+            <>
+              <QaTag persona={persona} />
+              <span className="flex-1" />
+              {running ? <SpinnerRing size={11} /> : agent.status === "failed" && <HugeiconsIcon icon={AlertCircleIcon} size={12} aria-hidden />}
+            </>
+          )}
           <span className="shrink-0 text-[11px] text-ink-3 tabular-nums">{elapsed(agent, now)}</span>
         </span>
         {line && (
@@ -411,6 +476,37 @@ export function SubagentTrack({
   const actionClass = "flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40";
   const footerClass =
     "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-3";
+  // The QA fleet's personas come first, under their own header (qa-personas.ts).
+  const { fleet, others } = qaFleetFirst(rows);
+  const row = (agent: Subagent) => (
+    <li key={agent.id} data-subagent-row className="group flex items-start gap-1 rounded-lg px-1 hover:bg-hover focus-within:bg-hover">
+      <button
+        type="button"
+        data-subagent-open
+        onClick={() => setSelected(agent.id)}
+        title={`${agent.title} (${labels[agent.status]})`}
+        className="flex min-w-0 flex-1 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
+      >
+        <SubagentRow agent={agent} provider={provider} now={now} />
+      </button>
+      <span className="flex shrink-0 items-center gap-1 pt-1.5">
+        <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
+        <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+          <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
+            <button
+              type="button"
+              aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
+              disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
+              onClick={() => onArchive?.(agent.id, !archived)}
+              className={actionClass}
+            >
+              <HugeiconsIcon icon={Archive02Icon} size={14} />
+            </button>
+          </Tooltip>
+        </span>
+      </span>
+    </li>
+  );
   return (
     <PillMorph
       shown={agents.length > 0 && (visible.length > 0 || opened)}
@@ -461,7 +557,7 @@ export function SubagentTrack({
                 <button type="button" aria-label="Back to subagents" onClick={() => setSelected(null)} className={actionClass}>
                   <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
                 </button>
-                <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{child.title}</h2>
+                <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{qaPersona(child)?.name ?? child.title}</h2>
                 <button type="button" aria-label="Collapse subagents" onClick={close} className={actionClass}>
                   <HugeiconsIcon icon={ArrowShrink02Icon} size={14} aria-hidden />
                 </button>
@@ -486,35 +582,22 @@ export function SubagentTrack({
                 </button>
               </div>
               <ScrollArea as="ul" className="flex flex-col gap-0.5">
-                {rows.map((agent) => (
-                  <li key={agent.id} data-subagent-row className="group flex items-start gap-1 rounded-lg px-1 hover:bg-hover focus-within:bg-hover">
-                    <button
-                      type="button"
-                      data-subagent-open
-                      onClick={() => setSelected(agent.id)}
-                      title={`${agent.title} (${labels[agent.status]})`}
-                      className="flex min-w-0 flex-1 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
-                    >
-                      <SubagentRow agent={agent} provider={provider} now={now} />
-                    </button>
-                    <span className="flex shrink-0 items-center gap-1 pt-1.5">
-                      <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
-                      <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-                        <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
-                          <button
-                            type="button"
-                            aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
-                            disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
-                            onClick={() => onArchive?.(agent.id, !archived)}
-                            className={actionClass}
-                          >
-                            <HugeiconsIcon icon={Archive02Icon} size={14} />
-                          </button>
-                        </Tooltip>
-                      </span>
+                {fleet.length > 0 && (
+                  <li data-qa-fleet className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-[12px]">
+                    <span className="flex pl-1.5">
+                      {fleet.slice(0, 5).map((agent) => (
+                        <PersonaAvatar key={agent.id} persona={qaPersona(agent)!} size={18} overlap />
+                      ))}
+                    </span>
+                    <span className="flex-1 font-semibold text-ink-2">QA fleet</span>
+                    <span className="text-[11px] text-ink-3">
+                      {fleet.length} {fleet.length === 1 ? "persona" : "personas"}
                     </span>
                   </li>
-                ))}
+                )}
+                {fleet.map(row)}
+                {fleet.length > 0 && others.length > 0 && <li aria-hidden className="mx-2 my-1 border-t border-line" />}
+                {others.map(row)}
               </ScrollArea>
               {!rows.length && <p className="px-3 py-5 text-[12px] text-ink-3">{archived ? "No archived subagents." : "No subagents to show."}</p>}
               <footer className="mt-1 flex shrink-0 items-center gap-1 border-t border-line pt-1">
