@@ -3652,11 +3652,9 @@ function App() {
                 mode={changes.mode}
                 onModeChange={changes.setMode}
                 onRefresh={() => {
-                  void changes.refresh();
-                  if (changes.mode === "pr") {
-                    void prReview.refresh();
-                    localChanges.refresh();
-                  }
+                  if (changes.mode !== "pr") return changes.refresh();
+                  localChanges.refresh();
+                  return Promise.all([changes.refresh(), prReview.refresh()]);
                 }}
                 onSelectFile={changes.selectFile}
                 activePath={changes.activePath}

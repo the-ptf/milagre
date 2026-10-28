@@ -82,7 +82,8 @@ export function ChangesPanel({
   /** What the diff shows: one of the Changes tab's sections, or "pr" while a PR tab is selected. */
   mode: ChangesMode;
   onModeChange: (mode: ChangesMode) => void;
-  onRefresh: () => void;
+  /** Its promise, when it returns one, keeps the refresh icon spinning until the read is done. */
+  onRefresh: () => void | Promise<unknown>;
   /** A file picked in the Changes tab, with the section it was picked in. */
   onSelectFile: (path: string, mode: DiffMode) => void;
   activePath?: string;
@@ -175,7 +176,7 @@ export function ChangesTabs({
   prs: PrTab[];
   selected?: string;
   onSelect: (key?: string) => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<unknown>;
   loading: boolean;
 }) {
   const refreshLabel = selected ? "Refresh the PR" : "Refresh changes";
@@ -246,19 +247,7 @@ export function ChangesTabs({
           );
         })}
       </div>
-      <Tooltip label={refreshLabel} side="bottom" align="end">
-        <button
-          type="button"
-          aria-label={refreshLabel}
-          data-diff-refresh
-          onClick={onRefresh}
-          className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-        >
-          <span className={loading ? "animate-spin" : ""}>
-            <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
-          </span>
-        </button>
-      </Tooltip>
+      <RefreshButton label={refreshLabel} onRefresh={onRefresh} loading={loading} />
     </div>
   );
 }
@@ -423,5 +412,38 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
       </button>
       {!collapsed && <Tree nodes={node.children} depth={depth + 1} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />}
     </>
+  );
+}
+
+/**
+ * Spins while `loading` and while the read a click started is running (a PR re-read keeps showing the last one, so
+ * `loading` stays false), then finishes its turn instead of snapping back.
+ */
+function RefreshButton({ label, onRefresh, loading }: { label: string; onRefresh: () => void | Promise<unknown>; loading: boolean }) {
+  const [pending, setPending] = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const busy = loading || pending > 0;
+  if (busy && !spinning) setSpinning(true);
+  return (
+    <Tooltip label={label} side="bottom" align="end">
+      <button
+        type="button"
+        aria-label={label}
+        aria-busy={busy || undefined}
+        data-diff-refresh
+        onClick={() => {
+          setPending((count) => count + 1);
+          void Promise.resolve()
+            .then(onRefresh)
+            .catch(() => {})
+            .finally(() => setPending((count) => count - 1));
+        }}
+        className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+      >
+        <span className={spinning ? "animate-spin" : ""} onAnimationIteration={() => !busy && setSpinning(false)}>
+          <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
+        </span>
+      </button>
+    </Tooltip>
   );
 }
