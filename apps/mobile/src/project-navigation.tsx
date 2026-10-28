@@ -1207,17 +1207,6 @@ const NavigationBody = memo(function NavigationBody({
           </View>
         </View>
         {error || archives.notice ? <ErrorNotice message={error || archives.notice} /> : null}
-        {/* "Chat archived", like the Chat screen's toast: the archive finishes here, after that screen has gone. */}
-        {archives.done && !error && !archives.notice ? (
-          <View pointerEvents="none" style={{ alignItems: "center", paddingHorizontal: 16, paddingTop: 4 }}>
-            <View
-              accessibilityLiveRegion="polite"
-              style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
-            >
-              <Text style={{ color: colors.surface, fontSize: 14 }}>{archives.done}</Text>
-            </View>
-          </View>
-        ) : null}
       </View>
       <FlatList
         data={displayedRows}
@@ -1254,6 +1243,18 @@ const NavigationBody = memo(function NavigationBody({
         onNewChat={() => startNewChat()}
         visible={visible}
       />
+      {/* "Chat archived", like the Chat screen's toast, floating under the header without moving the list: the archive
+          finishes here, after that screen has gone. */}
+      {archives.done && !error && !archives.notice ? (
+        <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 60, alignItems: "center" }}>
+          <View
+            accessibilityLiveRegion="polite"
+            style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
+          >
+            <Text style={{ color: colors.surface, fontSize: 14 }}>{archives.done}</Text>
+          </View>
+        </View>
+      ) : null}
       {busy && (
         <View
           accessible
