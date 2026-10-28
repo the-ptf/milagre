@@ -588,6 +588,11 @@ test("each computer's Chats home is kept apart from its Projects and its Chats r
     methods.push("chats:home");
     return home;
   };
+  const recentScopes = client.recentScopes as () => Promise<unknown>;
+  client.recentScopes = () => {
+    methods.push("project:recent");
+    return recentScopes();
+  };
   client.call = async (method: string, args: unknown[]) => {
     methods.push(method);
     return { path: method === "chats:ensure" ? "/chats" : String(args[0]) };
@@ -608,6 +613,7 @@ test("each computer's Chats home is kept apart from its Projects and its Chats r
   await settle();
   await settle();
   assert.deepEqual(store.viewOf("https://a")?.home, { path: "/chats", exists: false });
+  assert.deepEqual(methods.slice(0, 2), ["project:recent", "chats:home"], "the home is asked behind the Project list, never in front of it");
   assert.deepEqual(
     store.viewOf("https://a")?.projects.map((item) => item.path),
     ["/a"],
@@ -620,6 +626,8 @@ test("each computer's Chats home is kept apart from its Projects and its Chats r
   // opens with chats:ensure, which leaves the computer's shown Project alone, never project:open.
   home = { path: "/chats", exists: true };
   await store.refreshHosts(["https://a"]);
+  await settle();
+  await settle();
   await settle();
   assert.deepEqual(store.viewOf("https://a")?.home, { path: "/chats", exists: true });
   assert.ok(methods.includes("chats:ensure"));
@@ -643,4 +651,23 @@ test("each computer's Chats home is kept apart from its Projects and its Chats r
   await other.settle();
   other.store.setHome("https://b", { path: "/b-chats", exists: true });
   assert.deepEqual(other.store.viewOf("https://b")?.home, { path: "/b-chats", exists: true });
+});
+
+test("a failed Chats home ask neither ends the read nor counts against the computer", async () => {
+  const mac = fakeClient("https://a", { projects: ["/a", "/b"] });
+  (mac.client as unknown as Record<string, unknown>).chatsHome = async () => {
+    throw new Error("Disk error");
+  };
+  const { store, timers, settle } = setup({ "https://a": mac });
+  store.sync([host("https://a")], null);
+  store.show();
+  await settle();
+  await settle();
+  assert.deepEqual(mac.calls.lists, [["/a", "/b"]], "the Projects are read all the same");
+  assert.equal(store.viewOf("https://a")?.state, "online");
+  assert.equal(store.viewOf("https://a")?.home, undefined, "nothing is known about the home yet");
+  timers.at(-1)!.run();
+  await settle();
+  await settle();
+  assert.equal(store.viewOf("https://a")?.state, "online");
 });

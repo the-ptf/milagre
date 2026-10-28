@@ -126,6 +126,7 @@ import { allComputers, chatsHomePath, useNewChatProjects, useNoProjectChoice } f
 import { isChatsHomeProject, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
 import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
 import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
+import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { BesideSession, touchPane } from "../beside-session";
 
@@ -734,7 +735,7 @@ function ChatPane({
   const savedChatKey = targetMatches && projectPath && params.id ? `${projectPath}#${params.id}` : undefined;
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
-    worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
+    worktreeId: targetMatches && worktreeOf ? panelWorktree(session.snapshot?.project, worktreeOf.id) : undefined,
     pullRequest: savedChatKey && pr && prCwd ? { number: pr.number, chatKey: savedChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
     passive: secondary,
   });

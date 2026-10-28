@@ -231,6 +231,28 @@ export function createAllComputersStore(deps: StoreDeps) {
    */
   const openFor = (entry: Entry, client: StoreClient, path: string) =>
     path === entry.home?.path ? client.call<OpenProject>("chats:ensure", []) : client.call<OpenProject>("project:open", [path]);
+  /**
+   * Asks where the computer's Chats home is, queued behind its Project list and never waited on: the drawer's first
+   * Projects don't sit behind it. It counts neither way for the computer's health (a failed ask keeps what was known), and
+   * a home that changed is read by the cycle that follows.
+   */
+  async function askHome(entry: Entry, client: StoreClient, idle: () => boolean) {
+    const chatsHome = client.chatsHome;
+    if (!chatsHome) {
+      if (entry.home === undefined && keepHome(entry, null)) publish(entry);
+      return;
+    }
+    let found: ChatsHome | null;
+    try {
+      found = await guarded(entry, client, 1, () => chatsHome(), idle);
+    } catch {
+      return;
+    }
+    if (!keepHome(entry, found)) return;
+    publish(entry);
+    // Only a home that now exists has Chats to read; one not made yet changes nothing to read.
+    if (found?.exists && active()) void cycle(entry);
+  }
   /** Records the computer's home as it answered, publishing only a change. */
   function keepHome(entry: Entry, home: ChatsHome | null) {
     if (entry.home === home || (entry.home && home && entry.home.path === home.path && entry.home.exists === home.exists)) return false;
@@ -285,17 +307,6 @@ export function createAllComputersStore(deps: StoreDeps) {
       };
       try {
         if (force || !entry.projectsAt || deps.now() - entry.projectsAt >= PROJECTS_EVERY) {
-          // The Chats home is asked next to the Project list. A computer without the command has none; a failed ask keeps
-          // what was known, and the Project list's own outcome decides how the computer is doing.
-          const chatsHome = client.chatsHome;
-          const home = chatsHome
-            ? tracked(1, () => chatsHome()).then(
-                (found) => (alive(entry, client) && keepHome(entry, found) ? publish(entry) : undefined),
-                () => undefined,
-              )
-            : entry.home === undefined && keepHome(entry, null)
-              ? publish(entry)
-              : undefined;
           try {
             // The Project list costs three requests on the Mac.
             if (entry.shared) {
@@ -312,9 +323,8 @@ export function createAllComputersStore(deps: StoreDeps) {
             entry.projectsAt = deps.now();
           } catch (error) {
             if (error === STALE) return;
-          } finally {
-            await home;
           }
+          void askHome(entry, client, idle);
         }
         const paths = wanted(entry);
         const updates = new Map<string, ProjectCopy>();
