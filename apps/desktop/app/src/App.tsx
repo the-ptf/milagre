@@ -1206,7 +1206,8 @@ function App() {
         unread: Boolean(session.unread),
         details: {
           branch: showGit ? worktree?.name : undefined,
-          path: worktree?.path,
+          // A Chat without a Project names no folder: its Worktree is the Chats home's, internal to Milagre.
+          path: showGit ? worktree?.path : undefined,
           diff: showGit ? worktree?.diff : undefined,
           linearIssue: showGit && worktree ? linearIssues[worktree.path] : undefined,
           // The stored link (Worktree.linearIssue) and whether "Link issue…" applies: the chat's own Worktree,
@@ -3132,7 +3133,8 @@ function App() {
               },
             ]
           : []),
-        ...(isRemoteKey(project?.path)
+        // A Chat without a Project has no folder to the user (as in its row's menu).
+        ...(isRemoteKey(project?.path) || !showGit
           ? []
           : [
               {
@@ -3182,7 +3184,7 @@ function App() {
           run: () => void reloadChat(sessionId),
         },
       );
-      if (selectedWorktree)
+      if (selectedWorktree && showGit)
         commands.splice(3, 0, {
           id: "copy-path",
           label: "Copy worktree path",

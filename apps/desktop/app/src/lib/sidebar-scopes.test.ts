@@ -413,7 +413,7 @@ test("chats group is absent when no computer has a home Chat", () => {
   );
 });
 
-test("the Chats group's rows show no branch or diff, only where the Chat's folder is", () => {
+test("the Chats group's rows show no branch, diff or folder", () => {
   const home = {
     worktrees: { 1: { id: 1, name: "milagre/chat-abc", path: "/Users/me/.milagre/worktrees/chats/abc", diff: { added: 12, removed: 3 } } },
     sessions: { 1: session(1) },
@@ -425,10 +425,16 @@ test("the Chats group's rows show no branch or diff, only where the Chat's folde
   const details = rows[0]!.row.details!;
   assert.equal(details.branch, undefined);
   assert.equal(details.diff, undefined);
-  assert.equal(details.path, "/Users/me/.milagre/worktrees/chats/abc");
+  // No folder line in the hover card, and nothing for Copy path, Finder or the editor to act on.
+  assert.equal(details.path, undefined);
+  assert.equal(
+    Object.values(details).some((value) => typeof value === "string" && value.includes("chats/abc")),
+    false,
+  );
   // A Project's rows keep theirs.
   const project = scopeChats("/code/shop", home, "recent", none)[0]!.details!;
   assert.equal(project.branch, "milagre/chat-abc");
+  assert.equal(project.path, "/Users/me/.milagre/worktrees/chats/abc");
   assert.deepEqual(project.diff, { added: 12, removed: 3 });
 });
 

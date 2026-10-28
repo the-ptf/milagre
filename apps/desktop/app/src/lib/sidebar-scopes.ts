@@ -77,7 +77,7 @@ export function railLive(rows: readonly SidebarRecent[]): { status: RailStatus; 
 /**
  * The chat rows of a Project or Link that isn't open, for the all-Projects sidebar; the marks come from `runKeys`.
  * Each row keeps the PRs, Linear issue and ports it showed while its scope was open (`rememberScopeRows`). A `gitless`
- * scope (a Chats home, whose repository is internal) gives its rows no branch or diff.
+ * scope (a Chats home, whose repository is internal) gives its rows no branch, diff or folder path.
  */
 export function scopeChats(
   key: string,
@@ -123,8 +123,9 @@ export function scopeChats(
       ...(inBackground ? { background } : {}),
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
-        ...rememberedFor(key, String(session.id), worktree?.path),
-        ...(worktree ? (gitless ? { path: worktree.path } : { branch: worktree.name, path: worktree.path, diff: worktree.diff }) : {}),
+        // A Chats home's Worktree folder is internal: its rows name no folder (the hover card's line, Finder, the editor).
+        ...rememberedFor(key, String(session.id), gitless ? undefined : worktree?.path),
+        ...(worktree && !gitless ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
         failed: chatSummary(session, sessionMessages).lastOutcome === "failed",
         lastAt: chatSummary(session, sessionMessages).lastAt,
         firstAt: chatSummary(session, sessionMessages).firstAt,
