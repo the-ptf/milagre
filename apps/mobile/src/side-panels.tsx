@@ -787,9 +787,9 @@ export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) 
           }}
         />
       )}
-      {/* Kept mounted under the other tabs: the device stream and the designs canvas don't start over on each visit. */}
-      {own?.simulator && (
-        <View style={{ flex: 1, display: shownTab === "simulator" ? "flex" : "none" }}>
+      {/* The device streams only while its tab shows: hidden, its WebView would be gone from under the stream. */}
+      {own?.simulator && shownTab === "simulator" && (
+        <View style={{ flex: 1 }}>
           <SimulatorSheet
             key={`${own.simulator.hostId}:${own.simulator.chatId}`}
             hostId={own.simulator.hostId}
@@ -798,8 +798,15 @@ export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) 
           />
         </View>
       )}
+      {/* The designs canvas stays drawn under the other tabs, so a visit doesn't load it again. It is hidden by opacity:
+      with display none the native WebView goes away and the canvas's messages to it fail. */}
       {designs && (
-        <View style={{ flex: 1, display: shownTab === "designs" ? "flex" : "none" }}>
+        <View
+          pointerEvents={shownTab === "designs" ? "auto" : "none"}
+          accessibilityElementsHidden={shownTab !== "designs"}
+          importantForAccessibility={shownTab === "designs" ? "auto" : "no-hide-descendants"}
+          style={shownTab === "designs" ? { flex: 1 } : { position: "absolute", top: insets.top + 52, left: 0, right: 0, bottom: 0, opacity: 0 }}
+        >
           {designs.html ? (
             <ArtifactSheet
               key={`${designs.hostId}:${designs.chatId}:${designs.id}`}
