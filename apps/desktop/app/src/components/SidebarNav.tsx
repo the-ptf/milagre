@@ -275,6 +275,17 @@ function ScopeHeader({
   /** The ⋯ menu's rows; none hides the button. */
   menu: ScopeMenuItem[];
 }) {
+  // Room on the right for what shows there, so the name (and the computer chip) reach the edge: the + of the open
+  // Project, the attention dot, and on hover the ⋯ and + with the dot slid left of them.
+  const rightRoom = `${current ? "pr-8" : attention ? "pr-6" : "pr-2"} ${
+    attention
+      ? menu.length > 0
+        ? "group-hover/scope:pr-[80px] group-has-[:focus-visible]/scope:pr-[80px]"
+        : "group-hover/scope:pr-[52px] group-has-[:focus-visible]/scope:pr-[52px]"
+      : menu.length > 0
+        ? "group-hover/scope:pr-[60px] group-has-[:focus-visible]/scope:pr-[60px]"
+        : "group-hover/scope:pr-8 group-has-[:focus-visible]/scope:pr-8"
+  }`;
   return (
     <div className="group/scope relative mx-2 flex h-8 items-center">
       <button
@@ -283,7 +294,7 @@ function ScopeHeader({
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} ${name}${computer ? ` on ${computer.name}${computer.offline ? ", offline" : ""}` : ""}`}
         onClick={onToggle}
-        className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] pl-2 pr-8 text-left hover:bg-hover-2 group-hover/scope:pr-[60px] group-has-[:focus-visible]/scope:pr-[60px]"
+        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] pl-2 text-left hover:bg-hover-2 ${rightRoom}`}
       >
         {/* A Link's stacked avatars are wider than a Project's icon, so the slot grows with them. */}
         <span className="relative flex h-5 min-w-5 shrink-0 items-center justify-center text-ink">
