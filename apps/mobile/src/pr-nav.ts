@@ -6,15 +6,14 @@ import { useSession } from "./session";
 /** What every PR page needs in its address: the Chat's Worktree, the PR number and the Chat to send to. */
 export type PrRoute = { worktreeId: string; number: string; chat?: string; cwd?: string };
 
-export type PrPage = "checks" | "threads" | "files" | "review" | "guide" | "diff";
+export type PrPage = "threads" | "review" | "diff" | "labels" | "reviewers";
 
 const PATHS = {
-  checks: "/pr-checks",
   threads: "/pr-threads",
-  files: "/pr-files",
   review: "/pr-review",
-  guide: "/pr-guide",
   diff: "/pr-diff",
+  labels: "/pr-labels",
+  reviewers: "/pr-reviewers",
 } as const;
 
 /** Opens the PR sheet over the Chat. */
@@ -42,9 +41,6 @@ export function usePrRoute() {
   const member = linkChat?.worktrees.find((entry) => entry.worktreePath === params.cwd);
   const worktree = link ? (member ? { path: member.worktreePath } : undefined) : session.snapshot?.project.state.worktrees[Number(params.worktreeId)];
   const number = Number(params.number);
-  // The Chat's own agent writes the review guide first, as it writes commit messages.
-  const chatId = params.chat ? Number(params.chat.slice(params.chat.lastIndexOf("#") + 1)) : NaN;
-  const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
   const route: PrRoute = {
     worktreeId: String(params.worktreeId ?? ""),
     number: String(params.number ?? ""),
@@ -61,7 +57,6 @@ export function usePrRoute() {
     cwd: worktree?.path,
     number,
     client: session.client,
-    provider,
     valid: !!worktree && Number.isSafeInteger(number) && number > 0,
     waiting,
   };

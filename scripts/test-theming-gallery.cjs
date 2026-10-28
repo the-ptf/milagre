@@ -239,7 +239,7 @@ const replies = {
 window.milagre = new Proxy({}, {get(_, name) {
   if (name === 'git') return {
     diffStats: async () => ({ added: 12, removed: 6 }),
-    diffFiles: async () => ({ isRepo: true, base: 'main', files: entries }),
+    diffFiles: async ({ mode }) => ({ isRepo: true, base: 'main', files: mode === 'committed' ? [] : entries }),
     diffFile: async ({ path }) => ({ patch: FILES[path].patch, binary: false, tooLarge: false }),
   };
   if (name === 'terminals') return {

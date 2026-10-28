@@ -73,6 +73,7 @@ export function useDiffFiles({
   mode,
   range,
   active,
+  patches = true,
   bridge,
 }: {
   cwd: string;
@@ -81,6 +82,8 @@ export function useDiffFiles({
   /** The PR's commits, for mode "pr". */
   range?: PrRange;
   active: boolean;
+  /** Whether the diff shows this mode: only then does a refresh re-read the loaded patches; otherwise it drops them. */
+  patches?: boolean;
   bridge: MilagreBridge;
 }) {
   const scope = JSON.stringify([cwd, base, mode, mode === "pr" ? range : null]);
@@ -95,8 +98,8 @@ export function useDiffFiles({
   const epoch = useRef(0);
   const forced = useRef(new Set<string>());
   const reload = useRef<(file: DiffFileEntry) => void>(() => {});
-  const request = useRef({ cwd, base, mode, bridge, range });
-  request.current = { cwd, base, mode, bridge, range };
+  const request = useRef({ cwd, base, mode, bridge, range, patches });
+  request.current = { cwd, base, mode, bridge, range, patches };
   const bump = useCallback(() => setVersion((version) => version + 1), []);
 
   const dropPatches = useCallback(() => {
@@ -109,7 +112,7 @@ export function useDiffFiles({
     async (background = false) => {
       // Let slow patches finish before a periodic read invalidates their cache generation.
       if (background && (inFlight.current > 0 || queue.current.length > 0)) return;
-      const { cwd, base, mode, bridge, range } = request.current;
+      const { cwd, base, mode, bridge, range, patches } = request.current;
       const scope = JSON.stringify([cwd, base, mode, mode === "pr" ? range : null]);
       const current = ++generation.current;
       setSnapshot((previous) => ({ scope, list: previous.scope === scope && previous.list.state === "ready" ? previous.list : { state: "loading" } }));
@@ -119,7 +122,7 @@ export function useDiffFiles({
           // Keep loaded patches visible while polling revalidates them, including edits with unchanged line counts.
           const previous = new Map(cache.current);
           dropPatches();
-          if (result.isRepo) {
+          if (result.isRepo && patches) {
             for (const file of result.files) {
               const key = patchKey(cwd, mode, file, range);
               const patch = previous.get(key);

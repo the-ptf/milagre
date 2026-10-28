@@ -1814,7 +1814,7 @@
         }
       ]
     },
-    "pr:file-viewed": {
+    "pr:merge": {
       "parameters": [
         {
           "name": "request",
@@ -1825,7 +1825,7 @@
         }
       ]
     },
-    "pr:merge": {
+    "pr:ready": {
       "parameters": [
         {
           "name": "request",
@@ -1836,7 +1836,7 @@
         }
       ]
     },
-    "pr:ready": {
+    "pr:labels": {
       "parameters": [
         {
           "name": "request",
@@ -1847,7 +1847,7 @@
         }
       ]
     },
-    "pr:guide": {
+    "pr:set-labels": {
       "parameters": [
         {
           "name": "request",
@@ -1858,7 +1858,7 @@
         }
       ]
     },
-    "pr:write-guide": {
+    "pr:reviewer-candidates": {
       "parameters": [
         {
           "name": "request",
@@ -1869,7 +1869,7 @@
         }
       ]
     },
-    "pr:guide-read": {
+    "pr:request-reviewers": {
       "parameters": [
         {
           "name": "request",
@@ -5809,25 +5809,6 @@
         "number": {
           "type": "number"
         },
-        "path": {
-          "type": "string"
-        },
-        "viewed": {
-          "enum": [false, true]
-        }
-      },
-      "required": ["cwd", "number", "path", "viewed"],
-      "additionalProperties": false
-    },
-    "T115": {
-      "type": "object",
-      "properties": {
-        "cwd": {
-          "type": "string"
-        },
-        "number": {
-          "type": "number"
-        },
         "method": {
           "enum": ["squash", "merge", "rebase"]
         },
@@ -5844,7 +5825,7 @@
       "required": ["cwd", "number", "method"],
       "additionalProperties": false
     },
-    "T116": {
+    "T115": {
       "type": "object",
       "properties": {
         "cwd": {
@@ -5860,20 +5841,17 @@
       "required": ["cwd", "number"],
       "additionalProperties": false
     },
-    "T117": {
+    "T116": {
       "type": "object",
       "properties": {
         "cwd": {
           "type": "string"
-        },
-        "url": {
-          "type": "string"
         }
       },
-      "required": ["cwd", "url"],
+      "required": ["cwd"],
       "additionalProperties": false
     },
-    "T118": {
+    "T117": {
       "type": "object",
       "properties": {
         "cwd": {
@@ -5882,14 +5860,30 @@
         "number": {
           "type": "number"
         },
-        "url": {
-          "type": "string"
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
-        "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["cwd", "number", "url"],
+      "required": ["cwd", "number", "add", "remove"],
+      "additionalProperties": false
+    },
+    "T118": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd"],
       "additionalProperties": false
     },
     "T119": {
@@ -5898,17 +5892,23 @@
         "cwd": {
           "type": "string"
         },
-        "url": {
-          "type": "string"
-        },
-        "stop": {
+        "number": {
           "type": "number"
         },
-        "read": {
-          "enum": [false, true]
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["cwd", "url", "stop", "read"],
+      "required": ["cwd", "number", "add", "remove"],
       "additionalProperties": false
     },
     "T120": {
@@ -6685,11 +6685,11 @@
           "$ref": "#/$defs/T161",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2145": {
+        "__@toStringTag@2141": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2145"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2141"],
       "additionalProperties": false
     },
     "T158": {

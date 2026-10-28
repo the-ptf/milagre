@@ -1,16 +1,7 @@
 import { parsePatch, type DiffLine } from "@milagre/shared/diff-parse";
 import { splitRows, wordChanges, type Range } from "@milagre/shared/diff-layout";
 import { openThreads } from "@milagre/shared/pull-request-review";
-import type {
-  MergeMethod,
-  MergeStatus,
-  PullRequestCheck,
-  PullRequestDetail,
-  PullRequestFile,
-  PullRequestThread,
-  ReviewGuide,
-  ReviewGuideResult,
-} from "@milagre/shared/pull-request-review";
+import type { MergeMethod, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestThread } from "@milagre/shared/pull-request-review";
 import type { DiffRow } from "./diff-rows";
 
 // What the PR sheet (phone) and the PR panel (iPad) work out from a PR, kept out of the components so it is tested.
@@ -45,10 +36,6 @@ export function ago(iso: string, now = Date.now()) {
   return days < 30 ? `${days}d` : `${Math.round(days / 30)}mo`;
 }
 
-export function viewedCount(files: PullRequestFile[]) {
-  return { viewed: files.filter((file) => file.viewed === "VIEWED").length, total: files.length };
-}
-
 /** The PR's files under their folders, folders and names in order. */
 export function filesByFolder(files: PullRequestFile[]): { folder: string; files: PullRequestFile[] }[] {
   const groups = new Map<string, PullRequestFile[]>();
@@ -70,38 +57,42 @@ export const fileName = (path: string) => path.split("/").pop() || path;
 /** The threads still waiting on someone: unresolved, with at least one comment others can see (shared with desktop). */
 export const openThreadsOf = openThreads;
 
-/** What the Reviews row says: open threads first, else the reviewers' verdicts. */
-export function reviewsSummary(pr: PullRequestDetail) {
-  const open = openThreadsOf(pr).length;
-  if (open) return plural(open, "open thread");
-  const approved = pr.reviewers.filter((reviewer) => reviewer.state === "APPROVED" && !reviewer.stale);
-  const changes = pr.reviewers.find((reviewer) => reviewer.state === "CHANGES_REQUESTED");
-  if (changes) return `Changes requested by ${changes.login}`;
-  if (approved[0]) return approved.length === 1 ? `Approved by ${approved[0].login}` : `${approved.length} approvals`;
-  if (pr.reviewers.some((reviewer) => reviewer.state === "REQUESTED")) return "Review requested";
-  return "No reviews yet";
+/** "owner/repo" from the PR's GitHub address. */
+export const repoOf = (url: string) => /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(url)?.[1] ?? "";
+
+/** "2 files and 1 commit not in the PR yet": the Worktree's work an open PR doesn't have; empty when none. */
+export function notInPrLine(files: number, commits: number) {
+  const parts = [files && plural(files, "file"), commits && plural(commits, "commit")].filter(Boolean);
+  return parts.length ? `${parts.join(" and ")} not in the PR yet` : "";
 }
 
-export type GuideRow = { action: "start" | "open" | "rewrite" | "writing"; value: string; stale: boolean; error?: string };
-
-/** The Review guide row: start one, keep reading it, rewrite one written before the latest push, or wait for it. */
-export function guideRow(result: ReviewGuideResult | null, pr: PullRequestDetail): GuideRow {
-  if (!result || !result.ok) return { action: "start", value: "", stale: false, ...(result && !result.ok && { error: result.message }) };
-  if (result.writing) return { action: "writing", value: "Writing…", stale: false };
-  const guide = result.guide;
-  if (!guide) return { action: "start", value: "", stale: false, ...(result.error && { error: result.error }) };
-  const stale = guide.headRefOid !== pr.headRefOid;
-  const read = result.read.filter((stop) => stop < guide.stops.length).length;
-  return { action: "open", value: `${read} of ${guide.stops.length} read`, stale, ...(result.error && { error: result.error }) };
+/** "39m ago", "just now": a time for the author line and the comment cards. */
+export function agoLabel(iso: string, now = Date.now()) {
+  const value = ago(iso, now);
+  return value === "now" ? "just now" : value ? `${value} ago` : "";
 }
 
-/** Where "Continue" lands: the first stop not read yet, else the first. */
-export function nextStop(guide: ReviewGuide, read: number[]) {
-  const index = guide.stops.findIndex((_stop, at) => !read.includes(at));
-  return index === -1 ? 0 : index;
+/** The Comments section: comments on the PR and review threads, by when they started. Resolved threads stay apart. */
+export function commentItems(pr: PullRequestDetail, newestFirst: boolean) {
+  type Item = { type: "comment"; at: string; comment: PullRequestComment } | { type: "thread"; at: string; thread: PullRequestThread };
+  const items: Item[] = [
+    ...pr.comments.map((comment) => ({ type: "comment" as const, at: comment.createdAt, comment })),
+    ...pr.threads.filter((thread) => !thread.resolved).map((thread) => ({ type: "thread" as const, at: thread.comments[0]?.createdAt ?? "", thread })),
+  ];
+  // Hermes has no toSorted; this sorts the copy above.
+  // oxlint-disable-next-line unicorn/no-array-sort
+  items.sort((a, b) => (newestFirst ? Date.parse(b.at) - Date.parse(a.at) : Date.parse(a.at) - Date.parse(b.at)) || 0);
+  return { items, resolved: pr.threads.filter((thread) => thread.resolved) };
 }
 
-// What "Fix in Chat", "Ask in Chat" and "Send to Chat" put in the Chat: enough for its agent to find the place on its own.
+// What "Send to Chat" and "Ask Chat" put in the Chat.
+
+export function lineMessage(pr: PullRequestDetail, path: string, line: number, side: "LEFT" | "RIGHT", text: string) {
+  const at = side === "LEFT" ? `${path}, old line ${line}` : `${path}:${line}`;
+  return `About ${at} in PR #${pr.number}:\n\n${text.trim()}`;
+}
+
+export const askPrefill = (pr: PullRequestDetail) => `About PR #${pr.number}: `;
 
 const quote = (text: string) =>
   text
@@ -110,58 +101,26 @@ const quote = (text: string) =>
     .map((line) => `> ${line}`)
     .join("\n");
 
-const where = (path: string, line: number | null) => (line ? `${path}:${line}` : path);
-
-export function threadMessage(pr: PullRequestDetail, thread: PullRequestThread) {
+/** "Fix in Chat" on a review thread in the diff: desktop's words. */
+export function threadFixMessage(pr: Pick<PullRequestDetail, "number">, thread: PullRequestThread) {
+  const where = thread.line ? `${thread.path}:${thread.line}` : thread.path;
   const comments = thread.comments.filter((comment) => !comment.pending).map((comment) => `${comment.author} wrote:\n${quote(comment.body)}`);
-  return `Address this review comment on PR #${pr.number} (${pr.url}), on ${where(thread.path, thread.line)}:\n\n${comments.join("\n\n")}\n\nFix it on this branch and push, then tell me what you changed.`;
+  return `Address this review thread on PR #${pr.number}, at ${where}:\n\n${comments.join("\n\n")}\n\nMake the change, push it, and tell me what you did so I can reply and resolve the thread.`;
 }
-
-export function threadsMessage(pr: PullRequestDetail, threads: PullRequestThread[]) {
-  if (threads.length === 1 && threads[0]) return threadMessage(pr, threads[0]);
-  const parts = threads.map((thread, index) => {
-    const first = thread.comments.find((comment) => !comment.pending);
-    return `${index + 1}. ${where(thread.path, thread.line)} (${first?.author ?? "reviewer"}):\n${quote(first?.body ?? "")}`;
-  });
-  return `Address the ${threads.length} open review threads on PR #${pr.number} (${pr.url}):\n\n${parts.join("\n\n")}\n\nFix them on this branch and push, then tell me what you changed in each.`;
-}
-
-export function checkMessage(pr: PullRequestDetail, check: PullRequestCheck) {
-  const name = check.workflow ? `${check.workflow} / ${check.name}` : check.name;
-  return `The "${name}" check failed on PR #${pr.number} (${pr.url}).${check.url ? ` Its log: ${check.url}` : ""}\n\nFind out why, fix it on this branch and push.`;
-}
-
-export function lineMessage(pr: PullRequestDetail, path: string, line: number, side: "LEFT" | "RIGHT", text: string) {
-  const at = side === "LEFT" ? `${path}, old line ${line}` : `${path}:${line}`;
-  return `About ${at} in PR #${pr.number}:\n\n${text.trim()}`;
-}
-
-/** The merge box's blocker, as a request to the Chat; null when there is nothing for the agent to fix. */
-export function blockerMessage(pr: PullRequestDetail, status: MergeStatus) {
-  if (status.tone !== "blocked") return null;
-  const target = `PR #${pr.number} (${pr.url})`;
-  if (status.title === "Conflicts")
-    return `${target} conflicts with ${pr.baseRefName}. Merge ${pr.baseRefName} into this branch, resolve the conflicts and push.`;
-  if (status.title === "Checks failing") {
-    const failing = pr.checks
-      .filter((check) => check.outcome === "fail")
-      .map((check) => `- ${check.workflow ? `${check.workflow} / ` : ""}${check.name}${check.url ? ` (${check.url})` : ""}`);
-    return `These checks fail on ${target}:\n${failing.join("\n")}\n\nFind out why, fix them on this branch and push.`;
-  }
-  if (status.title === "Behind") return `${target} is behind ${pr.baseRefName}. Update this branch with ${pr.baseRefName} and push.`;
-  if (status.title === "Changes requested") {
-    const open = openThreadsOf(pr);
-    return open.length ? threadsMessage(pr, open) : `A reviewer requested changes on ${target}. Read the review and address it on this branch.`;
-  }
-  return null;
-}
-
-export const askPrefill = (pr: PullRequestDetail) => `About PR #${pr.number}: `;
 
 // Optimistic writes: the sheet shows the change at once and the next read confirms or undoes it.
 
-export function withViewed(pr: PullRequestDetail, path: string, viewed: boolean): PullRequestDetail {
-  return { ...pr, files: pr.files.map((file) => (file.path === path ? { ...file, viewed: viewed ? "VIEWED" : "UNVIEWED" } : file)) };
+/** Labels added and removed at once; an added one takes its colour from the repository's list. */
+export function withLabels(pr: PullRequestDetail, add: string[], remove: string[], known: { name: string; color: string }[]): PullRequestDetail {
+  const kept = pr.labels.filter((label) => !remove.includes(label.name) && !add.includes(label.name));
+  const added = add.map((name) => ({ name, color: known.find((label) => label.name === name)?.color ?? "888888" }));
+  return { ...pr, labels: [...kept, ...added] };
+}
+
+/** Reviewers asked or dropped at once; an asked one waits as REQUESTED. */
+export function withReviewers(pr: PullRequestDetail, add: string[], remove: string[]): PullRequestDetail {
+  const kept = pr.reviewers.filter((reviewer) => !remove.includes(reviewer.login) && !add.includes(reviewer.login));
+  return { ...pr, reviewers: [...kept, ...add.map((login) => ({ login, state: "REQUESTED" as const }))] };
 }
 
 export function withResolved(pr: PullRequestDetail, threadId: string, resolved: boolean): PullRequestDetail {

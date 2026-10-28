@@ -13,7 +13,7 @@ import {
 import type { WorktreeBinding } from "@milagre/shared/model";
 import { LINK_PENDING_WORKTREE_TEXT } from "@milagre/shared/worktree-link";
 import type { DiffMode } from "../../electron";
-import { ChangeList, ChangesHeader, Counts } from "./ChangesPanel";
+import { ChangesSections, ChangesTabs, Counts, changedFileCount, firstSection, type ChangesLists, type CommentCounts, type PrTab } from "./ChangesPanel";
 import type { DiffList } from "./useDiffFiles";
 import { ProjectAvatarStack } from "../ProjectAvatarStack";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -38,55 +38,51 @@ export function LinkChangesPanel({
 }: {
   members: WorktreeBinding[];
   projects: Array<{ id: string; path: string; name: string }>;
-  lists: Record<string, DiffList>;
+  /** Each Project's lists by mode, keyed by Project id: the Changes tab's two sections. */
+  lists: Record<DiffMode, Record<string, DiffList>>;
   loading: boolean;
+  /** The section the diff shows. */
   mode: DiffMode;
   onModeChange: (mode: DiffMode) => void;
   onRefresh: () => void;
-  onSelectFile: (member: WorktreeBinding, path: string) => void;
+  onSelectFile: (member: WorktreeBinding, path: string, mode: DiffMode) => void;
   selectedProjectId?: string;
   activePath?: string;
-  commentCounts?: Record<string, number>;
+  commentCounts?: CommentCounts;
   onCommit: (member: WorktreeBinding) => void;
   /** Left out for a Link on another Mac: these only act on this one. */
   onOpenEditor?: (member: WorktreeBinding) => void;
   onReveal?: (member: WorktreeBinding) => void;
-  /** The Projects' PRs, one menu entry each; while one is picked the panel shows it instead of the changes. */
+  /** The Projects' PRs, a tab each (`hint` names the Project); while one is picked the panel shows it instead of the changes. */
   pullRequest?: {
-    options: { value: string; label: string }[];
+    tabs: PrTab[];
+    /** The shown PR tab's key. */
     value?: string;
-    onPick: (value: string) => void;
+    onPick: (key: string) => void;
     shown: boolean;
-    totals?: { added: number; removed: number };
     loading: boolean;
     body: ReactNode;
   };
 }) {
-  const totals = members.reduce(
-    (sum, member) => {
-      const list = lists[member.projectId];
-      if (list?.state === "ready" && list.isRepo)
-        for (const file of list.files) {
-          sum.added += file.added;
-          sum.removed += file.removed;
-        }
-      return sum;
-    },
-    { added: 0, removed: 0 },
-  );
+  const listsOf = (projectId: string): ChangesLists => ({
+    uncommitted: lists.uncommitted[projectId] ?? { state: "loading" },
+    committed: lists.committed[projectId] ?? { state: "loading" },
+  });
+  const count = members.reduce((sum, member) => sum + changedFileCount(listsOf(member.projectId)), 0);
   return (
     <aside
       data-changes-panel
       aria-label="Changes"
       className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
     >
-      <ChangesHeader
-        mode={pullRequest?.shown ? "pr" : mode}
-        onModeChange={(next) => next !== "pr" && onModeChange(next)}
+      <ChangesTabs
+        count={count}
+        prs={pullRequest?.tabs ?? []}
+        selected={pullRequest?.shown ? pullRequest.value : undefined}
+        // The Changes tab opens on the shown Project's first section with files, as a Project Chat's panel does.
+        onSelect={(key) => (key ? pullRequest?.onPick(key) : onModeChange(firstSection(listsOf(selectedProjectId ?? members[0]?.projectId ?? ""))))}
         onRefresh={onRefresh}
         loading={pullRequest?.shown ? pullRequest.loading : loading}
-        totals={pullRequest?.shown ? pullRequest.totals : totals}
-        prEntries={pullRequest && pullRequest.options.length ? pullRequest : undefined}
       />
       {pullRequest?.shown ? (
         pullRequest.body
@@ -97,9 +93,9 @@ export function LinkChangesPanel({
               key={member.projectId}
               member={member}
               name={projects.find((project) => project.id === member.projectId)?.name ?? member.projectId}
-              list={lists[member.projectId] ?? { state: "loading" }}
+              lists={listsOf(member.projectId)}
               mode={mode}
-              onSelectFile={(path) => onSelectFile(member, path)}
+              onSelectFile={(path, fileMode) => onSelectFile(member, path, fileMode)}
               activePath={selectedProjectId === member.projectId ? activePath : undefined}
               commentCounts={selectedProjectId === member.projectId ? commentCounts : undefined}
               onCommit={() => onCommit(member)}
@@ -134,7 +130,7 @@ export function LinkChangesPanel({
 function ProjectChanges({
   member,
   name,
-  list,
+  lists,
   mode,
   onSelectFile,
   activePath,
@@ -145,18 +141,18 @@ function ProjectChanges({
 }: {
   member: WorktreeBinding;
   name: string;
-  list: DiffList;
+  lists: ChangesLists;
   mode: DiffMode;
-  onSelectFile: (path: string) => void;
+  onSelectFile: (path: string, mode: DiffMode) => void;
   activePath?: string;
-  commentCounts?: Record<string, number>;
+  commentCounts?: CommentCounts;
   onCommit: () => void;
   onOpenEditor?: () => void;
   onReveal?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const files = list.state === "ready" && list.isRepo ? list.files : [];
+  const files = [lists.uncommitted, lists.committed].flatMap((list) => (list.state === "ready" && list.isRepo ? list.files : []));
   return (
     <section data-link-changes-project={member.projectId} aria-label={name} className="pb-2">
       <div data-project-header className={`group/project relative mx-2 mt-1 rounded-chip hover:bg-hover ${actionsOpen ? "bg-hover" : ""}`}>
@@ -190,16 +186,9 @@ function ProjectChanges({
         <ProjectActions name={name} onOpenChange={setActionsOpen} onCommit={onCommit} onOpenEditor={onOpenEditor} onReveal={onReveal} />
       </div>
       {!collapsed && (
-        <>
-          {mode === "committed" && list.state === "ready" && list.isRepo && list.base && (
-            <p data-diff-base className="truncate px-8 pb-1 text-[10px] text-ink-3">
-              since <span className="font-mono">{list.base}</span>
-            </p>
-          )}
-          <div className="pl-5">
-            <ChangeList list={list} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
-          </div>
-        </>
+        <div className="pl-5">
+          <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+        </div>
       )}
     </section>
   );

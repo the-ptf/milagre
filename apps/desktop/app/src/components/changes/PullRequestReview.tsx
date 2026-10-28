@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckmarkSquare02Icon, Delete02Icon, SparklesIcon, SquareIcon } from "@hugeicons/core-free-icons";
+import { Delete02Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import type { PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
 import { age, threadState } from "../../lib/pull-request-view";
 import { Select } from "../primitives/Select";
 import { useDismiss } from "../../lib/use-dismiss";
 
-// The PR's review in its diff: GitHub's threads under their lines, each file's Viewed toggle, and the bar that
-// submits the viewer's pending review.
+// The PR's review in its diff: GitHub's threads under their lines, and the bar that submits the viewer's pending review.
 
 const STATE_LABEL = { open: "Open", resolved: "Resolved", outdated: "Outdated", pending: "Pending" } as const;
 const STATE_TONE = { open: "text-orange", resolved: "text-ink-3", outdated: "text-ink-3", pending: "text-accent-ink" } as const;
@@ -150,27 +149,6 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
   );
 }
 
-/** A PR file's Viewed toggle, in its diff header and its panel row. */
-export function ViewedToggle({ viewed, changed, onToggle }: { viewed: boolean; changed?: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={viewed}
-      data-pr-viewed={viewed ? "on" : changed ? "changed" : "off"}
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-      className={`ml-1 inline-flex h-6 shrink-0 items-center gap-1 rounded-chip px-2 text-[11px] font-medium transition-colors ${
-        viewed ? "bg-green-tint text-diff-add" : changed ? "bg-orange-tint text-orange" : "border border-line text-ink-2 hover:bg-hover"
-      }`}
-    >
-      <HugeiconsIcon icon={viewed ? CheckmarkSquare02Icon : SquareIcon} size={12} strokeWidth={1.8} color="currentColor" />
-      {changed && !viewed ? "Changed" : "Viewed"}
-    </button>
-  );
-}
-
 const VERDICTS: { value: ReviewEvent; label: string }[] = [
   { value: "COMMENT", label: "Comment" },
   { value: "APPROVE", label: "Approve" },
@@ -180,15 +158,11 @@ const VERDICTS: { value: ReviewEvent; label: string }[] = [
 /** Under the PR's diff: what the review holds so far, and Submit review with a verdict and an optional summary. */
 export function ReviewBar({
   pending,
-  viewed,
-  total,
   canApprove,
   error,
   onSubmit,
 }: {
   pending: number;
-  viewed: number;
-  total: number;
   /** GitHub doesn't let a PR's author approve or request changes on it. */
   canApprove: boolean;
   error: string | null;
@@ -214,7 +188,7 @@ export function ReviewBar({
       setOpen(false);
     }
   };
-  const summary = [pending ? `${pending} pending` : "", `${viewed} of ${total} viewed`].filter(Boolean).join(" · ");
+  const summary = pending ? `${pending} pending` : "Nothing pending";
   return (
     <div ref={root} data-pr-review-bar className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(440px,calc(100%-24px))] -translate-x-1/2">
       <div className="overflow-hidden rounded-[22px] border border-line bg-surface shadow-card">

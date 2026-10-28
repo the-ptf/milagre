@@ -81,7 +81,7 @@ function Fixture() {
       <div data-chat-stub className={"flex-1 pt-12 px-6 text-[14px] " + (presence.occupied ? "hidden" : "")}>Chat goes here</div>
     </main>
     <ChangesPanelSlot open={changes.open}>
-      <ChangesPanel list={changes.list} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} />
+      <ChangesPanel lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} />
     </ChangesPanelSlot>
   </div>;
 }
@@ -118,15 +118,18 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!!document.querySelector("[data-diff-tree-file]")');
 
-    // Tree: merged single-child folders and summed counts.
-    const folders = await evaluate('[...document.querySelectorAll("[data-diff-tree-folder]")].map(node => node.dataset.diffTreeFolder)');
+    // The Changes tab counts both sections, a file in both once; each section is its own tree, with its summed counts.
+    assert.equal(await evaluate('document.querySelector("[data-changes-tab=changes]").textContent'), "Changes6");
+    const folders = await evaluate(
+      `[...document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-folder]")].map(node => node.dataset.diffTreeFolder)`,
+    );
     assert.deepEqual(folders, ["assets", "assets/data", "packages/app/src", "packages/app/src/components/Calendar"], "Single-child folders merge into one row");
     assert.equal(
       await evaluate("document.querySelector(\"[data-diff-tree-folder='packages/app/src/components/Calendar']\").textContent"),
       "components/Calendar+3−2",
     );
     assert.equal(await evaluate("document.querySelector(\"[data-diff-tree-folder='packages/app/src']\").textContent"), "packages/app/src+5−2");
-    assert.equal(await evaluate('document.querySelector("[data-diff-counts=total]").textContent'), "+3507−3");
+    assert.match(await evaluate(`document.querySelector("[data-changes-section='Not committed'] h3").textContent`), /^Not committed6.*\+3507−3$/);
     assert.equal(await evaluate("document.querySelector(\"[data-diff-tree-file='packages/app/src/index.ts'] [data-status]\").dataset.status"), "A");
     assert.equal(await evaluate('document.querySelectorAll("[data-diff-view]").length'), 0, "Diff view waits for a file click");
     await delay(200);
@@ -277,34 +280,39 @@ async function browserChecks() {
 
     // An external commit has no agent event: periodic reads must clear the tree by themselves.
     await evaluate("window.externalCommit = true");
-    await waitFor('document.querySelectorAll("[data-diff-tree-file]").length === 0');
+    await waitFor(`!document.querySelector("[data-changes-section='Not committed']")`);
     await evaluate("window.externalCommit = false");
-    await waitFor('document.querySelectorAll("[data-diff-tree-file]").length > 0');
+    await waitFor(`document.querySelectorAll("[data-changes-section='Not committed'] [data-diff-tree-file]").length > 0`);
 
-    // Mode switch refetches and shows the base.
-    await evaluate("document.querySelector(\"[aria-label='Changes mode']\").click()");
-    await waitFor('!!document.querySelector("[role=option]")');
-    await evaluate('[...document.querySelectorAll("[role=option]")].find(node => node.textContent.includes("Committed")).click()');
-    await waitFor('window.listCalls.at(-1) === "committed"');
-    await waitFor('document.querySelectorAll("[data-diff-tree-file]").length === 1');
-    assert.ok(await evaluate('document.querySelector("[data-diff-base]").textContent.includes("main")'));
+    // The branch's commits are their own section, since its base; a file there opens the committed diff.
+    assert.equal(await evaluate(`document.querySelectorAll("[data-changes-section='On this branch'] [data-diff-tree-file]").length`), 1);
+    assert.ok(await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-base]").textContent.includes("main")`));
+    await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-tree-file]").click()`);
     await waitFor('window.fileCalls.some(call => call.startsWith("committed:"))');
+    await waitFor('document.querySelectorAll("[data-diff-view] [data-diff-file]").length === 1');
 
     // Back slides the diff out, then the chat returns.
     await evaluate('document.querySelector("[data-diff-back]").click()');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), true, "The chat waits for the diff to leave");
     await waitFor('!document.querySelector("[data-diff-view]") && !document.querySelector("[data-diff-bar]")');
     await waitFor('!document.querySelector("[data-chat-stub]").classList.contains("hidden")');
-    // Committed mode lists a single file now.
-    await evaluate('document.querySelector("[data-diff-tree-file]").click()');
+    // The committed file opens its diff again.
+    await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-tree-file]").click()`);
     await waitFor('!!document.querySelector("[data-diff-view]")');
+    // While the diff shows the committed files, a refresh re-reads only their patches, not the uncommitted ones.
+    const uncommittedReads = await evaluate('window.fileCalls.filter(call => call.startsWith("uncommitted:")).length');
+    const lists = await evaluate("window.listCalls.length");
+    await evaluate("window.endTurn()");
+    await waitFor(`window.listCalls.length >= ${lists + 2}`);
+    await delay(200);
+    assert.equal(await evaluate('window.fileCalls.filter(call => call.startsWith("uncommitted:")).length'), uncommittedReads);
 
     // Closing the panel returns to Chat.
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!document.querySelector("[data-changes-panel]") && !document.querySelector("[data-diff-view]")');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), false);
     console.log(
-      "PASS: panel tree with merged folders and counts, file click opens the diff, Back slides it out, unified gutters and word tint, split pairing, large and binary files, mode switch, turn-end and external-change refresh",
+      "PASS: panel tree with merged folders and counts, file click opens the diff, Back slides it out, unified gutters and word tint, split pairing, large and binary files, committed section, turn-end and external-change refresh",
     );
     app.exit(0);
   } catch (error) {

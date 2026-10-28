@@ -168,7 +168,10 @@ function createGit({ execFile = execute, env = process.env, platform = process.p
     const entries = await out(cwd, ["log", "--walk-reflogs", "--format=%gs", "--end-of-options", branch]);
     const from = /^branch: Created from (.+)$/.exec(entries?.split("\n").at(-1) ?? "")?.[1];
     if (!from || from === "HEAD" || /^[0-9a-f]{7,64}$/i.test(from)) return null;
-    return from === branch.slice("refs/heads/".length) ? null : from;
+    // Checked out from its own remote copy ("origin/<branch>" or "refs/remotes/origin/<branch>", e.g. someone's PR
+    // branch): that copy is not a base.
+    const name = branch.slice("refs/heads/".length);
+    return /^(?:refs\/remotes\/)?[^/]+\/(.+)$/.exec(from)?.[1] === name || from === name ? null : from;
   }
 
   /** The base a chat's changes are measured against: the one Milagre recorded, else the branch it was made from, else the default. */

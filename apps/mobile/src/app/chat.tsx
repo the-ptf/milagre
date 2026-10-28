@@ -35,7 +35,7 @@ import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { pullRequestAction, pullRequestBlockers, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { pullRequestAction, pullRequestBlockers, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
@@ -52,7 +52,6 @@ import { usePrDetail } from "../pr-store";
 import { openThreads } from "@milagre/shared/pull-request-review";
 import { openPrPage, openPullRequest } from "../pr-nav";
 import { onPullRequestRequest, prChoiceKey, registerPrChat, type PrChoice } from "../pr-chat";
-import type { DiffMode } from "@milagre/shared/git-diff";
 import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
@@ -583,10 +582,12 @@ function ChatPane({
     rowPrs.map((entry) => {
       const place = prPath ? undefined : placeOf(entry);
       const { number, title, state } = entry;
+      const { tone, icon } = pullRequestPresentation(entry);
       return {
         number,
         title,
         state,
+        look: { tone, icon },
         ...(place ? { cwd: place.cwd, projectPath: place.projectPath, ...(place.project ? { project: place.project } : {}) } : {}),
       };
     }),
@@ -726,14 +727,14 @@ function ChatPane({
     pullRequest: savedChatKey && pr && prCwd ? { number: pr.number, chatKey: savedChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
     passive: secondary,
   });
-  // The PR sheet and the iPad panel send to this Chat and fill its composer ("Fix in Chat", "Ask Chat"), and a Chat row's
+  // The PR sheet and the iPad panel send to this Chat and fill its composer ("Send to Chat", "Ask Chat"), and a Chat row's
   // PR link opens the PR here; they reach the latest send through these.
   const prChat = useRef<{
     send: (body: string) => Promise<boolean | "busy">;
     prefill: (text: string) => void;
     open: (number?: number) => void;
     pullRequests: () => PrChoice[];
-    changes: (mode?: DiffMode) => void;
+    changes: () => void;
   } | null>(null);
   useEffect(() => {
     if (!savedChatKey) return;
@@ -741,7 +742,7 @@ function ChatPane({
       send: (body) => prChat.current?.send(body) ?? Promise.resolve(false),
       prefill: (text) => prChat.current?.prefill(text),
       pullRequests: () => prChat.current?.pullRequests() ?? [],
-      changes: (mode) => prChat.current?.changes(mode),
+      changes: () => prChat.current?.changes(),
     });
     const unsubscribe = onPullRequestRequest(savedChatKey, (number) => prChat.current?.open(number));
     return () => {
@@ -949,7 +950,7 @@ function ChatPane({
     open: openPr,
     pullRequests: () => prChoices,
     // The right panel holds the routed Chat's Changes; the Chat beside it opens its own as a page.
-    changes: secondary ? () => router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } }) : panels.showChanges,
+    changes: secondary ? () => router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } }) : () => panels.showChanges(),
   };
   const branches = branchList?.client === client && branchList.path === project.path ? branchList : null;
   // Until the branch list arrives a new Worktree starts from this checkout's branch, as on desktop, so a busy Mac

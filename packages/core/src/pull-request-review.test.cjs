@@ -57,12 +57,12 @@ function prNode(overrides = {}) {
     },
     files: {
       nodes: [
-        { path: "src/a.ts", additions: 8, deletions: 2, changeType: "MODIFIED", viewerViewedState: "VIEWED" },
-        { path: "src/b.ts", additions: 2, deletions: 0, changeType: "ADDED", viewerViewedState: "UNVIEWED" },
+        { path: "src/a.ts", additions: 8, deletions: 2, changeType: "MODIFIED" },
+        { path: "src/b.ts", additions: 2, deletions: 0, changeType: "ADDED" },
       ],
       pageInfo: { hasNextPage: false, endCursor: null },
     },
-    reviewRequests: { nodes: [{ requestedReviewer: { login: "jefo3" } }] },
+    reviewRequests: { nodes: [{ requestedReviewer: { login: "jefo3" } }, { requestedReviewer: { combinedSlug: "acme/web" } }] },
     latestReviews: {
       nodes: [
         { author: { login: "marcos" }, state: "APPROVED", commit: { oid: HEAD } },
@@ -125,12 +125,13 @@ test("detail turns GitHub's PR into the panel's shape", async () => {
     { login: "marcos", state: "APPROVED" },
     { login: "old", state: "CHANGES_REQUESTED", stale: true },
     { login: "jefo3", state: "REQUESTED" },
+    { login: "acme/web", state: "REQUESTED", team: true },
   ]);
   assert.deepEqual(
-    pr.files.map((file) => [file.path, file.status, file.viewed]),
+    pr.files.map((file) => [file.path, file.status]),
     [
-      ["src/a.ts", "modified", "VIEWED"],
-      ["src/b.ts", "added", "UNVIEWED"],
+      ["src/a.ts", "modified"],
+      ["src/b.ts", "added"],
     ],
   );
   assert.deepEqual(pr.threads[0], {
@@ -263,6 +264,24 @@ test("merge and ready run gh pr with only known flags", async () => {
     ["pr", "ready", "7", "--undo"],
   ]);
   assert.deepEqual(await review.merge({ cwd: "/w", number: 7, method: "--admin" }), { ok: false, message: "Choose squash, merge or rebase." });
+});
+
+test("labels and reviewers read the repo and edit the PR through gh pr edit", async () => {
+  const { exec, calls } = fakeGh((args) =>
+    args[0] === "label" ? [{ name: "bug", color: "d73a4a", description: "Broken" }, { name: "" }] : args[0] === "api" ? "octo\nhubot\n" : "",
+  );
+  const review = createPullRequestReview({ exec });
+  assert.deepEqual(await review.labels({ cwd: "/w" }), { ok: true, labels: [{ name: "bug", color: "d73a4a", description: "Broken" }] });
+  assert.deepEqual(await review.reviewerCandidates({ cwd: "/w" }), { ok: true, logins: ["octo", "hubot"] });
+  await review.setLabels({ cwd: "/w", number: 7, add: ["good first issue", 'size: "S", fast'], remove: ["bug"] });
+  await review.requestReviewers({ cwd: "/w", number: 7, add: ["octo", "acme/web"], remove: ["hubot"] });
+  assert.deepEqual(await review.setLabels({ cwd: "/w", number: 7, add: [], remove: [] }), { ok: true }, "Nothing to change runs nothing");
+  assert.deepEqual(calls.slice(2), [
+    ["pr", "edit", "7", '--add-label="good first issue"', '--add-label="size: ""S"", fast"', '--remove-label="bug"'],
+    ["pr", "edit", "7", "--add-reviewer=octo", "--add-reviewer=acme/web", "--remove-reviewer=hubot"],
+  ]);
+  assert.deepEqual(await review.requestReviewers({ cwd: "/w", number: 7, add: ["--admin x"] }), { ok: false, message: "That isn't a GitHub user." });
+  assert.deepEqual(await review.setLabels({ cwd: "/w", number: 7, add: "bug" }), { ok: false, message: "That isn't a label." });
 });
 
 test("the PR diff needs real commit ids", async () => {

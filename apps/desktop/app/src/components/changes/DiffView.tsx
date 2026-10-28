@@ -8,17 +8,16 @@ import { DiffFile } from "./DiffFile";
 import { useCommentDraft, type CommentActions, type CommentStore, type CommentView } from "./useDiffComments";
 import type { Changes } from "./useChanges";
 import type { useDiffPreferences } from "./DiffPrefs";
-import type { PullRequestDetail, PullRequestFile, PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
+import type { PullRequestDetail, PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
 import type { DiffSelection } from "../../lib/diff-comments";
-import { threadsByPath, threadsFor, viewedCount } from "../../lib/pull-request-view";
+import { threadsByPath, threadsFor } from "../../lib/pull-request-view";
 import { ReviewBar, ThreadCard, type ThreadActions } from "./PullRequestReview";
 
-/** A PR's diff: GitHub's threads and viewed state on its files, and its review's writes. Every function is stable. */
+/** A PR's diff: GitHub's threads on its files, and its review's writes. Every function is stable. */
 export type PrDiffReview = {
   pr: PullRequestDetail;
   threadActions: ThreadActions;
   addToReview: (selection: DiffSelection, path: string, body: string) => void;
-  toggleViewed: (path: string) => void;
   submit: (event: ReviewEvent, body: string) => Promise<boolean>;
   error: string | null;
 };
@@ -100,10 +99,6 @@ export function DiffView({
   // The PR's threads per file, the same arrays while they don't change, so untouched files don't re-render.
   const threadGroups = useRef<Map<string, PullRequestThread[]>>(undefined);
   const prThreads = useMemo(() => (threadGroups.current = threadsByPath(review?.pr.threads ?? [], threadGroups.current)), [review?.pr.threads, threadGroups]);
-  const viewedByPath = useMemo(
-    () => new Map<string, PullRequestFile["viewed"]>(review?.pr.files.map((file) => [file.path, file.viewed]) ?? []),
-    [review?.pr.files],
-  );
   const threadActions = review?.threadActions;
   const renderThreads = useCallback(
     (threads: PullRequestThread[]) => (threadActions ? threads.map((thread) => <ThreadCard key={thread.id} thread={thread} actions={threadActions} />) : null),
@@ -172,8 +167,6 @@ export function DiffView({
               onShowLarge={showLarge}
               threads={review ? threadsFor(prThreads, file.path) : undefined}
               renderThreads={review ? renderThreads : undefined}
-              viewed={viewedByPath.get(file.path)}
-              onToggleViewed={review?.toggleViewed}
             />
           ))}
         </div>
@@ -181,13 +174,7 @@ export function DiffView({
         {review && <div aria-hidden className="h-20" />}
       </ScrollArea>
       {review && (
-        <ReviewBar
-          pending={review.pr.pendingReview?.count ?? 0}
-          {...viewedCount(review.pr)}
-          canApprove={!review.pr.viewerIsAuthor}
-          error={review.error}
-          onSubmit={review.submit}
-        />
+        <ReviewBar pending={review.pr.pendingReview?.count ?? 0} canApprove={!review.pr.viewerIsAuthor} error={review.error} onSubmit={review.submit} />
       )}
     </motion.div>
   );

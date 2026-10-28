@@ -72,7 +72,7 @@ import type { SessionPatch } from "@milagre/shared/project-edits";
 import { isMilagreWorktree, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
-import { ChangesPanel } from "./components/changes/ChangesPanel";
+import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { isMac } from "./lib/shortcut-hints";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
@@ -82,13 +82,12 @@ import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
 import { DiffToolbar, useDiffPreferences, useDiffPresence } from "./components/changes/DiffPrefs";
 import { useChanges } from "./components/changes/useChanges";
-import { useLocalChanges, usePullRequest, useReviewGuide } from "./components/changes/usePullRequest";
+import { useLocalChanges, usePullRequest } from "./components/changes/usePullRequest";
 import { PullRequestPanelBody, type PullRequestPanelActions } from "./components/changes/PullRequestPanel";
-import { ReviewGuideView } from "./components/changes/ReviewGuideView";
 import type { ThreadActions } from "./components/changes/PullRequestReview";
 import type { PrDiffReview } from "./components/changes/DiffView";
 import { PullRequestOpenContext } from "./components/sidebar/ChatRow";
-import { checksFixMessage, prRange, stopAskMessage, threadFixMessage } from "./lib/pull-request-view";
+import { prRange, threadFixMessage } from "./lib/pull-request-view";
 import type { DiffSelection } from "./lib/diff-comments";
 import { openThreads, type PullRequestThread, type ReviewEvent } from "@milagre/shared/pull-request-review";
 import { gitChatContext, type GitChatContext } from "./lib/git-dialog";
@@ -763,7 +762,7 @@ function App() {
   const linear = useLinear();
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
   const sidePanels = useSidePanels();
-  // The PR the open Chat's branch opened: the Changes panel's "PR #n" mode, its diff and its review guide.
+  // The PR the open Chat's branch opened: the Changes panel's "PR #n" mode and its diff.
   const branchPr = selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
   const prChatKey = project && selectedSession ? chatKey(project.path, selectedSession.id) : null;
   const [prWanted, setPrWanted] = useState(false);
@@ -789,13 +788,9 @@ function App() {
   const prShown = changes.open && changes.mode === "pr";
   const localChanges = useLocalChanges({ cwd: selectedWorktree?.path, active: prShown, bridge: bridgeForKey(prChatKey) });
   useEffect(() => setPrWanted(prShown), [prShown]);
-  const prGuide = useReviewGuide({ cwd: selectedWorktree?.path, pr: prReview.pr, active: prShown, bridge: bridgeForKey(prChatKey) });
-  const [guideStop, setGuideStop] = useState(0);
-  const guideShowing = changes.guideOpen && Boolean(prReview.pr && prGuide.guide);
   const diffComments = useDiffComments(project && selectedSession ? chatKey(project.path, selectedSession.id) : null, changes);
   const diffPrefs = useDiffPreferences();
-  const diffShowing = changes.diffOpen || guideShowing;
-  const diffPresence = useDiffPresence(diffShowing);
+  const diffPresence = useDiffPresence(changes.diffOpen);
   const changesAvailable = view === "chat" && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
@@ -2112,7 +2107,7 @@ function App() {
       diffComments.removeMany(sent.map((comment) => comment.id));
   }
 
-  // "Fix in Chat" on a PR's thread or failing checks: back to the Chat, and the ask goes out like any send.
+  // "Fix in Chat" on a PR's thread: back to the Chat, and the ask goes out like any send.
   const sendPrToChat = useEvent((text: string) => {
     changes.closeDiff();
     void executeSend(text, permissionMode, [], [], true);
@@ -2160,59 +2155,19 @@ function App() {
         }),
       ),
   );
-  const togglePrViewed = useEvent((path: string) => {
-    const file = prReview.pr?.files.find((entry) => entry.path === path);
-    if (!file) return;
-    const viewed = file.viewed !== "VIEWED";
-    void prReview.write(
-      "viewed",
-      (pr, cwd, number) => pr.fileViewed({ cwd, number, path, viewed }),
-      (current) => ({ ...current, files: current.files.map((entry) => (entry.path === path ? { ...entry, viewed: viewed ? "VIEWED" : "UNVIEWED" } : entry)) }),
-    );
-  });
   const submitPrReview = useEvent(
     async (event: ReviewEvent, body: string) => (await prReview.write("submit", (pr, cwd, number) => pr.submitReview({ cwd, number, event, body }))).ok,
   );
   const prDiffReview: PrDiffReview | undefined =
     changes.mode === "pr" && prReview.pr
-      ? { pr: prReview.pr, threadActions: prThreadActions, addToReview, toggleViewed: togglePrViewed, submit: submitPrReview, error: prReview.writeError }
+      ? { pr: prReview.pr, threadActions: prThreadActions, addToReview, submit: submitPrReview, error: prReview.writeError }
       : undefined;
-  const openGuideStop = useEvent((stop: number) => {
-    const guide = prGuide.guide;
-    if (!guide) return;
-    // Moving on from a stop marks it read; past the last one the tour ends, back on the Chat.
-    if (guideShowing && stop > guideStop) void prGuide.markRead(guideStop);
-    if (stop >= guide.stops.length) {
-      changes.closeDiff();
-      return;
-    }
-    setGuideStop(stop);
-    changes.openGuide();
-  });
   const prPanelActions = useMemo<PullRequestPanelActions>(
     () => ({
       openFile: (path) => changes.selectFile(path),
-      fixChecks: (pr) => sendPrToChat(checksFixMessage(pr, pr.checks)),
-      fixThread: (pr, thread) => sendPrToChat(threadFixMessage(pr, thread)),
-      openGuide: openGuideStop,
-      writeGuide: () => void prGuideRef.current.write(selectedProviderRef.current),
     }),
-    [changes.selectFile, sendPrToChat, openGuideStop],
+    [changes.selectFile],
   );
-  const prGuideRef = useRef(prGuide);
-  prGuideRef.current = prGuide;
-  const selectedProviderRef = useRef(selectedSession?.provider);
-  selectedProviderRef.current = selectedSession?.provider;
-  // "Ask in Chat" on a guide stop: the stop goes into the composer, for the question to follow.
-  const askAboutStop = useEvent((stop: number) => {
-    const guide = prGuide.guide;
-    const pr = prReview.pr;
-    const entry = guide?.stops[stop];
-    if (!pr || !entry) return;
-    changes.closeDiff();
-    setDraft([draftStore.get(), stopAskMessage(pr, entry, stop)].filter(Boolean).join("\n\n"));
-    window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
-  });
   // A sidebar row's PR chip: the Chat's own PR opens in its panel; any other PR (or another computer's) on GitHub.
   const openRowPullRequest = useEvent((item: { id: string; details?: { path?: string } }, pr: { number: number }) => {
     const path = item.details?.path;
@@ -3361,24 +3316,13 @@ function App() {
 
             <main data-workspace-main className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-transparent pr-3 pb-3">
               <DiffBar
-                open={diffShowing}
+                open={changes.diffOpen}
                 onBack={changes.closeDiff}
-                send={guideShowing ? undefined : { count: diffComments.sendable.length, onSend: () => void sendDiffComments() }}
-                trailing={guideShowing ? undefined : <DiffToolbar changes={changes} prefs={diffPrefs} />}
+                send={{ count: diffComments.sendable.length, onSend: () => void sendDiffComments() }}
+                trailing={<DiffToolbar changes={changes} prefs={diffPrefs} />}
               />
               <AnimatePresence initial={false} onExitComplete={diffPresence.onExitComplete}>
                 {changes.diffOpen && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} review={prDiffReview} />}
-                {guideShowing && prReview.pr && prGuide.guide && (
-                  <ReviewGuideView
-                    key="guide"
-                    pr={prReview.pr}
-                    guide={prGuide.guide}
-                    stop={guideStop}
-                    onStop={openGuideStop}
-                    onOpenFile={changes.selectFile}
-                    onAsk={askAboutStop}
-                  />
-                )}
               </AnimatePresence>
               {/* The open Chat's Routine (a Run Chat's, or a Heartbeat's), over the Chat; a grid's tiles show theirs in their headers. */}
               {view === "chat" && !diffPresence.occupied && shownTiles.length === 0 && focusedChatKey && (
@@ -3541,7 +3485,7 @@ function App() {
                         agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
                         onOpenDiff={(path) => {
                           if (!changes.open) changes.toggle();
-                          changes.selectFile(path);
+                          changes.openFile(path);
                         }}
                         onStopPort={
                           project && selectedSession
@@ -3690,14 +3634,13 @@ function App() {
             </BotProfileSlot>
             <ChangesPanelSlot open={changes.open && !botsShown}>
               <ChangesPanel
-                list={changes.list}
+                lists={changes.lists}
                 mode={changes.mode}
                 onModeChange={changes.setMode}
                 onRefresh={() => {
                   void changes.refresh();
                   if (changes.mode === "pr") {
                     void prReview.refresh();
-                    void prGuide.refresh();
                     localChanges.refresh();
                   }
                 }}
@@ -3710,17 +3653,14 @@ function App() {
                         number: prNumber,
                         choices: rowPullRequests(selectedPullRequests),
                         onPick: (number) => prChatKey && setPrPick({ chat: prChatKey, number }),
-                        totals: prReview.pr ? { added: prReview.pr.additions, removed: prReview.pr.deletions } : undefined,
                         loading: prReview.state.status === "loading" || prReview.busy !== null,
                         body: (
                           <PullRequestPanelBody
                             review={prReview}
-                            guide={prGuide}
+                            source={selectedWorktree ? { bridge: bridgeForKey(prChatKey).pr, cwd: selectedWorktree.path } : undefined}
                             actions={prPanelActions}
                             activePath={changes.activePath}
-                            guideOpen={guideShowing}
-                            guideStop={guideStop}
-                            local={{ count: localChanges.count, onOpen: changes.setMode }}
+                            local={{ count: localChanges.count, onOpen: () => changes.setMode(firstSection(changes.lists)) }}
                           />
                         ),
                       }

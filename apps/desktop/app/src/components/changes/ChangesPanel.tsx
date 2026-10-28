@@ -1,18 +1,24 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowRight01Icon, Comment01Icon, File01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  Comment01Icon,
+  File01Icon,
+  FileDiffIcon,
+  GitMergeIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestIcon,
+  RefreshIcon,
+} from "@hugeicons/core-free-icons";
+import type { PullRequest } from "@milagre/shared/model";
+import { pullRequestPresentation } from "@milagre/shared/pr-blockers";
 import type { DiffFileEntry, DiffMode } from "../../electron";
 import type { ChangesMode } from "../../lib/pull-request-view";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import Tooltip from "../primitives/Tooltip";
-import { Select } from "../primitives/Select";
 import type { DiffList } from "./useDiffFiles";
 import { ScrollArea } from "../primitives/ScrollArea";
-
-const MODES = [
-  { value: "uncommitted" as const, label: "Uncommitted" },
-  { value: "committed" as const, label: "Committed" },
-];
 
 const STATUS = {
   added: { letter: "A", label: "Added", className: "bg-green-tint text-diff-add" },
@@ -43,8 +49,27 @@ export function StatusBox({ status }: { status: DiffFileEntry["status"] }) {
   );
 }
 
+/** The Changes tab's lists: what isn't committed yet, and what the branch committed since its base. */
+export type ChangesLists = Record<DiffMode, DiffList>;
+
+const filesOf = (list: DiffList) => (list.state === "ready" && list.isRepo ? list.files : []);
+
+/** Files across both sections, the Changes tab's count; a file in both counts once. */
+export const changedFileCount = (lists: ChangesLists) => new Set([...filesOf(lists.uncommitted), ...filesOf(lists.committed)].map((file) => file.path)).size;
+
+/** The section a file opened from elsewhere (a transcript's link) shows in: the uncommitted one first. */
+export const sectionOf = (lists: ChangesLists, path: string): DiffMode =>
+  !filesOf(lists.uncommitted).some((file) => file.path === path) && filesOf(lists.committed).some((file) => file.path === path) ? "committed" : "uncommitted";
+
+/** Diff comments per section, then per file path. */
+export type CommentCounts = Partial<Record<ChangesMode, Record<string, number>>>;
+
+/** The section the Changes tab opens the diff on: the uncommitted files, unless there are only committed ones. */
+export const firstSection = (lists: ChangesLists): DiffMode =>
+  filesOf(lists.uncommitted).length || !filesOf(lists.committed).length ? "uncommitted" : "committed";
+
 export function ChangesPanel({
-  list,
+  lists,
   mode,
   onModeChange,
   onRefresh,
@@ -53,171 +78,280 @@ export function ChangesPanel({
   commentCounts,
   pullRequest,
 }: {
-  list: DiffList;
+  lists: ChangesLists;
+  /** What the diff shows: one of the Changes tab's sections, or "pr" while a PR tab is selected. */
   mode: ChangesMode;
   onModeChange: (mode: ChangesMode) => void;
   onRefresh: () => void;
-  onSelectFile: (path: string) => void;
+  /** A file picked in the Changes tab, with the section it was picked in. */
+  onSelectFile: (path: string, mode: DiffMode) => void;
   activePath?: string;
-  /** Diff comments per file path. */
-  commentCounts?: Record<string, number>;
-  /** The Chat's PR the panel shows in "pr" mode, every PR it opened for the menu, and what the panel shows in that mode. */
+  commentCounts?: CommentCounts;
+  /** The Chat's PR the panel shows in "pr" mode, every PR it opened (a tab each), and what the panel shows in that mode. */
   pullRequest?: {
     number: number;
-    choices?: { number: number; state: "OPEN" | "MERGED" }[];
+    choices?: PullRequest[];
     onPick?: (number: number) => void;
-    totals?: { added: number; removed: number };
     loading: boolean;
     body: ReactNode;
   };
 }) {
-  if (mode === "pr" && pullRequest) {
-    return (
-      <aside
-        data-changes-panel
-        data-changes-mode="pr"
-        aria-label="Pull request"
-        className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
-      >
-        <ChangesHeader
-          mode={mode}
-          onModeChange={onModeChange}
-          onRefresh={onRefresh}
-          loading={pullRequest.loading}
-          totals={pullRequest.totals}
-          prNumber={pullRequest.number}
-          prChoices={pullRequest.choices}
-          onPickPr={pullRequest.onPick}
-        />
-        {pullRequest.body}
-      </aside>
-    );
-  }
-  const files = list.state === "ready" && list.isRepo ? list.files : undefined;
-  const added = files?.reduce((sum, file) => sum + file.added, 0) ?? 0;
-  const removed = files?.reduce((sum, file) => sum + file.removed, 0) ?? 0;
-  const base = list.state === "ready" && list.isRepo ? list.base : null;
-
+  const prShown = mode === "pr" && pullRequest;
+  const prs = pullRequest?.choices ?? [];
+  const tabs: PrTab[] = prs.map((pr) => ({ key: `pr:${pr.number}`, number: pr.number, pr }));
+  // The shown PR keeps its tab even when the Chat's list hasn't caught up with it.
+  if (pullRequest && !prs.some((pr) => pr.number === pullRequest.number)) tabs.push({ key: `pr:${pullRequest.number}`, number: pullRequest.number });
   return (
     <aside
       data-changes-panel
-      aria-label="Changes"
+      data-changes-mode={prShown ? "pr" : undefined}
+      aria-label={prShown ? "Pull request" : "Changes"}
       className="flex min-h-0 w-[var(--changes-panel-width,320px)] shrink-0 flex-col overflow-hidden rounded-window bg-surface shadow-card"
     >
-      <ChangesHeader
-        mode={mode}
-        onModeChange={onModeChange}
+      <ChangesTabs
+        count={changedFileCount(lists)}
+        prs={tabs}
+        selected={prShown ? `pr:${pullRequest.number}` : undefined}
+        onSelect={(key) => {
+          if (key) pullRequest?.onPick?.(Number(key.slice(3)));
+          onModeChange(key ? "pr" : firstSection(lists));
+        }}
         onRefresh={onRefresh}
-        loading={list.state === "loading"}
-        totals={files?.length ? { added, removed } : undefined}
-        prNumber={pullRequest?.number}
-        prChoices={pullRequest?.choices}
-        onPickPr={pullRequest?.onPick}
-      >
-        {mode === "committed" && base && (
-          <span data-diff-base className="truncate px-0.5 text-[11px] text-ink-3">
-            since <span className="font-mono">{base}</span>
-          </span>
-        )}
-      </ChangesHeader>
-      <ScrollArea className="flex-1 py-1.5">
-        <ChangeList list={list} mode={mode as DiffMode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
-      </ScrollArea>
+        loading={prShown ? pullRequest.loading : lists.uncommitted.state === "loading" || lists.committed.state === "loading"}
+      />
+      {prShown ? (
+        pullRequest.body
+      ) : (
+        <ScrollArea className="flex-1 py-1.5">
+          <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+        </ScrollArea>
+      )}
     </aside>
   );
 }
 
-/** Shared chrome for a Project's changes and a named Link's grouped changes. */
-export function ChangesHeader<M extends ChangesMode>({
-  mode,
-  onModeChange,
+/** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
+export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
+
+const TONES = { purple: "text-purple-500", red: "text-red", orange: "text-orange", green: "text-green" } as const;
+
+/** Merged purple, closed grey, otherwise the sidebar's tone: blocked red, checks running orange, open green. */
+function prLook(pr: PullRequest | undefined) {
+  if (!pr) return { icon: GitPullRequestIcon, tone: "text-ink-3", state: "" };
+  if (pr.state === "MERGED") return { icon: GitMergeIcon, tone: TONES.purple, state: "Merged" };
+  // ponytail: PullRequest has no CLOSED state today; a closed PR shows grey once it does.
+  if (pr.state !== "OPEN") return { icon: GitPullRequestClosedIcon, tone: "text-ink-3", state: "Closed" };
+  const look = pullRequestPresentation(pr);
+  return { icon: GitPullRequestIcon, tone: TONES[look.tone], state: look.label || "Open" };
+}
+
+/** Left and right arrows select the next tab, as a tab row does. */
+export function moveTab(event: KeyboardEvent<HTMLDivElement>) {
+  const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+  if (!step) return;
+  const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]")];
+  const next = tabs[tabs.indexOf(document.activeElement as HTMLButtonElement) + step];
+  if (!next) return;
+  event.preventDefault();
+  next.focus();
+  next.click();
+}
+
+const fade = (on: boolean) => (on ? "transparent, black 20px" : "black, black");
+
+/**
+ * The panel's tab row, shared with a Link's panel: "Changes N", one tab per PR, and the refresh button. `selected` is
+ * the shown PR tab's key, undefined for Changes. The row scrolls sideways when the PRs don't fit.
+ */
+export function ChangesTabs({
+  count,
+  prs,
+  selected,
+  onSelect,
   onRefresh,
   loading,
-  totals,
-  prNumber,
-  prChoices,
-  onPickPr,
-  prEntries,
-  children,
 }: {
-  mode: M;
-  onModeChange: (mode: M) => void;
+  count: number;
+  prs: PrTab[];
+  selected?: string;
+  onSelect: (key?: string) => void;
   onRefresh: () => void;
   loading: boolean;
-  totals?: { added: number; removed: number };
-  /** Offers the Chat's PR as a third mode. */
-  prNumber?: number;
-  /** Every PR the Chat opened, each its own entry, when there is more than one. */
-  prChoices?: { number: number; state: "OPEN" | "MERGED" }[];
-  onPickPr?: (number: number) => void;
-  /** PR entries named by the caller (a Link Chat's PRs, one per Project): which one is shown, and what picking one does. */
-  prEntries?: { options: { value: string; label: string }[]; value?: string; onPick: (value: string) => void };
-  children?: ReactNode;
 }) {
-  const several = prChoices && prChoices.length > 1 && onPickPr;
-  const prOptions = prEntries
-    ? prEntries.options
-    : several
-      ? prChoices.map((choice) => ({ value: `pr:${choice.number}`, label: `PR #${choice.number}${choice.state === "MERGED" ? " · Merged" : ""}` }))
-      : prNumber
-        ? [{ value: "pr", label: `PR #${prNumber}` }]
-        : [];
-  const options = [...MODES, ...prOptions];
-  const value = mode === "pr" && prEntries?.value ? prEntries.value : mode === "pr" && several ? `pr:${prNumber}` : mode;
+  const refreshLabel = selected ? "Refresh the PR" : "Refresh changes";
+  const row = useRef<HTMLDivElement>(null);
+  // Which edges have tabs scrolled out of sight, so a fade there says there are more.
+  const [clipped, setClipped] = useState({ start: false, end: false });
+  useEffect(() => {
+    const element = row.current;
+    if (!element) return;
+    const measure = () => {
+      const start = element.scrollLeft > 1,
+        end = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+      setClipped((previous) => (previous.start === start && previous.end === end ? previous : { start, end }));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    element.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
+    // A PR tab coming or going changes what is clipped.
+  }, [prs.length]);
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 border-b border-line px-3 py-2.5">
-      <div className="flex items-center gap-2">
-        <Select
-          label="Changes mode"
-          value={value}
-          options={options}
-          onChange={(next: string) => {
-            if (prEntries?.options.some((option) => option.value === next)) prEntries.onPick(next);
-            else if (next.startsWith("pr:")) {
-              onPickPr?.(Number(next.slice(3)));
-              onModeChange("pr" as M);
-            } else onModeChange(next as M);
+    <div className="flex shrink-0 items-center gap-1 border-b border-line p-2">
+      <div
+        ref={row}
+        role="tablist"
+        aria-label="Changes and pull requests"
+        data-changes-tabs
+        data-clipped={[clipped.start && "start", clipped.end && "end"].filter(Boolean).join(" ") || undefined}
+        onKeyDown={moveTab}
+        style={
+          clipped.start || clipped.end
+            ? { maskImage: `linear-gradient(to right, ${fade(clipped.start)}, black calc(100% - 20px), ${clipped.end ? "transparent" : "black"})` }
+            : undefined
+        }
+        className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
+      >
+        <PanelTab
+          selected={!selected}
+          onClick={() => {
+            if (selected) onSelect();
           }}
-          width={180}
-        />
-        <span className="flex-1" />
-        {totals && <Counts total {...totals} className="text-[12px]" />}
-        <Tooltip label={mode === "pr" ? "Refresh the PR" : "Refresh changes"} side="bottom" align="end">
-          <button
-            type="button"
-            aria-label={mode === "pr" ? "Refresh the PR" : "Refresh changes"}
-            data-diff-refresh
-            onClick={onRefresh}
-            className="flex size-7 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-          >
-            <span className={loading ? "animate-spin" : ""}>
-              <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
-            </span>
-          </button>
-        </Tooltip>
+          data-changes-tab="changes"
+        >
+          <HugeiconsIcon icon={FileDiffIcon} size={13} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+          Changes
+          {count > 0 && <span className="text-[11.5px] font-normal text-ink-3 tabular-nums">{count}</span>}
+        </PanelTab>
+        {prs.map((tab) => {
+          const look = prLook(tab.pr);
+          const title = [tab.hint, tab.pr?.title, look.state].filter(Boolean).join(" · ");
+          return (
+            <PanelTab
+              key={tab.key}
+              selected={selected === tab.key}
+              onClick={() => {
+                if (selected !== tab.key) onSelect(tab.key);
+              }}
+              title={title || undefined}
+              data-changes-tab={tab.key}
+            >
+              <HugeiconsIcon icon={look.icon} size={13} strokeWidth={1.8} color="currentColor" className={`shrink-0 ${look.tone}`} />#{tab.number}
+            </PanelTab>
+          );
+        })}
       </div>
-      {children}
+      <Tooltip label={refreshLabel} side="bottom" align="end">
+        <button
+          type="button"
+          aria-label={refreshLabel}
+          data-diff-refresh
+          onClick={onRefresh}
+          className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
+        >
+          <span className={loading ? "animate-spin" : ""}>
+            <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
+          </span>
+        </button>
+      </Tooltip>
     </div>
   );
 }
 
-export function ChangeList({ list, mode, ...treeProps }: { list: DiffList; mode: DiffMode } & TreeProps) {
-  const files = list.state === "ready" && list.isRepo ? list.files : undefined;
-  const tree = useMemo(() => buildDiffTree(files ?? []), [files]);
-  const base = list.state === "ready" && list.isRepo ? list.base : null;
-  const message = list.state === "ready" && list.isRepo ? list.message : undefined;
+function PanelTab({
+  selected,
+  children,
+  ...props
+}: {
+  selected: boolean;
+  children: ReactNode;
+  onClick: () => void;
+  title?: string;
+  "data-changes-tab": string;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      tabIndex={selected ? 0 : -1}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[12.5px] whitespace-nowrap transition-colors ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+const SECTIONS = [
+  { mode: "uncommitted", label: "Not committed" },
+  { mode: "committed", label: "On this branch" },
+] as const;
+
+/**
+ * The Changes tab's list: a section for each mode that has files, each its own tree. The open file is marked only in
+ * the section the diff shows (`mode`), since a file can be in both.
+ */
+export function ChangesSections({
+  lists,
+  mode,
+  onSelectFile,
+  activePath,
+  commentCounts,
+}: {
+  lists: ChangesLists;
+  mode: ChangesMode;
+  onSelectFile: (path: string, mode: DiffMode) => void;
+  activePath?: string;
+  commentCounts?: CommentCounts;
+}) {
+  const sections = SECTIONS.filter((section) => filesOf(lists[section.mode]).length > 0);
+  const all = [lists.uncommitted, lists.committed];
+  // Outside a repository both lists say so; a failed read shows under whatever the other list has.
+  const problem = all.find((list): list is Extract<DiffList, { message: string }> => list.state === "error" || (list.state === "ready" && !list.isRepo));
+  const message = all.map((list) => (list.state === "ready" && list.isRepo ? list.message : undefined)).find(Boolean);
   return (
     <>
-      {list.state === "loading" && <Notice>Loading changes…</Notice>}
-      {list.state === "error" && <Notice>{list.message}</Notice>}
-      {list.state === "ready" && !list.isRepo && <Notice>{list.message}</Notice>}
-      {list.state === "ready" && list.isRepo && mode === "committed" && base === null && <Notice>No base branch to compare with.</Notice>}
-      {files && files.length === 0 && message && <Notice>{message}</Notice>}
-      {files && files.length === 0 && !message && !(mode === "committed" && base === null) && (
-        <Notice>{mode === "uncommitted" ? "No uncommitted changes." : "Nothing committed since the base branch."}</Notice>
-      )}
-      {files && files.length > 0 && <Tree nodes={tree} depth={0} {...treeProps} />}
+      {sections.map((section) => (
+        <ChangesSection
+          key={section.mode}
+          label={section.label}
+          list={lists[section.mode]}
+          onSelectFile={(path) => onSelectFile(path, section.mode)}
+          activePath={mode === section.mode ? activePath : undefined}
+          commentCounts={commentCounts?.[section.mode]}
+        />
+      ))}
+      {problem && <Notice>{problem.message}</Notice>}
+      {!sections.length && !problem && <Notice>{all.some((list) => list.state !== "ready") ? "Loading changes…" : (message ?? "No changes yet.")}</Notice>}
     </>
+  );
+}
+
+function ChangesSection({ label, list, ...treeProps }: { label: string; list: DiffList } & TreeProps) {
+  const files = filesOf(list);
+  const tree = useMemo(() => buildDiffTree(files), [files]);
+  const base = list.state === "ready" && list.isRepo ? list.base : null;
+  return (
+    <section aria-label={label} data-changes-section={label} className="pb-1.5">
+      <h3 className="flex h-7 items-center gap-1.5 px-3 text-[11.5px] text-ink-3">
+        <span className="font-medium text-ink-2">{label}</span>
+        <span className="tabular-nums">{files.length}</span>
+        {base && (
+          <span data-diff-base className="min-w-0 truncate">
+            since <span className="font-mono">{base}</span>
+          </span>
+        )}
+        <span className="flex-1" />
+        <Counts added={files.reduce((sum, file) => sum + file.added, 0)} removed={files.reduce((sum, file) => sum + file.removed, 0)} />
+      </h3>
+      <Tree nodes={tree} depth={0} {...treeProps} />
+    </section>
   );
 }
 
