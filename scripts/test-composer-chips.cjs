@@ -152,6 +152,31 @@ async function browserChecks() {
     await openChat("Chips chat");
     assert.equal(await evaluate(`${editor}.getAttribute('aria-label')`), "Prompt");
     assert.equal(await evaluate(`${editor}.getAttribute('contenteditable')`), "true");
+    // Returning to a long draft restores its end, even when both Chats have identical text.
+    const longDraft = Array.from({ length: 24 }, (_, index) => `Line ${index + 1}: continuing this draft`).join("\n");
+    await evaluate(`${editor}.value = ${JSON.stringify(longDraft)}`);
+    await draftIs(longDraft);
+    await caretTo("start");
+    await openChat("Other chat");
+    await evaluate(`${editor}.value = ${JSON.stringify(longDraft)}`);
+    await draftIs(longDraft);
+    await caretTo("start");
+    await openChat("Chips chat");
+    await draftIs(longDraft);
+    assert.equal(await caret(), longDraft.length, "returning to a Chat places the caret after its draft");
+    assert.ok(
+      await evaluate(`${editor}.scrollTop > 0 && ${editor}.scrollHeight - ${editor}.clientHeight - ${editor}.scrollTop < 2`),
+      "the last draft line is visible",
+    );
+    await typeText(" continued");
+    await draftIs(longDraft + " continued");
+    await openChat("Other chat");
+    assert.equal(await caret(), longDraft.length, "the other Chat also restores its draft end");
+    await evaluate(`${editor}.value = ''`);
+    await openChat("Chips chat");
+    await evaluate(`${editor}.value = ''`);
+    await draftIs("");
+    console.log("PASS: switching Chats restores the caret and scroll to the end of a long draft");
     await evaluate(`${editor}.focus()`);
 
     // Typing and a / pick: one skill chip, the draft as plain text.
