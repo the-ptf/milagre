@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Ref } from "react";
-import { StyleSheet, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextInputInstance } from "react-native";
+import { Linking, StyleSheet, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextInputInstance } from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { FilterHorizontalIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
@@ -12,14 +12,14 @@ import { GlassIconButton, PullDown } from "./ui";
 import type { MenuSection } from "./primitives/menu";
 import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
-import { insertDictation } from "@milagre/shared/voice-dictation";
+import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
-import { VoiceMicButton } from "./voice-mic-button";
+import { MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { DictationNotice } from "./dictation-notice";
 
 /** How tall the floating controls are, and the room the list keeps under its last row. */
 const CONTROLS_HEIGHT = 48;
 const FADE_EXTRA = 28;
-const DICTATION_ERROR_SECONDS = 4;
 /** The controls stop this far above the keyboard, like the Chat composer. */
 const KEYBOARD_GAP = 8;
 
@@ -115,8 +115,9 @@ export function ChatListControls({
     if (!visible) cancel();
   }, [visible, cancel]);
   useEffect(() => {
-    if (!dictationError) return;
-    const timer = setTimeout(dismiss, DICTATION_ERROR_SECONDS * 1000);
+    // A permission refusal stays until the user acts on it, as in the composer.
+    if (!dictationError || dictationError.kind === "permission") return;
+    const timer = setTimeout(dismiss, NOTICE_SECONDS * 1000);
     return () => clearTimeout(timer);
   }, [dictationError, dismiss]);
   const insets = useSafeAreaInsets();
@@ -154,7 +155,7 @@ export function ChatListControls({
           <TextInput
             ref={inputRef}
             accessibilityLabel="Search chats, messages and projects"
-            placeholder={dictationError?.message ?? "Search"}
+            placeholder="Search"
             placeholderTextColor={colors.ink3}
             selectionColor={colors.accent}
             value={query}
@@ -174,16 +175,29 @@ export function ChatListControls({
             style={{ flex: 1, color: colors.ink, fontSize: 16, paddingVertical: 0, height: CONTROLS_HEIGHT }}
           />
           {dictation.available ? (
-            <VoiceMicButton
-              phase={dictation.phase}
-              level={dictation.level}
-              onPress={() => {
-                if (dictation.phase === "recording") return void dictation.stop();
-                // Where the words land is fixed now, at the caret the user left, or at the end before there is one.
-                const end = query.length;
-                void dictation.start({ draft: query, selection: caret.current ?? { start: end, end } });
-              }}
-            />
+            <View>
+              {dictationError ? (
+                <DictationNotice
+                  error={dictationError}
+                  micSize={MIC_SIZE}
+                  onDismiss={dismiss}
+                  onOpenSettings={() => {
+                    dismiss();
+                    void Linking.openSettings();
+                  }}
+                />
+              ) : null}
+              <VoiceMicButton
+                phase={dictation.phase}
+                level={dictation.level}
+                onPress={() => {
+                  if (dictation.phase === "recording") return void dictation.stop();
+                  // Where the words land is fixed now, at the caret the user left, or at the end before there is one.
+                  const end = query.length;
+                  void dictation.start({ draft: query, selection: caret.current ?? { start: end, end } });
+                }}
+              />
+            </View>
           ) : null}
         </View>
         <View style={s.circle}>

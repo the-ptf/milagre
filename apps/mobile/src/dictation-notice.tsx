@@ -78,7 +78,8 @@ export function DictationNotice({
           pointerEvents="none"
           style={{
             position: "absolute",
-            top: "100%",
+            // A percentage top doesn't resolve here and drew the arrow inside the bubble, over the text.
+            bottom: -ARROW,
             right: micSize / 2 - ARROW,
             width: 0,
             height: 0,
