@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 const fixture = `
 localStorage.setItem("milagre.sidebarMode", "bots");
 // The traffic lights' room on macOS, which puts the sidebar toggle over <main> once the sidebar collapses.
@@ -87,8 +88,7 @@ async function browserChecks() {
   const threadShown = `!!document.querySelector('[data-bot-thread="ops"]')`;
   const chatPaneShown = `!document.querySelector('[data-chat-pane]')?.classList.contains('hidden')`;
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(threadShown);
+    await openRenderer(window, process.argv[2], threadShown);
     assert.equal(await evaluate(chatPaneShown), false, "the bot thread takes the Chat's place");
     assert.equal(await evaluate(`!!document.querySelector('[data-sidebar-routines]')`), false, "Bots lists bots, not the tools row");
     await screenshot("bots-navigation-thread");
@@ -156,7 +156,7 @@ async function browserChecks() {
     app.exit(0);
   } catch (error) {
     console.error(error);
-    await screenshot("failure").catch(() => {});
+    if (error.code !== "ERR_RENDERER_READINESS") await screenshot("failure").catch(() => {});
     app.exit(1);
   }
 }

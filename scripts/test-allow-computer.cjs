@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 
 const fixture = `
 import React from "react";
@@ -123,8 +124,7 @@ async function browserChecks() {
   }
 
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(`!!document.querySelector('[aria-label="Settings"]')`);
+    await openRenderer(window, process.argv[2], `!!document.querySelector('[aria-label="Settings"]')`);
     await host.call("phone:set-enabled", [true]);
     for (let n = 0; n < 200 && !relays.length; n++) await delay(25);
     assert.equal(relays.length, 1, "phone access started its relay host");
@@ -192,9 +192,12 @@ async function browserChecks() {
     app.exit(0);
   } catch (error) {
     console.error(error);
-    await screenshot("failure").catch(() => {});
+    if (error.code !== "ERR_RENDERER_READINESS") await screenshot("failure").catch(() => {});
     host.close();
+    // The daemon is in this Electron process; exit also bounds cleanup if its close stalls after a renderer failure.
+    const exitTimer = error.code === "ERR_RENDERER_READINESS" ? setTimeout(() => app.exit(1), Math.max(0, error.failureDeadline - performance.now())) : null;
     await daemon.close().catch(() => {});
+    clearTimeout(exitTimer);
     app.exit(1);
   }
 }
