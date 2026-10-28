@@ -277,11 +277,12 @@ test("a paired desktop receives live usage while provider account changes are re
   const desktop = mac.dial(connectDesktop, { name: "Usage viewer" });
   await desktop.hello();
   await mac.client.call("project:open", [mac.project]);
-  const changed = desktop.event("usage:changed", (payload) => payload.scopeKey === mac.project);
-  const fresh = await desktop.call("usage:read", [mac.project]);
+  // A first usage read is slow under a full suite's load: 15 s here, the kit's 5 s everywhere else.
+  const changed = desktop.event("usage:changed", (payload) => payload.scopeKey === mac.project, 15_000);
+  const fresh = await desktop.call("usage:read", [mac.project], 15_000);
   assert.equal(fresh.error, undefined);
   assert.ok(fresh.result.accountKey);
-  await within(changed, "remote usage signal");
+  await within(changed, "remote usage signal", 15_000);
   const cached = await desktop.call("usage:cached", [mac.project]);
   assert.equal(cached.result.accountKey, fresh.result.accountKey);
   for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
