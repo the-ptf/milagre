@@ -413,6 +413,25 @@ test("chats group is absent when no computer has a home Chat", () => {
   );
 });
 
+test("the Chats group's rows show no branch or diff, only where the Chat's folder is", () => {
+  const home = {
+    worktrees: { 1: { id: 1, name: "milagre/chat-abc", path: "/Users/me/.milagre/worktrees/chats/abc", diff: { added: 12, removed: 3 } } },
+    sessions: { 1: session(1) },
+    messages: [message(1, 1, "Hi")],
+  } as unknown as CoordinatorState;
+  const none = { running: new Set<string>(), waiting: new Set<string>(), asking: new Set<string>() };
+  const rows = chatsSidebarRows([{ key: HOME, offline: false, rows: scopeChats(HOME, home, "recent", none, { gitless: true }) }], "recent");
+  assert.equal(rows.length, 1);
+  const details = rows[0]!.row.details!;
+  assert.equal(details.branch, undefined);
+  assert.equal(details.diff, undefined);
+  assert.equal(details.path, "/Users/me/.milagre/worktrees/chats/abc");
+  // A Project's rows keep theirs.
+  const project = scopeChats("/code/shop", home, "recent", none)[0]!.details!;
+  assert.equal(project.branch, "milagre/chat-abc");
+  assert.deepEqual(project.diff, { added: 12, removed: 3 });
+});
+
 test("the Chats home never becomes a Project scope", () => {
   const homeKeys = new Set([HOME, OTHER_HOME]);
   // The open Chat's home says what it is by its kind, before any computer's home has been read.

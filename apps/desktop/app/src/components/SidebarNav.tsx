@@ -853,16 +853,19 @@ export default memo(function SidebarNav({
     return marked;
   };
   // Another Project's or Link's chats can be pinned from here, and a Project's archived; the row menu's other actions
-  // stay with the open one. One object per scope, so its rows keep their memo.
+  // stay with the open one. One object per scope, so its rows keep their memo. A Chats home's rows are `gitless`: no
+  // branch to copy, no PR to open.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
   const scopeArchive = useRef({ check: onScopeArchiveCheck, archive: onScopeArchive });
   scopeArchive.current = { check: onScopeArchiveCheck, archive: onScopeArchive };
-  const actionsFor = (key: string) => {
-    let actions = scopeActions.current.get(key);
+  const actionsFor = (key: string, gitless = false) => {
+    const cacheKey = gitless ? `gitless\n${key}` : key;
+    let actions = scopeActions.current.get(cacheKey);
     if (!actions) {
       const archivable = !key.startsWith("milagre-link:") && !!onScopeArchiveCheck && !!onScopeArchive;
       actions = {
         remote: isRemoteKey(key),
+        ...(gitless ? { gitless: true } : {}),
         onPin: (id, order) =>
           void bridgeForKey(key)
             .patchChat(key, Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order })
@@ -874,7 +877,7 @@ export default memo(function SidebarNav({
             }
           : {}),
       };
-      scopeActions.current.set(key, actions);
+      scopeActions.current.set(cacheKey, actions);
     }
     return actions;
   };
@@ -949,11 +952,12 @@ export default memo(function SidebarNav({
     ? homeScopes.map((key) => {
         const current = key === currentKey;
         const state = scopeStates[key] ?? cachedProjectCopy(key)?.state;
-        const rows = withBeats(key, current ? recents : state ? unarchived(key, scopeChats(key, state, chatOrder, marks)) : []);
+        const rows = withBeats(key, current ? recents : state ? unarchived(key, scopeChats(key, state, chatOrder, marks, { gitless: true })) : []);
         const list = {
           isActive: current ? (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle) : NEVER_ACTIVE,
           collapsed: false,
-          actions: current ? chatActions : actionsFor(key),
+          // The open home's actions come gitless from the window (App's chatActions), the rest from here.
+          actions: current ? chatActions : actionsFor(key, true),
           showHints: current && showHints,
           onPick: current ? pickChat : pickerFor(key),
           onHover: hoverFor(key),

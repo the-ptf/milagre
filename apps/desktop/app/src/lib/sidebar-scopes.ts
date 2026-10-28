@@ -76,13 +76,15 @@ export function railLive(rows: readonly SidebarRecent[]): { status: RailStatus; 
 
 /**
  * The chat rows of a Project or Link that isn't open, for the all-Projects sidebar; the marks come from `runKeys`.
- * Each row keeps the PRs, Linear issue and ports it showed while its scope was open (`rememberScopeRows`).
+ * Each row keeps the PRs, Linear issue and ports it showed while its scope was open (`rememberScopeRows`). A `gitless`
+ * scope (a Chats home, whose repository is internal) gives its rows no branch or diff.
  */
 export function scopeChats(
   key: string,
   state: CoordinatorState | LinkState,
   order: ChatOrder,
   { running, waiting, asking }: { running: Set<string>; waiting: Set<string>; asking: Set<string> },
+  { gitless = false }: { gitless?: boolean } = {},
 ): SidebarRecent[] {
   // Chats carry a summary of their messages; only an older host's state, without one, is read message by message.
   const bySession = new Map<number, CoordinatorState["messages"]>();
@@ -122,7 +124,7 @@ export function scopeChats(
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
         ...rememberedFor(key, String(session.id), worktree?.path),
-        ...(worktree ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
+        ...(worktree ? (gitless ? { path: worktree.path } : { branch: worktree.name, path: worktree.path, diff: worktree.diff }) : {}),
         failed: chatSummary(session, sessionMessages).lastOutcome === "failed",
         lastAt: chatSummary(session, sessionMessages).lastAt,
         firstAt: chatSummary(session, sessionMessages).firstAt,
