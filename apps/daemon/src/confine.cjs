@@ -245,6 +245,7 @@ const PATHS = Object.freeze({
   "pr:resolve-thread": ([value]) => [value?.cwd],
   "pr:merge": ([value]) => [value?.cwd],
   "pr:ready": ([value]) => [value?.cwd],
+  "pr:image": ([value]) => [value?.cwd],
   "pr:labels": ([value]) => [value?.cwd],
   "pr:set-labels": ([value]) => [value?.cwd],
   "pr:reviewer-candidates": ([value]) => [value?.cwd],

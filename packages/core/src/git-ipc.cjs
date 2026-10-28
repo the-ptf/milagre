@@ -88,6 +88,7 @@ function registerGitHandlers(
     review.merge({ cwd: await folder(cwd), number, method, auto, admin, disableAuto }),
   );
   ipcMain.handle("pr:ready", async (_event, { cwd, number, draft } = {}) => review.ready({ cwd: await folder(cwd), number, draft }));
+  ipcMain.handle("pr:image", async (_event, { cwd, url } = {}) => review.image({ cwd: await folder(cwd), url }));
   ipcMain.handle("pr:labels", async (_event, { cwd } = {}) => review.labels({ cwd: await folder(cwd) }));
   ipcMain.handle("pr:set-labels", async (_event, { cwd, number, add, remove } = {}) => review.setLabels({ cwd: await folder(cwd), number, add, remove }));
   ipcMain.handle("pr:reviewer-candidates", async (_event, { cwd } = {}) => review.reviewerCandidates({ cwd: await folder(cwd) }));
