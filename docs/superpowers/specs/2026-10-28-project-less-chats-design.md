@@ -9,17 +9,28 @@ should too: a user picks **No project** and talks to the agent, with no reposito
 ## Victor's decisions (2026-10-28)
 
 1. **Folder:** every project-less Chat gets its own new, empty folder. Archiving the Chat removes that folder.
-2. **Sidebar:** project-less Chats get their own **Chats** section at the top of the sidebar, newest first (T3 style).
-3. **Entry point:** the New chat Project picker gets a **No project** choice at the top. The default stays the
-   current Project, so existing habits don't change.
+2. **Sidebar:** project-less Chats get their own **Chats** group at the top of the sidebar, newest first (T3 style),
+   styled like a Project group (chat-bubble mark, name, +). It shows in both the grouped and the flat (not grouped)
+   layouts. The panel title that today reads "Chats" (flat desktop list, phone drawer) becomes **All chats**, so the
+   word means one thing.
+3. **Entry point:** the New chat Project picker gets a **No project** choice at the top (the picker says "No project",
+   the sidebar group says "Chats"). The default stays the current Project, so existing habits don't change. With No
+   project picked the heading reads "Just chat [No project ▾]" on desktop and "Just chat on <Computer> ▾" with
+   "No project · its own empty folder" under it on the phone.
 4. **Platforms:** desktop and phone in the same PR. The phone needs an OTA after merge.
 
 5. **Window:** opening a project-less Chat switches the window to the Chats home, but the home is never remembered as
    the last Project; ⌘N and launch fall back to the last real Project.
 6. **Archive with files:** Delete with the existing warning, no keep option.
 7. **Account:** one shared selection for all project-less Chats, as a row in Settings › Accounts.
-8. **Several computers:** one No project choice in the picker plus a computer chip in the composer before the first
-   send (this Mac on desktop, last-used computer on the phone). The Chats section is one merged list across computers.
+8. **Several computers:** one No project choice in the picker plus the existing #733 computer chip in the composer
+   tray before the first send (this Mac on desktop, last-used computer on the phone). The Chats section is one merged list across computers.
+
+## Designs
+
+On this Chat's canvas: `desktop-new-chat-no-project` (picker + grouped sidebar), `desktop-flat-list-chats` (flat
+sidebar), `phone-drawer-no-project`, `phone-new-chat-no-project`. `desktop-chat-quick-chats` is the rejected
+"Quick chats" label variant; only its header (no Git icon) and composer still apply.
 
 ## Goals
 
@@ -115,14 +126,14 @@ Project rows, desktop and phone. A usage-limit switch from one project-less Chat
 - **Picker:** `NewChatHeading` / `ProjectPicker` (`useProjectChoices`) gets one **No project** choice, first, above
   the current Project, however many computers are paired. Picking it moves the draft to the Chats home of the chosen
   computer (created if missing) with isolation `worktree`.
-- **Computer chip (Victor, 2026-10-28):** while a No project draft is unsent, the composer shows a computer chip next
-  to the model picker. It defaults to this Mac; tapping it lists the paired computers that are online, and picking one
-  moves the draft to that computer's Chats home. After the first send the Chat stays on its computer and the chip
-  disappears. It shows only when more than one computer is paired. No such chip exists today; it is new UI.
+- **Computer chip (Victor, 2026-10-28):** reuse the computer chip in the composer tray that #733 added (cec2613f).
+  For a No project draft the tray shows only that chip (no isolation or branch chips). It defaults to this Mac;
+  picking another computer moves the draft to that computer's Chats home. After the first send the Chat stays on its
+  computer. No new chip is built.
 - **Composer:** for a `kind: "chats"` Project the isolation and branch pickers, the "has no Git" note, "Start from
   issue" and the Linear link are hidden. The PR action, PR pills, diffstat and "Commit and open PR…" don't render.
-- **Sidebar:** a **Chats** section sits above the Project groups and below Pinned, in both list layouts (flat and per
-  Project). It lists every paired computer's project-less Chats in one newest-first list, each row with the computer
+- **Sidebar:** a **Chats** group sits above the Project groups and below Pinned, in both list layouts. In the flat
+  layout it sits under the renamed **All chats** title, followed by a divider and the flat list of Project Chats. It lists every paired computer's project-less Chats in one newest-first list, each row with the computer
   chip rows already show (Victor, 2026-10-28: one merged list, not grouped by computer). It is hidden when
   there are none. Its header has a + that opens New chat with No project picked. The Chats home never appears as a
   Project group, in Filters › Projects, on the canvas or in the Projects | Bots switch's Projects list.
