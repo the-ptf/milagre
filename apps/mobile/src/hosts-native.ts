@@ -7,6 +7,7 @@ import { createNavigationStore } from "./navigation-store";
 import { createProjectOrderStore } from "./project-order-store";
 import { createFoldedProjectsStore } from "./folded-projects-store";
 import { createHiddenProjectsStore } from "./hidden-projects-store";
+import { createProviderUpdateDismissals } from "./provider-update-dismissals";
 
 export const savedProjectOrder = createProjectOrderStore({
   getItemAsync: SecureStore.getItemAsync,
@@ -15,6 +16,12 @@ export const savedProjectOrder = createProjectOrderStore({
 
 /** The Projects and Links hidden from the Projects list on this phone, per paired computer. */
 export const savedHiddenProjects = createHiddenProjectsStore({
+  getItemAsync: SecureStore.getItemAsync,
+  setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+});
+
+/** Provider update cards dismissed on this phone, per paired computer. */
+export const savedProviderUpdateDismissals = createProviderUpdateDismissals({
   getItemAsync: SecureStore.getItemAsync,
   setItemAsync: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
 });

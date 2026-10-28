@@ -6,9 +6,10 @@ const os = require("node:os");
 const { inspectCli, parseVersion, isAtLeast, MIN_VERSIONS } = require("./cli.cjs");
 const { installDirs, mergePath, resolveExecutable } = require("./environment.cjs");
 
-function runCommand(cmd, execImpl = exec) {
+// `firstDirs` go ahead of PATH, so the update runs with the node and npm that sit beside the CLI being updated.
+function runCommand(cmd, execImpl = exec, firstDirs = []) {
   return new Promise((resolve) => {
-    const env = { ...process.env, PATH: mergePath(process.env.PATH, installDirs()) };
+    const env = { ...process.env, PATH: mergePath(firstDirs, process.env.PATH, installDirs()) };
     execImpl(cmd, { encoding: "utf8", timeout: 120_000, env }, (error, stdout, stderr) => {
       resolve({
         code: error?.code ?? (error ? 1 : 0),
@@ -19,6 +20,8 @@ function runCommand(cmd, execImpl = exec) {
     });
   });
 }
+
+const shellQuote = (value) => (/^[\w./@:-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
 
 /**
  * Links ~/.local/bin/claude to the newest installed version in ~/.local/share/claude/versions
@@ -126,16 +129,21 @@ async function upgradeRelease(name, deps) {
   const satisfied = (status) => !status.problem && parseVersion(status.version) && isAtLeast(parseVersion(status.version), targetVersion);
   let status = await inspect(name);
   if (satisfied(status)) return { ok: true, version: status.version };
+  const windows = (deps.platform || process.platform) === "win32";
+  // Codex may come from npm, bun, pnpm or Homebrew. A plain `npm install -g` can land in another prefix than the
+  // codex on PATH, which then still runs the old release. `codex update` upgrades through whatever installed it.
+  const codex = !windows && name === "codex" && status.command ? status.command : null;
   const commands =
     name === "claude"
       ? [
           ["claude", ["install", "--force", "latest"]],
           ["npm", ["install", "-g", "@anthropic-ai/claude-code@latest"]],
         ]
-      : [["npm", ["install", "-g", "@openai/codex@latest"]]];
+      : [...(codex ? [[codex, ["update"]]] : []), ["npm", ["install", "-g", "@openai/codex@latest"]]];
+  const firstDirs = codex ? [path.dirname(codex)] : [];
   let failure;
   for (const [program, args] of commands) {
-    if ((deps.platform || process.platform) === "win32") {
+    if (windows) {
       const file = await resolve(program);
       failure = file
         ? await new Promise((done) =>
@@ -143,7 +151,7 @@ async function upgradeRelease(name, deps) {
           )
         : `${program} is not installed on PATH.`;
     } else {
-      const result = await runCommand([program, ...args].join(" "), execImpl);
+      const result = await runCommand([shellQuote(program), ...args].join(" "), execImpl, firstDirs);
       failure = result.error;
       if (name === "claude") linkVersion();
     }
@@ -153,7 +161,10 @@ async function upgradeRelease(name, deps) {
   return {
     ok: false,
     version: status.version,
-    error: status.problem || failure || `The installed ${name} is still ${status.version ?? "unavailable"}. Version ${targetVersion} could not be activated.`,
+    error:
+      status.problem ||
+      failure ||
+      `The installed ${name}${status.command ? ` at ${status.command}` : ""} is still ${status.version ?? "unavailable"}. Version ${targetVersion} could not be activated.`,
   };
 }
 
