@@ -479,6 +479,8 @@ export interface Routine {
   /** A signed webhook's signature header, lowercased; "sentry-hook-signature" when absent. The signing secret never leaves the Mac. */
   signingHeader?: string;
   completedAt?: number;
+  /** Why it ended, when whatever ended it said: a babysit stop reason, "expired", "max runs", "chat gone"… */
+  completedReason?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -515,8 +517,29 @@ export type RoutineRunContext = {
   name: string;
   at: number;
   label?: string;
+  /**
+   * A Babysit PRs Run: the level it went at (1 when the Worktree is on another branch, which `offBranch` says) and whether it
+   * may resolve threads (the setting, at a level that replies).
+   */
+  babysit?: { level: number; resolveThreads: boolean; offBranch?: boolean };
   quiet?: boolean;
   summary?: string;
+};
+
+/** Why a babysit Heartbeat ended: the PR merged or closed, a stop rule held, it ran out of time, or it was deleted. */
+export type BabysitStopReason = "merged" | "closed" | "green" | "failures" | "expired" | "own-rule" | "deleted";
+
+/**
+ * The line Milagre writes in a Chat when the Heartbeat babysitting its PR ended (babysitStoppedText in babysit.mjs says it).
+ * `times` is the failures rule's count, `days` how long the Heartbeat watched.
+ */
+export type BabysitStoppedContext = {
+  kind: "babysit-stopped";
+  routineId: string;
+  pr: number;
+  reason: BabysitStopReason;
+  times?: number;
+  days?: number;
 };
 
 /**
@@ -547,6 +570,7 @@ export type ChatContext =
   | ChatReloadContext
   | BotContext
   | RoutineRunContext
+  | BabysitStoppedContext
   | CheckpointRestoreContext
   | "handover"
   | null;

@@ -5,6 +5,8 @@
 //   command          a command runs (pending -> in_progress -> completed with output), then text
 //   failing-command  a command that exits 2
 //   permission       a command asks first; the reply text names the option picked ("cancelled" if none)
+//   guarded          `git push origin HEAD` asks first and fails when refused, then `ls build` asks; the reply names both
+//                    options picked
 //   mcp-plan-tool    a Milagre plan tool call asks first; the reply text names the option picked
 //   mcp-design-tool  as mcp-plan-tool, for a Milagre tool that still needs the user's say
 //   edit             an edit asks with its diff, runs as another call, and the asking call fails "never executed"
@@ -77,6 +79,9 @@ const OPTIONS = [
   { optionId: "deny", name: "Deny", kind: "reject_once" },
 ];
 
+// A pending shell command call.
+const commandCall = (toolCallId, line) => ({ toolCallId, title: line, kind: "execute", status: "pending", rawInput: { CommandLine: line, Cwd: "/w" } });
+
 // Asks the client and resolves with its reply's result.
 function ask(params) {
   const id = nextServerId++;
@@ -129,6 +134,17 @@ async function runPrompt(id, sessionId) {
       update(sessionId, { sessionUpdate: "tool_call", ...call });
       const result = await ask({ sessionId, toolCall: call, options: OPTIONS });
       text(sessionId, `picked:${picked(result)}`);
+      return end();
+    }
+    case "guarded": {
+      const push = commandCall("cmd-1", "git push origin HEAD");
+      update(sessionId, { sessionUpdate: "tool_call", ...push });
+      const first = picked(await ask({ sessionId, toolCall: push, options: OPTIONS }));
+      if (first === "deny") update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: "cmd-1", status: "failed" });
+      const list = commandCall("cmd-2", "ls build");
+      update(sessionId, { sessionUpdate: "tool_call", ...list });
+      const second = picked(await ask({ sessionId, toolCall: list, options: OPTIONS }));
+      text(sessionId, `picked:${first} picked:${second}`);
       return end();
     }
     case "mcp-plan-tool":

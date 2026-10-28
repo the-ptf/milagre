@@ -13,6 +13,7 @@ import { createRoot } from 'react-dom/client';
 import { RoutinesPage } from '/src/components/routines/RoutinesPage';
 import { HeartbeatCard } from '/src/components/routines/HeartbeatCard';
 import { NextCheck } from '/src/components/routines/NextCheck';
+import { BabysitStoppedDivider } from '/src/components/BabysitStoppedDivider';
 import { AI_CONSENT_VERSION } from '@milagre/shared/ai-consent';
 import '/src/styles.css';
 // This check exercises editing after consent; test-ai-consent covers the disclosure itself.
@@ -117,6 +118,7 @@ createRoot(document.getElementById('root')).render(<>
     <HeartbeatCard step={beat('h1', 'Babysit PR #473 until it merges')} />
     <HeartbeatCard step={beat('gone', 'Old heartbeat')} />
     <NextCheck chatKey="/code/milagre-ade#12" />
+    <BabysitStoppedDivider context={{ kind: 'babysit-stopped', routineId: 'gone', pr: 473, reason: 'failures', times: 3 }} />
   </aside>
   <main style={{height:'100vh'}}><Host /></main>
 </>);
@@ -163,6 +165,10 @@ async function browserChecks() {
   try {
     await win.loadURL(process.argv[2]);
     await waitFor(`document.querySelectorAll('[data-routine-row]').length === 5`);
+    // A Chat whose babysit Heartbeat ended says why, on a line like a Heartbeat's.
+    const stopped = "Stopped babysitting PR #473: the same problem failed 3 times.";
+    assert.equal(await evaluate(`document.querySelector('[data-babysit-stopped-divider]').textContent`), stopped);
+    assert.equal(await evaluate(`document.querySelector('[data-babysit-stopped-divider]').getAttribute('aria-label')`), stopped);
     // Groups and the chips' counts (paused ones count in their group too).
     assert.deepEqual(
       JSON.parse(

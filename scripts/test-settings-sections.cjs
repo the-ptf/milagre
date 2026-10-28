@@ -1,5 +1,5 @@
 // Settings sections in Electron: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (Routines and Designs left it; Designs are always
-// on and Published pages are in Milagre); Notifications holds the
+// on and Published pages are in Milagre), plus the Babysit PRs row, which opens its own page; Notifications holds the
 // chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
 // tells main each time it flips. The legacy sidebar switch is gone everywhere.
 const assert = require("node:assert/strict");
@@ -22,7 +22,16 @@ HTMLMediaElement.prototype.play = function () { window.played.push(this.src.spli
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
 window.botsSaves = [];
+// Babysit PRs as the host keeps it: saves merge shallowly, like babysit-settings.cjs.
+window.babysit = { enabled: false, intervalMinutes: 1, wake: ["comments", "checks", "conflicts"], level: 3, resolveThreads: true, stopWhenGreen: true, stopAfterDays: { on: true, days: 7 }, stopAfterFailures: { on: false, times: 3 }, ownRule: false, ownRuleText: "", instructions: "" };
+window.babysitSaves = [];
 window.milagre = {
+  readBabysitSettings: async () => window.babysit,
+  saveBabysitSettings: async (patch) => {
+    // The test sets failBabysitSave to make the next save fail, as when the daemon is down.
+    if (window.failBabysitSave) { window.failBabysitSave = false; throw new Error("Daemon is not running"); }
+    window.babysitSaves.push(patch); window.babysit = { ...window.babysit, ...patch }; return window.babysit; },
+  onBabysitSettings: () => () => {},
   listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   onPhoneStatus: () => () => {},
@@ -36,6 +45,7 @@ window.milagre = {
   saveRemoteDelegationEnabled: async (enabled) => ({ enabled }),
   onRemoteDelegationEnabledChanged: () => () => {},
   readRoutinesEnabled: async () => ({ enabled: false }),
+  listRoutines: async () => ({ routines: [] }),
   saveRoutinesEnabled: async (enabled) => ({ enabled }),
   readBotsEnabled: async () => ({ enabled: false }),
   saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
@@ -263,6 +273,125 @@ async function browserChecks() {
       "settings that graduated are not in Experimental",
     );
     await screenshot("experimental");
+    // Babysit PRs is a row that opens its own page; Back returns to Experimental.
+    const babysitRow = `document.querySelector("main [data-babysit-prs-row]")`;
+    await waitFor(`${babysitRow}?.textContent.includes("Off")`);
+    assert.equal(
+      await evaluate(`${babysitRow}.textContent.includes("Watch every PR a Chat opens and fix review comments, failed checks and conflicts.")`),
+      true,
+    );
+    await evaluate(`${babysitRow}.click()`);
+    await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=switch]")`);
+    assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Experimental's");
+    assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "ExperimentalBabysit PRs");
+    assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
+    // This Mac may not run Routines yet (readRoutinesEnabled is false): the page says babysitting needs them.
+    await waitFor(`!!document.querySelector("main [data-babysit-routines-off]")`);
+    assert.equal(
+      await evaluate(`document.querySelector("main [data-babysit-routines-off]").textContent`),
+      "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.",
+    );
+    assert.equal(
+      await evaluate(
+        `document.querySelector("main [data-babysit-prs-page]").textContent.includes("Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.")`,
+      ),
+      true,
+    );
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent)`), [
+      "Babysit PRs",
+      "When something needs fixing",
+      "Stop babysitting when",
+      "Your instructions",
+    ]);
+    assert.deepEqual(
+      await evaluate(`[...document.querySelectorAll('main [role="group"] [aria-pressed]')].map((b) => b.textContent + ":" + b.getAttribute("aria-pressed"))`),
+      ["Review comments:true", "Failed checks:true", "Merge conflicts:true", "Branch behind base:false"],
+    );
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll("main [data-babysit-level]")].map((row) => [...row.querySelectorAll("[data-step]")].map((s) => s.dataset.step).join(">"))`,
+      ),
+      ["report", "fix", "fix>push", "fix>push>reply", "fix>push>reply>rerequest"],
+      "one pill of steps per level",
+    );
+    assert.equal(await evaluate(`document.querySelector('main [data-babysit-level="3"]').textContent.includes("Default")`), true);
+    assert.equal(await evaluate(`document.querySelector('main [role="radio"][aria-checked="true"]').value`), "3");
+    // Switches, chips, levels and stop rules save at once; a number rule sends its whole object.
+    await evaluate(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').click()`);
+    await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "true"`);
+    await evaluate(`[...document.querySelectorAll('main [aria-pressed]')].find((b) => b.textContent === "Branch behind base").click()`);
+    await evaluate(`document.querySelector('main [data-babysit-level="4"]').click()`);
+    await waitFor(`document.querySelector('main [role="radio"][aria-checked="true"]')?.value === "4"`);
+    await evaluate(`document.querySelector("#babysit-stop-failures").click()`);
+    await evaluate(`document.querySelector("#babysit-stop-own").click()`);
+    await waitFor(`!!document.querySelector('main input[aria-label="Your own rule"]')`);
+    assert.deepEqual(await evaluate("window.babysitSaves"), [
+      { enabled: true },
+      { wake: ["comments", "checks", "conflicts", "behind"] },
+      { level: 4 },
+      { stopAfterFailures: { on: true, times: 3 } },
+      { ownRule: true },
+    ]);
+    await evaluate(`document.querySelector("main h1").scrollIntoView({ block: "start" })`);
+    await screenshot("babysit-prs-top");
+    // Typed fields save once, shortly after typing stops, and show Saved under the instructions.
+    const typeInto = (selector, text) =>
+      evaluate(
+        `(() => { const field = document.querySelector(${JSON.stringify(selector)}); field.focus(); const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, "value").set.call(field, ${JSON.stringify(text)}); field.dispatchEvent(new Event("input", { bubbles: true })); })()`,
+      );
+    await typeInto('main textarea[aria-label="Your instructions"]', "Run bun");
+    await typeInto('main textarea[aria-label="Your instructions"]', "Run bun check before every push. Never force-push.");
+    await waitFor(`!!document.querySelector("main [data-saved]")`);
+    assert.deepEqual(await evaluate("window.babysitSaves.slice(5)"), [{ instructions: "Run bun check before every push. Never force-push." }]);
+    // Blur saves the own rule at once.
+    await typeInto('main input[aria-label="Your own rule"]', "The PR gets the do-not-merge label");
+    await evaluate(`document.querySelector('main input[aria-label="Your own rule"]').blur()`);
+    await waitFor(`window.babysitSaves.length === 7`);
+    assert.deepEqual(await evaluate("window.babysitSaves[6]"), { ownRuleText: "The PR gets the do-not-merge label" });
+    await screenshot("babysit-prs");
+    // A save the host refuses goes back and says why; typed text stays and shows Not saved.
+    const resolveSwitch = `document.querySelector('main [role="switch"][aria-label="Resolve threads it answered"]')`;
+    const pageText = `document.querySelector("main [data-babysit-prs-page]").textContent`;
+    await evaluate(`window.failBabysitSave = true; ${resolveSwitch}.click()`);
+    await waitFor(`${pageText}.includes("Daemon is not running")`);
+    await waitFor(`${resolveSwitch}.getAttribute("aria-checked") === "true"`);
+    assert.equal(await evaluate("window.babysitSaves.length"), 7, "the refused change is not kept");
+    await evaluate(`window.failBabysitSave = true`);
+    await typeInto('main textarea[aria-label="Your instructions"]', "Never force-push.");
+    await waitFor(`${pageText}.includes("Not saved")`);
+    assert.equal(await evaluate(`document.querySelector('main textarea[aria-label="Your instructions"]').value`), "Never force-push.", "the text stays");
+    await screenshot("babysit-prs-error");
+    await typeInto('main textarea[aria-label="Your instructions"]', "Never force-push. Keep one commit per round.");
+    await waitFor(`!!document.querySelector("main [data-saved]")`);
+    assert.equal(await evaluate(`${pageText}.includes("Daemon is not running") || ${pageText}.includes("Not saved")`), false, "a later save clears the error");
+    assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Never force-push. Keep one commit per round." });
+    // Reset while a field is focused and half typed: the typed text is dropped and the field shows the default.
+    await typeInto('main textarea[aria-label="Your instructions"]', "Half typed");
+    const savesBeforeReset = await evaluate("window.babysitSaves.length");
+    await evaluate(`document.querySelector("main [data-babysit-reset]").click()`);
+    await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
+    await waitFor(`document.querySelector('main textarea[aria-label="Your instructions"]').value === ""`);
+    await delay(700);
+    assert.equal(await evaluate(`document.querySelector('main textarea[aria-label="Your instructions"]').value`), "", "the reset text stays");
+    assert.equal(await evaluate(`document.activeElement?.getAttribute("aria-label")`), null, "Reset leaves the field");
+    assert.equal(await evaluate("window.babysitSaves.length"), savesBeforeReset + 1, "only the reset saves, not the half-typed text");
+    assert.equal(await evaluate(`!!document.querySelector('main input[aria-label="Your own rule"]')`), false, "reset turns Your own rule off");
+    await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
+    // Typing then going Back at once still saves the text.
+    await evaluate(`${babysitRow}.click()`);
+    await waitFor(`!!document.querySelector('main textarea[aria-label="Your instructions"]')`);
+    await typeInto('main textarea[aria-label="Your instructions"]', "Report checks that fail outside this PR.");
+    await evaluate(`document.querySelector('main button[aria-label="Back to Experimental"]').click()`);
+    await delay(100);
+    // Well inside the 500 ms debounce: leaving the page saved it, not the timer.
+    assert.deepEqual(await evaluate("window.babysitSaves.at(-1)"), { instructions: "Report checks that fail outside this PR." });
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
+    assert.deepEqual(
+      [...(await switches())].sort(),
+      ["Bots", "Delegate to other computers", "Floating inbox", "Ultracode Fatality"],
+      "Back returns to Experimental",
+    );
     // Designs are always on now: Settings › Milagre has no switch, only Published pages, above the Milagre MCP.
     await openSection("Milagre");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
@@ -383,7 +512,7 @@ async function browserChecks() {
     assert.deepEqual(errors, []);
     await screenshot("notifications");
     console.log(
-      "PASS: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (no Routines or Designs switch); Milagre holds Published pages (no Designs switch) above the Milagre MCP; with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
+      "PASS: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (no Routines or Designs switch), and its Babysit PRs row opens a page that saves each change and goes Back; Milagre holds Published pages (no Designs switch) above the Milagre MCP; with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
     );
     app.exit(0);
   } catch (error) {

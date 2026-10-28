@@ -1490,18 +1490,61 @@ test("canUseTool never lets through what the PreToolUse hook asked about", async
   assert.equal(JSON.parse(replyText(events)).behavior, "allow");
 });
 
-test("other modes have no PreToolUse hook", async (t) => {
+test("outside Bot rules the PreToolUse hook lets every tool through", async (t) => {
+  const merge = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "gh pr merge 1" }, tool_use_id: "t1" };
   for (const permissionMode of ["ask", "auto", "full"]) {
     const { session, events, calls } = claude(t, { permissionPolicy: mergePolicy });
     await session.startTurn({ ...TURN, permissionMode });
     await ended(events);
-    assert.equal(calls.options.hooks?.PreToolUse, undefined, permissionMode);
+    assert.deepEqual(await calls.options.hooks.PreToolUse[0].hooks[0](merge, "t1"), {}, permissionMode);
   }
   // Bot rules without a policy has nothing to gate with.
   const { session, events, calls } = claude(t);
   await session.startTurn({ ...TURN, permissionMode: "bot" });
   await ended(events);
-  assert.equal(calls.options.hooks?.PreToolUse, undefined);
+  assert.deepEqual(await calls.options.hooks.PreToolUse[0].hooks[0](merge, "t1"), {});
+});
+
+test("guarded turn denies push in full mode, and only that turn", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "full", guard: { level: 2, resolveThreads: false } });
+  await waitUntil(() => calls.options);
+  const hook = calls.options.hooks.PreToolUse[0].hooks[0];
+  const bash = (command, id) => hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, tool_use_id: id }, id);
+  assert.deepEqual(await bash("npm test && git push origin HEAD", "t1"), {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: "Babysit level Fix, don't push doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.",
+    },
+  });
+  assert.equal((await bash("gh pr merge 4", "t2")).hookSpecificOutput.permissionDecisionReason, "Babysitting never merges.");
+  assert.deepEqual(await bash("npm test", "t3"), {});
+  // A message steered into the Run keeps its guard.
+  await session.startTurn({ ...TURN, prompt: "also run lint", permissionMode: "full" });
+  assert.equal((await bash("git push", "t4")).hookSpecificOutput.permissionDecision, "deny");
+  calls.release();
+  await ended(events);
+  // The Chat's next turn is the user's own: nothing is guarded.
+  await session.startTurn({ ...TURN, permissionMode: "full" });
+  assert.deepEqual(await bash("git push", "t5"), {});
+});
+
+test("a guarded command that reaches canUseTool is denied there too", async (t) => {
+  const { session, events, calls } = claude(t, { script: scripts.held });
+  await session.startTurn({ ...TURN, permissionMode: "ask", guard: { level: 1, resolveThreads: false } });
+  await waitUntil(() => calls.options);
+  const result = await calls.options.canUseTool("Bash", { command: "git push" }, { requestId: "r1", toolUseID: "u1" });
+  assert.deepEqual(result, {
+    behavior: "deny",
+    message: "Babysit level Report only doesn't allow pushing to GitHub. Change it in Settings › Experimental › Babysit PRs.",
+  });
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+  calls.release();
+  await ended(events);
 });
 
 test("analysis-only Claude gets no hooks at all, even in Bot rules", async (t) => {

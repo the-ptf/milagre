@@ -13,7 +13,17 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { ModelOption, RoutineRun } from "@milagre/shared/model";
 import { PERMISSION_MODES } from "@milagre/shared/model-copy";
-import { canRunNow, clock, filterRuns, routineTimes, routineWhereText, runFilterCounts, triggerChipText, type RunFilter } from "@milagre/shared/routines";
+import {
+  canEditRoutine,
+  canRunNow,
+  clock,
+  filterRuns,
+  routineTimes,
+  routineWhereText,
+  runFilterCounts,
+  triggerChipText,
+  type RunFilter,
+} from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Switch } from "../primitives/Switch";
@@ -169,11 +179,14 @@ export function RoutinePage({
                 </button>
               </Tooltip>
             )}
-            <Tooltip label="Edit" side="bottom">
-              <button type="button" aria-label="Edit" data-routine-edit className={toolButton} onClick={onEdit}>
-                <HugeiconsIcon icon={PencilEdit02Icon} size={15} strokeWidth={1.8} color="currentColor" />
-              </button>
-            </Tooltip>
+            {/* A babysit Heartbeat follows the Babysit PRs settings: no form edits it (the list's menu still deletes it). */}
+            {canEditRoutine(routine) && (
+              <Tooltip label="Edit" side="bottom">
+                <button type="button" aria-label="Edit" data-routine-edit className={toolButton} onClick={onEdit}>
+                  <HugeiconsIcon icon={PencilEdit02Icon} size={15} strokeWidth={1.8} color="currentColor" />
+                </button>
+              </Tooltip>
+            )}
           </div>
         </div>
         <div data-routine-chips className="mt-3 flex flex-wrap items-center gap-2">

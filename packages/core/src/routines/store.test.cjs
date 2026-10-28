@@ -505,6 +505,51 @@ test("complete and expireDue end Routines", () => {
   );
 });
 
+test("complete and expireDue keep why a Routine ended and tell onEnded once, after the write", () => {
+  const { options, clock } = setup();
+  const told = [];
+  const store = createRoutineStore({
+    ...options,
+    onEnded: (ended) => {
+      // Told after the write: the store already holds the ended Routine.
+      for (const entry of ended) assert.ok(store.get(entry.routine.id).completedAt);
+      told.push(...ended.map((entry) => [entry.routine.name, entry.reason]));
+    },
+  });
+  const a = store.upsertHeartbeat({ ...base, name: "a", expiresIn: "1h" });
+  const c = store.upsertHeartbeat({ ...base, name: "c" });
+  clock.t = START + 90 * 60_000;
+  store.expireDue(clock.t);
+  store.complete(c.id, "green");
+  assert.equal(store.get(a.id).completedReason, "expired");
+  assert.equal(store.get(c.id).completedReason, "green");
+  assert.equal(createRoutineStore(options).get(c.id).completedReason, "green");
+  // Completing an ended Routine again tells nobody, and keeps the first reason.
+  store.complete(c.id, "chat gone");
+  assert.equal(store.get(c.id).completedReason, "green");
+  assert.deepEqual(told, [
+    ["a", "expired"],
+    ["c", "green"],
+  ]);
+  // A Routine ended without a reason keeps none; an onEnded that throws doesn't undo the end.
+  const quiet = createRoutineStore({
+    ...options,
+    onEnded: () => {
+      throw new Error("boom");
+    },
+  });
+  const d = quiet.upsertHeartbeat({ ...base, name: "d" });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    quiet.complete(d.id);
+  } finally {
+    console.warn = warn;
+  }
+  assert.ok(quiet.get(d.id).completedAt);
+  assert.equal(quiet.get(d.id).completedReason, undefined);
+});
+
 test("list returns disabled Routines, newest first", () => {
   const { store, clock } = setup();
   const a = store.upsertHeartbeat({ ...base, name: "a" });
@@ -1670,6 +1715,7 @@ test("queues, seen keys and cursors survive a store re-created on the same file"
     "aiConsentVersion",
     "enabled",
     "linear",
+    "pullRequests",
     "queues",
     "rejections",
     "removed",
@@ -2396,4 +2442,182 @@ test("a file saved before removed Routines were remembered loads with none, and 
   const damaged = createRoutineStore(options);
   assert.equal(damaged.wasRemoved("r1"), true);
   assert.equal(damaged.wasRemoved("r2"), false);
+});
+
+const PR_TRIGGER = { kind: "pull-request", url: "https://github.com/acme/app/pull/7", repo: "github.com/acme/app", number: 7, settings: {} };
+const prSpec = { name: "Babysit PR #7", prompt: "babysit", trigger: PR_TRIGGER, target: { kind: "chat", chatId: "c1" }, createdBy: { kind: "user" } };
+const prEvent = (n, extra = {}) => ({
+  kind: "pull-request",
+  key: `pr7:${n}`,
+  summary: `change ${n}`,
+  changes: [{ kind: "comment", id: String(n), text: "fix this" }],
+  branch: "feature",
+  ...extra,
+});
+
+test("create accepts a pull-request trigger on a chat target", () => {
+  const { store, options } = setup();
+  const routine = store.create(prSpec);
+  assert.equal(routine.trigger.kind, "pull-request");
+  assert.equal(routine.trigger.repo, "github.com/acme/app");
+  assert.equal(routine.trigger.number, 7);
+  // The settings are normalized: a copy of the defaults when none were given.
+  assert.equal(routine.trigger.settings.intervalMinutes, 1);
+  assert.equal(routine.trigger.settings.level, 3);
+  assert.equal(routine.expiresAt, START + 7 * DAY);
+  assert.equal(routine.nextRunAt, undefined);
+  assert.deepEqual(createRoutineStore(options).get(routine.id), routine);
+  // A pull-request trigger only ever targets an existing Chat.
+  assert.throws(() => store.create({ ...prSpec, target: NEW_CHAT }), /existing Chat/);
+});
+
+test("pull-request trigger rejects a missing number", () => {
+  const { store } = setup();
+  for (const bad of [undefined, 0, -1, 1.5, "7"]) {
+    assert.throws(() => store.create({ ...prSpec, trigger: { ...PR_TRIGGER, number: bad } }), /number/);
+  }
+  assert.throws(() => store.create({ ...prSpec, trigger: { ...PR_TRIGGER, url: "ftp://x/y" } }), /url/);
+  assert.throws(() => store.create({ ...prSpec, trigger: { ...PR_TRIGGER, repo: "acme" } }), /repo/);
+  assert.deepEqual(store.list(), []);
+});
+
+test("enqueue accepts a pull-request event for its routine", () => {
+  const { store } = setup();
+  store.setEnabled(true);
+  const routine = store.create(prSpec);
+  assert.deepEqual(store.enqueue(routine.id, prEvent(1)), { queued: true });
+  assert.deepEqual(store.enqueue(routine.id, prEvent(1)), { queued: false, reason: "seen" });
+  const linear = store.create({ ...spec, name: "linear", trigger: { kind: "linear", workspace: "w", event: "assigned" } });
+  assert.deepEqual(store.enqueue(linear.id, prEvent(2)), { queued: false, reason: "kind" });
+});
+
+test("findPullRequest finds the live routine only", () => {
+  const { store } = setup();
+  const routine = store.create(prSpec);
+  assert.equal(store.findPullRequest("github.com/acme/app", 7).id, routine.id);
+  assert.equal(store.findPullRequest("github.com/acme/app", 8), undefined);
+  assert.equal(store.findPullRequest("github.com/acme/other", 7), undefined);
+  store.complete(routine.id);
+  assert.equal(store.findPullRequest("github.com/acme/app", 7), undefined);
+});
+
+test("heartbeat_create cannot replace a babysit heartbeat", () => {
+  const { store } = setup();
+  store.create(prSpec);
+  assert.throws(
+    () => store.upsertHeartbeat({ ...base, chatId: "c1", name: "Babysit PR #7", every: "5m" }),
+    /Babysit PR #7 is watched by Milagre; delete it from its Routine page first/,
+  );
+  // Another name in the same Chat still works.
+  assert.equal(store.upsertHeartbeat({ ...base, chatId: "c1", name: "other" }).name, "other");
+});
+
+test("prSnapshot survives reload and is dropped on complete", () => {
+  const { store, options } = setup();
+  const routine = store.create(prSpec);
+  assert.equal(store.prSnapshot(routine.id), undefined);
+  const value = { snapshot: { head: "abc" }, attempts: 1, handed: ["k"] };
+  store.setPrSnapshot(routine.id, value);
+  assert.deepEqual(createRoutineStore(options).prSnapshot(routine.id), value);
+  store.complete(routine.id);
+  assert.equal(store.prSnapshot(routine.id), undefined);
+  assert.equal(createRoutineStore(options).prSnapshot(routine.id), undefined);
+  const other = store.create({ ...prSpec, trigger: { ...PR_TRIGGER, number: 8 } });
+  store.setPrSnapshot(other.id, value);
+  store.remove(other.id);
+  assert.equal(store.prSnapshot(other.id), undefined);
+});
+
+test("setPrSnapshot writes the store only when the snapshot changed", () => {
+  const { store } = setup();
+  const routine = store.create(prSpec);
+  const value = { snapshot: { head: "abc", comments: [] }, attempts: { "check:ci": 0 }, handed: { "check:ci": { at: 1, head: "abc" } } };
+  assert.equal(
+    countSaves(() => assert.equal(store.setPrSnapshot(routine.id, value), true)),
+    1,
+  );
+  // The same reading again, even built in another key order, leaves the file alone.
+  const same = { handed: { "check:ci": { head: "abc", at: 1 } }, attempts: { "check:ci": 0 }, snapshot: { comments: [], head: "abc" } };
+  assert.equal(
+    countSaves(() => assert.equal(store.setPrSnapshot(routine.id, same), true)),
+    0,
+  );
+  assert.equal(
+    countSaves(() => store.setPrSnapshot(routine.id, { ...value, attempts: { "check:ci": 1 } })),
+    1,
+  );
+  assert.deepEqual(store.prSnapshot(routine.id).attempts, { "check:ci": 1 });
+  // An ended Routine still keeps none.
+  store.complete(routine.id);
+  assert.equal(store.setPrSnapshot(routine.id, value), false);
+});
+
+test("only one pull-request run per routine runs at a time", () => {
+  const { store } = setup();
+  store.setEnabled(true);
+  const routine = store.create(prSpec);
+  for (let n = 1; n <= 3; n += 1) store.enqueue(routine.id, prEvent(n));
+  const first = store.claimQueued(START);
+  assert.equal(first.length, 1);
+  assert.equal(first[0].run.event.key, "pr7:1");
+  assert.deepEqual(store.claimQueued(START), []);
+  store.finishRun(first[0].run.id, { status: "acted" });
+  const second = store.claimQueued(START);
+  assert.equal(second.length, 1);
+  assert.equal(second[0].run.event.key, "pr7:2");
+});
+
+test("a pull-request event waits its turn and never expires", () => {
+  const { store, clock: time } = setup();
+  store.setEnabled(true);
+  const routine = store.create(prSpec);
+  store.enqueue(routine.id, prEvent(1));
+  store.enqueue(routine.id, prEvent(2));
+  const [head] = store.claimQueued(time.t);
+  // The head goes back to wait; the one behind it may not jump ahead.
+  store.deferRun(head.run.id, time.t + 60_000);
+  assert.deepEqual(store.claimQueued(time.t), []);
+  time.t += 3 * 3600_000;
+  const [again] = store.claimQueued(time.t);
+  assert.equal(again.run.event.key, "pr7:1");
+});
+
+test("pull-request routine always has an expiry", () => {
+  const { store } = setup();
+  const routine = store.create({ ...prSpec, maxRuns: 50 });
+  assert.equal(routine.maxRuns, 50);
+  assert.equal(routine.expiresAt, START + 7 * DAY);
+  assert.equal(store.create({ ...prSpec, trigger: { ...PR_TRIGGER, number: 8 }, expiresAt: START + DAY }).expiresAt, START + DAY);
+  assert.throws(() => store.create({ ...prSpec, trigger: { ...PR_TRIGGER, number: 9 }, expiresAt: START + 31 * DAY }), /30d/);
+  assert.throws(() => store.update(routine.id, { expiresAt: null }), /end/);
+  assert.equal(store.get(routine.id).expiresAt, START + 7 * DAY);
+});
+
+test("second live routine for the same PR is refused", () => {
+  const { store } = setup();
+  const first = store.create(prSpec);
+  assert.throws(
+    () => store.create({ ...prSpec, target: { kind: "chat", chatId: "c2" }, trigger: { ...PR_TRIGGER, repo: "GitHub.com/Acme/App" } }),
+    /already being babysat/,
+  );
+  const other = store.create({ ...prSpec, name: "Babysit PR #8", trigger: { ...PR_TRIGGER, number: 8 } });
+  // Moving a routine onto a watched PR is refused; keeping its own is fine.
+  assert.throws(() => store.update(other.id, { trigger: { ...PR_TRIGGER, number: 7 } }), /already being babysat/);
+  assert.equal(store.update(first.id, { trigger: PR_TRIGGER }).trigger.number, 7);
+  assert.equal(store.list().length, 2);
+});
+
+test("a completed babysit routine frees the PR", () => {
+  const { store } = setup();
+  const first = store.create(prSpec);
+  store.complete(first.id);
+  assert.equal(store.create(prSpec).trigger.number, 7);
+});
+
+test("upsertHeartbeat works again after the babysit routine completes", () => {
+  const { store } = setup();
+  const babysit = store.create(prSpec);
+  store.complete(babysit.id);
+  const heartbeat = store.upsertHeartbeat({ ...base, chatId: "c1", name: "Babysit PR #7", every: "5m" });
+  assert.equal(heartbeat.trigger.kind, "schedule");
 });

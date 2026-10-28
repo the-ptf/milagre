@@ -15,7 +15,7 @@ const fixture = `
 // This fixture exercises a device that has already accepted AI sharing.
 import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
 localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
-localStorage.setItem("milagre.hiddenRemoteScopes", JSON.stringify(["c-arketa|/Users/a/old-site"]));
+localStorage.setItem("milagre.hiddenRemoteScopes", JSON.stringify(["c-atlas|/Users/a/old-site"]));
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { updateSettings } from "/src/lib/settings";
@@ -23,7 +23,7 @@ import "/src/styles.css";
 const HOUR = 3600000;
 const local = { next_id: 3, projects: { 1: { id: 1, name: "milagre-ade" } }, worktrees: { 1: { id: 1, name: "main", path: "/work/milagre-ade", project_id: 1 } }, sessions: { 2: { id: 2, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title: "Desktop connect sidebar" } }, connections: {}, events: [], messages: [{ id: 2, session_id: 2, role: "user", body: "Connect the sidebar" }], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
 window.computerList = [
-  { id: "c-arketa", name: "arketa", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
+  { id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
   { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 2 * HOUR, addedAt: 1, message: null, lan: false, lanRoutes: [] },
 ];
 let computersChanged = () => {};
@@ -31,11 +31,11 @@ const computerEvents = new Set();
 window.setComputers = (list) => { window.computerList = list; computersChanged({ thisMac: "victor-mbp", computers: list }); };
 const remoteState = (title, body) => ({ next_id: 9, projects: { 1: { id: 1, name: "p" } }, worktrees: { 1: { id: 1, name: "main", path: "/remote", project_id: 1 } }, sessions: { 4: { id: 4, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title } }, connections: {}, events: [], messages: [{ id: 4, session_id: 4, role: "user", body }], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] });
 const remoteProjects = {
-  // Hidden on arketa's own sidebar, but shown on this Mac because each computer has its own visibility.
-  "c-arketa": { path: "c-arketa|/Users/a/arketa-web", name: "arketa-web", hidden: true, state: remoteState("Fix flaky deploy check", "The deploy check fails about one run in five.") },
+  // Hidden on atlas's own sidebar, but shown on this Mac because each computer has its own visibility.
+  "c-atlas": { path: "c-atlas|/Users/a/atlas-web", name: "atlas-web", hidden: true, state: remoteState("Fix flaky deploy check", "The deploy check fails about one run in five.") },
   "c-studio": { path: "c-studio|/Users/s/homelab", name: "homelab", state: remoteState("Backup rotation", "Rotate the nightly backups.") },
-  // Shown on arketa, but hidden on this Mac (in milagre.hiddenRemoteScopes): not in the sidebar, and unchecked in Filters › Projects.
-  "c-arketa-hidden": { path: "c-arketa|/Users/a/old-site", name: "old-site", state: remoteState("Old site", "Retire it.") },
+  // Shown on atlas, but hidden on this Mac (in milagre.hiddenRemoteScopes): not in the sidebar, and unchecked in Filters › Projects.
+  "c-atlas-hidden": { path: "c-atlas|/Users/a/old-site", name: "old-site", state: remoteState("Old site", "Retire it.") },
   // Only on a computer added during the test.
   "c-new": { path: "c-new|/Users/n/garden", name: "garden", state: remoteState("Water plan", "Plan the watering.") },
   "c-studio-lean": {
@@ -53,7 +53,7 @@ const projectsOf = (id) => Object.values(remoteProjects).filter((project) => pro
 // A host that numbers states says which state a read carries; the window keeps reads from now on from that number.
 const projectAt = async (key) => {
   const project = { ...structuredClone(Object.values(remoteProjects).find((project) => project.path === key)), version: 1, epoch: "fixture-host" };
-  if (new URLSearchParams(location.search).has("race") && key === remoteProjects["c-arketa"].path && !window.remoteReadHeld) {
+  if (new URLSearchParams(location.search).has("race") && key === remoteProjects["c-atlas"].path && !window.remoteReadHeld) {
     window.remoteReadHeld = true;
     await new Promise(resolve => { window.finishRemoteRead = resolve; });
   }
@@ -67,8 +67,8 @@ const projectHeader = (key) => {
   return { path, name, git: true, version: 1, epoch: "fixture-host" };
 };
 window.pushRemote = (state) => {
-  remoteProjects["c-arketa"].state = state;
-  for (const callback of computerEvents) callback({ channel: "project:state", payload: { path: remoteProjects["c-arketa"].path, state } });
+  remoteProjects["c-atlas"].state = state;
+  for (const callback of computerEvents) callback({ channel: "project:state", payload: { path: remoteProjects["c-atlas"].path, state } });
 };
 window.setChatOrder = (chatOrder) => updateSettings({ chatOrder });
 window.usageReads = [];
@@ -99,7 +99,7 @@ const remote = (id) => new Proxy({
   forgetProject: async (key) => ((window.forgotten ??= []).push(key), projectsOf(id).filter((project) => project.path !== key).map(({ path, name }) => ({ path, name }))),
   sendMessage: async (request) => (window.sent.push(request), { sessionId: 4 }),
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
-const remotes = { "c-arketa": remote("c-arketa"), "c-studio": remote("c-studio"), "c-new": remote("c-new") };
+const remotes = { "c-atlas": remote("c-atlas"), "c-studio": remote("c-studio"), "c-new": remote("c-new") };
 let localRecent = [{ path: "/work/milagre-ade", name: "milagre-ade" }];
 window.milagre = new Proxy({
   getRuntimeConnection: async () => ({ connected: true }),
@@ -183,23 +183,23 @@ async function browserChecks() {
     await openPopover();
     assert.deepEqual(await lines(), [
       ["this-mac", "victor-mbp", "This Mac"],
-      ["c-arketa", "arketa", "Same network"],
+      ["c-atlas", "atlas", "Same network"],
       ["c-studio", "studio", "Offline, seen 2h ago"],
     ]);
     assert.equal(await evaluate(`!!document.querySelector('[data-computers-panel] [data-add-computer-row]')`), true);
     await screenshot("popover");
-    await hover('[data-computer-row="c-arketa"] [data-computer-gear]');
-    await waitFor(`[...document.querySelectorAll('[role="tooltip"]')].some((tip) => tip.textContent.includes('arketa settings: rename, connection, remove'))`);
+    await hover('[data-computer-row="c-atlas"] [data-computer-gear]');
+    await waitFor(`[...document.querySelectorAll('[role="tooltip"]')].some((tip) => tip.textContent.includes('atlas settings: rename, connection, remove'))`);
     await screenshot("popover-gear");
     console.log("PASS: the popover lists This Mac, then each computer with its route line, a gear with its tooltip, and Add computer");
 
-    await evaluate(`document.querySelector('[data-computer-row="c-arketa"] [data-computer-gear]').click()`);
-    await waitFor(`document.querySelector('h1')?.textContent === 'arketa' && !!document.querySelector('[data-computer-settings]')`);
+    await evaluate(`document.querySelector('[data-computer-row="c-atlas"] [data-computer-gear]').click()`);
+    await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
     const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="switch"]')`;
     assert.equal(await evaluate(`${sidebarSwitch}.getAttribute('aria-checked')`), "true");
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'false'`);
-    assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-arketa"]);
+    assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-atlas"]);
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'true' && !localStorage.getItem("milagre.hiddenComputers")`);
     await evaluate(`document.querySelector('[aria-label="Settings navigation"] button[aria-label="Back"]').click()`);
@@ -221,23 +221,34 @@ async function browserChecks() {
     // Scope keys hold "|" and "/", which a double-quoted attribute selector takes as they are.
     const inScope = (scope, rest) => `[data-sidebar-scope="${scope}"] ${rest}`;
     const computerLines = (scope) =>
-      evaluate(`[...document.querySelectorAll(${JSON.stringify(inScope(scope, "[data-chat-computer]"))})].map((line) => line.textContent.trim())`);
+      evaluate(`[...document.querySelectorAll(${JSON.stringify(inScope(scope, "[data-scope-computer]"))})].map((line) => line.textContent.trim())`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 4`);
     assert.deepEqual(
       await scopes(),
-      ["c-arketa|/Users/a/arketa-web", "c-studio|/Users/s/homelab", "/work/milagre-ade", "c-studio|/Users/s/notes"],
+      ["c-atlas|/Users/a/atlas-web", "c-studio|/Users/s/homelab", "/work/milagre-ade", "c-studio|/Users/s/notes"],
       "one list, by Project name",
     );
-    await waitFor(`document.querySelectorAll('[data-chat-computer]').length >= 3`);
-    assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor-mbp"]);
-    assert.deepEqual(await computerLines("c-arketa|/Users/a/arketa-web"), ["arketa"]);
-    assert.deepEqual(await computerLines("c-studio|/Users/s/homelab"), ["studio, offline"]);
+    await waitFor(`document.querySelectorAll('[data-scope-computer]').length >= 3`);
+    // Grouped, the computer sits in the Project's header, not on its rows.
+    assert.equal(await evaluate(`document.querySelectorAll('[data-sidebar-scope] [data-chat-computer]').length`), 0);
+    assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor"], "a hostname shows its first part");
+    assert.deepEqual(await computerLines("c-atlas|/Users/a/atlas-web"), ["atlas"]);
+    assert.deepEqual(await computerLines("c-studio|/Users/s/homelab"), ["studio"]);
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(inScope("c-studio|/Users/s/homelab", "[data-scope-computer]"))}).hasAttribute('data-offline')`),
+      true,
+    );
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(inScope("c-studio|/Users/s/homelab", "[data-scope-toggle]"))}).getAttribute('aria-label')`),
+      "Collapse homelab on studio, offline",
+      "the header names its full computer for screen readers",
+    );
     assert.equal(
       await evaluate(`document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]').hasAttribute('data-offline')`),
       true,
       "the offline computer's Project is dimmed",
     );
-    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"]').hasAttribute('data-offline')`), false);
+    assert.equal(await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"]').hasAttribute('data-offline')`), false);
     // Dimmed once: the section is at 0.5 and its row adds no opacity of its own.
     assert.deepEqual(
       await evaluate(
@@ -248,6 +259,46 @@ async function browserChecks() {
     );
     await screenshot("merged-list");
     console.log("PASS: every computer's Projects in one list by name, each row naming its computer, the offline one dimmed");
+
+    // At the sidebar's narrowest, a long computer name shows its first word, and a long Project name truncates while
+    // the chip keeps its width, hovered too; the chip's tooltip has the full name.
+    const atlas = "c-atlas|/Users/a/atlas-web";
+    await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-atlas' ? { ...c, name: "Atlas’s Mac mini" } : c))`);
+    await waitFor(`document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-computer]"))})?.textContent.trim() === 'Atlas'`);
+    await evaluate(`document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-name]"))}).textContent = 'rd-events-admin-dashboard-and-docs'`);
+    const headerFit = () =>
+      evaluate(`(() => {
+        const header = document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-toggle]"))});
+        const name = header.querySelector('[data-scope-name]');
+        const chip = header.querySelector('[data-scope-computer]');
+        const alias = chip.lastElementChild;
+        return { nameCut: name.scrollWidth > name.clientWidth, aliasWhole: alias.scrollWidth <= alias.clientWidth, gap: Math.round(header.getBoundingClientRect().right - chip.getBoundingClientRect().right) };
+      })()`);
+    assert.deepEqual(await headerFit(), { nameCut: true, aliasWhole: true, gap: 8 }, "the Project name gives way, not the chip, which sits at the right edge");
+    await hover(inScope(atlas, "[data-scope-name]"));
+    await waitFor(
+      `!!document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-menu]"))}) && getComputedStyle(document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-menu]"))})).opacity === '1'`,
+    );
+    assert.deepEqual(await headerFit(), { nameCut: true, aliasWhole: true, gap: 60 }, "hovered, the chip moves left of the actions");
+    await hover(inScope(atlas, "[data-scope-computer]"));
+    await waitFor(`document.querySelector('[role="tooltip"]')?.textContent === 'Atlas’s Mac mini'`);
+    await screenshot("long-names");
+    await evaluate(`document.querySelector(${JSON.stringify(inScope(atlas, "[data-scope-name]"))}).textContent = 'atlas-web'`);
+    await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-atlas' ? { ...c, name: "atlas" } : c))`);
+    window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
+    await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    // The open Project's + shows only on hover too, so at rest its chip also reaches the edge.
+    const current = "/work/milagre-ade";
+    await waitFor(`getComputedStyle(document.querySelector(${JSON.stringify(inScope(current, "[data-scope-action]"))})).opacity === '0'`);
+    assert.equal(
+      await evaluate(
+        `Math.round(document.querySelector(${JSON.stringify(inScope(current, "[data-scope-toggle]"))}).getBoundingClientRect().right - document.querySelector(${JSON.stringify(inScope(current, "[data-scope-computer]"))}).getBoundingClientRect().right)`,
+      ),
+      8,
+    );
+    console.log(
+      "PASS: at the narrowest sidebar, a long Project name truncates before the computer chip, hovered too, and the chip's tooltip names the computer",
+    );
 
     // Filters › Projects lists every computer's Projects under its computer (This Mac first, then by name), hidden ones unchecked.
     const choices = () =>
@@ -264,24 +315,24 @@ async function browserChecks() {
       await choices(),
       [
         ["local", "/work/milagre-ade", "true"],
-        ["c-arketa", "c-arketa|/Users/a/arketa-web", "true"],
-        ["c-arketa", "c-arketa|/Users/a/old-site", "false"],
+        ["c-atlas", "c-atlas|/Users/a/atlas-web", "true"],
+        ["c-atlas", "c-atlas|/Users/a/old-site", "false"],
         ["c-studio", "c-studio|/Users/s/homelab", "true"],
         ["c-studio", "c-studio|/Users/s/notes", "true"],
       ],
       "every computer's Projects under its computer, by name, the hidden one unchecked",
     );
-    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "arketa", "studio"]);
+    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "atlas", "studio"]);
     assert.equal(await evaluate(`document.querySelector('[data-project-choice="/work/milagre-ade"]').textContent.includes('Open')`), true);
     await screenshot("filters-projects");
-    await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/old-site"]').click()`);
-    await waitFor(`!!document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/old-site"]')`);
-    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/old-site"]').getAttribute('aria-checked')`), "true");
-    await evaluate(`document.querySelector('[data-project-choice="c-arketa|/Users/a/old-site"]').click()`);
-    await waitFor(`!document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/old-site"]')`);
+    await evaluate(`document.querySelector('[data-project-choice="c-atlas|/Users/a/old-site"]').click()`);
+    await waitFor(`!!document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/old-site"]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-project-choice="c-atlas|/Users/a/old-site"]').getAttribute('aria-checked')`), "true");
+    await evaluate(`document.querySelector('[data-project-choice="c-atlas|/Users/a/old-site"]').click()`);
+    await waitFor(`!document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/old-site"]')`);
     assert.deepEqual(
       await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenRemoteScopes") || "[]")`),
-      ["c-arketa|/Users/a/old-site"],
+      ["c-atlas|/Users/a/old-site"],
       "the choice is saved on this Mac without mutating the other computer",
     );
     assert.equal(await evaluate(`window.remoteHiddenCalls`), 0, "the remote computer's setProjectHidden is never called");
@@ -291,7 +342,7 @@ async function browserChecks() {
       `window.setComputers([...window.computerList, { id: "c-new", name: "garden-mini", hostId: "n".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 3, message: null, lan: true, lanRoutes: [] }])`,
     );
     await waitFor(`!!document.querySelector('[data-project-choice="c-new|/Users/n/garden"]')`);
-    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "arketa", "garden-mini", "studio"], "a new computer's section joins by name");
+    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "atlas", "garden-mini", "studio"], "a new computer's section joins by name");
     await waitFor(`!!document.querySelector('[data-sidebar-scope="c-new|/Users/n/garden"]')`);
     await screenshot("filters-new-computer");
     await evaluate(`window.setComputers(window.computerList.filter((computer) => computer.id !== "c-new"))`);
@@ -312,7 +363,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "false");
     assert.equal(await evaluate(`!!document.querySelector('[data-computers-panel]')`), true, "the popover stays open");
     assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("milagre.hiddenComputers") || "[]")`), ["c-studio"]);
-    assert.deepEqual(await scopes(), ["c-arketa|/Users/a/arketa-web", "/work/milagre-ade"]);
+    assert.deepEqual(await scopes(), ["c-atlas|/Users/a/atlas-web", "/work/milagre-ade"]);
     await screenshot("popover-hidden-computer");
     await evaluate(`document.querySelector('[data-computers-panel]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await waitFor(`!document.querySelector('[data-computers-panel]')`);
@@ -322,13 +373,13 @@ async function browserChecks() {
     assert.match(await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').textContent`), /1 hidden/);
     await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-sub="projects"]')`);
-    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "arketa"], "no section for the hidden computer");
+    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "atlas"], "no section for the hidden computer");
     assert.deepEqual(
       await choices(),
       [
         ["local", "/work/milagre-ade", "true"],
-        ["c-arketa", "c-arketa|/Users/a/arketa-web", "true"],
-        ["c-arketa", "c-arketa|/Users/a/old-site", "false"],
+        ["c-atlas", "c-atlas|/Users/a/atlas-web", "true"],
+        ["c-atlas", "c-atlas|/Users/a/old-site", "false"],
       ],
       "the hidden computer's Projects aren't listed",
     );
@@ -341,7 +392,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 2`);
     await delay(150);
-    assert.deepEqual(await scopes(), ["c-arketa|/Users/a/arketa-web", "/work/milagre-ade"], "still hidden after a restart");
+    assert.deepEqual(await scopes(), ["c-atlas|/Users/a/atlas-web", "/work/milagre-ade"], "still hidden after a restart");
     await openPopover();
     assert.equal(await evaluate(`${studioShow}.getAttribute('aria-checked')`), "false");
     await evaluate(`${studioShow}.click()`);
@@ -353,26 +404,26 @@ async function browserChecks() {
     console.log("PASS: unchecking a computer in the popover hides its Projects from the sidebar and Filters › Projects, and a restart keeps it");
 
     // Removing a computer's Project from the list asks that computer, and leaves this Mac's list as it was.
-    await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-menu]').click()`);
+    await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-scope-menu]').click()`);
     await waitFor(`!!document.querySelector('[data-scope-menu-panel]')`);
     await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
     await waitFor(`!!document.querySelector('[data-project-remove-confirm]')`);
     await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
-    await waitFor(`(window.forgotten ?? []).includes('c-arketa|/Users/a/arketa-web')`);
+    await waitFor(`(window.forgotten ?? []).includes('c-atlas|/Users/a/atlas-web')`);
     await waitFor(`!document.querySelector('[data-scope-menu-panel]')`);
     assert.ok((await scopes()).includes("/work/milagre-ade"), "this Mac's Project is still listed");
     assert.equal(await evaluate(`document.querySelectorAll('[data-sidebar-scope="/work/milagre-ade"] [data-chat-id]').length`), 1, "and keeps its chat");
     console.log("PASS: removing a computer's Project from the list leaves this Mac's list alone");
 
     await evaluate(
-      `[...document.querySelectorAll('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`,
+      `[...document.querySelectorAll('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`,
     );
     await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('The deploy check fails about one run in five.')`);
     // The window holds the Project's numbered state from the sidebar's read: the other Mac is only asked for its name and
     // number (project:read without the state), never project:switch, which would reorder its recent list and change its
     // open Project.
     await waitFor(
-      `window.remoteCalls.some(([method, key, options]) => method === 'readProject' && key === 'c-arketa|/Users/a/arketa-web' && options?.state === false)`,
+      `window.remoteCalls.some(([method, key, options]) => method === 'readProject' && key === 'c-atlas|/Users/a/atlas-web' && options?.state === false)`,
     );
     assert.equal(
       await evaluate(`window.remoteCalls.some(([method]) => method === 'switchProject')`),
@@ -381,7 +432,7 @@ async function browserChecks() {
     );
     await waitFor(`document.querySelector('.sidebar-usage-row')?.textContent.includes('37%')`);
     assert.ok(
-      await evaluate(`window.usageReads.some(([id, scope]) => id === 'c-arketa' && scope === 'c-arketa|/Users/a/arketa-web')`),
+      await evaluate(`window.usageReads.some(([id, scope]) => id === 'c-atlas' && scope === 'c-atlas|/Users/a/atlas-web')`),
       "usage is read from the open Chat's computer and Project",
     );
     await evaluate(`document.querySelector('.sidebar-usage-row').click()`);
@@ -403,7 +454,7 @@ async function browserChecks() {
       await waitFor(`!document.querySelector('[role="menu"]')`);
       return labels;
     };
-    const remoteMenu = await menuOf("c-arketa|/Users/a/arketa-web", "Fix flaky deploy check");
+    const remoteMenu = await menuOf("c-atlas|/Users/a/atlas-web", "Fix flaky deploy check");
     assert.equal(
       remoteMenu.some((label) => /Finder|editor|Open in/.test(label)),
       false,
@@ -488,7 +539,7 @@ async function browserChecks() {
     console.log("PASS: removing the open chat's computer goes back to this Mac's Project");
 
     await evaluate(`window.setOther(false)`);
-    await waitFor(`!document.querySelector('[data-chat-computer]')`);
+    await waitFor(`!document.querySelector('[data-chat-computer], [data-scope-computer]')`);
     await waitFor(`!document.querySelector('[data-computers-button]')`);
     await evaluate(`window.setOther(true)`);
     await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
@@ -506,17 +557,17 @@ async function browserChecks() {
     // A slow initial remote read must not undo live pin settings received while it was in flight.
     await window.loadURL(process.argv[2] + "?race=1");
     await waitFor(`typeof window.finishRemoteRead === 'function'`);
-    await evaluate(`window.pushRemote({ ...window.remoteProjects['c-arketa'].state, messages: [], messagesInChats: true, sessions: {
+    await evaluate(`window.pushRemote({ ...window.remoteProjects['c-atlas'].state, messages: [], messagesInChats: true, sessions: {
       4: { id: 4, worktree_id: 1, agent_name: 'Claude', status: 'Idle', pinned: true, pin_order: 1, summary: { count: 5, firstId: 1, lastId: 20, titleLine: 'Fix flaky deploy check' } },
       8: { id: 8, worktree_id: 1, agent_name: 'Claude', status: 'Idle', pinned: true, pin_order: 0, summary: { count: 2, firstId: 9, lastId: 12, titleLine: 'Newer remote chat' } }
     } })`);
-    const remoteIds = `[...document.querySelectorAll('[data-pinned-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id], [data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-chat-id]')].map(row => row.dataset.chatId)`;
+    const remoteIds = `[...document.querySelectorAll('[data-pinned-scope="c-atlas|/Users/a/atlas-web"] [data-chat-id], [data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-chat-id]')].map(row => row.dataset.chatId)`;
     await waitFor(`JSON.stringify(${remoteIds}) === '["8","4"]'`);
     await evaluate(`window.finishRemoteRead()`);
     await delay(150);
     assert.deepEqual(await evaluate(remoteIds), ["8", "4"], "the delayed snapshot keeps the live pin order");
     await evaluate(`(() => {
-      const state = structuredClone(window.remoteProjects['c-arketa'].state);
+      const state = structuredClone(window.remoteProjects['c-atlas'].state);
       for (const chat of Object.values(state.sessions)) chat.pinned = false;
       window.pushRemote(state);
       window.setChatOrder('recent');
@@ -533,11 +584,11 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);
     await waitFor(`!!document.querySelector('[data-project-chooser]')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-onboarding]')`), false);
-    await waitFor(`!!document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-action]')`);
+    await waitFor(`!!document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-scope-action]')`);
     assert.equal(await evaluate(`!!document.querySelector('[data-sidebar-scope="/work/milagre-ade"]')`), false);
     await screenshot("last-local-project-removed");
-    await evaluate(`document.querySelector('[data-sidebar-scope="c-arketa|/Users/a/arketa-web"] [data-scope-action]').click()`);
-    await waitFor(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope === 'c-arketa|/Users/a/arketa-web'`);
+    await evaluate(`document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-scope-action]').click()`);
+    await waitFor(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope === 'c-atlas|/Users/a/atlas-web'`);
     assert.equal(await evaluate(`!!document.querySelector('[data-project-chooser]')`), false);
     console.log("PASS: removing the last local Project keeps remote Projects accessible and opens one from the chooser");
     assert.deepEqual(errors, []);

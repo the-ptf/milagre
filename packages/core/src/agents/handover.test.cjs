@@ -342,3 +342,22 @@ test("a heartbeat is a heading in the transcript, not a user turn", () => {
   assert.match(text, /## Heartbeat · \d\d:\d\d\n\nCheck CI on PR 77\n/);
   assert.doesNotMatch(text, /## User/);
 });
+
+test("babysitting a PR stopping is a heading in the transcript, not a reply", () => {
+  const state = {
+    sessions: { 3: { id: 3, worktree_id: 1, agent_name: "main", status: "Created", provider: "claude" } },
+    worktrees: { 1: { id: 1, name: "main", path: "/work/app" } },
+    messages: [
+      {
+        id: 1,
+        session_id: 3,
+        role: "assistant",
+        body: "Stopped babysitting PR #7: merged.",
+        context: { kind: "babysit-stopped", routineId: "r", pr: 7, reason: "merged" },
+      },
+    ],
+  };
+  const text = renderTranscript(state, 3);
+  assert.match(text, /## Stopped babysitting PR #7: merged\.\n/);
+  assert.doesNotMatch(text, /## Assistant/);
+});

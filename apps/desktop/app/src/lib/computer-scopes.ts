@@ -132,6 +132,19 @@ export function useComputerScopes(computers: ComputerView[]): {
   }, [byComputer, computers, hiddenRemote, setHidden]);
 }
 
+/**
+ * A computer's short name on the sidebar's Project headers: its first word, without a possessive. Hostnames split at
+ * - _ and . too ("Victor’s MacBook Pro" → "Victor", "victor-mbp" → "victor").
+ */
+export function computerAlias(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/[\s\-_.]+/)[0]!
+      .replace(/['’]s$/i, "") || name
+  );
+}
+
 /** A computer as the project chooser heads its section: This Mac (`local`), or a paired one. */
 export type ComputerSection = { id: string; name: string; local: boolean };
 
