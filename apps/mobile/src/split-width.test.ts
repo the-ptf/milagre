@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardTop, chatAreaWidth, rightDocks, sidebarFits, widthClass } from "./split-width.ts";
+import { cardTop, chatAreaWidth, clampPanelWidth, rightDocks, sidebarFits, widthClass } from "./split-width.ts";
 
 test("phones and narrow iPad windows keep the phone stack", () => {
   assert.equal(widthClass(402), "compact", "iPhone");
@@ -38,4 +38,15 @@ test("the pinned sidebar gives way to the docked panel only when the Chat would 
   assert.equal(sidebarFits(1194, false), true, "nothing docked");
   assert.equal(sidebarFits(1194, true), false, "11-inch iPad landscape");
   assert.equal(sidebarFits(1366, true), true, "13-inch iPad landscape");
+});
+
+test("a dragged panel keeps between its minimum and a phone-wide Chat", () => {
+  assert.equal(clampPanelWidth(1194, 200), 320, "never narrower than the minimum");
+  assert.equal(clampPanelWidth(1194, 2000), 810, "the Chat keeps 360 pt");
+  assert.equal(clampPanelWidth(1366, 500.4), 500);
+});
+
+test("a wider panel makes the pinned sidebar give way sooner", () => {
+  assert.equal(sidebarFits(1366, true, 420), true);
+  assert.equal(sidebarFits(1366, true, 600), false);
 });
