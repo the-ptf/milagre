@@ -11,6 +11,7 @@ const { createChatScopes } = require("./chat-scopes.cjs");
 const { registerLinkRuntime } = require("./link-runtime.cjs");
 const { isLinkScopeKey, scopeFromKey, scopeKey } = require("@milagre/shared/chat-scopes");
 const { PROVIDERS } = require("@milagre/shared/providers");
+const { CHATS_ACCOUNT_LABEL } = require("@milagre/shared/chats-home");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
@@ -2298,6 +2299,17 @@ function createRuntime(options) {
           .filter(Boolean)
           .map(({ id, path, name }) => ({ id, path, name })),
       })),
+      // One choice for every Chat without a Project on this computer. A plain Project scope to the screens, so they need no case of it.
+      ...((await chatsHome.exists())
+        ? [
+            {
+              key: chatsHome.path,
+              name: CHATS_ACCOUNT_LABEL,
+              kind: "project",
+              projects: [{ id: chatsHome.path, path: chatsHome.path, name: CHATS_ACCOUNT_LABEL }],
+            },
+          ]
+        : []),
     ];
   }
   async function validateAccountScope(key, optional = false) {
