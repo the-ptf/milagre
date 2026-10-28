@@ -14,7 +14,7 @@
 
 - Chats home path: `path.join(os.homedir(), ".milagre", "chats")`, overridable by `options.chatsHome` (tests, live checks). Created with `git init -b main` and one `commit --allow-empty` (same `COMMIT_CONFIG` as `packages/core/src/bots/home.cjs:17`).
 - Project-less Chats always use isolation `"worktree"`; their folders are `~/.milagre/worktrees/chats/<slug>`.
-- Copy, exactly: picker row **No project**; sidebar group **Chats**; panel title that reads "Chats" today becomes **All chats** (flat desktop list, phone drawer); desktop heading **Just chat** + picker; phone heading **Just chat on <Computer>** with **No project · its own empty folder** under it; tray note **Runs in its own empty folder** (desktop); phone tray label **Yapping around** (Victor, design comment 2026-10-28); Settings › Accounts row **Chats without a Project**; Project name shown for these Chats: **No project**.
+- Copy, exactly: picker row **No project**; sidebar group **Chats**; panel title that reads "Chats" today becomes **All chats** (flat desktop list, phone drawer); desktop heading **Just chat** + picker; phone heading **Just chat on <Computer>** with **No project · its own empty folder** under it; tray label **Yapping around** on desktop and phone (Victor, 2026-10-28); Settings › Accounts row **Chats without a Project**; Project name shown for these Chats: **No project**.
 - The home never appears in: `project:recent`, `project:registry`, the daemon snapshot's Project list, MCP `project_list`, `onboarding:agent-folders`, the canvas, Choose projects, Filters › Projects, Hide project, `project:forget`.
 - Window: the home is never saved to the recent list, so launch (`launchProject`) and ⌘N fall back to the last real Project.
 - Archive: unchanged `archiveChoices` (`remove` when clean, `delete` with warning when not). No keep option.
@@ -128,7 +128,7 @@
 - [ ] **Step 3:** Implement:
   - `moveNewChat(key)`: when `key` is a Chats home key, `await bridgeForKey(key).ensureChatsHome()` before `switchProject(key)`.
   - `isolation` is `"worktree"` when `isChatsHomeProject(project)`; `noGit` stays as is.
-  - `NewChatHeader` with a Chats home: render only the computer chip (`copies` = `chatsGroup` copies, so #733's chip switches computers) and the tray note **Runs in its own empty folder** (desktop); phone tray label **Yapping around** (Victor, design comment 2026-10-28); no isolation, branch, issue chips, no "has no Git" note.
+  - `NewChatHeader` with a Chats home: render only the computer chip (`copies` = `chatsGroup` copies, so #733's chip switches computers) and the tray label **Yapping around** on desktop and phone (Victor, 2026-10-28); no isolation, branch, issue chips, no "has no Git" note.
   - Placeholder **Ask anything** for a Chats home draft.
 - [ ] **Step 4:** PASS. Run `npm run -w apps/desktop typecheck` (or `bun check`) → clean.
 - [ ] **Step 5:** Commit `feat(desktop): No project in the New chat picker`.
