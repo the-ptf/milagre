@@ -5,6 +5,7 @@ import { Layout2ColumnIcon, LayoutTopIcon, RefreshIcon, TextWrapIcon } from "@hu
 import Tooltip from "../primitives/Tooltip";
 import type { DiffLayout } from "./DiffFile";
 import type { Changes } from "./useChanges";
+import { useRefreshSpin } from "./useRefreshSpin";
 
 const LAYOUT_KEY = "milagre:diff-layout";
 const WRAP_KEY = "milagre:diff-wrap";
@@ -51,6 +52,7 @@ function ToolButton({
 
 export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: ReturnType<typeof useDiffPreferences> }) {
   const icon = (glyph: typeof RefreshIcon) => <HugeiconsIcon icon={glyph} size={15} strokeWidth={1.8} color="currentColor" />;
+  const spin = useRefreshSpin(() => changes.refresh());
   return (
     <div data-diff-toolbar className="flex items-center gap-0.5 [-webkit-app-region:no-drag]">
       <ToolButton label="Unified" active={prefs.layout === "unified"} onClick={() => prefs.setLayout("unified")} data-diff-layout="unified">
@@ -68,8 +70,10 @@ export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: Retur
       >
         {icon(TextWrapIcon)}
       </ToolButton>
-      <ToolButton label="Refresh" onClick={() => void changes.refresh()} data-diff-refresh-all="">
-        {icon(RefreshIcon)}
+      <ToolButton label="Refresh" onClick={spin.refresh} data-diff-refresh-all="" data-busy={spin.busy ? "" : undefined}>
+        <span className={spin.spinning ? "animate-spin" : ""} onAnimationIteration={spin.onAnimationIteration}>
+          {icon(RefreshIcon)}
+        </span>
       </ToolButton>
     </div>
   );

@@ -18,6 +18,7 @@ import type { ChangesMode } from "../../lib/pull-request-view";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import Tooltip from "../primitives/Tooltip";
 import type { DiffList } from "./useDiffFiles";
+import { useRefreshSpin } from "./useRefreshSpin";
 import { ScrollArea } from "../primitives/ScrollArea";
 
 const STATUS = {
@@ -415,32 +416,20 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
   );
 }
 
-/**
- * Spins while `loading` and while the read a click started is running (a PR re-read keeps showing the last one, so
- * `loading` stays false), then finishes its turn instead of snapping back.
- */
+/** Spins from the click until the read is done; see useRefreshSpin. */
 function RefreshButton({ label, onRefresh, loading }: { label: string; onRefresh: () => void | Promise<unknown>; loading: boolean }) {
-  const [pending, setPending] = useState(0);
-  const [spinning, setSpinning] = useState(false);
-  const busy = loading || pending > 0;
-  if (busy && !spinning) setSpinning(true);
+  const spin = useRefreshSpin(onRefresh, loading);
   return (
     <Tooltip label={label} side="bottom" align="end">
       <button
         type="button"
         aria-label={label}
-        aria-busy={busy || undefined}
+        aria-busy={spin.busy || undefined}
         data-diff-refresh
-        onClick={() => {
-          setPending((count) => count + 1);
-          void Promise.resolve()
-            .then(onRefresh)
-            .catch(() => {})
-            .finally(() => setPending((count) => count - 1));
-        }}
+        onClick={spin.refresh}
         className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
       >
-        <span className={spinning ? "animate-spin" : ""} onAnimationIteration={() => !busy && setSpinning(false)}>
+        <span className={spin.spinning ? "animate-spin" : ""} onAnimationIteration={spin.onAnimationIteration}>
           <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
         </span>
       </button>
