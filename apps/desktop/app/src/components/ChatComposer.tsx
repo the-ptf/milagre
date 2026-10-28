@@ -1442,7 +1442,12 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
-            className={`chat-gutter relative ${headingLayer(headingOpen, projectNewChat)} mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6`}
+            className={[
+              "chat-gutter relative mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6",
+              headingLayer(headingOpen),
+            ]
+              .filter(Boolean)
+              .join(" ")}
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
             <NewChatHeading

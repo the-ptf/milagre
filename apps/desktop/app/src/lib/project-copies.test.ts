@@ -15,7 +15,7 @@ const stored = new Map<string, string>();
   dispatchEvent() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { chatsGroup, missingHomeAt, pickedProjectKey, projectGroups, projectPickerRows, withHome } = await import("./project-copies.ts");
+const { chatsGroup, createChatsHomes, missingHomeAt, pickedProjectKey, projectGroups, projectPickerRows, withHome } = await import("./project-copies.ts");
 
 const STUDIO = "c-studio";
 const HOME = "/Users/v/Library/Application Support/Milagre/chats";
@@ -123,4 +123,50 @@ test("a home that starts missing appears once a re-read reports it exists", () =
     chatsGroup([{ computerId: "local", computer: "MacBook", home: made.local! }]).copies.map((copy) => copy.exists),
     [true],
   );
+});
+
+test("the sidebar and the composer share one read of each computer's Chats home", async () => {
+  const reads: string[] = [];
+  let recentChanged = () => {};
+  let projectState = (_path: string) => {};
+  const homes = createChatsHomes({
+    read: async (id) => {
+      reads.push(id);
+      return { path: id === "local" ? HOME : `${STUDIO}|/Users/ana/.milagre/chats`, exists: false };
+    },
+    onRecentChanged: (listener) => {
+      recentChanged = listener;
+      return () => (recentChanged = () => {});
+    },
+    onProjectState: (listener) => {
+      projectState = listener;
+      return () => (projectState = () => {});
+    },
+  });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  let heard = 0;
+  homes.subscribe(() => heard++);
+  const sidebar = homes.acquire(`local online\n${STUDIO} online`);
+  const composer = homes.acquire(`local online\n${STUDIO} online`);
+  await settle();
+  assert.deepEqual(reads.toSorted(), ["c-studio", "local"]);
+  assert.equal(homes.snapshot().local?.path, HOME);
+  assert.ok(heard > 0);
+  // A recent-Projects change reads each once again, not once per holder.
+  recentChanged();
+  await settle();
+  assert.equal(reads.length, 4);
+  // A home made elsewhere shows as made without a read.
+  projectState(HOME);
+  assert.equal(homes.snapshot().local?.exists, true);
+  assert.equal(reads.length, 4);
+  // A computer coming back online is read again; one holder leaving reads nothing.
+  composer();
+  await settle();
+  assert.equal(reads.length, 4);
+  sidebar();
+  const back = homes.acquire(`local online\n${STUDIO} connecting`);
+  await settle();
+  assert.equal(reads.length, 6);
+  back();
 });

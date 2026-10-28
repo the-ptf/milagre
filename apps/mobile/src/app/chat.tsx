@@ -123,7 +123,15 @@ import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, chatsHomePath, useNewChatProjects, useNoProjectChoice } from "../all-computers";
-import { isChatsHomeProject, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
+import {
+  CHATS_PLACEHOLDER,
+  CHATS_TRAY_LABEL,
+  isChatsHomeProject,
+  JUST_CHAT_HEADING,
+  NO_PROJECT_FOLDER,
+  NO_PROJECT_LABEL,
+  NO_PROJECT_LINE,
+} from "@milagre/shared/chats-home";
 import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
 import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
@@ -1019,7 +1027,7 @@ function ChatPane({
   function chooseChatsComputer() {
     if (busy || !noProject) return;
     showChoiceSheet({
-      title: "Just chat on",
+      title: `${JUST_CHAT_HEADING} on`,
       placeholder: "Search computers",
       emptyLabel: "No computers",
       icon: LaptopIcon,
@@ -1042,7 +1050,7 @@ function ChatPane({
               {
                 id: "no-project",
                 title: NO_PROJECT_LABEL,
-                subtitle: "Its own empty folder",
+                subtitle: NO_PROJECT_FOLDER,
                 keywords: "just chat",
                 checked: chatsHomeOpen,
                 disabled: noProject.copies.every((copy) => copy.offline),
@@ -2081,7 +2089,7 @@ function ChatPane({
                   <>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`Just chat on ${chatsComputer}. Change computer`}
+                      accessibilityLabel={`${JUST_CHAT_HEADING} on ${chatsComputer}. Change computer`}
                       disabled={busy}
                       onPress={chooseChatsComputer}
                       style={({ pressed }) => ({
@@ -2093,7 +2101,7 @@ function ChatPane({
                         opacity: pressed ? 0.6 : 1,
                       })}
                     >
-                      <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Just chat on</Text>
+                      <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>{JUST_CHAT_HEADING} on</Text>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
                         <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
                           {chatsComputer}
@@ -2103,13 +2111,13 @@ function ChatPane({
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="No project, its own empty folder. Change project"
+                      accessibilityLabel={`${NO_PROJECT_LABEL}, ${NO_PROJECT_FOLDER.toLowerCase()}. Change project`}
                       disabled={busy}
                       onPress={chooseProject}
                       hitSlop={8}
                       style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                     >
-                      <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LABEL} · its own empty folder</Text>
+                      <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LINE}</Text>
                     </Pressable>
                   </>
                 ) : (
@@ -2284,7 +2292,7 @@ function ChatPane({
                         // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
                           <Icon icon={BubbleChatIcon} tone="ink2" size={14} />
-                          <Text style={styles.label}>Yapping around</Text>
+                          <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                         </View>
                       ) : (
                         startTray && (
@@ -2575,7 +2583,7 @@ function ChatPane({
                             run && !providerCapabilities(chat?.provider ?? actualProvider).steer
                               ? "Queue a message for the next turn"
                               : chatsHomeOpen && !params.id
-                                ? "Ask anything"
+                                ? CHATS_PLACEHOLDER
                                 : undefined
                           }
                           // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.

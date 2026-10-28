@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
 import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
 import { groupByOrigin } from "@milagre/shared/project-origin";
@@ -93,52 +93,122 @@ export function missingHomeAt(homes: Record<string, ChatsHome>, path: string): s
   return Object.keys(homes).find((id) => homes[id]!.path === path && !homes[id]!.exists);
 }
 
+/** Each computer's Chats home as last read, by computer id, shared by every mounted `useChatsGroup`. */
+export type ChatsHomes = {
+  /** Keeps the homes of `reads` (one "<computer id> <state>" per line) read until the result is called. */
+  acquire(reads: string): () => void;
+  subscribe(listener: () => void): () => void;
+  snapshot(): Record<string, ChatsHome>;
+};
+
+/**
+ * One reader of the computers' Chats homes for the whole window: the sidebar and the composer's picker both hold it, so
+ * each computer's home is read once, not once per screen that shows it. Homes are read when the first holder arrives and
+ * when the computers held change (one coming back online is read again), and again on every recent-Projects change.
+ */
+export function createChatsHomes({
+  read,
+  onRecentChanged,
+  onProjectState,
+}: {
+  read: (computerId: string) => Promise<ChatsHome | undefined>;
+  onRecentChanged: (listener: () => void) => () => void;
+  onProjectState: (listener: (path: string) => void) => () => void;
+}): ChatsHomes {
+  let homes: Record<string, ChatsHome> = {};
+  const listeners = new Set<() => void>();
+  const holders = new Map<object, string[]>();
+  let held = "";
+  // A change in what is held drops the replies still on their way for the last set.
+  let generation = 0;
+  let stopListening: (() => void) | undefined;
+  const set = (next: Record<string, ChatsHome>) => {
+    if (next === homes) return;
+    homes = next;
+    for (const listener of listeners) listener();
+  };
+  const readOne = async (id: string, at: number) => {
+    const home = await read(id);
+    if (at === generation && home?.path) set(withHome(homes, id, home));
+  };
+  const readAll = () => {
+    for (const id of new Set(
+      held
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split(" ")[0]!),
+    ))
+      readOne(id, generation).catch(() => {});
+  };
+  const update = () => {
+    if (!holders.size) {
+      stopListening?.();
+      stopListening = undefined;
+      held = "";
+      generation++;
+      return;
+    }
+    if (!stopListening) {
+      const offRecent = onRecentChanged(readAll);
+      // A home made elsewhere (the phone, MCP, another window, on any computer) announces itself with its first state: the
+      // daemon broadcasts every Project's changes to every window, a missing home's included, so no read is needed.
+      const offState = onProjectState((path) => {
+        const id = missingHomeAt(homes, path);
+        if (id) set(withHome(homes, id, { path, exists: true }));
+      });
+      stopListening = () => {
+        offRecent();
+        offState();
+      };
+    }
+    const next = [...new Set([...holders.values()].flat())].toSorted().join("\n");
+    if (next === held) return;
+    held = next;
+    generation++;
+    readAll();
+  };
+  return {
+    acquire(reads) {
+      const holder = {};
+      holders.set(holder, reads.split("\n").filter(Boolean));
+      update();
+      return () => {
+        holders.delete(holder);
+        update();
+      };
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    snapshot: () => homes,
+  };
+}
+
+const chatsHomes = createChatsHomes({
+  read: async (id) => bridgeFor(id).chatsHome?.(),
+  onRecentChanged: (listener) => {
+    window.addEventListener(RECENT_PROJECTS_CHANGED, listener);
+    return () => window.removeEventListener(RECENT_PROJECTS_CHANGED, listener);
+  },
+  onProjectState: (listener) => stateEvents.onProjectState(({ path }) => listener(path)),
+});
+
 /**
  * The No project row for the new-chat picker: each computer's Chats home, This Mac's and every paired computer that
- * isn't off or hidden. A computer whose home can't be read is left out. Undefined until This Mac's is read.
+ * isn't off or hidden. A computer whose home can't be read is left out. Undefined until This Mac's is read. Every caller
+ * shares one read of the homes (`createChatsHomes`).
  */
 export function useChatsGroup(enabled: boolean): ProjectGroup | undefined {
   const { thisMac, computers } = useComputers();
   const hiddenComputers = useHiddenComputers();
-  const [homes, setHomes] = useState<Record<string, ChatsHome>>({});
   // Each computer to read, with its state so one that comes back online is read again.
   const reads = [
     `${LOCAL_COMPUTER} online`,
     ...computers.filter((computer) => computer.state !== "off").map((computer) => `${computer.id} ${computer.state}`),
   ].join("\n");
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    const readAll = () => {
-      for (const read of reads.split("\n")) {
-        const id = read.split(" ")[0]!;
-        const readHome = async () => {
-          const home = await bridgeFor(id).chatsHome?.();
-          if (live && home?.path) setHomes((previous) => withHome(previous, id, home));
-        };
-        readHome().catch(() => {});
-      }
-    };
-    readAll();
-    // Read again when the recent Projects change, as the other scope lists do.
-    window.addEventListener(RECENT_PROJECTS_CHANGED, readAll);
-    return () => {
-      live = false;
-      window.removeEventListener(RECENT_PROJECTS_CHANGED, readAll);
-    };
-  }, [enabled, reads]);
-  useEffect(() => {
-    if (!enabled) return;
-    // A home made elsewhere (the phone, MCP, another window, on any computer) announces itself with its first state: the
-    // daemon broadcasts every Project's changes to every window, a missing home's included, so no read is needed.
-    const offState = stateEvents.onProjectState(({ path }) =>
-      setHomes((previous) => {
-        const id = missingHomeAt(previous, path);
-        return id ? withHome(previous, id, { path, exists: true }) : previous;
-      }),
-    );
-    return offState;
-  }, [enabled]);
+  useEffect(() => (enabled ? chatsHomes.acquire(reads) : undefined), [enabled, reads]);
+  const homes = useSyncExternalStore(chatsHomes.subscribe, chatsHomes.snapshot);
   return useMemo(() => {
     if (!enabled || !homes[LOCAL_COMPUTER]) return undefined;
     const list: Parameters<typeof chatsGroup>[0] = [{ computerId: LOCAL_COMPUTER, computer: thisMac, online: true, home: homes[LOCAL_COMPUTER] }];

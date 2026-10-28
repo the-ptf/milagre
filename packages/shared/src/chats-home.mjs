@@ -13,3 +13,12 @@ export const NO_PROJECT_LABEL = "No project";
 export const CHATS_GROUP_LABEL = "Chats";
 export const ALL_CHATS_LABEL = "All chats";
 export const CHATS_ACCOUNT_LABEL = "Chats without a Project";
+
+// A new Chat without a Project, on desktop and phone: its heading, the tray above the composer and the empty composer.
+export const JUST_CHAT_HEADING = "Just chat";
+export const CHATS_TRAY_LABEL = "Yapping around";
+export const CHATS_PLACEHOLDER = "Ask anything";
+/** What No project gives a Chat, under its name in the pickers. */
+export const NO_PROJECT_FOLDER = "Its own empty folder";
+/** The phone's line under "Just chat on <Computer>", which goes back to the Projects. */
+export const NO_PROJECT_LINE = `${NO_PROJECT_LABEL} · ${NO_PROJECT_FOLDER.toLowerCase()}`;
