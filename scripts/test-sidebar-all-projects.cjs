@@ -75,14 +75,20 @@ localStorage.removeItem("milagre.sidebarClosedScopes");
 // A restart keeps the saved group order; a first load starts clean.
 if (!restartRecent) localStorage.removeItem("milagre.sidebarScopeOrder");
 updateSettings({ chatRowShow: DESKTOP_CHAT_ROW_SHOW, chatList: "grouped" });
-createRoot(document.getElementById("root")).render(
+// Chats the App marks as archiving, set from the check.
+function Root() {
+  const [archivingChats, setArchivingChats] = React.useState(() => new Set());
+  window.setArchiving = (keys) => setArchivingChats(new Set(keys));
+  return (
   <div style={{ display: "flex", height: "100vh", padding: "60px 12px 12px" }}>
     <SidebarNav fill workspaceName="arketa" projectPath="/work/arketa" recents={[{ id: "1", label: "Fix the login flow", details: { failed: true } }]} activeId="1"
       runningKeys={"/work/shop#7\\nmilagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3"} waitingKeys="milagre-link:6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7#3" attentionPaths={["/work/shop"]} onOpenScopeChat={(key, id) => { window.opened = key + "#" + id; }}
       onScopeArchiveCheck={async (key, id) => { window.archiveChecked = [key, id]; return { milagreOwned: false, shared: false, status: null }; }}
-      onScopeArchive={async (key, id, mode) => { window.archived = [key, id, mode]; }} />
-  </div>,
-);
+      onScopeArchive={async (key, id, mode) => { window.archived = [key, id, mode]; }} archivingChats={archivingChats} />
+  </div>
+  );
+}
+createRoot(document.getElementById("root")).render(<Root />);
 `;
 
 async function browserChecks() {
@@ -331,6 +337,11 @@ async function browserChecks() {
     await waitFor(`!!window.archived`);
     assert.deepEqual(await evaluate("window.archived.slice(0, 2)"), ["/work/shop", "7"]);
     await waitFor(`!document.querySelector("[data-chat-menu]")`);
+    // While its archive is under way the row is gone, before the host's state says archived; it comes back if the archive fails.
+    await evaluate(`window.setArchiving(["/work/shop#7"])`);
+    await waitFor(`!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"]')`);
+    await evaluate(`window.setArchiving([])`);
+    await waitFor(`!!document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"]')`);
 
     // Another Project's chat pins from its row menu and moves to the Pinned section on top of every group.
     await evaluate(`document.querySelector('[data-sidebar-scope="/work/shop"] [data-chat-id="7"] [aria-label="Chat actions"]').click()`);

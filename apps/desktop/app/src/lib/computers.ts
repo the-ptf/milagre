@@ -76,6 +76,8 @@ export function offlineBanner(view: ComputerView, now: number): string {
 }
 /** Appended to the composer's placeholder while its computer is offline. */
 export const offlinePlaceholder = (name: string) => ` (${name} is offline)`;
+/** Appended while the connection to it comes back: the draft can be written, and sends once it is online. */
+export const reconnectingPlaceholder = (name: string) => ` (reconnecting to ${name}…)`;
 
 // What useComputers shows while Other computers is off: this Mac's name only, one object per snapshot.
 const offViews = new WeakMap<ComputersSnapshot, ComputersSnapshot>();
