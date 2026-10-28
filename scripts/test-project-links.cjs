@@ -235,10 +235,6 @@ async function main() {
     await closeScopeMenu();
     await input("[data-prompt-editor]", "Update status.txt across both Projects.");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
-    await waitFor(() => evaluate(`!!document.querySelector('dialog[open] #ai-consent-title')`), "AI sharing decision before Link send");
-    assert.equal(providerCalls, 0, "No provider call before consent");
-    assert.equal(Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length, 0, "Consent precedes Worktree allocation");
-    await click("Allow sharing");
     await waitFor(() => evaluate(`document.body.textContent.includes('Updated status.txt in both owned Worktrees.')`), "one shared transcript");
     const state = (await client.call("link:snapshot", [link.id])).state,
       session = Object.values(state.sessions)[0];

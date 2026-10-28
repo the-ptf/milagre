@@ -119,7 +119,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       if (take.current?.id !== current.id) return void current.recorder.discard(uri);
       const { chat: target } = current;
       // Apple's recognizer has one language and few of the project's names: the Chat's agent fixes what it misheard.
-      // A Mac without the fix-up, no AI consent or no answer in time leaves the words as heard.
+      // A Mac without the fix-up or no answer in time leaves the words as heard.
       const text =
         heard && transcriber?.polish && target?.cwd
           ? await target.client

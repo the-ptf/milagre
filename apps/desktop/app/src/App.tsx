@@ -3,7 +3,6 @@ import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { prepareImageUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
-import { AiConsentDialog } from "./components/AiConsent";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
@@ -3668,11 +3667,9 @@ function App() {
                 mode={changes.mode}
                 onModeChange={changes.setMode}
                 onRefresh={() => {
-                  void changes.refresh();
-                  if (changes.mode === "pr") {
-                    void prReview.refresh();
-                    localChanges.refresh();
-                  }
+                  if (changes.mode !== "pr") return changes.refresh();
+                  localChanges.refresh();
+                  return Promise.all([changes.refresh(), prReview.refresh()]);
                 }}
                 onSelectFile={changes.selectFile}
                 activePath={changes.activePath}
@@ -3840,7 +3837,6 @@ export default function AppWithUpdates() {
       <App />
       {/* Beside the app, so it asks whatever screen is open, Settings and Links included. */}
       <ComputerAllowPrompt />
-      <AiConsentDialog />
     </UpdateShell>
   );
 }

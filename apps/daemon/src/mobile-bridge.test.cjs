@@ -1,4 +1,3 @@
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -1613,7 +1612,14 @@ test("Routines changes reach every phone as a routines signal, Settings included
   const auth = { authorization: `Bearer ${token}` };
   const projectPhone = await openLive(bridge, project, auth);
   const settingsPhone = await openLive(bridge, "", auth);
-  assert.equal((await rpc("routines:enabled:save", [true, AI_CONSENT_VERSION])).status, 200);
+  assert.equal((await rpc("project:open", [project])).status, 200);
+  const routine = {
+    name: "Daily",
+    prompt: "Look",
+    trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+    target: { kind: "new-chat", projectPath: project, workspace: "project" },
+  };
+  assert.equal((await rpc("routines:create", [routine])).status, 200);
   await until(() => projectPhone.messages.includes("routines") && settingsPhone.messages.includes("routines"));
   assert.equal(settingsPhone.messages.filter((type) => type === "routines").length, 1);
 });

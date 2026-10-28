@@ -7,7 +7,6 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import type { ComputersSnapshot, ComputerState } from "../electron.d.ts";
 import { bridgeFor } from "./computer-bridge.ts";
-import { aiConsent } from "./ai-consent.ts";
 import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
 
 /** A Routine as `listRoutines` gives it: with its latest Runs, newest first. */
@@ -174,10 +173,7 @@ function read(computerId: string) {
   const bridge = bridgeFor(computerId);
   Promise.resolve()
     .then(async () => {
-      let on = (await bridge.readRoutinesEnabled())?.enabled === true;
-      // This Mac runs Routines once this device has allowed AI sharing (a profile from before, or a decision whose
-      // follow-up failed, catches up here). Another computer is authorized only by a Routine write from here.
-      if (!on && computerId === LOCAL_COMPUTER && (await aiConsent.allowed())) on = (await bridge.saveRoutinesEnabled(true))?.enabled === true;
+      const on = (await bridge.readRoutinesEnabled())?.enabled === true;
       const list = (await bridge.listRoutines())?.routines ?? [];
       if (latestRead.get(computerId) !== id || !tracked.has(computerId)) return;
       // A read that finds what is already shown publishes nothing, so no surface re-renders for it.

@@ -1,4 +1,4 @@
-import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
+import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";

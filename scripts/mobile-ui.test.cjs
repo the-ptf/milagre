@@ -216,7 +216,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
         };
-      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton" };
+      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton", MIC_SIZE: 32 };
+      if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
       if (base === "all-computers" && !(id in modules))
@@ -238,6 +239,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
+      // The iPad panel's dragged width, kept on the device; a test keeps the default.
+      if (base === "panel-width" && !(id in modules)) return { usePanelWidth: () => 420, setPanelWidth() {} };
+      // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
+      if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -567,7 +572,16 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
     },
     "expo-router": { router: {}, useFocusEffect: (fn) => react.effect(fn, [fn]) },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
-    "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
+    "react-native-keyboard-controller": {
+      KeyboardAvoidingView: "KeyboardAvoidingView",
+      KeyboardStickyView: "KeyboardStickyView",
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
+    },
+    "react-native-gesture-handler": { Gesture: {}, GestureDetector: "GestureDetector" },
+    "react-native-reanimated": { default: { View: "AnimatedView" }, Easing: { bezier: () => () => 0 }, ReduceMotion: { System: "system" } },
+    "react-native-worklets": { scheduleOnRN() {} },
+    "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
+    "expo-clipboard": { getStringAsync: async () => "" },
     "@expo/dom-webview": { DomWebView: "DomWebView" },
     "expo-file-system": { File() {}, Paths: {} },
     "@hugeicons/core-free-icons": {},
@@ -6646,7 +6660,6 @@ test("relay transports: one per Mac, replaced by a new code, closed in the backg
   const phoneRandom = (n) => new Uint8Array(n);
   const { relayRuntime } = load("relay-native.ts", {
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
-    "./ai-consent": { beforeAiCall: async () => {} },
     "react-native": {
       AppState: {
         addEventListener: (_event, listener) => {
@@ -10188,7 +10201,14 @@ function loadSettings(state) {
   return load("app/(settings)/settings.tsx", {
     react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Platform: { OS: "ios" } },
+    "react-native": {
+      View: "View",
+      Text: "Text",
+      Pressable: "Pressable",
+      Platform: { OS: "ios" },
+      Linking: { openURL: async (url) => (state.urls ??= []).push(url) },
+      Alert: { alert() {} },
+    },
     "expo-router": {
       Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", View: "View" }) },
       router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
@@ -10196,6 +10216,7 @@ function loadSettings(state) {
     },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/chat-display": { chatListLabel: (value) => (value === "list" ? "One list" : "Grouped by Project") },
+    "@milagre/shared/site-links": require("@milagre/shared/site-links"),
     "../session": {
       useSession: () => ({
         recent: state.recent ?? [],
@@ -10301,13 +10322,14 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
       [
         "About",
         [
-          ["Privacy & AI", ""],
+          ["Privacy policy", ""],
+          ["Support", ""],
           ["App update", "Up to date"],
         ],
       ],
     ],
   );
-  for (const row of [...groups[0].elements, ...groups[1].elements, groups[3].elements[0]]) row.props.onPress();
+  for (const row of [...groups[0].elements, ...groups[1].elements]) row.props.onPress();
   assert.deepEqual(opened, [
     "notifications",
     "appearance",
@@ -10321,8 +10343,12 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     "skills",
     "mcp",
     "local-mcp",
-    "privacy",
   ]);
+  // Privacy policy and Support open Milagre's site in the browser.
+  groups[3].elements[0].props.onPress();
+  groups[3].elements[1].props.onPress();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(state.urls, ["https://milagre.cloud/privacy", "https://milagre.cloud/support"]);
   // The tiles: the green dot and counts follow the computers' answers; Routines counts what is on once the Mac has them.
   state.reachability = { a: "online", b: "online", c: "offline" };
   assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "2 online · 1 offline");
@@ -10661,9 +10687,7 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
     "./session": { useSession: () => ({ client }) },
     "./settings-list": { Group: "Group", Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", Segmented: "Segmented", Toggle: "Toggle" },
-    "./use-routines": { useRoutines: () => ({ enabled: routinesEnabled }) },
   });
-  let routinesEnabled = true;
   const render = () => {
     react.begin();
     return BabysitSection();
@@ -10742,19 +10766,11 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(saves.length, savesBeforeReset + 1, "only the reset saves, not the half-typed text");
   assert.equal(field().props.value, "");
-  // Each PR keeps its settings; and a Mac that may not run Routines babysits nothing, which the screen says.
+  // Each PR keeps its settings.
   assert.equal(
     node((n) => n.type === "Group" && n.props.title === "When something needs fixing").props.footer,
     "Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.",
   );
-  const routinesNote =
-    "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.";
-  assert.equal(
-    node((n) => n.type === "Text" && n.props.children === routinesNote),
-    undefined,
-  );
-  routinesEnabled = false;
-  assert.ok(node((n) => n.type === "Text" && n.props.children === routinesNote));
 });
 
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
@@ -11595,103 +11611,6 @@ test("mobile markdown routes mermaid fences to the diagram, with the code as its
     find(h.render("```ts\nconst x = 1\n```"), (node) => node.type === "MermaidBlock"),
     undefined,
   );
-});
-
-test("AI consent: native alert cancellation, persistence, reset and headless replies fail closed", async () => {
-  const shared = await import("../packages/shared/src/ai-consent.mjs");
-  let saved = null,
-    alert,
-    prompts = 0;
-  const appState = { currentState: "active" };
-  const { aiConsent, beforeAiCall } = load("ai-consent.ts", {
-    "@milagre/shared/ai-consent": shared,
-    "react-native": {
-      AppState: appState,
-      Linking: { openURL: async () => {} },
-      Alert: {
-        alert: (title, body, buttons, options) => {
-          prompts++;
-          alert = { title, body, buttons, options };
-        },
-      },
-    },
-    "expo-secure-store": {
-      getItemAsync: async () => saved,
-      setItemAsync: async (_key, value) => {
-        saved = value;
-      },
-      deleteItemAsync: async () => {
-        saved = null;
-      },
-      WHEN_UNLOCKED_THIS_DEVICE_ONLY: "device-only",
-    },
-  });
-  const cancelled = beforeAiCall("chat:send", []);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.match(alert.body, /Anthropic.*OpenAI.*Google/);
-  alert.buttons.find((button) => button.text === "Not now").onPress();
-  await assert.rejects(cancelled, /not sent/);
-  assert.equal(saved, null);
-  const accepted = beforeAiCall("link:send", []);
-  await new Promise((resolve) => setImmediate(resolve));
-  alert.buttons.find((button) => button.text === "Allow sharing").onPress();
-  await accepted;
-  await beforeAiCall("chat:resume", []);
-  assert.equal(prompts, 2);
-  await aiConsent.reset();
-  await assert.rejects(beforeAiCall("live-activity:answer", []), /permission/);
-  appState.currentState = "background";
-  await assert.rejects(beforeAiCall("chat:send", []), /permission/);
-  await beforeAiCall("agent:interrupt", []);
-  assert.equal(prompts, 2);
-});
-
-test("Privacy settings reset consent and expose policies without a paired computer", async () => {
-  const shared = await import("../packages/shared/src/ai-consent.mjs");
-  const host = hookHost({ effects: true });
-  let resets = 0;
-  const urls = [];
-  const { PrivacyView } = load("app/(settings)/privacy.tsx", {
-    react: host,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": {
-      Text: "Text",
-      View: "View",
-      Linking: {
-        openURL: async (url) => {
-          urls.push(url);
-        },
-      },
-    },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "@milagre/shared/ai-consent": shared,
-    "../ai-consent": {
-      aiConsent: {
-        allowed: async () => true,
-        reset: async () => {
-          resets++;
-        },
-      },
-    },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", PillButton: "PillButton" },
-  });
-  const render = () => {
-    host.begin();
-    return PrivacyView();
-  };
-  render();
-  await new Promise((resolve) => setImmediate(resolve));
-  let tree = render();
-  const reset = find(tree, (n) => n.props.title === "Reset AI sharing permission");
-  assert.equal(reset.props.disabled, false);
-  reset.props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
-  tree = render();
-  assert.equal(resets, 1);
-  assert.equal(find(tree, (n) => n.props.title === "Reset AI sharing permission").props.disabled, true);
-  find(tree, (n) => n.props.title === "Milagre privacy policy").props.onPress();
-  find(tree, (n) => n.props.title === "Support").props.onPress();
-  assert.deepEqual(urls, [shared.PRIVACY_URL, shared.SUPPORT_URL]);
 });
 
 test("new Chat restores worktree choices on reopen, falls back from a removed branch and never starts a Linear issue", async () => {
@@ -13455,22 +13374,16 @@ test("flipping a Routine's switch on the phone writes routines:update with the n
   assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
 });
 
-test("a Mac that can't run Routines yet still lists them, and Allow passes this phone's permission on", async () => {
+test("an older Mac that says its Routines are off still lists them, with nothing to allow", async () => {
   const [heartbeat] = routineFixtures();
   const host = routinesHost({ routines: [heartbeat], enabled: false });
   host.render();
   await host.settle();
-  let tree = host.render();
-  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines won't run on this Mac yet"));
-  assert.equal(host.rows(tree).length, 1, "its Routines are listed anyway");
-  find(tree, (node) => node.type === "PillButton" && node.props.title === "Allow").props.onPress();
-  await host.settle();
-  await host.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(host.calls.filter(([method]) => method === "routines:enabled:save"))), [["routines:enabled:save", [true]]]);
-  tree = host.render();
+  const tree = host.render();
+  assert.equal(host.rows(tree).length, 1, "its Routines are listed");
   assert.equal(
-    allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines won't run on this Mac yet"),
-    false,
+    find(tree, (node) => node.type === "PillButton" && node.props.title === "Allow"),
+    undefined,
   );
 });
 
@@ -15138,7 +15051,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
     "expo-camera": { CameraView: "CameraView", useCameraPermissions: () => [{ granted: false }, () => {}] },
     "expo-clipboard": { getStringAsync: async () => invitation },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
-    "@milagre/shared/ai-consent": require("@milagre/shared/ai-consent"),
+    "@milagre/shared/site-links": require("@milagre/shared/site-links"),
     "@milagre/shared/pairing-link": pairing,
     "../pairing": pairing,
     "../session": {

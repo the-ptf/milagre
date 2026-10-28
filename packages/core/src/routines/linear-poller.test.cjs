@@ -105,7 +105,6 @@ function setup({ linked = () => false, ...options } = {}) {
   const clock = { t: START };
   let n = 0;
   const store = createRoutineStore({ file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` });
-  store.setEnabled(true);
   const linear = fakeLinear();
   const timers = fakeTimers();
   // What the store queued, every event handed to the scheduler (one entry per batch in `batches`), and those it hadn't
@@ -319,7 +318,7 @@ test("an issue changed before the Routine was made isn't queued", async () => {
   ctx.poller.stop();
 });
 
-test("only workspaces with an enabled Linear Routine poll, and only while Routines are on", async () => {
+test("only workspaces with an enabled Linear Routine poll, and only while polling runs", async () => {
   const ctx = setup();
   const routine = ctx.routine({ event: "assigned" });
   ctx.poller.start();
@@ -330,11 +329,10 @@ test("only workspaces with an enabled Linear Routine poll, and only while Routin
   await ctx.poller.pollNow("a");
   assert.equal(ctx.linear.data.calls.length, 0);
   ctx.store.update(routine.id, { enabled: true });
-  ctx.store.setEnabled(false);
+  ctx.poller.stop();
   ctx.poller.sync();
   await ctx.poller.pollNow("a");
   assert.equal(ctx.linear.data.calls.length, 0);
-  ctx.poller.stop();
 });
 
 test("a state Routine matches the new state by name, case-insensitively", async () => {

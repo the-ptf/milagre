@@ -49,8 +49,6 @@ export type RouteView = { current(): RelayTransport | null; subscribe(listener: 
 /** The phone's side of the relay, injected so this file stays free of native modules. */
 export type RelayRuntime = {
   randomUUID?(): string;
-  /** Device consent runs before the network deadline starts. */
-  beforeCall?(method: string, args: unknown[]): Promise<void>;
   /** The one transport for this Mac, opened on first use and shared by every client. */
   transport(host: { relay: RelayLink; token: string }): Promise<RelayTransport>;
   /** This computer's LAN route; requests and live streams use its transport while `current()` has one. */
@@ -429,7 +427,6 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
     // Git fetches, worktree setup and removing a worktree get the same deadline as the desktop daemon client.
     call: async <T>(method: string, args: unknown[] = []) => {
       if (retired) throw replaced();
-      if (runtime?.beforeCall) await runtime.beforeCall(method, args);
       return request<T>(
         "/rpc",
         { v: 1, method, args },

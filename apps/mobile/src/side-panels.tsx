@@ -1,16 +1,27 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { ArrowLeft01Icon, Cancel01Icon, CircleDotIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  Cancel01Icon,
+  CircleDotIcon,
+  File01Icon,
+  FileDiffIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
+  PaintBoardIcon,
+  SmartphoneIcon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { IconButton, PageScroll, tap } from "./ui";
+import { GlassIconButton, IconButton, tap } from "./ui";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrOverview } from "./pr-overview";
 import { openPrFile, openPrPage } from "./pr-nav";
@@ -19,15 +30,24 @@ import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
 import { useCardTop, useSplitLayout } from "./split-context";
-import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, widthClass } from "./split-width";
+import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, rightDocks, widthClass } from "./split-width";
+import { SimulatorSheet } from "./simulator";
+import { DesignsSheet } from "./designs-sheet";
+import { ArtifactSheet } from "./artifact";
+import type { ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
 type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest?: ScreenPullRequest };
 /** The Chat's PR the panel opens on, and every PR its row lists for the PR menu. */
 type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[]; cwd?: string };
-/** What the right panel shows: the PR (when the Chat has one), or the Worktree's Changes. */
-type RightTab = "changes" | "pr";
+/**
+ * What the right panel shows: the Worktree's Changes, the Chat's PR (when it has one), or on an iPad the Chat's
+ * simulators or designs, which open there instead of full screen.
+ */
+type RightTab = "changes" | "pr" | "simulator" | "designs";
+/** The tabs a Chat opened in the right panel itself. They belong to that Chat: another Chat on screen doesn't show them. */
+type ChatTabs = { token: object; chatId?: number; simulator?: SimulatorTab; designs?: DesignsTab };
 type Panels = {
   screen: Screen | null;
   open: Side | null;
@@ -39,6 +59,16 @@ type Panels = {
   detach: (token: object) => void;
   arrived: (token: object) => void;
   show: (side: Side | null) => void;
+  /** The window is wide enough for the right panel to dock beside the Chat instead of sliding over it. */
+  docks: boolean;
+  /** The right panel is docked open beside the Chat. */
+  docked: boolean;
+  /** Closes the right panel, docked or sliding over. */
+  closeRight: () => void;
+  chatTabs: ChatTabs | null;
+  /** Opens a Chat's simulators or designs in the right panel, docked beside the Chat. */
+  openTab: (tab: ChatTab) => void;
+  closeTab: (kind: ChatTab["kind"]) => void;
   tab: RightTab;
   setTab: (tab: RightTab) => void;
   /** The PR picked in the PR menu (or opened from a link), over the one the Chat's row shows first. */
@@ -85,6 +115,12 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const [screen, setScreen] = useState<Screen | null>(null);
   const [open, setOpen] = useState<Side | null>(null);
   const [tab, setTab] = useState<RightTab>("pr");
+  const { width } = useWindowDimensions();
+  const docks = rightDocks(width);
+  const docking = useRef(docks);
+  const [docked, setDocked] = useState(false);
+  const dockedNow = useRef(false);
+  const [chatTabs, setChatTabs] = useState<ChatTabs | null>(null);
   const [pick, setPick] = useState<string | null>(null);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
@@ -171,6 +207,12 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   );
   const show = useCallback(
     (side: Side | null) => {
+      // Wide enough, the right panel docks beside the Chat, which stays in use: the keyboard stays up for it.
+      if (side === "right" && docking.current) {
+        setMounted((previous) => (previous.right ? previous : { ...previous, right: true }));
+        setDocked(true);
+        return;
+      }
       Keyboard.dismiss();
       if (side) setMounted((previous) => (previous[side] ? previous : { ...previous, [side]: true }));
       setOpen(side);
@@ -178,6 +220,41 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     },
     [progress],
   );
+  const closeRight = useCallback(() => {
+    setDocked(false);
+    if (openSide.current === "right") show(null);
+  }, [show]);
+  const openTab = useCallback(
+    (next: ChatTab) => {
+      const focused = current.current;
+      if (!focused) return;
+      setChatTabs((previous) => {
+        const own =
+          previous && previous.token === focused.token && previous.chatId === focused.chatId ? previous : { token: focused.token, chatId: focused.chatId };
+        return { ...own, [next.kind]: next.target };
+      });
+      setTab(next.kind);
+      show("right");
+    },
+    [show],
+  );
+  const closeTab = useCallback((kind: ChatTab["kind"]) => {
+    setChatTabs((previous) => (previous ? { ...previous, [kind]: undefined } : previous));
+  }, []);
+  // Turned or resized past the docking width, an open right panel moves between docked and sliding over, as it is.
+  useEffect(() => {
+    docking.current = docks;
+    if (docks && openSide.current === "right") {
+      progress.set(0);
+      setOpen(null);
+      setDocked(true);
+    } else if (!docks && dockedNow.current) {
+      setDocked(false);
+      setMounted((previous) => (previous.right ? previous : { ...previous, right: true }));
+      setOpen("right");
+      progress.set(-1);
+    }
+  }, [docks, progress]);
   const pull = useCallback((side: Side) => {
     Keyboard.dismiss();
     // A drag opens the panel on the Chat's PR when it has one, its Changes otherwise.
@@ -225,6 +302,9 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     openSide.current = open;
   }, [open]);
+  useEffect(() => {
+    dockedNow.current = docked;
+  }, [docked]);
   useEffect(() => endHandoff, [endHandoff]);
   useEffect(() => {
     if (!open) return;
@@ -246,6 +326,12 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       detach,
       arrived,
       show,
+      docks,
+      docked,
+      closeRight,
+      chatTabs,
+      openTab,
+      closeTab,
       tab,
       setTab,
       pick,
@@ -254,7 +340,31 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       settled,
       navigate,
     }),
-    [screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pick, setPick, pull, settled, navigate],
+    [
+      screen,
+      open,
+      mounted,
+      progress,
+      from,
+      attach,
+      update,
+      detach,
+      arrived,
+      show,
+      docks,
+      docked,
+      closeRight,
+      chatTabs,
+      openTab,
+      closeTab,
+      tab,
+      setTab,
+      pick,
+      setPick,
+      pull,
+      settled,
+      navigate,
+    ],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
 }
@@ -271,8 +381,33 @@ export function usePanelNavigation() {
 
 /** The focused screen's Chat and Worktree, and the panels it offers, for the pinned sidebar and keyboard shortcuts. */
 export function usePanelScreen() {
-  const { screen, open, show } = usePanels();
-  return { attached: !!screen, chatId: screen?.chatId, worktreeId: screen?.worktreeId, open, show };
+  const { screen, open, show, docked, closeRight } = usePanels();
+  return { attached: !!screen, chatId: screen?.chatId, worktreeId: screen?.worktreeId, open, show, right: open === "right" || docked, closeRight };
+}
+
+/** Whether the right panel is docked open beside the Chat now, which the pinned sidebar makes room for. */
+export function useRightDocked() {
+  const { docks, docked } = usePanels();
+  return docks && docked;
+}
+
+/** The screen whose right panel docks beside it, and whether it shows now: docked open with something to show. */
+export function useRightPanelScreen() {
+  const { screen, docks, docked, chatTabs } = usePanels();
+  const session = useSession();
+  const shown = docks && docked && !!screen && !!session.client && rightTabs(screen, chatTabs).length > 0;
+  return { screen, shown };
+}
+
+/** The tabs the right panel has for this screen, in the order its tab row shows them. */
+function rightTabs(screen: Screen, chatTabs: ChatTabs | null): RightTab[] {
+  const own = chatTabs && chatTabs.token === screen.token && chatTabs.chatId === screen.chatId ? chatTabs : null;
+  const tabs: RightTab[] = [];
+  if (screen.worktreeId !== undefined) tabs.push("changes");
+  if (screen.pullRequest) tabs.push("pr");
+  if (own?.simulator) tabs.push("simulator");
+  if (own?.designs) tabs.push("designs");
+  return tabs;
 }
 
 /** How far a panel travels: the whole screen on a phone, a card's width plus its margins on a wider window. */
@@ -342,14 +477,15 @@ export function useSidePanels({
         progress,
         from,
         width: travel,
-        min: worktreeId === undefined ? 0 : -1,
+        // A docked right panel opens from its buttons: a drag can't push the Chat over.
+        min: worktreeId === undefined || panels.docks ? 0 : -1,
         max: dockable ? 0 : 1,
         offset: [-SLOP_X, SLOP_X],
         pull,
         settled,
         scale,
       }).enabled(!passive && ours && !panels.open),
-    [progress, from, travel, worktreeId, dockable, pull, settled, ours, passive, panels.open, scale],
+    [progress, from, travel, worktreeId, dockable, panels.docks, pull, settled, ours, passive, panels.open, scale],
   );
   // The right panel opened on a PR (its pill on an iPad, a row's PR link) or on Changes (View changes).
   const showPullRequest = useCallback(
@@ -364,7 +500,10 @@ export function useSidePanels({
     setTab("changes");
     show("right");
   }, [setTab, show]);
-  return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges };
+  // On an iPad, this Chat's simulators and designs open in the docked right panel; null where they open full screen.
+  const { docks, openTab } = panels;
+  const openInPanel = useMemo(() => (docks && !passive ? openTab : null), [docks, passive, openTab]);
+  return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges, openInPanel };
 }
 
 /** The screen area a drag can start from; VoiceOver skips it while a panel covers it. */
@@ -434,7 +573,7 @@ function swipe({
 export function SidePanelsHost() {
   const { colors } = useTheme();
   const session = useSession();
-  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab, pick, setPick } = usePanels();
+  const { screen, open, mounted, progress, from, show, settled, navigate, docks, chatTabs } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cardTop = useCardTop();
@@ -513,19 +652,10 @@ export function SidePanelsHost() {
                 <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>{navigation}</SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
-            {mounted.right && screen.worktreeId !== undefined && (
+            {/* Wide enough, the right panel docks beside the Chat instead (RightDock in split-layout.tsx). */}
+            {mounted.right && !docks && rightTabs(screen, chatTabs).length > 0 && (
               <Animated.View {...hidden("right")} style={[frame("right"), right]}>
-                <ChangesPanel
-                  key={`${session.snapshot?.project.path}#${screen.worktreeId}`}
-                  worktreeId={screen.worktreeId}
-                  pullRequest={screen.pullRequest}
-                  tab={screen.pullRequest ? tab : "changes"}
-                  onTab={setTab}
-                  pick={pick}
-                  onPick={setPick}
-                  card={card}
-                  onClose={() => show(null)}
-                />
+                <RightPanel screen={screen} card={card} />
               </Animated.View>
             )}
           </SafeAreaInsetsContext.Provider>
@@ -536,67 +666,89 @@ export function SidePanelsHost() {
 }
 
 /**
- * The Worktree's Changes and the Chat's PRs, one tab each. A file of the Changes opens in place with a Back button; a PR
- * file opens across the whole window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
+ * The right panel, sliding over the Chat or docked beside it: the Worktree's Changes and the Chat's PRs, one tab each,
+ * and on an iPad the Chat's simulators and designs. A file of the Changes opens in place with a Back button; a PR file
+ * opens across the whole window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
  */
-function ChangesPanel({
-  worktreeId,
-  pullRequest,
-  tab,
-  onTab,
-  pick,
-  onPick,
-  card,
-  onClose,
-}: {
-  worktreeId: number;
-  pullRequest?: ScreenPullRequest;
-  tab: RightTab;
-  onTab: (tab: RightTab) => void;
-  pick: string | null;
-  onPick: (key: string | null) => void;
-  card: boolean;
-  onClose: () => void;
-}) {
+export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const session = useSession();
+  const { tab, setTab: onTab, pick, setPick: onPick, chatTabs, closeTab, closeRight: onClose } = usePanels();
+  const { worktreeId, pullRequest } = screen;
+  const tabs = rightTabs(screen, chatTabs);
+  const shownTab = tabs.includes(tab) ? tab : tabs[0];
+  const own = chatTabs && chatTabs.token === screen.token && chatTabs.chatId === screen.chatId ? chatTabs : null;
+  // The Changes list stays mounted under the other tabs, so going back keeps its folders and scroll; it is read again
+  // only for another Worktree.
+  const changesKey = `${session.snapshot?.project.path}#${worktreeId}`;
   const [file, setFile] = useState<DiffTarget | null>(null);
+  const [fileKey, setFileKey] = useState(changesKey);
+  if (fileKey !== changesKey) {
+    setFileKey(changesKey);
+    setFile(null);
+  }
   const choices = pullRequest?.choices ?? [];
   // The picked PR while the Chat still lists it, else the one its row shows first.
   const picked = pick !== null ? choices.find((choice) => prChoiceKey(choice) === pick) : undefined;
   const number = picked?.number ?? pullRequest?.number;
-  const pr = tab === "pr" && pullRequest && number ? { number, chatKey: pullRequest.chatKey } : undefined;
+  const pr = shownTab === "pr" && pullRequest && number ? { number, chatKey: pullRequest.chatKey } : undefined;
   // A Link Chat's PR is read in its own Project's Worktree; a Project's Chat, in the Chat's Worktree.
   const prCwd = picked ? picked.cwd : pullRequest?.cwd;
   const shown = picked ?? choices.find((choice) => choice.number === number && choice.cwd === prCwd);
   const prProject = shown?.project && shown.projectPath ? { name: shown.project, path: shown.projectPath } : undefined;
-  const cwd = prCwd ?? session.snapshot?.project.state.worktrees[worktreeId]?.path;
-  const route = pr ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey, ...(prCwd ? { cwd: prCwd } : {}) } : null;
+  const cwd = prCwd ?? (worktreeId !== undefined ? session.snapshot?.project.state.worktrees[worktreeId]?.path : undefined);
+  const route =
+    pr && worktreeId !== undefined ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey, ...(prCwd ? { cwd: prCwd } : {}) } : null;
   // One tab per PR of the Chat; before its row lists them, the one it opened.
-  const tabs: PrChoice[] = choices.length ? choices : pullRequest ? [{ number: pullRequest.number, title: "", state: "OPEN", cwd: pullRequest.cwd }] : [];
+  const prTabs: PrChoice[] = choices.length ? choices : pullRequest ? [{ number: pullRequest.number, title: "", state: "OPEN", cwd: pullRequest.cwd }] : [];
+  const designs = own?.designs;
+  const closeLabel = shownTab === "pr" ? "Close the PR" : shownTab === "changes" ? "Close Changes" : "Close the panel";
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingTop: insets.top + 4, paddingLeft: 8, paddingRight: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <PageScroll horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ padding: 0, gap: 4, alignItems: "center" }}>
-          <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={!pr} onPress={() => onTab("changes")} />
-          {tabs.map((choice) => (
+      {/* One compact row: the tabs scroll sideways, the close button keeps its place at the end, centred with them. */}
+      <View style={{ marginTop: insets.top, height: 52, paddingLeft: 8, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
+          style={{ flex: 1, alignSelf: "stretch" }}
+          contentContainerStyle={{ gap: 2, alignItems: "center" }}
+        >
+          {tabs.includes("changes") && (
+            <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={shownTab === "changes"} onPress={() => onTab("changes")} />
+          )}
+          {tabs.includes("pr") &&
+            prTabs.map((choice) => (
+              <PanelTab
+                key={prChoiceKey(choice)}
+                label={`#${choice.number}`}
+                icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
+                tone={choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED") ? "purpleInk" : (choice.look?.tone ?? "green")}
+                selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
+                onPress={() => {
+                  onPick(prChoiceKey(choice));
+                  onTab("pr");
+                }}
+              />
+            ))}
+          {own?.simulator && (
+            <PanelTab label="Simulator" icon={SmartphoneIcon} tone="ink2" selected={shownTab === "simulator"} onPress={() => onTab("simulator")} />
+          )}
+          {designs && (
             <PanelTab
-              key={prChoiceKey(choice)}
-              label={`#${choice.number}`}
-              icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
-              tone={choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED") ? "purpleInk" : (choice.look?.tone ?? "green")}
-              selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
-              onPress={() => {
-                onPick(prChoiceKey(choice));
-                onTab("pr");
-              }}
+              label={designs.html ? "Artifact" : "Designs"}
+              icon={designs.html ? File01Icon : PaintBoardIcon}
+              tone="ink2"
+              selected={shownTab === "designs"}
+              onPress={() => onTab("designs")}
             />
-          ))}
-        </PageScroll>
-        <IconButton label={pr ? "Close the PR" : "Close Changes"} icon={Cancel01Icon} size={44} onPress={onClose} />
+          )}
+        </ScrollView>
+        <GlassIconButton label={closeLabel} systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
       </View>
-      {file && !pr && (
+      {file && shownTab === "changes" && (
         <View style={{ paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
           <IconButton label="Back to Changes" icon={ArrowLeft01Icon} size={44} onPress={() => setFile(null)} />
           <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
@@ -604,11 +756,12 @@ function ChangesPanel({
           </Text>
         </View>
       )}
-      {/* The list stays mounted under a diff and a PR, so going back keeps its folders and scroll. */}
-      <View style={{ flex: 1, display: file || pr ? "none" : "flex" }}>
-        <ChangesView worktreeId={worktreeId} onOpen={setFile} />
-      </View>
-      {file && !pr && (
+      {worktreeId !== undefined && (
+        <View style={{ flex: 1, display: file || shownTab !== "changes" ? "none" : "flex" }}>
+          <ChangesView key={changesKey} worktreeId={worktreeId} onOpen={setFile} />
+        </View>
+      )}
+      {file && shownTab === "changes" && (
         <View style={{ flex: 1 }}>
           <DiffView target={file} />
         </View>
@@ -634,13 +787,54 @@ function ChangesPanel({
           }}
         />
       )}
+      {/* The device streams only while its tab shows: hidden, its WebView would be gone from under the stream. */}
+      {own?.simulator && shownTab === "simulator" && (
+        <View style={{ flex: 1 }}>
+          <SimulatorSheet
+            key={`${own.simulator.hostId}:${own.simulator.chatId}`}
+            hostId={own.simulator.hostId}
+            chatId={own.simulator.chatId}
+            onClose={() => closeTab("simulator")}
+          />
+        </View>
+      )}
+      {/* The designs canvas stays drawn under the other tabs, so a visit doesn't load it again. It is hidden by opacity:
+      with display none the native WebView goes away and the canvas's messages to it fail. */}
+      {designs && (
+        <View
+          pointerEvents={shownTab === "designs" ? "auto" : "none"}
+          accessibilityElementsHidden={shownTab !== "designs"}
+          importantForAccessibility={shownTab === "designs" ? "auto" : "no-hide-descendants"}
+          style={shownTab === "designs" ? { flex: 1 } : { position: "absolute", top: insets.top + 52, left: 0, right: 0, bottom: 0, opacity: 0 }}
+        >
+          {designs.html ? (
+            <ArtifactSheet
+              key={`${designs.hostId}:${designs.chatId}:${designs.id}`}
+              hostId={designs.hostId}
+              chatId={designs.chatId}
+              id={designs.id}
+              onClose={() => closeTab("designs")}
+            />
+          ) : (
+            <DesignsSheet
+              key={`${designs.hostId}:${designs.chatId}:${designs.id}:${designs.version}`}
+              hostId={designs.hostId}
+              chatId={designs.chatId}
+              id={designs.id}
+              version={designs.version}
+              chosen={designs.chosen}
+              onClose={() => closeTab("designs")}
+            />
+          )}
+        </View>
+      )}
     </View>
   );
 }
 
 const TAB_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
-/** A tab of the right panel: Changes, or one of the Chat's PRs with its state's icon. */
+/** A tab of the right panel: Changes, one of the Chat's PRs with its state's icon, or the Chat's simulators or designs. */
 function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {
   const { colors } = useTheme();
   return (
@@ -653,9 +847,9 @@ function PanelTab({ label, icon, tone, selected, onPress }: { label: string; ico
         onPress();
       }}
       style={({ pressed }) => ({
-        height: 34,
-        paddingHorizontal: 12,
-        borderRadius: 17,
+        height: 32,
+        paddingHorizontal: 11,
+        borderRadius: 16,
         flexDirection: "row",
         alignItems: "center",
         gap: 6,

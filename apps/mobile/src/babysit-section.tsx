@@ -9,7 +9,6 @@ import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
 import { ErrorNotice, Segmented, Toggle, useStyles } from "./ui";
-import { useRoutines } from "./use-routines";
 
 type Save = (change: BabysitChange) => Promise<void>;
 
@@ -110,8 +109,6 @@ export function BabysitSection() {
   const instructionsInput = useRef<TextInputInstance>(null);
   const ownRule = useAutosave(state.settings?.ownRuleText ?? "", "ownRuleText", save, ownRuleInput);
   const instructions = useAutosave(state.settings?.instructions ?? "", "instructions", save, instructionsInput);
-  // Babysitting runs as a Heartbeat: a Mac that may not run Routines watches no PR.
-  const routinesOff = useRoutines(client).enabled === false;
   const settings = state.settings;
   if (!client) return <Text style={styles.muted}>Connect to a Mac to change Babysit PRs.</Text>;
   if (state.unsupported) return <Text style={styles.muted}>Update Milagre on your Mac to use Babysit PRs.</Text>;
@@ -150,13 +147,6 @@ export function BabysitSection() {
   return (
     <View style={{ gap: 20 }}>
       {error}
-      {routinesOff ? (
-        <View style={[styles.card, { paddingVertical: 12 }]}>
-          <Text style={styles.muted}>
-            {"Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top."}
-          </Text>
-        </View>
-      ) : null}
       <Group title="Babysit PRs">
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("Babysit new PRs", settings.enabled, () => change({ enabled: !settings.enabled }))}

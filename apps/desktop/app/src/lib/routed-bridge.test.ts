@@ -97,7 +97,6 @@ const ALLOWED: Record<string, string[]> = {
     "readLimitAutoSwitch",
     "saveLimitAutoSwitch",
     "readRoutinesEnabled",
-    "saveRoutinesEnabled",
     "onMainSyncStatus",
     "computers",
     "setProjectHidden",
@@ -143,9 +142,6 @@ const ALLOWED: Record<string, string[]> = {
   // Previews register bytes in this renderer's local Electron protocol, even for remote Chats.
   "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
-  // This Mac's Routines follow this device's AI sharing decision, from inside the decision's own write (the guarded
-  // bridge would wait on it).
-  "lib/ai-consent.ts": ["saveRoutinesEnabled"],
   "lib/state-events.ts": ["onRuntimeSnapshot", "onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
   "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
   "lib/computers.ts": ["computers"],

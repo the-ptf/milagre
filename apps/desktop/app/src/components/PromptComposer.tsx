@@ -39,8 +39,9 @@ import { ContextRing } from "./ContextRing";
 import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
 import { useChatMentions } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
-import { insertDictation } from "@milagre/shared/voice-dictation";
+import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { useDictation } from "./useDictation";
+import { DictationNotice } from "./DictationNotice";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -481,9 +482,9 @@ export function PromptComposer({
   });
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
-    // A permission refusal stays until the user acts on it; the other messages clear themselves.
+    // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
     if (!dictationError || dictationError.kind === "permission") return;
-    const timer = setTimeout(dismissDictationError, 6000);
+    const timer = setTimeout(dismissDictationError, NOTICE_SECONDS * 1000);
     return () => clearTimeout(timer);
   }, [dictationError, dismissDictationError]);
 
@@ -847,14 +848,6 @@ export function PromptComposer({
               {Math.round(dictation.download.total / 1e6)} MB
             </div>
           )}
-          {dictationError && (
-            <div role="alert" className="flex items-center gap-2 px-2 text-xs text-red">
-              <span className="min-w-0 flex-1">{dictationError.message}</span>
-              <button type="button" onClick={dismissDictationError} className="shrink-0 text-ink-3 hover:text-ink">
-                Dismiss
-              </button>
-            </div>
-          )}
 
           <div
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
@@ -968,40 +961,43 @@ export function PromptComposer({
                   compactBlocked={running ? "Wait for the agent to finish." : sendBlocked ? "Not available right now." : null}
                 />
               )}
-              <button
-                ref={(node) => {
-                  dictation.meter.current = node;
-                }}
-                type="button"
-                aria-label={DICTATION_LABELS[dictation.phase]}
-                title={DICTATION_LABELS[dictation.phase]}
-                aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                onClick={() => {
-                  if (dictation.phase === "recording") return void dictation.stop();
-                  void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
-                }}
-                className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"} ${dictation.phase === "transcribing" || dictation.phase === "preparing" ? "animate-pulse" : ""}`}
-              >
-                {dictation.phase === "recording" && (
-                  <>
-                    {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
-                    <span
-                      aria-hidden
-                      className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
-                      style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
-                    />
-                    <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
-                  </>
-                )}
-                <span className="relative">
-                  {dictation.phase === "recording" ? (
-                    <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
-                  ) : (
-                    <Icon icon={Mic01Icon} size={16} />
+              <span className="relative flex shrink-0">
+                {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
+                <button
+                  ref={(node) => {
+                    dictation.meter.current = node;
+                  }}
+                  type="button"
+                  aria-label={DICTATION_LABELS[dictation.phase]}
+                  title={DICTATION_LABELS[dictation.phase]}
+                  aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                  disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                  onClick={() => {
+                    if (dictation.phase === "recording") return void dictation.stop();
+                    void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
+                  }}
+                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"} ${dictation.phase === "transcribing" || dictation.phase === "preparing" ? "animate-pulse" : ""}`}
+                >
+                  {dictation.phase === "recording" && (
+                    <>
+                      {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
+                      <span
+                        aria-hidden
+                        className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
+                        style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
+                      />
+                      <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
+                    </>
                   )}
-                </span>
-              </button>
+                  <span className="relative">
+                    {dictation.phase === "recording" ? (
+                      <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
+                    ) : (
+                      <Icon icon={Mic01Icon} size={16} />
+                    )}
+                  </span>
+                </button>
+              </span>
               <button
                 type="button"
                 aria-label={canStop ? "Stop agent" : "Send"}

@@ -5,9 +5,6 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 const imageBytes = require("node:fs").readFileSync(path.join(__dirname, "fixtures/photo.png")).toString("base64");
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 window.imageBytes = ${JSON.stringify(imageBytes)};
 import React from 'react';
 import { createRoot } from 'react-dom/client';
