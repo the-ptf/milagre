@@ -13,13 +13,20 @@ import { pinPatch } from "./pins";
  * section (chat-links.ts `linkMenuSection`), which goes after the pins when the Chat can be linked. `beside` leads with
  * "Open beside", which a wide iPad offers for another Chat on a computer that answers (split-chats.ts).
  */
-export function chatMenu(chat: AgentSession, worktree?: { path?: string; name?: string }, links?: MenuSection | null, beside = false): MenuSection[] {
+/** `branch` false: a Chat without a Project, whose Worktree's branch is the Chats home's own, nothing to copy. */
+export function chatMenu(
+  chat: AgentSession,
+  worktree?: { path?: string; name?: string },
+  links?: MenuSection | null,
+  beside = false,
+  branch = true,
+): MenuSection[] {
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
     {
       items: [
         { id: "copy-path", title: "Copy path", systemImage: "doc.on.doc", disabled: !worktree?.path },
-        { id: "copy-branch", title: "Copy branch name", systemImage: "arrow.triangle.branch", disabled: !worktree?.name },
+        ...(branch ? [{ id: "copy-branch", title: "Copy branch name", systemImage: "arrow.triangle.branch", disabled: !worktree?.name }] : []),
       ],
     },
     {

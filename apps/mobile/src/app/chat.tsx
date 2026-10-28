@@ -2175,7 +2175,7 @@ function ChatPane({
                   key={`${client.url}|${project.path}`}
                   client={client}
                   scope={project.path}
-                  name={project.name}
+                  name={chatsHomeOpen ? NO_PROJECT_LABEL : project.name}
                   failure={project.state.persistence}
                   offline={!!session.error}
                 />

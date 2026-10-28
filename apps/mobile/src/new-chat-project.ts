@@ -17,16 +17,21 @@ export type NewChatChoice = NoProjectChoice | (NewChatProjectGroup & { kind: "pr
 /** Every shown computer's Projects, including those hidden from the sidebar, in sidebar order. */
 export function newChatProjects(views: readonly HostView[]): NewChatProject[] {
   return views.flatMap((view) =>
-    view.projects
-      .filter((project) => project.path !== view.home?.path)
-      .map((project) => ({
-        hostId: view.hostId,
-        hostName: view.name,
-        offline: view.state === "offline",
-        path: project.path,
-        name: project.name || project.path.split("/").at(-1) || "Project",
-        ...(project.origin ? { origin: project.origin } : {}),
-      })),
+    view.projects.flatMap((project) =>
+      // A computer's Chats home is never one of its Projects, even should a list name it.
+      project.path === view.home?.path
+        ? []
+        : [
+            {
+              hostId: view.hostId,
+              hostName: view.name,
+              offline: view.state === "offline",
+              path: project.path,
+              name: project.name || project.path.split("/").at(-1) || "Project",
+              ...(project.origin ? { origin: project.origin } : {}),
+            },
+          ],
+    ),
   );
 }
 
