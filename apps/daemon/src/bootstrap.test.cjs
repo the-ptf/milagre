@@ -90,6 +90,28 @@ test("a host that is still exiting when the start begins is started again once i
   assert.notEqual((await again.call("daemon:status")).pid, exiting.pid);
 });
 
+test("a host that drops each connection while it exits is started again", async (t) => {
+  const clients = [];
+  const dataDir = await dataDirFor(t, "dropping", clients);
+  const socket = socketPath(dataDir);
+  prepareSocketDirectory(socket);
+  // Stands in for a host left exiting by a force quit: it accepts, then closes before replying. Depending on timing the
+  // desktop sees EPIPE, ECONNRESET or a plain close; each used to end the launch with that error.
+  let dropped = 0;
+  const server = net.createServer((connection) => {
+    dropped++;
+    connection.on("error", () => {});
+    connection.destroy();
+  });
+  server.listen(socket);
+  await once(server, "listening");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const again = await ensureDaemon({ dataDir, version: "1", cwd: dataDir });
+  clients.push(again);
+  assert.ok(dropped >= 1);
+  assert.notEqual((await again.call("daemon:status")).pid, process.pid);
+});
+
 test("a reachable older daemon is rejected without starting a competing runtime", async (t) => {
   const dataDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-bootstrap-old-")));
   const socket = socketPath(dataDir);
