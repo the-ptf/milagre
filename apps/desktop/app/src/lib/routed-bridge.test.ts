@@ -154,6 +154,8 @@ const ALLOWED: Record<string, string[]> = {
   // This Mac's own switch for its Chats delegating to other computers.
   "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],
+  // The microphone is on this computer: Whisper transcribes here whichever computer the Chat is on.
+  "components/useDictation.ts": ["dictation"],
   // Every computer's terminal:changed, and every host's reconnect snapshot, mark the Terminal lists the window holds.
   "lib/terminal-actions.ts": ["onTerminalsChanged", "onComputerEvent", "onRuntimeSnapshot"],
 };

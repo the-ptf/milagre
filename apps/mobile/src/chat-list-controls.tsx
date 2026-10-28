@@ -12,7 +12,7 @@ import { GlassIconButton, PullDown } from "./ui";
 import type { MenuSection } from "./primitives/menu";
 import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
-import { insertDictation } from "./voice-dictation";
+import { insertDictation } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { VoiceMicButton } from "./voice-mic-button";
 

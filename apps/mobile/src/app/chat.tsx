@@ -2357,6 +2357,8 @@ function ChatPane({
                             : undefined
                         }
                         onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
+                        chatTitle={title}
+                        provider={chat?.provider ?? actualProvider}
                         images={attachments.filter((item) => item.image).length}
                         onImagePaste={(image) => void pasteImage(image)}
                         known={knownFiles.current}

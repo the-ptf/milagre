@@ -95,6 +95,7 @@ const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
 const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
+const { dictationContext, polishDictation, createDictationModels } = require("./dictation.cjs");
 const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
@@ -600,6 +601,18 @@ function createRuntime(options) {
       return (await Promise.all(roots.map(async (member) => (await searchFiles(member.worktreePath, query)).map((file) => `${member.alias}/${file}`)))).flat();
     }
     return searchFiles(root, query);
+  });
+  // Dictation: the words a Chat's project gives the recognizer, and the AI fix-up of a phone's Apple transcript.
+  commands.handle("dictation:context", async (_event, { cwd, chatTitle } = {}) => {
+    await knownFolder(cwd);
+    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+  });
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
+    await knownFolder(cwd);
+    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    const models =
+      options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
+    return polishDictation({ text, terms, chatTitle, provider }, { models });
   });
   // Path-taking commands only serve folders the user opened: an open project, one of its worktrees, or a recent
   // project (the switcher shows their avatars). Any renderer or paired phone script otherwise reaches any folder.

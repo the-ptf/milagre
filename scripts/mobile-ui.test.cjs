@@ -193,6 +193,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           "@milagre/shared/display-clock",
           "@milagre/shared/refresh-loop",
           "@milagre/shared/read-timeout",
+          "@milagre/shared/voice-dictation",
         ].includes(id) &&
         !(id in modules)
       )
@@ -208,7 +209,6 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "expo-font" && !(id in modules)) return { isLoaded: () => false, loadAsync: async () => {} };
       if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
       // Dictation is not available in a test: no microphone, no on-device transcriber.
-      if (base === "voice-dictation" && !(id in modules)) return load("voice-dictation.ts", modules, "", cache);
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
