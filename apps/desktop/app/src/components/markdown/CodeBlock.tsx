@@ -27,7 +27,21 @@ function scrollParent(node: HTMLElement): HTMLElement | null {
  * (a diff snippet, as diff comments send) shows tinted rows and highlights the code without the markers.
  * With `streaming`, the block is still being written: it highlights after each pause rather than on every batch.
  */
-export function CodeBlock({ code, fence, diff = false, streaming = false }: { code: string; fence?: string; diff?: boolean; streaming?: boolean }) {
+export function CodeBlock({
+  code,
+  fence,
+  diff = false,
+  streaming = false,
+  label,
+  copyCode,
+}: {
+  code: string;
+  fence?: string;
+  diff?: boolean;
+  streaming?: boolean;
+  label?: string;
+  copyCode?: string;
+}) {
   const rows = useMemo(() => (diff ? diffRows(code) : null), [code, diff]);
   const source = rows ? rows.map((row) => row.text).join("\n") : code;
   const language = resolveCodeLanguage(fence);
@@ -106,7 +120,7 @@ export function CodeBlock({ code, fence, diff = false, streaming = false }: { co
   }
 
   const copy = () => {
-    navigator.clipboard.writeText(code).then(
+    navigator.clipboard.writeText(copyCode ?? code).then(
       () => {
         setCopied(true);
         window.clearTimeout(copiedTimer.current);
@@ -119,7 +133,7 @@ export function CodeBlock({ code, fence, diff = false, streaming = false }: { co
   return (
     <div ref={frame} className="markdown-code my-2 overflow-hidden rounded-control border border-line bg-inset">
       <div className="flex h-7 items-center justify-between border-b border-line pr-1 pl-2.5 text-[11px] text-ink-3">
-        <span className="font-mono">{fence?.toLowerCase() || "text"}</span>
+        <span className="font-mono">{label ?? (fence?.toLowerCase() || "text")}</span>
         <button
           type="button"
           aria-label={copied ? "Copied" : "Copy code"}

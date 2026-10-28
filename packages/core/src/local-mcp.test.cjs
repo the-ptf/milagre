@@ -720,3 +720,273 @@ test("a Chat running in Bot rules counts as more than Full: a prompt sent there 
     ["approve", caller, 'Run a prompt in "Target" in Bot rules?'],
   );
 });
+
+test("worktree_link defaults targetWorktreeId to the target Project's main checkout Worktree when omitted", async (t) => {
+  const { host, projectPath, otherPath, caller, links } = steeringHost(t);
+  const made = await host.linkWorktrees({ projectPath, worktreeId: 1, targetProjectPath: otherPath }, caller, () => false);
+  assert.equal(made.created, true);
+  assert.deepEqual(links()[0].b, { project_id: otherPath, worktree_path: otherPath });
+});
+
+test("project_list marks inScope for agent callers, filters outside callers, and supports wildcard Project grants", async (t) => {
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  const dataDir = fixture(t);
+  const { host, projectPath, otherPath, caller } = steeringHost(t);
+  const mcp = createLocalMcp({
+    dataDir,
+    host,
+    agentScope: () => ({
+      projects: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+      worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+    }),
+  });
+  t.after(() => mcp.close());
+  const httpCall = async (cred, name, args = {}) => {
+    const res = await fetch(cred.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${cred.token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const body = await res.json();
+    if (body.result.isError) throw Error(body.result.content[0].text);
+    return JSON.parse(body.result.content[0].text);
+  };
+
+  const agentList = mcp.agentTools(caller).find((tool) => tool.name === "project_list");
+  assert.deepEqual(JSON.parse(await agentList.run({})), [
+    { id: projectPath, path: projectPath, inScope: true },
+    { id: otherPath, path: otherPath, inScope: false },
+  ]);
+
+  const narrow = await mcp.create({
+    label: "Narrow",
+    grants: { projects: { projectPaths: [projectPath], capabilities: ["read"] } },
+  });
+  assert.deepEqual(await httpCall(narrow, "project_list"), [{ id: projectPath, path: projectPath }]);
+
+  const wildcard = await mcp.create({
+    label: "All",
+    grants: { projects: { projectPaths: "*", capabilities: ["read"] } },
+  });
+  assert.deepEqual(await httpCall(wildcard, "project_list"), [
+    { id: projectPath, path: projectPath },
+    { id: otherPath, path: otherPath },
+  ]);
+});
+
+test("out-of-scope Project calls prompt in the caller's Chat, deduplicate concurrent cards, and persist Always allow in this chat", async (t) => {
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  const dataDir = fixture(t);
+  let nextDecision = "allow";
+  let gate = null;
+  const approvals = [];
+  const { host, projectPath, otherPath, caller } = steeringHost(t, {
+    approve: async (request) => {
+      approvals.push(request);
+      if (gate) await gate;
+      return nextDecision;
+    },
+  });
+  const makeMcp = () =>
+    createLocalMcp({
+      dataDir,
+      host,
+      agentScope: () => ({
+        projects: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+        worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+      }),
+    });
+  let mcp = makeMcp();
+  t.after(() => mcp.close());
+
+  // Cache tool definitions once up front (like Claude's in-process SDK MCP server) to prove currentScope() updates live.
+  const cachedTools = mcp.agentTools(caller);
+  const worktreeList = cachedTools.find((tool) => tool.name === "worktree_list");
+  const projectList = cachedTools.find((tool) => tool.name === "project_list");
+
+  // Two concurrent Allow-once calls share one card and do not persist the grant.
+  let release;
+  gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const first = worktreeList.run({ projectPath: otherPath });
+  const second = worktreeList.run({ projectPath: otherPath });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0].allowForChat, true);
+  release();
+  gate = null;
+  await Promise.all([first, second]);
+  assert.deepEqual(mcp.grantedProjects(caller), []);
+
+  // Deny rejects without running.
+  nextDecision = "deny";
+  await assert.rejects(worktreeList.run({ projectPath: otherPath }), /declined access/);
+  assert.equal(approvals.length, 2);
+
+  // Always allow in this chat persists across calls (even on cached tool definitions) and across restarts.
+  nextDecision = "allow-for-chat";
+  await worktreeList.run({ projectPath: otherPath });
+  assert.equal(approvals.length, 3);
+  assert.deepEqual(mcp.grantedProjects(caller), [otherPath]);
+  await worktreeList.run({ projectPath: otherPath });
+  assert.equal(approvals.length, 3, "cached tool definition sees the live Chat grant without prompting again");
+  assert.equal(JSON.parse(await projectList.run({})).find((item) => item.path === otherPath).inScope, true);
+
+  await mcp.close();
+  mcp = makeMcp();
+  assert.deepEqual(mcp.grantedProjects(caller), [otherPath]);
+  await mcp
+    .agentTools(caller)
+    .find((tool) => tool.name === "worktree_list")
+    .run({ projectPath: otherPath });
+  assert.equal(approvals.length, 3, "persisted Chat grant survives restart");
+});
+
+test("project_add validates a Git repo, asks on a card below Full mode, registers the Project, and grants the calling Chat access", async (t) => {
+  const { execFileSync } = require("node:child_process");
+  const { createLocalMcpHost } = require("./local-mcp-host.cjs");
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  const dataDir = fixture(t);
+  const projectPath = fs.realpathSync(fixture(t));
+  const plainDir = fs.realpathSync(fixture(t));
+  const gitRepo = fs.realpathSync(fixture(t));
+  execFileSync("git", ["init", "-qb", "main", gitRepo]);
+
+  const registered = [{ id: projectPath, path: projectPath, name: "Main" }];
+  const approvals = [];
+  let mode = "ask";
+  const caller = `${projectPath}#2`;
+  const host = createLocalMcpHost({
+    projects: async () => registered,
+    registerProject: async (targetPath) => {
+      if (!registered.some((item) => item.path === targetPath))
+        registered.push({ id: path.join(targetPath, ".git"), path: targetPath, name: path.basename(targetPath) });
+    },
+    readProject: async (root) => ({
+      state: { worktrees: { 1: { id: 1, path: root, name: "main" } }, sessions: { 2: { id: 2, worktree_id: 1 } } },
+    }),
+    scopeStates: { chatMessages: async () => [] },
+    permissionMode: () => mode,
+    chats: { runs: {}, turnSettings: () => ({}), send: async () => ({ sessionId: 2 }) },
+    links: { list: async () => [], add: async () => {}, remove: async () => {} },
+    activeWorktrees: async (root) => [root],
+    approve: async (_chatId, request) => (approvals.push(request.title), "allow"),
+  });
+  const mcp = createLocalMcp({
+    dataDir,
+    host,
+    agentScope: () => ({
+      projects: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+      worktrees: { projectPaths: [projectPath], capabilities: ["read", "create"] },
+    }),
+  });
+  t.after(() => mcp.close());
+
+  const tools = mcp.agentTools(caller);
+  const projectAdd = tools.find((tool) => tool.name === "project_add");
+  const worktreeList = tools.find((tool) => tool.name === "worktree_list");
+
+  await assert.rejects(projectAdd.run({ projectPath: plainDir }), /isn't a Git repository/);
+  await assert.rejects(host.addProject({ projectPath: gitRepo }, undefined), /outside client/);
+
+  const added = JSON.parse(await projectAdd.run({ projectPath: gitRepo }));
+  assert.deepEqual(added, { id: path.join(gitRepo, ".git"), path: gitRepo, name: path.basename(gitRepo), created: true, inScope: true });
+  assert.equal(approvals.length, 1);
+  assert.deepEqual(mcp.grantedProjects(caller), [gitRepo]);
+  assert.equal(JSON.parse(await worktreeList.run({ projectPath: gitRepo })).length, 1);
+  assert.equal(approvals.length, 1, "project_add already granted the calling Chat access");
+
+  mode = "full";
+  const again = JSON.parse(await projectAdd.run({ projectPath: gitRepo }));
+  assert.equal(again.created, false);
+  assert.equal(approvals.length, 1, "Full mode needs no card");
+});
+
+test("Bot rules hide unrelated Projects from project_list, Full mode does not persist grants across a return to Ask, forgetProjectGrants prunes grants, and worktree_link requires a main Worktree when targetWorktreeId is omitted", async (t) => {
+  const { execFileSync } = require("node:child_process");
+  const { createLocalMcpHost } = require("./local-mcp-host.cjs");
+  const { createLocalMcp } = require("./local-mcp.cjs");
+  const dataDir = fixture(t);
+  const projectPath = fs.realpathSync(fixture(t));
+  const otherPath = fs.realpathSync(fixture(t));
+  const internalRepo = fs.realpathSync(fixture(t));
+  execFileSync("git", ["init", "-qb", "main", internalRepo]);
+
+  let mode = "full";
+  let botActive = false;
+  const approvals = [];
+  const caller = `${projectPath}#7`;
+  const host = createLocalMcpHost({
+    projects: async () => [
+      { id: "p-main", path: projectPath, name: "Main" },
+      { id: "p-other", path: otherPath, name: "Other" },
+    ],
+    assertRegistrableProject: async (folder) => {
+      if (folder === internalRepo) throw Error("That folder belongs to Milagre's internal state and cannot be registered as a Project.");
+    },
+    readProject: async (root) => ({
+      state: {
+        // Other has only a feature Worktree (no path === otherPath) to test default targetWorktreeId safety.
+        worktrees: { 1: { id: 1, path: root === otherPath ? path.join(otherPath, "feature") : root, name: "main" } },
+        sessions: { 7: { id: 7, worktree_id: 1 } },
+      },
+    }),
+    scopeStates: { chatMessages: async () => [] },
+    permissionMode: () => mode,
+    botOf: () => (botActive ? "Triager" : null),
+    chats: { runs: {}, turnSettings: () => ({}), send: async () => ({ sessionId: 7 }) },
+    links: { list: async () => [], add: async () => {}, remove: async () => {} },
+    activeWorktrees: async (root) => [root === otherPath ? path.join(otherPath, "feature") : root],
+    approve: async (_chatId, request) => (approvals.push(request), "allow-for-chat"),
+  });
+  const mcp = createLocalMcp({
+    dataDir,
+    host,
+    agentScope: () => ({
+      projects: { projectPaths: [projectPath], capabilities: botActive ? ["read"] : ["read", "create"] },
+      worktrees: { projectPaths: [projectPath], capabilities: botActive ? ["read"] : ["read", "create"] },
+    }),
+  });
+  t.after(() => mcp.close());
+
+  const cachedTools = mcp.agentTools(caller);
+  const projectList = cachedTools.find((tool) => tool.name === "project_list");
+  const worktreeList = cachedTools.find((tool) => tool.name === "worktree_list");
+  const worktreeLink = cachedTools.find((tool) => tool.name === "worktree_link");
+  const projectAdd = cachedTools.find((tool) => tool.name === "project_add");
+
+  // Full mode approves out-of-scope calls without persisting a permanent Chat grant.
+  await worktreeList.run({ projectPath: otherPath });
+  assert.deepEqual(mcp.grantedProjects(caller), []);
+  assert.equal(approvals.length, 0);
+
+  // Returning to Ask mode prompts again because Full mode did not persist the grant.
+  mode = "ask";
+  await assert.rejects(projectAdd.run({ projectPath: internalRepo }), /internal state/);
+  assert.equal(approvals.length, 0, "disallowed internal paths fail before showing an approval card");
+
+  // Omitting targetWorktreeId refuses to guess a feature Worktree when no main Worktree matches projectPath.
+  await assert.rejects(worktreeLink.run({ projectPath, worktreeId: 1, targetProjectPath: otherPath }), /No main Worktree in .* pass targetWorktreeId/);
+
+  // Always allow in Ask mode persists the grant; forgetting either Project prunes chat-grants.json.
+  await worktreeList.run({ projectPath: otherPath });
+  assert.deepEqual(mcp.grantedProjects(caller), [otherPath]);
+
+  // Entering Bot rules hides out-of-scope Projects on both cached and fresh tool definitions and blocks out-of-scope calls.
+  botActive = true;
+  assert.deepEqual(JSON.parse(await projectList.run({})), [{ id: "p-main", path: projectPath, name: "Main" }]);
+  assert.deepEqual(
+    JSON.parse(
+      await mcp
+        .agentTools(caller)
+        .find((tool) => tool.name === "project_list")
+        .run({}),
+    ),
+    [{ id: "p-main", path: projectPath, name: "Main" }],
+  );
+
+  botActive = false;
+  mcp.forgetProjectGrants(otherPath);
+  assert.deepEqual(mcp.grantedProjects(caller), []);
+});

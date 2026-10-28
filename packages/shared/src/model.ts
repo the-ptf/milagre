@@ -645,6 +645,15 @@ export interface ChatStep {
   kind: StepKind;
   /** Host time when this step first started. Older hosts omit it; clients leave their titles static. */
   startedAt?: number;
+  /** Host completion time; together with startedAt gives wall time without adding parallel calls. */
+  endedAt?: number;
+  /** MCP identity, independent of the human title and artifact tool field. */
+  source?: { name: string; server?: string };
+  /** Bounded, redacted arguments for the detail panel. Large documents are not retained here. */
+  input?: string;
+  /** Small facts retained even when detail is fetched lazily. */
+  summary?: string;
+  error?: string;
   /** What it did, e.g. "Ran `npm test`"; text between backticks is code. */
   title: string;
   /** Saved steps are done or failed; only a reply still streaming has running ones. */
@@ -662,7 +671,7 @@ export interface ChatStep {
   file?: string;
   /** Muted text after the title, e.g. "3s" or "exited with code 1 after 4s". */
   note?: string;
-  /** How long a thinking step took. */
+  /** How long the step took, measured by the host or reported by the provider. */
   durationMs?: number;
   /** Where the step sits in the reply: the length of the reply's text when it started. */
   offset?: number;
@@ -890,6 +899,9 @@ export type AgentEvent =
       note?: string;
       detail?: string;
       durationMs?: number;
+      endedAt?: number;
+      summary?: string;
+      error?: string;
       file?: string;
       artifact?: ArtifactRef;
       routine?: { id: string; name: string };

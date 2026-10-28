@@ -16,7 +16,7 @@ import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import { useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
-import { insertDictation } from "./voice-dictation";
+import { insertDictation } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { VoiceMicButton } from "./voice-mic-button";
 
@@ -78,6 +78,8 @@ export function PromptField({
   placeholder = "Message the agent",
   suggestion,
   onAcceptSuggestion,
+  chatTitle,
+  provider,
 }: {
   chats?: readonly MentionChat[];
   currentId?: number;
@@ -101,6 +103,9 @@ export function PromptField({
   placeholder?: string;
   suggestion?: string;
   onAcceptSuggestion?: (text: string) => void;
+  /** The Chat's title and agent: dictation's fix-up asks that agent, with the title as context. */
+  chatTitle?: string;
+  provider?: string;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
   // Text size scales the composer too; 16 stays 16 at the default step.
@@ -142,14 +147,17 @@ export function PromptField({
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
   // Until the field has reported a caret, `selection` is the initial 0 and says nothing about where the user means to dictate.
   const placed = useRef(false);
-  const dictation = useVoiceDictation((text, anchor) => {
-    const edit = insertDictation(draft, anchor.selection, text);
-    if (!edit) return;
-    const caret = { start: edit.caret, end: edit.caret };
-    setRequested({ draft: edit.value, selection: caret });
-    setSelection(caret);
-    onChangeText(edit.value);
-  });
+  const dictation = useVoiceDictation(
+    (text, anchor) => {
+      const edit = insertDictation(draft, anchor.selection, text);
+      if (!edit) return;
+      const caret = { start: edit.caret, end: edit.caret };
+      setRequested({ draft: edit.value, selection: caret });
+      setSelection(caret);
+      onChangeText(edit.value);
+    },
+    projectPath ? { client, cwd: projectPath, chatTitle, provider } : undefined,
+  );
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
     // A permission refusal stays until the user acts on it; the other messages clear themselves.
@@ -421,6 +429,11 @@ export function PromptField({
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+      {dictation.download !== null ? (
+        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 6, color: colors.ink3, fontSize: 13 }}>
+          Downloading the speech model, once: {Math.round(dictation.download * 100)}%
+        </Text>
       ) : null}
       {skill && !query ? (
         <View

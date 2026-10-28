@@ -91,16 +91,26 @@ export function useComputerScopes(computers: ComputerView[]): {
       setByComputer((previous) =>
         off.some((id) => id in previous) ? Object.fromEntries(Object.entries(previous).filter(([id]) => !off.includes(id))) : previous,
       );
+    const stops: Array<(() => void) | undefined> = [];
     for (const computer of computers) {
       if (computer.state === "off") continue;
       const bridge = bridgeFor(computer.id);
-      void Promise.all([bridge.listRecentProjects().catch(() => null), bridge.listNamedLinks().catch(() => null)]).then(([recent, links]) => {
-        if (!live || !Array.isArray(recent)) return;
-        setByComputer((previous) => ({ ...previous, [computer.id]: { recent, links: Array.isArray(links) ? links : [] } }));
-      });
+      const reload = () => {
+        void Promise.all([bridge.listRecentProjects().catch(() => null), bridge.listNamedLinks().catch(() => null)]).then(([recent, links]) => {
+          if (!live || !Array.isArray(recent)) return;
+          setByComputer((previous) => ({ ...previous, [computer.id]: { recent, links: Array.isArray(links) ? links : [] } }));
+        });
+      };
+      reload();
+      stops.push(
+        bridge.localMcp?.onChanged?.((payload) => {
+          if (payload?.projectAdded) reload();
+        }),
+      );
     }
     return () => {
       live = false;
+      for (const stop of stops) stop?.();
     };
   }, [states, changed]);
   const setHidden = useCallback((key: string, hidden: boolean) => {

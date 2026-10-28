@@ -330,6 +330,35 @@ test("step deadlines agree in live events and reload snapshots, including duplic
   assert.equal(reloaded[chatId].approvals.length, 0);
 });
 
+test("tool facts and completion time agree in live events, snapshots and saved messages", async (t) => {
+  let now = NOW;
+  const { host, manager, published, session, states } = harness({ now: () => now });
+  t.after(() => manager.closeAll());
+  const chat = await host.send(message(ALPHA, "check"));
+  const chatId = `${ALPHA}#${chat.sessionId}`;
+  await waitUntil(() => session(ALPHA));
+  const input = "printf one\nprintf two";
+  session(ALPHA).emit({ type: "step-started", step: { id: "tool", kind: "shell", title: "Ran check", detail: `$ ${input}\n` } });
+  await waitUntil(() => host.runs[chatId]?.steps.length);
+  now += 4200;
+  session(ALPHA).emit({ type: "step-completed", id: "tool", status: "failed", detail: `$ ${input}\nError: missing header` });
+  await waitUntil(() => host.runs[chatId].steps[0].status === "failed");
+  const step = host.runs[chatId].steps[0];
+  assert.equal(step.input, input);
+  assert.equal(step.durationMs, 4200);
+  assert.equal(step.endedAt, now);
+  assert.equal(step.error, "Error: missing header");
+  const completion = published.find((item) => item.event.type === "step-completed").event;
+  assert.equal(completion.durationMs, step.durationMs);
+  assert.equal(completion.error, step.error);
+  session(ALPHA).emit({ type: "turn-completed" });
+  await waitUntil(() => !host.runs[chatId]);
+  const saved = (await states.get(ALPHA)).messages.at(-1).steps[0];
+  assert.equal(saved.durationMs, 4200);
+  assert.equal(saved.input, input);
+  assert.equal(saved.error, step.error);
+});
+
 test("a turn that ends in the open chat while no window has focus leaves it unread", async (t) => {
   const { host, manager, saved, session } = harness({ focused: false });
   t.after(() => manager.closeAll());

@@ -97,6 +97,7 @@ const { chatTitle, isHiddenRunChat } = require("@milagre/shared/chats");
 const ROUTINE_TARGET_CHATS = 50;
 
 const { createFileSearch } = require("./project-files.cjs");
+const { dictationContext, polishDictation, createDictationModels } = require("./dictation.cjs");
 const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
@@ -561,6 +562,10 @@ function createRuntime(options) {
   });
   async function attachmentAccess(file) {
     if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("Choose an attached file or a file in an open Worktree.");
+    // A file in an open Worktree needs no link to it. The search below reads every open Project's saved messages
+    // synchronously: from a cold disk it held a busy host for 28 s, nearly the 30 s a paired computer waits for an answer.
+    const roots = scopeStates.worktreePaths();
+    if (await require("./attachment-preview.cjs").insideRoots(file, roots)) return { roots, attached: [] };
     const { sharedFilePaths, chatFolder } = require("./chat-files.cjs");
     // Search by basename too: a shared link may be relative, URL-encoded or have a line suffix. Unloaded Chats
     // stay unloaded; only candidate rows are read, and the parsed link must name this exact file.
@@ -578,8 +583,10 @@ function createRuntime(options) {
         const body = JSON.stringify(message.body || message.text || "");
         if (needles.some((needle) => body.includes(needle)) && sharedFilePaths(message, chatFolder(state, message, project)).has(file)) attached.push(file);
       }
+      // One Chat that shared it is enough; the other Projects' saved messages stay unread.
+      if (attached.includes(file)) break;
     }
-    return { roots: scopeStates.worktreePaths(), attached };
+    return { roots, attached };
   }
   commands.handle("attachment:preview", async (_event, file) => {
     const { roots, attached } = await attachmentAccess(file);
@@ -596,6 +603,18 @@ function createRuntime(options) {
       return (await Promise.all(roots.map(async (member) => (await searchFiles(member.worktreePath, query)).map((file) => `${member.alias}/${file}`)))).flat();
     }
     return searchFiles(root, query);
+  });
+  // Dictation: the words a Chat's project gives the recognizer, and the AI fix-up of a phone's Apple transcript.
+  commands.handle("dictation:context", async (_event, { cwd, chatTitle } = {}) => {
+    await knownFolder(cwd);
+    return dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+  });
+  commands.handle("dictation:polish", async (_event, { cwd, text, chatTitle, provider } = {}) => {
+    await knownFolder(cwd);
+    const { terms } = await dictationContext({ cwd, chatTitle, listFiles: searchFiles.list });
+    const models =
+      options.dictationModels ?? createDictationModels({ cli: async (name) => agentCli(name, await accountScopeForFolder(cwd)), clientVersion: version });
+    return polishDictation({ text, terms, chatTitle, provider }, { models });
   });
   // Path-taking commands only serve folders the user opened: an open project, one of its worktrees, or a recent
   // project (the switcher shows their avatars). Any renderer or paired phone script otherwise reaches any folder.
@@ -1901,6 +1920,7 @@ function createRuntime(options) {
     dataDir,
     remote,
     registry: projectRegistry,
+    grantedProjects: (chatId) => localMcp.grantedProjects(chatId),
     // A named Link's member Projects, { id, name, path }, for its shared Chats' Delegations.
     linkProjects: async (linkId) => {
       const link = await linkRuntime.definition(linkId);
@@ -2185,7 +2205,7 @@ function createRuntime(options) {
   // Each way a project opens (launch, the folder dialog, a switch) puts it at the top of the recent list.
   // `takeNotice`: this open is a desktop window's, which shows the restored-chats notice. Over the daemon only the
   // desktop asks for it, so the phone's bridge opening the project first doesn't use the notice up.
-  async function openProject(projectPath, { takeNotice = true } = {}) {
+  async function openProject(projectPath, { takeNotice = true, focus = true } = {}) {
     // One look at git gives the Project and its Worktrees, which the read reconciles with. A Project opened before by
     // this path (a switch back to it) keeps the identity read then while its Worktree list still starts at it.
     const known = openedIdentities.get(projectPath);
@@ -2196,7 +2216,7 @@ function createRuntime(options) {
     await projectRegistry().add(identity);
     // The identity says what rememberProject would ask git again: its path is a checkout's top folder, or outside Git.
     await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
-    shownProjectPath = identity.path;
+    if (focus) shownProjectPath = identity.path;
     // The first window to open the project after chats came back says so, once. A read at startup (resuming a turn)
     // or after removing a worktree keeps the notice for it.
     const restored = takeNotice ? restoredChats.get(identity.path) : undefined;
@@ -2458,7 +2478,16 @@ function createRuntime(options) {
     return Object.values((await states.get(projectPath)).worktrees ?? {}).map((worktree) => worktree.path);
   });
   commands.handle("project:switch", async (_event, requested) => openProject(await switchTarget(recentProjects(), requested)));
-  commands.handle("project:forget", async (_event, projectPath) => withHidden(await recentProjects().forget(projectPath)));
+  const realDataDir = realpathSync(dataDir);
+  const assertRegistrableProject = (folder) => {
+    const relative = path.relative(realDataDir, folder);
+    const insideDataDir = !relative || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    if (bots.isHome(folder) || insideDataDir) throw Error("That folder belongs to Milagre's internal state and cannot be registered as a Project.");
+  };
+  commands.handle("project:forget", async (_event, projectPath) => {
+    localMcp.forgetProjectGrants(projectPath);
+    return withHidden(await recentProjects().forget(projectPath));
+  });
   // The phone's project search: Git repositories under the home folder, matched by name (see project-finder.cjs).
   const projectFinder = createProjectFinder(options.projectSearchRoot || require("node:os").homedir());
   commands.handle("project:find", (_event, query) => projectFinder.search(typeof query === "string" ? query.slice(0, 200) : ""));
@@ -2486,6 +2515,12 @@ function createRuntime(options) {
     models: (projectPath) => handlers.get("agent:models")(null, projectPath),
     worktreeStatus,
     removeWorktree: (projectPath, worktreePath) => handlers.get("worktree:remove")(null, worktreePath, { projectPath }),
+    assertRegistrableProject,
+    registerProject: async (folder) => {
+      assertRegistrableProject(folder);
+      await openProject(folder, { takeNotice: false, focus: false });
+      emit("local-mcp:changed", { projectAdded: true });
+    },
     botOf: (chatId) => botRunning(chatId),
     validateDesignChat: async (chatId) => {
       const scope = projectOfKey(chatId);
@@ -2516,7 +2551,7 @@ function createRuntime(options) {
       const botChat = Boolean(botRunning(chatId));
       return {
         ...designGrant,
-        projects: { projectPaths, capabilities: ["read"] },
+        projects: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create"] },
         worktrees: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create"] },
         chats: { projectPaths, capabilities: botChat ? ["read"] : ["read", "create", "start"] },
       };

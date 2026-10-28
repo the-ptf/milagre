@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { titleSpans } from "@milagre/shared/reply-parts";
 import { useStepSweep } from "@milagre/shared/use-step-sweep";
@@ -65,6 +65,10 @@ export function ActivityItem({
   title,
   startedAt,
   icon,
+  leading,
+  summary,
+  duration,
+  error,
   state = "idle",
   status,
   note,
@@ -77,6 +81,10 @@ export function ActivityItem({
   title: string;
   startedAt?: number;
   icon: IconData;
+  leading?: ReactNode;
+  summary?: string;
+  duration?: string;
+  error?: string;
   state?: ActivityState;
   status?: string;
   note?: string;
@@ -97,17 +105,20 @@ export function ActivityItem({
   const label = [title.replace(/`/g, ""), stateLabel, note].filter(Boolean).join(", ");
   const action = () => (onPress ? onPress() : setToggled(!expanded));
   const accessibilityState = expandable ? { expanded } : undefined;
-  const headerStyle: ViewStyle = { minHeight: 36, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
+  const reduced = useShimmerReducedMotion(state === "running");
+  const headerStyle: ViewStyle = { minHeight: 44, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
   const heading = (
     <>
-      <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : state === "idle" ? "ink3" : "ink2"} size={16} />
+      <View style={{ alignSelf: "flex-start", paddingTop: 2 }}>
+        {leading ?? <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : "ink2"} size={16} />}
+      </View>
       <View style={{ flex: 1, gap: 2 }}>
         <ActivityTitle
           title={title}
           startedAt={startedAt}
           shimmer={state === "running"}
           numberOfLines={disclosureOnly && expanded ? 0 : 1}
-          style={{ color: failed ? colors.red : colors.ink2, fontSize: 14 }}
+          style={{ color: colors.ink2, fontSize: 14 }}
         />
         {!!note && <Text style={styles.label}>{note}</Text>}
       </View>
@@ -115,6 +126,13 @@ export function ActivityItem({
   );
   const trailing = (
     <>
+      {!!summary && (
+        <Text numberOfLines={1} style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.red : colors.ink3, fontSize: 12 }}>
+          {summary}
+        </Text>
+      )}
+      {!!duration && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{duration}</Text>}
+      {state === "running" && <ActivityIndicator size="small" animating={!reduced} color={colors.accent} />}
       {!!status && <Text style={{ color: failed ? colors.red : state === "waiting" ? colors.orange : colors.ink3, fontSize: 12 }}>{status}</Text>}
       {(onPress || expandable) &&
         (onPress ? (
@@ -164,6 +182,14 @@ export function ActivityItem({
           {heading}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>{trailing}</View>
         </Pressable>
+      )}
+      {!!error && (
+        <Text
+          selectable
+          style={[styles.code, { marginLeft: 26, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: colors.red, color: colors.ink2, fontSize: 12 }]}
+        >
+          {error}
+        </Text>
       )}
       {!onPress && expanded && expandable && (
         <PageScroll

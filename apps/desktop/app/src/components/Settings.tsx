@@ -70,6 +70,7 @@ import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useWindowChrome } from "../lib/window-chrome";
 import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
+import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
@@ -627,6 +628,19 @@ function ChatSettings() {
               { value: "concise", label: "Concise" },
               { value: "normal", label: "Normal" },
             ]}
+          />
+        </Row>
+      </Group>
+      <Group title="Dictation">
+        <Row
+          label="Language"
+          description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
+        >
+          <Select
+            label="Dictation language"
+            value={settings.dictationLanguage}
+            onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
+            options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
           />
         </Row>
       </Group>

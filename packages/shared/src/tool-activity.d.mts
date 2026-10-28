@@ -1,0 +1,12 @@
+import type { ChatStep, PermissionRequest, StepKind } from "./model.ts";
+export type ActivitySource = { id: string; label: string; kind: StepKind; linear: boolean };
+export function toolMetadata(server: string | undefined, name: string, input: unknown): { source: { name: string; server?: string }; input?: string };
+export function stepSource(step: ChatStep): ActivitySource;
+export function stepDisplayTitle(step: ChatStep, running?: boolean): string;
+export function activitySources(steps: ChatStep[], limit?: number): ActivitySource[];
+export function formatStepDuration(ms: number | undefined): string;
+export function stepDuration(step: ChatStep, now: number): string;
+export function activityDuration(steps: ChatStep[], active: boolean, now: number): string;
+export function stepSections(step: ChatStep, detail?: string): { inputLabel: string; input: string; outputLabel: string; output: string };
+export function summarizeStep(step: ChatStep): { summary?: string; error?: string };
+export function waitingStepIds(approvals?: PermissionRequest[]): string[];

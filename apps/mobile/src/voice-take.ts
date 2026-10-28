@@ -1,7 +1,7 @@
 // The lifecycle of one microphone take, free of the native audio module so it can be driven by a test. A take can be
 // cancelled at any point of its start; whatever it had allocated by then is released before `discard` resolves, and
 // the next take waits for every earlier one to finish releasing the audio session before it activates it again.
-import { meterLevel } from "./voice-dictation.ts";
+import { meterLevel } from "@milagre/shared/voice-dictation";
 
 export type RecorderStatus = { hasError?: boolean; mediaServicesDidReset?: boolean; isFinished?: boolean; metering?: number };
 
@@ -162,6 +162,10 @@ export class VoiceTake {
       } catch {}
       try {
         if (recorder.isRecording) await recorder.stop();
+      } catch {}
+      try {
+        // A recorder that was still starting knows its file only once stopped.
+        file ??= recorder.uri;
       } catch {}
       try {
         recorder.release();

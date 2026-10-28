@@ -10,14 +10,59 @@ function createLocalMcp({ dataDir, host, designGroup, agentScope, clientOptions,
   const directory = path.join(dataDir, "local-mcp");
   const store = createLocalMcpStore({ directory });
   const operations = createLocalMcpOperations({ directory });
+  const chatGrantsFile = privateJson(directory, "chat-grants.json", {});
+  let chatGrants = chatGrantsFile.read();
+  if (!chatGrants || typeof chatGrants !== "object" || Array.isArray(chatGrants)) chatGrants = {};
+  const grantedProjects = (chatId) => [...(Array.isArray(chatGrants[chatId]) ? chatGrants[chatId] : [])];
+  const grantChatProject = (chatId, projectPath) => {
+    if (!chatId || typeof projectPath !== "string" || !path.isAbsolute(projectPath)) return;
+    const current = grantedProjects(chatId);
+    if (current.includes(projectPath)) return;
+    const next = { ...chatGrants, [chatId]: [...current, projectPath] };
+    chatGrantsFile.write(next);
+    chatGrants = next;
+  };
+  const forgetProjectGrants = (projectPath) => {
+    if (typeof projectPath !== "string" || !projectPath) return;
+    const prefix = `${projectPath}#`;
+    let dirty = false;
+    const next = {};
+    for (const [chatId, list] of Object.entries(chatGrants)) {
+      if (chatId.startsWith(prefix)) {
+        dirty = true;
+        continue;
+      }
+      const kept = Array.isArray(list) ? list.filter((item) => item !== projectPath) : [];
+      if (Array.isArray(list) && kept.length !== list.length) dirty = true;
+      if (kept.length) next[chatId] = kept;
+      else if (chatId in chatGrants) dirty = true;
+    }
+    if (!dirty) return;
+    chatGrantsFile.write(next);
+    chatGrants = next;
+  };
+  const withChatGrants = (chatId, grants) => {
+    const extra = grantedProjects(chatId);
+    if (!extra.length || !(grants.projects?.capabilities?.includes("create") || grants.worktrees?.capabilities?.includes("create"))) return grants;
+    const merge = (scope) => (scope && Array.isArray(scope.projectPaths) ? { ...scope, projectPaths: [...new Set([...scope.projectPaths, ...extra])] } : scope);
+    return {
+      ...grants,
+      ...(grants.projects ? { projects: merge(grants.projects) } : {}),
+      ...(grants.worktrees ? { worktrees: merge(grants.worktrees) } : {}),
+      ...(grants.chats ? { chats: merge(grants.chats) } : {}),
+    };
+  };
   let stopped = false;
   const connection = (id) => {
     if (stopped) throw Error("Local MCP is closing");
-    if (id.startsWith("agent:")) return { id, revision: 1, grants: agentScope(id.slice(6)) };
+    if (id.startsWith("agent:")) {
+      const chatId = id.slice(6);
+      return { id, revision: 1, grants: withChatGrants(chatId, agentScope(chatId)) };
+    }
     return store.get(id);
   };
   const registry = createLocalMcpRegistry({ connection });
-  for (const group of managementToolGroups({ host, operations })) registry.registerToolGroup(group);
+  for (const group of managementToolGroups({ host, operations, grantChatProject })) registry.registerToolGroup(group);
   if (designGroup) registry.registerToolGroup(designGroup);
   const internal = new Map(),
     chatTokens = new Map();
@@ -56,12 +101,16 @@ function createLocalMcp({ dataDir, host, designGroup, agentScope, clientOptions,
   const changed = () => emit("local-mcp:changed", {});
   const validate = async (input) => {
     const config = configurationSchema.parse(input);
-    for (const scope of Object.values(config.grants)) for (const projectPath of scope.projectPaths ?? []) await host.validateProject(projectPath);
+    for (const scope of Object.values(config.grants))
+      if (Array.isArray(scope.projectPaths)) for (const projectPath of scope.projectPaths) await host.validateProject(projectPath);
     if (config.grants.designs) await host.validateChat(config.grants.designs.chatId);
     return config;
   };
   const credential = async (made) => ({ ...made, url: await listen() });
   return {
+    grantedProjects,
+    grantChatProject,
+    forgetProjectGrants,
     agentTools(chatId) {
       return registry.toolsFor(`agent:${chatId}`);
     },

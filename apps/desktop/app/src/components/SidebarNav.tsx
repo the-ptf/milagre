@@ -56,6 +56,7 @@ import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey, unqualifyKey } from "@mi
 import { gridDrop, type GridDropTarget } from "@/lib/grid-drop";
 import { useDismiss } from "../lib/use-dismiss";
 import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/chat-list";
+import type { ArchiveMode, ArchivePlan } from "@/lib/archive";
 import { linkBetween } from "@milagre/shared/chat-links";
 import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkScopeChats } from "./sidebar/SidebarLinks";
 import { updateSettings, useSettings } from "../lib/settings";
@@ -81,7 +82,7 @@ import {
   withHeartbeats,
 } from "../lib/sidebar-scopes";
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
-import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 
 type HugeIconProps = { size?: number; className?: string };
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -188,6 +189,9 @@ type SidebarNavProps = {
   askingKeys?: string;
   /** Opens a chat of another Project (its path) or Link (`milagre-link:` key) from the all-Projects sidebar. */
   onOpenScopeChat?: (scopeKey: string, id: string) => void;
+  /** Archive for another Project's rows (by its path): what the confirm step offers, then the archive itself. */
+  onScopeArchiveCheck?: (scopeKey: string, id: string) => Promise<ArchivePlan>;
+  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown>;
   /** The pointer rests on a chat's row: its page can be read before the click. */
   onHoverChat?: (scopeKey: string, id: string) => void;
   /** "Link and ask A…": sends the message to that chat (its Project path and id) through the normal send path. */
@@ -574,6 +578,8 @@ export default memo(function SidebarNav({
   waitingKeys = "",
   askingKeys = "",
   onOpenScopeChat,
+  onScopeArchiveCheck,
+  onScopeArchive,
   onHoverChat,
   onNewChatInScope,
   onAskChat,
@@ -677,7 +683,13 @@ export default memo(function SidebarNav({
   useEffect(() => {
     const changed = () => setListsChanged((count) => count + 1);
     window.addEventListener(RECENT_PROJECTS_CHANGED, changed);
-    return () => window.removeEventListener(RECENT_PROJECTS_CHANGED, changed);
+    const stopLocalMcp = bridgeFor(LOCAL_COMPUTER).localMcp?.onChanged?.((payload) => {
+      if (payload?.projectAdded) window.dispatchEvent(new Event(RECENT_PROJECTS_CHANGED));
+    });
+    return () => {
+      window.removeEventListener(RECENT_PROJECTS_CHANGED, changed);
+      stopLocalMcp?.();
+    };
   }, []);
   // Another window saved a new group order: follow it.
   const [, setOrderSynced] = useState(0);
@@ -766,18 +778,27 @@ export default memo(function SidebarNav({
     markedRows.current.set(scopeKey, { rows, keys: beatKeys, marked });
     return marked;
   };
-  // Another Project's or Link's chats can be pinned from here; the row menu's other actions stay with the open one.
-  // One object per scope, so its rows keep their memo.
+  // Another Project's or Link's chats can be pinned from here, and a Project's archived; the row menu's other actions
+  // stay with the open one. One object per scope, so its rows keep their memo.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
+  const scopeArchive = useRef({ check: onScopeArchiveCheck, archive: onScopeArchive });
+  scopeArchive.current = { check: onScopeArchiveCheck, archive: onScopeArchive };
   const actionsFor = (key: string) => {
     let actions = scopeActions.current.get(key);
     if (!actions) {
+      const archivable = !key.startsWith("milagre-link:") && !!onScopeArchiveCheck && !!onScopeArchive;
       actions = {
         remote: isRemoteKey(key),
         onPin: (id, order) =>
           void bridgeForKey(key)
             .patchChat(key, Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order })
             .catch(() => {}),
+        ...(archivable
+          ? {
+              onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
+              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan),
+            }
+          : {}),
       };
       scopeActions.current.set(key, actions);
     }

@@ -57,6 +57,10 @@
   ],
   "type": "module",
   "exports": {
+    "./tool-activity": {
+      "types": "./src/tool-activity.d.mts",
+      "default": "./src/tool-activity.mjs"
+    },
     "./chat-window-cache": "./src/chat-window-cache.ts",
     "./display-clock": "./src/display-clock.ts",
     "./step-sweep": "./src/step-sweep.ts",
@@ -378,7 +382,12 @@
     "./read-timeout": {
       "types": "./src/read-timeout.d.mts",
       "default": "./src/read-timeout.mjs"
-    }
+    },
+    "./dictation": {
+      "types": "./src/dictation.d.mts",
+      "default": "./src/dictation.mjs"
+    },
+    "./voice-dictation": "./src/voice-dictation.ts"
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

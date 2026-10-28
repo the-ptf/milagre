@@ -25,13 +25,16 @@ const messages = [
     steps: [ran("gone", "npm run e2e", { hasDetail: true })] },
 ];
 window.hostReads = [];
+window.recoverRead = false;
 let release;
 window.releaseRead = () => release();
 window.milagre = {
   listEditors: () => Promise.resolve([]),
   getMessage: (scope, id) => {
     window.hostReads.push(scope + "#" + id);
-    if (id === 4) return Promise.reject(new Error("That message is no longer in this Project."));
+    if (id === 4) return window.recoverRead
+      ? Promise.resolve({ ...messages[3], steps: [ran("gone", "npm run e2e", { detail: "$ npm run e2e\\nRecovered output" })] })
+      : Promise.reject(new Error("Connection lost."));
     return new Promise((resolve) => {
       release = () => resolve({ ...messages[1], detailFile: undefined, steps: [ran("long", "npm test", { detail: output }), messages[1].steps[1]] });
     });
@@ -109,8 +112,14 @@ async function browserChecks() {
     assert.equal((await evaluate("window.hostReads")).length, 1);
 
     await evaluate(`${toggle("npm run e2e")}.click()`);
-    await waitFor(`${stepText("npm run e2e")}.includes("isn't available anymore")`);
+    await waitFor(`${stepText("npm run e2e")}.includes("Could not load tool output")`);
     await screenshot("unavailable");
+    await evaluate(
+      'window.recoverRead = true; [...document.querySelectorAll("[data-slot=step] button")].find(button => button.textContent === "Try again").click()',
+    );
+    await waitFor(`${stepText("npm run e2e")}.includes("Recovered output")`);
+    assert.deepEqual(await evaluate("window.hostReads"), ["/fixture#2", "/fixture#4", "/fixture#4"], "Retry asks the host again after a failed read");
+    assert.equal(await evaluate('!![...document.querySelectorAll("button")].find(button => button.textContent === "Try again")'), false);
 
     assert.equal(await evaluate(`!!${toggle("npm run build")}`), false, "a step still streaming has nothing to read yet");
     console.log("PASS: a step with its output in a sidecar opens from the host (loading, then the output, read once); one that can't be read says so");

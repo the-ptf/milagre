@@ -1,4 +1,4 @@
-import type { DictationPhase } from "./voice-dictation.ts";
+import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
 /**
  * Whether the floating controls stay on screen whatever the list does. A dictation under way (the mic is the only way to stop
