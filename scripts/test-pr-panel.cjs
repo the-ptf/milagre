@@ -54,7 +54,7 @@ const record = (name) => async (request) => { window.calls.push({ name, ...reque
 window.milagre = {
   git: { diffFiles: async () => ({ isRepo: true, base: null, files: [] }), diffFile: async () => ({ patch: "", binary: false, tooLarge: false }) },
   pr: {
-    detail: async () => ({ ok: true, pr: window.prDetail ?? pr }),
+    detail: async () => { await window.heldDetail; return { ok: true, pr: window.prDetail ?? pr }; },
     diffFiles: async (request) => { window.calls.push({ name: "diffFiles", ...request }); return { isRepo: true, base: null, files: [
       { path: "src/save.ts", status: "modified", added: 2, removed: 1, binary: false },
       { path: "src/toast.tsx", status: "added", added: 1, removed: 0, binary: false },
@@ -93,7 +93,7 @@ function Fixture() {
       <div data-chat-stub className={"flex-1 pt-12 px-6 " + (presence.occupied ? "hidden" : "")}>Chat goes here</div>
     </main>
     <ChangesPanelSlot open={changes.open}>
-      <ChangesPanel lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void review.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath}
+      <ChangesPanel lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => review.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath}
         pullRequest={{ number: 673, choices: [{ number: 673, state: "OPEN" }, { number: 650, state: "MERGED" }], onPick: (number) => { window.picked = number; },
           loading: false, body: <PullRequestPanelBody review={review} source={{ bridge: window.milagre.pr, cwd: source }}
           actions={{ openFile: changes.selectFile }} activePath={changes.activePath} local={{ count: 2, onOpen: () => changes.setMode("uncommitted") }} /> }} />
@@ -301,6 +301,22 @@ async function browserChecks() {
     await waitFor('window.calls.some((call) => call.name === "labels" && call.cwd === "/other")');
     await click("[data-pr-labels-add]");
 
+    // A slow read (another computer's PR, a Link's) still answers the click at once: the icon spins from the click,
+    // past a full turn while GitHub hasn't answered, and stops once it has.
+    const spinClass = () => evaluate('document.querySelector("[data-diff-refresh] > span").className');
+    await evaluate("void (window.heldDetail = new Promise((resolve) => { window.releaseDetail = resolve; }))");
+    // Read in the click's own task, once React's microtask has rendered: before the next paint, without the read.
+    const onClick = await evaluate(
+      '(async () => { document.querySelector("[data-diff-refresh]").click(); await null; return document.querySelector("[data-diff-refresh] > span").className; })()',
+    );
+    assert.equal(onClick, "animate-spin", "The icon spins on the click");
+    assert.equal(await evaluate('document.querySelector("[data-diff-refresh]").getAttribute("aria-busy")'), "true");
+    await delay(1300);
+    assert.equal(await spinClass(), "animate-spin", "It keeps spinning while the read runs");
+    await evaluate("window.heldDetail = null; window.releaseDetail()");
+    await waitFor('!document.querySelector("[data-diff-refresh]").hasAttribute("aria-busy")');
+    await waitFor('document.querySelector("[data-diff-refresh] > span").className === ""');
+
     // A conflicting PR says so under its branch, and offers no merge when ready.
     await evaluate('window.prDetail = { ...window.prDetailBase, mergeStateStatus: "DIRTY", reviewDecision: "REVIEW_REQUIRED", viewerCanMergeAsAdmin: true }');
     await click("[data-diff-refresh]");
@@ -330,7 +346,7 @@ async function browserChecks() {
     await shot("narrow");
 
     console.log(
-      "PASS: PR panel tabs, header, checks status, reviewers and labels pickers, label contrast, picker placement, tab keys, comment cards, merge confirm, Files tab, PR diff with thread, add to review, submit review, Fix in Chat, local changes row, fresh pickers per Worktree, conflicts line, narrow header",
+      "PASS: PR panel tabs, header, checks status, reviewers and labels pickers, label contrast, picker placement, tab keys, comment cards, merge confirm, Files tab, PR diff with thread, add to review, submit review, Fix in Chat, local changes row, fresh pickers per Worktree, refresh spin on a slow read, conflicts line, narrow header",
     );
     app.exit(0);
   } catch (error) {
