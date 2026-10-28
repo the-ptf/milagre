@@ -19,23 +19,15 @@ function setup() {
 
 const base = { chatId: "c1", name: "check", prompt: "look", every: "15m", timezone: "UTC", createdBy: { kind: "user" } };
 
-test("a missing file means disabled and empty", () => {
+test("a missing file means empty", () => {
   const { store } = setup();
-  assert.equal(store.enabled(), false);
   assert.deepEqual(store.list(), []);
   assert.equal(store.get("nope"), null);
   assert.deepEqual(store.runs("nope"), []);
 });
 
-test("setEnabled persists", () => {
-  const { store, options } = setup();
-  assert.equal(store.setEnabled(true), true);
-  assert.equal(createRoutineStore(options).enabled(), true);
-});
-
 test("runningCount counts the Runs under way in every Routine, an update's wait", () => {
   const { store } = setup();
-  store.setEnabled(true);
   const first = store.upsertHeartbeat(base);
   const second = store.upsertHeartbeat({ ...base, chatId: "c2", name: "other" });
   assert.equal(store.runningCount(), 0);
@@ -46,21 +38,21 @@ test("runningCount counts the Runs under way in every Routine, an update's wait"
   assert.equal(store.runningCount(), 1);
 });
 
-test("pre-consent and stale Routine profiles stay off without losing their Routines or Runs", () => {
+test("a file from when Routines waited for AI sharing consent keeps its Routines and Runs, and drops the old switch", () => {
   const { store, options, file } = setup();
   const routine = store.upsertHeartbeat(base);
-  store.setEnabled(true);
   const run = store.startRun(routine.id, START);
   store.finishRun(run.id, { status: "acted" });
   const saved = JSON.parse(fs.readFileSync(file, "utf8"));
-  for (const version of [undefined, "old-version"]) {
-    fs.writeFileSync(file, JSON.stringify({ ...saved, aiConsentVersion: version }));
+  for (const old of [{ enabled: false }, { enabled: true, aiConsentVersion: "2026-10-20" }, { enabled: false, aiConsentVersion: null }]) {
+    fs.writeFileSync(file, JSON.stringify({ ...saved, ...old }));
     const migrated = createRoutineStore(options);
-    assert.equal(migrated.enabled(), false);
     assert.deepEqual(migrated.get(routine.id), store.get(routine.id));
     assert.deepEqual(migrated.runs(routine.id), store.runs(routine.id));
-    migrated.setEnabled(true);
-    assert.equal(createRoutineStore(options).enabled(), true);
+    migrated.setLinearCursor("acme", 1);
+    const written = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal("enabled" in written, false);
+    assert.equal("aiConsentVersion" in written, false);
   }
 });
 
@@ -479,11 +471,9 @@ test("a re-created store reads back the same Routines and Runs", () => {
   const routine = store.upsertHeartbeat(base);
   clock.t = routine.nextRunAt;
   store.claimDue(clock.t);
-  store.setEnabled(true);
   const again = createRoutineStore(options);
   assert.deepEqual(again.list(), store.list());
   assert.deepEqual(again.runs(routine.id), store.runs(routine.id));
-  assert.equal(again.enabled(), true);
   assert.deepEqual(fs.readdirSync(path.dirname(options.file)), ["routines.json"]);
 });
 
@@ -1712,8 +1702,6 @@ test("queues, seen keys and cursors survive a store re-created on the same file"
     ["hook:4", "hook:5"],
   );
   assert.deepEqual(Object.keys(saved(options)).toSorted(), [
-    "aiConsentVersion",
-    "enabled",
     "linear",
     "pullRequests",
     "queues",
@@ -1744,7 +1732,6 @@ test("a file saved before triggers existed loads with empty queues, and a damage
   const { file, options } = setup();
   fs.writeFileSync(file, JSON.stringify({ version: 1, enabled: true, routines: [], runs: {} }));
   const old = createRoutineStore(options);
-  assert.equal(old.enabled(), false);
   assert.equal(old.linearCursor("acme"), undefined);
   const routine = old.create(spec);
   assert.deepEqual(old.enqueue(routine.id, delivery(1)), { queued: true });
@@ -1756,10 +1743,10 @@ test("a file saved before triggers existed loads with empty queues, and a damage
   const damaged = createRoutineStore(options);
   assert.equal(damaged.linearCursor("acme"), undefined);
   assert.equal(damaged.linearCursor("beta"), 5);
-  damaged.setEnabled(true);
+  damaged.setLinearCursor("beta", 6);
   assert.deepEqual(saved(options).queues, {});
   assert.deepEqual(saved(options).seen, {});
-  assert.deepEqual(saved(options).linear, { beta: 5 });
+  assert.deepEqual(saved(options).linear, { beta: 6 });
 });
 
 test("recoverInterrupted fails running Runs, an event's included, and keeps what is still queued", () => {
@@ -2079,7 +2066,7 @@ test("a completed Routine goes 30 days after it ended, with its Runs and the Lin
   assert.equal(later.linearCursor("acme"), 3);
   assert.equal(later.linearCursor("acme:comments"), 4);
   assert.notEqual(later.get(sibling.id), null);
-  later.setEnabled(true);
+  later.setLinearCursor("acme", 5);
   const file = saved(options);
   assert.deepEqual(
     file.routines.map((routine) => routine.id),
@@ -2136,16 +2123,13 @@ for (const code of ["EACCES", "EIO"]) {
   test(`a store file that can't be read (${code}) opens read-only and is never written`, () => {
     const { store, options, file, dir } = setup();
     store.create(spec);
-    store.setEnabled(true);
     const before = bytes(file);
     const { value: blind, logged } = captureErrors(() => failing("readFileSync", () => createRoutineStore(options), code));
     assert.equal(logged.length, 1);
     assert.match(logged[0], new RegExp(code));
-    assert.equal(blind.enabled(), false);
     assert.deepEqual(blind.list(), []);
     for (const mutate of [
       () => blind.create({ ...spec, name: "x" }),
-      () => blind.setEnabled(true),
       () => blind.upsertHeartbeat(base),
       () => blind.setLinearCursor("acme", 5),
       () => blind.enqueueMany([]),
@@ -2164,8 +2148,7 @@ test("a file from a newer version opens read-only", () => {
   fs.writeFileSync(file, text);
   const { value: store, logged } = captureErrors(() => createRoutineStore(options));
   assert.equal(logged.length, 1);
-  assert.equal(store.enabled(), false);
-  assert.throws(() => store.setEnabled(true), /Routine store is read-only: .*version 2/);
+  assert.throws(() => store.upsertHeartbeat(base), /Routine store is read-only: .*version 2/);
   assert.match(store.readOnlyReason(), /version 2/);
   // A daemon start recovers interrupted Runs: a store that holds none and can't write has nothing to recover.
   store.recoverInterrupted();
@@ -2274,7 +2257,6 @@ test("startup recovery with a schedule that has no next run does not throw", () 
 
 test("an event is only queued for a Routine whose trigger is of its kind", () => {
   const { store } = setup();
-  store.setEnabled(true);
   const schedule = store.create({ ...spec, name: "s", trigger: { kind: "schedule", cron: "0 8 * * *", timezone: "UTC" } });
   const linear = store.create({ ...spec, name: "l", trigger: { kind: "linear", workspace: "acme", event: "assigned" } });
   const hook = store.create({ ...spec, name: "w" });
@@ -2292,7 +2274,6 @@ test("an event is only queued for a Routine whose trigger is of its kind", () =>
 
 test("rejectEvent records a failed Run that doesn't count toward a pause, and remembers its key", () => {
   const { store, clock } = setup();
-  store.setEnabled(true);
   const hook = store.create({ ...spec, trigger: webhook(HOOK, true) });
   for (let n = 1; n <= 4; n += 1) {
     clock.t += 1000;
@@ -2333,7 +2314,6 @@ test("a webhook Routine keeps the header its signature comes in, lowercased; onl
 
 test("a flood of bad signatures takes no place in the seen ledger and keeps the file bounded; a good delivery still runs", () => {
   const { store, clock, file } = setup();
-  store.setEnabled(true);
   const hook = store.create({ ...spec, trigger: webhook(HOOK, true) });
   for (let n = 1; n <= 6000; n += 1) {
     clock.t += 1;
@@ -2360,7 +2340,6 @@ test("a flood of bad signatures takes no place in the seen ledger and keeps the 
 
 test("a queue that can't move on this tick is checked without copying the store", () => {
   const { store, clock, file } = setup();
-  store.setEnabled(true);
   const hook = store.create({ ...spec });
   store.enqueue(hook.id, delivery(1));
   store.enqueue(hook.id, delivery(2));
@@ -2390,7 +2369,6 @@ test("the store says which Routines its upkeep purged, so their webhook secrets 
   const { options, clock } = setup();
   const purged = [];
   const store = createRoutineStore({ ...options, onPurged: (ids) => purged.push(...ids) });
-  store.setEnabled(true);
   const hook = store.create({ ...spec });
   store.complete(hook.id, "done");
   // 30 days on, the hourly upkeep purges it on the next write.
@@ -2483,7 +2461,6 @@ test("pull-request trigger rejects a missing number", () => {
 
 test("enqueue accepts a pull-request event for its routine", () => {
   const { store } = setup();
-  store.setEnabled(true);
   const routine = store.create(prSpec);
   assert.deepEqual(store.enqueue(routine.id, prEvent(1)), { queued: true });
   assert.deepEqual(store.enqueue(routine.id, prEvent(1)), { queued: false, reason: "seen" });
@@ -2554,7 +2531,6 @@ test("setPrSnapshot writes the store only when the snapshot changed", () => {
 
 test("only one pull-request run per routine runs at a time", () => {
   const { store } = setup();
-  store.setEnabled(true);
   const routine = store.create(prSpec);
   for (let n = 1; n <= 3; n += 1) store.enqueue(routine.id, prEvent(n));
   const first = store.claimQueued(START);
@@ -2569,7 +2545,6 @@ test("only one pull-request run per routine runs at a time", () => {
 
 test("a pull-request event waits its turn and never expires", () => {
   const { store, clock: time } = setup();
-  store.setEnabled(true);
   const routine = store.create(prSpec);
   store.enqueue(routine.id, prEvent(1));
   store.enqueue(routine.id, prEvent(2));

@@ -1116,24 +1116,6 @@
     "routines:enabled:read": {
       "parameters": []
     },
-    "routines:enabled:save": {
-      "parameters": [
-        {
-          "name": "value",
-          "optional": false,
-          "schema": {
-            "enum": [false, true]
-          }
-        },
-        {
-          "name": "consentVersion",
-          "optional": true,
-          "schema": {
-            "type": "string"
-          }
-        }
-      ]
-    },
     "routines:list": {
       "parameters": []
     },
@@ -1151,13 +1133,6 @@
           "optional": false,
           "schema": {
             "$ref": "#/$defs/T77"
-          }
-        },
-        {
-          "name": "consentVersion",
-          "optional": true,
-          "schema": {
-            "type": "string"
           }
         }
       ]
@@ -1181,13 +1156,6 @@
           "schema": {
             "type": "string"
           }
-        },
-        {
-          "name": "consentVersion",
-          "optional": true,
-          "schema": {
-            "type": "string"
-          }
         }
       ]
     },
@@ -1198,13 +1166,6 @@
           "optional": false,
           "schema": {
             "$ref": "#/$defs/T83"
-          }
-        },
-        {
-          "name": "consentVersion",
-          "optional": true,
-          "schema": {
-            "type": "string"
           }
         }
       ]
@@ -6720,11 +6681,11 @@
           "$ref": "#/$defs/T162",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2154": {
+        "__@toStringTag@2141": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2154"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2141"],
       "additionalProperties": false
     },
     "T159": {

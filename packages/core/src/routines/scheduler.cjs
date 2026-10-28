@@ -423,14 +423,13 @@ function createRoutineScheduler({
     if (ticking) return;
     ticking = true;
     try {
-      if (!store.enabled()) return;
       const before = signature();
       const at = now();
       store.expireDue(at);
       // Schedule Runs, then the events waiting in each trigger's queue, three Runs at most going per Routine.
       const claims = [...store.claimDue(at), ...store.claimQueued(at, CONCURRENT_RUNS)];
       await dispatchAll(claims);
-      // The flag may have been off at start(); the first enabled tick then does start's sweep, after its claims so a due beat still records its Run.
+      // A tick before start() does start's sweep, after its claims so a due beat still records its Run.
       if (!swept) {
         swept = true;
         sweepGone();
@@ -442,19 +441,17 @@ function createRoutineScheduler({
     }
   }
 
-  // Once per daemon start, whatever the switch says: Runs a stop cut short fail (store.cjs), and with Routines on,
-  // heartbeats whose Chat is gone end. Never again later, when a Run in flight would be failed with them.
+  // Once per daemon start: Runs a stop cut short fail (store.cjs), and heartbeats whose Chat is gone end. Never again
+  // later, when a Run in flight would be failed with them.
   function recover() {
     if (recovered) return;
     recovered = true;
     store.recoverInterrupted();
-    if (store.enabled()) {
-      swept = true;
-      sweepGone();
-    }
+    swept = true;
+    sweepGone();
   }
 
-  // The tick timer, which runs only while Routines are on (the runtime starts and stops it with the switch).
+  // The tick timer, from the runtime's start until its stop.
   function start() {
     recover();
     stopped = false;

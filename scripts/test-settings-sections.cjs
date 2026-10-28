@@ -44,9 +44,8 @@ window.milagre = {
   readRemoteDelegationEnabled: async () => ({ enabled: false }),
   saveRemoteDelegationEnabled: async (enabled) => ({ enabled }),
   onRemoteDelegationEnabledChanged: () => () => {},
-  readRoutinesEnabled: async () => ({ enabled: false }),
+  readRoutinesEnabled: async () => ({ enabled: true }),
   listRoutines: async () => ({ routines: [] }),
-  saveRoutinesEnabled: async (enabled) => ({ enabled }),
   readBotsEnabled: async () => ({ enabled: false }),
   saveBotsEnabled: async (enabled) => { window.botsSaves.push(enabled); return { enabled }; },
   onBotsEnabledChanged: () => () => {},
@@ -258,7 +257,7 @@ async function browserChecks() {
     await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Experimental");
     await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);
-    // Routines have no switch any more: a computer runs them once a device allowed AI sharing for it.
+    // Routines have no switch: every computer runs them.
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
@@ -285,12 +284,6 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Experimental's");
     assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "ExperimentalBabysit PRs");
     assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
-    // This Mac may not run Routines yet (readRoutinesEnabled is false): the page says babysitting needs them.
-    await waitFor(`!!document.querySelector("main [data-babysit-routines-off]")`);
-    assert.equal(
-      await evaluate(`document.querySelector("main [data-babysit-routines-off]").textContent`),
-      "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.",
-    );
     assert.equal(
       await evaluate(
         `document.querySelector("main [data-babysit-prs-page]").textContent.includes("Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.")`,

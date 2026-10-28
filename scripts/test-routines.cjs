@@ -14,10 +14,7 @@ import { RoutinesPage } from '/src/components/routines/RoutinesPage';
 import { HeartbeatCard } from '/src/components/routines/HeartbeatCard';
 import { NextCheck } from '/src/components/routines/NextCheck';
 import { BabysitStoppedDivider } from '/src/components/BabysitStoppedDivider';
-import { AI_CONSENT_VERSION } from '@milagre/shared/ai-consent';
 import '/src/styles.css';
-// This check exercises editing after consent; test-ai-consent covers the disclosure itself.
-localStorage.setItem('milagre.ai-sharing-consent', AI_CONSENT_VERSION);
 // Keep the two-hour-old Run on the same calendar day, even when CI runs just after midnight.
 const now = new Date(2026, 9, 17, 12, 0, 0).getTime();
 Date.now = () => now;
@@ -102,8 +99,7 @@ window.milagre.onComputersChanged = (listener) => { computerListeners.add(listen
 const studioRoutines = [{ ...base, id: STUDIO + '|ab12cd34', name: 'Nightly API smoke', prompt: 'Smoke', trigger: { kind: 'schedule', cron: '0 2 * * *', timezone: 'UTC' },
   target: { kind: 'new-chat', projectPath: STUDIO + '|/code/api', workspace: 'worktree' } }];
 window.milagre.on = (id) => ({
-  readRoutinesEnabled: async () => ({ enabled: !window.studioRoutinesOff }),
-  saveRoutinesEnabled: async (value, consentVersion) => { window.studioAllowed = [value, consentVersion]; window.studioRoutinesOff = !value; return { enabled: value }; },
+  readRoutinesEnabled: async () => ({ enabled: true }),
   listRoutines: async () => ({ routines: [...studioRoutines] }),
   onRoutinesChanged: () => () => {},
   routineTargets: async () => ({ projects: [{ path: STUDIO + '|/code/api', name: 'api', chats: [] }] }),
@@ -586,24 +582,15 @@ async function browserChecks() {
     const problem = `[data-routines-computer-problem="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
     await waitFor(`document.querySelector(${JSON.stringify(problem)})?.textContent.startsWith('studio is offline.')`);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true, "the last copy stays listed");
-    // The studio comes back unable to run Routines: its list still shows, with a notice whose Allow passes this device's
-    // AI sharing permission on.
-    await evaluate(`window.studioRoutinesOff = true`);
+    // The studio comes back online: its notice goes and its Routines stay listed.
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [window.studio] })`);
-    const allow = `[data-routines-allow="6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7"]`;
-    await waitFor(`!!document.querySelector(${JSON.stringify(allow)})`);
-    assert.match(await evaluate(`document.querySelector('[data-routines-unauthorized]').textContent`), /^Routines won't run on studio until you allow sharing/);
+    await waitFor(`!document.querySelector(${JSON.stringify(problem)})`);
     assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(row(remote))})`), true, "its Routines stay listed");
-    assert.equal(await evaluate(`!!document.querySelector('[data-routines-unauthorized="local"]')`), false, "this Mac may run them");
-    await shot("routines-allow");
-    await click(allow);
-    await waitFor(`!document.querySelector(${JSON.stringify(allow)})`);
-    assert.deepEqual(JSON.parse(await evaluate("JSON.stringify(window.studioAllowed)")), [true, require("@milagre/shared/ai-consent").AI_CONSENT_VERSION]);
     // Other computers switched off: the studio's Routines leave the list.
     await evaluate(`window.computersChanged({ thisMac: 'Here', computers: [{ ...window.studio, state: 'off' }] })`);
     await waitFor(`!document.querySelector(${JSON.stringify(row(remote))})`);
     console.log(
-      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine; a paired computer's Routines join the list, named by it, and its Run now goes to it; an offline one keeps its last copy with a notice; one that can't run Routines yet lists them with Allow.",
+      "PASS: Routines page groups and counts Routines; Heartbeat cards and Next check show; a Routine's page shows its chips and Runs by day; Edit and New Routine work in place, {{ suggests placeholders, and Create lands on the new Routine; a paired computer's Routines join the list, named by it, and its Run now goes to it; an offline one keeps its last copy with a notice.",
     );
     app.exit(0);
   } catch (error) {

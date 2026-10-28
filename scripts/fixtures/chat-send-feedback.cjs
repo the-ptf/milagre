@@ -1,8 +1,5 @@
 // Shared IPC fixture for send regressions and renderer benchmarks.
 module.exports = `
-// Exercise sending after the device's AI sharing decision.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles.css";

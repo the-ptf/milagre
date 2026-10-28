@@ -17,10 +17,7 @@ import { BotProfilePanel } from "/src/components/bots/BotProfilePanel";
 import { BotList } from "/src/components/bots/BotList";
 import { MODEL_CATALOG } from "/src/model";
 import { startRun } from "@milagre/shared/agent-runs";
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
 import "/src/styles.css";
-// Allowing a sign-off lets the bot's turn go on, which needs AI sharing allowed on this device.
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 const HOME = "/d/bots/ops";
 const CLAUDE = MODEL_CATALOG.find((model) => model.provider === "claude");
 const PROJECT = "/work/milagre-ade";

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
   Archive02Icon,
@@ -11,6 +11,7 @@ import {
   Download04Icon,
   FlaskConicalIcon,
   FolderKeyIcon,
+  HelpCircleIcon,
   Notification01Icon,
   PaintBoardIcon,
   Plug01Icon,
@@ -20,6 +21,7 @@ import {
   UserCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { chatListLabel } from "@milagre/shared/chat-display";
+import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { usePush } from "../../push";
 import { useAppUpdates } from "../../update-sheet";
 import { Icon, type IconData } from "../../icons";
@@ -49,8 +51,7 @@ type SettingsPage =
   | "skills"
   | "mcp"
   | "local-mcp"
-  | "experimental"
-  | "privacy";
+  | "experimental";
 
 const MODE_LABEL = { system: "System", light: "Light", dark: "Dark" } as const;
 
@@ -123,6 +124,11 @@ function Tile({
       ) : null}
     </Pressable>
   );
+}
+
+/** Opens a page of Milagre's site in the browser. */
+function openSite(url: string) {
+  void Linking.openURL(url).catch(() => Alert.alert("Could not open this page", `Visit ${url} in your browser.`));
 }
 
 /** The first page of the Settings sheet; each row opens a page inside the same sheet. */
@@ -241,7 +247,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         </Group>
       ) : null}
       <Group title="About">
-        <Row title="Privacy & AI" icon={SecurityCheckIcon} onPress={() => onOpen("privacy")} />
+        <Row title="Privacy policy" icon={SecurityCheckIcon} onPress={() => openSite(PRIVACY_URL)} />
+        <Row title="Support" icon={HelpCircleIcon} onPress={() => openSite(SUPPORT_URL)} />
         {/* Checks now and shows the update sheet, which follows the check to Up to date or Update now. */}
         <Row
           title="App update"
