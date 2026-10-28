@@ -2563,6 +2563,17 @@ function App() {
         else if (carried && !selectedLinkRef.current && projectRef.current?.path === from && !draftStore.get()) setDraft(carried);
       });
   });
+  // The sidebar Chats group's +: a new Chat without a Project on this Mac, in its Chats home, made first when missing.
+  const newChatWithoutProject = useEvent(async () => {
+    leaveBots();
+    const bridge = bridgeFor(LOCAL_COMPUTER);
+    try {
+      const home = await bridge.chatsHome();
+      startNewChatIn(home.exists ? home.path : (await bridge.ensureChatsHome()).path);
+    } catch (error) {
+      setNotice(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
+    }
+  });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
   // One identity each, so memo(SidebarNav) skips the renders a streaming reply or a run change makes here.
@@ -3333,6 +3344,8 @@ function App() {
                   onOpenCommands={openCommandPalette}
                   hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
                   projectPath={project.path}
+                  projectKind={project.kind}
+                  onNewChatWithoutProject={newChatWithoutProject}
                   onSwitchProject={switchProjectFromSidebar}
                   attentionPaths={attentionPaths}
                   onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}

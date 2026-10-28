@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CoordinatorState } from "@milagre/shared/model";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
-import { heartbeatKeys, heartbeatLines, mergeScopeChats, railLive, rememberScopeRows, runKeys, scopeChats, withHeartbeats } from "./sidebar-scopes.ts";
+import {
+  chatsSidebarRows,
+  heartbeatKeys,
+  heartbeatLines,
+  isChatsHomeScope,
+  mergeScopeChats,
+  railLive,
+  rememberScopeRows,
+  runKeys,
+  scopeChats,
+  withHeartbeats,
+} from "./sidebar-scopes.ts";
 import { clock } from "@milagre/shared/routines";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 
@@ -351,4 +362,66 @@ test("one list: an open Link's Chats keep their times and pins, so they interlea
     merged.map(({ row }) => row.id),
     ["3", "p1", "1", "p2", "2", "p3"],
   );
+});
+
+const HOME = "/Users/me/.milagre/chats";
+const OTHER_HOME = "studio|/Users/ana/.milagre/chats";
+
+test("chats group merges every computer's home Chats newest first", () => {
+  const rows = chatsSidebarRows(
+    [
+      { key: HOME, offline: false, rows: [flatRow("pin", 5, { pinned: true, pinOrder: 1 }, 5), flatRow("3", 30, {}, 30), flatRow("1", 10, {}, 10)] },
+      { key: OTHER_HOME, offline: false, rows: [flatRow("2", 20, {}, 20)] },
+    ],
+    "created",
+  );
+  // One list across computers, by when each Chat began; pinned ones live in the Pinned section, not here.
+  assert.deepEqual(
+    rows.map(({ scopeKey, row }) => `${scopeKey}#${row.id}`),
+    [`${HOME}#3`, `${OTHER_HOME}#2`, `${HOME}#1`],
+  );
+});
+
+test("chatsGroups keeps an offline computer's copy", () => {
+  const rows = chatsSidebarRows(
+    [
+      { key: HOME, offline: false, rows: [flatRow("1", 10, {}, 10)] },
+      { key: OTHER_HOME, offline: true, rows: [flatRow("2", 20, {}, 20)] },
+    ],
+    "recent",
+  );
+  assert.deepEqual(
+    rows.map(({ scopeKey, row, offline }) => [scopeKey, row.id, offline]),
+    [
+      [OTHER_HOME, "2", true],
+      [HOME, "1", false],
+    ],
+  );
+});
+
+test("chats group is absent when no computer has a home Chat", () => {
+  assert.deepEqual(chatsSidebarRows([], "recent"), []);
+  assert.deepEqual(
+    chatsSidebarRows(
+      [
+        { key: HOME, offline: false, rows: [] },
+        { key: OTHER_HOME, offline: true, rows: [] },
+      ],
+      "recent",
+    ),
+    [],
+  );
+});
+
+test("the Chats home never becomes a Project scope", () => {
+  const homeKeys = new Set([HOME, OTHER_HOME]);
+  // The open Chat's home says what it is by its kind, before any computer's home has been read.
+  assert.equal(isChatsHomeScope(HOME, { currentKey: HOME, currentKind: "chats", homeKeys: new Set() }), true);
+  assert.equal(isChatsHomeScope("studio|/Users/ana/elsewhere", { currentKey: "studio|/Users/ana/elsewhere", currentKind: "chats", homeKeys }), true);
+  // Any computer's home, open or not.
+  assert.equal(isChatsHomeScope(OTHER_HOME, { currentKey: "/code/shop", homeKeys }), true);
+  assert.equal(isChatsHomeScope(HOME, { currentKey: "/code/shop", homeKeys }), true);
+  // Real Projects stay, the open one too.
+  assert.equal(isChatsHomeScope("/code/shop", { currentKey: "/code/shop", homeKeys }), false);
+  assert.equal(isChatsHomeScope("studio|/code/app", { currentKey: "/code/shop", homeKeys }), false);
 });

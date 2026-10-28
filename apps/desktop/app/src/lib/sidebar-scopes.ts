@@ -9,6 +9,7 @@ import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { chatMark, chatTitle, isChatListed, orderChats, type ChatOrder } from "./chat-list.ts";
+import type { ProjectKind } from "@milagre/shared/chats-home";
 
 // The last full copy of each Project the sidebar read, so opening one of its chats shows it before the main process answers.
 const projectCopies = new Map<string, OpenProject>();
@@ -179,6 +180,33 @@ export function mergeScopeChats(scopes: readonly { key: string; rows: readonly S
     }
   }
   return merged;
+}
+
+/** A row of the sidebar's Chats group, with whether its computer is offline (its row stays, dimmed). */
+export type ChatsGroupRow = FlatChat & { offline: boolean };
+
+/**
+ * The Chats group's rows: every computer's Chats without a Project in one list, in the Chat order setting, the way the
+ * one-list sidebar merges Projects. Pinned ones are left to the Pinned section. Empty when no computer has one, which
+ * hides the group.
+ */
+export function chatsSidebarRows(homes: readonly { key: string; offline: boolean; rows: readonly SidebarRecent[] }[], order: ChatOrder): ChatsGroupRow[] {
+  const offline = new Set(homes.filter((home) => home.offline).map((home) => home.key));
+  return mergeScopeChats(
+    homes.map(({ key, rows }) => ({ key, rows: rows.filter((row) => !row.pinned) })),
+    order,
+  ).map(({ scopeKey, row }) => ({ scopeKey, row, offline: offline.has(scopeKey) }));
+}
+
+/**
+ * Whether a sidebar Project scope is in fact a computer's Chats home, which only the Chats group lists. The open one
+ * says so by its kind before any home has been read; the rest by the homes' keys.
+ */
+export function isChatsHomeScope(
+  key: string,
+  { currentKey, currentKind, homeKeys }: { currentKey: string; currentKind?: ProjectKind; homeKeys: ReadonlySet<string> },
+): boolean {
+  return (key === currentKey && currentKind === "chats") || homeKeys.has(key);
 }
 
 /**
