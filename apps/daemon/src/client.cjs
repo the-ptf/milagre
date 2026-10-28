@@ -105,7 +105,7 @@ async function connect({ dataDir, timeoutMs = 30000, requireAuthentication = pro
   }
   socket.on("error", fail);
   socket.on("close", () => {
-    fail(new Error("Daemon connection closed"));
+    fail(Object.assign(new Error("Daemon connection closed"), { code: "DAEMON_CLOSED" }));
     client.emit("close");
   });
   function start(request) {

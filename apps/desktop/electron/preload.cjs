@@ -247,6 +247,7 @@ function makeBridge(invoke, listen, send) {
       resolveThread: (request) => invoke("pr:resolve-thread", request),
       merge: (request) => invoke("pr:merge", request),
       ready: (request) => invoke("pr:ready", request),
+      image: (request) => invoke("pr:image", request),
       labels: (request) => invoke("pr:labels", request),
       setLabels: (request) => invoke("pr:set-labels", request),
       reviewerCandidates: (request) => invoke("pr:reviewer-candidates", request),
@@ -523,3 +524,12 @@ const bridge = {
 const controls = process.argv.find((argument) => argument.startsWith("--milagre-window-controls="))?.split("=")[1];
 contextBridge.exposeInMainWorld("milagreWindowChrome", { controls: controls === "leading" || controls === "overlay" ? controls : "external" });
 contextBridge.exposeInMainWorld("milagre", bridge);
+
+// Kept local to this window, independent of the selected computer or agent host.
+contextBridge.exposeInMainWorld("milagrePreferences", {
+  get: (key) => ipcRenderer.sendSync("preferences:storage", "get", key),
+  set: (key, value) => ipcRenderer.sendSync("preferences:storage", "set", key, value),
+  onChanged: (listener) => {
+    ipcRenderer.on("preferences:changed", (_event, change) => listener(change));
+  },
+});

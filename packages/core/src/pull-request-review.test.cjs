@@ -284,6 +284,35 @@ test("labels and reviewers read the repo and edit the PR through gh pr edit", as
   assert.deepEqual(await review.setLabels({ cwd: "/w", number: 7, add: "bug" }), { ok: false, message: "That isn't a label." });
 });
 
+test("a PR attachment is read with gh's token, which goes to github.com only", async () => {
+  const url = "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da";
+  const signed = "https://github-production-user-asset.s3.amazonaws.com/1/shot.png?X-Amz-Signature=x";
+  const { exec, calls } = fakeGh(() => "gho_token\n");
+  const requests = [];
+  const fetch = async (to, init = {}) => {
+    requests.push([to, init.headers?.Authorization ?? null]);
+    if (to === url) return new Response(null, { status: 302, headers: { location: signed } });
+    return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
+  };
+  const review = createPullRequestReview({ exec, fetch });
+  assert.deepEqual(await review.image({ cwd: "/w", url }), { ok: true, dataUrl: "data:image/png;base64,AQID" });
+  assert.deepEqual(calls, [["auth", "token", "--hostname", "github.com"]]);
+  assert.deepEqual(requests, [
+    [url, "token gho_token"],
+    [signed, null],
+  ]);
+  for (const other of ["https://evil.example/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da", "http://127.0.0.1:8080/x.png", `${url}/../x`]) {
+    assert.deepEqual(await review.image({ cwd: "/w", url: other }), { ok: false, message: "That isn't a GitHub attachment." });
+  }
+  assert.equal(requests.length, 2, "No other address is fetched");
+  const html = createPullRequestReview({
+    exec,
+    fetch: async (to) =>
+      to === url ? new Response(null, { status: 302, headers: { location: signed } }) : new Response("<html>", { headers: { "content-type": "text/html" } }),
+  });
+  assert.deepEqual(await html.image({ cwd: "/w", url }), { ok: false, message: "GitHub didn't send this image." });
+});
+
 test("the PR diff needs real commit ids", async () => {
   const review = createPullRequestReview({ exec: fakeGh(() => ({})).exec });
   assert.deepEqual(await review.diffFiles({ cwd: "/w", base: "main", head: HEAD }), {

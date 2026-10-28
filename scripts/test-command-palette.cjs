@@ -13,6 +13,9 @@ const changesShortcut = mac ? "Command + Shift + D" : "Control + Shift + D";
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+// The question card's answer goes out from a device that has already accepted AI sharing.
+import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
+localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import '/src/styles.css';
 // A project's state as the main process reads it.
 const state = { next_id: 1, projects: { 1: { id: 1, name: 'Milagre' } }, worktrees: {}, sessions: {}, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };
@@ -39,6 +42,8 @@ window.milagre = new Proxy({
   patchChat: async () => { throw new Error("Chat could not be saved: disk full"); },
   // The check raises a question in the open chat by sending the events the main process would.
   getRuns: async () => ({ seq: 0, runs: {} }),
+  // Held until the check settles it, as a busy host would.
+  answerQuestion: (chatId, requestId) => new Promise(resolve => { window.calls.push(['answer', requestId]); window.settleAnswer = resolve; }),
   onAgentEvent: handler => { (window.agentHandlers ??= []).push(handler); return () => {}; },
   getCurrentProject: async () => ({ path: '/fixture', name: 'Milagre', state }),
   listRecentProjects: async () => [{ path: '/fixture', name: 'Milagre' }, { path: '/other', name: 'Website', hidden: window.hideWebsite ?? false }],
@@ -333,6 +338,15 @@ async function browserChecks() {
     await screenshot("palette-over-question.png");
     await key("Escape");
     await waitFor('!document.querySelector("dialog")');
+    // A pick is the answer: the card goes at once, while the host still has it, and comes back if the agent refuses it.
+    const questionShown = 'document.querySelector("[aria-label=\\"Agent question\\"]")?.getClientRects().length > 0';
+    await evaluate(
+      `[...document.querySelectorAll('[aria-label="Agent question"] button')].find((button) => button.textContent.includes("Review card")).click()`,
+    );
+    await waitFor(`!(${questionShown})`);
+    assert.ok(await evaluate('window.calls.some((call) => call[0] === "answer" && call[1] === "q-1")'));
+    await evaluate("window.settleAnswer(false)");
+    await waitFor(questionShown);
     await key("n", modifier);
     await waitFor('!!document.querySelector("[data-new-chat-pickers]")');
     // A failed row action reports the cause in the actual App, with the Chat still present.

@@ -35,7 +35,8 @@ import { Icon } from "./icons";
 import { tap } from "./primitives/tap";
 import { markdownCellText, markdownColumnWidths, markdownTableRows, type MarkdownNode as Node } from "./markdown-table";
 
-type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string };
+/** `remote` reads a web image the phone can't load itself (a private repository's), or returns null to load it directly. */
+type ImageOptions = { media?: (path: string) => MediaValue; basePath?: string; remote?: (url: string) => MediaValue | null };
 /** What the plain render helpers need from the theme; components pass it in from their hooks. `basePath` resolves relative file links. */
 type MarkdownTheme = {
   colors: Palette;
@@ -55,10 +56,10 @@ type MarkdownTheme = {
 const bodyOf = (colors: Palette, textPx = 15) => ({ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.4667) });
 
 /** Each retry reads the computer again, including when its target and media callback are unchanged. */
-function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: ImageOptions["media"], attempt: number) {
+function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: ImageOptions["media"], remote: ImageOptions["remote"], attempt: number) {
   let source: MediaValue | null = null;
   if (target) {
-    if ("url" in target) source = { uri: target.url };
+    if ("url" in target) source = remote?.(target.url) ?? { uri: target.url };
     else {
       try {
         source = media?.(target.path) ?? null;
@@ -70,12 +71,12 @@ function readImage(target: ReturnType<typeof resolveMarkdownImage>, media: Image
   return { attempt, source };
 }
 
-function MarkdownImage({ src, alt, media, basePath }: { src: string; alt: string } & ImageOptions) {
+function MarkdownImage({ src, alt, media, basePath, remote }: { src: string; alt: string } & ImageOptions) {
   const { colors } = useTheme();
   const styles = useStyles();
   const target = useMemo(() => resolveMarkdownImage(src, basePath), [src, basePath]);
   const [attempt, setAttempt] = useState(0);
-  const { source } = useMemo(() => readImage(target, media, attempt), [target, media, attempt]);
+  const { source } = useMemo(() => readImage(target, media, remote, attempt), [target, media, remote, attempt]);
   const pending = source && typeof (source as Promise<ImageSourcePropType>).then === "function" ? (source as Promise<ImageSourcePropType>) : null;
   const [loaded, setLoaded] = useState<{ source: MediaValue; value: ImageSourcePropType | null } | null>(null);
   const [failed, setFailed] = useState<MediaValue | null>(null);
@@ -437,6 +438,7 @@ const Chunk = memo(function Chunk({
   streaming,
   media,
   basePath,
+  remote,
   selectable,
   onMessageAction,
 }: { text: string; streaming: boolean; selectable: boolean; onMessageAction?: () => void } & ImageOptions) {
@@ -444,7 +446,7 @@ const Chunk = memo(function Chunk({
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
   const nodes = useMemo(() => tree(streaming ? markdownTokens(text, true) : cachedMarkdownTokens(text)), [text, streaming]);
-  const images = useMemo(() => ({ media, basePath }), [media, basePath]);
+  const images = useMemo(() => ({ media, basePath, remote }), [media, basePath, remote]);
   const theme = useMemo(
     () => ({ colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction }),
     [colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction],
@@ -494,6 +496,7 @@ export const Markdown = memo(function Markdown({
   streaming = false,
   media,
   basePath,
+  remote,
   selectable = true,
   onMessageAction,
 }: { text: string; streaming?: boolean; selectable?: boolean; onMessageAction?: () => void } & ImageOptions) {
@@ -507,6 +510,7 @@ export const Markdown = memo(function Markdown({
           text={part}
           media={media}
           basePath={basePath}
+          remote={remote}
           selectable={selectable}
           onMessageAction={onMessageAction}
           streaming={streaming && index === parts.length - 1}

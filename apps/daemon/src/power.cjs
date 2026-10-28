@@ -11,8 +11,9 @@ function createPowerBlocker({
     start() {
       const id = ++nextId;
       if (platform !== "darwin") return id;
-      // -w ties the assertion to this host even if it exits without cleanup.
-      const child = spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore" });
+      // -i blocks idle sleep; -s also blocks system sleep on AC power, so a MacBook with its lid closed stays reachable while
+      // plugged in (on battery only -i holds). -w ties the assertion to this host even if it exits without cleanup.
+      const child = spawn("/usr/bin/caffeinate", ["-i", "-s", "-w", String(process.pid)], { stdio: "ignore" });
       children.set(id, child);
       child.once("error", (error) => {
         children.delete(id);

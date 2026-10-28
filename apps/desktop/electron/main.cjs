@@ -69,6 +69,35 @@ async function startDesktop() {
   const appUrl = app.isPackaged ? pathToFileURL(indexFile).href : process.env.MILAGRE_DEV_SERVER_URL || "http://127.0.0.1:5173";
   const { createFloatingInbox } = require("./floating-inbox.cjs");
   await app.whenReady();
+  const preferences = require("./preferences.cjs").createPreferencesStore(path.join(app.getPath("userData"), "preferences.json"));
+  // Synchronous writes finish before an updater can close the window.
+  electronIpcMain.on("preferences:storage", (event, operation, key, value) => {
+    try {
+      const url = event.senderFrame?.url;
+      if (
+        event.senderFrame !== event.sender.mainFrame ||
+        !url ||
+        new URL(url).origin !== new URL(appUrl).origin ||
+        (new URL(appUrl).protocol === "file:" && new URL(url).pathname !== new URL(appUrl).pathname)
+      ) {
+        throw new Error("Only the app can access preferences");
+      }
+      if (typeof key !== "string" || !/^milagre[.:-]/.test(key)) throw new Error("Invalid preference key");
+      if (operation === "get") event.returnValue = { value: preferences.get(key) };
+      else if (operation === "set") {
+        const previous = preferences.get(key);
+        preferences.set(key, value);
+        if (previous !== value) {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (window.webContents !== event.sender) window.webContents.send("preferences:changed", { key, value });
+          }
+        }
+        event.returnValue = {};
+      } else throw new Error("Invalid preference operation");
+    } catch (error) {
+      event.returnValue = { error: error instanceof Error ? error.message : String(error) };
+    }
+  });
   const floating = createFloatingInbox({
     BrowserWindow,
     screen,

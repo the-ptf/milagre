@@ -33,7 +33,8 @@ import {
 } from "@milagre/shared/pull-request-review";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import { age, MERGE_METHODS, readMergeMethod, repoOf, saveMergeMethod } from "../../lib/pull-request-view";
-import { Markdown } from "../markdown/Markdown";
+import { prImageLoader } from "../../lib/pr-images";
+import { Markdown, type MarkdownImageLoader } from "../markdown/Markdown";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SpinnerRing } from "../primitives/SpinnerRing";
@@ -421,6 +422,7 @@ function Summary({
     return items.toSorted((a, b) => (newest ? at(b) - at(a) : at(a) - at(b)));
   }, [pr, newest]);
   const checks = useMemo(() => pr.checks.toSorted((a, b) => CHECK_ORDER[a.outcome] - CHECK_ORDER[b.outcome]), [pr.checks]);
+  const loadImage = useMemo(() => (source ? prImageLoader(source.bridge, source.cwd) : undefined), [source]);
   return (
     <>
       <div className="flex flex-col px-4 py-2">
@@ -430,7 +432,9 @@ function Summary({
       <div className="h-px bg-line" />
       <div className="flex flex-col px-2 pt-1.5">
         <Section data-pr-description="" label="Description">
-          <div className="text-[12.5px] text-ink-2">{pr.body.trim() ? <Markdown text={pr.body} /> : <p className="text-ink-3">No description.</p>}</div>
+          <div className="text-[12.5px] text-ink-2">
+            {pr.body.trim() ? <Markdown text={pr.body} html loadImage={loadImage} /> : <p className="text-ink-3">No description.</p>}
+          </div>
         </Section>
         <Section data-pr-checks="" label="Checks" meta={pr.checks.length ? undefined : "None"}>
           <div className="flex flex-col gap-0.5">
@@ -476,9 +480,9 @@ function Summary({
             <div className="flex flex-col gap-2">
               {comments.map((item) =>
                 item.thread ? (
-                  <CommentCard key={item.thread.id} thread={item.thread} comments={item.comments} onOpenFile={onOpenFile} />
+                  <CommentCard key={item.thread.id} thread={item.thread} comments={item.comments} onOpenFile={onOpenFile} loadImage={loadImage} />
                 ) : (
-                  <CommentCard key={item.comments[0]!.id} comments={item.comments} onOpenFile={onOpenFile} />
+                  <CommentCard key={item.comments[0]!.id} comments={item.comments} onOpenFile={onOpenFile} loadImage={loadImage} />
                 ),
               )}
             </div>
@@ -527,7 +531,17 @@ function Section({
 }
 
 /** A comment on the PR, or an open thread on a line with its replies; the thread's place opens the file's diff. */
-function CommentCard({ thread, comments, onOpenFile }: { thread?: PullRequestThread; comments: PullRequestComment[]; onOpenFile: (path: string) => void }) {
+function CommentCard({
+  thread,
+  comments,
+  onOpenFile,
+  loadImage,
+}: {
+  thread?: PullRequestThread;
+  comments: PullRequestComment[];
+  onOpenFile: (path: string) => void;
+  loadImage?: MarkdownImageLoader;
+}) {
   return (
     <article
       data-pr-open-thread={thread?.id}
@@ -556,7 +570,7 @@ function CommentCard({ thread, comments, onOpenFile }: { thread?: PullRequestThr
             </button>
           )}
           <div className="text-[12.5px] text-ink">
-            <Markdown text={comment.body} />
+            <Markdown text={comment.body} html loadImage={loadImage} />
           </div>
         </div>
       ))}

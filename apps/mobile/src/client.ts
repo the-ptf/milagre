@@ -114,6 +114,7 @@ const LONG_CALLS = new Set([
   "pr:submit-review",
   "pr:merge",
   "pr:ready",
+  "pr:image",
   "pr:labels",
   "pr:set-labels",
   "pr:reviewer-candidates",

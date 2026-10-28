@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useEffect, useState } from "react";
 import { RECENT_PROJECTS_CHANGED } from "./project-list.ts";
 
@@ -7,7 +8,7 @@ const NONE: ReadonlySet<string> = new Set();
 /** Other computers' Projects and Links hidden from this Mac's sidebar (`${computerId}|/path`, `milagre-link:${computerId}|uuid`). */
 export function readHiddenRemoteScopes(): ReadonlySet<string> {
   try {
-    const saved = JSON.parse(globalThis.localStorage?.getItem(HIDDEN_REMOTE_SCOPES_KEY) ?? "[]");
+    const saved = JSON.parse(localStorage?.getItem(HIDDEN_REMOTE_SCOPES_KEY) ?? "[]");
     return Array.isArray(saved) ? new Set(saved.filter((item): item is string => typeof item === "string" && item.length > 0)) : NONE;
   } catch {
     return NONE;
@@ -23,8 +24,8 @@ export function setRemoteScopeHidden(key: string, hidden: boolean): void {
   if (hidden) next.add(key);
   else next.delete(key);
   try {
-    if (next.size > 0) globalThis.localStorage?.setItem(HIDDEN_REMOTE_SCOPES_KEY, JSON.stringify([...next]));
-    else globalThis.localStorage?.removeItem(HIDDEN_REMOTE_SCOPES_KEY);
+    if (next.size > 0) localStorage?.setItem(HIDDEN_REMOTE_SCOPES_KEY, JSON.stringify([...next]));
+    else localStorage?.removeItem(HIDDEN_REMOTE_SCOPES_KEY);
   } catch {
     /* ignore storage errors */
   }
@@ -85,7 +86,7 @@ let computersRead: { raw: string | null; set: ReadonlySet<string> } = { raw: nul
 export function readHiddenComputers(): ReadonlySet<string> {
   let raw: string | null = null;
   try {
-    raw = globalThis.localStorage?.getItem(HIDDEN_COMPUTERS_KEY) ?? null;
+    raw = localStorage?.getItem(HIDDEN_COMPUTERS_KEY) ?? null;
   } catch {
     /* ignore storage errors */
   }
@@ -106,8 +107,8 @@ export function setComputerHidden(id: string, hidden: boolean): void {
   if (hidden) next.add(id);
   else next.delete(id);
   try {
-    if (next.size > 0) globalThis.localStorage?.setItem(HIDDEN_COMPUTERS_KEY, JSON.stringify([...next]));
-    else globalThis.localStorage?.removeItem(HIDDEN_COMPUTERS_KEY);
+    if (next.size > 0) localStorage?.setItem(HIDDEN_COMPUTERS_KEY, JSON.stringify([...next]));
+    else localStorage?.removeItem(HIDDEN_COMPUTERS_KEY);
   } catch {
     /* ignore storage errors */
   }

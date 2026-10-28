@@ -507,6 +507,8 @@ export type MilagreBridge = {
     }) => Promise<PullRequestWriteResult>;
     /** Marks a draft ready for review, or turns it back into a draft (`draft`). */
     ready: (request: { cwd: string; number: number; draft?: boolean }) => Promise<PullRequestWriteResult>;
+    /** A GitHub attachment of the PR's description or comments, read with gh's token, as a data URL. */
+    image: (request: { cwd: string; url: string }) => Promise<{ ok: true; dataUrl: string } | { ok: false; message: string }>;
     /** The repository's labels, for the labels picker. */
     labels: (request: { cwd: string }) => Promise<RepoLabelsResult>;
     setLabels: (request: { cwd: string; number: number; add: string[]; remove: string[] }) => Promise<PullRequestWriteResult>;
@@ -705,7 +707,7 @@ export type MilagreBridge = {
   onAccountsChanged: (callback: () => void) => () => void;
   onUsageChanged: (callback: (payload: { scopeKey?: string }) => void) => () => void;
   readUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
-  /** Whether the Mac stays awake while an agent works (the screen can still sleep). */
+  /** Whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in, also with the lid closed). */
   setKeepAwake: (enabled: boolean) => Promise<void>;
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */
@@ -758,6 +760,7 @@ export type MilagreBridge = {
 
 declare global {
   interface Window {
+    milagrePreferences?: import("./lib/preference-storage").PreferenceBridge;
     milagreWindowChrome?: { controls: "leading" | "overlay" | "external" };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */

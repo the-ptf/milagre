@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
@@ -208,7 +209,7 @@ const NEVER_ACTIVE = () => false;
 const CLOSED_SCOPES_KEY = "milagre.sidebarClosedScopes";
 function readClosedScopes(): string[] {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(CLOSED_SCOPES_KEY) ?? "[]");
+    const saved = JSON.parse(localStorage.getItem(CLOSED_SCOPES_KEY) ?? "[]");
     return Array.isArray(saved) ? saved.filter((item) => typeof item === "string") : [];
   } catch {
     return [];
@@ -222,7 +223,7 @@ const SCOPE_ORDER_KEY = "milagre.sidebarScopeOrder";
 let syncedScopeOrder = "";
 function readScopeOrder(): string[] {
   try {
-    const raw = window.localStorage.getItem(SCOPE_ORDER_KEY) ?? "[]";
+    const raw = localStorage.getItem(SCOPE_ORDER_KEY) ?? "[]";
     const saved = JSON.parse(raw);
     const order = Array.isArray(saved) ? saved.filter((item): item is string => typeof item === "string") : [];
     syncedScopeOrder = JSON.stringify(order);
@@ -236,7 +237,7 @@ function writeScopeOrder(order: string[]) {
     const next = JSON.stringify(order);
     if (next === syncedScopeOrder) return;
     syncedScopeOrder = next;
-    window.localStorage.setItem(SCOPE_ORDER_KEY, next);
+    localStorage.setItem(SCOPE_ORDER_KEY, next);
   } catch {
     // Storage full or blocked: the order lasts for this session only.
   }
@@ -513,7 +514,7 @@ const SIDEBAR_WIDTH_KEY = "milagre.sidebarWidth";
 const clampSidebarWidth = (width: number) => Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)));
 
 function readSidebarWidth() {
-  const saved = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+  const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
   return Number.isFinite(saved) && saved > 0 ? clampSidebarWidth(saved) : SIDEBAR_MIN_WIDTH;
 }
 
@@ -995,7 +996,7 @@ export default memo(function SidebarNav({
   const toggleScope = (key: string) =>
     setClosedScopes((previous) => {
       const next = previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key];
-      window.localStorage.setItem(CLOSED_SCOPES_KEY, JSON.stringify(next));
+      localStorage.setItem(CLOSED_SCOPES_KEY, JSON.stringify(next));
       return next;
     });
 
@@ -1132,7 +1133,7 @@ export default memo(function SidebarNav({
   const saveWidth = (width: number) => {
     const next = clampSidebarWidth(width);
     setExpandedWidth(next);
-    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
   };
 
   // One list: the unpinned rows of every scope in one column. The pinned ones stay in their scope's slot of the Pinned

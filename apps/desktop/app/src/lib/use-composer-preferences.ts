@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useState, useEffect, useCallback } from "react";
 import type { EffortLevel, PermissionMode } from "../model";
 import { readComposerPreferences, saveComposerPreferences, type ComposerPreferences } from "./composer-preferences";

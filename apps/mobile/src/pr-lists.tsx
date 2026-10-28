@@ -25,7 +25,7 @@ import type {
 } from "@milagre/shared/pull-request-review";
 import type { Client } from "./client";
 import { Icon, type Tone } from "./icons";
-import { Markdown } from "./markdown";
+import { PrMarkdown } from "./pr-markdown";
 import { ErrorNotice, PageScroll, Segmented, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { useRpc } from "./use-rpc";
@@ -179,12 +179,12 @@ function cardStyle(colors: ReturnType<typeof useTheme>["colors"], accent = false
 }
 
 /** A comment on the PR itself. */
-function CommentCard({ comment }: { comment: PullRequestComment }) {
+function CommentCard({ comment, client, cwd }: { comment: PullRequestComment; client: Client; cwd: string }) {
   const { colors } = useTheme();
   return (
     <View style={cardStyle(colors)}>
       <CommentHeader comment={comment} />
-      <Markdown text={comment.body} />
+      <PrMarkdown text={comment.body} client={client} cwd={cwd} />
     </View>
   );
 }
@@ -246,7 +246,7 @@ export function ThreadCard({
               </Text>
             </Pressable>
           )}
-          <Markdown text={comment.body} />
+          <PrMarkdown text={comment.body} client={client} cwd={cwd} />
         </View>
       ))}
       {replying && (
@@ -335,7 +335,9 @@ export function PrComments({
   return (
     <View style={{ gap: 10 }}>
       {!items.length && !resolved.length && <Text style={[styles.muted, { paddingHorizontal: 4 }]}>No comments yet.</Text>}
-      {items.map((item) => (item.type === "comment" ? <CommentCard key={item.comment.id} comment={item.comment} /> : thread(item.thread)))}
+      {items.map((item) =>
+        item.type === "comment" ? <CommentCard key={item.comment.id} comment={item.comment} client={client} cwd={cwd} /> : thread(item.thread),
+      )}
       {resolved.length > 0 && (
         <Pressable accessibilityRole="button" onPress={() => setShowResolved((value) => !value)} style={{ paddingVertical: 8, paddingHorizontal: 4 }}>
           <Text style={{ color: colors.accentInk, fontSize: 14, fontWeight: "600" }}>

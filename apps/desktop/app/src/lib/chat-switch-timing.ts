@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 // Opt-in timing of a Chat switch, from the click to the frame its transcript is on screen. Nothing about the Chat is
 // recorded. Turn it on with `localStorage.setItem("milagre.measureNavigation", "1")`, then read
 // `performance.getEntriesByName("milagre:chat-switch")`: each entry's duration is the switch, and its detail's

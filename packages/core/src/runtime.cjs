@@ -1789,19 +1789,27 @@ function createRuntime(options) {
   });
 
   // The answers show in the chat as the user's message (`summary`), and are taken back if they don't reach the agent.
+  // The message is queued before the answers go out, so the agent's next reply lands below it, but the agent doesn't wait
+  // for it: the Project's queue holds every Chat's changes, and a busy one kept the card up for seconds.
   commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
-    const messageId =
+    const recorded =
       answers && typeof summary === "string" && summary && typeof chatId === "string" && scopeStates.has(projectOfKey(chatId))
-        ? await chats.recordAnswers(chatId, summary, { requestId, answers })
-        : null;
+        ? chats.recordAnswers(chatId, summary, { requestId, answers }).catch((error) => {
+            console.warn("Milagre couldn't show the answers:", error.message);
+            return null;
+          })
+        : Promise.resolve(null);
+    let accepted;
     try {
-      const accepted = await agents.answerQuestion(chatId, requestId, answers);
-      if (!accepted && messageId !== null) await chats.takeBack(chatId, messageId);
-      return accepted;
+      accepted = await agents.answerQuestion(chatId, requestId, answers);
     } catch (error) {
+      const messageId = await recorded;
       if (messageId !== null) await chats.takeBack(chatId, messageId);
       throw error;
     }
+    const messageId = await recorded;
+    if (!accepted && messageId !== null) await chats.takeBack(chatId, messageId);
+    return accepted;
   });
 
   // The mode picked is the Chat's from now on: its running turn takes it at once, and a heartbeat's next beat runs in it.
