@@ -4,6 +4,7 @@ import type { AgentSession, OpenLink } from "@milagre/shared/model";
 import type { Client } from "./client";
 import type { MenuSection } from "./ui";
 import { archiveFromPhone, startArchiving, type ArchiveRequest } from "./archive";
+import { archiveLinkChat } from "@milagre/shared/archive";
 import { confirm, confirmSheet } from "./confirm-store";
 import { pinPatch } from "./pins";
 
@@ -92,8 +93,11 @@ export async function runChatAction({
       try {
         onConfirm?.();
         expectActivity();
-        await client.call("agent:interrupt", [`${projectPath}#${chat.id}`]);
-        await client.call("chat:patch", [projectPath, chat.id, { archived: true }]);
+        await archiveLinkChat({
+          running,
+          stop: () => client.call("agent:interrupt", [`${projectPath}#${chat.id}`]),
+          hide: () => client.call("chat:patch", [projectPath, chat.id, { archived: true }]),
+        });
         await refresh();
       } finally {
         done();

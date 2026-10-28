@@ -1009,7 +1009,7 @@ function createRuntime(options) {
     await environmentReady;
     return (options.readPullRequests ?? readPullRequests)(worktreePath, refs);
   });
-  // While any chat's turn or a new worktree's setup runs the Mac stays awake (the screen can still sleep).
+  // The Mac stays awake while Milagre runs (the screen can still sleep), so paired devices can reach it.
   // On until the renderer pushes the saved setting.
   const keepAwake = options.keepAwake ?? new KeepAwake({ powerSaveBlocker: { start: () => 0, isStarted: () => true, stop() {} }, enabled: false });
   commands.handle("app:set-keep-awake", (_event, enabled) => keepAwake.setEnabled(enabled === true));
@@ -1032,7 +1032,6 @@ function createRuntime(options) {
       void Promise.resolve()
         .then(() => limitSwitch.observe(chatId, event))
         .catch((error) => console.warn("Milagre couldn't switch accounts after a usage limit:", error.message));
-    keepAwake.observe(chatId, event);
     void notifyIfWaiting(chatId, event).catch(() => {});
     if (!isLinkScopeKey(projectOfKey(chatId))) diffs.observe(chatId, event);
     if (!isLinkScopeKey(projectOfKey(chatId)))
@@ -1063,7 +1062,6 @@ function createRuntime(options) {
     linkedFor: (chatId) => linked.forChat(chatId),
     // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).
     permissionPolicy: (chatId) => bots?.policyFor(chatId),
-    onSessionClosed: (chatId) => keepAwake.chatClosed(chatId),
     onTurnStarted: () => ports.wake(),
     // The host's name and the addresses a phone or a paired Mac reach it on (`hostNetwork`, from the daemon).
     hostInstructions: () => {
@@ -1162,8 +1160,6 @@ function createRuntime(options) {
       else if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       return started;
     } catch (error) {
-      // A start that throws sends no event, so the hold a setup handed to this turn would never be released.
-      keepAwake.turnNotStarted(request.chatId);
       if (milagreNotes.length) agentNotes.set(request.chatId, [...milagreNotes, ...(agentNotes.get(request.chatId) ?? [])]);
       throw error;
     } finally {
@@ -1266,7 +1262,6 @@ function createRuntime(options) {
   routines = createRoutines({
     file: path.join(dataDir, "routines.json"),
     chats,
-    keepAwake,
     emit,
     cachedState: heldState,
     // A Project not open yet opens here, as a Delegation's does.
@@ -1381,7 +1376,6 @@ function createRuntime(options) {
   const setupReview = new SetupReview({ read: readSetupCommand, settings: projectSettings, send: (chatId, event) => chats.receive(chatId, event) });
   const worktreeSetups = new WorktreeSetups({
     send: (chatId, event) => void chats.receive(chatId, event),
-    keepAwake,
     file: path.join(dataDir, "worktree-setups.json"),
     review: (request) => setupReview.review(request),
   });
@@ -2093,10 +2087,7 @@ function createRuntime(options) {
     contextFor: advisorContext,
     providersFor: advisorProviders,
     publish: async (chatId, agent) => {
-      if (["initializing", "running", "waiting"].includes(agent.status)) {
-        keepAwake.turnStarted(agent.id);
-        ports.wake();
-      } else keepAwake.turnEnded(agent.id);
+      if (["initializing", "running", "waiting"].includes(agent.status)) ports.wake();
       await chats.receive(chatId, { type: "subagent-update", agent });
     },
     completed: (chatId, result) => advisorDelivery.enqueue(chatId, result),

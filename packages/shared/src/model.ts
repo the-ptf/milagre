@@ -772,6 +772,8 @@ export interface Subagent {
   parentId?: string;
   /** Launched by the chat to run in the background: its result wakes the chat with a turn of its own. */
   background?: boolean;
+  /** The agent type it was launched as (Claude's subagent_type), such as a QA persona ("qa-mobile", qa-personas.ts). */
+  agentType?: string;
   title: string;
   prompt?: string;
   status: "initializing" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "unknown";

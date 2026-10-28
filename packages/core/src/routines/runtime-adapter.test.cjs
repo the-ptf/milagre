@@ -282,7 +282,6 @@ test("a Chat on a Named Link gets no routine tools", (t) => {
   const routines = createRoutines({
     file: path.join(dir, "routines.json"),
     chats: { turnSettings: () => null },
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: () => undefined,
     openState: async () => undefined,
@@ -527,7 +526,6 @@ test("a Chat a Routine started gets no tools that make or start Routines", (t) =
   const routines = createRoutines({
     file: path.join(dir, "routines.json"),
     chats: { turnSettings: () => null },
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: () => ({ sessions }),
     openState: async () => undefined,
@@ -548,7 +546,6 @@ function linearRoutines(t, linear, now) {
   const routines = createRoutines({
     file: path.join(dir, "routines.json"),
     chats: { turnSettings: () => null },
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: () => undefined,
     openState: async () => undefined,
@@ -800,7 +797,6 @@ function timedRoutines(t, { prepare } = {}) {
   const routines = createRoutines({
     file,
     chats: { turnSettings: () => null },
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: () => undefined,
     openState: async () => undefined,
@@ -1010,7 +1006,7 @@ test("a Linear Run in the Project folder runs through the real ChatHost: its car
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createRoutineStore({ file: path.join(dir, "routines.json") });
   store.setEnabled(true);
-  scheduler = createRoutineScheduler({ store, chats: ctx.adapter, keepAwake: { setRoutinesActive() {} } });
+  scheduler = createRoutineScheduler({ store, chats: ctx.adapter });
   const routine = store.create({
     name: "Triage",
     prompt: "Look at {{issue.key}}: {{issue.description}}",
@@ -1518,7 +1514,6 @@ test("stopping Routines waits for a Run that never finishes starting only as lon
   const routines = createRoutines({
     file: path.join(dir, "routines.json"),
     chats: { turnSettings: () => null, runs: {}, isBusy: () => false },
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: () => undefined,
     openState: async () => undefined,
@@ -1595,7 +1590,6 @@ function sweepFixture(t, { prepare, sessions = {}, messages = [], open = true, n
   const routines = createRoutines({
     file,
     chats,
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: (scope) => (open && scope === "/project" ? state : undefined),
     openState: async () => state,
@@ -1927,7 +1921,6 @@ test("a kept Run Chat's agent gets the Routine tools back; a hidden or undecided
   const routines = createRoutines({
     file: path.join(dir, "routines.json"),
     chats: { turnSettings: () => null },
-    keepAwake: { setRoutinesActive() {} },
     emit() {},
     cachedState: () => ({ sessions }),
     openState: async () => undefined,

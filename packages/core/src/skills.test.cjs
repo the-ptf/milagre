@@ -235,6 +235,7 @@ test("bundles tldr with its checklist for machines without installed skills", as
         "milagre-update-branch",
       ].map((name) => ({ name, scope: "bundled", provider: "milagre" })),
       { name: "orchestrate", scope: "bundled", provider: "milagre" },
+      { name: "qa-fleet", scope: "bundled", provider: "milagre" },
       { name: "simulator", scope: "bundled", provider: "milagre" },
       { name: "tldr", scope: "bundled", provider: "milagre" },
     ],
@@ -243,6 +244,23 @@ test("bundles tldr with its checklist for machines without installed skills", as
   assert.ok(expanded.startsWith("The user invoked the skill /tldr with this message:\n\n/tldr Rewrite this paragraph"));
   assert.ok(expanded.includes(await fs.readFile(skills.find((skill) => skill.name === "tldr").path, "utf8")));
   assert.ok((await fs.readFile(path.join(path.dirname(skills.find((skill) => skill.name === "tldr").path), "eval.md"), "utf8")).includes("# tldr eval"));
+});
+
+test("bundles the QA personas as agent types with the shared QA rules", () => {
+  const { bundledAgents } = require("./bundled-skills.cjs");
+  const agents = bundledAgents();
+  assert.deepEqual(Object.keys(agents).sort(), ["qa-breaker", "qa-impatient", "qa-literal", "qa-mobile", "qa-skeptic"]);
+  for (const agent of Object.values(agents)) {
+    assert.ok(agent.description.startsWith("QA persona"));
+    assert.ok(agent.prompt.includes("reached_first_success"));
+  }
+  assert.ok(agents["qa-mobile"].prompt.includes("375 x 812"));
+  // A Windows checkout has CRLF line endings.
+  const { personaAgent } = require("./bundled-skills.cjs");
+  const [name, agent] = personaAgent("---\r\nname: qa-x\r\ndescription: QA persona, x.\r\n---\r\n\r\nYou are x.\r\n", "Rules.");
+  assert.equal(name, "qa-x");
+  assert.equal(agent.description, "QA persona, x.");
+  assert.equal(agent.prompt, "Rules.\n\nYou are x.");
 });
 
 test("installed tldr overrides the bundled slash skill without duplicates", async (t) => {

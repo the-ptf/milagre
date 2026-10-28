@@ -43,4 +43,5 @@ export function deleteNote(status: WorktreeStatus): string;
 export function archiveChoices(options: { plan: ArchivePlan; running: boolean }): { choices: ArchiveChoice[]; reason: string | null };
 export function terminalNote(busy: string[]): string | null;
 export function removeFailureNotice(error: unknown): string;
+export function archiveLinkChat(deps: { running: boolean; stop: () => Promise<unknown>; hide: () => Promise<unknown> }): Promise<void>;
 export function archiveChat(deps: ArchiveDeps, sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null): Promise<"hidden" | "removed" | "kept">;

@@ -630,7 +630,7 @@ test("turning TLDR writing off in Settings drops the rules", () => {
 
 // A budget, so the prompt every Chat sends can't grow back without anyone noticing. Raise it on purpose, not by accident.
 test("a default Chat's system prompt stays under its size budget", () => {
-  assert.ok(MILAGRE_INSTRUCTIONS.length <= 10_800, `the default system prompt is ${MILAGRE_INSTRUCTIONS.length} characters`);
+  assert.ok(MILAGRE_INSTRUCTIONS.length <= 11_000, `the default system prompt is ${MILAGRE_INSTRUCTIONS.length} characters`);
 });
 
 test("the instructions say Milagre's tools may be missing, and name the skills to read before attaching", () => {

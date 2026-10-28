@@ -496,7 +496,6 @@ function routineTargets({ projects, openState, botOf = () => null, botHome = () 
 function createRoutines({
   file,
   chats,
-  keepAwake,
   emit,
   cachedState,
   openState,
@@ -602,7 +601,6 @@ function createRoutines({
   const scheduler = createRoutineScheduler({
     store,
     chats: routineChatsView,
-    keepAwake,
     now,
     ...(timers.setInterval ? { setInterval: timers.setInterval } : {}),
     ...(timers.clearInterval ? { clearInterval: timers.clearInterval } : {}),
@@ -852,8 +850,8 @@ function createRoutines({
     } else {
       poller.stop();
       prPoller.stop();
-      // Off: one tick turns the routines' keep-awake off now, and the timer stops until the switch is on again. A comment
-      // already on its way goes back to its queue; this resolves once it has.
+      // Off: one last tick, and the timer stops until the switch is on again. A comment already on its way goes back to
+      // its queue; this resolves once it has.
       await scheduler.tick();
       scheduler.stop();
       await settleWithin();

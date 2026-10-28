@@ -780,7 +780,7 @@ function ChatPane({
   }, [prefillKey, params.prefill, setDrafts]);
   // The Projects a new Chat can switch to, on every shown computer.
   const newChatProjects = useNewChatProjects();
-  // The "Start a new chat in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
+  // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
   const keyboard = useReanimatedKeyboardAnimation();
   // The keyboard's height once it has settled (0 closed): read on show and hide only, never per frame.
@@ -967,7 +967,7 @@ function ChatPane({
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
-  // A new Chat before its first message: "Start a new chat in <Project>" in the middle of the screen picks its Project.
+  // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
   const projectName = project.name || project.path.split("/").findLast(Boolean) || "Project";
   const hostIds = new Set(newChatProjects.map((item) => item.hostId));
@@ -977,7 +977,7 @@ function ChatPane({
   function chooseProject() {
     if (busy) return;
     showChoiceSheet({
-      title: "Start a new chat in",
+      title: "Start building in",
       placeholder: "Search projects",
       emptyLabel: "No projects",
       items: newChatProjects.map((item) => ({
@@ -1824,7 +1824,7 @@ function ChatPane({
                   />
                 </View>
               )}
-              {/* A new Chat's empty state is the centred "Start a new chat in" line instead. */}
+              {/* A new Chat's empty state is the centred "Start building in" line instead. */}
               {!messages.length && !run && !pageLoading && !historyPage.error && !startingChat && (
                 <View style={{ paddingVertical: 48, alignItems: "center", gap: 8 }}>
                   <Text style={styles.subtitle}>What are we working on?</Text>
@@ -1984,7 +1984,7 @@ function ChatPane({
               >
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Start a new chat in ${projectName}${hostIds.size > 1 ? ` on ${hostName}` : ""}. Change project`}
+                  accessibilityLabel={`Start building in ${hostName ? `${hostName} / ` : ""}${projectName}. Change project`}
                   disabled={busy}
                   onPress={chooseProject}
                   style={({ pressed }) => ({
@@ -1996,20 +1996,15 @@ function ChatPane({
                     opacity: pressed ? 0.6 : 1,
                   })}
                 >
-                  <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start a new chat in</Text>
+                  <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
                     <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                      {hostName ? <Text style={{ color: colors.ink3 }}>{hostName} / </Text> : null}
                       {projectName}
                     </Text>
                     <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
                   </View>
                 </Pressable>
-                {hostIds.size > 1 && (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Icon icon={LaptopIcon} tone="ink3" size={13} />
-                    <Text style={styles.caption}>on {hostName}</Text>
-                  </View>
-                )}
               </Animated.View>
             )}
             {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}

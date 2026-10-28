@@ -459,6 +459,38 @@ async function browserChecks() {
     await clickLabel("Collapse subagents");
     await evaluate("window.setChildren([])");
     await waitFor('!document.querySelector("[data-slot=subagent-track]")');
+    // QA fleet personas (qa-personas.ts): grouped first under their header, each with its avatar, name and QA tag; the
+    // detail opens on the persona's card.
+    await evaluate(`(() => {
+      const now = Date.now();
+      const persona = (id, agentType, said, status = "running") => ({ id, agentType, title: "Checkout " + id, status, startedAt: now - 130000, updatedAt: now,
+        ...(status === "running" ? {} : { endedAt: now - 2000 }), progress: { steps: 9, said, tools: { commands: 12, images: 3 } }, transcript: [] });
+      window.setChildren([
+        { id: "routes", title: "Find the checkout routes", status: "completed", startedAt: now - 60000, updatedAt: now, endedAt: now - 19000, transcript: [] },
+        persona("impatient", "qa-impatient", "Quit at step 3: Pay did nothing for 6 seconds", "completed"),
+        persona("mobile", "qa-mobile", "Card field is hidden under the keyboard"),
+        persona("breaker", "qa-breaker", "Double-clicked Place order: two orders created"),
+      ]);
+      return true;
+    })()`);
+    await evaluate('document.querySelector("[data-slot=subagent-track] [data-face=pill] button").click()');
+    await waitFor('document.querySelectorAll("[data-subagent-row]").length === 4');
+    assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-subagent-title]")].map(title => title.textContent.trim())'), [
+      "Impatient",
+      "Mobile",
+      "Breaker",
+      "Find the checkout routes",
+    ]);
+    assert.ok(await evaluate('document.querySelector("[data-qa-fleet]").textContent.includes("3 personas")'));
+    await screenshot("qa-fleet-list");
+    await evaluate('[...document.querySelectorAll("[data-subagent-open]")][1].click()');
+    await waitFor('!!document.querySelector("[data-qa-persona-card]")');
+    for (const text of ["The mobile user", "375 × 812", "Slow 3G"])
+      assert.ok(await evaluate(`document.querySelector("[data-qa-persona-card]").textContent.includes(${JSON.stringify(text)})`), text);
+    await screenshot("qa-persona-detail");
+    await clickLabel("Collapse subagents");
+    await evaluate("window.setChildren([])");
+    await waitFor('!document.querySelector("[data-slot=subagent-track]")');
     // A host that sends only the end of each transcript (subagent-tails-v1): the panel reads the whole one once, then
     // follows the tails of later updates without reading it again.
     await evaluate(`(() => {

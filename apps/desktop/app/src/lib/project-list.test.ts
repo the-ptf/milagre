@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectRows, stableOrder, type RecentProject } from "./project-list.ts";
+import { newChatProject, projectRows, stableOrder, type RecentProject } from "./project-list.ts";
 
 const recent: RecentProject[] = [
   { path: "/code/milagre-ade", name: "milagre-ade", openedAt: "2026-10-02T10:00:00.000Z" },
@@ -59,4 +59,26 @@ test("the sidebar's order keeps shown keys in place, drops removed ones, and put
   assert.deepEqual(stableOrder(["a", "b", "c"], ["c", "a"]), ["a", "c"]);
   // A key seen for the first time goes on top.
   assert.deepEqual(stableOrder(["a", "b"], ["b", "d", "a"]), ["d", "a", "b"]);
+});
+
+test("a new Chat starts in the open Project when it is this Mac's", () => {
+  assert.equal(newChatProject({ currentPath: "/code/happiergym", recent }), "/code/happiergym");
+});
+
+test("a new Chat from a Link or another computer's Project starts in this Mac's most recent Project", () => {
+  const mixed: RecentProject[] = [
+    { path: "deer|/code/rd-events", name: "rd-events", openedAt: "2026-10-03T10:00:00.000Z" },
+    { path: "/code/hidden", name: "hidden", openedAt: "2026-10-03T09:00:00.000Z", hidden: true },
+    ...recent,
+  ];
+  assert.equal(newChatProject({ currentPath: "deer|/code/rd-events", recent: mixed }), "/code/milagre-ade");
+  // A Link on screen: the Project behind it is this Mac's, so the new Chat goes there.
+  assert.equal(newChatProject({ currentPath: "/code/happiergym", recent: mixed }), "/code/happiergym");
+  assert.equal(newChatProject({ currentPath: undefined, recent: mixed }), "/code/milagre-ade");
+});
+
+test("a hidden Project of this Mac is used only when it is the only one", () => {
+  const onlyHidden: RecentProject[] = [{ path: "/code/hidden", name: "hidden", openedAt: "", hidden: true }];
+  assert.equal(newChatProject({ currentPath: "deer|/code/rd-events", recent: onlyHidden }), "/code/hidden");
+  assert.equal(newChatProject({ currentPath: "deer|/code/rd-events", recent: [] }), null);
 });

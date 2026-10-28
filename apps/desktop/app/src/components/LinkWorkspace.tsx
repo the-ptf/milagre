@@ -1,3 +1,4 @@
+import { archiveLinkChat } from "../lib/archive-flow";
 import { prepareImageUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
@@ -100,6 +101,7 @@ export function LinkWorkspace({
   saveScopes,
   ports,
   onNewChatInScope,
+  onNewChat,
 }: {
   opened: OpenLink;
   state: LinkState;
@@ -127,6 +129,8 @@ export function LinkWorkspace({
   onCanvasChat: (path: string, id: number) => void;
   usage?: ReactNode;
   onNewChatInScope?: (scopeKey: string) => void;
+  /** New chat (⌘N, the sidebar's +, the command palette) starts on this Mac's Project; only the Link's own + starts a Link Chat. */
+  onNewChat?: (draftText?: string) => void;
 }) {
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
@@ -314,9 +318,12 @@ export function LinkWorkspace({
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        // oxlint-disable-next-line react/immutability -- pick is a function declaration, called from the key handler later
-        pick(null);
-        document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
+        if (onNewChat) onNewChat();
+        else {
+          // oxlint-disable-next-line react/immutability -- pick is a function declaration, called from the key handler later
+          pick(null);
+          document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
+        }
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -349,7 +356,7 @@ export function LinkWorkspace({
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [chatId, run, findOpen, session, changes.toggle, canvasOpen, terminalChatId]);
+  }, [chatId, run, findOpen, session, changes.toggle, canvasOpen, terminalChatId, onNewChat]);
   function pick(id: number | null) {
     // Another Chat: its page read goes out before this pick renders anything, and the switch is measured from here.
     if (id !== null && Number.isSafeInteger(id) && id > 0 && id !== sessionId) {
@@ -527,7 +534,8 @@ export function LinkWorkspace({
                   changes.closeDiff();
                   setCanvasOpen(true);
                 }}
-                onNewChat={() => pick(null)}
+                onNewChat={onNewChat ? () => onNewChat() : () => pick(null)}
+                onNewCurrentScopeChat={() => pick(null)}
                 onPick={(id) => pick(Number(id))}
                 activeId={sessionId == null ? null : String(sessionId)}
                 recents={recents}
@@ -571,13 +579,18 @@ export function LinkWorkspace({
                   }),
                   onArchive: (id) => {
                     const key = chatKeyForScope(scope, Number(id));
-                    return agents
-                      .interrupt(key)
-                      .then(() => bridge.patchChat(owner, Number(id), { archived: true }))
-                      .then(() => {
-                        if (sessionId === Number(id)) pick(null);
-                      })
-                      .catch((error) => setError(ipcErrorMessage(error)));
+                    return archiveLinkChat({
+                      running: Boolean(agents.runs[key]),
+                      stop: () => agents.interrupt(key),
+                      hide: async () => {
+                        await bridge.patchChat(owner, Number(id), { archived: true });
+                        // The open Chat went: the new-chat screen takes its place, on this Mac as New chat opens it.
+                        if (sessionId === Number(id)) {
+                          if (onNewChat) onNewChat();
+                          else pick(null);
+                        }
+                      },
+                    }).catch((error) => setError(ipcErrorMessage(error)));
                   },
                 }}
               />
@@ -858,7 +871,7 @@ export function LinkWorkspace({
           {commandsOpen && (
             <CommandPalette
               commands={[
-                { id: "new", label: "New Chat", group: "Actions", icon: "chat", run: () => pick(null) },
+                { id: "new", label: "New Chat", group: "Actions", icon: "chat", run: onNewChat ? () => onNewChat() : () => pick(null) },
                 { id: "link", label: "Link projects…", group: "Actions", icon: "folder", run: onLinkProject },
                 { id: "edit-link", label: "Edit Link…", group: "Actions", icon: "folder", run: () => onEditLink(opened.link.id) },
                 ...recents.map((row) => ({ id: row.id, label: row.label, group: "Chats", icon: "chat" as const, run: () => pick(Number(row.id)) })),
@@ -880,6 +893,10 @@ export function LinkWorkspace({
                   : undefined
               }
               onStartChat={(query) => {
+                if (onNewChat) {
+                  onNewChat(query);
+                  return;
+                }
                 pick(null);
                 // The new Chat's draft takes the search now, before the render that selects it.
                 draftStore.select(draftKey(owner, null));
