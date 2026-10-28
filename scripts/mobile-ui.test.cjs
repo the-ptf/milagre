@@ -14205,9 +14205,16 @@ test("provider update cards on the phone install the advertised release on the c
         return state;
       },
     },
+    "./hosts-native": {
+      savedProviderUpdateDismissals: {
+        load: async (hostId) => (calls.push(["load", hostId]), []),
+        add: async (hostId, key) => void calls.push(["add", hostId, key]),
+      },
+    },
     "./session": {
       useSession: () => ({
         client: {
+          url: "https://studio.local:7788",
           call: async (...args) => {
             calls.push(args);
             return { ok: true };
@@ -14238,6 +14245,51 @@ test("provider update cards on the phone install the advertised release on the c
   const failed = ProviderUpdateNotice();
   assert.equal(find(failed, (node) => node.props?.accessibilityRole === "alert").props.children, "Permission denied");
   assert.equal(find(failed, (node) => node.type === "PillButton" && node.props.title === "Retry").props.disabled, false);
+  await transport.dismissals.add("codex:0.163.0");
+  await transport.dismissals.load();
+  assert.deepEqual(
+    calls.slice(-2),
+    [
+      ["add", "https://studio.local:7788", "codex:0.163.0"],
+      ["load", "https://studio.local:7788"],
+    ],
+    "dismissals are saved on the phone for the connected computer",
+  );
+});
+
+test("a provider update dismissed on the phone stays dismissed when the connection is rebuilt", async () => {
+  const react = hookHost({ effects: true });
+  const source = fs.readFileSync(path.join(__dirname, "../packages/shared/src/use-provider-updates.ts"), "utf8");
+  const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {};
+  vm.runInNewContext(compiled, { exports, require: (id) => (id === "react" ? react : require(id)), setInterval, clearInterval });
+  const saved = new Set();
+  const transport = () => ({
+    read: async () => [
+      { provider: "codex", version: "0.165.0", installedVersion: "0.163.0" },
+      { provider: "claude", version: "2.1.312", installedVersion: "2.1.300" },
+    ],
+    install: async () => ({ ok: true }),
+    dismissals: { load: async () => [...saved], add: async (key) => void saved.add(key) },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  let current = transport();
+  const render = () => {
+    react.begin();
+    return exports.useProviderUpdates(current);
+  };
+  assert.equal(render().current, undefined, "nothing shows before the saved dismissals are read");
+  await settle();
+  const first = render();
+  assert.equal(first.current.provider, "codex");
+  first.dismiss();
+  assert.equal(render().current.provider, "claude");
+  assert.deepEqual([...saved], ["codex:0.165.0"]);
+  current = transport(); // a reconnect builds a new client and so a new transport
+  assert.equal(render().current, undefined);
+  await settle();
+  assert.equal(render().current.provider, "claude", "the dismissed Codex release does not come back");
+  react.unmount();
 });
 
 test("provider logos preserve their shapes and use white or black in Simplified mode", () => {
