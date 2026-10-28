@@ -7,16 +7,13 @@ const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { runTool } = require("./linked-tools.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
-
-test("Routines cannot be enabled by a legacy or unconsented client", async (t) => {
-  const ctx = await fixture(t, { enable: false });
-  for (const version of [undefined, "old-version"]) {
-    await assert.rejects(ctx.runtime.invoke("routines:enabled:save", [true, version]), /AI sharing permission/);
-    assert.deepEqual(await ctx.runtime.invoke("routines:enabled:read"), { enabled: false });
+test("every computer runs Routines: the old switch reads on, and an older app saving it changes nothing", async (t) => {
+  const ctx = await fixture(t);
+  for (const args of [[true, "2026-10-20"], [true], [false]]) {
+    assert.deepEqual(await ctx.runtime.invoke("routines:enabled:save", args), { enabled: true });
+    assert.deepEqual(await ctx.runtime.invoke("routines:enabled:read"), { enabled: true });
   }
-  assert.deepEqual(await ctx.runtime.invoke("routines:enabled:save", [true, AI_CONSENT_VERSION]), { enabled: true });
-  assert.deepEqual(await ctx.runtime.invoke("routines:enabled:save", [false]), { enabled: false });
+  assert.ok(ctx.tool("heartbeat_create"), "the routine tools stay");
 });
 
 // waitUntil for a check that reads through the runtime.
@@ -31,7 +28,7 @@ async function eventually(check, { timeoutMs = 3000 } = {}) {
 // A runtime with one Chat on a fake agent, the routine clock and timer in the test's hands.
 // `restart` ({ dir, clock }) starts a second runtime on the data an earlier one left, as Milagre does after a quit: it
 // sends nothing of its own.
-async function fixture(t, { enable = true, restart, open = true, titleModels = {}, terminals } = {}) {
+async function fixture(t, { restart, open = true, titleModels = {}, terminals } = {}) {
   const dir = restart?.dir ?? (await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runtime-routines-"))));
   const project = path.join(dir, "project");
   if (!restart) {
@@ -115,7 +112,6 @@ async function fixture(t, { enable = true, restart, open = true, titleModels = {
     await runtime.close();
     if (!restart) await fs.rm(dir, { recursive: true, force: true });
   });
-  if (enable && !restart) assert.deepEqual(await runtime.invoke("routines:enabled:save", [true, AI_CONSENT_VERSION]), { enabled: true });
   // `open: false` leaves the Project as a restart leaves it: listed, not opened by anyone yet.
   const opened = open ? await runtime.openProject(project) : null;
   const id = opened ? Object.values(opened.state.sessions)[0].id : null;
@@ -166,39 +162,31 @@ async function fixture(t, { enable = true, restart, open = true, titleModels = {
 
 const latestRun = async (f) => (await f.list())[0]?.runs[0];
 
-test("a new profile can't run Routines: no routine tools and no ticks", async (t) => {
-  const f = await fixture(t, { enable: false });
-  assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: false });
-  assert.equal(f.tool("heartbeat_create"), undefined);
-  assert.equal(f.tool("routine_list"), undefined);
+test("a new profile runs Routines: routine tools from the start", async (t) => {
+  const f = await fixture(t);
+  assert.ok(f.tool("heartbeat_create"));
+  assert.ok(f.tool("routine_list"));
   assert.deepEqual(await f.list(), []);
-  await assert.rejects(f.runtime.invoke("routines:run-now", ["missing"]), /can't run on this computer until AI sharing is allowed/);
+  await assert.rejects(f.runtime.invoke("routines:run-now", ["missing"]), /Routine not found/);
 });
 
-test("a Routine created or run with the consent version lets the computer run Routines; without it nothing changes", async (t) => {
-  const f = await fixture(t, { enable: false });
+test("a Routine an older app creates or runs with its AI sharing consent version is saved and runs like any other", async (t) => {
+  const f = await fixture(t);
   const input = {
     name: "Morning triage",
     prompt: "Triage",
     trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" },
     target: { kind: "new-chat", projectPath: f.project, workspace: "worktree" },
   };
-  const { routine } = await f.runtime.invoke("routines:create", [input]);
-  assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: false }, "a write without consent authorizes nothing");
-  assert.equal((await f.list()).length, 1, "the list shows Routines whether or not they may run");
-  await assert.rejects(f.runtime.invoke("routines:run-now", [routine.id, "an older consent"]), /AI sharing is allowed/);
-  assert.equal((await f.list())[0].nextRunAt, null, "no next Run is promised while it may not run them");
-  await f.runtime.invoke("routines:create", [input, AI_CONSENT_VERSION]);
-  assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: true });
-  assert.equal(typeof (await f.list())[0].nextRunAt, "number", "once it may, the schedule shows its next Run");
+  const { routine } = await f.runtime.invoke("routines:create", [input, "2026-10-20"]);
+  assert.equal((await f.list()).length, 1);
+  assert.equal(typeof (await f.list())[0].nextRunAt, "number", "the schedule shows its next Run");
+  await f.runtime.invoke("routines:update", [routine.id, { prompt: "Triage again" }, "2026-10-20"]);
+  assert.equal((await f.list())[0].prompt, "Triage again");
 });
 
 test("a heartbeat an agent sets fires into its Chat, and a (pass) reply ends quiet", async (t) => {
   const f = await fixture(t);
-  assert.ok(
-    f.emitted.some((item) => item.channel === "routines:changed"),
-    "saving the switch says so",
-  );
   const created = await runTool(f.tool("heartbeat_create"), { name: "Babysit", prompt: "Check CI on PR 77", every: "5m" });
   assert.equal(created.isError, false, created.text);
   const [routine] = await f.list();
@@ -207,7 +195,10 @@ test("a heartbeat an agent sets fires into its Chat, and a (pass) reply ends qui
   assert.equal(routine.provider, "claude");
   assert.equal(routine.permissionMode, "full");
   assert.deepEqual(routine.runs, []);
-  assert.ok(f.emitted.filter((item) => item.channel === "routines:changed").length >= 2, "a tool's write says so too");
+  assert.ok(
+    f.emitted.some((item) => item.channel === "routines:changed"),
+    "a tool's write says routines changed",
+  );
   await f.finish("Watching.");
 
   await f.beat();
@@ -291,10 +282,6 @@ test("commands update, run now and delete a routine, each saying routines change
   assert.ok(changes() > before);
   assert.deepEqual(await f.list(), []);
   await assert.rejects(f.runtime.invoke("routines:update", [routine.id, { prompt: "x" }]), /Routine not found/);
-
-  // Off again: the tools go, and the tick stops acting.
-  assert.deepEqual(await f.runtime.invoke("routines:enabled:save", [false]), { enabled: false });
-  assert.deepEqual(await f.runtime.invoke("routines:enabled:read"), { enabled: false });
 });
 
 test("a beat that checks with a tool, then ends with (pass), is quiet; a (pass) followed by real work acts", async (t) => {
@@ -313,21 +300,6 @@ test("a beat that checks with a tool, then ends with (pass), is quiet; a (pass) 
   await f.finish("(pass) looks fine at first.", "Actually CI failed, fixing the test.");
   await eventually(async () => (await latestRun(f)).status === "acted");
   assert.equal(f.published.findLast((item) => item.type === "turn-completed").quiet, undefined);
-});
-
-test("a live session's routine tools stop working once Routines may not run (Reset)", async (t) => {
-  const f = await fixture(t);
-  assert.equal((await runTool(f.tool("routine_list"), {})).isError, false);
-  await f.runtime.invoke("routines:enabled:save", [false]);
-  for (const [name, args] of [
-    ["routine_list", {}],
-    ["heartbeat_create", { name: "Babysit", prompt: "Check CI", every: "5m" }],
-  ]) {
-    const result = await runTool(f.tool(name), args);
-    assert.equal(result.isError, true, name);
-    assert.match(result.text, /^Routines can't run on this computer until the user allows AI sharing/);
-  }
-  assert.deepEqual(await f.list(), []);
 });
 
 test("a quiet beat leaves the Chat's unread mark as it was; a beat that acts marks it unread", async (t) => {
@@ -949,17 +921,13 @@ test("webhook signing: signed: false clears the secret, a new secret signs again
   assert.ok(!listed.includes("second") && !listed.includes("first"));
 });
 
-test("hooks stay off with the Routines switch, and a hook the relay refuses shows on its Routine until it is taken", async (t) => {
+test("a hook the relay refuses shows on its Routine until it is taken", async (t) => {
   const f = await fixture(t);
   const { routine } = await createWebhook(f);
   f.runtime.routines.hooksRefused([routine.trigger.hookId]);
   assert.match((await f.list())[0].lastError, /relay/);
   f.runtime.routines.hooksRefused([]);
   assert.equal((await f.list())[0].lastError, undefined);
-  await f.runtime.invoke("routines:enabled:save", [false]);
-  assert.deepEqual(f.runtime.routines.hookIds(), []);
-  assert.deepEqual(f.runtime.routines.receiveHook(delivery(routine.trigger.hookId)), { ack: true });
-  assert.deepEqual(await storedDeliveries(f), []);
 });
 
 test("a redelivery of one still waiting in the queue keeps the copy its Run needs", async (t) => {

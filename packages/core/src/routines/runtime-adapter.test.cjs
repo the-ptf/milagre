@@ -1,4 +1,3 @@
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -21,7 +20,7 @@ const baseState = {
 };
 
 // `sessionMode` is the permission mode saved on the Chat (AgentSession.permissionMode), as the composer last set it.
-function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, open = true, canRun } = {}) {
+function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, open = true } = {}) {
   const sent = [];
   const patched = [];
   const state = sessionMode ? { ...baseState, sessions: { ...baseState.sessions, 2: { ...baseState.sessions[2], permissionMode: sessionMode } } } : baseState;
@@ -43,25 +42,9 @@ function fixture({ turnSettings = null, sessionMode, runs = {}, busy = false, op
     cachedState: (scope) => (open && scope === "/project" ? state : undefined),
     openState: async () => state,
     isClosing: () => false,
-    ...(canRun ? { canRun } : {}),
   });
   return { adapter, sent, patched };
 }
-
-test("turning Routines off blocks a send and throws at every final start check", async () => {
-  let allowed = false;
-  const { adapter, sent } = fixture({ canRun: () => allowed });
-  const message = { body: "check", prompt: "check", context: { kind: "routine-run", runId: "r1" } };
-  await assert.rejects(adapter.send(chatId, message), /Routines are off/);
-  assert.equal(sent.length, 0);
-  allowed = true;
-  await adapter.send(chatId, message);
-  assert.equal(sent[0].canStart(), true);
-  assert.equal(sent[0].canStart(), true);
-  allowed = false;
-  // Throwing lets ChatHost emit turn-failed and release its busy state even after message-sent.
-  assert.throws(() => sent[0].canStart(), /Routines are off/);
-});
 
 test("a Chat in a Project not open yet counts as there, so it is never swept as gone", () => {
   const { adapter } = fixture({ open: false });
@@ -571,22 +554,22 @@ function linearRoutines(t, linear, now) {
 test("routine_create takes the one connected Linear workspace, and a Linear not made yet lists none", async (t) => {
   const fake = { enabled: () => true, workspaces: () => [{ id: "acme", organization: { name: "Acme" } }], query: async () => ({}) };
   const { routines } = linearRoutines(t, () => fake);
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const create = routines.definitions("/project#2").find((tool) => tool.name === "routine_create");
   await create.run({ name: "Assigned", prompt: "Look at {{issue.key}}", trigger: "linear", linearEvent: "assigned" });
   assert.equal(routines.list().routines[0].trigger.workspace, "acme");
-  await routines.save(false);
+  await routines.stop();
 
   const early = linearRoutines(t, () => {
     throw new ReferenceError("Cannot access 'linear' before initialization");
   });
-  await early.routines.save(true, AI_CONSENT_VERSION);
+  early.routines.start();
   const tool = early.routines.definitions("/project#2").find((item) => item.name === "routine_create");
   await assert.rejects(tool.run({ name: "A", prompt: "B", trigger: "linear", linearEvent: "assigned" }), /Say which Linear workspace/);
-  await early.routines.save(false);
+  await early.routines.stop();
 });
 
-test("the Routines switch starts and stops Linear polling", async (t) => {
+test("starting and stopping Routines starts and stops Linear polling", async (t) => {
   const queries = [];
   const fake = {
     enabled: () => true,
@@ -606,21 +589,21 @@ test("the Routines switch starts and stops Linear polling", async (t) => {
   assert.deepEqual(
     timers.filter((timer) => !timer.cleared),
     [],
-    "off: nothing polls",
+    "not started: nothing polls",
   );
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const first = timers.find((timer) => !timer.cleared && timer.ms === 0);
-  assert.ok(first, "on: a poll is due at once");
+  assert.ok(first, "started: a poll is due at once");
   // A timer that fired is done with, as a cleared one is.
   first.cleared = true;
   await first.fn();
   // An assigned Routine needs issues only.
   assert.deepEqual(queries, ["acme"]);
-  await routines.save(false);
+  await routines.stop();
   assert.deepEqual(
     timers.filter((timer) => !timer.cleared),
     [],
-    "off again: every poll timer is cleared",
+    "stopped: every poll timer is cleared",
   );
 });
 
@@ -646,13 +629,13 @@ test("Linear polling runs on the Routines' clock", async (t) => {
     trigger: { kind: "linear", workspace: "acme", event: "assigned" },
     target: { kind: "new-chat", projectPath: "/project", workspace: "worktree" },
   });
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const first = timers.find((timer) => !timer.cleared && timer.ms === 0);
   first.cleared = true;
   await first.fn();
   // 5 s before the Routine was made on that clock; on the real one this would be floored at a day ago.
   assert.equal(queries[0].since, new Date(clock - 5_000).toISOString());
-  await routines.save(false);
+  await routines.stop();
 });
 
 // The real ChatHost on fake agents, as chat-host.test.cjs builds it: one Project with one Chat that ran a turn.
@@ -818,22 +801,17 @@ function timedRoutines(t, { prepare } = {}) {
   return { routines, live, file };
 }
 
-test("the scheduler's timer runs only while Routines are on", async (t) => {
+test("the scheduler's timer runs from start until stop", async (t) => {
   const { routines, live } = timedRoutines(t);
+  assert.equal(live().length, 0, "not started: nothing ticks");
   routines.start();
-  assert.equal(live().length, 0, "off: nothing ticks");
-  await routines.save(true, AI_CONSENT_VERSION);
-  assert.equal(live().length, 1, "on: one timer ticks");
+  assert.equal(live().length, 1, "started: one timer ticks");
   assert.equal(live()[0].ms, 1000);
-  await routines.save(false);
-  assert.equal(live().length, 0, "off again: the timer stops");
-  await routines.save(true, AI_CONSENT_VERSION);
-  assert.equal(live().length, 1, "on again: it ticks again");
-  routines.stop();
-  assert.equal(live().length, 0);
+  await routines.stop();
+  assert.equal(live().length, 0, "stopped: the timer stops");
 });
 
-test("start recovers the Runs a stop cut short even while Routines are off", async (t) => {
+test("start recovers the Runs a stop cut short", async (t) => {
   const { createRoutineStore } = require("./store.cjs");
   const at = Date.UTC(2026, 9, 16, 12);
   let runId;
@@ -841,7 +819,6 @@ test("start recovers the Runs a stop cut short even while Routines are off", asy
   const { routines } = timedRoutines(t, {
     prepare(file) {
       const store = createRoutineStore({ file, now: () => at });
-      store.setEnabled(true);
       const routine = store.upsertHeartbeat({
         chatId: "/project#2",
         name: "check",
@@ -852,7 +829,6 @@ test("start recovers the Runs a stop cut short even while Routines are off", asy
       });
       routineId = routine.id;
       runId = store.startRun(routine.id, at).run.id;
-      store.setEnabled(false);
     },
   });
   routines.start();
@@ -1005,7 +981,6 @@ test("a Linear Run in the Project folder runs through the real ChatHost: its car
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-linear-run-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createRoutineStore({ file: path.join(dir, "routines.json") });
-  store.setEnabled(true);
   scheduler = createRoutineScheduler({ store, chats: ctx.adapter });
   const routine = store.create({
     name: "Triage",
@@ -1291,7 +1266,6 @@ test("a failed signing-secret write restores the persisted signing configuration
     const file = path.join(dir, "routines.json");
     const hooksFile = path.join(dir, "routine-hooks.json");
     const store = createRoutineStore({ file });
-    store.setEnabled(true);
     const real = createHookStore({ file: hooksFile });
     let fail = false;
     const secrets = {
@@ -1345,7 +1319,6 @@ test("rotating writes the new secret first and puts the old one back when the Ro
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rotate-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const routines = createRoutineStore({ file: path.join(dir, "routines.json") });
-  routines.setEnabled(true);
   const secrets = createHookStore({ file: path.join(dir, "routine-hooks.json") });
   let failUpdate = false;
   const store = {
@@ -1398,7 +1371,6 @@ test("a rotate whose last secret write fails still tells the relay about the new
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rotate-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createRoutineStore({ file: path.join(dir, "routines.json") });
-  store.setEnabled(true);
   const real = createHookStore({ file: path.join(dir, "routine-hooks.json") });
   let failClean = false;
   const secrets = {
@@ -1522,7 +1494,7 @@ test("stopping Routines waits for a Run that never finishes starting only as lon
     worktrees: { base: async () => "main", create: () => ((creating += 1), new Promise(() => {})) },
     timers: { now: () => clock, setInterval: () => ({ unref() {} }), clearInterval() {}, stopWaitMs: 100 },
   });
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const routine = await routines.create({
     name: "Triage",
     prompt: "Look",
@@ -1532,12 +1504,9 @@ test("stopping Routines waits for a Run that never finishes starting only as lon
   clock = routines.list().routines.find((item) => item.id === routine.id).nextRunAt;
   await routines.tick();
   await require("../agents/test-helpers.cjs").waitUntil(() => creating === 1);
-  let started = Date.now();
+  const started = Date.now();
   await routines.stop();
   assert.ok(Date.now() - started < 1000, `stop took ${Date.now() - started} ms`);
-  started = Date.now();
-  await routines.save(false);
-  assert.ok(Date.now() - started < 1000, `save(false) took ${Date.now() - started} ms`);
   // The Run cut off stays running here; the next start recovers it as "daemon restarted" (store.recoverInterrupted).
   assert.equal(routines.list().routines[0].runs[0].status, "running");
 });
@@ -1999,7 +1968,7 @@ const babysitInput = (stopAfterDays) => ({
 test("createBabysit makes the Babysit Heartbeat in the Chat, ending after the days the rule names", async (t) => {
   const clock = Date.UTC(2026, 9, 27);
   const routines = babysitRoutines(t, clock);
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const routine = await routines.createBabysit(babysitInput({ on: true, days: 3 }));
   assert.equal(routine.name, "Babysit PR #42");
   assert.equal(routine.prompt, "Babysit PR #42");
@@ -2011,36 +1980,34 @@ test("createBabysit makes the Babysit Heartbeat in the Chat, ending after the da
   for (const key of ["provider", "model", "permissionMode"]) assert.equal(key in routine, false, key);
   assert.equal(routines.findPullRequest("github.com/The-PTF/milagre-ade", 42)?.id, routine.id);
   await assert.rejects(routines.createBabysit(babysitInput({ on: true, days: 3 })), /already being babysat/);
-  await routines.save(false);
+  await routines.stop();
 });
 
-test("createBabysit with no day rule lasts 30 days, and does nothing while Routines are off", async (t) => {
+test("createBabysit with no day rule lasts 30 days", async (t) => {
   const clock = Date.UTC(2026, 9, 27);
   const routines = babysitRoutines(t, clock);
-  assert.equal(await routines.createBabysit(babysitInput({ on: true, days: 3 })), null);
-  assert.equal(routines.list().routines.length, 0);
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const routine = await routines.createBabysit(babysitInput({ on: false, days: 3 }));
   assert.equal(routine.expiresAt, clock + 30 * 864e5);
-  await routines.save(false);
+  await routines.stop();
 });
 
 test("a babysit heartbeat keeps a hidden run chat, and a failed keep leaves the heartbeat saved", async (t) => {
   const kept = [];
   const routines = babysitRoutines(t, Date.UTC(2026, 9, 27), async (id) => void kept.push(id));
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   await routines.createBabysit(babysitInput({ on: true, days: 3 }));
   assert.deepEqual(kept, ["/project#2"]);
-  await routines.save(false);
+  await routines.stop();
 
   const warn = t.mock.method(console, "warn", () => {});
   const failing = babysitRoutines(t, Date.UTC(2026, 9, 27), async () => {
     throw new Error("no keep");
   });
-  await failing.save(true, AI_CONSENT_VERSION);
+  failing.start();
   assert.ok(await failing.createBabysit(babysitInput({ on: true, days: 3 })));
   assert.equal(warn.mock.callCount(), 1);
-  await failing.save(false);
+  await failing.stop();
 });
 
 // The line a Chat gets when its babysit Heartbeat ends: a note Milagre writes (ChatHost.addNote), never a turn.
@@ -2076,7 +2043,7 @@ const settleNotes = () => new Promise((resolve) => setImmediate(resolve));
 
 test("a babysit Heartbeat that runs out of time leaves a line in its Chat saying so", async (t) => {
   const { routines, clock, notes, sent, settle } = babysitNotes(t);
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const routine = await routines.createBabysit(babysitInput({ on: true, days: 7 }));
   clock.t += 7 * 864e5 + 1;
   await routines.tick();
@@ -2093,12 +2060,12 @@ test("a babysit Heartbeat that runs out of time leaves a line in its Chat saying
   await routines.tick();
   await settle();
   assert.equal(notes.length, 1);
-  await routines.save(false);
+  await routines.stop();
 });
 
 test("a babysit Heartbeat deleted by its own Chat's stop rule, or by hand, says which", async (t) => {
   const { routines, notes, settle } = babysitNotes(t);
-  await routines.save(true, AI_CONSENT_VERSION);
+  routines.start();
   const own = await routines.createBabysit({
     ...babysitInput({ on: true, days: 3 }),
     settings: { enabled: true, ownRule: true, ownRuleText: "Two approvals" },
@@ -2122,5 +2089,5 @@ test("a babysit Heartbeat deleted by its own Chat's stop rule, or by hand, says 
   routines.remove(heartbeat.id);
   await settle();
   assert.equal(notes.length, 2);
-  await routines.save(false);
+  await routines.stop();
 });

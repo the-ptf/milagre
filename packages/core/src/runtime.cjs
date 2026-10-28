@@ -1319,8 +1319,10 @@ function createRuntime(options) {
     timers: options.routines,
   });
   routines.start();
-  commands.handle("routines:enabled:read", () => routines.read());
-  commands.handle("routines:enabled:save", (_event, value, consentVersion) => routines.save(value === true, consentVersion));
+  // Every computer runs Routines; each Routine's own switch pauses it. Older apps and paired computers still read the
+  // computer's switch and may save it (with the AI sharing consent version they had), which changes nothing.
+  commands.handle("routines:enabled:read", () => ({ enabled: true }));
+  commands.handle("routines:enabled:save", () => ({ enabled: true }));
   // Auto update: the switch, and what a restart to install an update would stop (desktop app-updates.cjs).
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
@@ -1339,14 +1341,13 @@ function createRuntime(options) {
   );
   commands.handle("routines:list", () => routines.list());
   // Create and change check a Routine's target the same way (routineTargets): a listed Project, a Chat that is there.
-  commands.handle("routines:update", (_event, id, patch, consentVersion) => routines.update(id, patch, consentVersion));
+  commands.handle("routines:update", (_event, id, patch) => routines.update(id, patch));
   commands.handle("routines:delete", (_event, id) => routines.remove(id));
-  commands.handle("routines:run-now", (_event, id, consentVersion) => routines.runNow(id, consentVersion));
+  commands.handle("routines:run-now", (_event, id) => routines.runNow(id));
   // A Routine the user made in the Routines form; routines.create checks its target (a Project Milagre lists).
-  // Create, change and Run now carry the consent version from a device that allowed AI sharing: it lets this Mac run them.
-  commands.handle("routines:create", async (_event, input, consentVersion) => {
+  commands.handle("routines:create", async (_event, input) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
-    const routine = await routines.create(input, consentVersion);
+    const routine = await routines.create(input);
     // A webhook's URL goes to the form that made it; after that, routines:hook reads it.
     return routine.trigger.kind === "webhook" ? { routine, hookUrl: routines.hook(routine.id).url } : { routine };
   });
@@ -1980,8 +1981,8 @@ function createRuntime(options) {
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),
       // Milagre's own Linear sign-in, so agents don't reach for a Linear MCP or connector.
       ...(linear.enabled() ? linearToolDefinitions(linearTools) : []),
-      // Heartbeats on the agent's own Chat, while the Experimental switch is on (none in a Link's Chats).
-      ...(routines.enabled() ? routines.definitions(chatId) : []),
+      // Heartbeats on the agent's own Chat (none in a Link's Chats).
+      ...routines.definitions(chatId),
       // A bot's thread: its memory and the Chats it opens.
       ...(bots ? bots.toolsFor(chatId) : []),
     ],

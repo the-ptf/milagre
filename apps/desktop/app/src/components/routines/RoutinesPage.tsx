@@ -84,23 +84,6 @@ export function RoutinesPage({
     return problem ? [{ id: computer.id, problem }] : [];
   });
   const onComputers = Object.keys(byComputer).filter((id) => typeof byComputer[id]?.enabled === "boolean");
-  // Computers that answered but may not run Routines yet: nobody allowed AI sharing for them from a device. Allow (here,
-  // or creating, turning on or running a Routine there) asks this device for permission and passes it on.
-  const unauthorized = onComputers.filter(
-    (id) => byComputer[id]?.enabled === false && !(id !== LOCAL_COMPUTER && remoteProblems.some((item) => item.id === id)),
-  );
-  const [allowing, setAllowing] = useState<string | null>(null);
-  const allow = (id: string) => {
-    setError(null);
-    setAllowing(id);
-    Promise.resolve()
-      .then(() => bridgeFor(id).saveRoutinesEnabled(true))
-      .then(
-        () => refresh(id),
-        (failure) => setError(ipcErrorMessage(failure)),
-      )
-      .finally(() => setAllowing(null));
-  };
   const onKey = onComputers.join(",");
   const [filter, setFilter] = useState<Filter>("all");
   // One computer's Routines only, or every computer's ("all").
@@ -323,27 +306,6 @@ export function RoutinesPage({
           <p key={id} data-routines-computer-problem={id} className="mt-2 text-[13px] break-words text-ink-2">
             {problem}
           </p>
-        ))}
-        {unauthorized.map((id) => (
-          <div
-            key={id}
-            data-routines-unauthorized={id}
-            className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3"
-          >
-            <p className="min-w-0 text-[13px] text-ink-2">
-              {id === LOCAL_COMPUTER ? "Routines won't run on this Mac" : `Routines won't run on ${computerName(id)}`} until you allow sharing with AI
-              providers. Creating, turning on or running one also allows it.
-            </p>
-            <button
-              type="button"
-              data-routines-allow={id}
-              disabled={allowing !== null}
-              onClick={() => allow(id)}
-              className="h-[30px] shrink-0 rounded-full bg-ink px-3.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              Allow
-            </button>
-          </div>
         ))}
         {enabled ? (
           <>

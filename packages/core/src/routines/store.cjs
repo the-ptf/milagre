@@ -2,7 +2,6 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const util = require("node:util");
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { normalizeBabysitSettings } = require("@milagre/shared/babysit");
 const { everyToCron, nextRun } = require("./cron.cjs");
 
@@ -257,7 +256,7 @@ function trimRuns(runs) {
 const rejectedKeys = (state, routineId) => (state.runs[routineId] ?? []).filter((run) => run.rejected === true && run.event).map((run) => run.event.key);
 
 function empty() {
-  return { version: VERSION, enabled: false, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {}, removed: {}, pullRequests: {} };
+  return { version: VERSION, routines: [], runs: {}, queues: {}, seen: {}, rejections: {}, linear: {}, removed: {}, pullRequests: {} };
 }
 
 // The entries of a saved object that pass `valid`; what a damaged file holds besides that is left out.
@@ -550,11 +549,8 @@ function createRoutineStore({
       for (const run of saved) (validRun(run, routineId) ? validRuns[routineId] : invalid.runs).push(run);
     }
     const state = {
+      // Files from before every computer ran Routines also have `enabled` and `aiConsentVersion`; they are dropped.
       version: VERSION,
-      // Older profiles enabled Routines before their device had accepted the disclosure. Keep their data, but require
-      // an explicit enable from a client with the current disclosure before any automatic Run may start.
-      enabled: parsed.enabled === true && parsed.aiConsentVersion === AI_CONSENT_VERSION,
-      aiConsentVersion: parsed.aiConsentVersion === AI_CONSENT_VERSION ? AI_CONSENT_VERSION : null,
       routines,
       runs: validRuns,
       // Files saved before triggers existed have none of these.
@@ -663,18 +659,6 @@ function createRoutineStore({
     const run = routineId === undefined ? undefined : state.runs[routineId]?.find((item) => item.id === runId);
     const routine = run && find(state, routineId);
     return routine ? { routine, run } : null;
-  }
-
-  function enabled() {
-    return data.enabled;
-  }
-  function setEnabled(value) {
-    return transact((state, tx) => {
-      tx.changed = state.enabled !== (value === true);
-      state.enabled = value === true;
-      state.aiConsentVersion = state.enabled ? AI_CONSENT_VERSION : null;
-      return state.enabled;
-    });
   }
 
   function list() {
@@ -1259,8 +1243,6 @@ function createRoutineStore({
   }
 
   return {
-    enabled,
-    setEnabled,
     list,
     get,
     runs,

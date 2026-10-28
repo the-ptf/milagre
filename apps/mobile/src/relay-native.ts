@@ -1,5 +1,4 @@
 import { randomUUID } from "expo-crypto";
-import { beforeAiCall } from "./ai-consent";
 import { AppState } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
 import { createRelayTransport, type RelayTransport } from "./relay-transport";
@@ -21,7 +20,6 @@ const folder = () => new Directory(Paths.cache, "relay-media");
 /** The phone's side of the relay: its Keychain key, native randomness and the image cache folder. */
 export const relayRuntime: RelayRuntime & { forget(hostId: string): void } = {
   randomUUID,
-  beforeCall: beforeAiCall,
   async transport({ relay, token }) {
     let identity;
     try {

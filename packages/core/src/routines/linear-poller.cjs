@@ -11,7 +11,7 @@ const OVERLAP_MS = 5_000;
 const REQUEST_BUDGET = 40;
 // Comment events a workspace's scan holds before handing them over. A window holding more is narrowed and read again.
 const BUFFER_MAX = 1000;
-// However long polling was off (the switch, a pause, a sleeping Mac), a poll never reaches back further than this.
+// However long polling was off (a quit, a pause, a sleeping Mac), a poll never reaches back further than this.
 const MAX_BACKFILL_MS = 24 * 60 * 60_000;
 // A saved cursor this far ahead of the Mac's clock was set while the clock ran ahead, and isn't trusted.
 const CLOCK_AHEAD_MS = 5 * 60_000;
@@ -201,10 +201,10 @@ function createLinearPoller({
     state.timer?.unref?.();
   }
 
-  /** Matches the polling to the enabled Linear Routines, the Routines switch and the sign-ins. Cheap; safe to call often. */
+  /** Matches the polling to the enabled Linear Routines and the sign-ins. Cheap; safe to call often. */
   function sync() {
     const api = source();
-    const wanted = new Set(running && store.enabled() && api?.enabled?.() ? linearRoutines().map((routine) => lower(routine.trigger.workspace)) : []);
+    const wanted = new Set(running && api?.enabled?.() ? linearRoutines().map((routine) => lower(routine.trigger.workspace)) : []);
     for (const [workspace, state] of states) {
       if (wanted.has(workspace)) continue;
       clearTimer(state.timer);

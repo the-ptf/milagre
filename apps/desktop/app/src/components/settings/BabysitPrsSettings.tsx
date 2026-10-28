@@ -23,9 +23,7 @@ import {
   type BabysitStep,
   type BabysitWake,
 } from "@milagre/shared/babysit";
-import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { createDebouncedSave, useBabysitSettings, type BabysitChange, type SaveState } from "../../lib/babysit-settings";
-import { useRoutines } from "../../lib/routines";
 import { Checkbox } from "../primitives/Checkbox";
 import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { Select } from "../primitives/Select";
@@ -408,8 +406,6 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
 /** Settings › Experimental › Babysit PRs: the one configuration every Chat's babysitting follows. */
 export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   const { settings, error, save } = useBabysitSettings();
-  // Babysitting runs as a Heartbeat: a Mac that may not run Routines watches no PR.
-  const routinesOff = useRoutines().byComputer[LOCAL_COMPUTER]?.enabled === false;
   return (
     <div data-babysit-prs-page>
       <div className="flex items-center gap-3">
@@ -432,11 +428,6 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
       {error && (
         <p role="alert" className="mt-3 px-1 text-[12px] text-red">
           {error}
-        </p>
-      )}
-      {routinesOff && (
-        <p data-babysit-routines-off className="mt-4 rounded-[10px] bg-field px-3 py-2.5 text-[12.5px] text-ink-2">
-          Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.
         </p>
       )}
       {settings && <BabysitForm settings={settings} save={save} />}

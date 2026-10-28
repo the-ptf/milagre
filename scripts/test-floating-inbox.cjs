@@ -102,18 +102,6 @@ async function browserChecks() {
     window.showInactive();
     await waitFor('document.querySelectorAll("[data-inbox-item]").length===1');
     await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'1',bubbles:true}))`);
-    await waitFor(`!!document.querySelector('dialog[open]')`);
-    assert.equal(await evaluate("window.answer"), undefined, "inbox answers wait for AI consent");
-    await shot("floating-inbox-ai-consent");
-    await evaluate(
-      `document.querySelector('dialog').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.querySelector('dialog').dispatchEvent(new Event('cancel',{cancelable:true}))`,
-    );
-    await waitFor(`!document.querySelector('dialog[open]') && document.querySelector('[data-inbox-item]')?.getAttribute('aria-busy') === 'false'`);
-    assert.equal(await evaluate("window.answer"), undefined);
-    assert.equal(await evaluate("window.inboxClosed"), undefined, "Escape cancels consent without closing the inbox");
-    await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'1',bubbles:true}))`);
-    await waitFor(`!!document.querySelector('dialog[open]')`);
-    await evaluate(`[...document.querySelectorAll('dialog button')].find(button=>button.textContent==='Allow sharing').click()`);
     await waitFor("window.answer != null && !document.querySelector('[data-inbox-item=\"/work/shop#1\"]')");
     await evaluate("window.resetInbox();window.answer=undefined");
     await waitFor('document.querySelector("[data-inbox-item]")?.dataset.inboxItem === "/work/shop#1"');

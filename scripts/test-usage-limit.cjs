@@ -12,9 +12,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
 
 const fixture = `
-// This fixture exercises a device that has already accepted AI sharing: a switch continues the Chat.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
+// A switch continues the Chat.
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatComposer } from "/src/components/ChatComposer";
