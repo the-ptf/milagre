@@ -46,6 +46,8 @@ sidebar), `phone-drawer-no-project`, `phone-new-chat-no-project`. `desktop-chat-
 - Moving a project-less Chat into a Project later, or "promoting" its folder to a Project.
 - Making No project the default for New chat.
 - Onboarding changes (a "just chat" path on first launch).
+  A user with no real Project still sees onboarding on launch: `launchProject` returns null when only the Chats home
+  exists, since the home is never a launch Project.
 - Links, Delegations into project-less Chats, Routines and Heartbeats aimed at them. They may work by accident; nothing
   is built for them.
 
