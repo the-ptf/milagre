@@ -48,6 +48,7 @@ window.listCalls = [];
 window.historyCalls = [];
 window.historyHeld = false;
 window.historyError = null;
+window.statsLimit = null;
 window.branchDeleted = false;
 window.noSharedHistory = false;
 window.historyWaiters = [];
@@ -62,11 +63,12 @@ window.milagre = {
       if (window.historyHeld) await new Promise(resolve => window.historyWaiters.push(resolve));
       if (window.historyError) throw new Error(window.historyError);
       const commit = { sha: "a".repeat(40), author: "Maria", email: "maria@example.com", date: "2026-10-28T10:00:00Z", message: "Current feature commit\\n\\nDetailed explanation", files: 2, added: 7, removed: 3 };
+      if (window.statsLimit) Object.assign(commit, { files: null, added: null, removed: null, statsUnavailable: window.statsLimit });
       return { head: "c".repeat(40), total: 2, automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" }, projectDefault: { name: "main", ref: "refs/heads/main" }, suggested: "refs/heads/parent",
         comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
         message: window.noSharedHistory && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
-        isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }, { ref: "refs/heads/feature/current", name: "feature/current" }, { ref: "refs/remotes/origin/main", name: "origin/main" }].filter(branch => !window.branchDeleted || branch.ref !== "refs/heads/parent"), hasMore: request.limit === 30,
-        commits: !request.limit ? [] : request.limit >= 60 ? [commit, { ...commit, sha: "b".repeat(40), message: "Earlier feature commit" }] : [commit] };
+        isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branchesVersion: "v1", baseMissing: window.branchDeleted && request.base === "refs/heads/parent", ...(request.branchesVersion === "v1" ? {} : { branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }, { ref: "refs/heads/feature/current", name: "feature/current" }, { ref: "refs/remotes/origin/main", name: "origin/main" }].filter(branch => !window.branchDeleted || branch.ref !== "refs/heads/parent") }), hasMore: request.limit === 30,
+        commits: !request.limit ? [] : request.limit >= 60 ? [commit, { ...commit, sha: "b".repeat(40), message: "Earlier feature commit", files: 2, added: 7, removed: 3, statsUnavailable: undefined }] : [commit] };
     },
     diffFiles: async request => {
       window.listCalls.push(request.mode);
@@ -368,6 +370,21 @@ async function browserChecks() {
     await evaluate("window.releaseHistory()");
     await waitFor('document.querySelectorAll("[data-commit-history] details").length === 2');
 
+    assert.ok(await evaluate('window.historyCalls.slice(1).some(call => call.branchesVersion === "v1")'), "polls acknowledge the catalogue version");
+    await evaluate('if (!document.querySelector("[data-commit-history] details").open) document.querySelector("[data-commit-history] summary").click()');
+    for (const reason of ["timeout", "tooLarge"]) {
+      await evaluate(`window.statsLimit = ${JSON.stringify(reason)}; window.refreshChanges()`);
+      await waitFor('document.querySelector("[data-commit-history] summary").textContent.includes("Totals unavailable")');
+      assert.equal(await evaluate('document.querySelectorAll("[data-commit-history] details").length'), 2);
+      assert.ok(
+        await evaluate(
+          'document.querySelector("[data-commit-history] details").open && document.querySelector("[data-commit-history] details").textContent.includes("maria@example.com")',
+        ),
+      );
+      assert.equal(await evaluate('document.querySelector("[data-commit-history] details:first-of-type summary [data-diff-counts]")'), null);
+      await evaluate("window.statsLimit = null; window.refreshChanges()");
+      await waitFor('!!document.querySelector("[data-commit-history] details:first-of-type summary [data-diff-counts]")');
+    }
     assert.equal(await evaluate('document.querySelector(`[data-comparison-view="commits"] span`).textContent'), "2");
     await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
     await waitFor('!!document.querySelector("[role=listbox]")');

@@ -342,3 +342,112 @@ test("history counts merge changes against the first parent without Git 2.31 opt
   assert.equal(merge.removed, 0);
   assert.equal("parent" in merge, false);
 });
+
+test("history caches catalogue/reflog reads, omits unchanged branches and checks a deleted base live", async (t) => {
+  const { cwd, git } = await fixture(t);
+  git("checkout", "-b", "feature", "main");
+  git("branch", "parent");
+  const head = git("rev-parse", "HEAD").trim();
+  execFileSync("git", ["-C", cwd, "update-ref", "--stdin"], {
+    input: Array.from({ length: 1200 }, (_, index) => `create refs/remotes/origin/topic-${index} ${head}\n`).join(""),
+    encoding: "utf8",
+  });
+  const real = require("node:child_process").execFile;
+  let clock = 0,
+    lists = 0,
+    reflogs = 0;
+  const diff = createGitDiff({
+    now: () => clock,
+    execFile(command, args, options, callback) {
+      if (args.includes("--format=%(refname)")) lists++;
+      if (args.includes("--walk-reflogs")) reflogs++;
+      return real(command, args, options, callback);
+    },
+  });
+  const [first] = await Promise.all([diff.history({ cwd, limit: 0 }), diff.history({ cwd, limit: 0 })]);
+  assert.equal(lists, 1);
+  assert.equal(reflogs, 1);
+  assert.ok(first.branches.some((branch) => branch.name === "parent"));
+  const same = await diff.history({ cwd, limit: 0, branchesVersion: first.branchesVersion });
+  assert.equal(same.branches, undefined);
+  assert.equal(same.branchesVersion, first.branchesVersion);
+  assert.ok(first.branches.length > 1200);
+  t.diagnostic(`Catalogue payload: ${Buffer.byteLength(JSON.stringify(first))} bytes cold, ${Buffer.byteLength(JSON.stringify(same))} bytes warm.`);
+  assert.ok(JSON.stringify(first).length > JSON.stringify(same).length * 20, "warm phone polls do not resend thousands of choices");
+  assert.equal(lists, 1);
+  assert.equal(reflogs, 1);
+  git("branch", "-D", "parent");
+  git("branch", "added-after-poll");
+  const deleted = await diff.history({ cwd, base: "refs/heads/parent", limit: 0, branchesVersion: first.branchesVersion });
+  assert.equal(deleted.baseMissing, true, "deletion recovery never waits for catalogue expiry");
+  assert.equal(deleted.branches, undefined);
+  clock += 31000;
+  const updated = await diff.history({ cwd, limit: 0, branchesVersion: first.branchesVersion });
+  assert.notEqual(updated.branchesVersion, first.branchesVersion);
+  assert.ok(updated.branches.some((branch) => branch.name === "added-after-poll"));
+  assert.equal(
+    updated.branches.some((branch) => branch.name === "parent"),
+    false,
+  );
+  assert.equal(lists, 2);
+  assert.equal(reflogs, 2);
+  git("checkout", "main");
+  await diff.history({ cwd, limit: 0 });
+  assert.equal(reflogs, 3, "checkout invalidates the cached creation source immediately");
+  const other = await fixture(t);
+  await diff.history({ cwd: other.cwd, limit: 0 });
+  assert.equal(lists, 4, "folders never share catalogues");
+});
+
+for (const [reason, failure] of [
+  ["timeout", { killed: true }],
+  ["tooLarge", { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" }],
+]) {
+  test(`history retains every commit when numstat hits ${reason}, then retries after backoff`, async (t) => {
+    const { cwd, git, write } = await fixture(t);
+    git("checkout", "-b", "feature");
+    await write("large.txt", "large\n");
+    git("add", ".");
+    git("commit", "-m", "Large commit with body\n\nExplanation");
+    const large = git("rev-parse", "HEAD").trim();
+    await write("small.txt", "small\n");
+    git("add", ".");
+    git("commit", "-m", "Small commit");
+    const real = require("node:child_process").execFile;
+    let clock = 0,
+      attempts = 0,
+      limited = true;
+    const diff = createGitDiff({
+      now: () => clock,
+      execFile(command, args, options, callback) {
+        if (args.includes("--numstat") && args[args.indexOf("--") - 1] === large) {
+          attempts++;
+          if (limited) {
+            callback(Object.assign(new Error("read limit"), failure), "1\t0\tpartial.txt\0", "");
+            return;
+          }
+        }
+        return real(command, args, options, callback);
+      },
+    });
+    const first = await diff.history({ cwd, base: "main" });
+    assert.equal(first.commits.length, 2);
+    const row = first.commits.find((commit) => commit.sha === large);
+    assert.equal(row.statsUnavailable, reason);
+    assert.equal(row.files, null);
+    assert.equal(row.added, null);
+    assert.equal(row.removed, null);
+    assert.equal(row.message, "Large commit with body\n\nExplanation");
+    assert.equal(row.author, "Milagre");
+    assert.equal(first.commits[0].files, 1);
+    await diff.history({ cwd, base: "main" });
+    assert.equal(attempts, 1, "repeated polls do not repeat an expensive failed read");
+    limited = false;
+    clock += 31000;
+    const retried = (await diff.history({ cwd, base: "main" })).commits.find((commit) => commit.sha === large);
+    assert.equal(attempts, 2);
+    assert.equal(retried.files, 1);
+    assert.equal(retried.added, 1);
+    assert.equal(retried.statsUnavailable, undefined);
+  });
+}

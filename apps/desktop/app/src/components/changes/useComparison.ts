@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isGitHistoryUnavailable, type GitHistory } from "@milagre/shared/git-diff";
+import { isGitHistoryUnavailable, comparisonBaseMissing, withHistoryBranches, type GitHistory, type GitBranchCatalog } from "@milagre/shared/git-diff";
 import type { MilagreBridge } from "../../electron";
 import { useGitRefresh } from "./useGitRefresh";
 
@@ -25,6 +25,7 @@ export function useComparison(
     error?: string;
     unavailable?: boolean;
   }>();
+  const catalog = useRef<{ cwd: string; bridge: MilagreBridge; value: GitBranchCatalog } | undefined>(undefined);
   const current = useRef({ cwd, base: comparisonBase, recordedBase: base, limit, repository, scope, bridge, active });
   current.current = { cwd, base: comparisonBase, recordedBase: base, limit, repository, scope, bridge, active };
   const refresh = useCallback(async () => {
@@ -35,9 +36,20 @@ export function useComparison(
         setLoaded({ repository: request.repository, scope: request.scope, bridge, unavailable: true });
         return;
       }
-      const data = await bridge.git.history({ cwd: request.cwd, base: request.base, recordedBase: request.recordedBase, limit: request.limit });
-      if (request.scope === current.current.scope && request.bridge === current.current.bridge)
+      const saved = catalog.current?.cwd === request.cwd && catalog.current.bridge === bridge ? catalog.current.value : undefined;
+      const response = await bridge.git.history({
+        cwd: request.cwd,
+        base: request.base,
+        recordedBase: request.recordedBase,
+        branchesVersion: saved?.version,
+        limit: request.limit,
+      });
+      if (request.scope === current.current.scope && request.bridge === current.current.bridge) {
+        if (response.isRepo && response.branches && response.branchesVersion)
+          catalog.current = { cwd: request.cwd, bridge, value: { version: response.branchesVersion, branches: response.branches } };
+        const data = withHistoryBranches(response, saved);
         setLoaded({ repository: request.repository, scope: request.scope, bridge: request.bridge, data });
+      }
     } catch (error) {
       if (request.scope === current.current.scope && request.bridge === current.current.bridge)
         setLoaded((previous) => ({
@@ -63,7 +75,7 @@ export function useComparison(
   );
   const data = retained?.data?.isRepo ? retained.data : undefined;
   useEffect(() => {
-    if (!active || !selected || !data || data.branches.some((branch) => branch.ref === selected)) return;
+    if (!active || !selected || !data || !comparisonBaseMissing(data, selected)) return;
     select("");
     setMissing({ cwd, bridge, name: selected.replace(/^refs\/(heads|remotes)\//, "") });
   }, [active, selected, data, select, cwd, bridge]);

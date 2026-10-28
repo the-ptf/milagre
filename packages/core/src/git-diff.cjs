@@ -1,3 +1,4 @@
+const { createHash } = require("node:crypto");
 const { createGit } = require("./git/client.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -27,6 +28,33 @@ function createGitDiff(options = {}) {
   const { run, checked, out: gitOut, refExists, resolveBase, createdFrom, chatBase } = createGit(options).read;
 
   const commitStats = new Map();
+  const catalogs = new Map();
+  const now = options.now ?? Date.now;
+  const cacheTime = 30000;
+
+  // One shared read per folder/branch, bounded in size and age, including concurrent polls.
+  async function catalog(cwd, branch) {
+    const key = JSON.stringify([cwd, branch]);
+    const saved = catalogs.get(key);
+    if (saved && saved.expires > now()) return saved.read;
+    if (!saved && catalogs.size >= 64) catalogs.delete(catalogs.keys().next().value);
+    const entry = { expires: now() + cacheTime };
+    entry.read = Promise.all([checked(cwd, ["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"]), createdFrom(cwd)])
+      .then(([refs, source]) => {
+        const branches = refs.stdout
+          .trim()
+          .split("\n")
+          .filter((ref) => ref && !ref.endsWith("/HEAD"))
+          .map((ref) => ({ ref, name: ref.replace(/^refs\/(heads|remotes)\//, "") }));
+        return { branches, source, version: createHash("sha256").update(JSON.stringify(branches)).digest("hex") };
+      })
+      .catch((error) => {
+        if (catalogs.get(key) === entry) catalogs.delete(key);
+        throw error;
+      });
+    catalogs.set(key, entry);
+    return entry.read;
+  }
 
   /**
    * The refs `git diff` compares for a mode, or null when there is nothing to compare: uncommitted work
@@ -158,22 +186,17 @@ function createGitDiff(options = {}) {
   }
 
   /** Bounded, read-only history for the same comparison the file tree uses. */
-  async function history({ cwd, base, recordedBase, limit = 30 } = {}) {
+  async function history({ cwd, base, recordedBase, branchesVersion, limit = 30 } = {}) {
     if (!(await run(cwd, ["rev-parse", "--is-inside-work-tree"])).ok) return { isRepo: false, message: NOT_REPO };
-    const [branch, branches, resolved, automatic, projectDefault, source, head] = await Promise.all([
-      gitOut(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
-      checked(cwd, ["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"]),
-      chatBase(cwd, base),
-      chatBase(cwd, recordedBase),
+    const [branch, head] = await Promise.all([gitOut(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]), gitOut(cwd, ["rev-parse", "--verify", "HEAD"])]);
+    const { branches, source, version } = await catalog(cwd, branch);
+    // Resolve the creation source once, rather than walking its reflog for each base.
+    const [automatic, projectDefault, baseExists] = await Promise.all([
+      resolveBase(cwd, recordedBase || source),
       resolveBase(cwd),
-      createdFrom(cwd),
-      gitOut(cwd, ["rev-parse", "--verify", "HEAD"]),
+      base ? refExists(cwd, base) : true,
     ]);
-    const choices = branches.stdout
-      .trim()
-      .split("\n")
-      .filter((ref) => ref && !ref.endsWith("/HEAD"))
-      .map((ref) => ({ ref, name: ref.replace(/^refs\/(heads|remotes)\//, "") }));
+    const resolved = base && base !== (recordedBase || source) ? await resolveBase(cwd, base) : automatic;
     const recorded = !!recordedBase && (await refExists(cwd, recordedBase));
     const suggestionSource = recorded ? recordedBase : source;
     const suggested =
@@ -184,7 +207,9 @@ function createGitDiff(options = {}) {
       head,
       base: resolved.name,
       comparisonRef: resolved.ref,
-      branches: choices,
+      ...(branchesVersion === version ? {} : { branches }),
+      branchesVersion: version,
+      baseMissing: !baseExists,
       automatic: {
         ...automatic,
         reason: recorded ? "the recorded base" : !recordedBase && source && suggested ? "the branch it was created from" : "the project default",
@@ -215,18 +240,28 @@ function createGitDiff(options = {}) {
         ...(await Promise.all(
           commits.slice(i, Math.min(i + 4, count)).map(async ({ parent, ...commit }) => {
             const key = `${cwd}\0${commit.sha}`;
-            if (commitStats.has(key)) return { ...commit, ...commitStats.get(key) };
+            const cached = commitStats.get(key);
+            if (cached && (!cached.retryAt || cached.retryAt > now())) return { ...commit, ...cached.totals };
             // Compare the first parent explicitly, including merges, without requiring Git 2.31 --diff-merges.
-            const stat = await checked(cwd, [
-              ...(parent ? ["diff"] : ["show", "--format="]),
-              "--no-ext-diff",
-              "--no-textconv",
-              "--numstat",
-              "-z",
-              "-M",
-              ...(parent ? [parent, commit.sha] : [commit.sha]),
-              ...PATHSPEC,
-            ]);
+            let stat;
+            try {
+              stat = await checked(cwd, [
+                ...(parent ? ["diff"] : ["show", "--format="]),
+                "--no-ext-diff",
+                "--no-textconv",
+                "--numstat",
+                "-z",
+                "-M",
+                ...(parent ? [parent, commit.sha] : [commit.sha]),
+                ...PATHSPEC,
+              ]);
+            } catch (error) {
+              if (!error.timedOut && !error.overflow) throw error;
+              const totals = { files: null, added: null, removed: null, statsUnavailable: error.overflow ? "tooLarge" : "timeout" };
+              if (commitStats.size >= 600) commitStats.delete(commitStats.keys().next().value);
+              commitStats.set(key, { totals, retryAt: now() + cacheTime });
+              return { ...commit, ...totals };
+            }
             const files = [...parseNumstat(stat.stdout).values()];
             const totals = {
               files: files.length,
@@ -234,7 +269,7 @@ function createGitDiff(options = {}) {
               removed: files.reduce((sum, file) => sum + file.removed, 0),
             };
             if (commitStats.size >= 600) commitStats.delete(commitStats.keys().next().value);
-            commitStats.set(key, totals);
+            commitStats.set(key, { totals });
             return { ...commit, ...totals };
           }),
         )),

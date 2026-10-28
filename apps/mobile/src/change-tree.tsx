@@ -14,6 +14,10 @@ import {
 import * as Clipboard from "expo-clipboard";
 import {
   branchName,
+  comparisonBaseMissing,
+  withHistoryBranches,
+  commitStatsNotice,
+  type GitBranchCatalog,
   commitInitials,
   comparisonOptions,
   isGitHistoryUnavailable,
@@ -117,18 +121,24 @@ export function ChangeSections({
   const [narrow, setNarrow] = useState(false);
   const selected = choices[cwd] ?? "";
   const comparisonBase = selected || base;
+  const [catalog, setCatalog] = useState<{ cwd: string; client: Client | null; value: GitBranchCatalog }>();
+  const saved = catalog?.cwd === cwd && catalog.client === client ? catalog.value : undefined;
   const history = useRpc<GitHistory>(
     client,
     "git:history",
-    [{ cwd, base: comparisonBase, recordedBase: base, limit }],
+    [{ cwd, base: comparisonBase, recordedBase: base, branchesVersion: saved?.version, limit }],
     active,
     JSON.stringify([cwd, comparisonBase]),
   );
   const unavailable = isGitHistoryUnavailable(history.error);
-  const data = history.data?.isRepo ? history.data : undefined;
+  const response = history.data;
+  if (response?.isRepo && response.branches && response.branchesVersion && saved?.version !== response.branchesVersion)
+    setCatalog({ cwd, client, value: { version: response.branchesVersion, branches: response.branches } });
+  const merged = response ? withHistoryBranches(response, saved) : undefined;
+  const data = merged?.isRepo ? merged : undefined;
   const [missing, setMissing] = useState<{ cwd: string; client: Client | null; name: string }>();
   // Drop a deleted Git ref before rendering either list with a stale saved selection.
-  if (active && selected && data && !data.branches.some((branch) => branch.ref === selected)) {
+  if (active && selected && data && comparisonBaseMissing(data, selected)) {
     setChoices((previous) => ({ ...previous, [cwd]: "" }));
     setLimit(view === "commits" ? 30 : 0);
     setMissing({ cwd, client, name: branchName(selected) });
@@ -379,14 +389,21 @@ function CommitCard({ commit }: { commit: GitCommit }) {
             {commit.author}
           </Text>
           <Text style={styles.caption}>{new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</Text>
-          <Text style={[styles.caption, { marginLeft: "auto" }]}>
-            {commit.files} {commit.files === 1 ? "file" : "files"}
-          </Text>
-          <Counts added={commit.added} removed={commit.removed} />
+          {commit.statsUnavailable ? (
+            <Text style={[styles.caption, { marginLeft: "auto" }]}>Totals unavailable</Text>
+          ) : (
+            <>
+              <Text style={[styles.caption, { marginLeft: "auto" }]}>
+                {commit.files} {commit.files === 1 ? "file" : "files"}
+              </Text>
+              <Counts added={commit.added} removed={commit.removed} />
+            </>
+          )}
         </View>
       </Pressable>
       {expanded && (
         <View style={{ borderLeftWidth: 2, borderColor: colors.line, paddingLeft: 10, gap: 8 }}>
+          {commit.statsUnavailable && <Text style={styles.caption}>{commitStatsNotice(commit.statsUnavailable)}</Text>}
           <Text selectable style={styles.text}>
             {commit.message}
           </Text>

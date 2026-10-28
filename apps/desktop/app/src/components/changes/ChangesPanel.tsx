@@ -17,7 +17,7 @@ import {
   GitPullRequestIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
-import { branchName, commitInitials, comparisonOptions } from "@milagre/shared/git-diff";
+import { branchName, commitInitials, comparisonOptions, commitStatsNotice } from "@milagre/shared/git-diff";
 import type { GitCommit } from "@milagre/shared/git-diff";
 import type { PullRequest } from "@milagre/shared/model";
 import { pullRequestPresentation } from "@milagre/shared/pr-blockers";
@@ -285,13 +285,22 @@ function CommitRow({ commit }: { commit: GitCommit }) {
           <time className="shrink-0" dateTime={commit.date} title={new Date(commit.date).toLocaleString()}>
             {new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
           </time>
-          <span className="ml-auto shrink-0">
-            {commit.files} {commit.files === 1 ? "file" : "files"}
-          </span>
-          <Counts added={commit.added} removed={commit.removed} />
+          {commit.statsUnavailable ? (
+            <span className="ml-auto" title={commitStatsNotice(commit.statsUnavailable)}>
+              Totals unavailable
+            </span>
+          ) : (
+            <>
+              <span className="ml-auto shrink-0">
+                {commit.files} {commit.files === 1 ? "file" : "files"}
+              </span>
+              <Counts added={commit.added} removed={commit.removed} />
+            </>
+          )}
         </span>
       </summary>
       <div className="mt-2 border-l-2 border-line pl-2.5">
+        {commit.statsUnavailable && <p className="mb-2 text-[11px] text-ink-3">{commitStatsNotice(commit.statsUnavailable)}</p>}
         <p className="whitespace-pre-wrap break-words text-ink-2">{commit.message}</p>
         <p className="mt-2 break-words text-[11px] text-ink-3">
           {commit.author} &lt;{commit.email}&gt; · {new Date(commit.date).toLocaleString()}

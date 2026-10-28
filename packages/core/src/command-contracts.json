@@ -5524,6 +5524,9 @@
         "recordedBase": {
           "type": "string"
         },
+        "branchesVersion": {
+          "type": "string"
+        },
         "limit": {
           "type": "number"
         }
@@ -6715,11 +6718,11 @@
           "$ref": "#/$defs/T163",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2151": {
+        "__@toStringTag@2152": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2151"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2152"],
       "additionalProperties": false
     },
     "T160": {

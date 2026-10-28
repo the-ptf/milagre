@@ -15100,7 +15100,7 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   let picker;
   let deleted = false;
   let unrelated = false;
-  const phoneClient = {};
+  let phoneClient = {};
   const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
   const commit = {
     sha: "a".repeat(40),
@@ -15144,11 +15144,17 @@ test("phone changes choose a comparison branch and keep its base when opening a 
                   comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
                   message: unrelated && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
                   automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" },
-                  branches: [
-                    { ref: "refs/heads/parent", name: "parent" },
-                    { ref: "refs/heads/current", name: "current" },
-                    { ref: "refs/remotes/origin/main", name: "origin/main" },
-                  ].filter((branch) => !deleted || branch.ref !== "refs/heads/parent"),
+                  branchesVersion: "v1",
+                  baseMissing: deleted && request.base === "refs/heads/parent",
+                  ...(request.branchesVersion === "v1"
+                    ? {}
+                    : {
+                        branches: [
+                          { ref: "refs/heads/parent", name: "parent" },
+                          { ref: "refs/heads/current", name: "current" },
+                          { ref: "refs/remotes/origin/main", name: "origin/main" },
+                        ].filter((branch) => !deleted || branch.ref !== "refs/heads/parent"),
+                      }),
                   commits: request.limit ? [commit] : [],
                   hasMore: false,
                 }
@@ -15210,6 +15216,37 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   assert.ok(textOf(tree).includes("parent no longer exists. Showing changes since main."));
   find(tree, (node) => node.props?.accessibilityLabel === "Dismiss missing branch notice").props.onPress();
   assert.equal(textOf(render()).includes("no longer exists"), false);
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.branchesVersion, "v1");
+  find(render(), (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(
+    picker.items.some((item) => item.id === "refs/heads/parent"),
+    "omitted catalogues retain picker choices",
+  );
+  phoneClient = {};
+  render();
+  assert.equal(
+    calls.findLast((call) => call.method === "git:history").request.branchesVersion,
+    undefined,
+    "another host never borrows the previous host's catalogue token",
+  );
+  for (const reason of ["timeout", "tooLarge"]) {
+    const limited = { ...commit, files: null, added: null, removed: null, statsUnavailable: reason };
+    const limitedReact = hookHost();
+    const renderCard = load("change-tree.tsx", { ...modules, react: limitedReact }, "\nexport { CommitCard };\n").CommitCard;
+    limitedReact.begin();
+    let row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Totals unavailable"));
+    assert.equal(
+      find(row, (node) => node.type === "Counts"),
+      undefined,
+      "unavailable totals never render as zero",
+    );
+    find(row, (node) => node.type === "Pressable").props.onPress();
+    limitedReact.begin();
+    row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Detailed explanation") && textOf(row).includes("maria@example.com"));
+    assert.ok(textOf(row).includes("Retrying automatically"));
+  }
 });
 
 test("phone history retains metadata and commits during pagination, but never across repositories or clients", async () => {

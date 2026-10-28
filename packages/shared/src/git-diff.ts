@@ -24,10 +24,10 @@ export type GitCommit = {
   email: string;
   date: string;
   message: string;
-  files: number;
-  added: number;
-  removed: number;
-};
+} & (
+  | { files: number; added: number; removed: number; statsUnavailable?: never }
+  | { files: null; added: null; removed: null; statsUnavailable: "timeout" | "tooLarge" }
+);
 
 export type GitHistory =
   | { isRepo: false; message: string }
@@ -41,7 +41,11 @@ export type GitHistory =
       automatic?: { name: string; ref: string | null; reason: string };
       projectDefault?: { name: string; ref: string | null };
       suggested?: string | null;
-      branches: { ref: string; name: string }[];
+      /** Omitted when the caller already has branchesVersion. */
+      branches?: GitBranch[];
+      branchesVersion?: string;
+      /** Checked live, independently of the cached catalogue. */
+      baseMissing?: boolean;
       commits: GitCommit[];
       hasMore: boolean;
       message?: string;
@@ -94,3 +98,22 @@ export const commitInitials = (author: string) =>
     .slice(0, 2)
     .join("")
     .toUpperCase() || "?";
+
+export type GitBranch = { ref: string; name: string };
+export type GitBranchCatalog = { version: string; branches: GitBranch[] };
+
+/** Never reuse a catalogue from a different response version. Callers also scope it by host and folder. */
+export function withHistoryBranches(data: GitHistory, catalog?: GitBranchCatalog): GitHistory {
+  if (!data.isRepo || data.branches) return data;
+  return { ...data, branches: catalog && data.branchesVersion === catalog.version ? catalog.branches : [] };
+}
+
+export function comparisonBaseMissing(data: Extract<GitHistory, { isRepo: true }>, selected: string): boolean {
+  return !!selected && (data.baseMissing ?? data.branches?.every((branch) => branch.ref !== selected) ?? false);
+}
+
+export function commitStatsNotice(reason: NonNullable<GitCommit["statsUnavailable"]>): string {
+  return reason === "timeout"
+    ? "Totals unavailable: Git exceeded the read time limit. Retrying automatically."
+    : "Totals unavailable: Git exceeded the output limit. Retrying automatically.";
+}
