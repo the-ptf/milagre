@@ -116,7 +116,7 @@ import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-re
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
-import { showNotice } from "./lib/notice";
+import { BRIEF_NOTICE_MS, clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { Notice as NoticeCard } from "./components/Notice";
 import { openInEditor } from "./lib/editors";
@@ -556,6 +556,8 @@ function App() {
   const nextChatView = useRef(0);
   const [, setChatView] = useState(0);
   function advanceChatView() {
+    // A confirmation like "Chat archived" belongs to the screen it was said on.
+    clearNoticeOnNavigate();
     chatView.current = ++nextChatView.current;
     setChatView(chatView.current);
   }
@@ -1406,7 +1408,8 @@ function App() {
     )
       .then((outcome) => {
         const archived = archivedNotice(outcome, { chatsHome });
-        if (archived) setNotice(archived);
+        // A confirmation, not a problem: a brief toast over the page, so it neither lingers nor moves the layout.
+        if (archived) showNotice(archived, { ms: BRIEF_NOTICE_MS, leaveOnNavigate: true });
       })
       // A call that timed out may still have landed: a chat the host shows archived by now needs no notice.
       .catch((error) => {
