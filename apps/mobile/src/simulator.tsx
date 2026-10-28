@@ -235,7 +235,8 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
             </View>
           </>
         )}
-        <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />
+        {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
+        {onClose === goBack && <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />}
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source ? (

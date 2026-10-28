@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -21,7 +21,7 @@ import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { IconButton, PageScroll, tap } from "./ui";
+import { GlassIconButton, IconButton, tap } from "./ui";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrOverview } from "./pr-overview";
 import { openPrFile, openPrPage } from "./pr-nav";
@@ -706,8 +706,16 @@ export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) 
   const closeLabel = shownTab === "pr" ? "Close the PR" : shownTab === "changes" ? "Close Changes" : "Close the panel";
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingTop: insets.top + 4, paddingLeft: 8, paddingRight: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <PageScroll horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ padding: 0, gap: 4, alignItems: "center" }}>
+      {/* One compact row: the tabs scroll sideways, the close button keeps its place at the end, centred with them. */}
+      <View style={{ marginTop: insets.top, height: 52, paddingLeft: 8, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
+          style={{ flex: 1, alignSelf: "stretch" }}
+          contentContainerStyle={{ gap: 2, alignItems: "center" }}
+        >
           {tabs.includes("changes") && (
             <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={shownTab === "changes"} onPress={() => onTab("changes")} />
           )}
@@ -737,8 +745,8 @@ export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) 
               onPress={() => onTab("designs")}
             />
           )}
-        </PageScroll>
-        <IconButton label={closeLabel} icon={Cancel01Icon} size={44} onPress={onClose} />
+        </ScrollView>
+        <GlassIconButton label={closeLabel} systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
       </View>
       {file && shownTab === "changes" && (
         <View style={{ paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -832,9 +840,9 @@ function PanelTab({ label, icon, tone, selected, onPress }: { label: string; ico
         onPress();
       }}
       style={({ pressed }) => ({
-        height: 34,
-        paddingHorizontal: 12,
-        borderRadius: 17,
+        height: 32,
+        paddingHorizontal: 11,
+        borderRadius: 16,
         flexDirection: "row",
         alignItems: "center",
         gap: 6,

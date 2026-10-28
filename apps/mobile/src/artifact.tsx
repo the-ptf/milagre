@@ -604,7 +604,8 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
         <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
-          <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={close} />
+          {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
+          {!onClose && <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
         </View>
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>
