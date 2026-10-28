@@ -29,6 +29,7 @@ import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs, withPreview } from "@milagre/shared/chats";
+import { runStatusLabel, sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
@@ -912,6 +913,16 @@ function ChatPane({
   const attachments = composer.attachments[chatId] || [];
   const attachmentDisabled = busy || picking;
   const run = chat ? liveRun : undefined;
+  // What the Chat waits on before its agent works (its new Worktree, the send, the agent starting), or mid-turn a Link
+  // Chat's Worktree or a setup: named beside the running mark, as on desktop.
+  const phase =
+    pending && !run
+      ? sendStatusLabel({
+          creatingWorktree: pending.newWorktree && pending.preview.targetSessionId === null,
+          sent: pending.accepted,
+          provider: pending.provider,
+        })
+      : runStatusLabel(run?.steps);
   const heartbeat =
     chat && beating
       ? routines.find((routine) => routine.enabled && !routine.completedAt && routine.target.kind === "chat" && routine.target.chatId === chatId)
@@ -1237,6 +1248,7 @@ function ChatPane({
         worktreeId,
         newWorktree: creates,
         accepted: false,
+        provider: actualProvider,
       },
     }));
     if (clearsDraft) composer.setDrafts((current) => clearSentDraft(current, chatId, sent, issueKey !== undefined));
@@ -1954,7 +1966,8 @@ function ChatPane({
               {(run || pending) && (
                 <ThinkingIndicator
                   startedAt={pending?.preview.startedAt ?? run?.startedAt}
-                  label={run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`}
+                  label={phase ?? (run?.waitingForSubagents ? "Waiting on subagents" : `Working with ${model.name}`)}
+                  showLabel={Boolean(phase)}
                 />
               )}
               {!run && !pending && activity?.activity === "background" && background.length > 0 && (
