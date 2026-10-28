@@ -14,6 +14,7 @@ const { PROVIDERS } = require("@milagre/shared/providers");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
+const { originId } = require("@milagre/shared/project-origin");
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { issueFirstMessage, linearIssueContext, linearIssuePrompt, linearIssueRequest } = require("@milagre/shared/linear-issue");
 const { ChatTitles, createChatTitleModels, generateChatTitle, generateRunTitle } = require("./chat-title.cjs");
@@ -2383,7 +2384,28 @@ function createRuntime(options) {
     const hidden = await projectSettings().hiddenPaths();
     return list.map((project) => (hidden.has(project.path) ? { ...project, hidden: true } : project));
   }
-  commands.handle("project:recent", async () => withoutHomes(await withHidden(await recentProjects().list())));
+  // Each Project's Git origin, so a new-chat picker shows one repository cloned on several computers as one Project.
+  // Read once per folder while the runtime runs; a folder without Git, or with a local-path remote, has none.
+  const origins = new Map();
+  function projectOrigin(projectPath) {
+    let origin = origins.get(projectPath);
+    if (!origin) {
+      origin = git.checked(projectPath, ["remote", "get-url", "origin"]).then(
+        ({ stdout }) => originId(stdout),
+        () => null,
+      );
+      origins.set(projectPath, origin);
+    }
+    return origin;
+  }
+  const withOrigins = (list) =>
+    Promise.all(
+      list.map(async (project) => {
+        const origin = await projectOrigin(project.path);
+        return origin ? { ...project, origin } : project;
+      }),
+    );
+  commands.handle("project:recent", async () => withOrigins(withoutHomes(await withHidden(await recentProjects().list()))));
   // Onboarding offers the folders Claude Code and Codex worked in on this Mac.
   commands.handle("onboarding:agent-folders", async () => withoutHomes(await (options.agentFolders ?? agentFolders)()));
   // A first Project made from onboarding opens at once: a new folder, a clone, or Git set up in a folder without it.
