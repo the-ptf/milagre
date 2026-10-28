@@ -29,6 +29,7 @@ import {
   FolderAddIcon,
   FolderOpenIcon,
   FrameIcon,
+  LaptopIcon,
   Link04Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
@@ -255,6 +256,7 @@ function ScopeHeader({
   open,
   current,
   attention,
+  computer,
   onToggle,
   onNewChat,
   menu,
@@ -264,6 +266,8 @@ function ScopeHeader({
   open: boolean;
   current: boolean;
   attention: boolean;
+  /** The computer the Project or Link lives on, named beside it once there are two or more; its rows then leave it out. */
+  computer?: RowComputer;
   onToggle: () => void;
   onNewChat: () => void;
   /** The ⋯ menu's rows; none hides the button. */
@@ -277,7 +281,7 @@ function ScopeHeader({
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} ${name}`}
         onClick={onToggle}
-        className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] pl-2 pr-[60px] text-left hover:bg-hover-2"
+        className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] pl-2 pr-8 text-left hover:bg-hover-2 group-hover/scope:pr-[60px] group-has-[:focus-visible]/scope:pr-[60px]"
       >
         {/* A Link's stacked avatars are wider than a Project's icon, so the slot grows with them. */}
         <span className="relative flex h-5 min-w-5 shrink-0 items-center justify-center text-ink">
@@ -294,10 +298,16 @@ function ScopeHeader({
         </span>
         <span
           data-scope-name
-          className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}
+          className={`min-w-0 ${computer ? "" : "flex-1"} truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}
         >
           {name}
         </span>
+        {computer && (
+          <span data-scope-computer className="flex min-w-0 flex-1 items-center gap-1 text-[length:calc(11.5px+var(--sidebar-delta))] text-ink-3">
+            <HugeIcon icon={LaptopIcon} size={12} />
+            <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
+          </span>
+        )}
       </button>
       {/* Rests at the right edge; slides left when hover reveals the actions it would sit under. */}
       {attention && (
@@ -1345,6 +1355,7 @@ export default memo(function SidebarNav({
                                   open={open}
                                   current={current}
                                   attention={!current && attentionPaths.includes(scope.key)}
+                                  computer={list.show.computer ? list.computer : undefined}
                                   onToggle={() => toggleScope(scope.key)}
                                   onNewChat={
                                     current
@@ -2170,7 +2181,8 @@ function ChatList({
       shortcutHint={showHints && hintOffset + index < 9 ? `${shortcutModifier}${hintOffset + index + 1}` : undefined}
       onPick={onPick}
       onHover={onHover}
-      computer={computer}
+      // The all-Projects sidebar names the computer in the Project's header; only its pinned rows, away from it, say it.
+      computer={pinnedTarget !== undefined && !item.pinned ? undefined : computer}
       show={show}
       dimOffline={dimOffline || (Boolean(pinnedTarget) && Boolean(item.pinned))}
       dragging={drag?.id === item.id}

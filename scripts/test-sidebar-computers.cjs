@@ -221,14 +221,16 @@ async function browserChecks() {
     // Scope keys hold "|" and "/", which a double-quoted attribute selector takes as they are.
     const inScope = (scope, rest) => `[data-sidebar-scope="${scope}"] ${rest}`;
     const computerLines = (scope) =>
-      evaluate(`[...document.querySelectorAll(${JSON.stringify(inScope(scope, "[data-chat-computer]"))})].map((line) => line.textContent.trim())`);
+      evaluate(`[...document.querySelectorAll(${JSON.stringify(inScope(scope, "[data-scope-computer]"))})].map((line) => line.textContent.trim())`);
     await waitFor(`document.querySelectorAll('[data-sidebar-scope]').length === 4`);
     assert.deepEqual(
       await scopes(),
       ["c-arketa|/Users/a/arketa-web", "c-studio|/Users/s/homelab", "/work/milagre-ade", "c-studio|/Users/s/notes"],
       "one list, by Project name",
     );
-    await waitFor(`document.querySelectorAll('[data-chat-computer]').length >= 3`);
+    await waitFor(`document.querySelectorAll('[data-scope-computer]').length >= 3`);
+    // Grouped, the computer sits in the Project's header, not on its rows.
+    assert.equal(await evaluate(`document.querySelectorAll('[data-sidebar-scope] [data-chat-computer]').length`), 0);
     assert.deepEqual(await computerLines("/work/milagre-ade"), ["victor-mbp"]);
     assert.deepEqual(await computerLines("c-arketa|/Users/a/arketa-web"), ["arketa"]);
     assert.deepEqual(await computerLines("c-studio|/Users/s/homelab"), ["studio, offline"]);
@@ -488,7 +490,7 @@ async function browserChecks() {
     console.log("PASS: removing the open chat's computer goes back to this Mac's Project");
 
     await evaluate(`window.setOther(false)`);
-    await waitFor(`!document.querySelector('[data-chat-computer]')`);
+    await waitFor(`!document.querySelector('[data-chat-computer], [data-scope-computer]')`);
     await waitFor(`!document.querySelector('[data-computers-button]')`);
     await evaluate(`window.setOther(true)`);
     await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
