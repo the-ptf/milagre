@@ -92,6 +92,9 @@ const goBack = () => router.back();
 /** The viewer: a page of its own on a phone, a tab of the right panel on an iPad, which `onClose` closes. */
 export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: string; chatId?: string; onClose?: () => void }) {
   const { colors } = useTheme();
+  // In the iPad's right panel the viewer takes the panel's surface, so it runs on from the tab row with no seam.
+  const docked = onClose !== goBack;
+  const background = docked ? colors.surface : colors.page;
   const styles = useStyles();
   const { client } = useSession();
   const insets = useSafeAreaInsets();
@@ -159,7 +162,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
     <View
       style={{
         flex: 1,
-        backgroundColor: colors.page,
+        backgroundColor: background,
         paddingTop: insets.top,
         paddingBottom: insets.bottom,
       }}
@@ -253,6 +256,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
             deviceId={selected.id}
             device={selected}
             chatId={chatId!}
+            background={background}
             onConnection={setConnection}
           />
         ) : (
@@ -296,7 +300,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                       gap: 10,
                       borderRadius: 12,
                       opacity: running ? 1 : 0.5,
-                      backgroundColor: pressed ? colors.hover : colors.surface,
+                      backgroundColor: pressed ? colors.hover : docked ? colors.page : colors.surface,
                     })}
                   >
                     <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
@@ -326,20 +330,23 @@ function SimulatorWebView({
   deviceId,
   device,
   chatId,
+  background,
   onConnection,
 }: {
   client: Client;
   deviceId: string;
   device?: SimulatorDevice;
   chatId: string;
+  /** The viewer page's background: the sheet's page color, or the iPad panel's surface. */
+  background: string;
   onConnection?(connection: SimulatorConnection): void;
 }) {
   const { colors, scheme } = useTheme();
   const styles = useStyles();
   const theme = useMemo(() => {
-    // The page and its bottom safe area use page, not the raised surface color.
-    return { ...colors, surface: colors.page, scheme };
-  }, [colors, scheme]);
+    // The page and its bottom safe area use the screen's own background, not the raised surface color.
+    return { ...colors, surface: background, scheme };
+  }, [colors, background, scheme]);
   const latestTheme = useRef(theme);
   const view = useRef<DomWebViewRef>(null);
   // The native viewer is keyed by device id; polling metadata never restarts its WebView.
