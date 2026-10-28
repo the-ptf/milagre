@@ -233,6 +233,7 @@ const PATHS = Object.freeze({
   "worktree:create": ([value]) => [value?.projectPath],
   "worktree:link-issue": ([value]) => [value?.projectPath],
   "worktree:unlink-issue": ([value]) => [value?.projectPath],
+  "git:history": ([value]) => [value?.cwd],
   "git:diff-files": ([value]) => [value?.cwd],
   "git:diff-file": ([value]) => [value?.cwd],
   "pr:detail": ([value]) => [value?.cwd],

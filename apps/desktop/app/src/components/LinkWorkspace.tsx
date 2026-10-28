@@ -240,9 +240,10 @@ export function LinkWorkspace({
   const prEntry = memberPrs.find((entry) => entry.member.projectId === memberId);
   const [prWanted, setPrWanted] = useState(false);
   const prReview = usePullRequest({ cwd: prEntry?.member.worktreePath, number: prEntry?.pr.number, active: prWanted, bridge });
+  const [comparisonBases, setComparisonBases] = useState<Record<string, string>>({});
   const changes = useChanges({
     cwd: chosen?.worktreePath,
-    base: chosen?.base,
+    base: chosen ? comparisonBases[chosen.worktreePath] || chosen.base : undefined,
     chatId,
     available: Boolean(session),
     pullRequest: prEntry ? { number: prEntry.pr.number, range: prRange(prReview.pr) } : undefined,
@@ -253,8 +254,9 @@ export function LinkWorkspace({
   const prLocal = useLocalChanges({ cwd: prEntry?.member.worktreePath, active: prShown, bridge });
   // The Changes tab lists every member's uncommitted and committed files; the diff shows the picked file's section.
   const linkMode = changes.mode === "uncommitted" ? "uncommitted" : "committed";
+  const comparisonMembers = (session?.worktrees ?? []).map((member) => ({ ...member, base: comparisonBases[member.worktreePath] || member.base }));
   const uncommittedLists = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: "uncommitted", active: changes.open });
-  const committedLists = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: "committed", active: changes.open });
+  const committedLists = useLinkDiffLists({ members: comparisonMembers, chatId, mode: "committed", active: changes.open });
   const diffPrefs = useDiffPreferences();
   const comments = useDiffComments(chosen && chatId ? `${chatId}:${chosen.projectId}` : null, changes);
   useEffect(() => {
@@ -797,6 +799,8 @@ export function LinkWorkspace({
                 <LinkChangesPanel
                   key={chatId}
                   members={session.worktrees}
+                  comparisons={comparisonBases}
+                  onComparisonChange={(path, value) => setComparisonBases((previous) => ({ ...previous, [path]: value }))}
                   projects={opened.projects}
                   lists={{ uncommitted: uncommittedLists.lists, committed: committedLists.lists }}
                   loading={uncommittedLists.loading || committedLists.loading}

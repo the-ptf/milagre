@@ -15092,3 +15092,266 @@ test("Add computer can remove the public fallback before pairing a pasted invita
   assert.deepEqual(Array.from(connected[0].relay.direct), direct);
   assert.equal(connected[0].relay.key, identity.key);
 });
+
+test("phone changes choose a comparison branch and keep its base when opening a diff; commit details expand", () => {
+  const react = hookHost();
+  const calls = [];
+  const copied = [];
+  let picker;
+  let deleted = false;
+  let unrelated = false;
+  let phoneClient = {};
+  const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
+  const commit = {
+    sha: "a".repeat(40),
+    author: "Maria",
+    email: "maria@example.com",
+    date: "2026-10-28T10:00:00Z",
+    message: "Current work\n\nDetailed explanation",
+    files: 1,
+    added: 2,
+    removed: 0,
+  };
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {
+      setStringAsync: async (sha) => {
+        copied.push(sha);
+        return true;
+      },
+    },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet: (request) => (picker = request) },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method, [request]) => {
+        calls.push({ method, request });
+        const base = request.base === "refs/heads/parent" ? "parent" : "main";
+        return {
+          data:
+            method === "git:history"
+              ? {
+                  isRepo: true,
+                  branch: "current",
+                  base,
+                  total: 1,
+                  suggested: "refs/heads/parent",
+                  projectDefault: { name: "main", ref: "refs/heads/main" },
+                  comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
+                  message: unrelated && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
+                  automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" },
+                  branchesVersion: "v1",
+                  baseMissing: deleted && request.base === "refs/heads/parent",
+                  ...(request.branchesVersion === "v1"
+                    ? {}
+                    : {
+                        branches: [
+                          { ref: "refs/heads/parent", name: "parent" },
+                          { ref: "refs/heads/current", name: "current" },
+                          { ref: "refs/remotes/origin/main", name: "origin/main" },
+                        ].filter((branch) => !deleted || branch.ref !== "refs/heads/parent"),
+                      }),
+                  commits: request.limit ? [commit] : [],
+                  hasMore: false,
+                }
+              : { isRepo: true, base: request.mode === "committed" ? base : null, files: request.mode === "committed" ? [file] : [] },
+          error: "",
+          refresh() {},
+        };
+      },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  };
+  const { ChangeSections, CommitCard } = load("change-tree.tsx", modules, "\nexport { CommitCard };");
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: phoneClient, cwd: "/worktree", base: "main", onOpen: (...args) => opened.push(args) });
+  };
+  let tree = render();
+  find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/parent" && item.section === "Suggested"));
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/current" && item.disabled && item.subtitle === "current"));
+  assert.ok(picker.items.some((item) => item.id === "refs/remotes/origin/main" && item.section === "Remote · origin"));
+  assert.equal(picker.items[0].subtitle, "main, the recorded base");
+  picker.onSelect("refs/heads/parent");
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files" && call.request.mode === "committed").request.base, "refs/heads/parent");
+  find(tree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[0], [file, "committed", "refs/heads/parent"]);
+  find(tree, (node) => node.props?.accessibilityLabel === "Commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
+  const cardReact = hookHost();
+  const card = load("change-tree.tsx", { ...modules, react: cardReact }, "\nexport { CommitCard };").CommitCard;
+  cardReact.begin();
+  let details = card({ commit });
+  find(details, (node) => node.type === "Pressable").props.onPress();
+  cardReact.begin();
+  details = card({ commit });
+  assert.ok(textOf(details).includes("maria@example.com"));
+  assert.ok(textOf(details).includes("Detailed explanation"));
+  find(details, (node) => node.props?.accessibilityLabel === "Copy SHA").props.onPress();
+  assert.deepEqual(copied, [commit.sha]);
+  assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
+  unrelated = true;
+  tree = render();
+  assert.ok(textOf(tree).includes("shares no history"));
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Compare with main instead").props.onPress();
+  render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "refs/heads/main");
+  picker.onSelect("refs/heads/parent");
+  deleted = true;
+  render();
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "main");
+  assert.ok(textOf(tree).includes("parent no longer exists. Showing changes since main."));
+  find(tree, (node) => node.props?.accessibilityLabel === "Dismiss missing branch notice").props.onPress();
+  assert.equal(textOf(render()).includes("no longer exists"), false);
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.branchesVersion, "v1");
+  find(render(), (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(
+    picker.items.some((item) => item.id === "refs/heads/parent"),
+    "omitted catalogues retain picker choices",
+  );
+  phoneClient = {};
+  render();
+  assert.equal(
+    calls.findLast((call) => call.method === "git:history").request.branchesVersion,
+    undefined,
+    "another host never borrows the previous host's catalogue token",
+  );
+  for (const reason of ["timeout", "tooLarge"]) {
+    const limited = { ...commit, files: null, added: null, removed: null, statsUnavailable: reason };
+    const limitedReact = hookHost();
+    const renderCard = load("change-tree.tsx", { ...modules, react: limitedReact }, "\nexport { CommitCard };\n").CommitCard;
+    limitedReact.begin();
+    let row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Totals unavailable"));
+    assert.equal(
+      find(row, (node) => node.type === "Counts"),
+      undefined,
+      "unavailable totals never render as zero",
+    );
+    find(row, (node) => node.type === "Pressable").props.onPress();
+    limitedReact.begin();
+    row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Detailed explanation") && textOf(row).includes("maria@example.com"));
+    assert.ok(textOf(row).includes("Retrying automatically"));
+  }
+});
+
+test("phone history retains metadata and commits during pagination, but never across repositories or clients", async () => {
+  const react = hookHost({ effects: true });
+  const pending = [];
+  let client = {
+    call: () => {
+      const request = deferred();
+      pending.push(request);
+      return request.promise;
+    },
+  };
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) => {
+        void options.refresh();
+        return () => {};
+      },
+    },
+  });
+  let cwd = "/project",
+    limit = 0;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:history", [{ cwd, base: "main", limit }], true, JSON.stringify([cwd, "main"]));
+    react.flush();
+    return result;
+  };
+  render();
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: [] });
+  await settle();
+  limit = 30;
+  assert.equal(render().data.branch, "feature", "metadata stays while the initial commits load");
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: ["first"] });
+  await settle();
+  limit = 60;
+  assert.deepEqual(render().data.commits, ["first"], "pagination retains the loaded list");
+  pending.shift().reject(new Error("Connection dropped"));
+  await settle();
+  assert.deepEqual(render().data.commits, ["first"], "a failed page keeps the prior list for retry");
+  assert.equal(render().error, "Connection dropped");
+  limit = 90;
+  render();
+  const old = pending.shift();
+  cwd = "/another-project";
+  assert.equal(render().data, null, "a different repository never borrows the old result");
+  old.resolve({ branch: "old", commits: ["wrong"] });
+  await settle();
+  assert.equal(render().data, null, "late answers for the prior repository are discarded");
+  pending.shift().resolve({ branch: "new", commits: ["new"] });
+  await settle();
+  assert.equal(render().data.branch, "new");
+  client = { call: () => new Promise(() => {}) };
+  assert.equal(render().data, null, "another computer with the same path cannot reuse this computer's result");
+  react.unmount();
+});
+
+test("older hosts without git history keep phone file diffs usable; network errors still offer retry", () => {
+  const react = hookHost();
+  let historyError = "Command is not available from mobile";
+  const { ChangeSections } = load("change-tree.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {},
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet() {} },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method) =>
+        method === "git:history"
+          ? { data: null, error: historyError, refresh() {} }
+          : { data: { isRepo: true, base: "main", files: [{ path: "changed.txt", added: 1, removed: 0 }] }, error: "", refresh() {} },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  });
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: {}, cwd: "/project", onOpen: (...args) => opened.push(args) });
+  };
+  for (const message of ["Command is not available from mobile", "Unknown command: git:history"]) {
+    historyError = message;
+    const tree = render();
+    assert.equal(
+      find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch"),
+      undefined,
+    );
+    assert.equal(
+      find(tree, (node) => node.type === "ErrorNotice"),
+      undefined,
+    );
+    const files = find(tree, (node) => node.type?.name === "ChangeTree");
+    assert.ok(files, "ordinary files remain visible on an older host");
+    files.props.onOpen({ path: "changed.txt" });
+  }
+  assert.equal(opened.length, 2);
+  historyError = "Connection dropped";
+  const retry = find(render(), (node) => node.type === "ErrorNotice");
+  assert.equal(retry.props.message, historyError);
+  assert.equal(typeof retry.props.retry, "function");
+});

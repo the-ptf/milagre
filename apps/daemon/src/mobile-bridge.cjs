@@ -183,6 +183,7 @@ const METHODS = new Set([
   "worktree:create",
   "worktree:link-issue",
   "worktree:unlink-issue",
+  "git:history",
   "git:diff-files",
   "git:diff-file",
   // The PR a Chat's branch opened: the phone's PR sheet reads it and writes the review back to GitHub.

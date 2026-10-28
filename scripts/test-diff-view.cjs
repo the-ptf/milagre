@@ -45,14 +45,35 @@ const FILES = {
 };
 const entries = Object.entries(FILES).map(([path, f]) => ({ path, status: f.status, added: f.added, removed: f.removed, binary: Boolean(f.binary) }));
 window.listCalls = [];
+window.historyCalls = [];
+window.historyHeld = false;
+window.historyError = null;
+window.statsLimit = null;
+window.branchDeleted = false;
+window.noSharedHistory = false;
+window.historyWaiters = [];
+window.releaseHistory = () => { window.historyHeld = false; window.historyWaiters.splice(0).forEach(resolve => resolve()); };
 window.externalCommit = false;
 window.externalEdit = false;
 window.fileCalls = [];
 window.milagre = {
   git: {
+    history: async request => {
+      window.historyCalls.push(request);
+      if (window.historyHeld) await new Promise(resolve => window.historyWaiters.push(resolve));
+      if (window.historyError) throw new Error(window.historyError);
+      const commit = { sha: "a".repeat(40), author: "Maria", email: "maria@example.com", date: "2026-10-28T10:00:00Z", message: "Current feature commit\\n\\nDetailed explanation", files: 2, added: 7, removed: 3 };
+      if (window.statsLimit) Object.assign(commit, { files: null, added: null, removed: null, statsUnavailable: window.statsLimit });
+      return { head: "c".repeat(40), total: 2, automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" }, projectDefault: { name: "main", ref: "refs/heads/main" }, suggested: "refs/heads/parent",
+        comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
+        message: window.noSharedHistory && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
+        isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branchesVersion: "v1", baseMissing: window.branchDeleted && request.base === "refs/heads/parent", ...(request.branchesVersion === "v1" ? {} : { branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }, { ref: "refs/heads/feature/current", name: "feature/current" }, { ref: "refs/remotes/origin/main", name: "origin/main" }].filter(branch => !window.branchDeleted || branch.ref !== "refs/heads/parent") }), hasMore: request.limit === 30,
+        commits: !request.limit ? [] : request.limit >= 60 ? [commit, { ...commit, sha: "b".repeat(40), message: "Earlier feature commit", files: 2, added: 7, removed: 3, statsUnavailable: undefined }] : [commit] };
+    },
     diffFiles: async request => {
       window.listCalls.push(request.mode);
-      if (request.mode === "committed") return { isRepo: true, base: "main", files: entries.filter(entry => entry.path === "packages/app/src/index.ts") };
+      if (request.mode === "committed") window.lastBase = request.base;
+      if (request.mode === "committed") return { isRepo: true, base: request.base === "refs/heads/parent" ? "parent" : "main", files: entries.filter(entry => entry.path === (request.base === "refs/heads/parent" ? "README.md" : "packages/app/src/index.ts")) };
       return { isRepo: true, base: null, files: window.externalCommit ? [] : entries };
     },
     diffFile: async request => {
@@ -65,7 +86,11 @@ window.milagre = {
 };
 window.endTurn = () => listeners.forEach(listener => listener({ chatId: "chat-1", event: { type: "turn-completed" } }));
 function Fixture() {
-  const changes = useChanges({ cwd: "/fixture", base: "main", chatId: "chat-1", available: true });
+  const [panelLists, setPanelLists] = useState(true);
+  window.setPanelLists = setPanelLists;
+  window.fixturePanelLists = panelLists;
+  const changes = useChanges({ cwd: "/fixture", base: "main", chatId: "chat-1", available: true, panelLists });
+  window.refreshChanges = changes.refresh;
   const comments = useDiffComments("chat-1", changes);
   const prefs = useDiffPreferences();
   const diff = changes.diffOpen;
@@ -81,7 +106,7 @@ function Fixture() {
       <div data-chat-stub className={"flex-1 pt-12 px-6 text-[14px] " + (presence.occupied ? "hidden" : "")}>Chat goes here</div>
     </main>
     <ChangesPanelSlot open={changes.open}>
-      <ChangesPanel lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} />
+      <ChangesPanel comparison={changes.comparison} lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} />
     </ChangesPanelSlot>
   </div>;
 }
@@ -105,7 +130,11 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  const shot = async (name) => fs.writeFileSync(`/tmp/diff-view-${name}.png`, (await window.webContents.capturePage()).toPNG());
+  const shot = async (name) => {
+    if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
+    fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `diff-view-${name}.png`), (await window.webContents.capturePage()).toPNG());
+  };
   const file = (p) => `[data-diff-file="${p}"]`;
   const CAL = "packages/app/src/components/Calendar/CalendarEmptyState.tsx";
   try {
@@ -286,7 +315,7 @@ async function browserChecks() {
 
     // The branch's commits are their own section, since its base; a file there opens the committed diff.
     assert.equal(await evaluate(`document.querySelectorAll("[data-changes-section='On this branch'] [data-diff-tree-file]").length`), 1);
-    assert.ok(await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-base]").textContent.includes("main")`));
+    assert.ok(await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).textContent.includes("main")'));
     await evaluate(`document.querySelector("[data-changes-section='On this branch'] [data-diff-tree-file]").click()`);
     await waitFor('window.fileCalls.some(call => call.startsWith("committed:"))');
     await waitFor('document.querySelectorAll("[data-diff-view] [data-diff-file]").length === 1');
@@ -307,10 +336,103 @@ async function browserChecks() {
     await delay(200);
     assert.equal(await evaluate('window.fileCalls.filter(call => call.startsWith("uncommitted:")).length'), uncommittedReads);
 
+    // A chosen comparison narrows committed files without changing the Worktree branch.
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
+    await waitFor('!!document.querySelector("[role=listbox]")');
+    await evaluate('[...document.querySelectorAll("[role=option]")].find(row => row.textContent === "parent").click()');
+    await waitFor('document.querySelector(`[aria-label="Comparison branch"]`)?.textContent.includes("parent")');
+    assert.equal(await evaluate("window.lastBase"), "refs/heads/parent");
+    assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.dataset.comparisonView === "commits").click()');
+    await waitFor('!!document.querySelector("[data-commit-history] details")');
+    await evaluate('document.querySelector("[data-commit-history] summary").click()');
+    assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("maria@example.com")'));
+    assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("Detailed explanation")'));
+    assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("2 files")'));
+    if (process.env.MILAGRE_SCREENSHOT_DIR) {
+      window.showInactive();
+      await delay(300);
+      fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "comparison-history.png"), (await window.webContents.capturePage()).toPNG());
+    }
+    // A slow larger page keeps the visible commit card, its expansion and branch metadata in place.
+    await evaluate(
+      'window.historyHeld = true; window.retainedCommit = document.querySelector("[data-commit-history] details"); [...document.querySelectorAll("button")].find(button => button.textContent === "Show more commits").click()',
+    );
+    await waitFor("window.historyWaiters.length > 0");
+    assert.equal(await evaluate('document.querySelector("[data-commit-history] details") === window.retainedCommit && window.retainedCommit.open'), true);
+    assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.dataset.comparisonView === "files").click()');
+    assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
+    assert.ok(await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).textContent.includes("parent")'));
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.dataset.comparisonView === "commits").click()');
+    await waitFor('document.querySelectorAll("[data-commit-history] details").length === 1');
+    await evaluate("window.releaseHistory()");
+    await waitFor('document.querySelectorAll("[data-commit-history] details").length === 2');
+
+    assert.ok(await evaluate('window.historyCalls.slice(1).some(call => call.branchesVersion === "v1")'), "polls acknowledge the catalogue version");
+    await evaluate('if (!document.querySelector("[data-commit-history] details").open) document.querySelector("[data-commit-history] summary").click()');
+    for (const reason of ["timeout", "tooLarge"]) {
+      await evaluate(`window.statsLimit = ${JSON.stringify(reason)}; window.refreshChanges()`);
+      await waitFor('document.querySelector("[data-commit-history] summary").textContent.includes("Totals unavailable")');
+      assert.equal(await evaluate('document.querySelectorAll("[data-commit-history] details").length'), 2);
+      assert.ok(
+        await evaluate(
+          'document.querySelector("[data-commit-history] details").open && document.querySelector("[data-commit-history] details").textContent.includes("maria@example.com")',
+        ),
+      );
+      assert.equal(await evaluate('document.querySelector("[data-commit-history] details:first-of-type summary [data-diff-counts]")'), null);
+      await evaluate("window.statsLimit = null; window.refreshChanges()");
+      await waitFor('!!document.querySelector("[data-commit-history] details:first-of-type summary [data-diff-counts]")');
+    }
+    assert.equal(await evaluate('document.querySelector(`[data-comparison-view="commits"] span`).textContent'), "2");
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
+    await waitFor('!!document.querySelector("[role=listbox]")');
+    assert.ok(
+      await evaluate(
+        '[...document.querySelectorAll("[role=option]")].some(row => row.textContent.includes("feature/current") && row.getAttribute("aria-disabled") === "true")',
+      ),
+    );
+    assert.ok(
+      await evaluate(
+        'document.querySelector("[role=listbox]").textContent.includes("Suggested") && document.querySelector("[role=listbox]").textContent.includes("Remote · origin")',
+      ),
+    );
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click(); window.noSharedHistory = true; window.refreshChanges()');
+    await waitFor('document.querySelector("[data-comparison-controls]").textContent.includes("shares no history")');
+    await evaluate('[...document.querySelectorAll("button")].find(button => button.textContent === "Compare with main instead").click()');
+    await waitFor('window.lastBase === "refs/heads/main"');
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
+    await waitFor('!!document.querySelector("[role=listbox]")');
+    await evaluate('[...document.querySelectorAll("[role=option]")].find(row => row.textContent === "parent").click()');
+    await waitFor('window.lastBase === "refs/heads/parent"');
+    await evaluate("window.noSharedHistory = false; window.branchDeleted = true; window.refreshChanges()");
+    await waitFor('window.lastBase === "main" && document.querySelector("[role=status]")?.textContent.includes("parent no longer exists")');
+    await evaluate('document.querySelector(`[aria-label="Dismiss missing branch notice"]`).click()');
+    assert.equal(await evaluate('!!document.querySelector("[role=status]")'), false);
+
+    // An older host keeps file diffs usable without an unavailable-history error card.
+    await evaluate('window.historyError = "Unknown command: git:history"; window.refreshChanges()');
+    await waitFor('!document.querySelector(`[aria-label="Comparison branch"]`) && !!document.querySelector("[data-diff-tree-file]")');
+    assert.equal(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("Unknown command")'), false);
+    await evaluate("window.historyError = null; window.refreshChanges()");
+    await waitFor('!!document.querySelector(`[aria-label="Comparison branch"]`)');
+
     // Closing the panel returns to Chat.
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!document.querySelector("[data-changes-panel]") && !document.querySelector("[data-diff-view]")');
     assert.equal(await evaluate('document.querySelector("[data-chat-stub]").classList.contains("hidden")'), false);
+    // Link panels own their member histories. This unused reader stays inactive for every refresh route.
+    await evaluate("window.setPanelLists(false)");
+    await waitFor("window.fixturePanelLists === false");
+    const historyCalls = await evaluate("window.historyCalls.length");
+    await evaluate('document.querySelector("[data-changes-toggle]").click()');
+    await waitFor('!!document.querySelector("[data-changes-panel]")');
+    await evaluate("window.refreshChanges()");
+    await evaluate("window.endTurn()");
+    await delay(200);
+    assert.equal(await evaluate("window.historyCalls.length"), historyCalls, "Link diff readers never request the member histories owned by their panel");
+
     console.log(
       "PASS: panel tree with merged folders and counts, file click opens the diff, Back slides it out, unified gutters and word tint, split pairing, large and binary files, committed section, turn-end and external-change refresh",
     );

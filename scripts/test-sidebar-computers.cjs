@@ -146,8 +146,9 @@ async function browserChecks() {
   window.webContents.on("console-message", (details) => {
     if (details.level === "error") errors.push(details.message);
   });
-  const waitFor = async (source) => {
-    for (let i = 0; i < 200; i++) {
+  const waitFor = async (source, timeoutMs = 5000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
       if (await evaluate(source)) return;
       await delay(25);
     }
@@ -176,7 +177,9 @@ async function browserChecks() {
       evaluate(
         `[...document.querySelectorAll('[data-computers-panel] [data-computer-row]')].map((row) => [row.dataset.computerRow, row.querySelector('[data-computer-name]').textContent.trim(), row.querySelector('[data-computer-line]').textContent.trim()])`,
       );
-    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`);
+    // A cold Vite dependency scan can reload the full App before its startup animation finishes.
+    // Give initial boot its own budget; interaction assertions keep the normal five-second deadline.
+    await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`, 20000);
     await openPopover();
     assert.deepEqual(await lines(), [
       ["this-mac", "victor-mbp", "This Mac"],
@@ -594,6 +597,12 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
+    console.error(
+      "Fixture state:",
+      await evaluate(
+        `({ ready: document.readyState, buttons: [...document.querySelectorAll("[data-computers-button]")].length, splash: document.querySelector(".startup-splash-screen")?.outerHTML, body: document.body.innerText.slice(0, 1600) })`,
+      ),
+    );
     await screenshot("failure").catch(() => {});
     app.exit(1);
   }

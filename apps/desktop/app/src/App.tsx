@@ -3693,6 +3693,7 @@ function App() {
             <ChangesPanelSlot open={changes.open && !botsShown}>
               <ChangesPanel
                 lists={changes.lists}
+                comparison={changes.comparison}
                 mode={changes.mode}
                 onModeChange={changes.setMode}
                 onRefresh={() => {
