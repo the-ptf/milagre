@@ -2306,20 +2306,34 @@ function App() {
     openChat(sessionId);
   }
 
-  // The main process sends on the app's ⌘⇧ shortcuts pressed inside an embedded frame (a design, the simulator), which
-  // the window's listeners never see; replayed here, every handler takes them as if pressed in the window.
+  // The main process sends on the app's ⌘⇧ shortcuts and ⌘, pressed in any frame, including an embedded one (a design,
+  // an HTML reply, the simulator) the window's listeners never see; replayed here, every handler takes them as if pressed
+  // in the window.
   useEffect(
     () =>
-      window.milagre.onAppShortcut?.((key) =>
-        window.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, shiftKey: true, bubbles: true, cancelable: true })),
+      window.milagre.onAppShortcut?.(({ key, shift }) =>
+        window.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, shiftKey: shift, bubbles: true, cancelable: true })),
       ),
     [],
   );
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
-      if (selectedLinkRef.current) return;
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
       if (!(event.metaKey || event.ctrlKey)) return;
+      // A Link's workspace takes its own Chat shortcuts (⌘⇧D, ⌘N, ⌘K, ⌘T, ⌘F) and has its own canvas and grid; the
+      // window-wide ones, Settings and the theme, still work over it.
+      const inLink = Boolean(selectedLinkRef.current);
+      if (event.key === "," && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setView("settings");
+        return;
+      }
+      if (event.shiftKey && !event.altKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        toggleTheme();
+        return;
+      }
+      if (inLink) return;
       // ⌘⌥← and ⌘⌥→ move focus to the grid's previous and next tile.
       if (event.altKey) {
         const tiles = shownTilesRef.current;
@@ -2335,10 +2349,7 @@ function App() {
         return;
       }
       if (event.shiftKey) {
-        if (event.key.toLowerCase() === "t") {
-          event.preventDefault();
-          toggleTheme();
-        } else if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
+        if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
           event.preventDefault();
           changes.toggleDefault();
         } else if (event.key.toLowerCase() === "l") {
@@ -2364,9 +2375,6 @@ function App() {
       } else if (event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandPaletteOpen(true);
-      } else if (event.key === ",") {
-        event.preventDefault();
-        setView("settings");
       } else if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         startNewChatOnThisMac();
@@ -2385,9 +2393,16 @@ function App() {
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
-      if (selectedLinkRef.current) return;
       // A menu, picker or search that Escape closed has already consumed it.
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      // Settings opened over a Link goes back to it; the Link's workspace takes every other Escape.
+      if (selectedLinkRef.current) {
+        if (view === "settings") {
+          event.preventDefault();
+          setView("chat");
+        }
+        return;
+      }
       if (findRef.current.open) {
         event.preventDefault();
         setFindOpen(false);
