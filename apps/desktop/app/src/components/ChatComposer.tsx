@@ -35,6 +35,7 @@ import {
   GitForkIcon,
   GitMergeIcon,
   GitPullRequestIcon,
+  ComputerIcon,
   LaptopIcon,
   Undo02Icon,
 } from "@hugeicons/core-free-icons";
@@ -1016,7 +1017,7 @@ function NewChatHeader({
           {chooseComputer && (
             <Tooltip label="Choose the computer">
               <ChipButton
-                icon={LaptopIcon}
+                icon={ComputerIcon}
                 label={copy.computer}
                 open={menu === "computer"}
                 onClick={(trigger) => toggle("computer", trigger.parentElement ?? trigger)}
@@ -1045,7 +1046,7 @@ function NewChatHeader({
               {copies.map((item) => (
                 <PickerRow
                   key={item.key}
-                  icon={<Icon icon={LaptopIcon} size={14} />}
+                  icon={<Icon icon={ComputerIcon} size={14} />}
                   label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · This Mac` : item.computer}
                   description={shortPath(item.key)}
                   trailing={item.online ? undefined : "Offline"}

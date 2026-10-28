@@ -17,6 +17,7 @@ import {
   File01Icon,
   GitBranchIcon,
   GitForkIcon,
+  ComputerIcon,
   LaptopIcon,
   Pulse01Icon,
   MoreHorizontalIcon,
@@ -1977,8 +1978,9 @@ function ChatPane({
             </KeyboardChatScrollView>
             {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
-        transcript's top padding does and gradually strengthens toward the status bar. */}
-            <EdgeFade edge="top" height={insets.top + 84} width={window.width} />
+        transcript's top padding does and gradually strengthens toward the status bar. A new Chat has nothing under it
+        to soften, so the dots run edge to edge there. */}
+            {!startingChat && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
             {paneHeader}
             {startingChat && (
               <Animated.View
@@ -2049,8 +2051,8 @@ function ChatPane({
               offset={{ closed: ownsKeyboard ? 0 : Math.min(0, lift - restingKeyboard), opened: lift }}
               style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
             >
-              {/* The transcript blurs and fades under the composer like desktop's. */}
-              <BottomFade height={dockHeight + 48} width={window.width} />
+              {/* The transcript blurs and fades under the composer like desktop's; a new Chat has no transcript yet. */}
+              {!startingChat && <BottomFade height={dockHeight + 48} width={window.width} />}
               <View
                 onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                 style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
@@ -2164,7 +2166,7 @@ function ChatPane({
                           {onSeveralComputers && (
                             <PullDown
                               label="Choose computer"
-                              nativeTrigger={{ title: computerName, systemImage: "laptopcomputer", icon: "laptop", disabled: targetDisabled, maxWidth: 140 }}
+                              nativeTrigger={{ title: computerName, systemImage: "desktopcomputer", icon: "computer", disabled: targetDisabled, maxWidth: 140 }}
                               sections={[
                                 {
                                   title: "Run on",
@@ -2172,8 +2174,8 @@ function ChatPane({
                                     id: `${item.hostId}\n${item.path}`,
                                     title: item.hostName,
                                     subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
-                                    systemImage: "laptopcomputer",
-                                    icon: "laptop",
+                                    systemImage: "desktopcomputer",
+                                    icon: "computer",
                                     checked: isOpenCopy(item),
                                     disabled: targetDisabled || item.offline,
                                   })),
@@ -2197,7 +2199,7 @@ function ChatPane({
                                   opacity: targetDisabled ? 0.35 : 1,
                                 }}
                               >
-                                <Icon icon={LaptopIcon} tone="ink2" size={14} />
+                                <Icon icon={ComputerIcon} tone="ink2" size={14} />
                                 <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                   {computerName}
                                 </Text>
