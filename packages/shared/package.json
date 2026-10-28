@@ -387,7 +387,11 @@
       "types": "./src/dictation.d.mts",
       "default": "./src/dictation.mjs"
     },
-    "./voice-dictation": "./src/voice-dictation.ts"
+    "./voice-dictation": "./src/voice-dictation.ts",
+    "./project-origin": {
+      "types": "./src/project-origin.d.mts",
+      "default": "./src/project-origin.mjs"
+    }
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

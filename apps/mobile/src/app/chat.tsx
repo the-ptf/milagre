@@ -5,7 +5,6 @@ import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -18,6 +17,7 @@ import {
   File01Icon,
   GitBranchIcon,
   GitForkIcon,
+  ComputerIcon,
   LaptopIcon,
   Pulse01Icon,
   MoreHorizontalIcon,
@@ -123,6 +123,7 @@ import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
 import { allComputers, useNewChatProjects } from "../all-computers";
+import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
 import { ProjectIcon } from "../project-icon";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { BesideSession, touchPane } from "../beside-session";
@@ -402,6 +403,8 @@ function ChatPane({
   const [historyState, setHistoryState] = useState({ key: scrollKey, loading: false, error: "" });
   const [jumpState, setJumpState] = useState({ key: scrollKey, visible: false });
   const showJumpToBottom = jumpState.key === scrollKey && jumpState.visible;
+  // Whether the transcript has scrolled under the header: its fade shows only then, as desktop's top blur does.
+  const [underHeader, setUnderHeader] = useState(false);
   // A Chat opens already at its newest message: the transcript stays hidden until the scroll view reports its end on
   // screen. The jump to the end can land frames after a long transcript mounts, and showing it earlier flashes the top.
   const [placedKey, setPlacedKey] = useState<string | null>(null);
@@ -973,6 +976,7 @@ function ChatPane({
         ? worktree.name
         : branches.items[0];
   const newWorktree = !project.link && !params.id && isolation === "worktree";
+  const startTray = !params.id && !project.link;
   const targetDisabled = busy || picking;
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
@@ -982,7 +986,14 @@ function ChatPane({
   const startingChat = !params.id && !pending && !messages.length;
   const projectName = project.name || project.path.split("/").findLast(Boolean) || "Project";
   const hostIds = new Set(newChatProjects.map((item) => item.hostId));
-  const hostName = newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName;
+  // One row per repository: a Project cloned on several computers is one row, and the computer chip picks the copy.
+  const projectGroups = newChatProjectGroups(newChatProjects);
+  const isOpenCopy = (item: NewChatProject) => item.hostId === client.url && item.path === project.path;
+  const projectCopies = projectGroups.find((group) => group.copies.some(isOpenCopy))?.copies ?? [];
+  const projectOrigin = projectCopies.find(isOpenCopy)?.origin;
+  const onSeveralComputers = projectCopies.length > 1;
+  const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
+  const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
   // A Chat beside on another computer than the open one says which.
   const otherComputer = client.url !== openSession.client?.url;
   function chooseProject() {
@@ -991,18 +1002,21 @@ function ChatPane({
       title: "Start building in",
       placeholder: "Search projects",
       emptyLabel: "No projects",
-      items: newChatProjects.map((item) => ({
-        id: `${item.hostId}\n${item.path}`,
+      items: projectGroups.map((item, index) => ({
+        id: String(index),
         title: item.name,
-        keywords: `${item.hostName} ${item.path}`,
-        checked: item.hostId === client.url && item.path === project.path,
-        disabled: item.offline,
+        ...(item.copies.length > 1 ? { subtitle: `${item.copies.length} computers` } : {}),
+        keywords: item.copies.map((copy) => `${copy.hostName} ${copy.path}`).join(" "),
+        checked: item.copies.some(isOpenCopy),
+        disabled: item.copies.every((copy) => copy.offline),
         ...(hostIds.size > 1 ? { section: item.hostName } : {}),
         leading: <ProjectIcon client={item.hostId === client.url ? client : allComputers.clientFor(item.hostId)} path={item.path} size={24} />,
       })),
       onSelect: (id) => {
-        const [hostId = "", ...rest] = id.split("\n");
-        void switchProject(hostId, rest.join("\n"));
+        const group = projectGroups[Number(id)];
+        if (!group || group.copies.some(isOpenCopy)) return;
+        const copy = preferredCopy(group, group.origin ? savedChatDefaults.readOriginComputer(group.origin) : null, client.url);
+        void switchProject(copy.hostId, copy.path);
       },
     });
   }
@@ -1195,8 +1209,11 @@ function ChatPane({
       withAttachments && mentionRoot ? mentionAttachments(body, mentionRoot, attachments, (path) => knownFiles.current.has(mentionRoot, path)) : { added: [] };
     const sent = body;
     const sendingProjectPath = project.path;
-    // The next New Chat opens where this one started.
-    if (!params.id) void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
+    // The next New Chat opens where this one started, and so does a pick of this repository's Project.
+    if (!params.id) {
+      void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
+      if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, client.url);
+    }
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
     const focus = focused.current;
     const current = () => focus !== null && focused.current === focus && session.isSelected();
@@ -1804,6 +1821,8 @@ function ChatPane({
                   onScroll={({ nativeEvent: e }) => {
                     const previous = scrollOffset.current;
                     scrollOffset.current = e.contentOffset.y;
+                    const under = e.contentOffset.y > 4;
+                    setUnderHeader((current) => (current === under ? current : under));
                     const distance = e.contentSize.height - e.contentOffset.y - e.layoutMeasurement.height;
                     if (!placed && distance <= 1) setPlacedKey(scrollKey);
                     // Native scroll events can arrive before the jump catches up with image layout.
@@ -1979,8 +1998,9 @@ function ChatPane({
                 </KeyboardChatScrollView>
                 {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
-        transcript's top padding does and gradually strengthens toward the status bar. */}
-                <EdgeFade edge="top" height={insets.top + 84} width={window.width} />
+        transcript's top padding does and gradually strengthens toward the status bar. It shows only while the transcript
+        is under the header, so the dots run edge to edge otherwise. */}
+                {underHeader && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
                 {paneHeader}
                 {startingChat && (
                   <Animated.View
@@ -2051,8 +2071,8 @@ function ChatPane({
                   offset={{ closed: ownsKeyboard ? 0 : Math.min(0, lift - restingKeyboard), opened: lift }}
                   style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
                 >
-                  {/* The transcript blurs and fades under the composer like desktop's. */}
-                  <BottomFade height={dockHeight + 48} width={window.width} />
+                  {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
+                  {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
                   <View
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
@@ -2148,32 +2168,76 @@ function ChatPane({
                       />
                     ) : (
                       (!question || answering) && (
+                        // A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece, as on desktop.
                         <View
-                          style={{
-                            backgroundColor: "transparent",
-                            borderWidth: 1,
-                            borderColor: colors.lineStrong,
-                            borderRadius: 24,
-                            borderCurve: "continuous",
-                            overflow: "hidden",
-                            paddingTop: 8,
-                            paddingHorizontal: 8,
-                            paddingBottom: 6,
-                            gap: 4,
-                            boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : "0 4px 20px #0000000f",
-                          }}
+                          style={
+                            startTray
+                              ? {
+                                  backgroundColor: colors.inset,
+                                  borderWidth: 1,
+                                  borderColor: colors.line,
+                                  borderRadius: 28,
+                                  borderCurve: "continuous",
+                                  padding: 5,
+                                  paddingTop: 3,
+                                  gap: 2,
+                                  boxShadow: "0 4px 20px #0000000f",
+                                }
+                              : undefined
+                          }
                         >
-                          <LiquidGlassView
-                            pointerEvents="none"
-                            glassType="clear"
-                            isInteractive={false}
-                            reducedTransparencyFallbackColor={colors.surface}
-                            style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous" }]}
-                          />
-                          {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                          {ultracodeOn && <UltracodeGlow radius={24} />}
-                          {!params.id && !project.link && (
+                          {startTray && (
                             <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                              {onSeveralComputers && (
+                                <PullDown
+                                  label="Choose computer"
+                                  nativeTrigger={{
+                                    title: computerName,
+                                    systemImage: "desktopcomputer",
+                                    icon: "computer",
+                                    disabled: targetDisabled,
+                                    maxWidth: 140,
+                                  }}
+                                  sections={[
+                                    {
+                                      title: "Run on",
+                                      items: projectCopies.map((item) => ({
+                                        id: `${item.hostId}\n${item.path}`,
+                                        title: item.hostName,
+                                        subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
+                                        systemImage: "desktopcomputer",
+                                        icon: "computer",
+                                        checked: isOpenCopy(item),
+                                        disabled: targetDisabled || item.offline,
+                                      })),
+                                    },
+                                  ]}
+                                  onSelect={(id) => {
+                                    const [hostId = "", ...rest] = id.split("\n");
+                                    if (targetDisabled) return;
+                                    if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, hostId);
+                                    void switchProject(hostId, rest.join("\n"));
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      maxWidth: 140,
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      opacity: targetDisabled ? 0.35 : 1,
+                                    }}
+                                  >
+                                    <Icon icon={ComputerIcon} tone="ink2" size={14} />
+                                    <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
+                                      {computerName}
+                                    </Text>
+                                    <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                                  </View>
+                                </PullDown>
+                              )}
                               <PullDown
                                 label="Choose isolation"
                                 nativeTrigger={{
@@ -2298,190 +2362,210 @@ function ChatPane({
                               )}
                             </View>
                           )}
-                          {!!attachments.length && (
-                            <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
-                              {attachments.map((item) => {
-                                const imageIndex = item.image ? attachments.filter((attachment) => attachment.image).indexOf(item) + 1 : 0;
-                                return (
-                                  <View
-                                    key={item.id}
-                                    style={{
-                                      backgroundColor: colors.field,
-                                      borderRadius: 12,
-                                      borderCurve: "continuous",
-                                      paddingLeft: item.image ? 4 : 10,
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      maxWidth: 220,
-                                    }}
-                                  >
-                                    {item.image ? (
-                                      <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
-                                    ) : (
-                                      <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Preview ${item.name}`}
-                                        onPress={() =>
-                                          router.push({
-                                            pathname: "/file-preview",
-                                            params: item.path ? { path: item.path } : { uri: item.uri, name: item.name },
-                                          })
-                                        }
-                                        style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
-                                      >
-                                        <Icon icon={File01Icon} tone="ink2" size={18} />
-                                        <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                                          {item.name}
-                                        </Text>
-                                      </Pressable>
-                                    )}
-                                    {item.image && (
-                                      <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
-                                        {`#${imageIndex} ${item.name}`}
-                                      </Text>
-                                    )}
-                                    <IconButton
-                                      label={`Remove ${item.name}`}
-                                      icon={Cancel01Icon}
-                                      size={32}
-                                      disabled={busy || picking}
-                                      onPress={() => {
-                                        // Removing this tile may leave room again, which ends the limit error.
-                                        composer.setAttachments((currentAttachments) => ({
-                                          ...currentAttachments,
-                                          [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
-                                        }));
-                                        if (imageIndex > 0) {
-                                          composer.setDrafts((current) => ({
-                                            ...current,
-                                            [chatId]: shiftImageMentions(current[chatId] || "", imageIndex),
-                                          }));
-                                        }
+                          <View
+                            style={{
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.lineStrong,
+                              borderRadius: startTray ? 23 : 24,
+                              borderCurve: "continuous",
+                              overflow: "hidden",
+                              paddingTop: 8,
+                              paddingHorizontal: 8,
+                              paddingBottom: 6,
+                              gap: 4,
+                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : "0 4px 20px #0000000f",
+                            }}
+                          >
+                            {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
+                            {ultracodeOn && <UltracodeGlow radius={startTray ? 23 : 24} />}
+                            {!!attachments.length && (
+                              <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
+                                {attachments.map((item) => {
+                                  const imageIndex = item.image ? attachments.filter((attachment) => attachment.image).indexOf(item) + 1 : 0;
+                                  return (
+                                    <View
+                                      key={item.id}
+                                      style={{
+                                        backgroundColor: colors.field,
+                                        borderRadius: 12,
+                                        borderCurve: "continuous",
+                                        paddingLeft: item.image ? 4 : 10,
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        maxWidth: 220,
                                       }}
-                                    />
-                                  </View>
-                                );
-                              })}
-                            </PageScroll>
-                          )}
-                          <PromptField
-                            key={chatId}
-                            chats={mentionChats}
-                            currentId={chat?.id}
-                            client={client}
-                            projectPath={worktree?.path || (project.link ? "" : project.path)}
-                            draft={draft}
-                            suggestion={
-                              !run &&
-                              !busy &&
-                              !picking &&
-                              !attachments.length &&
-                              activity?.activity === "idle" &&
-                              chat?.provider === "claude" &&
-                              actualProvider === "claude"
-                                ? chat.suggestion?.text
-                                : undefined
-                            }
-                            onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
-                            chatTitle={title}
-                            provider={chat?.provider ?? actualProvider}
-                            images={attachments.filter((item) => item.image).length}
-                            onImagePaste={(image) => void pasteImage(image)}
-                            known={knownFiles.current}
-                            onMention={worktree?.path ? mentionFile : undefined}
-                            commands={chat ? UNDO_COMMANDS : undefined}
-                            // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
-                            placeholder={run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined}
-                            // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
-                            onSubmit={() => {
-                              if (!sendDisabled) void send();
-                            }}
-                            onFocus={onTyping}
-                            onChangeText={(value) => {
-                              // Clearing the composer also clears the limit error that its mentions caused.
-                              composer.setDrafts((current) => ({ ...current, [chatId]: value }));
-                            }}
-                          />
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                            <PullDown
-                              label="Add photos or files"
-                              nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
-                              sections={[
-                                {
-                                  items: [
-                                    { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
-                                    { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
-                                    { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
-                                    { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
-                                  ],
-                                },
-                              ]}
-                              onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
-                            >
-                              <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                                <Icon icon={Add01Icon} tone="ink2" size={21} />
-                              </View>
-                            </PullDown>
-                            <AgentControls
-                              model={model}
-                              effort={preferences.effort}
-                              fastMode={preferences.fastMode}
-                              ultracode={preferences.ultracode}
-                              onToggle={() => {
-                                router.push({
-                                  pathname: "/model-sheet",
-                                  params: {
-                                    chatId,
-                                    model: model.id,
-                                    provider: actualProvider,
-                                    ...(chat?.provider ? { on: chat.provider } : {}),
-                                    ...(run ? { busy: "1" } : {}),
-                                  },
-                                });
+                                    >
+                                      {item.image ? (
+                                        <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                                      ) : (
+                                        <Pressable
+                                          accessibilityRole="button"
+                                          accessibilityLabel={`Preview ${item.name}`}
+                                          onPress={() =>
+                                            router.push({
+                                              pathname: "/file-preview",
+                                              params: item.path ? { path: item.path } : { uri: item.uri, name: item.name },
+                                            })
+                                          }
+                                          style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
+                                        >
+                                          <Icon icon={File01Icon} tone="ink2" size={18} />
+                                          <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
+                                            {item.name}
+                                          </Text>
+                                        </Pressable>
+                                      )}
+                                      {item.image && (
+                                        <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
+                                          {`#${imageIndex} ${item.name}`}
+                                        </Text>
+                                      )}
+                                      <IconButton
+                                        label={`Remove ${item.name}`}
+                                        icon={Cancel01Icon}
+                                        size={32}
+                                        disabled={busy || picking}
+                                        onPress={() => {
+                                          // Removing this tile may leave room again, which ends the limit error.
+                                          composer.setAttachments((currentAttachments) => ({
+                                            ...currentAttachments,
+                                            [chatId]: (currentAttachments[chatId] || []).filter((attachment) => attachment.id !== item.id),
+                                          }));
+                                          if (imageIndex > 0) {
+                                            composer.setDrafts((current) => ({
+                                              ...current,
+                                              [chatId]: shiftImageMentions(current[chatId] || "", imageIndex),
+                                            }));
+                                          }
+                                        }}
+                                      />
+                                    </View>
+                                  );
+                                })}
+                              </PageScroll>
+                            )}
+                            <PromptField
+                              key={chatId}
+                              chats={mentionChats}
+                              currentId={chat?.id}
+                              client={client}
+                              projectPath={worktree?.path || (project.link ? "" : project.path)}
+                              draft={draft}
+                              suggestion={
+                                !run &&
+                                !busy &&
+                                !picking &&
+                                !attachments.length &&
+                                activity?.activity === "idle" &&
+                                chat?.provider === "claude" &&
+                                actualProvider === "claude"
+                                  ? chat.suggestion?.text
+                                  : undefined
+                              }
+                              onAcceptSuggestion={(text) => composer.setDrafts((current) => (current[chatId] ? current : { ...current, [chatId]: text }))}
+                              chatTitle={title}
+                              provider={chat?.provider ?? actualProvider}
+                              images={attachments.filter((item) => item.image).length}
+                              onImagePaste={(image) => void pasteImage(image)}
+                              known={knownFiles.current}
+                              onMention={worktree?.path ? mentionFile : undefined}
+                              commands={chat ? UNDO_COMMANDS : undefined}
+                              // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
+                              placeholder={
+                                run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined
+                              }
+                              // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
+                              onSubmit={() => {
+                                if (!sendDisabled) void send();
+                              }}
+                              onFocus={onTyping}
+                              onChangeText={(value) => {
+                                // Clearing the composer also clears the limit error that its mentions caused.
+                                composer.setDrafts((current) => ({ ...current, [chatId]: value }));
                               }}
                             />
-                            <PermissionChip
-                              mode={preferences.permissionMode}
-                              onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
-                            />
-                            <View style={{ flex: 1 }} />
-                            <PlanPill panel={planPanel} />
-                            {contextUsage && contextUsage.size > 0 && params.id && (
-                              <ContextRing
-                                {...contextUsage}
-                                canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
-                                onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                              <PullDown
+                                label="Add photos or files"
+                                nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
+                                sections={[
+                                  {
+                                    items: [
+                                      { id: "photos", title: "Photo Library", systemImage: "photo.on.rectangle", disabled: attachmentDisabled },
+                                      { id: "camera", title: "Take Photo", systemImage: "camera", disabled: attachmentDisabled },
+                                      { id: "files", title: "Choose Files", systemImage: "folder", disabled: attachmentDisabled },
+                                      { id: "paste", title: "Paste image", systemImage: "doc.on.clipboard", disabled: attachmentDisabled },
+                                    ],
+                                  },
+                                ]}
+                                onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
+                              >
+                                <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
+                                  <Icon icon={Add01Icon} tone="ink2" size={21} />
+                                </View>
+                              </PullDown>
+                              <AgentControls
+                                model={model}
+                                effort={preferences.effort}
+                                fastMode={preferences.fastMode}
+                                ultracode={preferences.ultracode}
+                                onToggle={() => {
+                                  router.push({
+                                    pathname: "/model-sheet",
+                                    params: {
+                                      chatId,
+                                      model: model.id,
+                                      provider: actualProvider,
+                                      ...(chat?.provider ? { on: chat.provider } : {}),
+                                      ...(run ? { busy: "1" } : {}),
+                                    },
+                                  });
+                                }}
                               />
-                            )}
-                            {run && !draft.trim() && !attachments.length && (
-                              <IconButton
-                                label="Stop"
-                                icon={StopIcon}
-                                filled
-                                size={34}
-                                disabled={actionBusy}
-                                onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                              <PermissionChip
+                                mode={preferences.permissionMode}
+                                onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                               />
-                            )}
-                            {(!run || !!draft.trim() || !!attachments.length) && (
-                              <IconButton
-                                label={
-                                  busy
-                                    ? "Sending..."
-                                    : run
-                                      ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                        ? "Send follow-up"
-                                        : "Queue message"
-                                      : "Send message"
-                                }
-                                icon={ArrowUp01Icon}
-                                filled
-                                size={34}
-                                loading={busy}
-                                disabled={sendDisabled}
-                                onPress={() => void send()}
-                              />
-                            )}
+                              <View style={{ flex: 1 }} />
+                              <PlanPill panel={planPanel} />
+                              {contextUsage && contextUsage.size > 0 && params.id && (
+                                <ContextRing
+                                  {...contextUsage}
+                                  canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
+                                  onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                                />
+                              )}
+                              {run && !draft.trim() && !attachments.length && (
+                                <IconButton
+                                  label="Stop"
+                                  icon={StopIcon}
+                                  filled
+                                  size={34}
+                                  disabled={actionBusy}
+                                  onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
+                                />
+                              )}
+                              {(!run || !!draft.trim() || !!attachments.length) && (
+                                <IconButton
+                                  label={
+                                    busy
+                                      ? "Sending..."
+                                      : run
+                                        ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                          ? "Send follow-up"
+                                          : "Queue message"
+                                        : "Send message"
+                                  }
+                                  icon={ArrowUp01Icon}
+                                  filled
+                                  size={34}
+                                  loading={busy}
+                                  disabled={sendDisabled}
+                                  onPress={() => void send()}
+                                />
+                              )}
+                            </View>
                           </View>
                         </View>
                       )

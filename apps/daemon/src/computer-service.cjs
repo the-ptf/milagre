@@ -41,6 +41,8 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     dataDir,
     credentials: vault,
     ownHostId: () => readOwnHostId(dataDir),
+    // Each computer's state changes land in daemon.log: a blip leaves no trace on screen once it is over.
+    log: (line) => console.log(`computers: ${line}`),
     ...options,
     onChange: (list) => {
       ipc?.changed();

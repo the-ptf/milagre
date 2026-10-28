@@ -709,6 +709,15 @@ test("chat:reload adds no line to an empty Chat", async (t) => {
   assert.deepEqual((await runtime.invoke("project:snapshot", [project])).state.messages, []);
 });
 
+test("project:recent names each Project's Git origin, so other computers can show the same repository as one", async (t) => {
+  const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:The-PTF/milagre-ade.git"], { stdio: "ignore" });
+  const runtime = make();
+  await runtime.openProject(project);
+  const [entry] = await runtime.invoke("project:recent");
+  assert.equal(entry.origin, "github.com/the-ptf/milagre-ade");
+});
+
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
   const { project, make } = await fixture(t);
   execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {

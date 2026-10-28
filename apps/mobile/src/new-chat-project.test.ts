@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HostView } from "./all-computers-store.ts";
-import { newChatProjects, pickNewChatProject } from "./new-chat-project.ts";
+import { newChatProjectGroups, newChatProjects, pickNewChatProject, preferredCopy } from "./new-chat-project.ts";
 
 const view = (hostId: string, state: HostView["state"], paths: string[], hidden: string[] = []): HostView => ({
   hostId,
@@ -28,4 +28,26 @@ test("New Chat opens the last new Chat's Project, then the open one, then the fi
   assert.equal(pickNewChatProject(projects, { hostId: "mac", projectPath: "/gone" }, { hostId: "mac", projectPath: "/b" })?.path, "/b");
   assert.equal(pickNewChatProject(projects, { hostId: "deer", projectPath: "/c" }, null)?.path, "/a");
   assert.equal(pickNewChatProject([], null, null), undefined);
+});
+
+test("one repository on several computers is one row, opening on the computer last used for it", () => {
+  const projects = [
+    { hostId: "mac", hostName: "Santo", offline: false, path: "/code/app", name: "app", origin: "github.com/x/app" },
+    { hostId: "mac", hostName: "Santo", offline: false, path: "/code/plain", name: "plain" },
+    { hostId: "arketa", hostName: "Arketa", offline: false, path: "/work/app", name: "app", origin: "github.com/x/app" },
+    { hostId: "away", hostName: "Away", offline: true, path: "/Users/v/app", name: "app", origin: "github.com/x/app" },
+  ];
+  const groups = newChatProjectGroups(projects);
+  assert.deepEqual(
+    groups.map((group) => [group.path, group.copies.map((copy) => copy.hostId)]),
+    [
+      ["/code/app", ["mac", "arketa", "away"]],
+      ["/code/plain", ["mac"]],
+    ],
+  );
+  const [app] = groups;
+  assert.ok(app);
+  assert.equal(preferredCopy(app, "arketa", "mac").hostId, "arketa");
+  assert.equal(preferredCopy(app, "away", "mac").hostId, "mac");
+  assert.equal(preferredCopy(app, null, "elsewhere").hostId, "mac");
 });

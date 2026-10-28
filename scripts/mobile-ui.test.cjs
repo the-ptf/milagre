@@ -164,7 +164,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/themes" ||
           id === "@milagre/shared/file-kinds" ||
           id === "@milagre/shared/streaming-blocks" ||
-          id === "@milagre/shared/tool-activity") &&
+          id === "@milagre/shared/tool-activity" ||
+          id === "@milagre/shared/project-origin") &&
         !(id in modules)
       )
         return require(id);
@@ -225,6 +226,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           useNewChatProjects: () => [],
           allComputers: { clientFor: () => null, hostFor: () => undefined },
         };
+      // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
+      if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
       if (base === "project-icon" && !(id in modules)) return { ProjectIcon: "ProjectIcon", ProjectIcons: "ProjectIcons" };
       // A phone-width window: no pinned sidebar and no reading column (split-context.tsx); the width helpers are pure.
       if (base === "split-context" && !(id in modules))
