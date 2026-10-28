@@ -50,9 +50,12 @@ window.externalEdit = false;
 window.fileCalls = [];
 window.milagre = {
   git: {
+    history: async request => ({ isRepo: true, branch: "feature/current", base: request.base === "refs/heads/parent" ? "parent" : "main", branches: [{ ref: "refs/heads/main", name: "main" }, { ref: "refs/heads/parent", name: "parent" }], hasMore: false,
+      commits: request.limit ? [{ sha: "a".repeat(40), author: "Maria", email: "maria@example.com", date: "2026-10-28T10:00:00Z", message: "Current feature commit\\n\\nDetailed explanation", files: 2, added: 7, removed: 3 }] : [] }),
     diffFiles: async request => {
       window.listCalls.push(request.mode);
-      if (request.mode === "committed") return { isRepo: true, base: "main", files: entries.filter(entry => entry.path === "packages/app/src/index.ts") };
+      if (request.mode === "committed") window.lastBase = request.base;
+      if (request.mode === "committed") return { isRepo: true, base: request.base === "refs/heads/parent" ? "parent" : "main", files: entries.filter(entry => entry.path === (request.base === "refs/heads/parent" ? "README.md" : "packages/app/src/index.ts")) };
       return { isRepo: true, base: null, files: window.externalCommit ? [] : entries };
     },
     diffFile: async request => {
@@ -81,7 +84,7 @@ function Fixture() {
       <div data-chat-stub className={"flex-1 pt-12 px-6 text-[14px] " + (presence.occupied ? "hidden" : "")}>Chat goes here</div>
     </main>
     <ChangesPanelSlot open={changes.open}>
-      <ChangesPanel lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} />
+      <ChangesPanel comparison={changes.comparison} lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} />
     </ChangesPanelSlot>
   </div>;
 }
@@ -105,7 +108,11 @@ async function browserChecks() {
     }
     throw new Error(`Timed out: ${source}`);
   }
-  const shot = async (name) => fs.writeFileSync(`/tmp/diff-view-${name}.png`, (await window.webContents.capturePage()).toPNG());
+  const shot = async (name) => {
+    if (!process.env.MILAGRE_SCREENSHOT_DIR) return;
+    fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, `diff-view-${name}.png`), (await window.webContents.capturePage()).toPNG());
+  };
   const file = (p) => `[data-diff-file="${p}"]`;
   const CAL = "packages/app/src/components/Calendar/CalendarEmptyState.tsx";
   try {
@@ -307,6 +314,25 @@ async function browserChecks() {
     await delay(200);
     assert.equal(await evaluate('window.fileCalls.filter(call => call.startsWith("uncommitted:")).length'), uncommittedReads);
 
+    // A chosen comparison narrows committed files without changing the Worktree branch.
+    await evaluate('document.querySelector(`[aria-label="Comparison branch"]`).click()');
+    await waitFor('!!document.querySelector("[role=listbox]")');
+    await evaluate('[...document.querySelectorAll("[role=option]")].find(row => row.textContent === "parent").click()');
+    await waitFor('document.querySelector(`[data-changes-section="On this branch"] [data-diff-base]`)?.textContent.includes("parent")');
+    assert.equal(await evaluate("window.lastBase"), "refs/heads/parent");
+    assert.ok(await evaluate('document.querySelector("[data-changes-panel]").textContent.includes("feature/current")'));
+    await evaluate('[...document.querySelectorAll(`[aria-label="Changes view"] button`)].find(button => button.textContent === "Commits").click()');
+    await waitFor('!!document.querySelector("[data-commit-history] details")');
+    await evaluate('document.querySelector("[data-commit-history] summary").click()');
+    assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("maria@example.com")'));
+    assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("Detailed explanation")'));
+    assert.ok(await evaluate('document.querySelector("[data-commit-history]").textContent.includes("2 files")'));
+    if (process.env.MILAGRE_SCREENSHOT_DIR) {
+      window.showInactive();
+      await delay(300);
+      fs.mkdirSync(process.env.MILAGRE_SCREENSHOT_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "comparison-history.png"), (await window.webContents.capturePage()).toPNG());
+    }
     // Closing the panel returns to Chat.
     await evaluate('document.querySelector("[data-changes-toggle]").click()');
     await waitFor('!document.querySelector("[data-changes-panel]") && !document.querySelector("[data-diff-view]")');

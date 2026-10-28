@@ -229,6 +229,7 @@ function makeBridge(invoke, listen, send) {
     showImageMenu: (file, name) => invoke("image:menu", file, name),
     git: {
       changes: (request) => invoke("git:changes", request),
+      history: (request) => invoke("git:history", request),
       diffFiles: (request) => invoke("git:diff-files", request),
       diffFile: (request) => invoke("git:diff-file", request),
       generate: (request) => invoke("git:generate", request),

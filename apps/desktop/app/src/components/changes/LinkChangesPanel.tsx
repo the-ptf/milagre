@@ -13,7 +13,20 @@ import {
 import type { WorktreeBinding } from "@milagre/shared/model";
 import { LINK_PENDING_WORKTREE_TEXT } from "@milagre/shared/worktree-link";
 import type { DiffMode } from "../../electron";
-import { ChangesSections, ChangesTabs, Counts, changedFileCount, firstSection, type ChangesLists, type CommentCounts, type PrTab } from "./ChangesPanel";
+import {
+  ComparisonControls,
+  CommitHistory,
+  ChangesSections,
+  ChangesTabs,
+  Counts,
+  changedFileCount,
+  firstSection,
+  type ChangesLists,
+  type CommentCounts,
+  type PrTab,
+} from "./ChangesPanel";
+import { useComparison } from "./useComparison";
+import { useBridge } from "../../lib/computer-bridge";
 import type { DiffList } from "./useDiffFiles";
 import { ProjectAvatarStack } from "../ProjectAvatarStack";
 import { ScrollArea } from "../primitives/ScrollArea";
@@ -23,6 +36,8 @@ export function LinkChangesPanel({
   members,
   projects,
   lists,
+  comparisons,
+  onComparisonChange,
   loading,
   mode,
   onModeChange,
@@ -36,6 +51,8 @@ export function LinkChangesPanel({
   onReveal,
   pullRequest,
 }: {
+  comparisons?: Record<string, string>;
+  onComparisonChange?: (path: string, value: string) => void;
   members: WorktreeBinding[];
   projects: Array<{ id: string; path: string; name: string }>;
   /** Each Project's lists by mode, keyed by Project id: the Changes tab's two sections. */
@@ -92,6 +109,8 @@ export function LinkChangesPanel({
             <ProjectChanges
               key={member.projectId}
               member={member}
+              comparisonValue={comparisons?.[member.worktreePath] ?? ""}
+              onComparisonChange={(value) => onComparisonChange?.(member.worktreePath, value)}
               name={projects.find((project) => project.id === member.projectId)?.name ?? member.projectId}
               lists={listsOf(member.projectId)}
               mode={mode}
@@ -129,6 +148,8 @@ export function LinkChangesPanel({
 
 function ProjectChanges({
   member,
+  comparisonValue,
+  onComparisonChange,
   name,
   lists,
   mode,
@@ -140,6 +161,8 @@ function ProjectChanges({
   onReveal,
 }: {
   member: WorktreeBinding;
+  comparisonValue: string;
+  onComparisonChange: (value: string) => void;
   name: string;
   lists: ChangesLists;
   mode: DiffMode;
@@ -151,6 +174,7 @@ function ProjectChanges({
   onReveal?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const comparison = useComparison(member.worktreePath, member.base, useBridge(), !collapsed, { value: comparisonValue, onChange: onComparisonChange });
   const [actionsOpen, setActionsOpen] = useState(false);
   const files = [lists.uncommitted, lists.committed].flatMap((list) => (list.state === "ready" && list.isRepo ? list.files : []));
   return (
@@ -187,7 +211,12 @@ function ProjectChanges({
       </div>
       {!collapsed && (
         <div className="pl-5">
-          <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+          <ComparisonControls comparison={comparison} />
+          {comparison.view === "commits" ? (
+            <CommitHistory comparison={comparison} />
+          ) : (
+            <ChangesSections lists={lists} mode={mode} onSelectFile={onSelectFile} activePath={activePath} commentCounts={commentCounts} />
+          )}
         </div>
       )}
     </section>

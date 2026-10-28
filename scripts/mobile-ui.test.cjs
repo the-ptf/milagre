@@ -15179,3 +15179,82 @@ test("Add computer can remove the public fallback before pairing a pasted invita
   assert.deepEqual(Array.from(connected[0].relay.direct), direct);
   assert.equal(connected[0].relay.key, identity.key);
 });
+
+test("phone changes choose a comparison branch and keep its base when opening a diff; commit details expand", () => {
+  const react = hookHost();
+  const calls = [];
+  let picker;
+  const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
+  const commit = {
+    sha: "a".repeat(40),
+    author: "Maria",
+    email: "maria@example.com",
+    date: "2026-10-28T10:00:00Z",
+    message: "Current work\n\nDetailed explanation",
+    files: 1,
+    added: 2,
+    removed: 0,
+  };
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet: (request) => (picker = request) },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method, [request]) => {
+        calls.push({ method, request });
+        const base = request.base === "refs/heads/parent" ? "parent" : "main";
+        return {
+          data:
+            method === "git:history"
+              ? {
+                  isRepo: true,
+                  branch: "current",
+                  base,
+                  branches: [{ ref: "refs/heads/parent", name: "parent" }],
+                  commits: request.limit ? [commit] : [],
+                  hasMore: false,
+                }
+              : { isRepo: true, base: request.mode === "committed" ? base : null, files: request.mode === "committed" ? [file] : [] },
+          error: "",
+          refresh() {},
+        };
+      },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  };
+  const { ChangeSections, CommitCard } = load("change-tree.tsx", modules, "\nexport { CommitCard };");
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: {}, cwd: "/worktree", base: "main", onOpen: (...args) => opened.push(args) });
+  };
+  let tree = render();
+  find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/parent"));
+  picker.onSelect("refs/heads/parent");
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files" && call.request.mode === "committed").request.base, "refs/heads/parent");
+  find(tree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[0], [file, "committed", "refs/heads/parent"]);
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
+  const cardReact = hookHost();
+  const card = load("change-tree.tsx", { ...modules, react: cardReact }, "\nexport { CommitCard };").CommitCard;
+  cardReact.begin();
+  let details = card({ commit });
+  find(details, (node) => node.type === "Pressable").props.onPress();
+  cardReact.begin();
+  details = card({ commit });
+  assert.ok(textOf(details).includes("maria@example.com"));
+  assert.ok(textOf(details).includes("Detailed explanation"));
+  assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
+});

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ArrowDown01Icon, ArrowRight01Icon, File01Icon } from "@hugeicons/core-free-icons";
-import type { DiffFileEntry, DiffFilesResult, DiffMode } from "@milagre/shared/git-diff";
+import type { DiffFileEntry, DiffFilesResult, DiffMode, GitHistory, GitCommit } from "@milagre/shared/git-diff";
 import { buildDiffTree, type DiffTreeNode } from "@milagre/shared/diff-tree";
 import type { Client } from "./client";
 import type { DiffTarget } from "./app/diff";
+import { showChoiceSheet } from "./choice-store";
 import { useScreenActive } from "./display-clock";
 import { useRpc } from "./use-rpc";
 import { Icon } from "./icons";
@@ -88,14 +89,22 @@ export function ChangeSections({
 }) {
   const styles = useStyles();
   const active = useScreenActive();
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [view, setView] = useState<"files" | "commits">("files");
+  const [limit, setLimit] = useState(30);
+  const selected = choices[cwd] ?? "";
+  const comparisonBase = selected || base;
+  const history = useRpc<GitHistory>(client, "git:history", [{ cwd, base: comparisonBase, limit: view === "commits" ? limit : 0 }], active);
+  const data = history.data?.isRepo ? history.data : undefined;
   const uncommitted = useRpc<DiffFilesResult>(client, "git:diff-files", [{ cwd, base, mode: "uncommitted" }], active);
-  const committed = useRpc<DiffFilesResult>(client, "git:diff-files", [{ cwd, base, mode: "committed" }], active);
+  const committed = useRpc<DiffFilesResult>(client, "git:diff-files", [{ cwd, base: comparisonBase, mode: "committed" }], active);
   const reads = { uncommitted, committed };
   const [read, setRead] = useState(revision);
   if (read !== revision) {
     setRead(revision);
     uncommitted.refresh();
     committed.refresh();
+    history.refresh();
   }
   const shown = SECTIONS.flatMap(({ mode, title }) => {
     const result = reads[mode].data;
@@ -104,14 +113,97 @@ export function ChangeSections({
   // A list that can't be read says so above the one that could.
   const failed = SECTIONS.filter(({ mode }) => reads[mode].error);
   const notice = failed[0] ? <ErrorNotice message={reads[failed[0].mode].error} retry={() => failed.forEach(({ mode }) => reads[mode].refresh())} /> : null;
+  const controls = (
+    <View style={[styles.card, { gap: 10 }]}>
+      <Text style={styles.label}>Branch: {data?.branch ?? (history.data ? "Detached HEAD" : "…")}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Comparison branch"
+        onPress={() =>
+          showChoiceSheet({
+            title: "Compare with",
+            placeholder: "Search branches",
+            emptyLabel: "No branches",
+            items: [
+              { id: "automatic", title: "Automatic", subtitle: "Recorded base or project default", checked: !selected },
+              ...(data?.branches ?? []).map((branch) => ({ id: branch.ref, title: branch.name, checked: selected === branch.ref })),
+            ],
+            onSelect: (value) => {
+              setChoices((previous) => ({ ...previous, [cwd]: value === "automatic" ? "" : value }));
+              setLimit(30);
+            },
+          })
+        }
+        style={{ minHeight: 44, justifyContent: "center" }}
+      >
+        <Text style={styles.text}>Compare with: {selected.replace(/^refs\/(heads|remotes)\//, "") || `Automatic${data?.base ? ` (${data.base})` : ""}`}</Text>
+      </Pressable>
+      {data?.base && (
+        <Text style={styles.caption}>
+          Changes in {data.branch ?? "HEAD"} since {(data.comparisonRef ?? data.base).replace(/^refs\/(heads|remotes)\//, "")}
+        </Text>
+      )}
+      <View style={{ flexDirection: "row", gap: 12 }}>
+        {(["files", "commits"] as const).map((item) => (
+          <Pressable
+            key={item}
+            accessibilityRole="button"
+            accessibilityState={{ selected: view === item }}
+            onPress={() => setView(item)}
+            style={{ minHeight: 44, flex: 1, justifyContent: "center" }}
+          >
+            <Text style={view === item ? styles.label : styles.muted}>{item === "files" ? "Files" : "Commits"}</Text>
+          </Pressable>
+        ))}
+      </View>
+      {history.error ? <ErrorNotice message={history.error} retry={history.refresh} /> : null}
+    </View>
+  );
+  if (view === "commits")
+    return (
+      <>
+        {controls}
+        {!history.data && !history.error && <Text style={styles.muted}>Reading commits…</Text>}
+        {data?.commits.map((commit) => (
+          <CommitCard key={commit.sha} commit={commit} />
+        ))}
+        {data && !data.commits.length && <Text style={styles.muted}>{data.message ?? "No commits since the comparison branch."}</Text>}
+        {history.data && !history.data.isRepo && <Text style={styles.muted}>{history.data.message}</Text>}
+        {data?.hasMore && limit < 300 && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setLimit((value) => Math.min(value + 30, 300))}
+            style={{ minHeight: 44, justifyContent: "center" }}
+          >
+            <Text style={styles.label}>Show more commits</Text>
+          </Pressable>
+        )}
+        {data?.hasMore && limit >= 300 && (
+          <Text style={styles.caption}>Showing the latest 300 commits. Choose a closer comparison branch to narrow the history.</Text>
+        )}
+      </>
+    );
   if (!shown.length) {
-    if (notice) return notice;
+    if (notice)
+      return (
+        <>
+          {controls}
+          {notice}
+        </>
+      );
     const done = uncommitted.data && committed.data;
     const notRepo = uncommitted.data && !uncommitted.data.isRepo ? uncommitted.data.message : "";
-    return <Text style={[styles.muted, { textAlign: "center", paddingVertical: 32 }]}>{!done ? "Reading changes…" : notRepo || "No changes."}</Text>;
+    const message = committed.data?.isRepo ? committed.data.message : undefined;
+    return (
+      <>
+        {controls}
+        <Text style={[styles.muted, { textAlign: "center", paddingVertical: 32 }]}>{!done ? "Reading changes…" : notRepo || message || "No changes."}</Text>
+      </>
+    );
   }
   return (
     <>
+      {controls}
       {notice}
       {shown.map((section) => (
         <View key={section.mode} style={{ gap: 6 }}>
@@ -127,11 +219,54 @@ export function ChangeSections({
             />
           </View>
           <View style={[styles.card, { paddingVertical: 4, paddingHorizontal: 0, gap: 0 }]}>
-            <ChangeTree nodes={buildDiffTree(section.files)} depth={0} onOpen={(file) => onOpen(file, section.mode, section.base)} />
+            <ChangeTree
+              nodes={buildDiffTree(section.files)}
+              depth={0}
+              onOpen={(file) =>
+                onOpen(file, section.mode, section.mode === "committed" ? (comparisonBase ?? data?.comparisonRef ?? section.base) : section.base)
+              }
+            />
           </View>
         </View>
       ))}
     </>
+  );
+}
+
+function CommitCard({ commit }: { commit: GitCommit }) {
+  const styles = useStyles();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <View style={[styles.card, { gap: 8 }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((value) => !value)}
+        style={{ minHeight: 44, justifyContent: "center" }}
+      >
+        <Text style={styles.label}>{commit.message.split("\n")[0]}</Text>
+        <Text style={styles.caption}>
+          {commit.author} · {new Date(commit.date).toLocaleString()}
+        </Text>
+      </Pressable>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+        <Text style={styles.muted}>{commit.files} files</Text>
+        <Counts added={commit.added} removed={commit.removed} />
+      </View>
+      {expanded && (
+        <>
+          <Text selectable style={styles.text}>
+            {commit.message}
+          </Text>
+          <Text selectable style={styles.caption}>
+            {commit.author} &lt;{commit.email}&gt;
+          </Text>
+          <Text selectable style={styles.caption}>
+            {commit.sha}
+          </Text>
+        </>
+      )}
+    </View>
   );
 }
 

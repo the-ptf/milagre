@@ -227,3 +227,60 @@ test("patch reads turn off textconv", async (t) => {
   await createGitDiff({ execFile }).readDiffFile({ cwd, mode: "uncommitted", path: "README.md" });
   assert.ok(seen.some((args) => args.includes("diff") && args.includes("--no-textconv")));
 });
+
+test("comparison history excludes inherited commits with a chosen branch and includes author, full message and stats", async (t) => {
+  const { cwd, git, write, diff } = await fixture(t);
+  git("checkout", "-b", "parent-feature");
+  await write("parent.txt", "inherited\n");
+  git("add", ".");
+  git("commit", "-m", "Parent work");
+  git("checkout", "-b", "current-feature");
+  await write("current.txt", "one\ntwo\n");
+  git("add", ".");
+  git("commit", "-m", "Current work\n\nDetailed explanation", "--author=Maria <maria@example.com>");
+  await write("scratch.txt", "uncommitted\n");
+  const all = await diff.history({ cwd, base: "main" });
+  assert.equal(all.commits.length, 2);
+  const result = await diff.history({ cwd, base: "refs/heads/parent-feature" });
+  assert.equal(result.branch, "current-feature");
+  assert.equal(result.base, "parent-feature");
+  assert.ok(result.branches.some((branch) => branch.ref === "refs/heads/parent-feature"));
+  assert.equal(result.commits.length, 1);
+  const [commit] = result.commits;
+  assert.equal(commit.author, "Maria");
+  assert.equal(commit.email, "maria@example.com");
+  assert.equal(commit.message, "Current work\n\nDetailed explanation");
+  assert.equal(commit.sha, git("rev-parse", "HEAD").trim());
+  assert.ok(Number.isFinite(Date.parse(commit.date)));
+  assert.equal(commit.files, 1);
+  assert.equal(commit.added, 2);
+  assert.equal(commit.removed, 0);
+  assert.equal(result.hasMore, false);
+  const limited = await diff.history({ cwd, base: "main", limit: 1 });
+  assert.equal(limited.commits.length, 1);
+  assert.equal(limited.hasMore, true);
+  const metadata = await diff.history({ cwd, base: "main", limit: 0 });
+  assert.deepEqual(metadata.commits, []);
+  assert.equal(metadata.branch, "current-feature");
+  const files = await diff.listDiffFiles({ cwd, base: "refs/heads/parent-feature", mode: "committed" });
+  assert.deepEqual(
+    files.files.map((file) => file.path),
+    ["current.txt"],
+  );
+  assert.equal(git("branch", "--show-current").trim(), "current-feature");
+});
+
+test("history handles unborn, detached and unrelated branches", async (t) => {
+  const { cwd, git, write, diff } = await fixture(t, { commit: false });
+  assert.deepEqual((await diff.history({ cwd })).commits, []);
+  await write("first.txt", "first\n");
+  git("add", ".");
+  git("commit", "-m", "first");
+  git("checkout", "--detach");
+  assert.equal((await diff.history({ cwd, base: "main" })).branch, null);
+  git("checkout", "--orphan", "unrelated");
+  git("commit", "-m", "unrelated");
+  const result = await diff.history({ cwd, base: "main" });
+  assert.match(result.message, /shares no history/);
+  assert.deepEqual(result.commits, []);
+});

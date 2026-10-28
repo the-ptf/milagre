@@ -17,3 +17,27 @@ export type DiffFilesResult = { isRepo: false; message: string } | { isRepo: tru
 
 /** `patch` is empty when the file is binary or `tooLarge` (over 1 MB). */
 export type DiffFileResult = { patch: string; binary: boolean; tooLarge: boolean };
+
+export type GitCommit = {
+  sha: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+  files: number;
+  added: number;
+  removed: number;
+};
+
+export type GitHistory =
+  | { isRepo: false; message: string }
+  | {
+      isRepo: true;
+      branch: string | null;
+      base: string | null;
+      comparisonRef?: string | null;
+      branches: { ref: string; name: string }[];
+      commits: GitCommit[];
+      hasMore: boolean;
+      message?: string;
+    };

@@ -24,7 +24,9 @@ function checkPath(file) {
 }
 
 function createGitDiff(options = {}) {
-  const { run, out: gitOut, refExists, chatBase } = createGit(options).read;
+  const { run, checked, out: gitOut, refExists, chatBase } = createGit(options).read;
+
+  const commitStats = new Map();
 
   /**
    * The refs `git diff` compares for a mode, or null when there is nothing to compare: uncommitted work
@@ -155,7 +157,69 @@ function createGitDiff(options = {}) {
     return { patch: binary ? "" : result.stdout, binary, tooLarge: false };
   }
 
-  return { listDiffFiles, readDiffFile };
+  /** Bounded, read-only history for the same comparison the file tree uses. */
+  async function history({ cwd, base, limit = 30 } = {}) {
+    if (!(await run(cwd, ["rev-parse", "--is-inside-work-tree"])).ok) return { isRepo: false, message: NOT_REPO };
+    const [branch, branches, resolved] = await Promise.all([
+      gitOut(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      checked(cwd, ["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"]),
+      chatBase(cwd, base),
+    ]);
+    const choices = branches.stdout
+      .trim()
+      .split("\n")
+      .filter((ref) => ref && !ref.endsWith("/HEAD"))
+      .map((ref) => ({ ref, name: ref.replace(/^refs\/(heads|remotes)\//, "") }));
+    const result = { isRepo: true, branch, base: resolved.name, comparisonRef: resolved.ref, branches: choices, commits: [], hasMore: false };
+    if (limit === 0 || !(await refExists(cwd, "HEAD"))) return result;
+    if (!resolved.ref) return { ...result, message: "No comparison branch available." };
+    const mergeBase = await gitOut(cwd, ["merge-base", resolved.ref, "HEAD"]);
+    if (!mergeBase) return { ...result, message: `This branch shares no history with ${resolved.name}.` };
+    const count = Number.isInteger(limit) ? Math.max(1, Math.min(limit, 300)) : 30;
+    const log = await checked(cwd, ["log", "-z", `--max-count=${count + 1}`, "--format=%H%x00%an%x00%ae%x00%aI%x00%B", `${mergeBase}..HEAD`, "--"]);
+    const fields = log.stdout.split("\0");
+    const commits = [];
+    for (let i = 0; i + 4 < fields.length; i += 5) {
+      const [sha, author, email, date, message] = fields.slice(i, i + 5);
+      commits.push({ sha, author, email, date, message: message.trim() });
+    }
+    const detailed = [];
+    for (let i = 0; i < Math.min(commits.length, count); i += 4) {
+      detailed.push(
+        ...(await Promise.all(
+          commits.slice(i, Math.min(i + 4, count)).map(async (commit) => {
+            const key = `${cwd}\0${commit.sha}`;
+            if (commitStats.has(key)) return { ...commit, ...commitStats.get(key) };
+            // First-parent stats also give merge commits useful, non-duplicated totals.
+            const stat = await checked(cwd, [
+              "show",
+              "--format=",
+              "--no-ext-diff",
+              "--no-textconv",
+              "--diff-merges=first-parent",
+              "--numstat",
+              "-z",
+              "-M",
+              commit.sha,
+              ...PATHSPEC,
+            ]);
+            const files = [...parseNumstat(stat.stdout).values()];
+            const totals = {
+              files: files.length,
+              added: files.reduce((sum, file) => sum + file.added, 0),
+              removed: files.reduce((sum, file) => sum + file.removed, 0),
+            };
+            if (commitStats.size >= 600) commitStats.delete(commitStats.keys().next().value);
+            commitStats.set(key, totals);
+            return { ...commit, ...totals };
+          }),
+        )),
+      );
+    }
+    return { ...result, commits: detailed, hasMore: commits.length > count };
+  }
+
+  return { listDiffFiles, readDiffFile, history };
 }
 
 module.exports = { createGitDiff };

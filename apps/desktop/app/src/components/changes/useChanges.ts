@@ -2,6 +2,7 @@ import { isTurnEnd } from "@milagre/shared/agent-runs";
 import { useCallback, useEffect, useState } from "react";
 import type { DiffMode } from "../../electron";
 import type { ChangesMode, PrRange } from "../../lib/pull-request-view";
+import { useComparison } from "./useComparison";
 import { useDiffFiles } from "./useDiffFiles";
 import { sectionOf } from "./ChangesPanel";
 import { useCloseWhenDesignsExpand, useSidePanelRoom } from "../agents/dock-area";
@@ -42,25 +43,29 @@ export function useChanges({
   const [scrollTarget, setScrollTarget] = useState<{ path: string; nonce: number } | null>(null);
   const shown = open && available;
   const bridge = bridgeForKey(chatId);
+  const comparison = useComparison(cwd ?? "", base, bridge, shown && panelLists);
+  const comparisonBase = comparison.base;
   // One reader per mode, so switching between them keeps each list. The Changes tab's count shows on the PR tab too,
   // so both lists stay read while the panel is open; only the diff's mode keeps its loaded patches current.
   const read = (readerMode: DiffMode) => ({ active: shown && (panelLists || mode === readerMode), patches: mode === readerMode, bridge });
   const uncommitted = useDiffFiles({ cwd: cwd ?? "", base, mode: "uncommitted", ...read("uncommitted") });
-  const committed = useDiffFiles({ cwd: cwd ?? "", base, mode: "committed", ...read("committed") });
+  const committed = useDiffFiles({ cwd: cwd ?? "", base: comparisonBase, mode: "committed", ...read("committed") });
   const pr = useDiffFiles({ cwd: cwd ?? "", base, mode: "pr", range: pullRequest?.range, active: shown && mode === "pr", patches: true, bridge });
   const files = mode === "pr" ? pr : mode === "committed" ? committed : uncommitted;
   const refreshPr = pr.refresh,
     refreshUncommitted = uncommitted.refresh,
     refreshCommitted = committed.refresh;
+  const refreshComparison = comparison.refresh;
   const refresh = useCallback(
     async (background = false) => {
       await Promise.all([
+        panelLists && refreshComparison(),
         (panelLists || mode === "uncommitted") && refreshUncommitted(background),
         (panelLists || mode === "committed") && refreshCommitted(background),
         mode === "pr" && refreshPr(background),
       ]);
     },
-    [mode, panelLists, refreshPr, refreshUncommitted, refreshCommitted],
+    [mode, panelLists, refreshPr, refreshUncommitted, refreshCommitted, refreshComparison],
   );
 
   const diffOpen = shown && chatId !== null && diffChatId === chatId;
@@ -138,5 +143,6 @@ export function useChanges({
     ...files,
     refresh,
     lists,
+    comparison,
   };
 }
