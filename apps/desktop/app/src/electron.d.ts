@@ -758,6 +758,7 @@ export type MilagreBridge = {
 
 declare global {
   interface Window {
+    milagrePreferences?: import("./lib/preference-storage").PreferenceBridge;
     milagreWindowChrome?: { controls: "leading" | "overlay" | "external" };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */

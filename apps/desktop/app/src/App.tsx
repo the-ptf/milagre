@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./lib/preference-storage.ts";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { prepareImageUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";

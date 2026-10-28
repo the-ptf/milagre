@@ -343,10 +343,19 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     if (expectTheme)
       assert.equal(await evaluate('document.documentElement.classList.contains("dark")'), true, "Existing UI settings survive a restart/package change");
     await evaluate(
-      'localStorage.setItem("milagre-settings", JSON.stringify({theme:"dark",defaultPermissionMode:"ask",notifyWhenWaiting:false,notifyOnCompletion:false,showDockBadge:false}));',
+      'window.milagrePreferences.set("milagre-settings", JSON.stringify({theme:"dark",defaultPermissionMode:"ask",notifyWhenWaiting:false,notifyOnCompletion:false,showDockBadge:false}));',
     );
     await connection.call("Page.reload");
     await waitFor(() => evaluate('document.documentElement?.classList.contains("dark")'), "saved theme after reload");
+    await evaluate(
+      'window.milagrePreferences.set("milagre.composer-preferences", JSON.stringify({"fixture-chat":{effort:"high",fastMode:true}})); localStorage.clear();',
+    );
+    await connection.call("Page.reload");
+    await waitFor(() => evaluate('document.documentElement?.classList.contains("dark")'), "native theme restored without origin storage");
+    const durable = JSON.parse(await fs.readFile(path.join(profile, "preferences.json"), "utf8"));
+    assert.equal(JSON.parse(durable["milagre-settings"]).theme, "dark");
+    assert.equal(JSON.parse(durable["milagre.composer-preferences"])["fixture-chat"].fastMode, true);
+    console.log("PASS: theme and composer preferences survive loss of Chromium origin storage");
     await waitFor(
       () => evaluate('document.body?.textContent.includes("Saved chat") && !document.querySelector(".startup-splash-screen")'),
       "saved Chat visible after reload",
@@ -429,7 +438,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     console.log("PASS: a host that crashed is started again, the window says so, and the draft stays");
     if (!expectTheme) {
       await evaluate(`(() => {
-        localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") || "{}"), chatList: "grouped" }));
+        window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" }));
         window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
       })()`);
       const second = await fs.mkdtemp(path.join(path.dirname(project), "removal-member-"));
@@ -453,7 +462,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       await evaluate(`document.querySelector('[data-scope-menu-item="remove"]').click()`);
       await waitFor(() => evaluate(`!!document.querySelector('[data-project-remove-confirm]')`), "Project removal confirmation");
       await evaluate(`(() => {
-        localStorage.setItem("milagre-settings", JSON.stringify({ ...JSON.parse(localStorage.getItem("milagre-settings") || "{}"), chatList: "list" }));
+        window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "list" }));
         window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }));
       })()`);
       await evaluate(`document.querySelector('[data-project-remove-confirm]').click()`);

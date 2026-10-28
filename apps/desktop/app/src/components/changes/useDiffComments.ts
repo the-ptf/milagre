@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOutdated, type DiffComment, type DiffSelection, type DiffSide } from "../../lib/diff-comments";
 import type { ChangesMode } from "../../lib/pull-request-view";

@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useCallback, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Layout2ColumnIcon, LayoutTopIcon, RefreshIcon, TextWrapIcon } from "@hugeicons/core-free-icons";
