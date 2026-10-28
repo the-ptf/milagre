@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ALL_CHATS_LABEL, CHATS_ACCOUNT_LABEL, CHATS_GROUP_KEY, CHATS_GROUP_LABEL, NO_PROJECT_LABEL, isChatsHomeProject } from "./chats-home.ts";
+import { ALL_CHATS_LABEL, CHATS_ACCOUNT_LABEL, CHATS_GROUP_KEY, CHATS_GROUP_LABEL, NO_PROJECT_LABEL, isChatsHomeProject } from "./chats-home.mjs";
 
 test("only a Project of kind chats is the Chats home", () => {
   assert.equal(isChatsHomeProject({ kind: "chats" }), true);

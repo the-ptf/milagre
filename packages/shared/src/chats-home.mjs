@@ -1,11 +1,8 @@
 // The Chats home is the one internal Git repository each computer keeps so Chats without a Project have a Worktree
 // to run in. It is a Project like any other to the daemon, so screens tell it apart by `kind`, never by its path.
+// Plain JavaScript so the daemon (runtime.cjs) loads it without TypeScript type stripping.
 
-export type ChatsHome = { path: string; exists: boolean };
-
-export type ProjectKind = "chats";
-
-export function isChatsHomeProject(project: { kind?: string } | null | undefined): boolean {
+export function isChatsHomeProject(project) {
   return project?.kind === "chats";
 }
 

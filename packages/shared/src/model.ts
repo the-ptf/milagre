@@ -1,5 +1,5 @@
 import type { GateMeta } from "./bots.mjs";
-import type { ProjectKind } from "./chats-home.ts";
+import type { ProjectKind } from "./chats-home.mjs";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";

@@ -307,7 +307,7 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
     else if (onReply) onReply(bytes);
     else early.push(bytes);
   });
-  function waitFrame(match, ms = 5000) {
+  function waitFrame(match, ms = 15000) {
     const found = frames.find(match);
     if (found) return Promise.resolve(found);
     return new Promise((resolve, reject) => {
