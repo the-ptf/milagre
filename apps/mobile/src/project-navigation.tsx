@@ -35,7 +35,7 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
-import { chatsGroupChats, chatsRowDetail } from "./chats-group";
+import { chatsGroupChats, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
 import { UpdateSettingsBadge } from "./update-sheet";
 import { useLinks } from "./use-links";
 import { useRoutinesAvailable } from "./use-routines";
@@ -90,7 +90,7 @@ type Row = { key: string; path: string } & (
   | { kind: "start" }
   | { kind: "section"; name: string }
   /** The Chats group's header: every computer's Chats without a Project, above the Projects. */
-  | { kind: "chatsGroup"; expanded: boolean; count: number; offline: boolean }
+  | { kind: "chatsGroup"; expanded: boolean; count: number; offline: boolean; homes: { hostId: string; path: string }[] }
   /** The line between the Chats group and the flat list of the Projects' Chats. */
   | { kind: "divider" }
   | ({
@@ -484,6 +484,8 @@ const NavigationBody = memo(function NavigationBody({
             expanded: !chatsFolded,
             count: homeRows.length,
             offline: homeRows.every((row) => row.reach === "offline"),
+            // Each computer's home, so a Chat waiting in a folded group still marks it.
+            homes: builds.flatMap((build) => (build.home ? [{ hostId: build.hostId, path: build.home.path }] : [])),
           },
           ...(chatsFolded ? [] : homeRows),
         ]
@@ -1344,6 +1346,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               </Text>
             )}
             <View style={{ flex: 1 }} />
+            {chatsGroupNeedsAttention(item.homes, currentHostId, attention.map(projectOfKey)) && <AttentionDot />}
             <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
           </View>
         </PullDown>

@@ -19,3 +19,15 @@ export function chatsGroupChats<T extends Listed>(homes: readonly { hostId: stri
 export function chatsRowDetail(hostName: string, lastAt: number | undefined, now: number): string {
   return lastAt === undefined ? hostName : `${hostName} · ${activityAgo(lastAt, now)}`;
 }
+
+/**
+ * Whether the Chats group's header shows the attention dot, as a Project group's does: a Chat without a Project on the
+ * open computer waits on an approval or a question (`attentionPaths`: the Projects of its attention keys), folded or not.
+ */
+export function chatsGroupNeedsAttention(
+  homes: readonly { hostId: string; path: string }[],
+  currentHostId: string | undefined,
+  attentionPaths: readonly string[],
+): boolean {
+  return homes.some((home) => home.hostId === currentHostId && attentionPaths.includes(home.path));
+}
