@@ -133,7 +133,7 @@ import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
 import { noteScopeOpening, prefetchChatMessages, useChatMessages } from "./lib/chat-messages";
 import { beginChatSwitch } from "./lib/chat-switch-timing";
-import { PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
+import { newChatProject, PROJECT_REMOVED, RECENT_PROJECTS_CHANGED, type RecentProject } from "./lib/project-list";
 import { useHiddenProjects } from "./lib/hidden-projects";
 import { useProjectImages } from "./lib/project-images";
 import { isModalOpen } from "./lib/modal";
@@ -2404,7 +2404,7 @@ function App() {
         setView("settings");
       } else if (event.key.toLowerCase() === "n") {
         event.preventDefault();
-        startNewChat();
+        startNewChatOnThisMac();
       } else if (event.key.toLowerCase() === "o") {
         event.preventDefault();
         void openProject();
@@ -2503,7 +2503,7 @@ function App() {
   // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
   const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
   const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
-  const startNewChatFromSidebar = useEvent(() => startNewChat());
+  const startNewChatFromSidebar = useEvent(() => startNewChatOnThisMac());
   const openProjectFromSidebar = useEvent(() => void openProject());
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
   // "+" on another Project's header switches to it (from its last copy, so at once) and starts a chat there.
@@ -2513,19 +2513,38 @@ function App() {
       void selectLink(key.slice("milagre-link:".length));
       return;
     }
+    startNewChatIn(key);
+  });
+  // A new Chat in a Project, switched to first (a Link on screen closes). `draftText` replaces what waits there.
+  function startNewChatIn(key: string, draftText = "") {
     if (!selectedLinkRef.current && projectRef.current?.path === key) {
-      startNewChat();
+      startNewChat(draftText);
       return;
     }
     // A new chat left unsent there comes back with its draft; a draft for one of its chats stays with that chat.
     const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
-    const start = () => startNewChat(remembered.sessionId === null ? remembered.text : "");
+    const start = () => startNewChat(draftText || (remembered.sessionId === null ? remembered.text : ""));
     const switched = switchProject(key);
     if (!selectedLinkRef.current && projectRef.current?.path === key) start();
     else
       void switched.then(() => {
         if (!selectedLinkRef.current && projectRef.current?.path === key) start();
       });
+  }
+  // New chat (⌘N, the sidebar's +, the command palette, a Link's) always opens the same screen on this Mac: the open
+  // Project when it is this Mac's, else the one opened here last. Another computer's Project or a Link gets a new Chat
+  // from its own header's +, or the heading's Project dropdown.
+  const startNewChatOnThisMac = useEvent(async (draftText: string = "") => {
+    const current = projectRef.current?.path;
+    if (!selectedLinkRef.current && current && computerOfKey(current) === LOCAL_COMPUTER) {
+      startNewChat(draftText);
+      return;
+    }
+    const recent = await window.milagre.listRecentProjects().catch((): RecentProject[] => []);
+    const home = newChatProject({ currentPath: current, recent });
+    if (home) startNewChatIn(home, draftText);
+    // This Mac has no Project: the new Chat stays where it is.
+    else if (!selectedLinkRef.current) startNewChat(draftText);
   });
   // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far.
   const moveNewChat = useEvent((key: string) => {
@@ -2892,6 +2911,7 @@ function App() {
       onCanvasChat={(path, id) => void openCanvasChat(path, id)}
       usage={sidebarUsage}
       onNewChatInScope={newChatInScope}
+      onNewChat={startNewChatOnThisMac}
     />
   );
   const linkDialogs = (
@@ -2967,7 +2987,15 @@ function App() {
   function buildCommands(current: OpenProject): Command[] {
     const modifier = /Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
     const commands: Command[] = [
-      { id: "new-chat", label: "New chat", group: "Actions", icon: "add", shortcut: `${modifier}N`, keywords: "create agent session", run: startNewChat },
+      {
+        id: "new-chat",
+        label: "New chat",
+        group: "Actions",
+        icon: "add",
+        shortcut: `${modifier}N`,
+        keywords: "create agent session",
+        run: () => startNewChatOnThisMac(),
+      },
       ...(terminalChatId
         ? [
             {
@@ -3723,7 +3751,7 @@ function App() {
                       )
                   : undefined
               }
-              onStartChat={(query) => startNewChat(query)}
+              onStartChat={(query) => startNewChatOnThisMac(query)}
               onClose={() => setCommandPaletteOpen(false)}
               onError={setNotice}
             />

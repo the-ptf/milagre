@@ -131,3 +131,13 @@ export async function archiveChat(deps, sessionId, mode, plan) {
   deps.refreshBranches();
   return "removed";
 }
+
+/**
+ * Archives a shared (Link) Chat, which keeps its Worktrees. As `archiveChat` does, only a running turn is stopped, and
+ * the stop never holds the archive up: waiting on it left the Chat unarchived whenever `agent:interrupt` timed out.
+ */
+export async function archiveLinkChat({ running, stop, hide }) {
+  // The stop goes out first; one that throws or rejects is let go.
+  if (running) new Promise((resolve) => resolve(stop())).catch(() => {});
+  await hide();
+}
