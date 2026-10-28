@@ -1,7 +1,7 @@
 import { memo, useId, useState } from "react";
-import type { ComponentProps, CSSProperties } from "react";
+import type { ComponentProps } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert02Icon, ArrowDown01Icon, Loading03Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
 import { stepDisplayTitle, stepDuration } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "../../lib/display-clock";
@@ -22,7 +22,7 @@ function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
   return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 }
 
-function FileLink({ text, title, sweep, onOpen }: { text: string; title: string; sweep: { className?: string; style?: CSSProperties }; onOpen: () => void }) {
+function FileLink({ text, title, sweep, onOpen }: { text: string; title: string; sweep: { className?: string }; onOpen: () => void }) {
   const open = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
     onOpen();
@@ -40,7 +40,6 @@ function FileLink({ text, title, sweep, onOpen }: { text: string; title: string;
         }
       }}
       className={`pointer-events-auto cursor-pointer rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink decoration-ink-3 underline-offset-2 hover:underline ${sweep.className ?? ""}`}
-      style={sweep.style}
     >
       {text}
     </code>
@@ -63,8 +62,8 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
   const fileIndex = opener ? fileSpanIndex(step.title, step.file) : -1;
   const expandable = useHasStepDetail(step);
   const { detail, loading, failed, retry } = useStepDetail(step, open);
-  // Only the first two sweeps move; approval pauses motion without restarting the step's deadline.
-  const sweep = useStepTitleSweep(step, step.status === "running" && !waiting);
+  // The title sweeps while the step runs; approval pauses it.
+  const sweep = useStepTitleSweep(running && !waiting);
   // A finished tool just stops shimmering; screen readers hear only what isn't obvious.
   const state = waiting ? "Waiting for approval" : step.status === "running" ? "Running" : step.status === "failed" ? "Failed" : "";
   const rowClass = "flex w-full min-w-0 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left text-[12.5px] leading-[1.4] text-ink-2";
@@ -80,7 +79,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
   );
   const content = (
     <>
-      <span aria-hidden className="shrink-0 self-start pt-0.5 text-ink-2">
+      <span aria-hidden className="flex shrink-0 text-ink-2">
         <StepIcon step={step} />
       </span>
       <span className="min-w-0 flex-1 truncate">
@@ -88,7 +87,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
           index === fileIndex && opener && step.file ? (
             <FileLink key={index} text={span.text} title={opener.title} sweep={sweep} onOpen={() => opener.open(step.file!)} />
           ) : span.code ? (
-            <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`} style={sweep.style}>
+            <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`}>
               {span.text}
             </code>
           ) : (
@@ -101,15 +100,10 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
       {step.status !== "running" && (step.summary || step.note) && (
         <span className={`max-w-[40%] shrink truncate text-[11.5px] ${step.status === "failed" ? "text-red" : "text-ink-3"}`}>{step.summary || step.note}</span>
       )}
-      {duration && <span className="shrink-0 text-[11.5px] text-ink-3 tabular-nums">{duration}</span>}
       {state && <span className="sr-only">{state}</span>}
       {waiting ? (
         <span aria-hidden className="shrink-0 text-[11.5px] text-ink-3">
           Waiting for approval
-        </span>
-      ) : running ? (
-        <span aria-hidden className="shrink-0 animate-spin text-accent-ink motion-reduce:animate-none">
-          <Icon icon={Loading03Icon} size={13} />
         </span>
       ) : step.status === "failed" ? (
         <span aria-hidden className="flex shrink-0 items-center gap-1 text-[11.5px] text-red">
@@ -122,6 +116,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
       )}
+      {duration && <span className="shrink-0 text-[11.5px] text-ink-3 tabular-nums">{duration}</span>}
     </>
   );
   return (

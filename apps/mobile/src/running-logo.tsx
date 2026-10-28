@@ -10,7 +10,6 @@ import { useDisplayValue, useScreenActive } from "./display-clock";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { fonts, useTheme } from "./theme";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
-import { SWEEP_MS, SWEEP_PERIOD_MS, sweepRemainingMs } from "@milagre/shared/step-sweep";
 
 // The library types its class on RN's NativeMethods, which RN 0.88 removed, so JSX rejects it; the props are unchanged.
 const MaskedView = RNCMaskedView as unknown as ComponentType<{ maskElement: ReactElement; children?: ReactNode }>;
@@ -179,6 +178,7 @@ function Elapsed({ startedAt, color }: { startedAt?: number; color?: string }) {
 
 // step-shimmer: a 320px tile (ink-3 to 110px, ink at 160px, ink-3 from 210px) slides one tile right every 1.2s.
 const TILE = 320;
+const SWEEP_PERIOD_MS = 1200;
 const TILES = 4;
 
 /** Recheck on screen activation and listen while mounted; Reanimated's reduced-motion value is startup-only. */
@@ -210,40 +210,28 @@ export function useShimmerReducedMotion(active: boolean) {
   return reduced || motionScale === 0;
 }
 
-/** The remaining portion of two sweeps. ActivityTitle removes this mask at the original host deadline. */
+/** Sweeps while mounted; ActivityTitle mounts it only while its step runs, the screen is active and motion is allowed. */
 export function ShimmerText({
   children,
   settledChildren,
-  startedAt,
   style,
   numberOfLines = 1,
 }: {
   children: ReactNode;
   settledChildren: ReactNode;
-  startedAt: number;
   style?: TextStyle;
   numberOfLines?: number;
 }) {
   const { colors } = useTheme();
   const [shift] = useState(() => new Animated.Value(0));
   useEffect(() => {
-    const remaining = sweepRemainingMs(startedAt, Date.now());
-    if (!remaining) return;
-    shift.setValue(((SWEEP_MS - remaining) / SWEEP_PERIOD_MS) * TILE);
-    // A single native timing runs the remaining budget. Modulo wraps the tile at the sweep boundary,
-    // without restarting a loop or granting two more sweeps after a remount.
-    const animation = Animated.timing(shift, { toValue: TILE * 2, duration: remaining, easing: Easing.linear, useNativeDriver: true, isInteraction: false });
+    // One native loop: the tile slides one width per period and wraps without waking JS.
+    const animation = Animated.loop(
+      Animated.timing(shift, { toValue: TILE, duration: SWEEP_PERIOD_MS, easing: Easing.linear, useNativeDriver: true, isInteraction: false }),
+    );
     animation.start();
     return () => animation.stop();
-  }, [shift, startedAt]);
-  const motion = useMemo(
-    () => ({
-      translateX: Animated.modulo(shift, TILE),
-      // The native layer vanishes at completion even if JS cannot replace the mask until later.
-      opacity: shift.interpolate({ inputRange: [0, TILE * 2 - 0.001, TILE * 2], outputRange: [1, 1, 0], extrapolate: "clamp" }),
-    }),
-    [shift],
-  );
+  }, [shift]);
   const text = (
     <Text numberOfLines={numberOfLines} style={style}>
       {children}
@@ -254,7 +242,7 @@ export function ShimmerText({
       <Text numberOfLines={numberOfLines} style={[style, { color: colors.ink3 }]}>
         {settledChildren}
       </Text>
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: motion.opacity }]}>
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <MaskedView maskElement={text}>
           <Text numberOfLines={numberOfLines} style={[style, { opacity: 0 }]}>
             {children}
@@ -267,7 +255,7 @@ export function ShimmerText({
               left: -TILE,
               width: TILE * TILES,
               flexDirection: "row",
-              transform: [{ translateX: motion.translateX }],
+              transform: [{ translateX: shift }],
             }}
           >
             {Array.from({ length: TILES }, (_, index) => (
@@ -282,7 +270,7 @@ export function ShimmerText({
             ))}
           </Animated.View>
         </MaskedView>
-      </Animated.View>
+      </View>
     </View>
   );
 }
