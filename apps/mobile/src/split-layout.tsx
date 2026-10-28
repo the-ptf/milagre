@@ -5,9 +5,9 @@ import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { ProjectNavigation } from "./project-navigation";
-import { usePanelScreen } from "./side-panels";
+import { RightPanel, usePanelScreen, useRightPanelScreen } from "./side-panels";
 import { useCardTop, useSplit } from "./split-context";
-import { CARD_MARGIN, SIDEBAR_WIDTH } from "./split-width";
+import { CARD_MARGIN, CHANGES_WIDTH, DOCK_SLOT, SIDEBAR_WIDTH } from "./split-width";
 import { chatShortcutIndex, useHardwareShortcuts, type ShortcutId } from "./hardware-keys";
 import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
@@ -16,7 +16,8 @@ import { scaledTiming, useMotionScale } from "./motion";
 
 /**
  * The app's frame: on a wide iPad the Chats list is a card pinned beside the screen, as desktop's sidebar sits beside
- * its Chat. Narrower, the screen has the whole window and the list slides over it (side-panels.tsx).
+ * its Chat. Narrower, the screen has the whole window and the list slides over it (side-panels.tsx). On an iPad the right
+ * panel (Changes, a PR, a simulator, designs) docks on the other side, pushing the screen over as desktop's panels do.
  */
 export function SplitShell({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
@@ -36,6 +37,7 @@ export function SplitShell({ children }: { children: React.ReactNode }) {
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.page }}>
       {(pinned || kept) && <PinnedSidebar shown={pinned} />}
       <View style={{ flex: 1 }}>{children}</View>
+      <RightDock />
     </View>
   );
 }
@@ -112,6 +114,62 @@ function PinnedSidebar({ shown }: { shown: boolean }) {
   );
 }
 
+/**
+ * The right panel docked beside the screen. It slides in from the right edge as its slot widens and the screen narrows
+ * into the room it leaves, and out the same way; it stays mounted, showing what it showed, until it is all the way out.
+ */
+function RightDock() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const top = useCardTop();
+  const scale = useMotionScale();
+  const { screen, shown } = useRightPanelScreen();
+  const [kept, setKept] = useState(screen);
+  if (shown && screen && kept !== screen) setKept(screen);
+  const [mounted, setMounted] = useState(shown);
+  if (shown && !mounted) setMounted(true);
+  const progress = useSharedValue(shown ? 1 : 0);
+  useEffect(() => {
+    progress.set(
+      withTiming(shown ? 1 : 0, scaledTiming(SLIDE, scale), (finished) => {
+        if (finished && !shown) scheduleOnRN(setMounted, false);
+      }),
+    );
+  }, [shown, progress, scale]);
+  const slot = useAnimatedStyle(() => ({ width: progress.get() * DOCK_SLOT }));
+  if (!mounted || !kept) return null;
+  return (
+    <Animated.View
+      pointerEvents={shown ? "auto" : "none"}
+      accessibilityElementsHidden={!shown}
+      importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
+      style={[s.slot, slot]}
+    >
+      {/* Held at the slot's left edge, the card rides it in from the window's edge while the slot widens. */}
+      <View
+        style={[
+          s.card,
+          {
+            width: CHANGES_WIDTH,
+            marginLeft: 0,
+            marginTop: top.top,
+            marginBottom: Math.max(insets.bottom, CARD_MARGIN),
+            backgroundColor: colors.surface,
+            borderColor: colors.line,
+          },
+        ]}
+      >
+        {/* The card sits clear of the status bar already: what it holds lays out with no safe area of its own. */}
+        <SafeAreaInsetsContext.Provider value={NO_INSETS}>
+          <RightPanel screen={kept} card />
+        </SafeAreaInsetsContext.Provider>
+      </View>
+    </Animated.View>
+  );
+}
+
+const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+
 /** Desktop's shortcuts on an iPad's keyboard; renders nothing. Mount it once, inside the split and panel providers. */
 export function HardwareShortcuts() {
   const split = useSplit();
@@ -123,7 +181,8 @@ export function HardwareShortcuts() {
         return;
       }
       if (id === "changes") {
-        if (panels.worktreeId !== undefined) panels.show(panels.open === "right" ? null : "right");
+        if (panels.right) panels.closeRight();
+        else if (panels.worktreeId !== undefined) panels.show("right");
         return;
       }
       if (id === "sidebar") {
@@ -135,7 +194,7 @@ export function HardwareShortcuts() {
       const index = chatShortcutIndex(id);
       requestNavigation(id === "new-chat" ? { kind: "new" } : id === "search" ? { kind: "search" } : { kind: "chat", index: index ?? 0 });
       if (split.dockable) {
-        if (split.hidden) split.toggle();
+        if (!split.pinned) split.toggle();
       } else if (panels.attached && panels.open !== "left") panels.show("left");
     },
     [split, panels],

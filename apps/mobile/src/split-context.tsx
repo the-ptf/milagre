@@ -3,7 +3,8 @@ import { Dimensions, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
 import { useSession } from "./session";
-import { cardTop, widthClass, type WidthClass } from "./split-width";
+import { cardTop, sidebarFits, widthClass, type WidthClass } from "./split-width";
+import { usePanelScreen, useRightDocked } from "./side-panels";
 
 type SplitLayout = {
   widthClass: WidthClass;
@@ -34,9 +35,20 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
   const kind = widthClass(width);
   const available = !!session.client && pathname !== "/" && pathname !== "/pair";
   const dockable = kind === "wide" && available;
+  // With the right panel docked too, the sidebar gives way when the Chat between them would get too narrow, and comes
+  // back when the panel closes.
+  const docked = useRightDocked();
+  const crowded = !sidebarFits(width, docked);
   // The Chats page itself keeps the sidebar: hidden there, the page would be empty.
-  const pinned = dockable && (!hidden || pathname === "/projects");
-  const toggle = useCallback(() => setHidden((current) => !current), []);
+  const pinned = dockable && ((!hidden && !crowded) || pathname === "/projects");
+  const { closeRight } = usePanelScreen();
+  // Showing the sidebar where the docked panel left it no room closes the panel, as desktop makes room for the newest.
+  const toggle = useCallback(() => {
+    if (crowded) {
+      closeRight();
+      setHidden(false);
+    } else setHidden((current) => !current);
+  }, [crowded, closeRight]);
   const layout = useMemo(() => ({ widthClass: kind, available, dockable }), [kind, available, dockable]);
   const value = useMemo(() => ({ ...layout, pinned, hidden, toggle }), [layout, pinned, hidden, toggle]);
   return (
