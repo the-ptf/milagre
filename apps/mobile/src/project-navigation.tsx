@@ -73,6 +73,7 @@ import { useChatList } from "./chat-display-setting";
 import { allComputers, useAllComputers, useFoldedProjects } from "./all-computers";
 import type { HostView, ProjectCopy, Reach } from "./all-computers-store";
 import { mergeChatLists } from "./chat-list-order";
+import { groupByOrigin } from "@milagre/shared/project-origin";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
 
@@ -107,6 +108,8 @@ type Row = { key: string; path: string } & (
       linked?: string[];
       /** Whether more than one computer is listed, so the row names its own. */
       many: boolean;
+      /** Grouped under a Project that several computers share: the row names its computer on its second line. */
+      shared?: boolean;
     } & HostTag)
   | ({ kind: "message"; chat: AgentSession; title: string; project: string; many: boolean; snippet: string; highlight: [number, number] } & HostTag)
   | ({ kind: "notice"; message: string; failed?: boolean; retry?: "project" } & HostTag)
@@ -135,6 +138,8 @@ type ChatEntry = {
 type ProjectBuild = {
   path: string;
   name: string;
+  /** The Git remote ("host/owner/repo") that puts this Project's copies on several computers under one row. */
+  origin?: string;
   link: boolean;
   members?: RegisteredProject[];
   copy?: ProjectCopy;
@@ -255,6 +260,7 @@ function buildHost(view: HostView, ctx: BuildContext): HostBuild {
     projects.push({
       path: project.path,
       name,
+      ...(project.origin ? { origin: project.origin } : {}),
       link: !!project.link,
       members: project.projects,
       copy,
@@ -451,6 +457,67 @@ const NavigationBody = memo(function NavigationBody({
         };
       return null;
     };
+    // A Project several computers share: one row, on the first computer that answers (its + and menu go there), then
+    // every copy's Chats in one list, then each copy's own notice.
+    const sharedProject = (copies: { build: HostBuild; project: ProjectBuild }[]): Row[] => {
+      if (show !== "all" && copies.every(({ project }) => project.copy && !project.chats.length && !project.failure)) return [];
+      const head = copies.find(({ build }) => build.reach !== "offline") ?? copies[0]!;
+      const open = !folds.get(head.build.hostId)?.has(head.project.path);
+      const listed: Row[] = [
+        {
+          key: `${head.build.hostId}|${head.project.path}`,
+          path: head.project.path,
+          kind: "project",
+          hostId: head.build.hostId,
+          hostName: head.build.hostName,
+          reach: copies.every(({ build }) => build.reach === "offline") ? "offline" : head.build.reach,
+          name: head.project.name,
+          expanded: open,
+          members: head.project.members,
+          link: head.project.link,
+          chip: false,
+          count: copies.reduce((sum, { project }) => sum + project.chats.length, 0),
+        },
+      ];
+      if (!open) return listed;
+      listed.push(
+        ...mergeChatLists(
+          copies.map(({ build, project }, rank) =>
+            project.chats.map((entry) => ({ rank, chat: entry.chat, row: { ...chatRow(build, project, entry), shared: true } })),
+          ),
+        ).map(({ row }) => row),
+      );
+      for (const { build, project } of copies) {
+        if (build.reach === "offline" && (project.failure || !project.copy)) continue;
+        const base = {
+          path: project.path,
+          kind: "notice" as const,
+          hostId: build.hostId,
+          hostName: build.hostName,
+          reach: build.reach,
+          retry: "project" as const,
+        };
+        if (project.failure)
+          listed.push({
+            ...base,
+            key: `${build.hostId}|${project.path}:error`,
+            message: `Could not ${project.copy ? "refresh" : "load"} chats on ${build.hostName}. Tap to retry.`,
+            failed: true,
+          });
+        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading chats from ${build.hostName}...` });
+      }
+      if (listed.length === 1)
+        listed.push({
+          key: `${head.build.hostId}|${head.project.path}:notice`,
+          path: head.project.path,
+          kind: "notice",
+          hostId: head.build.hostId,
+          hostName: head.build.hostName,
+          reach: head.build.reach,
+          message: show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
+        });
+      return listed;
+    };
     const offlineIds = builds.filter((build) => build.reach === "offline").map((build) => build.hostId);
     const offlineLine: Row[] = offlineIds.length ? [{ key: "offline", path: "", kind: "offline", hostIds: offlineIds }] : [];
     // A search lists like ⌘K whichever way the list is set: matching Chats, then Messages and Projects below.
@@ -481,11 +548,23 @@ const NavigationBody = memo(function NavigationBody({
       }
       if (!needle) result.push(...offlineLine);
     } else {
+      // One repository on several computers (one Git origin) is one Project, in its first copy's place; its Chats merge
+      // by time, each naming its computer.
+      const shared = new Map<ProjectBuild, { build: HostBuild; project: ProjectBuild }[]>();
+      for (const group of groupByOrigin(
+        builds.flatMap((build) => build.projects.map((project) => ({ build, project, origin: project.origin, computerId: build.hostId }))),
+      ))
+        if (group.copies.length > 1) for (const copy of group.copies) shared.set(copy.project, group.copies);
       for (const build of builds) {
         // A computer that hasn't answered with its Projects has no group to carry its state.
         const notice = build.projects.length ? null : hostNotice(build);
         if (notice) result.push(notice);
         for (const project of build.projects) {
+          const copies = shared.get(project);
+          if (copies) {
+            if (copies[0]!.project === project) result.push(...sharedProject(copies));
+            continue;
+          }
           const open = !folds.get(build.hostId)?.has(project.path);
           // A Show filter leaves out the Projects with nothing to show.
           if (show !== "all" && project.copy && !project.chats.length && !project.failure) continue;
@@ -1449,7 +1528,9 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     (item.hostId === currentHostId || archiveRequests.has(`${item.hostId}|${item.path}#${item.chat.id}`));
   const grouped = chatList === "grouped";
   const label = `${title}${item.chat.pinned ? ", pinned" : ""}, ${grouped ? item.worktree : `${item.project}, ${item.worktree}`}${markLabel ? `, ${markLabel}` : ""}${item.many ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}${linked.length ? `, ${linkedAccessibilityLabel(linked)}` : ""}`;
-  const secondLine = !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
+  // Under a Project several computers share, each row names its own computer first.
+  const computerTag = grouped && item.shared ? <ComputerTag name={item.hostName} offline={offline} /> : null;
+  const secondLine = !!computerTag || !!branchLine || !!diff || lastAt !== undefined || !!item.chat.pinned || !!linkedIcon || !!markLabel;
   // One list: inbox rows. The Project's icon, then the title with its time (a spinner while it runs, a dot when unread),
   // then one line naming the Project, its pull requests and Linear issue, what the Chat is doing, the diff, and the
   // computer when it isn't the open one. A tap opens the Chat and a long press opens its menu: the menu covers the row,
@@ -1634,6 +1715,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                   <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
                     {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                     {linkedIcon}
+                    {computerTag}
                     {!copy?.project.link && !!branchLine && <Icon icon={GitBranchIcon} tone="ink3" size={12} />}
                     {!!branchLine && (
                       <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
@@ -1652,6 +1734,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               <ChatPullRequestChips pullRequests={pullRequests} linearIssue={linearIssue} onOpenPullRequest={openPullRequest}>
                 {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                 {linkedIcon}
+                {computerTag}
                 {facts}
                 {!!markLabel && (
                   <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, color: markColor }]}>

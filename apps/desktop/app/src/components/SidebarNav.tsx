@@ -61,6 +61,8 @@ import { useDismiss } from "../lib/use-dismiss";
 import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/chat-list";
 import type { ArchiveMode, ArchivePlan } from "@/lib/archive";
 import { linkBetween } from "@milagre/shared/chat-links";
+import { groupByOrigin } from "@milagre/shared/project-origin";
+import { preferredCopy, rememberProjectComputer } from "../lib/project-copies";
 import { SidebarLinksProvider, useSidebarLinks, type LinkListHandle, type LinkScopeChats } from "./sidebar/SidebarLinks";
 import { updateSettings, useSettings } from "../lib/settings";
 import { UpdateSettingsBadge } from "./UpdateNotice";
@@ -748,7 +750,14 @@ export default memo(function SidebarNav({
   const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
   const projectScopes = projects
     .filter((row) => row.current || (!recentProjects.find((project) => project.path === row.path)?.hidden && !hiddenComputers.has(computerOfKey(row.path))))
-    .map((row) => ({ key: row.path, name: row.name, initial: row.initial, link: null as NamedProjectLink | null, computerId: computerOfKey(row.path) }));
+    .map((row) => ({
+      key: row.path,
+      name: row.name,
+      initial: row.initial,
+      link: null as NamedProjectLink | null,
+      computerId: computerOfKey(row.path),
+      origin: recentProjects.find((project) => project.path === row.path)?.origin,
+    }));
   if (recentLoaded)
     scopeOrder.current = stableOrder(
       scopeOrder.current,
@@ -765,7 +774,7 @@ export default memo(function SidebarNav({
     ...orderedProjects,
     ...namedLinks
       .filter((link) => link.id === selectedLink?.id || (!link.hidden && !hiddenComputers.has(LOCAL_COMPUTER)))
-      .map((link) => ({ key: `milagre-link:${link.id}`, name: link.name, initial: "", link, computerId: LOCAL_COMPUTER })),
+      .map((link) => ({ key: `milagre-link:${link.id}`, name: link.name, initial: "", link, computerId: LOCAL_COMPUTER, origin: undefined })),
   ];
   // With other computers, one list by name (their order can't follow this Mac's open history); with this Mac alone, as before.
   const scopes = multi
@@ -911,6 +920,10 @@ export default memo(function SidebarNav({
         };
       })
     : [];
+  // Grouped by Project: one repository's copies on several computers (one Git origin) share a heading, in its first
+  // copy's place, and their chats merge under it, each naming its computer.
+  const sections =
+    showAll && !oneList ? groupByOrigin(groups.map((group) => ({ ...group, origin: group.scope.origin, computerId: group.scope.computerId }))) : [];
   // A Link's icon is its first Project's.
   const linkFirstProject = (scope: (typeof scopes)[number], link: NamedProjectLink, current: boolean) => {
     const firstId = link.projectIds[0];
@@ -1209,6 +1222,100 @@ export default memo(function SidebarNav({
     </>
   );
 
+  // One repository on several computers: one heading, the copies' chats in one list by time, each row naming its
+  // computer. Pinned rows still go to their own copy's slot in Pinned. The heading folds, adds and opens its menu for
+  // the first copy (This Mac's when it has one); + starts the Chat where the open copy is, else where the last one went.
+  const mergedSection = (section: (typeof sections)[number]) => {
+    const { scope, copies } = section;
+    const open = !closedScopes.includes(scope.key);
+    const current = copies.find((part) => part.current);
+    const iconScope = current?.scope ?? scope;
+    const chats = mergeScopeChats(
+      copies.map((part) => ({ key: part.scope.key, rows: part.rest })),
+      chatOrder,
+    );
+    const lists = new Map(
+      copies.map((part) => [part.scope.key, { name: part.scope.name, badge: NO_BADGE, list: part.list, rows: [...part.pinned, ...part.rest] }]),
+    );
+    const failed = copies.filter((part) => !part.state && !part.current && failedScopes.has(part.scope.key));
+    const loading = copies.some((part) => !part.state && !part.current && !failedScopes.has(part.scope.key));
+    const dimmed = copies.every((part) => part.dimmed);
+    return (
+      <section
+        key={scope.key}
+        data-sidebar-scope={scope.key}
+        data-sidebar-copies={copies.map((part) => part.scope.key).join("\n")}
+        data-current={current ? true : undefined}
+        aria-label={scope.name}
+        data-offline={dimmed || undefined}
+        className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
+      >
+        <ScopeHeader
+          name={scope.name}
+          icon={
+            <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
+              <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(iconScope.key)} fallback={iconScope.initial} />
+            </span>
+          }
+          open={open}
+          current={!!current}
+          attention={copies.some((part) => !part.current && attentionPaths.includes(part.scope.key))}
+          onToggle={() => toggleScope(scope.key)}
+          onNewChat={() => {
+            if (current) {
+              if (activeTitle === undefined) setDemoActiveTitle(null);
+              (onNewCurrentScopeChat ?? onNewChat)?.();
+              return;
+            }
+            const [first, ...others] = copies.map((item): ScopeCopy => ({ key: item.scope.key, computerId: item.scope.computerId }));
+            const picked = preferredCopy(scope.origin, [first!, ...others]);
+            rememberProjectComputer({ origin: scope.origin, computerId: picked.computerId });
+            onNewChatInScope?.(picked.key);
+          }}
+          menu={scopeMenu(scope)}
+        />
+        {copies.map((part) =>
+          part.pinned.length > 0 ? (
+            <ChatList
+              key={part.scope.key}
+              recents={part.pinned}
+              scopeKey={part.scope.key}
+              {...part.list}
+              header={null}
+              pinnedTarget={pinSlots[part.scope.key] ?? null}
+              anyPinned={anyPinned}
+            />
+          ) : null,
+        )}
+        <div
+          inert={!open}
+          data-scope-body
+          className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+          style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
+        >
+          <div className="min-w-0 overflow-hidden">
+            <FlatChatList chats={chats} scopes={lists} inbox={false} />
+            {failed.map((part) => (
+              <p key={part.scope.key} className="mx-2 flex h-8 items-center gap-1 pl-9 text-[length:calc(13px+var(--sidebar-delta))] text-ink-3">
+                <span className="truncate">Couldn't load chats{part.list.computer ? ` on ${part.list.computer.name}` : ""}.</span>
+                <button
+                  type="button"
+                  onClick={() => retryScope(part.scope.key)}
+                  className="shrink-0 cursor-pointer text-ink-2 underline-offset-2 hover:underline"
+                >
+                  Retry
+                </button>
+              </p>
+            ))}
+            {chats.length === 0 && failed.length === 0 && !copies.some((part) => part.pinned.length > 0) && (
+              <p className="mx-2 h-8 pl-9 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">{loading ? "Loading chats…" : "No chats yet"}</p>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   const chrome = useWindowChrome();
   // The bar's controls end where they end; a diff's Back and a bot's header start after them.
   const bar = useRef<HTMLDivElement>(null);
@@ -1353,7 +1460,9 @@ export default memo(function SidebarNav({
                       </div>
                       {oneList
                         ? flatBody
-                        : groups.map(({ scope, current, state, rest, pinned, list, dimmed }, index) => {
+                        : sections.map((section, index) => {
+                            if (section.copies.length > 1) return mergedSection(section);
+                            const { scope, current, state, rest, pinned, list, dimmed } = section;
                             const open = !closedScopes.includes(scope.key);
                             return (
                               <section
@@ -1364,7 +1473,7 @@ export default memo(function SidebarNav({
                                 data-offline={dimmed || undefined}
                                 className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
                               >
-                                {scope.link && !scopes[index - 1]?.link && (
+                                {scope.link && !sections[index - 1]?.scope.link && (
                                   <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">
                                     Links
                                   </p>
@@ -1711,7 +1820,15 @@ function dragRowToGrid(event: ReactPointerEvent<HTMLElement>, key: string, onDra
  * Links and Project on the second line. Pinning goes through the row menu (pinned rows still drag in the Pinned
  * section); a row dragged out onto the Chat view joins the grid there.
  */
-function FlatChatList({ chats, scopes }: { chats: FlatChat[]; scopes: Map<string, FlatScope> }) {
+/** One copy of a repository merged under a shared heading: its key and computer, for picking where + starts a Chat. */
+type ScopeCopy = { key: string; computerId: string };
+const NO_BADGE: ScopeBadge = { projectImage: null, projectInitial: "" };
+
+/**
+ * Chats of several scopes in one column. `inbox` (the One list): each row leads with its Project's icon and name. Off,
+ * under one repository's heading, the rows look like a Project's and name their computer instead.
+ */
+function FlatChatList({ chats, scopes, inbox = true }: { chats: FlatChat[]; scopes: Map<string, FlatScope>; inbox?: boolean }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1771,9 +1888,9 @@ function FlatChatList({ chats, scopes }: { chats: FlatChat[]; scopes: Map<string
               dimOffline
               linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
               bot={botMarks.get(key)}
-              project={scope.name}
+              project={inbox ? scope.name : undefined}
               dragging={dragging === key}
-              {...scope.badge}
+              {...(inbox ? scope.badge : {})}
             />
           </div>
         );

@@ -75,7 +75,7 @@ const remoteUsage = (id) => ({ accountKey: id, providers: [{
   windows: [{ id: "weekly", label: "Weekly", shortLabel: "wk", usedPercent: 37, resetsAt: null }],
 }] });
 const remote = (id) => new Proxy({
-  listRecentProjects: async () => projectsOf(id).map(({ path, name, hidden }) => ({ path, name, ...(hidden ? { hidden } : {}) })),
+  listRecentProjects: async () => projectsOf(id).map(({ path, name, hidden, origin }) => ({ path, name, ...(hidden ? { hidden } : {}), ...(origin ? { origin } : {}) })),
   setProjectHidden: async () => {
     window.remoteHiddenCalls++;
     throw new Error("Remote computer visibility must not be mutated from this Mac");
@@ -98,6 +98,7 @@ const remote = (id) => new Proxy({
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
 const remotes = { "c-atlas": remote("c-atlas"), "c-studio": remote("c-studio"), "c-new": remote("c-new") };
 let localRecent = [{ path: "/work/milagre-ade", name: "milagre-ade" }];
+window.setLocalOrigin = (origin) => { localRecent = localRecent.map(({ origin: _origin, ...project }) => (origin ? { ...project, origin } : project)); };
 window.milagre = new Proxy({
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),
@@ -537,6 +538,48 @@ async function browserChecks() {
     await waitFor(`!document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]') && !document.querySelector('[data-offline-banner]')`);
     await waitFor(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope === '/work/milagre-ade'`);
     console.log("PASS: removing the open chat's computer goes back to this Mac's Project");
+
+    // The same repository cloned on atlas: one heading for both copies, their chats in one list, each naming its computer.
+    const shared = "github.com/the-ptf/milagre-ade";
+    await evaluate(`(() => {
+      const state = structuredClone(window.remoteProjects["c-atlas-hidden"].state);
+      state.sessions[4].title = "Clone on atlas";
+      window.remoteProjects["c-atlas-clone"] = { path: "c-atlas|/Users/a/milagre-ade", name: "milagre-ade", origin: ${JSON.stringify(shared)}, state };
+      window.setLocalOrigin(${JSON.stringify(shared)});
+      window.dispatchEvent(new Event("milagre:recent-projects-changed"));
+    })()`);
+    const localScope = "/work/milagre-ade";
+    await waitFor(`document.querySelector('[data-sidebar-scope="${localScope}"]')?.dataset.sidebarCopies === "${localScope}\\nc-atlas|/Users/a/milagre-ade"`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('[data-sidebar-scope="c-atlas|/Users/a/milagre-ade"]')`),
+      false,
+      "the clone has no heading of its own",
+    );
+    assert.equal(
+      await evaluate(`document.querySelectorAll(${JSON.stringify(inScope(localScope, "[data-scope-computer]"))}).length`),
+      0,
+      "the shared heading names no computer",
+    );
+    await waitFor(`document.querySelectorAll(${JSON.stringify(inScope(localScope, "[data-chat-id]"))}).length === 2`);
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll(${JSON.stringify(inScope(localScope, "[data-chat-id]"))})].map((row) => [row.querySelector('[data-row]')?.textContent.includes('Clone on atlas') ? 'clone' : 'local', row.querySelector('[data-chat-computer]')?.textContent.trim()]).sort()`,
+      ),
+      [
+        ["clone", "atlas"],
+        ["local", "victor-mbp"],
+      ],
+      "each row names its computer",
+    );
+    await screenshot("shared-project");
+    await evaluate(`(() => {
+      delete window.remoteProjects["c-atlas-clone"];
+      window.setLocalOrigin(null);
+      window.dispatchEvent(new Event("milagre:recent-projects-changed"));
+    })()`);
+    await waitFor(`!document.querySelector('[data-sidebar-copies]') && !!document.querySelector('[data-sidebar-scope="${localScope}"]')`);
+    assert.deepEqual(errors, []);
+    console.log("PASS: one repository on two computers is one heading, and each of its rows names its computer");
 
     await evaluate(`window.setOther(false)`);
     await waitFor(`!document.querySelector('[data-chat-computer], [data-scope-computer]')`);
