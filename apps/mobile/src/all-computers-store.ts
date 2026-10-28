@@ -92,6 +92,8 @@ type Entry = {
   copies: Map<string, ProjectCopy>;
   errors: Map<string, string>;
   home: ChatsHome | null | undefined;
+  /** Whether a chats:home ask is queued or out, so a read that follows doesn't ask a second time. */
+  askingHome: boolean;
   canonical: Map<string, string>;
   /** Projects the Mac refused to list, and until when they are left alone. */
   stuck: Map<string, number>;
@@ -242,11 +244,15 @@ export function createAllComputersStore(deps: StoreDeps) {
       if (entry.home === undefined && keepHome(entry, null)) publish(entry);
       return;
     }
+    if (entry.askingHome) return;
+    entry.askingHome = true;
     let found: ChatsHome | null;
     try {
       found = await guarded(entry, client, 1, () => chatsHome(), idle);
     } catch {
       return;
+    } finally {
+      entry.askingHome = false;
     }
     if (!keepHome(entry, found)) return;
     publish(entry);
@@ -306,7 +312,8 @@ export function createAllComputersStore(deps: StoreDeps) {
         }
       };
       try {
-        if (force || !entry.projectsAt || deps.now() - entry.projectsAt >= PROJECTS_EVERY) {
+        const listDue = force || !entry.projectsAt || deps.now() - entry.projectsAt >= PROJECTS_EVERY;
+        if (listDue) {
           try {
             // The Project list costs three requests on the Mac.
             if (entry.shared) {
@@ -324,8 +331,10 @@ export function createAllComputersStore(deps: StoreDeps) {
           } catch (error) {
             if (error === STALE) return;
           }
-          void askHome(entry, client, idle);
         }
+        // A home not known yet is asked on every read, not only with the Project list: the session's computer comes with
+        // its list already read (right after pairing too), and its No project choice must not wait a minute for the next one.
+        if (listDue || entry.home === undefined) void askHome(entry, client, idle);
         const paths = wanted(entry);
         const updates = new Map<string, ProjectCopy>();
         const cleared = new Set<string>();
@@ -505,6 +514,7 @@ export function createAllComputersStore(deps: StoreDeps) {
       copies: inherit?.copies ?? new Map(),
       errors: new Map(),
       home: inherit?.home,
+      askingHome: false,
       canonical: inherit?.canonical ?? new Map(),
       stuck: new Map(),
       noBatch: false,

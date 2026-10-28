@@ -85,6 +85,23 @@ test("newChatProjects lists No project first", () => {
   );
 });
 
+test("No project is offered as soon as a computer connects, before its Chats home was read", () => {
+  // Just paired: the open computer answers but hasn't said where its home is yet.
+  const choice = noProjectChoice([view("mac", "checking", ["/code/a"]), view("deer", "online", ["/code/b"]), view("away", "offline", ["/c"])], null, "mac");
+  assert.ok(choice);
+  assert.equal(choice.computerId, "mac");
+  assert.deepEqual(
+    choice.copies.map((copy) => [copy.hostId, copy.home.exists]),
+    [
+      ["mac", false],
+      ["deer", false],
+    ],
+    "a home not read yet is made on pick; an offline computer that never said is left out",
+  );
+  // Once the computer says it has none, the row goes.
+  assert.equal(noProjectChoice([view("mac", "online", ["/code/a"], [], null)], null, "mac"), undefined);
+});
+
 test("No project defaults to the computer last used for a Chat", () => {
   const views = [
     view("mac", "online", ["/a"], [], home("/m/chats")),

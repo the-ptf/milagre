@@ -58,12 +58,20 @@ export function preferredCopy(group: NewChatProjectGroup, lastHostId: string | n
   return reachable.find((copy) => copy.hostId === lastHostId) ?? reachable.find((copy) => copy.hostId === currentHostId) ?? reachable[0] ?? group;
 }
 
+/** A home not read yet: picking it makes it (chats:ensure), which answers with its path. */
+const UNREAD_HOME: ChatsHome = { path: "", exists: false };
+
 /**
  * The No project row: every shown computer whose daemon has a Chats home, on the computer the phone last started a Chat
- * on, else the open one, else the first that answers. Undefined while no computer has one (all older, or none read yet).
+ * on, else the open one, else the first that answers. A computer that answers (or is the open one) is offered before its
+ * home was read, so the row is there as soon as it connects; one that said it has none (an older daemon) is not.
+ * Undefined while no computer can hold one.
  */
 export function noProjectChoice(views: readonly HostView[], lastHostId: string | null, currentHostId: string | undefined): NoProjectChoice | undefined {
-  const copies = views.flatMap((view) => (view.home ? [{ hostId: view.hostId, hostName: view.name, offline: view.state === "offline", home: view.home }] : []));
+  const copies = views.flatMap((view) => {
+    const home = view.home === undefined && (view.state === "online" || view.hostId === currentHostId) ? UNREAD_HOME : view.home;
+    return home ? [{ hostId: view.hostId, hostName: view.name, offline: view.state === "offline", home }] : [];
+  });
   if (!copies.length) return undefined;
   const reachable = copies.filter((copy) => !copy.offline);
   const start = reachable.find((copy) => copy.hostId === lastHostId) ?? reachable.find((copy) => copy.hostId === currentHostId) ?? reachable[0] ?? copies[0]!;
