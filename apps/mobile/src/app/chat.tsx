@@ -400,6 +400,8 @@ function ChatPane({
   const [historyState, setHistoryState] = useState({ key: scrollKey, loading: false, error: "" });
   const [jumpState, setJumpState] = useState({ key: scrollKey, visible: false });
   const showJumpToBottom = jumpState.key === scrollKey && jumpState.visible;
+  // Whether the transcript has scrolled under the header: its fade shows only then, as desktop's top blur does.
+  const [underHeader, setUnderHeader] = useState(false);
   // A Chat opens already at its newest message: the transcript stays hidden until the scroll view reports its end on
   // screen. The jump to the end can land frames after a long transcript mounts, and showing it earlier flashes the top.
   const [placedKey, setPlacedKey] = useState<string | null>(null);
@@ -1803,6 +1805,8 @@ function ChatPane({
               onScroll={({ nativeEvent: e }) => {
                 const previous = scrollOffset.current;
                 scrollOffset.current = e.contentOffset.y;
+                const under = e.contentOffset.y > 4;
+                setUnderHeader((current) => (current === under ? current : under));
                 const distance = e.contentSize.height - e.contentOffset.y - e.layoutMeasurement.height;
                 if (!placed && distance <= 1) setPlacedKey(scrollKey);
                 // Native scroll events can arrive before the jump catches up with image layout.
@@ -1978,9 +1982,9 @@ function ChatPane({
             </KeyboardChatScrollView>
             {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
-        transcript's top padding does and gradually strengthens toward the status bar. A new Chat has nothing under it
-        to soften, so the dots run edge to edge there. */}
-            {!startingChat && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
+        transcript's top padding does and gradually strengthens toward the status bar. It shows only while the transcript
+        is under the header, so the dots run edge to edge otherwise. */}
+            {underHeader && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
             {paneHeader}
             {startingChat && (
               <Animated.View
@@ -2051,8 +2055,8 @@ function ChatPane({
               offset={{ closed: ownsKeyboard ? 0 : Math.min(0, lift - restingKeyboard), opened: lift }}
               style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
             >
-              {/* The transcript blurs and fades under the composer like desktop's; a new Chat has no transcript yet. */}
-              {!startingChat && <BottomFade height={dockHeight + 48} width={window.width} />}
+              {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
+              {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
               <View
                 onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                 style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
