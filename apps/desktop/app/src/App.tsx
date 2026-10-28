@@ -543,6 +543,9 @@ function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   // Which Project the Settings page shows; any recent Project can be picked there, the open one by default.
   const [settingsProject, setSettingsProject] = useState<{ path: string; name: string } | null>(null);
+  // The Chats home is no Project to the user: it is never the Settings Project, and a leftover Project section falls back.
+  const shownSettingsProject = settingsProject ?? (surfaces.settings ? (project ?? undefined) : undefined);
+  const shownSettingsSection = settingsSection === "project" && !shownSettingsProject ? "general" : settingsSection;
   const [settingsComputer, setSettingsComputer] = useState<string | null>(null);
   const [addComputerOpen, setAddComputerOpen] = useState(false);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
@@ -805,8 +808,6 @@ function App() {
   const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
-  const canvasAvailableRef = useRef(true);
-  canvasAvailableRef.current = surfaces.canvas;
   // The open Chat's Terminals; a draft has none until it is sent.
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
   const terminalChatRef = useRef(terminalChatId);
@@ -2352,7 +2353,7 @@ function App() {
         } else if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
           event.preventDefault();
           changes.toggleDefault();
-        } else if (event.key.toLowerCase() === "l" && canvasAvailableRef.current) {
+        } else if (event.key.toLowerCase() === "l") {
           event.preventDefault();
           changes.closeDiff();
           setView("canvas");
@@ -3015,19 +3016,15 @@ function App() {
         keywords: "add repository workspace folder",
         run: () => openProject(),
       },
-      ...(surfaces.canvas
-        ? [
-            {
-              id: "canvas",
-              label: "Projects and Links",
-              group: "Actions",
-              icon: "git" as const,
-              shortcut: `${modifier}⇧L`,
-              keywords: "canvas linked worktrees",
-              run: openCanvas,
-            },
-          ]
-        : []),
+      {
+        id: "canvas",
+        label: "Projects and Links",
+        group: "Actions",
+        icon: "git",
+        shortcut: `${modifier}⇧L`,
+        keywords: "canvas linked worktrees",
+        run: openCanvas,
+      },
       {
         id: "routines",
         label: "Routines",
@@ -3328,7 +3325,7 @@ function App() {
                   chatActions={chatActions}
                   onNewChat={startNewChatFromSidebar}
                   onOpenSettings={openSettings}
-                  onOpenCanvas={surfaces.canvas ? openCanvas : undefined}
+                  onOpenCanvas={openCanvas}
                   canvasActive={view === "canvas"}
                   onOpenRoutines={openRoutines}
                   routinesActive={view === "routines"}
@@ -3362,8 +3359,8 @@ function App() {
             {view === "settings" && (
               <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
                 <SettingsNav
-                  section={settingsSection}
-                  project={settingsProject ?? project}
+                  section={shownSettingsSection}
+                  project={shownSettingsProject}
                   current={surfaces.settings ? project : undefined}
                   onSelect={setSettingsSection}
                   computerId={settingsComputer ?? undefined}
@@ -3399,8 +3396,8 @@ function App() {
                     </NoticeCard>
                   )}
                   <SettingsPanel
-                    section={settingsSection}
-                    project={settingsProject ?? project}
+                    section={shownSettingsSection}
+                    project={shownSettingsProject}
                     computerId={settingsComputer ?? undefined}
                     models={models}
                     update={update}
