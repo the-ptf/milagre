@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const { forwardAppShortcuts, isAppShortcut, isCloseKey } = require("./app-shortcuts.cjs");
+const { forwardAppShortcuts, isAppShortcut, isCloseKey, isSettingsKey } = require("./app-shortcuts.cjs");
 
 const key = (key, extra = {}) => ({ type: "keyDown", key, meta: true, control: false, shift: true, alt: false, ...extra });
 
@@ -25,7 +25,23 @@ test("a forwarded shortcut is kept from the frame and sent to the renderer", () 
   contents.emit("before-input-event", event, key("E"));
   contents.emit("before-input-event", event, key("a"));
   assert.equal(prevented, 1);
-  assert.deepEqual(sent, [["app:shortcut", "e"]]);
+  assert.deepEqual(sent, [["app:shortcut", { key: "e", shift: true }]]);
+});
+
+test("⌘, reaches the renderer from any frame, so Settings opens with a design or HTML reply focused", () => {
+  const contents = new EventEmitter();
+  const sent = [];
+  contents.send = (...args) => sent.push(args);
+  forwardAppShortcuts(contents, "darwin", new EventEmitter());
+  let prevented = 0;
+  const event = { preventDefault: () => prevented++ };
+  contents.emit("before-input-event", event, key(",", { shift: false }));
+  contents.emit("before-input-event", event, key(",", { shift: false, type: "keyUp" }));
+  contents.emit("before-input-event", event, key(",", { shift: false, alt: true }));
+  assert.equal(prevented, 1);
+  assert.deepEqual(sent, [["app:shortcut", { key: ",", shift: false }]]);
+  assert.equal(isSettingsKey(key(",", { shift: false, meta: false, control: true }), "linux"), true);
+  assert.equal(isSettingsKey(key(","), "darwin"), false, "⌘⇧, is not ⌘,");
 });
 
 test("⌘W closes the focused Terminal and is swallowed otherwise", () => {

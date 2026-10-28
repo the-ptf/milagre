@@ -578,8 +578,8 @@ export type MilagreBridge = {
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
-  /** An app ⌘⇧ shortcut pressed while an embedded frame had focus, forwarded by the main process (its letter). */
-  onAppShortcut: (callback: (key: string) => void) => () => void;
+  /** An app shortcut (⌘⇧ plus a letter, or ⌘,) pressed in any frame, forwarded by the main process. */
+  onAppShortcut: (callback: (shortcut: { key: string; shift: boolean }) => void) => () => void;
   /** The canvas's Stop on a Link: the Negotiation stops, turns already running finish. */
   stopNegotiation: (id: string) => Promise<void>;
   setWorktreePosition: (id: string, worktreePath: string, position: { x: number; y: number }) => Promise<unknown>;
