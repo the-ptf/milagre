@@ -24,7 +24,13 @@ export type ShowAlert = (
   buttons: AlertButton[],
   options?: { cancelable?: boolean; onDismiss?: () => void },
 ) => void;
-export type ArchiveDialog = { title: string; message?: string; choices: { mode: ArchiveMode; text: string; style: "default" | "destructive" }[] };
+/** `immediate`: the one choice needs no asking (a clean Chat without a Project), so the archive goes ahead at once. */
+export type ArchiveDialog = {
+  title: string;
+  message?: string;
+  choices: { mode: ArchiveMode; text: string; style: "default" | "destructive" }[];
+  immediate?: boolean;
+};
 
 // A worktree that can't be checked only hides the Chat, as on desktop.
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
@@ -73,15 +79,19 @@ async function worktreePlan(client: ArchiveClient, state: CoordinatorState, sess
   }
 }
 
-/** The native confirm: desktop's choices for the plan, the danger one destructive, and what would be lost as the message. */
-export function archiveDialog(plan: ArchivePlan | null, running: boolean): ArchiveDialog {
+/**
+ * The native confirm: desktop's choices for the plan, the danger one destructive, and what would be lost as the message.
+ * `chatsHome`: a Chat without a Project, in desktop's plain words; a clean one is archived without asking.
+ */
+export function archiveDialog(plan: ArchivePlan | null, running: boolean, chatsHome = false): ArchiveDialog {
   const title = "Archive this Chat?";
   if (!plan) return { title, choices: [{ mode: "hide", text: running ? "Stop and archive" : "Archive", style: "destructive" }] };
-  const { choices, reason } = archiveChoices({ plan, running });
+  const { choices, reason, immediate } = archiveChoices({ plan, running, chatsHome });
   return {
     title,
     ...(reason ? { message: reason } : {}),
     choices: choices.map((choice) => ({ mode: choice.mode, text: choice.label, style: choice.tone === "danger" ? "destructive" : "default" })),
+    ...(immediate && choices.length === 1 ? { immediate: true } : {}),
   };
 }
 
@@ -109,6 +119,8 @@ export type ArchiveRequest = {
   /** Whether a turn was running when Archive was tapped: the choices say "Stop and …". Whether to stop is read again
    * from the Mac once the archive goes ahead. */
   running: boolean;
+  /** The Chat has no Project (its Project is a Chats home): plain words, and a clean one archives without asking. */
+  chatsHome?: boolean;
   /** Called once the Chat is confirmed, before anything changes (the Chat screen marks itself busy). */
   onConfirm?: () => void;
   notify: (message: string) => void;
@@ -169,7 +181,8 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
   let done = () => {};
   try {
     const plan = await checkArchive(client, request.state, chat.id, chatId);
-    const mode = await confirmArchive(request.alert, archiveDialog(plan, request.running));
+    const dialog = archiveDialog(plan, request.running, request.chatsHome);
+    const mode = dialog.immediate ? dialog.choices[0]!.mode : await confirmArchive(request.alert, dialog);
     if (!mode) return "cancelled";
     done = startArchiving(chatId);
     request.onConfirm?.();

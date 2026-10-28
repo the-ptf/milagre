@@ -40,7 +40,13 @@ export function isMilagreWorktree(worktree: Worktree | undefined, roots: string[
 export function worktreeShared(state: CoordinatorState, sessionId: number): boolean;
 export function lossReason(status: WorktreeStatus): string;
 export function deleteNote(status: WorktreeStatus): string;
-export function archiveChoices(options: { plan: ArchivePlan; running: boolean }): { choices: ArchiveChoice[]; reason: string | null };
+export function homeLossReason(status: WorktreeStatus): string;
+/** `chatsHome`: a Chat without a Project, in plain words. `immediate`: the one choice needs no confirm step. */
+export function archiveChoices(options: { plan: ArchivePlan; running: boolean; chatsHome?: boolean }): {
+  choices: ArchiveChoice[];
+  reason: string | null;
+  immediate: boolean;
+};
 export function terminalNote(busy: string[]): string | null;
 export function removeFailureNotice(error: unknown): string;
 export function archiveLinkChat(deps: { running: boolean; stop: () => Promise<unknown>; hide: () => Promise<unknown> }): Promise<void>;

@@ -1539,6 +1539,7 @@ function ChatPane({
           state: project.state,
           chat: target,
           running: !!run,
+          chatsHome: chatsHomeOpen,
           onConfirm: () => {
             session.expectActivity();
             leave();

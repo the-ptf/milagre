@@ -779,7 +779,7 @@ const NavigationBody = memo(function NavigationBody({
   // A Chat's ⋯ choice runs against its own computer's client and its own Project's copy, which is reread afterwards.
   // Archive stays in this sidebar, including when its Chat is open behind it, so the row's progress and the list's
   // scroll position stay in place.
-  async function act(row: { hostId: string; path: string; chat: AgentSession }, action: string) {
+  async function act(row: { hostId: string; path: string; chat: AgentSession; home?: boolean }, action: string) {
     const { hostId, path: projectPath, chat } = row;
     if (action === "open-beside") {
       openBeside({ hostId, projectPath, chatId: chat.id });
@@ -808,6 +808,7 @@ const NavigationBody = memo(function NavigationBody({
         projectPath: copy.project.path,
         state: copy.project.state,
         link: copy.project.link,
+        chatsHome: row.home,
         onConfirm: () => {
           confirmed = true;
         },

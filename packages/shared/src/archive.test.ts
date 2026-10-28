@@ -70,6 +70,44 @@ test("archiveChoices for a Chats home worktree with uncommitted files offers onl
   assert.equal(result.reason, "2 uncommitted files will be lost. Commit them first to keep them.");
 });
 
+test("a clean Chat without a Project archives in one click, labelled Archive", () => {
+  const result = archiveChoices({ plan: chatsPlan(clean), running: false, chatsHome: true });
+  assert.deepEqual(result.choices, [{ mode: "remove", label: "Archive", tone: "plain" }]);
+  assert.equal(result.reason, null);
+  assert.equal(result.immediate, true);
+  assert.deepEqual(labels(archiveChoices({ plan: chatsPlan(clean), running: true, chatsHome: true })), ["Stop and archive"]);
+  // A busy Terminal still gets its line, so the step stays.
+  const busy = archiveChoices({ plan: { ...chatsPlan(clean), terminals: ["npm run dev"] }, running: false, chatsHome: true });
+  assert.equal(busy.immediate, false);
+  assert.equal(busy.reason, "Archiving ends the Terminal running npm run dev.");
+});
+
+test("a Chat without a Project with files offers only Delete chat and its files, with no Git words", () => {
+  const files: WorktreeStatus = { uncommitted: 2, unpushed: 1, branch: "milagre/chat-k95o", head: "abc", removable: false };
+  const result = archiveChoices({ plan: chatsPlan(files), running: false, chatsHome: true });
+  assert.deepEqual(result.choices, [{ mode: "delete", label: "Delete chat and its files", tone: "danger" }]);
+  assert.equal(result.reason, "Its folder has 2 changed files that will be deleted.");
+  assert.equal(result.immediate, false);
+  assert.equal(
+    archiveChoices({ plan: chatsPlan({ ...files, uncommitted: 1 }), running: true, chatsHome: true }).choices[0]?.label,
+    "Stop and delete chat and its files",
+  );
+  assert.equal(
+    archiveChoices({ plan: chatsPlan({ ...files, uncommitted: 1 }), running: false, chatsHome: true }).reason,
+    "Its folder has 1 changed file that will be deleted.",
+  );
+  assert.equal(
+    archiveChoices({ plan: chatsPlan({ ...files, uncommitted: 0 }), running: false, chatsHome: true }).reason,
+    "Its folder has saved work that will be deleted.",
+  );
+  for (const status of [clean, files]) {
+    const { choices, reason } = archiveChoices({ plan: chatsPlan(status), running: false, chatsHome: true });
+    for (const words of [...choices.map((choice) => choice.label), reason ?? ""]) assert.doesNotMatch(words, /worktree|commit|branch|HEAD|push/i);
+  }
+  // Project Chats are never immediate.
+  assert.equal(archiveChoices({ plan: plan(), running: false }).immediate, false);
+});
+
 test("a Chats home worktree is Milagre's only with its base recorded and under a root", () => {
   assert.equal(isMilagreWorktree({ ...chatsWorktree, base: undefined }, [worktreeRoot]), false);
   assert.equal(isMilagreWorktree(chatsWorktree, ["/elsewhere"]), false);

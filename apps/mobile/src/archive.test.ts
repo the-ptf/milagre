@@ -282,6 +282,61 @@ test("Cancel changes nothing", async () => {
   assert.equal(refreshed, false);
 });
 
+test("a Chat without a Project: a clean one archives at once, one with files asks to delete it in plain words", async () => {
+  const plan: ArchivePlan = { milagreOwned: true, shared: false, status: clean };
+  assert.deepEqual(archiveDialog(plan, false, true), {
+    title: "Archive this Chat?",
+    choices: [{ mode: "remove", text: "Archive", style: "default" }],
+    immediate: true,
+  });
+  assert.deepEqual(archiveDialog({ ...plan, status: dirty }, false, true), {
+    title: "Archive this Chat?",
+    message: "Its folder has 2 changed files that will be deleted.",
+    choices: [{ mode: "delete", text: "Delete chat and its files", style: "destructive" }],
+  });
+
+  // Tapping Archive on a clean one asks nothing: hidden, then its folder removed.
+  const { client, calls } = fakeClient({ "worktree:remove": () => ({ removed: true }) });
+  const { alert, shown } = fakeAlert(null);
+  const result = await archiveFromPhone({
+    client,
+    alert,
+    projectPath: "/work/shop",
+    state: state(),
+    chat: session(2, 2),
+    running: false,
+    chatsHome: true,
+    notify: () => {},
+    refresh: async () => {},
+  });
+  assert.equal(result, "removed");
+  assert.equal(shown.length, 0);
+  const removal = calls.find((call) => call.method === "worktree:remove");
+  assert.equal((removal?.args[1] as { force: boolean } | undefined)?.force, false);
+
+  // One with files still asks, and Cancel keeps it.
+  const withFiles = fakeClient({ "worktree:status": () => dirty });
+  const asked = fakeAlert("Cancel");
+  assert.equal(
+    await archiveFromPhone({
+      client: withFiles.client,
+      alert: asked.alert,
+      projectPath: "/work/shop",
+      state: state(),
+      chat: session(2, 2),
+      running: false,
+      chatsHome: true,
+      notify: () => {},
+      refresh: async () => {},
+    }),
+    "cancelled",
+  );
+  assert.deepEqual(
+    asked.shown[0]?.buttons.map((button) => button.text),
+    ["Cancel", "Delete chat and its files"],
+  );
+});
+
 test("whether to stop is read when the archive runs, not when Archive was tapped", async () => {
   // Idle when tapped, running by the time it is confirmed: the turn is stopped.
   const started = fakeClient({}, state(), { "/work/shop#2": {} });

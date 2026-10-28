@@ -69,6 +69,7 @@ export async function runChatAction({
   projectPath,
   state,
   link,
+  chatsHome,
   refresh,
   expectActivity,
   notify,
@@ -81,6 +82,8 @@ export async function runChatAction({
   projectPath: string;
   state: ArchiveRequest["state"];
   link?: OpenLink;
+  /** The Chat has no Project: archive asks in plain words, and not at all when its folder is clean. */
+  chatsHome?: boolean;
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
   expectActivity: () => void;
@@ -118,6 +121,7 @@ export async function runChatAction({
       state,
       chat,
       running,
+      chatsHome,
       onConfirm: () => {
         onConfirm?.();
         expectActivity();

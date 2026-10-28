@@ -1393,10 +1393,21 @@ function ChatMenu({
   const { editor } = useEditors();
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
-  const confirm = archiveArmed && plan ? archiveChoices({ plan, running }) : null;
+  // A Chat without a Project says what goes in plain words, and a clean one archives on the first click.
+  const choices = plan ? archiveChoices({ plan, running, chatsHome: actions.gitless }) : null;
+  const confirm = archiveArmed ? choices : null;
+  const archiveAtOnce = choices?.immediate && choices.choices.length === 1 ? choices.choices[0] : undefined;
   const archiveItems: Array<MenuEntry> =
     !confirm || !plan
-      ? [{ key: "archive", label: "Archive", icon: Archive02Icon, onSelect: () => setArchiveArmed(true), disabled: !actions.onArchive || !plan }]
+      ? [
+          {
+            key: "archive",
+            label: archiveAtOnce?.label ?? "Archive",
+            icon: Archive02Icon,
+            onSelect: archiveAtOnce && plan ? run(() => actions.onArchive?.(item.id, archiveAtOnce.mode, plan)) : () => setArchiveArmed(true),
+            disabled: !actions.onArchive || !plan,
+          },
+        ]
       : confirm.choices.map((choice) => ({
           key: `archive-${choice.mode}`,
           label: choice.label,
