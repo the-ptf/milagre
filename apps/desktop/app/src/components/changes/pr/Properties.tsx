@@ -77,11 +77,11 @@ function Property({
 }
 
 const REVIEW_STATE: Record<PullRequestReviewer["state"], { label: string; ring: string }> = {
-  APPROVED: { label: "Approved", ring: "ring-green" },
-  CHANGES_REQUESTED: { label: "Changes requested", ring: "ring-red" },
-  COMMENTED: { label: "Commented", ring: "ring-ink-3" },
-  REQUESTED: { label: "Requested", ring: "ring-surface" },
-  DISMISSED: { label: "Dismissed", ring: "ring-surface" },
+  APPROVED: { label: "Approved", ring: "ring-[2.5px] ring-green ring-offset-1 ring-offset-surface" },
+  CHANGES_REQUESTED: { label: "Changes requested", ring: "ring-[2.5px] ring-red ring-offset-1 ring-offset-surface" },
+  COMMENTED: { label: "Commented", ring: "ring-[1.5px] ring-ink-3" },
+  REQUESTED: { label: "Requested", ring: "ring-[1.5px] ring-surface" },
+  DISMISSED: { label: "Dismissed", ring: "ring-[1.5px] ring-surface" },
 };
 
 export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; review: PullRequestReview; source?: PrSource }) {
@@ -160,8 +160,8 @@ export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; re
         <span className="flex items-center pl-0.5">
           {pr.reviewers.map((reviewer, index) => (
             <Tooltip key={reviewer.login} label={`${reviewer.login} · ${REVIEW_STATE[reviewer.state].label}`} side="bottom">
-              <span data-pr-reviewer={reviewer.state} className={`flex ${index ? "-ml-1" : ""} ${reviewer.stale ? "opacity-60" : ""}`}>
-                <Avatar login={reviewer.login} team={reviewer.team} size={22} className={`ring-[1.5px] ${REVIEW_STATE[reviewer.state].ring}`} />
+              <span data-pr-reviewer={reviewer.state} className={`flex ${index ? "-ml-0.5" : ""} ${reviewer.stale ? "opacity-60" : ""}`}>
+                <Avatar login={reviewer.login} team={reviewer.team} size={22} className={REVIEW_STATE[reviewer.state].ring} />
               </span>
             </Tooltip>
           ))}
