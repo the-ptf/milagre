@@ -126,7 +126,7 @@ import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences
 import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
-import { isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
+import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
@@ -622,6 +622,9 @@ function App() {
   // The open Project's computer, when it is another Mac: read-only while it isn't online, with the banner while it is away.
   const openComputer = project && isRemoteKey(project.path) ? pairedComputers.find((computer) => computer.id === computerOfKey(project.path)) : undefined;
   const readOnly = Boolean(project && isRemoteKey(project.path) && isReadOnly(openComputer));
+  // A dropped socket or a LAN/relay switch reads Connecting or Reconnecting for a moment: the draft stays writable through
+  // it (Send waits for the computer), and only a computer that is away locks the composer.
+  const reconnecting = readOnly && Boolean(openComputer) && computerTone(openComputer!) === "connecting";
   const away = Boolean(openComputer && isDimmed(openComputer));
   const bannerNow = useDisplayNow(60_000, away);
   const awayBanner = openComputer && away ? offlineBanner(openComputer, bannerNow) : null;
@@ -1962,7 +1965,8 @@ function App() {
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
     if (readOnly) {
-      setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
+      const name = openComputer?.name ?? "That computer";
+      setNotice(reconnecting ? `Reconnecting to ${name}. Your message is kept; send it once it is back.` : `${name} is offline.`);
       return false;
     }
     sendInFlight.current = true;
@@ -3487,7 +3491,8 @@ function App() {
                         pullRequestReview={selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined}
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
-                        offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
+                        offlineName={readOnly && !reconnecting ? (openComputer?.name ?? "That computer") : null}
+                        reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         streamingText={run?.text}
                         streamingSteps={run?.steps}

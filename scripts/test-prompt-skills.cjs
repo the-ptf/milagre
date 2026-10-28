@@ -37,7 +37,7 @@ function Fixture() {
     <PromptComposer projectPath={root} draft={draft} onDraftChange={setDraft}
       imageDraft={{ images: [], files: [], loading: false, error: '', onPaste: noop, remove: noop, removeFile: noop }}
       onSend={() => { window.sent.push(draft); setDraft(''); }} sendBlocked={!!suggestOptions.blocked}
-      suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline}
+      suggestion={suggestOptions.text} running={!!suggestOptions.running} offlineName={suggestOptions.offline} reconnectingName={suggestOptions.reconnecting}
       models={MODEL_CATALOG} cliStatus={null} onModelPickerOpen={noop} selectedModel={model} onModelChange={noop}
       capability={capabilityFor(model, null)} onEffortChange={noop} ultracode={false} onUltracodeChange={noop}
       fastMode={false} onFastModeChange={noop} permissionMode="auto" onPermissionModeChange={noop} alwaysExpanded={expanded} />
@@ -244,6 +244,19 @@ async function browserChecks() {
       await evaluate(`window.setSuggestOptions(${JSON.stringify({ provider: "claude", text: "Add tests", ...options })})`);
       await waitFor(`!${suggestion}`);
     }
+    // A computer reconnecting (a dropped socket, a LAN/relay switch) leaves the field writable and only holds Send (the
+    // App's send refuses it and keeps the draft); one that is offline locks it.
+    await type("");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", reconnecting: "QA Mac", blocked: true })`);
+    await waitFor(`document.body.textContent.includes("reconnecting to QA Mac")`);
+    assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft stays writable while the computer reconnects");
+    await type("still here");
+    assert.equal(await evaluate(`${editor}.value`), "still here", "typing works while it reconnects");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled ?? null`), true, "the Send button waits for the computer");
+    await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", blocked: true })`);
+    await waitFor(`!${editor}.isContentEditable`);
+    await evaluate(`window.setSuggestOptions({ provider: "claude" })`);
+    await type("");
     assert.deepEqual(errors, []);
     console.log(
       "PASS: typed and picked skills are chips with descriptions, both themes, one-line fit, Backspace over a chip, wrapped/scrolled drafts, exact send and catalog isolation",

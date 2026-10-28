@@ -7,7 +7,7 @@ import type { ComputerView } from "../electron.d.ts";
   localStorage: { getItem: () => null, setItem() {} },
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
 };
-const { computerTone, routeLine, seenAgo, settingsTooltip, offlineBanner, offlinePlaceholder, isDimmed, isReadOnly, withComputer } =
+const { computerTone, routeLine, seenAgo, settingsTooltip, offlineBanner, offlinePlaceholder, reconnectingPlaceholder, isDimmed, isReadOnly, withComputer } =
   await import("./computers.ts");
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
@@ -74,6 +74,7 @@ test("the gear's tooltip, the banner and the composer say the spec's words", () 
     "studio is offline. This is the last copy it sent. You can read it until studio is back.",
   );
   assert.equal(offlinePlaceholder("studio"), " (studio is offline)");
+  assert.equal(reconnectingPlaceholder("studio"), " (reconnecting to studio…)");
 });
 
 test("a remote chat's completion notice names its computer; this Mac's is unchanged", () => {
