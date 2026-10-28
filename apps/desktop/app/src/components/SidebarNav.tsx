@@ -275,9 +275,9 @@ function ScopeHeader({
   /** The ⋯ menu's rows; none hides the button. */
   menu: ScopeMenuItem[];
 }) {
-  // Room on the right for what shows there, so the name (and the computer chip) reach the edge: the + of the open
-  // Project, the attention dot, and on hover the ⋯ and + with the dot slid left of them.
-  const rightRoom = `${current ? "pr-8" : attention ? "pr-6" : "pr-2"} ${
+  // Room on the right for what shows there, so the name (and the computer chip) reach the edge: the attention dot, and
+  // on hover the ⋯ and + with the dot slid left of them.
+  const rightRoom = `${attention ? "pr-6" : "pr-2"} ${
     attention
       ? menu.length > 0
         ? "group-hover/scope:pr-[80px] group-has-[:focus-visible]/scope:pr-[80px]"
@@ -347,7 +347,7 @@ function ScopeHeader({
             data-scope-action
             aria-label={current ? "New chat" : `New chat in ${name}`}
             onClick={onNewChat}
-            className={`${SCOPE_HEADER_BUTTON} ${current ? "" : "opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100"}`}
+            className={`${SCOPE_HEADER_BUTTON} opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100`}
           >
             <IconPlusMedium size={14} />
           </button>

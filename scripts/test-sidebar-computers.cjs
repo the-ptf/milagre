@@ -287,6 +287,15 @@ async function browserChecks() {
     await evaluate(`window.setComputers(window.computerList.map((c) => c.id === 'c-atlas' ? { ...c, name: "atlas" } : c))`);
     window.webContents.sendInputEvent({ type: "mouseMove", x: 900, y: 400 });
     await waitFor(`!document.querySelector('[role="tooltip"]')`);
+    // The open Project's + shows only on hover too, so at rest its chip also reaches the edge.
+    const current = "/work/milagre-ade";
+    await waitFor(`getComputedStyle(document.querySelector(${JSON.stringify(inScope(current, "[data-scope-action]"))})).opacity === '0'`);
+    assert.equal(
+      await evaluate(
+        `Math.round(document.querySelector(${JSON.stringify(inScope(current, "[data-scope-toggle]"))}).getBoundingClientRect().right - document.querySelector(${JSON.stringify(inScope(current, "[data-scope-computer]"))}).getBoundingClientRect().right)`,
+      ),
+      8,
+    );
     console.log(
       "PASS: at the narrowest sidebar, a long Project name truncates before the computer chip, hovered too, and the chip's tooltip names the computer",
     );
