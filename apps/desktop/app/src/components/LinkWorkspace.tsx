@@ -1,3 +1,4 @@
+import { archiveLinkChat } from "../lib/archive-flow";
 import { prepareImageUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
@@ -571,13 +572,14 @@ export function LinkWorkspace({
                   }),
                   onArchive: (id) => {
                     const key = chatKeyForScope(scope, Number(id));
-                    return agents
-                      .interrupt(key)
-                      .then(() => bridge.patchChat(owner, Number(id), { archived: true }))
-                      .then(() => {
+                    return archiveLinkChat({
+                      running: Boolean(agents.runs[key]),
+                      stop: () => agents.interrupt(key),
+                      hide: async () => {
+                        await bridge.patchChat(owner, Number(id), { archived: true });
                         if (sessionId === Number(id)) pick(null);
-                      })
-                      .catch((error) => setError(ipcErrorMessage(error)));
+                      },
+                    }).catch((error) => setError(ipcErrorMessage(error)));
                   },
                 }}
               />

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState } from "./model.ts";
-import { archiveChat } from "./archive.mjs";
+import { archiveChat, archiveLinkChat } from "./archive.mjs";
 import type { ArchiveDeps } from "./archive.mjs";
 import type { ArchivePlan } from "./archive.mjs";
 
@@ -202,4 +202,28 @@ test("an async hide lands before the removal, and an async restore before the no
   });
   assert.equal(await archiveChat(h.deps, 2, "delete", plan), "kept");
   assert.deepEqual(order, ["hidden", "remove", "restored", "Couldn't remove the worktree: busy. The chat stays so you can find it."]);
+});
+
+test("a shared Chat archives without waiting on its stop", async () => {
+  const calls: string[] = [];
+  // agent:interrupt that never answers (it timed out at 30 s and the Chat stayed): the archive goes through anyway.
+  await archiveLinkChat({ running: true, stop: () => (calls.push("stop"), new Promise(() => {})), hide: async () => void calls.push("hide") });
+  assert.deepEqual(calls, ["stop", "hide"]);
+  calls.length = 0;
+  await archiveLinkChat({
+    running: true,
+    stop: () => (calls.push("stop"), Promise.reject(new Error("Timed out: agent:interrupt."))),
+    hide: async () => void calls.push("hide"),
+  });
+  assert.deepEqual(calls, ["stop", "hide"]);
+});
+
+test("an idle shared Chat archives without a stop", async () => {
+  const calls: string[] = [];
+  await archiveLinkChat({ running: false, stop: async () => void calls.push("stop"), hide: async () => void calls.push("hide") });
+  assert.deepEqual(calls, ["hide"]);
+});
+
+test("a shared Chat that can't be hidden reports it", async () => {
+  await assert.rejects(archiveLinkChat({ running: false, stop: async () => {}, hide: () => Promise.reject(new Error("Host offline")) }), /Host offline/);
 });
