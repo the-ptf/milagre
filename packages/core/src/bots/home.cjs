@@ -128,4 +128,4 @@ async function writeInstructions(home, input) {
   await Promise.all(INSTRUCTION_FILES.map((name) => writeAtomic(path.join(home, name), text)));
 }
 
-module.exports = { COMMIT_CONFIG, EMPTY_MEMORY, INSTRUCTION_FILES, createBotHome, instructionsText, readBrief, writeAtomic, writeBrief, writeInstructions };
+module.exports = { EMPTY_MEMORY, INSTRUCTION_FILES, createBotHome, instructionsText, readBrief, writeAtomic, writeBrief, writeInstructions };

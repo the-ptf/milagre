@@ -32,6 +32,7 @@ test("ensure creates a git repo on main with one empty commit", async (t) => {
   assert.equal(git(made, "rev-parse", "--show-toplevel"), fs.realpathSync(made));
   assert.equal(git(made, "rev-list", "--count", "HEAD"), "1");
   assert.deepEqual(fs.readdirSync(made), [".git"]);
+  assert.equal(git(made, "log", "-1", "--format=%an"), "Milagre");
 });
 
 test("ensure is idempotent under concurrent calls", async (t) => {
@@ -72,4 +73,24 @@ test("isHome follows a symlink to the real folder once it exists", async (t) => 
   await home.ensure();
   fs.symlinkSync(root, link);
   assert.equal(home.isHome(link), true);
+});
+
+test("ensure recreates the home after it is deleted", async (t) => {
+  const home = createChatsHome({ root: path.join(tmp(t), "chats"), git: createGit() });
+  const made = await home.ensure();
+  fs.rmSync(made, { recursive: true, force: true });
+  assert.equal(await home.exists(), false);
+  assert.equal(await home.ensure(), made);
+  assert.equal(await home.exists(), true);
+  assert.equal(git(made, "rev-list", "--count", "HEAD"), "1");
+});
+
+test("path equals what ensure returns when root has a symlink", async (t) => {
+  const base = tmp(t);
+  fs.mkdirSync(path.join(base, "real"));
+  fs.symlinkSync(path.join(base, "real"), path.join(base, "link"));
+  const home = createChatsHome({ root: path.join(base, "link", "chats"), git: createGit() });
+  const made = await home.ensure();
+  assert.equal(home.path, made);
+  assert.equal(made, path.join(base, "real", "chats"));
 });

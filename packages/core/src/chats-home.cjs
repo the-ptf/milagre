@@ -1,10 +1,13 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { COMMIT_CONFIG } = require("./bots/home.cjs");
+const { createGit } = require("./git/client.cjs");
 
 // The Chats home: one internal Git repository per computer (<root>, ~/.milagre/chats). A Chat started without a Project
 // runs in a Milagre Worktree of it, so it gets the same isolation and diff as any other Chat. It holds no files of its
 // own, only the empty commit the Worktrees branch from.
+
+// The empty commit is the home's, not the user's: no identity of theirs, no signing prompt.
+const COMMIT_CONFIG = Object.freeze(["user.name=Milagre", "user.email=milagre@localhost", "commit.gpgsign=false"]);
 
 const realOrResolved = (p) => {
   try {
@@ -14,8 +17,8 @@ const realOrResolved = (p) => {
   }
 };
 
-/** `git` is the runtime's helper (createGit()), the one createBotHome uses. */
-function createChatsHome({ root, git }) {
+/** `git` is the runtime's helper; a test or caller without one gets its own. */
+function createChatsHome({ root, git = createGit() }) {
   const home = path.resolve(root);
   let inFlight = null;
 
@@ -35,17 +38,20 @@ function createChatsHome({ root, git }) {
     return real;
   }
 
-  // Concurrent callers share one run; a failure is not kept, so the next call retries.
+  // Concurrent callers share one run. Nothing is kept once it settles, so a home deleted while the daemon runs is made
+  // again by the next call, and a failure is retried.
   function ensure() {
-    inFlight ??= make().catch((error) => {
+    inFlight ??= make().finally(() => {
       inFlight = null;
-      throw error;
     });
     return inFlight;
   }
 
   return Object.freeze({
-    path: home,
+    // What ensure() returns: the real path once the folder exists, so a symlinked root reads the same either way.
+    get path() {
+      return realOrResolved(home);
+    },
     exists,
     ensure,
     isHome: (candidate) => typeof candidate === "string" && candidate !== "" && realOrResolved(candidate) === realOrResolved(home),
