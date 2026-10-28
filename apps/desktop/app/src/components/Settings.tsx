@@ -774,7 +774,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
       <Group title="System">
         <Row
           label="Keep the Mac awake"
-          description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off; closing the lid still sleeps it."
+          description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it."
         >
           <Switch label="Keep the Mac awake" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
         </Row>

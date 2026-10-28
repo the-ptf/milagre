@@ -1456,7 +1456,7 @@ function App() {
     if (worktree) void openInEditor(worktree.path);
   }
 
-  // The main process keeps the Mac awake while a turn runs, if the setting says so.
+  // The daemon keeps the Mac awake while Milagre runs, if the setting says so.
   useEffect(() => {
     void window.milagre.setKeepAwake(keepAwake).catch(() => {});
   }, [keepAwake]);
