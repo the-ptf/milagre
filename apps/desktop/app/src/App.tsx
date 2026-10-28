@@ -126,7 +126,7 @@ import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences
 import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
-import { isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
+import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
 import { OfflineBanner } from "./components/OfflineBanner";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
@@ -622,6 +622,9 @@ function App() {
   // The open Project's computer, when it is another Mac: read-only while it isn't online, with the banner while it is away.
   const openComputer = project && isRemoteKey(project.path) ? pairedComputers.find((computer) => computer.id === computerOfKey(project.path)) : undefined;
   const readOnly = Boolean(project && isRemoteKey(project.path) && isReadOnly(openComputer));
+  // A dropped socket or a LAN/relay switch reads Connecting or Reconnecting for a moment: the draft stays writable through
+  // it (Send waits for the computer), and only a computer that is away locks the composer.
+  const reconnecting = readOnly && Boolean(openComputer) && computerTone(openComputer!) === "connecting";
   const away = Boolean(openComputer && isDimmed(openComputer));
   const bannerNow = useDisplayNow(60_000, away);
   const awayBanner = openComputer && away ? offlineBanner(openComputer, bannerNow) : null;
@@ -1157,13 +1160,13 @@ function App() {
     ? pullRequestActionContext({ action: pullRequestBlockerAction.blocker, pr: pullRequestBlockerAction.pr.number, url: pullRequestBlockerAction.pr.url })
     : null;
   const previousChats = useRef<SidebarRecent[]>([]);
-  // Chats with an archive under way, by chat key: each keeps its row, under the progress, until the archive ends.
+  // Chats with an archive under way, by chat key: their rows are gone from the sidebar from the tap on.
   const [archivingChats, setArchivingChats] = useState<ReadonlySet<string>>(() => new Set());
   const chats = useMemo(() => {
     const state = sidebarState;
     if (!state) return [];
     const withMessages = Object.values(state.sessions)
-      .filter((session) => !session.archived || (project && archivingChats.has(chatKey(project.path, session.id))))
+      .filter((session) => !session.archived && !(project && archivingChats.has(chatKey(project.path, session.id))))
       .map((session) => ({ session, sessionMessages: messagesBySession.get(session.id) ?? NO_MESSAGES }))
       // A hidden Run Chat shows only while its run waits on an approval or a question.
       .filter(({ session, sessionMessages }) => isChatListed(session, sessionMessages, waiting.has(session.id) || asking.has(session.id)));
@@ -1333,23 +1336,23 @@ function App() {
   // Archiving hides the chat for good; a turn still running in it is stopped first. The steps and their order
   // live in lib/archive-flow.ts, which is passed what it touches.
   // Another Project's chat (a row of the all-Projects sidebar) archives the same way, from the copy its group shows.
+  // As on the phone, the row goes and the window leaves the chat at once; the host's work goes on behind, and a chat
+  // whose archive fails (or whose worktree stays) comes back with a notice.
   function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
     const wasOpen = open && selectedSessionId === sessionId;
     setArchivingChats((current) => new Set(current).add(key));
-    return runArchive(
+    if (wasOpen) startNewChat();
+    void runArchive(
       {
         projectPath,
         chatId: key,
         getState: () => archiveState(projectPath) ?? null,
         currentProjectPath: () => projectRef.current?.path,
         stop: () => (agentRuns.runs[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
-        hide: async () => {
-          await bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false });
-          if (projectRef.current?.path === projectPath && selectedSessionRef.current === sessionId) startNewChat();
-        },
+        hide: () => bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false }),
         // The worktree stays, so the chat comes back with it; it is reopened only if it was open and nothing else has been since.
         restore: () => {
           if (projectRef.current?.path === projectPath) patchChat(sessionId, { archived: false });
@@ -1375,7 +1378,10 @@ function App() {
       mode,
       plan,
     )
-      .catch((error) => setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`))
+      // A call that timed out may still have landed: a chat the host shows archived by now needs no notice.
+      .catch((error) => {
+        if (!archiveState(projectPath)?.sessions[sessionId]?.archived) setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`);
+      })
       .finally(() =>
         setArchivingChats((current) => {
           const next = new Set(current);
@@ -1383,6 +1389,7 @@ function App() {
           return next;
         }),
       );
+    return Promise.resolve();
   }
 
   // What the archive menu offers depends on the chat's worktree: whether Milagre made it, whether another chat
@@ -1958,7 +1965,8 @@ function App() {
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
     if (readOnly) {
-      setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
+      const name = openComputer?.name ?? "That computer";
+      setNotice(reconnecting ? `Reconnecting to ${name}. Your message is kept; send it once it is back.` : `${name} is offline.`);
       return false;
     }
     sendInFlight.current = true;
@@ -3301,6 +3309,7 @@ function App() {
                   onOpenScopeChat={openScopeChat}
                   onScopeArchiveCheck={checkScopeArchive}
                   onScopeArchive={archiveScopeChat}
+                  archivingChats={archivingChats}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}
                   sidebarMode={sidebarMode}
@@ -3482,7 +3491,8 @@ function App() {
                         pullRequestReview={selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined}
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
-                        offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
+                        offlineName={readOnly && !reconnecting ? (openComputer?.name ?? "That computer") : null}
+                        reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         streamingText={run?.text}
                         streamingSteps={run?.steps}

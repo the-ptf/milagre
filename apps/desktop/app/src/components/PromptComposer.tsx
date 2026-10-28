@@ -38,7 +38,7 @@ import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
 import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
 import { useChatMentions } from "./ChatMentions";
-import { offlinePlaceholder } from "../lib/computers";
+import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
 import { insertDictation } from "@milagre/shared/voice-dictation";
 import { useDictation } from "./useDictation";
 
@@ -69,6 +69,8 @@ const COMMANDS = [
 interface PromptComposerProps {
   /** The chat's computer is away: the field is disabled and its placeholder says so. */
   offlineName?: string | null;
+  /** The connection to the chat's computer is coming back: the field stays open, its placeholder says so. */
+  reconnectingName?: string | null;
   imageDraft: ImageDraft;
   projectPath: string;
   draft: string;
@@ -148,6 +150,7 @@ function EffortMeter({ level, total }: { level: number; total: number }) {
 
 export function PromptComposer({
   offlineName,
+  reconnectingName,
   imageDraft,
   projectPath,
   draft,
@@ -886,7 +889,8 @@ export function PromptComposer({
                       providerCapabilities(provider).steer
                       ? "Steer the agent…"
                       : "Queue a message for the next turn…"
-                    : "Prompt or mention a file or Chat with @") + (offlineName ? offlinePlaceholder(offlineName) : "")
+                    : "Prompt or mention a file or Chat with @") +
+                  (offlineName ? offlinePlaceholder(offlineName) : reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}

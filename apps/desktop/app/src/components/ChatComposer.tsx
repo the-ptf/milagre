@@ -524,6 +524,7 @@ const MessageTranscript = memo(function MessageTranscript({
   | "onOpenLinkedChat"
   | "onOpenAccounts"
   | "offlineName"
+  | "reconnectingName"
   | "findOpen"
   | "models"
 >) {
@@ -736,6 +737,8 @@ interface ChatComposerProps {
   mentionContext?: ChatMentionScope;
   /** The chat's computer is away: the composer is disabled and says so. */
   offlineName?: string | null;
+  /** The connection to the chat's computer is coming back: the draft stays writable, and Send waits for it. */
+  reconnectingName?: string | null;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
   /** Opens a file's diff in the Changes panel, from the undo preview. */
@@ -1089,6 +1092,7 @@ const EMPTY_SUBAGENTS: Subagent[] = [];
 export function ChatComposer({
   mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
+  reconnectingName,
   scopeKind,
   imageDraft,
   projectPath,
@@ -1547,6 +1551,7 @@ export function ChatComposer({
           <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
             <PromptComposer
               offlineName={offlineName}
+              reconnectingName={reconnectingName}
               imageDraft={imageDraft}
               projectPath={projectPath}
               draft={draft}
