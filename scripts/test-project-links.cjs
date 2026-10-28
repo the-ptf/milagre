@@ -131,9 +131,18 @@ async function main() {
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
+    // CDP can advertise the destination URL before its execution context leaves about:blank.
+    await waitFor(async () => {
+      const { result } = await connection.call("Runtime.evaluate", {
+        expression: `location.href === ${JSON.stringify(rendererUrl)} && document.readyState === "complete" && !!window.milagre`,
+        returnByValue: true,
+      });
+      return result.value;
+    }, "renderer document ready");
+    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
     // The sidebar's Project groups, not its One list, are what this check drives.
     await evaluate(
-      `localStorage.setItem("milagre-settings", JSON.stringify({ chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
+      `window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
     );
     const click = (text) => evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
     const input = (selector, value) =>
@@ -154,7 +163,6 @@ async function main() {
       await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await waitFor(() => evaluate(`!document.querySelector('[data-scope-menu-panel]')`), "scope menu closed");
     };
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
     await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope][data-current] [data-scope-menu]')`), "Project group");
     await scopeMenu("[data-sidebar-scope][data-current]");
     assert.ok(await evaluate(`!!document.querySelector('[data-scope-menu-item="copy-path"]')`));
@@ -383,7 +391,15 @@ async function main() {
         ),
       "refresh shows committed changes in the API only",
     );
-    assert.ok(await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + " [data-diff-base]")})`), "The API compares its own recorded base");
+    await waitFor(
+      () => evaluate(`document.querySelector(${JSON.stringify(group(apiId) + ' [aria-label="Comparison branch"]')})?.textContent === "main"`),
+      "The API comparison row resolves its own recorded main base",
+    );
+    assert.equal(
+      await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + " [data-diff-base]")})`),
+      false,
+      "The committed section does not repeat the comparison base",
+    );
     assert.match(await evaluate(`document.querySelector(${JSON.stringify(committed(apiId) + " h3")}).textContent`), /\+1−1$/);
     await waitFor(
       () =>
