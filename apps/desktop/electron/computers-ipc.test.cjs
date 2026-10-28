@@ -241,6 +241,32 @@ test("the copy an opened Project's state leaves is written after the answer, onc
   assert.equal(cache.get(ID, "scope", "/p").state.sessions[4].title, "remembered");
 });
 
+test("while a computer is reconnecting, what its cache can't answer goes to it (and waits there) instead of failing as offline", async () => {
+  const invoked = [];
+  for (const state of ["connecting", "reconnecting"]) {
+    const { call } = setup(
+      {
+        list: () => [{ ...studio, state }],
+        invoke: async (id, method, args) => {
+          invoked.push([state, method, args]);
+          return { sent: true };
+        },
+      },
+      { cache: { get: () => null, put() {}, close() {} } },
+    );
+    assert.deepEqual(await call("computers:invoke", "c1", "chat:send", [{ projectPath: "c1|/p" }]), { sent: true });
+  }
+  assert.deepEqual(
+    invoked.map(([state, method]) => [state, method]),
+    [
+      ["connecting", "chat:send"],
+      ["reconnecting", "chat:send"],
+    ],
+  );
+  const { call } = setup({ list: () => [{ ...studio, state: "offline" }], invoke: async () => assert.fail("an offline computer is not called") });
+  await assert.rejects(call("computers:invoke", "c1", "chat:send", [{}]), { message: "studio is offline." });
+});
+
 test("a damaged cache file is deleted so it rebuilds, warns once, and never fails the call", async (t) => {
   const fs = require("node:fs/promises");
   const os = require("node:os");

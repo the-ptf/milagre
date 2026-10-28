@@ -619,12 +619,12 @@ function App() {
     if (openChatComputer.current === computerId) openChatComputer.current = LOCAL_COMPUTER;
     void loadInitialProject();
   }, [knownComputers]);
-  // The open Project's computer, when it is another Mac: read-only while it isn't online, with the banner while it is away.
+  // The open Project's computer, when it is another Mac: read-only while it is away, with the banner then.
   const openComputer = project && isRemoteKey(project.path) ? pairedComputers.find((computer) => computer.id === computerOfKey(project.path)) : undefined;
   const readOnly = Boolean(project && isRemoteKey(project.path) && isReadOnly(openComputer));
-  // A dropped socket or a LAN/relay switch reads Connecting or Reconnecting for a moment: the draft stays writable through
-  // it (Send waits for the computer), and only a computer that is away locks the composer.
-  const reconnecting = readOnly && Boolean(openComputer) && computerTone(openComputer!) === "connecting";
+  // A dropped socket or a LAN/relay switch reads Connecting or Reconnecting for a moment. That isn't read-only: the draft
+  // stays writable, a send waits for the computer (computers.cjs invoke), and the placeholder says it is reconnecting.
+  const reconnecting = Boolean(openComputer && computerTone(openComputer) === "connecting");
   const away = Boolean(openComputer && isDimmed(openComputer));
   const bannerNow = useDisplayNow(60_000, away);
   const awayBanner = openComputer && away ? offlineBanner(openComputer, bannerNow) : null;
@@ -1965,8 +1965,7 @@ function App() {
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
     if (readOnly) {
-      const name = openComputer?.name ?? "That computer";
-      setNotice(reconnecting ? `Reconnecting to ${name}. Your message is kept; send it once it is back.` : `${name} is offline.`);
+      setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return false;
     }
     sendInFlight.current = true;
@@ -3491,7 +3490,7 @@ function App() {
                         pullRequestReview={selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined}
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
-                        offlineName={readOnly && !reconnecting ? (openComputer?.name ?? "That computer") : null}
+                        offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         streamingText={run?.text}

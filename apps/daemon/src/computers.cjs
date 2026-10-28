@@ -20,6 +20,9 @@ const NETWORK_MS = 5_000;
 const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
 // A call made while the runtime moves between the relay and the LAN waits this long for it to be back.
 const SWITCH_WAIT_MS = 10_000;
+// A call made while a computer is connecting or reconnecting (a dropped socket, a route check) waits this long for it
+// instead of failing at once: those blips last a second or two, and the computer still reads as connected meanwhile.
+const RECONNECT_WAIT_MS = 15_000;
 // A saved LAN address that doesn't answer (another network) is probed for up to PROBE_TIMEOUT, and every connect waited
 // that out before dialing the relay. A connect now waits this long for the LAN, then takes the relay; a LAN channel that
 // opens later takes over once nothing waits on the relay (moveToLan).
@@ -57,6 +60,9 @@ const hostOf = (url) => {
     return url;
   }
 };
+/** What went wrong, for the log: the peer error's code, else the message. */
+const describe = (error) => (!error ? "" : error instanceof PeerError ? error.code : String(error.message ?? error).slice(0, 200));
+
 const defaultNetworkSignature = () =>
   JSON.stringify(
     Object.values(os.networkInterfaces())
@@ -80,6 +86,26 @@ function adopt(entry, client, route, endpoint = null) {
 function recovered(entry) {
   entry.recovery?.done();
   entry.recovery = null;
+}
+
+/** Releases every call waiting for the computer to be back (it is, or it won't be soon). */
+function released(entry) {
+  // Each done() leaves the set, so the loop walks a copy.
+  // oxlint-disable-next-line unicorn/no-useless-spread
+  for (const done of [...entry.waiting]) done();
+}
+
+/** Resolves once the computer is online, off, refused or offline for good (released), or after `ms`, whichever is first. */
+function whenOnline(entry, ms) {
+  return new Promise((/** @type {(value?: any) => void} */ resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      entry.waiting.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    entry.waiting.add(done);
+  });
 }
 
 /**
@@ -107,6 +133,7 @@ async function stop(entry) {
   entry.stopped = true;
   entry.abort.abort();
   recovered(entry);
+  released(entry);
   clearTimeout(entry.retryTimer);
   clearTimeout(entry.offlineTimer);
   const runtime = entry.runtime;
@@ -129,7 +156,7 @@ async function stop(entry) {
  *   allowLocalRelay?: boolean; createSocket?: (url: string) => any; fetch?: typeof globalThis.fetch;
  *   now?: () => number; random?: (n: number) => Uint8Array; reconnectMs?: number; switchWaitMs?: number;
  *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; lanWaitMs?: number;
- *   networkSignature?: () => string;
+ *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void;
  * }} options
  */
 function createComputers({
@@ -153,6 +180,8 @@ function createComputers({
   backoffMs = BACKOFF_MS,
   lanWaitMs = LAN_WAIT_MS,
   networkSignature = defaultNetworkSignature,
+  reconnectWaitMs = RECONNECT_WAIT_MS,
+  log = () => {},
 }) {
   const store = createComputersStore({ file: path.join(dataDir, "computers.json"), now, allowLocalRelay });
   const keys = credentials ?? createComputerKeys({ file: path.join(dataDir, "computer-keys.json"), safeStorage, random });
@@ -270,6 +299,8 @@ function createComputers({
       switching: false,
       /** @type {{ promise: Promise<void>; done: () => void } | null} */
       recovery: null,
+      /** Calls waiting for the computer to be online again (whenOnline). */
+      waiting: new Set(),
       abort: new AbortController(),
     };
     const supervisor = createRouteSupervisor({
@@ -348,14 +379,26 @@ function createComputers({
     }
   }
 
+  /** One line per state change, with the route or the reason: what Settings can't show after the fact. */
+  function note(entry, state, detail) {
+    try {
+      const computer = store.get(entry.id);
+      log(`${new Date(now()).toISOString()} ${computer?.name ?? entry.id} ${state}${detail ? ` ${detail}` : ""}`);
+    } catch {
+      /* a log must not break the computers */
+    }
+  }
+
   function online(entry) {
     clearTimeout(entry.offlineTimer);
+    if (entry.state !== "online") note(entry, "online", `${entry.route ?? ""}${entry.address ? ` ${entry.address}` : ""}`.trim());
     entry.state = "online";
     entry.message = null;
     entry.lastError = null;
     entry.failures = 0;
     entry.switching = false;
     recovered(entry);
+    released(entry);
     void store.seen(entry.id).catch(() => {});
     void learnRoutes(entry);
     changed();
@@ -363,7 +406,7 @@ function createComputers({
     moveToLan(entry);
   }
 
-  function down(entry, error) {
+  function down(entry, error, why = "") {
     // The disconnect a switch causes is not an outage; the flag is spent on it, so a recovery that then fails reads Reconnecting.
     if (entry.switching) {
       entry.switching = false;
@@ -374,11 +417,14 @@ function createComputers({
     entry.message =
       error instanceof PeerError && SHOWN.has(error.code) && computer ? computerProblem(error.code, { name: computer.name }) : keychainProblem(error);
     if (entry.state !== "reconnecting" && entry.state !== "offline") {
+      note(entry, "reconnecting", `from ${entry.route ?? "no route"}: ${describe(error) || why || "unknown"}`);
       entry.state = "reconnecting";
       clearTimeout(entry.offlineTimer);
       entry.offlineTimer = setTimeout(() => {
         if (entry.state !== "reconnecting") return;
+        note(entry, "offline", describe(entry.lastError));
         entry.state = "offline";
+        released(entry);
         changed();
       }, offlineAfterMs);
     }
@@ -392,6 +438,8 @@ function createComputers({
     entry.refused = true;
     entry.switching = false;
     recovered(entry);
+    released(entry);
+    note(entry, "refused", describe(error));
     entry.state = "refused";
     entry.message = computerProblem(error.code, { name: computer?.name ?? "That computer" });
     clearTimeout(entry.offlineTimer);
@@ -425,7 +473,7 @@ function createComputers({
     if (entry.stopped || entry.refused) return;
     if (channel === "runtime:connection") {
       if (payload?.connected) online(entry);
-      else down(entry, entry.lastError);
+      else down(entry, entry.lastError, typeof payload?.message === "string" ? payload.message : "");
       return;
     }
     try {
@@ -650,7 +698,8 @@ function createComputers({
         await Promise.race([entry.recovery.promise, new Promise((resolve) => (timer = setTimeout(resolve, switchWaitMs)))]);
         clearTimeout(timer);
       }
-      if (!entry?.runtime) throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
+      if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
+      if (!entry?.runtime || entry.state !== "online") throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
       return entry.runtime.invoke(method, args);
     },
     /** The window gained or lost focus: every connected computer's daemon is told, and a later connection is too. */

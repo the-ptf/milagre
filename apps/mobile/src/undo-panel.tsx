@@ -1,5 +1,4 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import {
   Alert02Icon,
   ArrowRight01Icon,
@@ -63,13 +62,7 @@ export function UndoPanel({
         boxShadow: "0 4px 20px #0000000f",
       }}
     >
-      <LiquidGlassView
-        pointerEvents="none"
-        glassType="clear"
-        isInteractive={false}
-        reducedTransparencyFallbackColor={colors.surface}
-        style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous" }]}
-      />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous", backgroundColor: colors.surface }]} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Icon icon={intent === "Redo" && review.view === "preview" ? Redo02Icon : Undo02Icon} tone="ink2" size={17} />
         <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>

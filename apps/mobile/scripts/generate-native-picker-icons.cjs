@@ -5,7 +5,7 @@ const { Buffer } = require("node:buffer");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { GitForkIcon, LaptopIcon } = require("@hugeicons/core-free-icons");
+const { ComputerIcon, GitForkIcon, LaptopIcon } = require("@hugeicons/core-free-icons");
 
 async function generate() {
   const { app, BrowserWindow } = require("electron");
@@ -13,7 +13,7 @@ async function generate() {
   const window = new BrowserWindow({ show: false });
   try {
     await window.loadURL("about:blank");
-    const icons = { laptop: LaptopIcon, fork: GitForkIcon };
+    const icons = { laptop: LaptopIcon, fork: GitForkIcon, computer: ComputerIcon };
     const result = {};
     for (const [name, icon] of Object.entries(icons)) {
       result[name] = {};

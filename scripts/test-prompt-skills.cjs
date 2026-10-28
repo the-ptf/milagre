@@ -244,15 +244,15 @@ async function browserChecks() {
       await evaluate(`window.setSuggestOptions(${JSON.stringify({ provider: "claude", text: "Add tests", ...options })})`);
       await waitFor(`!${suggestion}`);
     }
-    // A computer reconnecting (a dropped socket, a LAN/relay switch) leaves the field writable and only holds Send (the
-    // App's send refuses it and keeps the draft); one that is offline locks it.
+    // A computer reconnecting (a dropped socket, a LAN/relay switch) leaves the field writable and Send open: the send
+    // waits for the computer (computers.cjs invoke). One that is offline locks the field.
     await type("");
-    await evaluate(`window.setSuggestOptions({ provider: "claude", reconnecting: "QA Mac", blocked: true })`);
+    await evaluate(`window.setSuggestOptions({ provider: "claude", reconnecting: "QA Mac" })`);
     await waitFor(`document.body.textContent.includes("reconnecting to QA Mac")`);
     assert.equal(await evaluate(`${editor}.isContentEditable`), true, "the draft stays writable while the computer reconnects");
     await type("still here");
     assert.equal(await evaluate(`${editor}.value`), "still here", "typing works while it reconnects");
-    assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled ?? null`), true, "the Send button waits for the computer");
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled ?? null`), false, "Send stays open: the send waits for the computer");
     await evaluate(`window.setSuggestOptions({ provider: "claude", offline: "QA Mac", blocked: true })`);
     await waitFor(`!${editor}.isContentEditable`);
     await evaluate(`window.setSuggestOptions({ provider: "claude" })`);

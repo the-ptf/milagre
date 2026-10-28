@@ -1,35 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import { useDismiss } from "../lib/use-dismiss";
-import { useComputers, useHiddenComputers } from "../lib/computers";
-import { useComputerScopes } from "../lib/computer-scopes";
+import { useComputers } from "../lib/computers";
+import { preferredCopy, rememberProjectComputer, type ProjectGroup } from "../lib/project-copies";
 import { useProjectImages } from "../lib/project-images";
-import { projectInitial, RECENT_PROJECTS_CHANGED, type RecentProject } from "../lib/project-list";
-
-/** A Project a new Chat can start in: this Mac's, or another computer's (`computer` names it). */
-type ProjectChoice = { key: string; name: string; computer?: string };
+import { projectInitial } from "../lib/project-list";
 
 /**
  * "Start building in [Computer / Project ▾]" over a new Chat. The Project is a dropdown listing every Project this window
- * can start a Chat in, the sidebar's other computers included; picking one moves the new Chat there.
+ * can start a Chat in, the sidebar's other computers included, one row per repository; picking one moves the new Chat
+ * there. A Project on several computers leaves the computer to the composer's computer chip, so the heading drops it.
  */
 export function NewChatHeading({
   projectKey,
   projectName,
+  groups,
   onProjectChange,
 }: {
   projectKey: string;
   projectName: string;
+  groups: ProjectGroup[];
   onProjectChange?: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { thisMac, computers } = useComputers();
   const computerId = computerOfKey(projectKey);
-  const computer = computerId === LOCAL_COMPUTER ? thisMac : (computers.find((item) => item.id === computerId)?.name ?? "Computer");
+  const onSeveral = (groups.find((group) => group.copies.some((copy) => copy.key === projectKey))?.copies.length ?? 0) > 1;
+  const computer = onSeveral ? "" : computerId === LOCAL_COMPUTER ? thisMac : (computers.find((item) => item.id === computerId)?.name ?? "Computer");
   const place = (
     <>
       {computer && <span className="min-w-0 shrink truncate text-ink-3">{computer} /</span>}
@@ -74,8 +75,8 @@ export function NewChatHeading({
           </button>
           {open && (
             <ProjectPicker
+              groups={groups}
               currentKey={projectKey}
-              currentName={projectName}
               onPick={(key) => {
                 close();
                 if (key !== projectKey) onProjectChange(key);
@@ -91,23 +92,21 @@ export function NewChatHeading({
   );
 }
 
-/** Mounted only while open, so other computers are asked for their Projects only when the list is wanted. */
 function ProjectPicker({
+  groups,
   currentKey,
-  currentName,
   onPick,
   onClose,
 }: {
+  groups: ProjectGroup[];
   currentKey: string;
-  currentName: string;
   onPick: (key: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const choices = useProjectChoices(currentKey, currentName);
-  const image = useProjectImages(choices.map((choice) => choice.key));
+  const image = useProjectImages(groups.map((group) => group.key));
   const search = query.trim().toLowerCase();
-  const rows = choices.filter((choice) => choice.name.toLowerCase().includes(search) || choice.computer?.toLowerCase().includes(search));
+  const rows = groups.filter((group) => group.name.toLowerCase().includes(search) || group.copies.some((copy) => copy.computer.toLowerCase().includes(search)));
   return (
     <PickerPanel
       query={query}
@@ -125,63 +124,28 @@ function ProjectPicker({
         }
       }}
     >
-      {rows.map((choice) => (
-        <PickerRow
-          key={choice.key}
-          icon={
-            <span className="flex size-4 items-center justify-center overflow-hidden rounded-[4px] bg-ink text-[9px] font-semibold text-surface">
-              <WorkspaceIcon src={image(choice.key)} fallback={projectInitial(choice.name)} />
-            </span>
-          }
-          label={choice.name}
-          trailing={choice.computer}
-          selected={choice.key === currentKey}
-          onClick={() => onPick(choice.key)}
-        />
-      ))}
+      {rows.map((group) => {
+        const current = group.copies.some((copy) => copy.key === currentKey);
+        return (
+          <PickerRow
+            key={group.key}
+            icon={
+              <span className="flex size-4 items-center justify-center overflow-hidden rounded-[4px] bg-ink text-[9px] font-semibold text-surface">
+                <WorkspaceIcon src={image(group.key)} fallback={projectInitial(group.name)} />
+              </span>
+            }
+            label={group.name}
+            trailing={group.copies.length > 1 ? `${group.copies.length} computers` : group.computerId === LOCAL_COMPUTER ? undefined : group.computer}
+            selected={current}
+            onClick={() => {
+              if (current) return onPick(currentKey);
+              const copy = preferredCopy(group);
+              rememberProjectComputer(copy);
+              onPick(copy.key);
+            }}
+          />
+        );
+      })}
     </PickerPanel>
   );
-}
-
-/** The open Project first, then all this Mac's recent Projects, then other computers' by name. Sidebar visibility does not limit where a Chat can start. */
-function useProjectChoices(currentKey: string, currentName: string): ProjectChoice[] {
-  const [recent, setRecent] = useState<RecentProject[]>([]);
-  useEffect(() => {
-    let live = true;
-    const read = () =>
-      window.milagre?.listRecentProjects?.().then(
-        (list) => live && setRecent(Array.isArray(list) ? list : []),
-        () => {},
-      );
-    void read();
-    window.addEventListener(RECENT_PROJECTS_CHANGED, read);
-    return () => {
-      live = false;
-      window.removeEventListener(RECENT_PROJECTS_CHANGED, read);
-    };
-  }, []);
-  const { computers } = useComputers();
-  const hiddenComputers = useHiddenComputers();
-  const remote = useComputerScopes(computers);
-  const computerName = (key: string) => {
-    if (computers.length === 0) return undefined;
-    const id = computerOfKey(key);
-    if (id === LOCAL_COMPUTER) return undefined;
-    return computers.find((computer) => computer.id === id)?.name ?? "Computer";
-  };
-  const seen = new Set<string>([currentKey]);
-  const choices: ProjectChoice[] = [{ key: currentKey, name: currentName, computer: computerName(currentKey) }];
-  for (const project of recent) {
-    if (seen.has(project.path) || hiddenComputers.has(computerOfKey(project.path))) continue;
-    seen.add(project.path);
-    choices.push({ key: project.path, name: project.name, computer: computerName(project.path) });
-  }
-  const others = remote.projects
-    .filter((scope) => !scope.path.startsWith("milagre-link:") && !seen.has(scope.path) && !hiddenComputers.has(scope.computerId))
-    .toSorted((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-  for (const scope of others) {
-    seen.add(scope.path);
-    choices.push({ key: scope.path, name: scope.name, computer: computerName(scope.path) });
-  }
-  return choices;
 }
