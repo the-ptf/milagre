@@ -419,6 +419,9 @@ async function startDaemon({
     // What a Chat's agent is told about where the user can reach this Mac: they often read from a phone or another Mac.
     hostNetwork: () => ({ name: (macName ??= computerName()), addresses: lanAddresses() }),
     ...runtimeOptions,
+    // Each computer's Chats home sits in the home folder it serves, so a host started on a temporary one (tests) never
+    // touches the user's.
+    chatsHome: runtimeOptions.chatsHome ?? require("node:path").join(homeDir, ".milagre", "chats"),
     dataDir,
     version,
     isChatFocused,

@@ -41,6 +41,7 @@ async function fixture(t, { reachable = true } = {}) {
   const json = (body) => ({ ok: true, status: 200, json: async () => body });
   const runtime = createRuntime({
     dataDir,
+    chatsHome: path.join(dir, "chats"),
     cwd: project,
     environmentReady: Promise.resolve(),
     titleModels: {},

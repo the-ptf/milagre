@@ -41,6 +41,7 @@ async function fixture(t, { before = async () => {} } = {}) {
   const make = () => {
     const runtime = createRuntime({
       dataDir,
+      chatsHome: path.join(dir, "chats"),
       cwd: project,
       worktreeRoot: path.join(dir, "worktrees"),
       environmentReady: Promise.resolve(),

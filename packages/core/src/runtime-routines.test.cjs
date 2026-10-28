@@ -49,6 +49,7 @@ async function fixture(t, { enable = true, restart, open = true, titleModels = {
   let runtime;
   runtime = createRuntime({
     dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
     cwd: project,
     worktreeRoot: path.join(dir, "worktrees"),
     // The Project registry lists only what the test opens, not folders found on this Mac.

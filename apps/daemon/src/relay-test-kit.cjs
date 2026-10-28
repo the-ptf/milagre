@@ -307,7 +307,7 @@ function connectDesktop({ relayUrl, identity, token = TOKEN, key = boxKeyPair(ra
     else if (onReply) onReply(bytes);
     else early.push(bytes);
   });
-  function waitFrame(match, ms = 15000) {
+  function waitFrame(match, ms = 5000) {
     const found = frames.find(match);
     if (found) return Promise.resolve(found);
     return new Promise((resolve, reject) => {
@@ -447,6 +447,7 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
   const relay = await startLocalRelay(t, relayOptions);
   daemon = await startDaemon({
     dataDir,
+    // The temporary folder is the host's home folder too, so its Chats home is made there, never in the user's.
     homeDir: directory,
     version: "9.8.7",
     runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs, ...runtimeExtra },

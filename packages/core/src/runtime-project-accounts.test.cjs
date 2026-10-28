@@ -74,6 +74,7 @@ async function fixture(t) {
   });
   const make = (extra = {}) => {
     const runtime = createRuntime({
+      chatsHome: path.join(dir, "chats"),
       ...extra,
       dataDir,
       cwd: projects[0],

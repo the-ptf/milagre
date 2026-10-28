@@ -427,6 +427,7 @@ test("two runtimes: linked_overview lists studio's Worktrees, and a Delegation t
   const listeners = new Set();
   const base = (name, extra) => ({
     dataDir: path.join(dir, `${name}-profile`),
+    chatsHome: path.join(dir, "chats"),
     cwd: folders.api,
     version: "1.0.0",
     environmentReady: Promise.resolve(),

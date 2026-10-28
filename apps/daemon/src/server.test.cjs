@@ -1306,6 +1306,27 @@ test("a Chat the host unloaded reads back whole, and no client hears its message
   assert.deepEqual(bodies((await readSavedState(project)).messages), ["First note", "A needle in here", "Third note"]);
 });
 
+test("a host keeps its Chats home in the home folder it is given, never the user's", async (t) => {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-daemon-home-")));
+  const dataDir = path.join(directory, "profile");
+  const daemon = await startDaemon({
+    dataDir,
+    version: "9.8.7",
+    homeDir: directory,
+    runtimeOptions: { cwd: directory, environmentReady: Promise.resolve(), titleModels: {} },
+  });
+  const c = await connect({ dataDir });
+  t.after(async () => {
+    c.close();
+    try {
+      await daemon.close();
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+  assert.deepEqual(await c.call("chats:home"), { path: path.join(directory, ".milagre", "chats"), exists: false });
+});
+
 test("chats:ensure opens the Chats home with its state's number, leaves the connection's Project alone, and a reconnect's open keeps it off the recent list", async (t) => {
   const { project, chatsHome, client } = await fixture(t);
   const desktop = await client();
