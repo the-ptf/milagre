@@ -3392,6 +3392,7 @@ function navigationHost(
     "./chat-list-order": load("chat-list-order.ts", { "@milagre/shared/chats": chats }),
     "./computer-actions": { isDesktopComputer: () => false },
     "./new-chat-project": load("new-chat-project.ts", {}),
+    "./app-version": { appVersionLine: () => "1.2.3" },
     "expo-haptics": { selectionAsync: async () => {} },
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     // The store's polling is the store's own test; here each computer's views come from the test's session or `computers`.
@@ -12894,7 +12895,7 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
 
-test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add project, Link projects and Canvas", () => {
+test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add project, Link projects, Canvas and Triage", () => {
   const nav = navigationHost(deferred().promise);
   const tree = nav.render();
   find(tree, (node) => node.props?.label === "Settings").props.onPress();
@@ -12909,11 +12910,36 @@ test("the header opens Settings over the sidebar and Routines as a page, and its
   const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "More");
   same(
     menu.props.sections.flatMap((section) => section.items.map((item) => item.title)),
-    ["Add project", "Link projects", "Canvas"],
+    ["Add project", "Link projects", "Canvas", "Triage an issue"],
   );
   menu.props.onSelect("canvas");
   menu.props.onSelect("link");
   assert.deepEqual(nav.routes.slice(2), ["/canvas", "/link-projects"]);
+});
+
+test("Triage an issue asks the computer New Chat picks for a triage session and opens a new Chat with its draft", async () => {
+  const calls = [];
+  const nav = navigationHost(deferred().promise, {
+    session: {
+      client: {
+        url: "mac",
+        call: async (...args) => {
+          calls.push(args);
+          return { prompt: "Read /p/PLAYBOOK.md and follow it. What went wrong: " };
+        },
+      },
+    },
+  });
+  find(nav.render(), (node) => node.type === "PullDown" && node.props.label === "More").props.onSelect("triage");
+  await new Promise((resolve) => setImmediate(resolve));
+  same(
+    calls.filter(([method]) => method === "triage:prepare"),
+    [["triage:prepare", ["Milagre for iPhone 1.2.3"]]],
+  );
+  assert.equal(
+    JSON.stringify(nav.routes),
+    JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", prefill: "Read /p/PLAYBOOK.md and follow it. What went wrong: " } }]),
+  );
 });
 
 test("the header leaves Routines out when the Mac can't offer them (an older Mac, a confined phone)", () => {

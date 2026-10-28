@@ -123,6 +123,8 @@ const PATHS = Object.freeze({
   "main-sync:default:save": denied,
   // The Mac's Linear connection names no folder. A confined phone reads it; the switches reach every Project, so it can't flip them.
   "linear:status": none,
+  // A triage session names the host's profile and every agent CLI, beyond a confined demo folder.
+  "triage:prepare": denied,
   "linear:enabled:read": none,
   "linear:enabled:save": denied,
   "designs:enabled:read": none,

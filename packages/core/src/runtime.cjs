@@ -652,6 +652,8 @@ function createRuntime(options) {
   });
   // Packaged builds get their release version from electron-builder metadata, not the source package.json.
   commands.handle("app:version", () => version);
+  // "Triage an issue" on desktop and phone: the draft of a new Chat that diagnoses this host. `client` names where it started.
+  commands.handle("triage:prepare", (_event, client) => require("./triage.cjs").prepareTriage({ dataDir, version, client }));
   // Where Milagre's worktrees live. An unpackaged build can point it elsewhere (live checks use a temporary folder).
   function worktreeRoot() {
     return options.worktreeRoot || DEFAULT_WORKTREE_ROOT;

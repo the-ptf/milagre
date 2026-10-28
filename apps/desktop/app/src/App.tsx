@@ -2546,6 +2546,11 @@ function App() {
     // This Mac has no Project: the new Chat stays where it is.
     else if (!selectedLinkRef.current) startNewChat(draftText);
   });
+  // A new Chat on this Mac whose draft points its agent at a triage playbook; the user writes what went wrong after it.
+  const startTriage = useEvent(async () => {
+    const { prompt } = await window.milagre.prepareTriage(`Milagre desktop ${await window.milagre.getAppVersion()} on ${navigator.platform}`);
+    await startNewChatOnThisMac(prompt);
+  });
   // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far.
   const moveNewChat = useEvent((key: string) => {
     const from = projectRef.current?.path;
@@ -3034,6 +3039,14 @@ function App() {
         icon: "routines",
         keywords: "heartbeats triggers schedule linear webhook automations",
         run: openRoutines,
+      },
+      {
+        id: "triage",
+        label: "Triage an issue",
+        group: "Actions",
+        icon: "triage",
+        keywords: "bug report problem diagnose help support broken",
+        run: startTriage,
       },
       {
         id: "settings",

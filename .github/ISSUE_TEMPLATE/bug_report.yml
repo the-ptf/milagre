@@ -8,6 +8,7 @@ body:
     attributes:
       value: |
         Please remove secrets, tokens and private project paths before submitting.
+        Run `npx milagre triage` to have Claude Code or Codex diagnose the problem on your computer and draft this report.
   - type: textarea
     id: expected
     attributes:

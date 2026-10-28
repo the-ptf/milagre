@@ -13,6 +13,9 @@ const ALLOWED: Record<string, string[]> = {
   // A paired computer's chat paints from the copy this Mac keeps of it while the computer answers.
   "lib/chat-messages.ts": ["computers"],
   "App.tsx": [
+    // Triage an issue diagnoses this Mac's own host, as New chat opens on this Mac.
+    "prepareTriage",
+    "getAppVersion",
     "onAccountsChanged",
     "listRecentProjects",
     "onQuitFailed",

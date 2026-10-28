@@ -49,6 +49,10 @@ window.milagre = new Proxy({
   getUpdateState: async () => ({ status: 'idle' }),
   revealInFolder: async folder => window.calls.push(folder),
   switchProject: async folder => { window.calls.push(folder); return null; },
+  getAppVersion: async () => '1.2.3',
+  // A draft with a path in it (the triage one) makes the composer read the skill catalog.
+  listSkills: async () => ({ skills: [] }),
+  prepareTriage: async client => { window.calls.push(['triage', client]); return { prompt: 'Read /tmp/t/PLAYBOOK.md and follow it. What went wrong: ' }; },
 }, { get(target, key) { return target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null); } });
 localStorage.setItem('milagre-settings', JSON.stringify({ theme: 'dark' }));
 const { default: App } = await import('/src/App');
@@ -347,6 +351,19 @@ async function browserChecks() {
     await waitFor(`document.body.textContent.includes('Could not update Chat: Chat could not be saved: disk full')`);
     assert.ok(await evaluate('document.body.textContent.includes("Add a command palette")'));
     await screenshot("chat-action-failure.png");
+    // Triage an issue asks this Mac's host for a session and starts a new Chat with its draft, not sent.
+    await evaluate('document.querySelector("[data-prompt-editor]").focus()');
+    await open();
+    await search("triage");
+    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Triage an issue")'));
+    await key("Enter");
+    await waitFor('!document.querySelector("dialog")');
+    await waitFor(
+      '!!document.querySelector("[data-new-chat-heading]") && document.querySelector("[data-prompt-editor]").textContent.includes("PLAYBOOK.md and follow it")',
+    );
+    assert.ok(await evaluate("window.calls.some((call) => Array.isArray(call) && call[0] === 'triage' && call[1].startsWith('Milagre desktop 1.2.3'))"));
+    assert.ok(await evaluate('!document.querySelector("[aria-label=Conversation]")'), "The triage draft waits in the composer, unsent");
+    await screenshot("palette-triage.png");
     // The new-chat row starts a Chat in the open Project with the search in the composer, not sent.
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await open();
