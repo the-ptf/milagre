@@ -19,6 +19,7 @@ import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
+import { usePanelTabs } from "./panel-tabs";
 
 /** Poll discovery only while this screen is visible. Discovery never starts a video session. */
 function useSimulators(client: Client | null, chatId?: string) {
@@ -67,6 +68,7 @@ function useSimulators(client: Client | null, chatId?: string) {
 export function SimulatorChip({ chatId }: { chatId: string }) {
   const { client } = useSession();
   const { list } = useSimulators(client, chatId);
+  const openTab = usePanelTabs();
   const attachedCount = list?.attached?.length ?? 0;
   if (!client || !chatId || list?.supported === false || !attachedCount) return null;
   return (
@@ -75,12 +77,20 @@ export function SimulatorChip({ chatId }: { chatId: string }) {
       count={attachedCount}
       icon={SmartphoneIcon}
       accessibilityLabel={`Simulators, ${attachedCount} attached to this Chat`}
-      onPress={() => router.push({ pathname: "/simulator-sheet", params: { hostId: client.url, chatId } })}
+      // On an iPad the viewer docks beside the Chat; on a phone it is a page of its own.
+      onPress={() =>
+        openTab
+          ? openTab({ kind: "simulator", target: { hostId: client.url, chatId } })
+          : router.push({ pathname: "/simulator-sheet", params: { hostId: client.url, chatId } })
+      }
     />
   );
 }
 
-export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: string }) {
+const goBack = () => router.back();
+
+/** The viewer: a page of its own on a phone, a tab of the right panel on an iPad, which `onClose` closes. */
+export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: string; chatId?: string; onClose?: () => void }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { client } = useSession();
@@ -225,7 +235,7 @@ export function SimulatorSheet({ hostId, chatId }: { hostId?: string; chatId?: s
             </View>
           </>
         )}
-        <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={() => router.back()} />
+        <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source ? (

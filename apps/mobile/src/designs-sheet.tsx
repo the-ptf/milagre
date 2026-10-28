@@ -29,7 +29,7 @@ import {
   type DesignComment,
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "@milagre/shared/model";
-import { postDesignMessage } from "./design-outbox";
+import { postDesignMessage, sendDesignMessageNow } from "./design-outbox";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
 import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
@@ -59,11 +59,27 @@ const refOf = (design: Artifact): ArtifactRef => ({ id: design.id, version: desi
  * there. Comments and the choice wait for Send, in the header with their count, which hands them to the Chat as one
  * message for the agent.
  */
-export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?: string; chatId?: string; id?: string; version?: string; chosen?: string }) {
+/** `onClose` is set where the canvas is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
+export function DesignsSheet({
+  hostId,
+  chatId,
+  id,
+  version,
+  chosen,
+  onClose,
+}: {
+  hostId?: string;
+  chatId?: string;
+  id?: string;
+  version?: string;
+  chosen?: string;
+  onClose?: () => void;
+}) {
   const { colors, motionScale } = useTheme();
   const styles = useStyles();
   const { client, designs: feature, snapshot } = useSession();
   const insets = useSafeAreaInsets();
+  const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
   const matching = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
   const source = feature.enabled === true ? matching : null;
   const chatKey = hostId && chatId ? `${hostId}|${chatId}|designs` : null;
@@ -88,8 +104,8 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
     else unsent.delete(chatKey);
   }, [chatKey, notes, choice]);
   useEffect(() => {
-    if (feature.enabled === false) router.back();
-  }, [feature.enabled]);
+    if (feature.enabled === false) close();
+  }, [feature.enabled, close]);
 
   // The agent's finished design steps: a new one means a new design or version to read.
   const revision = chatId
@@ -353,7 +369,9 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
         if (comments.length) source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
       },
     });
-    router.back();
+    // Docked beside the Chat, the Chat is on screen already and sends it now.
+    if (onClose) sendDesignMessageNow(`${hostId}|${chatId}`);
+    close();
   };
   const remove = (design: Artifact) =>
     Alert.alert(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [
@@ -373,7 +391,7 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
               const next = ordered[index + 1] ?? ordered[index - 1];
               setSummaries((current) => current?.filter((item) => item.id !== design.id) ?? null);
               if (next) command({ t: "focus", id: next.id });
-              else router.back();
+              else close();
             })
             .catch((error: unknown) => Alert.alert("Could not delete the design", error instanceof Error ? error.message : String(error)));
         },
@@ -425,7 +443,7 @@ export function DesignsSheet({ hostId, chatId, id, version, chosen }: { hostId?:
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
         <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
-          <RoundButton label="Close designs" icon={Cancel01Icon} onPress={() => router.back()} />
+          <RoundButton label="Close designs" icon={Cancel01Icon} onPress={close} />
           {source && ordered.length > 0 && (
             <RoundButton
               label={canvasMode ? "Open the design" : "All designs"}

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import { Alert, AppState, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, AppState, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, KeyboardStickyView } from "react-native-keyboard-controller";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { Add01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
@@ -66,8 +68,8 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
   return { terminals, setTerminals, refresh: () => refresh.current() };
 }
 
-/** Shown for every sent Chat on a Mac that has Terminals. */
-export function TerminalChip({ chatId, places }: { chatId?: string; places?: TerminalPlace[] }) {
+/** Shown for every sent Chat on a Mac that has Terminals. `onOpen` shows it below the Chat (an iPad) instead of full screen. */
+export function TerminalChip({ chatId, places, onOpen }: { chatId?: string; places?: TerminalPlace[]; onOpen?: () => void }) {
   const { client } = useSession();
   const { terminals } = useTerminals(client, chatId);
   if (!client || !chatId || !terminals) return null;
@@ -79,7 +81,9 @@ export function TerminalChip({ chatId, places }: { chatId?: string; places?: Ter
       icon={ComputerTerminal01Icon}
       accessibilityLabel={count ? `Terminal, ${count} open in this Chat` : "Open a Terminal in this Chat"}
       onPress={() =>
-        router.push({ pathname: "/terminal-sheet", params: { hostId: client.url, chatId, ...(places?.length ? { places: JSON.stringify(places) } : {}) } })
+        onOpen
+          ? onOpen()
+          : router.push({ pathname: "/terminal-sheet", params: { hostId: client.url, chatId, ...(places?.length ? { places: JSON.stringify(places) } : {}) } })
       }
     />
   );
@@ -106,7 +110,12 @@ const KEYS: { label: string; send: string }[] = [
 
 type ViewHandle = { send(data: string): void; holdCtrl(held: boolean): void };
 
-export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; chatId?: string; places?: TerminalPlace[] }) {
+/**
+ * The Chat's Terminals: a page of its own on a phone, docked below the Chat on an iPad (`onClose` set), where it keeps
+ * to one header row and rides the keyboard with the Chat's composer instead of making room for it.
+ */
+export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: string; chatId?: string; places?: TerminalPlace[]; onClose?: () => void }) {
+  const docked = !!onClose;
   const { colors } = useTheme();
   const styles = useStyles();
   const { client } = useSession();
@@ -170,14 +179,23 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
 
   useFocusEffect(
     useCallback(() => {
+      // Docked, the Terminal comes back on its own when a sheet over the Chat closes: it was on screen all along.
+      if (docked && AppState.currentState === "active") {
+        setRevision((value) => value + 1);
+        setPaused(false);
+      }
       const subscription = AppState.addEventListener("change", (state) => {
         if (state !== "active") setPaused(true);
+        else if (docked) {
+          setRevision((value) => value + 1);
+          setPaused(false);
+        }
       });
       return () => {
         subscription.remove();
         setPaused(true);
       };
-    }, []),
+    }, [docked]),
   );
 
   const open = useCallback(
@@ -234,9 +252,19 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: insets.top }}>
-      <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, gap: 8 }}>
-        <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={() => router.back()} />
+    <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: docked ? 0 : insets.top }}>
+      <View
+        style={{
+          flexShrink: 0,
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: docked ? 12 : 16,
+          paddingTop: docked ? 0 : 8,
+          paddingBottom: docked ? 4 : 8,
+          gap: 8,
+        }}
+      >
+        <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={onClose ?? (() => router.back())} />
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
             {shown?.title ?? "Terminal"}
@@ -247,7 +275,8 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
         </View>
         <CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />
       </View>
-      {profiles && (
+      {/* Docked, the Terminal keeps its rows for output; the computer's shell is picked on the phone page or desktop. */}
+      {profiles && !docked && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 8, gap: 4 }}>
           <PullDown
             label="Shell for new Terminals"
@@ -326,7 +355,7 @@ export function TerminalSheet({ hostId, chatId, places }: { hostId?: string; cha
           })}
         </ScrollView>
       )}
-      <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={{ flex: 1, minHeight: 0 }}>
+      <KeyboardAvoidingView enabled={!docked} behavior="padding" keyboardVerticalOffset={0} style={{ flex: 1, minHeight: 0 }}>
         <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
           {!source || !chatId ? (
             <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this computer to open its Terminals.</Text>
@@ -597,5 +626,62 @@ function TerminalView({
       onContentProcessDidTerminate={stopped}
       onRenderProcessGone={stopped}
     />
+  );
+}
+
+/** The least and most of the window's height the docked Terminal takes; it opens at about a third. */
+const DOCK_MIN = 200;
+const DOCK_MAX_SHARE = 0.6;
+const DOCK_SHARE = 0.36;
+
+/** A drag on the docked Terminal's grabber: up makes it taller, down shorter, within its bounds. */
+function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, max: number) {
+  return Gesture.Pan()
+    .onStart(() => {
+      start.set(height.get());
+    })
+    .onUpdate((event) => {
+      height.set(Math.min(max, Math.max(DOCK_MIN, start.get() - event.translationY)));
+    });
+}
+
+/**
+ * The Chat's Terminals docked below it, as desktop's: the Chat above gives up the room, a drag on the grabber resizes it,
+ * and the keyboard lifts it with the composer when either is typed into.
+ */
+export function TerminalDock({
+  chatId,
+  places,
+  keyboard,
+  onClose,
+}: {
+  chatId: string;
+  places?: TerminalPlace[];
+  /** This pane follows the keyboard (see ChatPane). */
+  keyboard: boolean;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  const { client } = useSession();
+  const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  const max = Math.round(window.height * DOCK_MAX_SHARE);
+  const height = useSharedValue(Math.max(DOCK_MIN, Math.round(window.height * DOCK_SHARE)));
+  const start = useSharedValue(0);
+  const resize = useMemo(() => resizeGesture(height, start, max), [height, start, max]);
+
+  const sized = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) }));
+  return (
+    // Lifted by the keyboard as the composer above it is, so the two stay stacked over it.
+    <KeyboardStickyView enabled={keyboard} offset={{ closed: 0, opened: Math.max(0, insets.bottom - 6) }}>
+      <Animated.View style={[{ borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.page }, sized]}>
+        <GestureDetector gesture={resize}>
+          <View accessibilityLabel="Resize Terminal" style={{ height: 18, alignItems: "center", justifyContent: "center" }}>
+            <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong }} />
+          </View>
+        </GestureDetector>
+        <TerminalSheet key={`${client?.url}:${chatId}`} hostId={client?.url} chatId={chatId} places={places} onClose={onClose} />
+      </Animated.View>
+    </KeyboardStickyView>
   );
 }
