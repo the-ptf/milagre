@@ -272,6 +272,16 @@ test("real Git resolves recorded/default bases, common directories and newline W
   const fromHead = path.join(root, "from-head");
   run("worktree", "add", "-b", "from-head", fromHead);
   assert.deepEqual(await git.chatBase(fromHead), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "made from HEAD: the default");
+  run("update-ref", "refs/remotes/origin/their-pr", "HEAD");
+  const tracking = path.join(root, "tracking");
+  run("worktree", "add", "-b", "their-pr", tracking, "origin/their-pr");
+  assert.deepEqual(await git.chatBase(tracking), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "checked out from its own remote copy: the default");
+  // A plain `git checkout <branch>` records the full ref it came from.
+  run("update-ref", "refs/remotes/origin/their-other", "HEAD");
+  run("branch", "their-other", "refs/remotes/origin/their-other");
+  const fullRef = path.join(root, "full-ref");
+  run("worktree", "add", fullRef, "their-other");
+  assert.deepEqual(await git.chatBase(fullRef), { name: "trunk", ref: "refs/remotes/origin/trunk" }, "its own remote copy by full ref: the default");
 });
 
 test("Git process execution belongs only to the Git client", async () => {

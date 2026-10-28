@@ -7,8 +7,8 @@ import { useTheme } from "../../theme";
 const closeButton = () => <HeaderButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />;
 
 /**
- * The PR sheet: one bottom sheet over the Chat with a Stack of its own, as Settings is, so checks, files, a diff or a
- * guide stop slide in inside it, back pops them, and a swipe down closes the whole sheet.
+ * The PR sheet: one bottom sheet over the Chat with a Stack of its own, as Settings is, so comments, a diff or a picker
+ * slide in inside it, back pops them, and a swipe down closes the whole sheet.
  */
 export default function PullRequestLayout() {
   const { colors } = useTheme();
@@ -21,12 +21,11 @@ export default function PullRequestLayout() {
       })}
     >
       <Stack.Screen name="pull-request" options={{ title: "", headerShown: false }} />
-      <Stack.Screen name="pr-checks" options={{ title: "Checks" }} />
-      <Stack.Screen name="pr-threads" options={{ title: "Reviews" }} />
-      <Stack.Screen name="pr-files" options={{ title: "Files" }} />
+      <Stack.Screen name="pr-threads" options={{ title: "Comments" }} />
       <Stack.Screen name="pr-diff" options={{ title: "" }} />
-      <Stack.Screen name="pr-guide" options={{ title: "Review guide" }} />
       <Stack.Screen name="pr-review" options={{ title: "Review" }} />
+      <Stack.Screen name="pr-labels" options={{ title: "Labels" }} />
+      <Stack.Screen name="pr-reviewers" options={{ title: "Reviewers" }} />
     </Stack>
   );
 }

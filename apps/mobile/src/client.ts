@@ -106,6 +106,10 @@ const LONG_CALLS = new Set([
   "pr:submit-review",
   "pr:merge",
   "pr:ready",
+  "pr:labels",
+  "pr:set-labels",
+  "pr:reviewer-candidates",
+  "pr:request-reviewers",
 ]);
 // Settings › MCP: the Mac caps one check at 30 s (packages/core/src/mcp/index.cjs); wait a little longer for its answer.
 const MCP_CALLS = new Set(["mcp:accounts", "mcp:check", "mcp:definition", "mcp:saveUrl", "mcp:remove", "mcp:toggle"]);

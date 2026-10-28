@@ -1778,7 +1778,7 @@
         }
       ]
     },
-    "pr:file-viewed": {
+    "pr:merge": {
       "parameters": [
         {
           "name": "request",
@@ -1789,7 +1789,7 @@
         }
       ]
     },
-    "pr:merge": {
+    "pr:ready": {
       "parameters": [
         {
           "name": "request",
@@ -1800,7 +1800,7 @@
         }
       ]
     },
-    "pr:ready": {
+    "pr:labels": {
       "parameters": [
         {
           "name": "request",
@@ -1811,7 +1811,7 @@
         }
       ]
     },
-    "pr:guide": {
+    "pr:set-labels": {
       "parameters": [
         {
           "name": "request",
@@ -1822,7 +1822,7 @@
         }
       ]
     },
-    "pr:write-guide": {
+    "pr:reviewer-candidates": {
       "parameters": [
         {
           "name": "request",
@@ -1833,7 +1833,7 @@
         }
       ]
     },
-    "pr:guide-read": {
+    "pr:request-reviewers": {
       "parameters": [
         {
           "name": "request",
@@ -5656,25 +5656,6 @@
         "number": {
           "type": "number"
         },
-        "path": {
-          "type": "string"
-        },
-        "viewed": {
-          "enum": [false, true]
-        }
-      },
-      "required": ["cwd", "number", "path", "viewed"],
-      "additionalProperties": false
-    },
-    "T110": {
-      "type": "object",
-      "properties": {
-        "cwd": {
-          "type": "string"
-        },
-        "number": {
-          "type": "number"
-        },
         "method": {
           "enum": ["squash", "merge", "rebase"]
         },
@@ -5691,7 +5672,7 @@
       "required": ["cwd", "number", "method"],
       "additionalProperties": false
     },
-    "T111": {
+    "T110": {
       "type": "object",
       "properties": {
         "cwd": {
@@ -5707,20 +5688,17 @@
       "required": ["cwd", "number"],
       "additionalProperties": false
     },
-    "T112": {
+    "T111": {
       "type": "object",
       "properties": {
         "cwd": {
           "type": "string"
-        },
-        "url": {
-          "type": "string"
         }
       },
-      "required": ["cwd", "url"],
+      "required": ["cwd"],
       "additionalProperties": false
     },
-    "T113": {
+    "T112": {
       "type": "object",
       "properties": {
         "cwd": {
@@ -5729,14 +5707,30 @@
         "number": {
           "type": "number"
         },
-        "url": {
-          "type": "string"
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
-        "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["cwd", "number", "url"],
+      "required": ["cwd", "number", "add", "remove"],
+      "additionalProperties": false
+    },
+    "T113": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": ["cwd"],
       "additionalProperties": false
     },
     "T114": {
@@ -5745,17 +5739,23 @@
         "cwd": {
           "type": "string"
         },
-        "url": {
-          "type": "string"
-        },
-        "stop": {
+        "number": {
           "type": "number"
         },
-        "read": {
-          "enum": [false, true]
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["cwd", "url", "stop", "read"],
+      "required": ["cwd", "number", "add", "remove"],
       "additionalProperties": false
     },
     "T115": {

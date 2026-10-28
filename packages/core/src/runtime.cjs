@@ -1480,7 +1480,6 @@ function createRuntime(options) {
     ready: () => environmentReady,
     clientVersion: version,
     knownFolders: () => scopeStates.worktreePaths(),
-    guidesDirectory: path.join(dataDir, "pr-guides"),
   });
 
   const checkpoints = registerCheckpoints(commands, {

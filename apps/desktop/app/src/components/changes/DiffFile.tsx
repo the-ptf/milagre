@@ -8,8 +8,7 @@ import { resolveCodeLanguage } from "../../lib/code-languages";
 import { splitRows, wordChanges, type Range } from "../../lib/diff-layout";
 import { extensionOf, locateComment, onSide, selectionFromRows, type DiffSide } from "../../lib/diff-comments";
 import type { DiffHunk, DiffLine } from "../../lib/diff-parse";
-import type { PullRequestFile, PullRequestThread } from "@milagre/shared/pull-request-review";
-import { ViewedToggle } from "./PullRequestReview";
+import type { PullRequestThread } from "@milagre/shared/pull-request-review";
 import { threadsOnLine, unplacedThreads } from "../../lib/pull-request-view";
 import { highlight, isLanguageReady, loadLanguage } from "../markdown/highlighter";
 import { Counts, StatusBox } from "./ChangesPanel";
@@ -299,8 +298,6 @@ export const DiffFile = memo(function DiffFile({
   onShowLarge,
   threads,
   renderThreads,
-  viewed,
-  onToggleViewed,
 }: {
   file: DiffFileEntry;
   patch: PatchState | undefined;
@@ -318,9 +315,6 @@ export const DiffFile = memo(function DiffFile({
   /** A PR's review threads on this file, drawn by `renderThreads` (stable) under their lines. */
   threads?: PullRequestThread[];
   renderThreads?: (threads: PullRequestThread[]) => ReactNode;
-  /** A PR file's viewed state for its header's toggle, with the (stable) handler. */
-  viewed?: PullRequestFile["viewed"];
-  onToggleViewed?: (path: string) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [, setLoadedCount] = useState(0);
@@ -527,9 +521,6 @@ export const DiffFile = memo(function DiffFile({
           {!folder && <span className="flex-1" />}
           {!file.binary && <Counts added={file.added} removed={file.removed} />}
           <StatusBox status={file.status} />
-          {viewed && onToggleViewed && (
-            <ViewedToggle viewed={viewed === "VIEWED"} changed={viewed === "DISMISSED"} onToggle={() => onToggleViewed(file.path)} />
-          )}
         </header>
       </div>
       {!collapsed && (

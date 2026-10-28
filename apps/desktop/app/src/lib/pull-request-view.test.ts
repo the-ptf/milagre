@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { PullRequestThread, ReviewGuide } from "@milagre/shared/pull-request-review";
+import type { PullRequestThread } from "@milagre/shared/pull-request-review";
 import { parsePatch } from "./diff-parse.ts";
 import {
   age,
-  checksFixMessage,
-  guideStale,
-  nextStop,
   openThreadCount,
   readMergeMethod,
   repoOf,
@@ -15,7 +12,6 @@ import {
   threadsByPath,
   threadsOnLine,
   unplacedThreads,
-  viewedCount,
 } from "./pull-request-view.ts";
 
 const thread = (overrides: Partial<PullRequestThread> = {}): PullRequestThread => ({
@@ -52,7 +48,7 @@ test("threadsByPath keeps a file's array while its threads stay the same", () =>
   assert.notEqual(second.get("b.ts"), first.get("b.ts"));
 });
 
-test("counts: open threads leave out resolved and draft ones, viewed counts files", () => {
+test("counts: open threads leave out resolved and draft ones", () => {
   assert.equal(
     openThreadCount([
       thread(),
@@ -60,15 +56,6 @@ test("counts: open threads leave out resolved and draft ones, viewed counts file
       thread({ id: "P", comments: [{ id: "x", author: "me", body: "draft", createdAt: "", pending: true }] }),
     ]),
     1,
-  );
-  assert.deepEqual(
-    viewedCount({
-      files: [
-        { path: "a", additions: 1, deletions: 0, status: "added", viewed: "VIEWED" },
-        { path: "b", additions: 1, deletions: 0, status: "added", viewed: "DISMISSED" },
-      ],
-    }),
-    { viewed: 1, total: 2 },
   );
 });
 
@@ -83,24 +70,10 @@ test("the merge method is remembered per repository", () => {
   assert.equal(readMergeMethod("https://github.com/other/repo/pull/1", storage), "squash");
 });
 
-test("Fix in Chat messages carry where and what", () => {
+test("a thread's Fix in Chat message carries where and what", () => {
   const message = threadFixMessage({ number: 673 }, thread());
   assert.match(message, /PR #673, at src\/a\.ts:2/);
   assert.match(message, /jefo3 wrote:\n> Wait for the picker\?/);
-  const checks = checksFixMessage({ number: 7 }, [
-    { name: "unit", outcome: "pass" },
-    { name: "lint", workflow: "CI", outcome: "fail", url: "https://ci/1" },
-  ]);
-  assert.match(checks, /- CI \/ lint \(https:\/\/ci\/1\)/);
-  assert.doesNotMatch(checks, /unit/);
-});
-
-test("guide helpers: stale after a push, continue at the first unread stop", () => {
-  const guide = { headRefOid: "a", provider: "claude", writtenAt: "", notCovered: [], stops: [{}, {}, {}] } as unknown as ReviewGuide;
-  assert.equal(guideStale(guide, { headRefOid: "a" }), false);
-  assert.equal(guideStale(guide, { headRefOid: "b" }), true);
-  assert.equal(nextStop(guide, [0]), 1);
-  assert.equal(nextStop(guide, [0, 1, 2]), 0);
 });
 
 test("age", () => {

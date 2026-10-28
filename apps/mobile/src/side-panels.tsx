@@ -5,17 +5,16 @@ import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Cancel01Icon, CircleDotIcon, FileDiffIcon, GitMergeIcon, GitPullRequestIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { IconButton } from "./ui";
+import { IconButton, PageScroll, tap } from "./ui";
+import { Icon, type IconData, type Tone } from "./icons";
 import { PrOverview } from "./pr-overview";
-import { PrFiles } from "./pr-lists";
 import { openPrFile, openPrPage } from "./pr-nav";
 import { prChoiceKey, type PrChoice } from "./pr-chat";
-import type { DiffMode } from "@milagre/shared/git-diff";
 import { springTo, scaledTiming, useMotionScale } from "./motion";
 import { getMotionScale, useTheme } from "./theme";
 import { dragTo, entered, settle } from "./panel-motion";
@@ -42,9 +41,6 @@ type Panels = {
   show: (side: Side | null) => void;
   tab: RightTab;
   setTab: (tab: RightTab) => void;
-  /** The mode Changes opens in, and a count that remounts it there when asked again. */
-  changesMode: { mode: DiffMode; nonce: number };
-  setChangesMode: (mode: DiffMode) => void;
   /** The PR picked in the PR menu (or opened from a link), over the one the Chat's row shows first. */
   pick: string | null;
   setPick: (key: string | null) => void;
@@ -90,8 +86,6 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const [open, setOpen] = useState<Side | null>(null);
   const [tab, setTab] = useState<RightTab>("pr");
   const [pick, setPick] = useState<string | null>(null);
-  const [changesMode, setChangesModeState] = useState<{ mode: DiffMode; nonce: number }>({ mode: "uncommitted", nonce: 0 });
-  const setChangesMode = useCallback((mode: DiffMode) => setChangesModeState((previous) => ({ mode, nonce: previous.nonce + 1 })), []);
   const [mounted, setMounted] = useState<Record<Side, boolean>>({ left: false, right: false });
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
@@ -254,35 +248,13 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
       show,
       tab,
       setTab,
-      changesMode,
-      setChangesMode,
       pick,
       setPick,
       pull,
       settled,
       navigate,
     }),
-    [
-      screen,
-      open,
-      mounted,
-      progress,
-      from,
-      attach,
-      update,
-      detach,
-      arrived,
-      show,
-      tab,
-      setTab,
-      changesMode,
-      setChangesMode,
-      pick,
-      setPick,
-      pull,
-      settled,
-      navigate,
-    ],
+    [screen, open, mounted, progress, from, attach, update, detach, arrived, show, tab, setTab, pick, setPick, pull, settled, navigate],
   );
   return <PanelsContext.Provider value={value}>{children}</PanelsContext.Provider>;
 }
@@ -327,7 +299,7 @@ export function useSidePanels({
 }) {
   const panels = usePanels();
   const [token] = useState(() => ({}));
-  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab, setPick, setChangesMode } = panels;
+  const { attach, update, detach, arrived, show, pull, settled, progress, from, setTab, setPick } = panels;
   const navigation = useNavigation() as unknown as TransitionEvents;
   const prNumber = pullRequest?.number;
   const prChat = pullRequest?.chatKey;
@@ -388,14 +360,10 @@ export function useSidePanels({
     },
     [setTab, setPick, show],
   );
-  const showChanges = useCallback(
-    (mode?: DiffMode) => {
-      if (mode) setChangesMode(mode);
-      setTab("changes");
-      show("right");
-    },
-    [setTab, setChangesMode, show],
-  );
+  const showChanges = useCallback(() => {
+    setTab("changes");
+    show("right");
+  }, [setTab, show]);
   return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges };
 }
 
@@ -466,7 +434,7 @@ function swipe({
 export function SidePanelsHost() {
   const { colors } = useTheme();
   const session = useSession();
-  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab, changesMode, setChangesMode, pick, setPick } = usePanels();
+  const { screen, open, mounted, progress, from, show, settled, navigate, tab, setTab, pick, setPick } = usePanels();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const cardTop = useCardTop();
@@ -555,8 +523,6 @@ export function SidePanelsHost() {
                   onTab={setTab}
                   pick={pick}
                   onPick={setPick}
-                  changesMode={changesMode}
-                  onChangesMode={setChangesMode}
                   card={card}
                   onClose={() => show(null)}
                 />
@@ -570,10 +536,8 @@ export function SidePanelsHost() {
 }
 
 /**
- * The Chat's PR when its branch opened one, else the Worktree's Changes. The PR opens on its overview with no header of its
- * own (its top row has the X); its files, the Changes not in it yet and a file's diff open in place with a Back button, so
- * reading one never leaves the panel. A PR file opens across the whole window on an iPad (wide enough to show it side by
- * side), in the PR sheet on a phone.
+ * The Worktree's Changes and the Chat's PRs, one tab each. A file of the Changes opens in place with a Back button; a PR
+ * file opens across the whole window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
  */
 function ChangesPanel({
   worktreeId,
@@ -582,8 +546,6 @@ function ChangesPanel({
   onTab,
   pick,
   onPick,
-  changesMode,
-  onChangesMode,
   card,
   onClose,
 }: {
@@ -593,8 +555,6 @@ function ChangesPanel({
   onTab: (tab: RightTab) => void;
   pick: string | null;
   onPick: (key: string | null) => void;
-  changesMode: { mode: DiffMode; nonce: number };
-  onChangesMode: (mode: DiffMode) => void;
   card: boolean;
   onClose: () => void;
 }) {
@@ -602,7 +562,6 @@ function ChangesPanel({
   const insets = useSafeAreaInsets();
   const session = useSession();
   const [file, setFile] = useState<DiffTarget | null>(null);
-  const [prFiles, setPrFiles] = useState(false);
   const choices = pullRequest?.choices ?? [];
   // The picked PR while the Chat still lists it, else the one its row shows first.
   const picked = pick !== null ? choices.find((choice) => prChoiceKey(choice) === pick) : undefined;
@@ -613,79 +572,98 @@ function ChangesPanel({
   const shown = picked ?? choices.find((choice) => choice.number === number && choice.cwd === prCwd);
   const prProject = shown?.project && shown.projectPath ? { name: shown.project, path: shown.projectPath } : undefined;
   const cwd = prCwd ?? session.snapshot?.project.state.worktrees[worktreeId]?.path;
-  const chatId = pullRequest ? Number(pullRequest.chatKey.slice(pullRequest.chatKey.lastIndexOf("#") + 1)) : NaN;
-  const provider = Number.isSafeInteger(chatId) ? session.snapshot?.project.state.sessions[chatId]?.provider : undefined;
   const route = pr ? { worktreeId: String(worktreeId), number: String(pr.number), chat: pr.chatKey, ...(prCwd ? { cwd: prCwd } : {}) } : null;
-  // Back from a PR's files to the PR, from a diff to Changes, from Changes to the PR.
-  const back = pr ? () => setPrFiles(false) : file ? () => setFile(null) : pullRequest ? () => onTab("pr") : null;
-  const name = pr ? "Files" : file ? file.path.split("/").pop() || file.path : "Changes";
-  const overview = !!(pr && route && cwd && session.client && !prFiles);
+  // One tab per PR of the Chat; before its row lists them, the one it opened.
+  const tabs: PrChoice[] = choices.length ? choices : pullRequest ? [{ number: pullRequest.number, title: "", state: "OPEN", cwd: pullRequest.cwd }] : [];
   return (
     <View style={{ flex: 1 }}>
-      {overview ? (
-        <View style={{ height: insets.top + 8 }} />
-      ) : (
-        <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-          {back && <IconButton label={pr || !file ? "Back to the PR" : "Back to Changes"} icon={ArrowLeft01Icon} size={44} onPress={back} />}
-          <Text
-            accessibilityRole="header"
-            numberOfLines={1}
-            style={{ flex: 1, paddingLeft: back ? 0 : 12, color: colors.ink, fontSize: back ? 17 : 22, fontWeight: back ? "600" : "700" }}
-          >
-            {name}
+      <View style={{ paddingTop: insets.top + 4, paddingLeft: 8, paddingRight: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <PageScroll horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ padding: 0, gap: 4, alignItems: "center" }}>
+          <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={!pr} onPress={() => onTab("changes")} />
+          {tabs.map((choice) => (
+            <PanelTab
+              key={prChoiceKey(choice)}
+              label={`#${choice.number}`}
+              icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
+              tone={choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED") ? "purpleInk" : (choice.look?.tone ?? "green")}
+              selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
+              onPress={() => {
+                onPick(prChoiceKey(choice));
+                onTab("pr");
+              }}
+            />
+          ))}
+        </PageScroll>
+        <IconButton label={pr ? "Close the PR" : "Close Changes"} icon={Cancel01Icon} size={44} onPress={onClose} />
+      </View>
+      {file && !pr && (
+        <View style={{ paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <IconButton label="Back to Changes" icon={ArrowLeft01Icon} size={44} onPress={() => setFile(null)} />
+          <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+            {file.path.split("/").pop() || file.path}
           </Text>
-          <IconButton label={pr ? "Close the PR" : "Close Changes"} icon={Cancel01Icon} size={44} onPress={onClose} />
         </View>
       )}
-      {/* The list stays mounted under a diff, so going back keeps its mode, folders and scroll. */}
+      {/* The list stays mounted under a diff and a PR, so going back keeps its folders and scroll. */}
       <View style={{ flex: 1, display: file || pr ? "none" : "flex" }}>
-        <ChangesView key={changesMode.nonce} worktreeId={worktreeId} onOpen={setFile} initialMode={changesMode.mode} />
+        <ChangesView worktreeId={worktreeId} onOpen={setFile} />
       </View>
       {file && !pr && (
         <View style={{ flex: 1 }}>
           <DiffView target={file} />
         </View>
       )}
-      {overview && route && cwd && session.client && pr && (
+      {pr && route && cwd && session.client && (
         <PrOverview
           key={`${cwd}#${pr.number}`}
           client={session.client}
           cwd={cwd}
           number={pr.number}
           chatKey={pr.chatKey}
-          provider={provider}
-          onClose={onClose}
-          choices={choices}
           project={prProject}
-          onPick={(next) => {
-            setPrFiles(false);
-            onPick(next);
-          }}
-          onChanges={(mode) => {
+          onChanges={() => {
             setFile(null);
-            onChangesMode(mode);
             onTab("changes");
           }}
           onChat={onClose}
           onOpen={(page, extra) => {
-            if (page === "files") setPrFiles(true);
-            else openPrPage(page, route, extra);
-          }}
-        />
-      )}
-      {pr && route && cwd && session.client && prFiles && (
-        <PrFiles
-          client={session.client}
-          cwd={cwd}
-          number={pr.number}
-          onOpenFile={(entry) => {
-            if (card) {
+            if (page === "diff" && card && extra?.path) {
               onClose();
-              openPrFile(route, entry.path);
-            } else openPrPage("diff", route, { path: entry.path });
+              openPrFile(route, extra.path);
+            } else openPrPage(page, route, extra);
           }}
         />
       )}
     </View>
+  );
+}
+
+const TAB_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
+
+/** A tab of the right panel: Changes, or one of the Chat's PRs with its state's icon. */
+function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={() => {
+        tap();
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        height: 34,
+        paddingHorizontal: 12,
+        borderRadius: 17,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        backgroundColor: selected || pressed ? colors.hover : "transparent",
+      })}
+    >
+      <Icon icon={icon} tone={tone} size={15} />
+      <Text style={{ color: selected ? colors.ink : colors.ink2, fontSize: 15, fontWeight: selected ? "600" : "400" }}>{label}</Text>
+    </Pressable>
   );
 }

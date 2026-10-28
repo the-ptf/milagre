@@ -19,6 +19,8 @@ export type PullRequestReviewer = {
   state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "REQUESTED" | "DISMISSED";
   /** The verdict came before the latest push. */
   stale?: boolean;
+  /** A requested team; login is its org/slug and it has no avatar. */
+  team?: true;
 };
 
 export type PullRequestFile = {
@@ -26,8 +28,6 @@ export type PullRequestFile = {
   additions: number;
   deletions: number;
   status: "added" | "deleted" | "modified" | "renamed";
-  /** DISMISSED: marked viewed, then changed by a later push. */
-  viewed: "VIEWED" | "UNVIEWED" | "DISMISSED";
 };
 
 export type PullRequestComment = {
@@ -102,57 +102,47 @@ export type MergeStatus = {
   detail: string;
 };
 
-export type GuideAttention = "risk" | "tradeoff" | "contract" | "product" | "accessibility";
+/** A label of the PR's repository; `color` is GitHub's hex without the #. */
+export type RepoLabel = { name: string; color: string; description: string };
 
-export type GuideExcerpt = {
-  path: string;
-  /** Lines in the new file, inclusive; the daemon copies their text from the PR's diff, never from the model. */
-  startLine: number;
-  endLine: number;
-  /** The excerpt's lines, filled in by the daemon. */
-  lines: { number: number; text: string; added: boolean }[];
-  /** Lettered notes on single lines of the excerpt. */
-  notes: { letter: string; line: number; text: string }[];
-};
+export type RepoLabelsResult = { ok: true; labels: RepoLabel[] } | { ok: false; message: string };
 
-export type GuideStop = {
-  title: string;
-  kind: "contract" | "implementation" | "ui" | "tests" | "config";
-  summary: string;
-  attention?: { kind: GuideAttention; text: string };
-  excerpts: GuideExcerpt[];
-  /** Other files the stop covers, with a one-line note each. */
-  files: { path: string; note: string }[];
-  questions: string[];
-};
-
-export type ReviewGuide = {
-  /** The head commit the guide was written for; older than the PR's head means a push came after it. */
-  headRefOid: string;
-  provider: string;
-  writtenAt: string;
-  stops: GuideStop[];
-  /** Changed files no stop covers. */
-  notCovered: string[];
-};
-
-export type ReviewGuideResult =
-  /** `error` is why the last write failed, until the next one starts. */
-  { ok: true; guide: ReviewGuide | null; writing: boolean; read: number[]; error?: string } | { ok: false; message: string };
+export type ReviewerCandidatesResult = { ok: true; logins: string[] } | { ok: false; message: string };
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** "23 passed · 3 skipped", failures and running checks first; empty when the PR has none. */
 export function checksSummary(checks: PullRequestCheck[]): string {
-  const count = (outcome: PullRequestCheck["outcome"]) => checks.filter((check) => check.outcome === outcome).length;
+  const count = (...outcomes: PullRequestCheck["outcome"][]) => checks.filter((check) => outcomes.includes(check.outcome)).length;
   return [
     count("fail") && `${count("fail")} failing`,
     count("running") && `${count("running")} running`,
-    count("pass") && `${count("pass")} passed`,
+    count("pass", "neutral") && `${count("pass", "neutral")} passed`,
     count("skipped") && `${count("skipped")} skipped`,
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * The checks bar beside the PR's tabs: counts for its split bar and the words next to it. Failures come first
+ * ("2 of 25 failing"), then running ("13 of 18 done"), then "27 passed · 6 skipped", the Checks section's words. Neutral checks pass.
+ */
+export function checksProgress(checks: PullRequestCheck[]): {
+  passed: number;
+  failed: number;
+  running: number;
+  skipped: number;
+  total: number;
+  label: string;
+  tone: "pass" | "fail" | "running" | "none";
+} {
+  const count = (...outcomes: PullRequestCheck["outcome"][]) => checks.filter((check) => outcomes.includes(check.outcome)).length;
+  const counts = { passed: count("pass", "neutral"), failed: count("fail"), running: count("running"), skipped: count("skipped"), total: checks.length };
+  if (!counts.total) return { ...counts, label: "", tone: "none" };
+  if (counts.failed) return { ...counts, label: `${counts.failed} of ${counts.total} failing`, tone: "fail" };
+  if (counts.running) return { ...counts, label: `${counts.total - counts.running} of ${counts.total} done`, tone: "running" };
+  return { ...counts, label: checksSummary(checks), tone: "pass" };
 }
 
 export function checksOutcome(checks: PullRequestCheck[]): PullRequestCheck["outcome"] | null {

@@ -3,12 +3,13 @@ import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { useChanges } from "./changes/useChanges";
-import { useBranchPullRequests, useLocalChanges, usePullRequest, useReviewGuide } from "./changes/usePullRequest";
+import { useBranchPullRequests, useLocalChanges, usePullRequest } from "./changes/usePullRequest";
 import { usePrReviewActions } from "./changes/usePrReviewActions";
 import { PullRequestPanelBody } from "./changes/PullRequestPanel";
-import { ReviewGuideView } from "./changes/ReviewGuideView";
 import { prRange } from "../lib/pull-request-view";
 import { LinkChangesPanel } from "./changes/LinkChangesPanel";
+import { sectionOf } from "./changes/ChangesPanel";
+import type { DiffList } from "./changes/useDiffFiles";
 import { useLinkDiffLists } from "./changes/useLinkDiffLists";
 import { ChangesPanelSlot } from "./changes/ChangesPanelSlot";
 import { DiffView } from "./changes/DiffView";
@@ -74,6 +75,7 @@ type Preferences = Pick<
   showModel: (model: ModelOption) => void;
 };
 const NO_MEMBERS: WorktreeBinding[] = [];
+const IDLE: DiffList = { state: "idle" };
 
 export function LinkWorkspace({
   opened,
@@ -221,14 +223,15 @@ export function LinkWorkspace({
     chatId,
     available: Boolean(session),
     pullRequest: prEntry ? { number: prEntry.pr.number, range: prRange(prReview.pr) } : undefined,
+    panelLists: false,
   });
   const prShown = changes.open && changes.mode === "pr" && Boolean(prEntry);
   useEffect(() => setPrWanted(prShown), [prShown]);
-  const prGuide = useReviewGuide({ cwd: prEntry?.member.worktreePath, pr: prReview.pr, active: prShown, bridge });
   const prLocal = useLocalChanges({ cwd: prEntry?.member.worktreePath, active: prShown, bridge });
-  // The members' lists keep their own modes; the PR mode shows the PR instead.
+  // The Changes tab lists every member's uncommitted and committed files; the diff shows the picked file's section.
   const linkMode = changes.mode === "uncommitted" ? "uncommitted" : "committed";
-  const groupChanges = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: linkMode, active: changes.open });
+  const uncommittedLists = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: "uncommitted", active: changes.open });
+  const committedLists = useLinkDiffLists({ members: session?.worktrees ?? [], chatId, mode: "committed", active: changes.open });
   const diffPrefs = useDiffPreferences();
   const comments = useDiffComments(chosen && chatId ? `${chatId}:${chosen.projectId}` : null, changes);
   useEffect(() => {
@@ -459,18 +462,12 @@ export function LinkWorkspace({
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
     if (prShown) prLocal.refresh();
-    await Promise.all([groupChanges.refresh(), ...(chosen ? [changes.refresh()] : []), ...(prShown ? [prReview.refresh(), prGuide.refresh()] : [])]);
+    await Promise.all([uncommittedLists.refresh(), committedLists.refresh(), ...(chosen ? [changes.refresh()] : []), ...(prShown ? [prReview.refresh()] : [])]);
   }
   const prActions = usePrReviewActions({
     review: prReview,
-    guide: prGuide,
     changes,
-    provider: session?.provider,
     send: (text) => void send(text, true, false),
-    draft: (text) => {
-      draftStore.set([draftStore.get(), text].filter(Boolean).join("\n\n"));
-      window.requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
-    },
   });
   const pickPr = (projectId: string) => {
     setMemberId(projectId);
@@ -610,10 +607,10 @@ export function LinkWorkspace({
                   )}
 
                   <DiffBar
-                    open={changes.diffOpen || prActions.guideShowing}
+                    open={changes.diffOpen}
                     onBack={changes.closeDiff}
-                    send={prActions.guideShowing ? undefined : { count: comments.sendable.length, onSend: () => void sendComments() }}
-                    trailing={prActions.guideShowing ? undefined : <DiffToolbar changes={{ ...changes, refresh: refreshChanges }} prefs={diffPrefs} />}
+                    send={{ count: comments.sendable.length, onSend: () => void sendComments() }}
+                    trailing={<DiffToolbar changes={{ ...changes, refresh: refreshChanges }} prefs={diffPrefs} />}
                   />
                   {changes.diffOpen && (
                     <DiffView
@@ -624,18 +621,7 @@ export function LinkWorkspace({
                       review={prActions.diffReview}
                     />
                   )}
-                  {prActions.guideShowing && prReview.pr && prGuide.guide && (
-                    <ReviewGuideView
-                      key="guide"
-                      pr={prReview.pr}
-                      guide={prGuide.guide}
-                      stop={prActions.guideStop}
-                      onStop={prActions.openGuideStop}
-                      onOpenFile={changes.selectFile}
-                      onAsk={prActions.askAboutStop}
-                    />
-                  )}
-                  <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen || prActions.guideShowing ? "hidden" : "flex"}`}>
+                  <div className={`min-h-0 flex-1 flex-col overflow-hidden ${changes.diffOpen ? "hidden" : "flex"}`}>
                     <EditorLinks root={root}>
                       <DraftChatComposer
                         saveNotice={saveNotice}
@@ -680,7 +666,11 @@ export function LinkWorkspace({
                           const member = session?.worktrees.find((item) => item.worktreePath === worktree);
                           if (member) setMemberId(member.projectId);
                           if (!changes.open) changes.toggle();
-                          changes.selectFile(path);
+                          const id = member?.projectId ?? memberId;
+                          changes.selectFile(
+                            path,
+                            sectionOf({ uncommitted: uncommittedLists.lists[id] ?? IDLE, committed: committedLists.lists[id] ?? IDLE }, path),
+                          );
                         }}
                         waitingForSubagents={run?.waitingForSubagents}
                         activity={session ? chatActivity(session, run) : undefined}
@@ -755,14 +745,14 @@ export function LinkWorkspace({
                   key={chatId}
                   members={session.worktrees}
                   projects={opened.projects}
-                  lists={groupChanges.lists}
-                  loading={groupChanges.loading}
+                  lists={{ uncommitted: uncommittedLists.lists, committed: committedLists.lists }}
+                  loading={uncommittedLists.loading || committedLists.loading}
                   mode={linkMode}
                   onModeChange={changes.setMode}
                   onRefresh={() => void refreshChanges()}
-                  onSelectFile={(member, path) => {
+                  onSelectFile={(member, path, mode) => {
                     setMemberId(member.projectId);
-                    changes.selectFile(path);
+                    changes.selectFile(path, mode);
                   }}
                   selectedProjectId={memberId}
                   activePath={changes.activePath}
@@ -773,24 +763,18 @@ export function LinkWorkspace({
                   pullRequest={
                     memberPrs.length
                       ? {
-                          options: memberPrs.map(({ member, pr, name }) => ({
-                            value: `pr:${member.projectId}`,
-                            label: `${name} · PR #${pr.number}${pr.state === "MERGED" ? " · Merged" : ""}`,
-                          })),
+                          tabs: memberPrs.map(({ member, pr, name }) => ({ key: `pr:${member.projectId}`, number: pr.number, pr, hint: name })),
                           value: prEntry ? `pr:${prEntry.member.projectId}` : undefined,
                           onPick: (value) => pickPr(value.slice(3)),
                           shown: prShown,
-                          totals: prReview.pr ? { added: prReview.pr.additions, removed: prReview.pr.deletions } : undefined,
                           loading: prReview.state.status === "loading" || prReview.busy !== null,
                           body: (
                             <PullRequestPanelBody
                               review={prReview}
-                              guide={prGuide}
+                              source={prEntry ? { bridge: bridge.pr, cwd: prEntry.member.worktreePath } : undefined}
                               actions={prActions.actions}
                               activePath={changes.activePath}
-                              guideOpen={prActions.guideShowing}
-                              guideStop={prActions.guideStop}
-                              local={{ count: prLocal.count, onOpen: changes.setMode }}
+                              local={{ count: prLocal.count, onOpen: () => changes.setMode("uncommitted") }}
                               project={prEntry ? { name: prEntry.name, path: prEntry.member.projectPath } : undefined}
                             />
                           ),

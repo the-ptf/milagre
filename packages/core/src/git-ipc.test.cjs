@@ -136,21 +136,21 @@ test("the PR channels reach the review in the Chat's folder, and only there", as
   const allowed = register({ review, knownFolders: async () => [folder] });
   await allowed.invoke("pr:detail", { cwd: folder, number: 7 });
   await allowed.invoke("pr:merge", { cwd: folder, number: 7, method: "squash", auto: true });
-  await allowed.invoke("pr:file-viewed", { cwd: folder, number: 7, path: "a.ts", viewed: false });
+  await allowed.invoke("pr:set-labels", { cwd: folder, number: 7, add: ["bug"], remove: [] });
+  await allowed.invoke("pr:request-reviewers", { cwd: folder, number: 7, add: [], remove: ["octo"] });
+  await allowed.invoke("pr:labels", { cwd: folder });
   assert.deepEqual(
     seen.map(({ name, request }) => [name, request.cwd, request.number]),
     [
       ["detail", folder, 7],
       ["merge", folder, 7],
-      ["viewed", folder, 7],
+      ["setLabels", folder, 7],
+      ["requestReviewers", folder, 7],
+      ["labels", folder, undefined],
     ],
   );
   assert.equal(seen[1].request.auto, true);
-  assert.equal(seen[2].request.viewed, false);
-  // Without a guides directory the guide channels answer instead of throwing.
-  assert.deepEqual(await allowed.invoke("pr:guide", { cwd: folder, url: "https://github.com/a/b/pull/7" }), {
-    ok: false,
-    message: "Review guides aren't available here.",
-  });
+  assert.deepEqual(seen[2].request.add, ["bug"]);
+  assert.deepEqual(seen[3].request.remove, ["octo"]);
   await fs.rm(folder, { recursive: true, force: true });
 });

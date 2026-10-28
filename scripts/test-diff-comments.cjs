@@ -58,7 +58,7 @@ function Fixture() {
       <div data-chat-stub className={"flex-1 pt-12 px-6 text-[14px] " + (presence.occupied ? "hidden" : "")}>Chat goes here</div>
     </main>
     <ChangesPanelSlot open={changes.open}>
-      <ChangesPanel list={changes.list} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} commentCounts={comments.counts} />
+      <ChangesPanel lists={changes.lists} mode={changes.mode} onModeChange={changes.setMode} onRefresh={() => void changes.refresh()} onSelectFile={changes.selectFile} activePath={changes.activePath} commentCounts={comments.counts} />
     </ChangesPanelSlot>
   </div>;
 }
@@ -239,6 +239,12 @@ async function browserChecks() {
 
     // The tree counts, and the Send button sits above the drag strip.
     assert.equal(await evaluate(`document.querySelector('[data-diff-tree-file="${A}"] [data-diff-tree-comments]').dataset.diffTreeComments`), "3");
+    // Comments belong to the diff they were written on: the same file's committed row counts none.
+    assert.deepEqual([...new Set((await stored()).map((item) => item.mode))], ["uncommitted"]);
+    assert.equal(
+      await evaluate(`document.querySelector('[data-changes-section="On this branch"] [data-diff-tree-file="${A}"] [data-diff-tree-comments]')`),
+      null,
+    );
     assert.equal(await evaluate('document.querySelector("[data-diff-send]").textContent'), "Send 3 comments");
     await waitFor('!document.querySelector("[data-diff-comment-editor]")');
     await delay(300);

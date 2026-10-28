@@ -1,21 +1,11 @@
-import { useScreenActive } from "../display-clock";
-import React, { useMemo, useState } from "react";
-import { RefreshControl, Text, View } from "react-native";
+import React, { useState } from "react";
+import { RefreshControl, Text } from "react-native";
 import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
-import type { DiffFileEntry, DiffFilesResult, DiffMode } from "@milagre/shared/git-diff";
-import { buildDiffTree } from "@milagre/shared/diff-tree";
 import type { DiffTarget } from "./diff";
 import { useSession } from "../session";
-import { useRpc } from "../use-rpc";
-import { Counts } from "../diff-ui";
-import { ChangeTree as Tree } from "../change-tree";
+import { ChangeSections, diffTarget } from "../change-tree";
 import { LinkChangesView } from "../link-changes";
-import { ErrorNotice, PageScroll, Segmented, useStyles } from "../ui";
-
-const MODES = [
-  { value: "uncommitted", title: "Uncommitted" },
-  { value: "committed", title: "Committed" },
-];
+import { PageScroll, useStyles } from "../ui";
 
 /** Desktop's ChangesPanel as a page; the side panels show the same view over a Chat. */
 export default function Changes() {
@@ -30,7 +20,7 @@ export default function Changes() {
   );
 }
 
-export function ChangesView(props: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void; initialMode?: DiffMode }) {
+export function ChangesView(props: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
   const session = useSession();
   return session.snapshot?.project.link ? (
     <LinkChangesView chatId={props.worktreeId} header={props.header} onOpen={props.onOpen} />
@@ -39,61 +29,14 @@ export function ChangesView(props: { worktreeId: number; header?: React.ReactNod
   );
 }
 
-/** The Worktree's changed files as a folder tree with counts and status boxes; a file opens its diff, as a page unless `onOpen` shows it. */
-function ProjectChangesView({
-  worktreeId,
-  header,
-  onOpen,
-  initialMode = "uncommitted",
-}: {
-  worktreeId: number;
-  header?: React.ReactNode;
-  onOpen?: (target: DiffTarget) => void;
-  /** The mode it opens in: Committed when a PR's "Not in the PR yet" has only commits to show. */
-  initialMode?: DiffMode;
-}) {
+/** The Worktree's changed files as folder trees, not committed then on this branch; a file opens its diff, as a page unless `onOpen` shows it. */
+function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
   const styles = useStyles();
   const session = useSession();
   const worktree = session.snapshot?.project.state.worktrees[worktreeId];
-  const [mode, setMode] = useState<DiffMode>(initialMode);
+  const [revision, setRevision] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const active = useScreenActive();
-  const {
-    data: result,
-    error,
-    refresh,
-  } = useRpc<DiffFilesResult>(worktree ? session.client : null, "git:diff-files", [{ cwd: worktree?.path, base: worktree?.base, mode }], active);
-  const files = result?.isRepo ? result.files : undefined;
-  const tree = useMemo(() => buildDiffTree(files ?? []), [files]);
   if (!worktree) return null;
-  const added = files?.reduce((sum, file) => sum + file.added, 0) ?? 0;
-  const removed = files?.reduce((sum, file) => sum + file.removed, 0) ?? 0;
-  const base = result?.isRepo ? result.base : null;
-  const open = (file: DiffFileEntry) => {
-    const target: DiffTarget = {
-      worktreeId: String(worktreeId),
-      mode,
-      path: file.path,
-      status: file.status,
-      added: String(file.added),
-      removed: String(file.removed),
-      ...(file.oldPath ? { oldPath: file.oldPath } : {}),
-      untracked: file.untracked ? "1" : "0",
-      binary: file.binary ? "1" : "0",
-      ...(base ? { base } : {}),
-    };
-    if (onOpen) onOpen(target);
-    else router.push({ pathname: "/diff", params: target });
-  };
-  const empty = !result
-    ? "Reading changes…"
-    : !result.isRepo
-      ? result.message
-      : mode === "committed" && base === null
-        ? "No base branch to compare with."
-        : files?.length
-          ? ""
-          : result.message || (mode === "uncommitted" ? "No uncommitted changes." : "Nothing committed since the base branch.");
   return (
     <PageScroll
       refreshControl={
@@ -101,7 +44,7 @@ function ProjectChangesView({
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            refresh();
+            setRevision((value) => value + 1);
             setTimeout(() => setRefreshing(false), 400);
           }}
         />
@@ -109,23 +52,20 @@ function ProjectChangesView({
       contentContainerStyle={{ gap: 12 }}
     >
       {header}
-      <Segmented label="Changes mode" value={mode} options={MODES} onChange={(value) => setMode(value as DiffMode)} />
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4 }}>
-        <Text numberOfLines={1} style={[styles.caption, { flex: 1 }]}>
-          {worktree.name}
-          {mode === "committed" && base ? ` · since ${base}` : ""}
-        </Text>
-        {!!files?.length && <Counts added={added} removed={removed} size={13} />}
-      </View>
-      {error ? (
-        <ErrorNotice message={error} retry={refresh} />
-      ) : empty ? (
-        <Text style={[styles.muted, { textAlign: "center", paddingVertical: 32 }]}>{empty}</Text>
-      ) : (
-        <View style={[styles.card, { paddingVertical: 4, paddingHorizontal: 0, gap: 0 }]}>
-          <Tree nodes={tree} depth={0} onOpen={open} />
-        </View>
-      )}
+      <Text numberOfLines={1} style={[styles.caption, { paddingHorizontal: 4 }]}>
+        {worktree.name}
+      </Text>
+      <ChangeSections
+        revision={revision}
+        client={session.client}
+        cwd={worktree.path}
+        base={worktree.base}
+        onOpen={(file, mode, base) => {
+          const target = diffTarget(file, mode, base, { worktreeId: String(worktreeId) });
+          if (onOpen) onOpen(target);
+          else router.push({ pathname: "/diff", params: target });
+        }}
+      />
     </PageScroll>
   );
 }
