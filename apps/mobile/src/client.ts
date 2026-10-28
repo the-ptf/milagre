@@ -28,7 +28,15 @@ export type Snapshot = { project: OpenProject; runs: Runs; previewOnly?: false }
 export type ProjectPreview = Omit<Snapshot, "previewOnly"> & { previewOnly: true };
 export type RegisteredProject = { id: string; path: string; name: string };
 /** `hidden`: the user keeps this Project out of the Projects list (and desktop's all-Projects sidebar). */
-export type RecentProject = { path: string; name?: string; hidden?: boolean; link?: NamedProjectLink; projects?: RegisteredProject[] };
+/** `origin`: the Git remote as "host/owner/repo", the same on every computer with a clone of that repository. */
+export type RecentProject = {
+  path: string;
+  name?: string;
+  hidden?: boolean;
+  origin?: string;
+  link?: NamedProjectLink;
+  projects?: RegisteredProject[];
+};
 
 // The pairing link's parts moved to @milagre/shared with parsePairing; the phone's modules still import them from here.
 export { localEndpoint, relayAddress, validAccess, validRelay };

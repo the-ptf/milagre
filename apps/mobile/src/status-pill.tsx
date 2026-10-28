@@ -12,7 +12,6 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
-import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { Icon, type IconData, type Tone } from "./icons";
 import { useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
@@ -146,15 +145,10 @@ export function StatusPill({
       >
         {({ pressed }) => (
           <>
-            <LiquidGlassView
-              pointerEvents="none"
-              glassType="regular"
-              glassTintColor={tint}
-              isInteractive={false}
-              reducedTransparencyFallbackColor={(tint ?? colors.surface) as string}
-              style={[StyleSheet.absoluteFill, { borderRadius: HEIGHT / 2, borderCurve: "continuous" }]}
-            />
-            {/* Pressed and disabled dim the contents only: an alpha change on the Pressable would drop the glass for good. */}
+            {/* Solid like the composer under it: the surface, then the pill's own tint over it. */}
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]} />
+            {tint && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: tint }]} />}
+            {/* Pressed and disabled dim the contents only, so the pill's fill stays as it is. */}
             <View style={{ opacity: disabled ? 0.5 : pressed ? 0.7 : 1 }}>
               <Animated.View entering={kit.contentIn} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {leading}

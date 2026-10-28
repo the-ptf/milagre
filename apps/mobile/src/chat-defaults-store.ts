@@ -7,6 +7,7 @@ type ModelDefaults = Pick<TurnPreferences, "provider" | "model" | "effort" | "fa
 const isolationKey = "milagre.chat-isolation.v1";
 const modelKey = "milagre.chat-model.v1";
 const lastProjectKey = "milagre.chat-last-project.v1";
+const originComputersKey = "milagre.chat-origin-computers.v1";
 
 function targetKey(scope: string) {
   let hash = 0x811c9dc5;
@@ -76,6 +77,16 @@ export function createChatDefaultsStore(storage: Storage) {
     },
     saveLastProject(hostId: string, projectPath: string) {
       return write(lastProjectKey, { hostId, projectPath });
+    },
+    /** The computer a repository's new Chat was last started on, where picking that Project again opens. */
+    readOriginComputer(origin: string): string | null {
+      const saved = read(originComputersKey);
+      return typeof saved?.[origin] === "string" ? saved[origin] : null;
+    },
+    saveOriginComputer(origin: string, hostId: string) {
+      const saved = read(originComputersKey);
+      if (saved?.[origin] === hostId) return pending;
+      return write(originComputersKey, { ...(saved && typeof saved === "object" ? saved : {}), [origin]: hostId });
     },
   };
 }
