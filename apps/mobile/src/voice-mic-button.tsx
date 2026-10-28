@@ -1,5 +1,15 @@
-import { ActivityIndicator, Pressable } from "react-native";
-import Animated, { ReduceMotion, useAnimatedStyle, withTiming, type SharedValue } from "react-native-reanimated";
+import { useEffect } from "react";
+import { Pressable } from "react-native";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { Mic01Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
@@ -53,17 +63,45 @@ export function VoiceMicButton({ phase, level, onPress }: { phase: DictationPhas
           backgroundColor: recording ? colors.red : "transparent",
         }}
       >
-        {phase === "transcribing" ? (
-          <ActivityIndicator size="small" color={colors.ink2} />
-        ) : (
-          <Icon
-            icon={recording ? StopIcon : Mic01Icon}
-            size={recording ? 14 : 20}
-            color={recording ? "#fff" : undefined}
-            tone={phase === "preparing" ? "ink3" : "ink2"}
-          />
-        )}
+        <Icon icon={recording ? StopIcon : Mic01Icon} size={recording ? 14 : 20} color={recording ? "#fff" : undefined} tone={busy ? "ink3" : "ink2"} />
       </Animated.View>
+      {busy ? <MicLoadingRing /> : null}
     </Pressable>
+  );
+}
+
+/** An arc turning around the mic while dictation starts or the take is transcribed; with motion off it holds still. */
+function MicLoadingRing() {
+  const { colors, motionScale } = useTheme();
+  const turn = useSharedValue(0);
+  useEffect(() => {
+    if (motionScale <= 0) return;
+    turn.set(withRepeat(withTiming(1, { duration: 900, easing: Easing.linear, reduceMotion: ReduceMotion.System }), -1, false));
+    return () => cancelAnimation(turn);
+  }, [motionScale, turn]);
+  const spin = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.get() * 360}deg` }] }));
+  return (
+    <>
+      <Animated.View
+        pointerEvents="none"
+        style={{ position: "absolute", width: SIZE, height: SIZE, borderRadius: SIZE / 2, borderWidth: 2, borderColor: withAlpha(colors.ink3, 0.25) }}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          {
+            position: "absolute",
+            width: SIZE,
+            height: SIZE,
+            borderRadius: SIZE / 2,
+            borderWidth: 2,
+            borderColor: "transparent",
+            borderTopColor: colors.ink2,
+            borderRightColor: colors.ink2,
+          },
+          spin,
+        ]}
+      />
+    </>
   );
 }

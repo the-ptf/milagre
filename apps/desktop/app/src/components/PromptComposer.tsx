@@ -976,8 +976,14 @@ export function PromptComposer({
                     if (dictation.phase === "recording") return void dictation.stop();
                     void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
                   }}
-                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"} ${dictation.phase === "transcribing" || dictation.phase === "preparing" ? "animate-pulse" : ""}`}
+                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
                 >
+                  {(dictation.phase === "preparing" || dictation.phase === "transcribing") && (
+                    // An arc turning around the mic while dictation starts or the take is transcribed.
+                    <span aria-hidden className="pointer-events-none absolute -inset-0.5 rounded-full border-2 border-line">
+                      <span className="absolute -inset-0.5 rounded-full border-2 border-transparent border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                    </span>
+                  )}
                   {dictation.phase === "recording" && (
                     <>
                       {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
