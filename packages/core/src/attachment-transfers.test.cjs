@@ -88,3 +88,17 @@ test("cleanup removes stale crash leftovers while preserving unrelated files", a
   await assert.rejects(fs.stat(folder), { code: "ENOENT" });
   assert.equal(await fs.readFile(path.join(other, "keep"), "utf8"), "unrelated");
 });
+test("progress follows each acknowledged chunk and ends at the file size", async (t) => {
+  const { transfers } = await fixture(t);
+  const bytes = Buffer.alloc(1024 * 1024 + 7, 9);
+  const progress = [];
+  await uploadAttachment(
+    (request) => transfers.receive(request),
+    { projectPath: "/project", name: "archive.zip", base64: bytes.toString("base64") },
+    undefined,
+    (sent, total) => progress.push([sent, total]),
+  );
+  assert.deepEqual(progress[0], [0, bytes.length]);
+  assert.deepEqual(progress.at(-1), [bytes.length, bytes.length]);
+  assert.ok(progress.every(([sent], i) => i === 0 || sent > progress[i - 1][0]));
+});

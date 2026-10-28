@@ -3,7 +3,13 @@ import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ImageAttachment } from "../model";
 import { bridgeForKey } from "./computer-bridge";
 
-export async function uploadFile(owner: string, name: string, base64: string, current: () => boolean = () => true) {
+export async function uploadFile(
+  owner: string,
+  name: string,
+  base64: string,
+  current: () => boolean = () => true,
+  onProgress?: (sentBytes: number, totalBytes: number) => void,
+) {
   return uploadAttachment(
     async (request: AttachmentUploadRequest) => {
       if (!current()) throw new Error("Attachment upload was cancelled.");
@@ -12,6 +18,8 @@ export async function uploadFile(owner: string, name: string, base64: string, cu
       return result.file ?? null;
     },
     { projectPath: owner, name, base64 },
+    undefined,
+    onProgress,
   );
 }
 

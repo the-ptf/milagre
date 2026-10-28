@@ -825,8 +825,10 @@ export function PromptComposer({
             onPreview={setPreviewId}
             removeImage={handleRemoveImage}
             removeFile={handleRemoveFile}
+            uploads={imageDraft.uploads}
+            cancelUpload={imageDraft.cancelUpload}
           />
-          {imageDraft.loading && (
+          {imageDraft.loading && !imageDraft.uploads.length && (
             <div role="status" className="px-2 text-xs text-ink-3">
               Loading images…
             </div>

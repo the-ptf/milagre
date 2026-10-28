@@ -5,4 +5,5 @@ export function uploadAttachment<T extends UploadedAttachment>(
   send: (request: AttachmentUploadRequest) => Promise<T | null>,
   request: AttachmentUploadRequest,
   createId?: () => string,
+  onProgress?: (sentBytes: number, totalBytes: number) => void,
 ): Promise<T>;
