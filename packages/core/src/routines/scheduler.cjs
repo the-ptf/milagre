@@ -104,7 +104,6 @@ const claimedSettings = (routine) => ({ provider: routine.provider, model: routi
 function createRoutineScheduler({
   store,
   chats,
-  keepAwake,
   now = Date.now,
   setInterval: setTimer = setInterval,
   clearInterval: clearTimer = clearInterval,
@@ -128,21 +127,8 @@ function createRoutineScheduler({
   let stopped = false;
   // The comments whose failed Chat lookup was logged, by event key: a comment retried every 15 s is logged once.
   const lookupWarned = new Set();
-  let awake = null;
   // Chats whose beat failed to start again, its turn end not yet published: that end is marked quiet when it comes.
   const silenced = new Set();
-
-  function syncKeepAwake() {
-    const active = store.enabled() && store.list().some((routine) => routine.enabled);
-    if (active === awake) return;
-    awake = active;
-    keepAwake.setRoutinesActive(active);
-  }
-
-  function changed() {
-    syncKeepAwake();
-    onChange();
-  }
 
   // What the UI lists of the Routines that a tick can change without a claim: which there are, which are on, and when each
   // runs next (a slot missed while the Mac slept moves it, and leaves a missed Run).
@@ -339,7 +325,7 @@ function createRoutineScheduler({
       // A beat that steered into someone else's turn has no turn end of its own to silence.
       else if (error !== BUSY) silenced.add(chatId);
     }
-    changed();
+    onChange();
   }
 
   async function dispatchAll(claims) {
@@ -353,7 +339,7 @@ function createRoutineScheduler({
             if (stopped) return store.deferRun(run.id, now());
             return dispatchSafely(routine, run);
           })
-          .then(changed)
+          .then(() => onChange())
           .catch((error) => console.warn("[routines] dispatch failed", error));
         continue;
       }
@@ -362,7 +348,7 @@ function createRoutineScheduler({
         // says when it's done: the Run has its Chat, or failed.
         track(
           dispatchSafely(routine, run)
-            .then(changed)
+            .then(() => onChange())
             .catch((error) => console.warn("[routines] dispatch failed", error)),
         );
         continue;
@@ -379,10 +365,7 @@ function createRoutineScheduler({
     if (ticking) return;
     ticking = true;
     try {
-      if (!store.enabled()) {
-        syncKeepAwake();
-        return;
-      }
+      if (!store.enabled()) return;
       const before = signature();
       const at = now();
       store.expireDue(at);
@@ -394,7 +377,6 @@ function createRoutineScheduler({
         swept = true;
         sweepGone();
       }
-      syncKeepAwake();
       // Expiry, a missed slot, a gone Chat or a used-up Routine whose queue the claim ended change the list without a claim.
       if (claims.length > 0 || signature() !== before) onChange();
     } finally {
@@ -412,7 +394,6 @@ function createRoutineScheduler({
       swept = true;
       sweepGone();
     }
-    syncKeepAwake();
   }
 
   // The tick timer, which runs only while Routines are on (the runtime starts and stops it with the switch).
@@ -512,7 +493,7 @@ function createRoutineScheduler({
     const patched = quiet ? patchContext(chatId, entry.runId, { quiet, summary }, session) : patchContext(chatId, entry.runId, { quiet });
     // A quiet Run in a Chat of its own leaves nothing to read there: the Chat is archived once its divider says quiet.
     if (quiet && entry.newChat) archive(chatId, entry.createdWorktree, patched);
-    changed();
+    onChange();
   }
 
   function chatArchived(chatId) {
@@ -522,7 +503,7 @@ function createRoutineScheduler({
       store.complete(routine.id, "chat archived");
       completed = true;
     }
-    if (completed) changed();
+    if (completed) onChange();
   }
 
   /**
@@ -549,7 +530,7 @@ function createRoutineScheduler({
     const started = store.startRun(routineId, now());
     if (!started) throw new Error(`Routine not found or completed: ${routineId}`);
     await dispatchSafely(started.routine, started.run);
-    changed();
+    onChange();
     return store.runs(routineId).find((item) => item.id === started.run.id);
   }
 

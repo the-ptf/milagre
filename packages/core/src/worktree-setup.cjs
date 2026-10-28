@@ -182,16 +182,13 @@ function worktreeKey(worktreePath) {
   }
 }
 
-const IDLE_AWAKE = { setupStarted() {}, setupEnded() {} };
-
 /**
  * The setup commands waiting for their worktree's first turn, and the ones running. `send(chatId, event)`
- * shows a run as a shell step at the start of the chat's reply, its output streamed in batches. `keepAwake`
- * holds the Mac awake while a run goes and hands the hold to the turn after it; a stopped run has no turn.
+ * shows a run as a shell step at the start of the chat's reply, its output streamed in batches.
  */
 class WorktreeSetups {
-  constructor({ send, keepAwake = IDLE_AWAKE, run = runSetupCommand, timeoutMs = SETUP_TIMEOUT_MS, batchMs = BATCH_MS, file, review }) {
-    Object.assign(this, { send, keepAwake, run, timeoutMs, batchMs, file, review });
+  constructor({ send, run = runSetupCommand, timeoutMs = SETUP_TIMEOUT_MS, batchMs = BATCH_MS, file, review }) {
+    Object.assign(this, { send, run, timeoutMs, batchMs, file, review });
     this.pending = new Map();
     this.running = new Map();
     this.worktreeRuns = new Map();
@@ -312,7 +309,6 @@ class WorktreeSetups {
       buffered = "";
     };
     this.send(chatId, setupStarted(id, command));
-    this.keepAwake.setupStarted(chatId);
     const done = this.run({
       command,
       cwd,
@@ -325,7 +321,6 @@ class WorktreeSetups {
     }).then((result) => {
       flush();
       this.send(chatId, setupCompleted(id, command, result, this.timeoutMs));
-      this.keepAwake.setupEnded(chatId, { turnFollows: result.status !== "cancelled" });
       return result;
     });
     return done;

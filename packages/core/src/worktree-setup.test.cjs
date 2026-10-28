@@ -6,7 +6,6 @@ const os = require("node:os");
 const path = require("node:path");
 const { WorktreeSetups, outputTail, resolveSetupCommand, runSetupCommand, setupCompleted, setupNote } = require("./worktree-setup.cjs");
 const { createWorktree } = require("./worktrees.cjs");
-const { KeepAwake } = require("./keep-awake.cjs");
 
 async function tempDir(t, prefix = "milagre-setup-") {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
@@ -223,48 +222,6 @@ test("a new worktree's setup command runs inside the worktree", async (t) => {
   assert.equal(await fs.readFile(path.join(created.path, "ok"), "utf8"), "1");
   await assert.rejects(fs.access(path.join(project, "ok")));
   assert.equal(events.at(-1).status, "done");
-});
-
-test("the Mac stays awake through the setup and into the turn, and a cancelled setup lets it sleep", async () => {
-  const calls = [];
-  const blocker = { start: (type) => (calls.push(`start ${type}`), 1), stop: (id) => calls.push(`stop ${id}`), isStarted: () => true };
-  const awake = new KeepAwake({ powerSaveBlocker: blocker });
-  let finish;
-  const setups = new WorktreeSetups({
-    send: () => {},
-    keepAwake: awake,
-    run: () =>
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-  });
-  await setups.prepare({ worktreePath: "/w/a", projectPath: "/p", resolved: { source: "repo", command: "npm ci" } });
-  const turn = setups.beforeTurn("p#1", "/w/a");
-  assert.equal(awake.isHolding, true);
-  finish({ status: "failed", exitCode: 1, signal: null, output: "", durationMs: 1 });
-  await turn;
-  // Between the setup and the turn the blocker stays put.
-  assert.equal(awake.isHolding, true);
-  awake.observe("p#1", { type: "turn-started", turnId: "1" });
-  awake.observe("p#1", { type: "turn-completed" });
-  assert.deepEqual(calls, ["start prevent-app-suspension", "stop 1"]);
-
-  calls.length = 0;
-  const stopping = new WorktreeSetups({
-    send: () => {},
-    keepAwake: awake,
-    run: ({ signal }) =>
-      new Promise((resolve) =>
-        signal.addEventListener("abort", () => resolve({ status: "cancelled", exitCode: null, signal: null, output: "", durationMs: 1 })),
-      ),
-  });
-  await stopping.prepare({ worktreePath: "/w/b", projectPath: "/p", resolved: { source: "repo", command: "npm ci" } });
-  const cancelled = stopping.beforeTurn("p#2", "/w/b");
-  assert.equal(awake.isHolding, true);
-  await stopping.cancel("p#2");
-  assert.deepEqual(await cancelled, { cancelled: true, note: "" });
-  assert.equal(awake.isHolding, false);
-  assert.deepEqual(calls, ["start prevent-app-suspension", "stop 1"]);
 });
 
 test("Stop cancels a second Chat waiting for the same Worktree without cancelling its owner's review", async () => {

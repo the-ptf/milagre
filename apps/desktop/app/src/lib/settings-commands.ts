@@ -55,7 +55,7 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
         ["showDockBadge", "Dock badge", "unread count"],
         ["showAttentionButton", "Attention button", "other projects waiting approval questions"],
         ["floatingInbox", "Floating inbox", "experimental notification bar"],
-        ["keepAwake", "Keep awake while agents work", "sleep"],
+        ["keepAwake", "Keep the Mac awake", "sleep offline lock screen saver"],
       ] as const
     ).flatMap(([key, label, keywords]) => [
       choice(key, true, `${label}: On`, `${keywords} enable`),

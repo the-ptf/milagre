@@ -802,8 +802,11 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
         <MainSyncDefaultSetting />
       </Group>
       <Group title="System">
-        <Row label="Keep the Mac awake while agents work" description="The screen can still turn off.">
-          <Switch label="Keep the Mac awake while agents work" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
+        <Row
+          label="Keep the Mac awake"
+          description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off; closing the lid still sleeps it."
+        >
+          <Switch label="Keep the Mac awake" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
         </Row>
       </Group>
       <Group title="Plan usage">
