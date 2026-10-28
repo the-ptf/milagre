@@ -134,6 +134,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
       if (relative?.startsWith("primitives/") || relative === "persistence-notice") {
@@ -1467,6 +1468,66 @@ test("mobile slash suggestions filter skills and insert at the caret while prese
     undefined,
   );
 });
+
+for (const reactCompiler of [false, true])
+  test(`returning to a mobile Chat restores the draft end without moving the caret during edits (compiler: ${reactCompiler})`, () => {
+    const react = hookHost({ effects: true });
+    let focus;
+    let draft = Array.from({ length: 24 }, (_, index) => `Line ${index + 1}`).join("\n");
+    const catalog = { skills: [] };
+    const { PromptField } = load(
+      "prompt-field.tsx",
+      {
+        react,
+        "react/jsx-runtime": { jsx, jsxs: jsx },
+        "expo-router": {
+          useFocusEffect: (callback) => {
+            focus = callback;
+          },
+        },
+        "react/compiler-runtime": compilerRuntime(react),
+        "react-native": { Text: "Text", View: "View" },
+        "react-native-reanimated": reanimatedStub,
+        "@milagre/shared/prompt-skills": require("../packages/shared/src/prompt-skills.mjs"),
+        "./use-rpc": { useRpc: () => ({ data: catalog }) },
+        "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+        "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+      },
+      "",
+      new Map(),
+      reactCompiler,
+    );
+    const field = () => {
+      react.begin();
+      return find(
+        PromptField({
+          client: {},
+          projectPath: "/project",
+          draft,
+          onChangeText: (value) => {
+            draft = value;
+          },
+        }),
+        (node) => node.type === "Field",
+      );
+    };
+    const end = () => ({ start: draft.length, end: draft.length });
+    assert.deepEqual({ ...field().props.selection }, end(), "a mounted draft opens at its end");
+    field().props.onSelectionChange({ nativeEvent: { selection: { start: 2, end: 2 } } });
+    assert.equal(field().props.selection, undefined, "native clicks can move the caret");
+    const firstFocus = focus;
+    field().props.onChangeText(draft.slice(0, 2) + " inserted" + draft.slice(2));
+    assert.equal(field().props.selection, undefined, "typing in the middle keeps native caret control");
+    assert.equal(focus, firstFocus, "typing must not re-run the route focus effect");
+    focus();
+    assert.deepEqual({ ...field().props.selection }, end(), "returning to the mounted screen restores the latest draft end");
+    field().props.onSelectionChange({ nativeEvent: { selection: end() } });
+    assert.equal(field().props.selection, undefined, "native selection resumes after restoration");
+    draft = "";
+    field();
+    focus();
+    assert.deepEqual({ ...field().props.selection }, { start: 0, end: 0 }, "empty drafts restore safely");
+  });
 
 test("mobile skill input preserves edits and clears its description when the caret or catalog changes", () => {
   const react = hookHost();

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import * as Font from "expo-font";
 import { Linking, Pressable, Text, View } from "react-native";
 import Animated, { Easing, FadeInDown, ReduceMotion } from "react-native-reanimated";
@@ -126,7 +127,7 @@ export function PromptField({
       ),
     [draft, skills],
   );
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [selection, setSelection] = useState({ start: draft.length, end: draft.length });
   const [focused, setFocused] = useState(false);
   const typing = (onMention || chats.length) && focused ? fileQueryAt(draft, selection.start)?.query : undefined;
   const lookups = useMentionLookups(client, projectPath, draft, known, typing);
@@ -145,8 +146,22 @@ export function PromptField({
     [draft, skills, known, projectPath, lookups, images, chats],
   );
   const [requested, setRequested] = useState<{ draft: string; selection: typeof selection } | null>(null);
-  // Until the field has reported a caret, `selection` is the initial 0 and says nothing about where the user means to dictate.
+  // Until the field has reported a caret, dictation starts after the restored draft.
   const placed = useRef(false);
+  const latestDraft = useRef(draft);
+  useEffect(() => {
+    latestDraft.current = draft;
+  }, [draft]);
+  useFocusEffect(
+    useCallback(() => {
+      // Screens can stay mounted while another Chat is open. Restore once on return, never on a keystroke.
+      const value = latestDraft.current;
+      const end = { start: value.length, end: value.length };
+      setSelection(end);
+      setRequested({ draft: value, selection: end });
+      placed.current = false;
+    }, []),
+  );
   const dictation = useVoiceDictation(
     (text, anchor) => {
       const edit = insertDictation(draft, anchor.selection, text);
@@ -165,7 +180,7 @@ export function PromptField({
     const timer = setTimeout(dismissDictationError, ERROR_SECONDS * 1000);
     return () => clearTimeout(timer);
   }, [dictationError, dismissDictationError]);
-  const [rendered, setRendered] = useState({ draft, parts: marks, restore: undefined as typeof selection | undefined });
+  const [rendered, setRendered] = useState({ draft, parts: marks, restore: selection as typeof selection | undefined });
   // Recoloring after the catalog loads must preserve a selected range. Ordinary edits keep native caret control.
   const changed = rendered.draft !== draft || rendered.parts !== marks;
   const restore = requested?.draft === draft ? requested.selection : changed ? (rendered.draft === draft ? selection : undefined) : rendered.restore;

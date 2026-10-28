@@ -123,7 +123,7 @@ export function PromptEditor({
   const shown = useRef(value);
   const selection = useRef<Selection>({ start: value.length, end: value.length });
   // Where the caret goes once the DOM shows the next draft.
-  const pending = useRef<Selection | null>(null);
+  const pending = useRef<Selection | null>({ start: value.length, end: value.length });
   const composition = useRef<{ value: string; range: Selection } | null>(null);
   const dragged = useRef<Selection | null>(null);
   const pointerDown = useRef(false);
@@ -212,6 +212,10 @@ export function PromptEditor({
     if (historyKey.current === resetKey) return;
     historyKey.current = resetKey;
     history.clear();
+    // A Chat switch restores its draft even when it has the same text as the previous Chat.
+    emitted.current = null;
+    pending.current = { start: value.length, end: value.length };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- only a Chat switch resets the caret.
   }, [resetKey, history]);
 
   // Render the DOM from the draft, then put the caret back.
@@ -251,8 +255,17 @@ export function PromptEditor({
     root.replaceChildren(...nodes);
     setChips((current) => (current.length === nextChips.length && current.every((chip, index) => chip.host === nextChips[index]?.host) ? current : nextChips));
     placeSelection(restore);
+    // An unfocused restored draft also opens on its last line, ready for the next click.
+    if (restore.start === value.length && restore.end === value.length) root.scrollTop = root.scrollHeight;
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for `layout`.
-  }, [signature, renders]);
+  }, [signature, renders, resetKey]);
+
+  // Expanding the composer changes its text metrics after the draft was restored. Reveal the end at its final size.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const end = live.current.value.length;
+    if (root && selection.current.start === end && selection.current.end === end) root.scrollTop = root.scrollHeight;
+  }, [className, maxHeight]);
 
   useEffect(() => {
     const root = rootRef.current;
