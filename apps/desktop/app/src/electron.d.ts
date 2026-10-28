@@ -319,6 +319,8 @@ export type MilagreBridge = {
   /** Saves a chosen icon (an image data URL), or null to go back to the repository's own; returns the icon now shown. */
   setProjectIcon: (projectPath: string, icon: string | null) => Promise<string | null>;
   getAppVersion: () => Promise<string>;
+  /** Writes a triage session beside this Mac's host profile; `prompt` is the new Chat's draft. */
+  prepareTriage: (client: string) => Promise<{ prompt: string }>;
   /** `setupNote`: why the repo's setup file was ignored. */
   createWorktree: (request: WorktreeRequest) => Promise<{ project: OpenProject & { state: CoordinatorState }; worktreeId: number; setupNote?: string }>;
   /** Links an existing worktree to a Linear issue: a Milagre-named branch with no open PR takes the issue's branch name. */

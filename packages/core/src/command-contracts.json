@@ -800,6 +800,17 @@
     "app:version": {
       "parameters": []
     },
+    "triage:prepare": {
+      "parameters": [
+        {
+          "name": "client",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "worktree:create": {
       "parameters": [
         {
@@ -6685,11 +6696,11 @@
           "$ref": "#/$defs/T161",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2141": {
+        "__@toStringTag@2146": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2141"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2146"],
       "additionalProperties": false
     },
     "T158": {

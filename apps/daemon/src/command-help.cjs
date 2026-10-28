@@ -113,6 +113,13 @@ const COMMANDS = {
     ],
     examples: ["milagre devices pending", "milagre devices allow KEY", "milagre devices list"],
   },
+  triage: {
+    description: "Investigate a Milagre problem on this computer with claude or codex, and help file a good issue.",
+    usage: "milagre triage [flags]",
+    flags: [["--agent <claude|codex>", "Agent CLI to use. Default: ask when both are installed."]],
+    examples: ["npx milagre triage", "milagre triage --agent codex", "milagre triage --data-dir /absolute/profile"],
+    note: "Works when the desktop app won't start. Writes the playbook and machine facts to a triage folder in the profile, then starts the agent there. It asks before it changes anything or posts an issue.",
+  },
   request: {
     description: "Call a daemon method and print its result as JSON.",
     usage: "milagre request <method> [JSON_ARGS] [flags]",

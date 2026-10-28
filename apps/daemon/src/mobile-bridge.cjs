@@ -38,6 +38,7 @@ const METHODS = new Set([
   "main-sync:default:read",
   "main-sync:default:save",
   "linear:status",
+  "triage:prepare",
   "linear:enabled:read",
   "linear:enabled:save",
   "designs:enabled:read",

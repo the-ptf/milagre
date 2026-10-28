@@ -149,6 +149,7 @@ function makeBridge(invoke, listen, send) {
     getProjectImage: (projectPath) => invoke("project:image", projectPath),
     setProjectIcon: (projectPath, icon) => invoke("project:set-icon", projectPath, icon),
     getAppVersion: () => invoke("app:version"),
+    prepareTriage: (client) => invoke("triage:prepare", client),
     createWorktree: (request) => invoke("worktree:create", request),
     linkWorktreeIssue: (request) => invoke("worktree:link-issue", request),
     unlinkWorktreeIssue: (request) => invoke("worktree:unlink-issue", request),

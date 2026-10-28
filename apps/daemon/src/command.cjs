@@ -53,6 +53,12 @@ async function main(args = process.argv.slice(2)) {
     return process.stdout.write(renderHelp(topic, { color: Boolean(process.stdout.isTTY && !("NO_COLOR" in process.env) && process.env.TERM !== "dumb") }));
   }
   const [command, action, argument] = positionals;
+  if (command === "triage") {
+    if (positionals.length !== 1 || values.chat || values.input || values.json) throw new Error("Use milagre triage [--agent claude|codex] [--data-dir PATH]");
+    if (values["data-dir"] && !path.isAbsolute(values["data-dir"])) throw new Error("--data-dir must be an absolute path");
+    await require("./triage.cjs").triage({ dataDir: values["data-dir"], flags, version });
+    return;
+  }
   if (command === "mcp" && action === "serve" && values.stdio && positionals.length === 2) {
     require("@milagre/core/local-mcp-stdio").serveStdio();
     return;

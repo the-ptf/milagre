@@ -15,6 +15,16 @@ npm install --global milagre
 milagre serve
 ```
 
+## Triage a problem
+
+When the desktop app won't start, or its own **Triage an issue** entry doesn't work, run:
+
+```sh
+npx milagre triage
+```
+
+It starts Claude Code or Codex in your terminal (`--agent claude|codex` picks one) with a triage playbook and a file of machine facts: OS, Node, agent CLIs, and each Milagre profile's host status, log and lock. The agent reads the logs and the Milagre source for your version, searches known issues, and can help you write a GitHub issue. It asks before it changes anything or posts. The files go in `triage/` inside the profile, so you can paste them into another agent when neither CLI is installed. The playbook itself is `packages/core/src/triage-playbook.md`; sessions fetch the newest copy from `main`.
+
 `milagre help` lists the commands. Use `milagre help serve` or `milagre serve --help` for a command's flags and examples. Help uses color in interactive terminals and plain text when piped; `NO_COLOR` disables color.
 
 `serve` runs in the foreground and uses `~/.milagre/server` for its persistent profile. It prints a private pairing link and, in an interactive terminal, a phone QR code. In another desktop's Settings > Devices > Add computer, paste the link. Approve the computer from another terminal on the server:
@@ -89,4 +99,4 @@ When a desktop using the same profile is connected, `milagre command list` also 
 
 Ctrl+C and SIGTERM save and stop the server. Use `milagre serve --no-pair` for unattended restarts without printing links or opening a new pairing window. It retains access for devices already paired. `--no-qr` prints links without QR codes. No startup service is installed automatically; run the foreground command through your service manager for an always-on computer.
 
-From the repository, `npm run cli -- serve` runs the same command. `npm run package:cli` produces the installable tarball in `release/cli/`; it bundles the private Milagre packages, without Electron. npm installs registry dependencies and sets up native dependencies for the computer where you install it. You can also install that tarball with `npm install --global ./milagre-0.2.0.tgz`.
+From the repository, `npm run cli -- serve` runs the same command. `npm run package:cli` produces the installable tarball in `release/cli/`; it bundles the private Milagre packages, without Electron. npm installs registry dependencies and sets up native dependencies for the computer where you install it. You can also install that tarball with `npm install --global ./milagre-0.3.0.tgz`.

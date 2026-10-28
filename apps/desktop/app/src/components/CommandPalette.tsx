@@ -4,6 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   BubbleChatIcon,
+  Bug01Icon,
   BubbleChatSearchIcon,
   CodeIcon,
   Copy01Icon,
@@ -34,6 +35,7 @@ const icons = {
   reload: Refresh01Icon,
   routines: RepeatIcon,
   newChat: PencilEdit02Icon,
+  triage: Bug01Icon,
 };
 
 function Label({ command }: { command: Command }) {

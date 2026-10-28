@@ -135,6 +135,7 @@ const stubs = {
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",
   "./update-sheet": "export const UpdateSettingsBadge = () => null;",
+  "./app-version": 'export const appVersionLine = () => "1.0";',
   "./chat-row-store":
     "export const useChatRowShow = () => ({ computer: true, pullRequests: true, linearIssue: true, branch: true, diff: false, lastActivity: false }); export const saveChatRowShow = () => {}; export const useActivityClock = () => Date.now();",
 };

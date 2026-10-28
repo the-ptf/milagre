@@ -1,6 +1,7 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
+import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
 import {
@@ -950,8 +951,31 @@ const NavigationBody = memo(function NavigationBody({
     }
     void enter(target.hostId, target.path, undefined, undefined, prefill);
   }
+  // As desktop's palette row: a new Chat whose draft points its agent at a triage playbook, on the computer New Chat would
+  // pick. The user writes what went wrong after it.
+  async function startTriage() {
+    const target = pickNewChatProject(
+      newChatProjects(views),
+      savedChatDefaults.readLastProject(),
+      currentPath ? { hostId: currentHostId ?? "", projectPath: currentPath } : null,
+    );
+    const client = target && clientOf(target.hostId);
+    if (!target || !client) {
+      setError("Add a project from your computer to triage an issue.");
+      return;
+    }
+    try {
+      const { prompt } = await client.call<{ prompt: string }>("triage:prepare", [
+        `Milagre for ${Platform.OS === "ios" ? "iPhone" : "Android"} ${appVersionLine()}`,
+      ]);
+      await enter(target.hostId, target.path, undefined, undefined, prompt);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn't start triage.");
+    }
+  }
   function menuChoice(id: string) {
-    if (id === "add") void startAddProject();
+    if (id === "triage") void startTriage();
+    else if (id === "add") void startAddProject();
     else if (id === "link") onNavigate("/link-projects", true);
     else if (id === "canvas") onNavigate("/canvas", true);
   }
@@ -1107,6 +1131,7 @@ const NavigationBody = memo(function NavigationBody({
                     { id: "canvas", title: "Canvas", systemImage: "square.grid.2x2" },
                   ],
                 },
+                { items: [{ id: "triage", title: "Triage an issue", systemImage: "ladybug" }] },
               ]}
               onSelect={menuChoice}
             >
