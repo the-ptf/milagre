@@ -85,9 +85,11 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "", "submitted draft clears before sending completes");
     assert.equal(await evaluate(`!!document.querySelector('[data-new-chat-pickers]')`), false, "first message opens the conversation layout");
     assert.equal(
-      await evaluate(`!!document.querySelector('[role="status"][aria-label^="Working with"]')`),
+      await evaluate(
+        `/^(Sending|Creating Worktree|Starting |Working with )/.test(document.querySelector('[role="status"][aria-label]')?.getAttribute("aria-label") ?? "")`,
+      ),
       true,
-      "working feedback appears before the backend completes",
+      "the send, or the running turn it steers, says what it waits on before the backend completes",
     );
     assert.equal(
       await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled || !!document.querySelector('[aria-label="Stop agent"]')`),
