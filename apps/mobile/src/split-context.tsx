@@ -3,7 +3,8 @@ import { Dimensions, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
 import { useSession } from "./session";
-import { cardTop, sidebarFits, widthClass, type WidthClass } from "./split-width";
+import { cardTop, clampPanelWidth, sidebarFits, widthClass, type WidthClass } from "./split-width";
+import { usePanelWidth } from "./panel-width";
 import { usePanelScreen, useRightDocked } from "./side-panels";
 
 type SplitLayout = {
@@ -38,7 +39,8 @@ export function SplitProvider({ children }: { children: React.ReactNode }) {
   // With the right panel docked too, the sidebar gives way when the Chat between them would get too narrow, and comes
   // back when the panel closes.
   const docked = useRightDocked();
-  const crowded = !sidebarFits(width, docked);
+  const panelWidth = clampPanelWidth(width, usePanelWidth());
+  const crowded = !sidebarFits(width, docked, panelWidth);
   // The Chats page itself keeps the sidebar: hidden there, the page would be empty.
   const pinned = dockable && ((!hidden && !crowded) || pathname === "/projects");
   const { closeRight } = usePanelScreen();

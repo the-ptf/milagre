@@ -238,6 +238,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
+      // The iPad panel's dragged width, kept on the device; a test keeps the default.
+      if (base === "panel-width" && !(id in modules)) return { usePanelWidth: () => 420, setPanelWidth() {} };
       // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
       if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
