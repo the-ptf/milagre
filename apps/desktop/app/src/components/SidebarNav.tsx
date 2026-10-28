@@ -1306,7 +1306,8 @@ export default memo(function SidebarNav({
       {chatsGroup && (
         <>
           {chatsGroup}
-          <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />
+          {/* It parts the Chats from the Projects' rows below, so it shows only when there are some. */}
+          {flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
         </>
       )}
       <FlatChatList chats={flatChats} scopes={flatScopes} />
