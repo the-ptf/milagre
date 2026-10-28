@@ -188,6 +188,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@milagre/shared/chat-activity" && !(id in modules)) return require("@milagre/shared/chat-activity");
       if (
         [
+          "@milagre/shared/archive",
           "@milagre/shared/chat-history",
           "@milagre/shared/chat-window-cache",
           "@milagre/shared/display-clock",
