@@ -841,6 +841,8 @@ interface ChatComposerProps {
   permissionLocked?: boolean;
   onRecommendationSelect: (option: string) => void;
   approval?: ReactNode;
+  /** The cards stay mounted but out of sight, such as a question whose answers are on their way to the agent. */
+  approvalHidden?: boolean;
   /** The Project a new Chat starts in, named in the "Start building in" heading; its dropdown moves the new Chat to another. */
   newChatProject?: { key: string; name: string; onChange?: (key: string) => void };
   worktrees: Array<{ id: number; name: string; path: string }>;
@@ -1151,6 +1153,7 @@ export function ChatComposer({
   permissionLocked,
   onRecommendationSelect,
   approval,
+  approvalHidden = false,
   newChatProject,
   worktrees,
   selectedWorktreeId,
@@ -1537,7 +1540,7 @@ export function ChatComposer({
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
           {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
-          {approval && <ScrollArea className="mb-2 max-h-[60cqh] w-full">{approval}</ScrollArea>}
+          {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
           {review.view !== "closed" && !isNewChat && (
             <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
           )}

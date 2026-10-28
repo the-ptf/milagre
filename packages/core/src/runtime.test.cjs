@@ -575,6 +575,46 @@ test("chat:reload stops a running turn and puts its line after the reply so far"
   );
 });
 
+test("answers reach the agent before their message is saved, and its next reply still lands below them", async (t) => {
+  const { project, events, make } = await fixture(t);
+  const agents = reloadAgents();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const stateOf = async () => (await runtime.invoke("project:snapshot", [project])).state;
+  agents.running();
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "pick a layout", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions[0]?.turnActive; i++) await new Promise((r) => setTimeout(r, 10));
+  const session = agents.sessions[0];
+  const question = { id: "layout", header: "Layout", question: "Which layout?", options: [{ label: "Grid", description: "" }], multiSelect: false };
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [question] });
+  const sent = () => events.some(({ channel, payload }) => channel === "agent:event" && payload.chatId === chatId && payload.event.type === "answers-sent");
+  for (let i = 0; i < 200 && !(await runtime.invoke("chat:runs")).runs[chatId]?.questions.length; i++) await new Promise((r) => setTimeout(r, 10));
+  let savedFirst = null;
+  session.answerQuestion = (requestId, answers) => {
+    savedFirst = sent();
+    session.options.emit({ type: "question-resolved", requestId, outcome: "answered" });
+    session.options.emit({ type: "text-delta", messageId: "m2", text: "Grid it is." });
+    return requestId === "q1" && answers.layout[0] === "Grid";
+  };
+
+  assert.equal(await runtime.invoke("agent:answer-question", [{ chatId, requestId: "q1", answers: { layout: ["Grid"] }, summary: "Grid" }]), true);
+  assert.equal(savedFirst, false);
+  session.turnActive = false;
+  session.options.emit({ type: "turn-completed" });
+  for (let i = 0; i < 200 && !(await stateOf()).messages.some((item) => item.body === "Grid it is."); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(
+    (await stateOf()).messages.map((item) => [item.role, item.body]),
+    [
+      ["user", "pick a layout"],
+      ["assistant", "Working."],
+      ["user", "Grid"],
+      ["assistant", "Grid it is."],
+    ],
+  );
+});
+
 test("chat:reload waits for the Chat's background subagents instead of stopping them (T3 #16000)", async (t) => {
   const { project, make } = await fixture(t);
   const agents = reloadAgents();
