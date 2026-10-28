@@ -136,7 +136,7 @@ function createRuntime(options) {
   // A Project result for the home says so: clients key on `kind`, since each computer's home is at its own path.
   const withKind = (project) => (chatsHome.isHome(project.path) ? { ...project, kind: "chats" } : project);
   // The home as the Milagre MCP host and Routines see it: a project-less Chat's own tools and Heartbeats reach it.
-  const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: "No project", kind: "chats" }] : []);
+  const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: projectName(chatsHome.path), kind: "chats" }] : []);
   // The bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over), by name, else null.
   const botRunning = (chatId) => (typeof chatId === "string" ? (bots?.botForChat(chatId)?.bot.name ?? null) : null);
   function track(work, set = active) {
@@ -381,7 +381,8 @@ function createRuntime(options) {
     }
   }
 
-  const projectName = (projectPath) => path.basename(projectPath) || "Untitled project";
+  // The Chats home's folder is "chats"; every name a client shows (inbox, notices, a phone on an older app) says "No project".
+  const projectName = (projectPath) => (chatsHome.isHome(projectPath) ? "No project" : path.basename(projectPath) || "Untitled project");
 
   // Chats brought back from linked worktrees' old files, per project, until a window opening it shows the notice.
   const restoredChats = new Map();

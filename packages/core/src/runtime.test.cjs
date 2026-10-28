@@ -1578,6 +1578,7 @@ test("chats:ensure opens the home with kind chats and isolation-ready worktrees"
   const opened = await runtime.invoke("chats:ensure");
   assert.equal(opened.path, chatsHome);
   assert.equal(opened.kind, "chats");
+  assert.equal(opened.name, "No project");
   assert.notEqual(opened.git, false);
   assert.ok(opened.state.worktrees);
   assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: true });
@@ -1588,6 +1589,7 @@ test("chats:ensure opens the home with kind chats and isolation-ready worktrees"
   // The snapshot holds the home's state for a reconnecting window, marked as the home.
   const listed = runtime.snapshot().projects.find((project) => project.path === chatsHome);
   assert.equal(listed?.kind, "chats");
+  assert.equal(listed?.name, "No project");
   assert.equal((await runtime.invoke("project:snapshot", [chatsHome])).kind, "chats");
   const other = await runtime.invoke("project:current");
   assert.equal("kind" in other, false);
@@ -1661,4 +1663,55 @@ test("a project-less Chat stopped by a quit continues on launch, though the home
   const second = make();
   await second.resumeRecentProjects();
   assert.equal((await second.invoke("project:snapshot", [chatsHome])).kind, "chats");
+});
+
+// A Chat that waits on an approval: its turn starts and asks at once.
+function waitingSession(_provider, options) {
+  return {
+    turnActive: false,
+    async startTurn() {
+      this.turnActive = true;
+      options.emit({ type: "turn-started", turnId: "turn-1" });
+      options.emit({ type: "permission-request", requestId: "permission-1", kind: "command", tool: "Shell", title: "Run?", command: "ls", allowForChat: true });
+      return { turnId: "turn-1" };
+    },
+    respondToPermission: () => true,
+    async close() {
+      this.turnActive = false;
+    },
+    async interrupt() {},
+  };
+}
+
+async function waitingHomeChat(t) {
+  const { make, chatsHome } = await fixture(t);
+  const notices = [];
+  const runtime = make({
+    titleModels: {},
+    agentCli: async () => ({ command: "/fake" }),
+    createSession: waitingSession,
+    notifyWaiting: (notice) => notices.push(notice),
+  });
+  const opened = await runtime.invoke("chats:ensure");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:send", [{ projectPath: chatsHome, sessionId: session.id, body: "Explain this error", provider: "claude", model: "fixture" }]);
+  const deadline = Date.now() + 5000;
+  while (!notices.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  return { runtime, chatsHome, chatId: `${chatsHome}#${session.id}`, notices };
+}
+
+test('chat:inbox names a project-less Chat\'s Project "No project"', async (t) => {
+  const { runtime, chatId } = await waitingHomeChat(t);
+  const item = (await runtime.invoke("chat:inbox")).items.find((entry) => entry.key === chatId);
+  assert.equal(item?.status, "approval");
+  assert.equal(item.project, "No project");
+});
+
+test('an attention notice for a project-less Chat is titled "No project"', async (t) => {
+  const { chatId, notices } = await waitingHomeChat(t);
+  const notice = notices.find((entry) => entry.chatId === chatId);
+  assert.ok(notice, "the approval notice went out");
+  // A notice is titled by its Chat, and never names the home's folder.
+  assert.notEqual(notice.title, "chats");
+  assert.doesNotMatch(`${notice.title} ${notice.body}`, /\bchats\b/);
 });
