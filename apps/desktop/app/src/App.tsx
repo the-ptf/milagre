@@ -279,6 +279,8 @@ function App() {
     resolveModel(MODEL_CATALOG, getSettings().defaultModelId, providerForId(getSettings().defaultModelId)),
   );
   const accountScope = selectedLink ? `milagre-link:${selectedLink.link.id}` : project?.path;
+  // A Chats home's account is shared by every Chat without a Project on its computer; the usage card says so.
+  const accountScopeIsHome = !selectedLink && isChatsHomeProject(project);
   const currentChatKey = draftKey(accountScope ?? "", selectedSessionId);
   const composerPrefs = useComposerPreferences(currentChatKey);
   const effort = composerPrefs.effort;
@@ -2697,8 +2699,10 @@ function App() {
   }, [routineId, view]);
   const sidebarUsage = useMemo(
     () =>
-      showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? <SidebarUsage usage={usage} scope={accountScope} /> : undefined,
-    [showUsageInSidebar, usage.snapshot, usage.loading, accountScope],
+      showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? (
+        <SidebarUsage usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} />
+      ) : undefined,
+    [showUsageInSidebar, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
   );
   const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);

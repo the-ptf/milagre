@@ -21,7 +21,7 @@ function peakPercent(windows: { usedPercent: number }[]) {
 }
 
 /** Plan usage rows for the sidebar footer; the card opens beside the sidebar, expanded or collapsed. */
-export function SidebarUsage({ usage, scope }: { usage: UsageState; scope?: string }) {
+export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; scope?: string; chatsHome?: boolean }) {
   const [openCard, setOpenCard] = useState<OpenCard | null>(null);
   const { usageDisplay, appearance } = useSettings();
   const compact = appearance.sidebarUsage === "compact";
@@ -166,6 +166,7 @@ export function SidebarUsage({ usage, scope }: { usage: UsageState; scope?: stri
           id={`usage-card-${openUsage.provider}`}
           usage={openUsage}
           scope={scope}
+          chatsHome={chatsHome}
           onPickerOpenChange={(open) => {
             pickerOpen.current = open;
             if (open) return;

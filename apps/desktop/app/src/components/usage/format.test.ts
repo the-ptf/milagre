@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProviderUsage, UsageSnapshot } from "../../model";
 import {
+  accountPickerLabel,
   CONTEXT_CRITICAL_PERCENT,
   CONTEXT_WARN_PERCENT,
   contextSummary,
@@ -191,4 +192,9 @@ test("the context ring warns at 75% and turns critical at 90%", () => {
   assert.equal(contextTone(75), "warning");
   assert.equal(contextTone(89), "warning");
   assert.equal(contextTone(90), "critical");
+});
+
+test("the account picker names whose account it switches", () => {
+  assert.equal(accountPickerLabel("claude"), "Claude account for this Project");
+  assert.equal(accountPickerLabel("codex", true), "Codex account for Chats without a Project");
 });
