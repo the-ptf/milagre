@@ -197,6 +197,8 @@ type SidebarNavProps = {
   /** Archive for another Project's rows (by its path): what the confirm step offers, then the archive itself. */
   onScopeArchiveCheck?: (scopeKey: string, id: string) => Promise<ArchivePlan>;
   onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown>;
+  /** Chats with an archive under way, by `projectPath#id`: their rows are gone at once, before the host answers. */
+  archivingChats?: ReadonlySet<string>;
   /** The pointer rests on a chat's row: its page can be read before the click. */
   onHoverChat?: (scopeKey: string, id: string) => void;
   /** "Link and ask A…": sends the message to that chat (its Project path and id) through the normal send path. */
@@ -618,6 +620,7 @@ export default memo(function SidebarNav({
   onOpenScopeChat,
   onScopeArchiveCheck,
   onScopeArchive,
+  archivingChats,
   onHoverChat,
   onNewChatInScope,
   onAskChat,
@@ -864,6 +867,7 @@ export default memo(function SidebarNav({
     }
     return hover;
   };
+  const unarchived = (key: string, rows: SidebarRecent[]) => (archivingChats?.size ? rows.filter((row) => !archivingChats.has(`${key}#${row.id}`)) : rows);
   // Canvas Links join this Mac's Projects: a Named Link's shared chats and another computer's take none.
   const linkProjectIdOf = (key: string | undefined) =>
     key && !key.startsWith("milagre-link:") && !isRemoteKey(key) ? (registeredProjects.find((project) => project.path === key)?.id ?? null) : null;
@@ -872,7 +876,7 @@ export default memo(function SidebarNav({
         const current = scope.key === currentKey;
         // The Project just left has no read of its own yet; the copy it was shown from fills in until one arrives.
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const rows = withBeats(scope.key, current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : []);
+        const rows = withBeats(scope.key, current ? recents : state ? unarchived(scope.key, scopeChats(scope.key, state, chatOrder, marks)) : []);
         const list = current
           ? {
               isActive: (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle),
@@ -956,7 +960,7 @@ export default memo(function SidebarNav({
       ? scopes.map((scope) => {
           const current = scope.key === currentKey;
           const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-          const rows = current ? recents : state ? scopeChats(scope.key, state, chatOrder, marks) : [];
+          const rows = current ? recents : state ? unarchived(scope.key, scopeChats(scope.key, state, chatOrder, marks)) : [];
           const { status, chats } = railLive(rows);
           return { key: scope.key, name: scope.name, icon: scopeIcon(scope, current), current, status, chats };
         })

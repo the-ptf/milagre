@@ -1157,13 +1157,13 @@ function App() {
     ? pullRequestActionContext({ action: pullRequestBlockerAction.blocker, pr: pullRequestBlockerAction.pr.number, url: pullRequestBlockerAction.pr.url })
     : null;
   const previousChats = useRef<SidebarRecent[]>([]);
-  // Chats with an archive under way, by chat key: each keeps its row, under the progress, until the archive ends.
+  // Chats with an archive under way, by chat key: their rows are gone from the sidebar from the tap on.
   const [archivingChats, setArchivingChats] = useState<ReadonlySet<string>>(() => new Set());
   const chats = useMemo(() => {
     const state = sidebarState;
     if (!state) return [];
     const withMessages = Object.values(state.sessions)
-      .filter((session) => !session.archived || (project && archivingChats.has(chatKey(project.path, session.id))))
+      .filter((session) => !session.archived && !(project && archivingChats.has(chatKey(project.path, session.id))))
       .map((session) => ({ session, sessionMessages: messagesBySession.get(session.id) ?? NO_MESSAGES }))
       // A hidden Run Chat shows only while its run waits on an approval or a question.
       .filter(({ session, sessionMessages }) => isChatListed(session, sessionMessages, waiting.has(session.id) || asking.has(session.id)));
@@ -1333,23 +1333,23 @@ function App() {
   // Archiving hides the chat for good; a turn still running in it is stopped first. The steps and their order
   // live in lib/archive-flow.ts, which is passed what it touches.
   // Another Project's chat (a row of the all-Projects sidebar) archives the same way, from the copy its group shows.
+  // As on the phone, the row goes and the window leaves the chat at once; the host's work goes on behind, and a chat
+  // whose archive fails (or whose worktree stays) comes back with a notice.
   function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
     const wasOpen = open && selectedSessionId === sessionId;
     setArchivingChats((current) => new Set(current).add(key));
-    return runArchive(
+    if (wasOpen) startNewChat();
+    void runArchive(
       {
         projectPath,
         chatId: key,
         getState: () => archiveState(projectPath) ?? null,
         currentProjectPath: () => projectRef.current?.path,
         stop: () => (agentRuns.runs[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
-        hide: async () => {
-          await bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false });
-          if (projectRef.current?.path === projectPath && selectedSessionRef.current === sessionId) startNewChat();
-        },
+        hide: () => bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false }),
         // The worktree stays, so the chat comes back with it; it is reopened only if it was open and nothing else has been since.
         restore: () => {
           if (projectRef.current?.path === projectPath) patchChat(sessionId, { archived: false });
@@ -1375,7 +1375,10 @@ function App() {
       mode,
       plan,
     )
-      .catch((error) => setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`))
+      // A call that timed out may still have landed: a chat the host shows archived by now needs no notice.
+      .catch((error) => {
+        if (!archiveState(projectPath)?.sessions[sessionId]?.archived) setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`);
+      })
       .finally(() =>
         setArchivingChats((current) => {
           const next = new Set(current);
@@ -1383,6 +1386,7 @@ function App() {
           return next;
         }),
       );
+    return Promise.resolve();
   }
 
   // What the archive menu offers depends on the chat's worktree: whether Milagre made it, whether another chat
@@ -3301,6 +3305,7 @@ function App() {
                   onOpenScopeChat={openScopeChat}
                   onScopeArchiveCheck={checkScopeArchive}
                   onScopeArchive={archiveScopeChat}
+                  archivingChats={archivingChats}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}
                   sidebarMode={sidebarMode}

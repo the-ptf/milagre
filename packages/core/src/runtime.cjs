@@ -1575,18 +1575,23 @@ function createRuntime(options) {
     if (bots.isHome(projectPath)) await bots.beforeThreadSend(projectPath, sessionId);
     return chats.resumeChat(projectPath, Number(sessionId));
   });
-  // Archiving a Chat stops what runs for it (its Terminals, advisors, heartbeats), then saves the patch. The user's archive
-  // and a quiet Routine Run's both come here.
+  // Archiving a Chat stops what runs for it (its Terminals, advisors, heartbeats) and saves the patch. The user's archive
+  // and a quiet Routine Run's both come here. The stop starts first, so its fences are up before the save (no heartbeat
+  // beat or advisor report lands in the archived Chat), but only the save is waited on: closing the advisors waits on the
+  // Chat's queued advisor work and their processes, and held `chat:patch` past its deadline on a busy Mac.
   async function archiveChat(projectPath, sessionId, patch = { archived: true }) {
     if (!scopeStates.has(projectPath)) return;
-    await stopChatWork(`${projectPath}#${sessionId}`);
+    const chatId = `${projectPath}#${sessionId}`;
+    const stopping = stopChatWork(chatId);
+    stopping.catch(() => {});
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+    void track(() => stopping, background).catch((error) => console.warn("Milagre couldn't stop an archived Chat's work:", error.message));
   }
   async function stopChatWork(chatId) {
     terminals.closeChat(chatId);
+    routines.chatArchived(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
-    routines.chatArchived(chatId);
   }
   // A hidden Run Chat whose Run left the store (routines' sweepRunChats), archived only while it is still hidden,
   // unarchived and that Run's: checked against the current state first, and again in the change that archives it. What
