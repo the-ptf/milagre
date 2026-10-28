@@ -7,7 +7,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Add01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
 import type { LinkChatSession } from "@milagre/shared/model";
 import type { TerminalInfo, TerminalList, TerminalProfiles } from "@milagre/shared/terminal";
 import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-client";
@@ -68,12 +68,36 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
   return { terminals, setTerminals, refresh: () => refresh.current() };
 }
 
+/** A Terminal's tab title: its own, numbered when another of the Chat's Terminals has the same one ("zsh 2"). */
+export function tabTitle(terminals: TerminalInfo[], terminal: TerminalInfo) {
+  const same = terminals.filter((item) => item.title === terminal.title);
+  return same.length > 1 ? `${terminal.title} ${same.indexOf(terminal) + 1}` : terminal.title;
+}
+
 /** Shown for every sent Chat on a Mac that has Terminals. `onOpen` shows it below the Chat (an iPad) instead of full screen. */
-export function TerminalChip({ chatId, places, onOpen }: { chatId?: string; places?: TerminalPlace[]; onOpen?: () => void }) {
+export function TerminalChip({
+  chatId,
+  places,
+  onOpen,
+  docked,
+  liveCount,
+}: {
+  chatId?: string;
+  places?: TerminalPlace[];
+  onOpen?: () => void;
+  /** The Terminals are docked below the Chat now: the count is read again as they open and close. */
+  docked?: boolean;
+  /** The docked Terminals' own count, which is current as tabs open and close; the polled one trails it. */
+  liveCount?: number;
+}) {
   const { client } = useSession();
-  const { terminals } = useTerminals(client, chatId);
+  const { terminals, refresh } = useTerminals(client, chatId);
+  useEffect(() => {
+    if (docked !== undefined) void refresh();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- refresh reads the latest loader; only docking changes matter
+  }, [docked]);
   if (!client || !chatId || !terminals) return null;
-  const count = terminals.length;
+  const count = docked && liveCount !== undefined ? liveCount : terminals.length;
   return (
     <StatusPill
       label="Terminal"
@@ -88,6 +112,9 @@ export function TerminalChip({ chatId, places, onOpen }: { chatId?: string; plac
     />
   );
 }
+
+/** Taps on New Terminal closer together than this are one double tap, which opens one Terminal. */
+const DOUBLE_TAP_MS = 600;
 
 // What the key bar sends: keys a phone keyboard lacks. Ctrl is held for the next key instead.
 // The most output one read brings to the phone: about a tenth of a second for xterm in the WebView to parse.
@@ -114,7 +141,20 @@ type ViewHandle = { send(data: string): void; holdCtrl(held: boolean): void };
  * The Chat's Terminals: a page of its own on a phone, docked below the Chat on an iPad (`onClose` set), where it keeps
  * to one header row and rides the keyboard with the Chat's composer instead of making room for it.
  */
-export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: string; chatId?: string; places?: TerminalPlace[]; onClose?: () => void }) {
+export function TerminalSheet({
+  hostId,
+  chatId,
+  places,
+  onClose,
+  onCount,
+}: {
+  hostId?: string;
+  chatId?: string;
+  places?: TerminalPlace[];
+  onClose?: () => void;
+  /** How many Terminals the Chat has, each time that changes. */
+  onCount?: (count: number) => void;
+}) {
   const docked = !!onClose;
   const { colors } = useTheme();
   const styles = useStyles();
@@ -198,9 +238,14 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
     }, [docked]),
   );
 
+  // A second tap before the first Terminal answers, or right after (a double tap), opens nothing more.
+  const openingNow = useRef(false);
+  const openedAt = useRef(0);
   const open = useCallback(
     async (cwd?: string) => {
-      if (!source || !chatId) return;
+      if (!source || !chatId || openingNow.current || Date.now() - openedAt.current < DOUBLE_TAP_MS) return;
+      openingNow.current = true;
+      openedAt.current = Date.now();
       setOpening(true);
       setError("");
       try {
@@ -210,6 +255,7 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "Couldn't open a Terminal.");
       } finally {
+        openingNow.current = false;
         setOpening(false);
       }
     },
@@ -226,6 +272,11 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
     ]);
   }, [multiple, places, open]);
 
+  const count = terminals?.length;
+  useEffect(() => {
+    if (count !== undefined) onCount?.(count);
+  }, [count, onCount]);
+
   // Opening the screen for a Chat with no Terminal starts its first one.
   useEffect(() => {
     if (openedFirst.current || !terminals || terminals.length) return;
@@ -234,11 +285,14 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
   }, [terminals, add]);
 
   function close(terminal: TerminalInfo) {
+    // Docked, ending the last Terminal puts the panel away too, rather than leaving it empty.
+    const last = docked && terminals?.length === 1;
     const end = async () => {
       try {
         await source?.call("terminal:close", [{ terminalId: terminal.id }]);
       } finally {
         await refresh();
+        if (last) onClose?.();
       }
     };
     if (!terminal.busy) {
@@ -264,13 +318,19 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
           gap: 8,
         }}
       >
-        <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={onClose ?? (() => router.back())} />
+        {/* Docked, the button only puts the Terminals away (they keep running, as the pill's count says); each tab's X ends one. */}
+        {docked ? (
+          <CircleButton label="Hide Terminal" icon={ArrowDown01Icon} onPress={onClose} />
+        ) : (
+          <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={() => router.back()} />
+        )}
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
             {shown?.title ?? "Terminal"}
           </Text>
           <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 11 }}>
-            {shown?.cwd ?? "This Chat"}
+            {/* The folder, not its whole path: a Worktree's path is long and mostly the same for every Terminal. */}
+            {shown?.cwd ? shown.cwd.split(/[\\/]/).findLast(Boolean) || shown.cwd : "This Chat"}
           </Text>
         </View>
         <CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />
@@ -335,7 +395,7 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
               >
                 <Pressable accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => setActive(terminal.id)} hitSlop={6}>
                   <Text numberOfLines={1} style={{ color: selected ? colors.ink : colors.ink2, fontSize: 13, fontFamily: "Menlo" }}>
-                    {terminal.title}
+                    {tabTitle(terminals, terminal)}
                     {multiple ? <Text style={{ color: colors.ink3, fontSize: 11 }}> {terminal.label}</Text> : null}
                   </Text>
                 </Pressable>
@@ -344,10 +404,10 @@ export function TerminalSheet({ hostId, chatId, places, onClose }: { hostId?: st
                     accessibilityRole="button"
                     accessibilityLabel={`Close ${terminal.title}`}
                     onPress={() => close(terminal)}
-                    hitSlop={6}
-                    style={{ padding: 4 }}
+                    hitSlop={10}
+                    style={({ pressed }) => ({ padding: 6, borderRadius: 12, backgroundColor: pressed ? colors.hover : "transparent" })}
                   >
-                    <Icon icon={Cancel01Icon} size={12} tone="ink3" />
+                    <Icon icon={Cancel01Icon} size={14} tone="ink2" />
                   </Pressable>
                 )}
               </View>
@@ -632,7 +692,7 @@ function TerminalView({
 /** The least and most of the window's height the docked Terminal takes; it opens at about a third. */
 const DOCK_MIN = 200;
 const DOCK_MAX_SHARE = 0.6;
-const DOCK_SHARE = 0.36;
+const DOCK_SHARE = 0.3;
 
 /** A drag on the docked Terminal's grabber: up makes it taller, down shorter, within its bounds. */
 function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, max: number) {
@@ -653,12 +713,17 @@ export function TerminalDock({
   chatId,
   places,
   keyboard,
+  onHeight,
+  onCount,
   onClose,
 }: {
   chatId: string;
   places?: TerminalPlace[];
-  /** This pane follows the keyboard (see ChatPane). */
+  /** The Terminal has the keyboard (see ChatPane): it rises with it, over the composer. */
   keyboard: boolean;
+  /** Its height, which the composer rises past when it is typed into instead. */
+  onHeight: (height: number) => void;
+  onCount?: (count: number) => void;
   onClose: () => void;
 }) {
   const { colors } = useTheme();
@@ -672,15 +737,18 @@ export function TerminalDock({
 
   const sized = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) }));
   return (
-    // Lifted by the keyboard as the composer above it is, so the two stay stacked over it.
+    // Lifted by the keyboard when it is typed into, over the composer; the composer rises past it otherwise.
     <KeyboardStickyView enabled={keyboard} offset={{ closed: 0, opened: Math.max(0, insets.bottom - 6) }}>
-      <Animated.View style={[{ borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.page }, sized]}>
+      <Animated.View
+        onLayout={({ nativeEvent }) => onHeight(Math.round(nativeEvent.layout.height))}
+        style={[{ borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.page }, sized]}
+      >
         <GestureDetector gesture={resize}>
           <View accessibilityLabel="Resize Terminal" style={{ height: 18, alignItems: "center", justifyContent: "center" }}>
             <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong }} />
           </View>
         </GestureDetector>
-        <TerminalSheet key={`${client?.url}:${chatId}`} hostId={client?.url} chatId={chatId} places={places} onClose={onClose} />
+        <TerminalSheet key={`${client?.url}:${chatId}`} hostId={client?.url} chatId={chatId} places={places} onClose={onClose} onCount={onCount} />
       </Animated.View>
     </KeyboardStickyView>
   );

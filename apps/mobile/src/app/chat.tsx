@@ -331,6 +331,10 @@ function ChatPane({
   const [dockHeight, setDockHeight] = useState(140);
   // The Chat whose Terminals are docked below it (an iPad); another Chat in this pane starts without them.
   const [terminalFor, setTerminalFor] = useState<string | null>(null);
+  const [terminalHeight, setTerminalHeight] = useState(0);
+  const [terminalCount, setTerminalCount] = useState<number | undefined>(undefined);
+  // The composer has the keyboard; without it, a keyboard up over the docked Terminal is the Terminal's.
+  const [composerFocused, setComposerFocused] = useState(false);
   const [error, setError] = useState("");
   // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
@@ -1772,7 +1776,10 @@ function ChatPane({
   // The composer floats above the transcript and rides the keyboard, stopping 8pt above it; with the Terminal below, it
   // sits clear of the home indicator already.
   const dockPadding = terminalShown ? 12 : Math.max(insets.bottom, 12);
-  const lift = dockPadding - 8;
+  // Only what is being typed into rides the keyboard: the Terminal lifts over the composer when it is typed into, and the
+  // composer rises above a keyboard taller than the Terminal under it otherwise.
+  const terminalTyping = terminalShown && !composerFocused;
+  const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
       <ReachableHostContext value={reachable}>
@@ -1799,7 +1806,7 @@ function ChatPane({
                 <KeyboardChatScrollView
                   key={scrollKey}
                   ref={scroll}
-                  freeze={!ownsKeyboard}
+                  freeze={!ownsKeyboard || terminalTyping}
                   offset={lift}
                   keyboardLiftBehavior="whenAtEnd"
                   onEndVisible={onEndVisible}
@@ -2061,10 +2068,10 @@ function ChatPane({
                   top={insets.top + 72}
                   bottom={dockHeight + 12}
                   keyboardOffset={lift}
-                  followKeyboard={ownsKeyboard}
+                  followKeyboard={ownsKeyboard && !terminalTyping}
                 />
                 <KeyboardStickyView
-                  enabled={ownsKeyboard}
+                  enabled={ownsKeyboard && !terminalTyping}
                   pointerEvents="box-none"
                   // The other pane's composer jumps clear of the open keyboard once, so a tap can move the keyboard to it. A
                   // disabled sticky view sits at its `closed` offset, which overrides any transform in `style`.
@@ -2111,6 +2118,8 @@ function ChatPane({
                             chatId={chatId}
                             places={terminalPlaces(chat)}
                             onOpen={terminalDocks ? () => setTerminalFor((current) => (current === chatId ? null : chatId)) : undefined}
+                            docked={terminalDocks ? terminalShown : undefined}
+                            liveCount={terminalCount}
                           />
                         )}
                         {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
@@ -2479,7 +2488,11 @@ function ChatPane({
                               onSubmit={() => {
                                 if (!sendDisabled) void send();
                               }}
-                              onFocus={onTyping}
+                              onFocus={() => {
+                                setComposerFocused(true);
+                                onTyping();
+                              }}
+                              onBlur={() => setComposerFocused(false)}
                               onChangeText={(value) => {
                                 // Clearing the composer also clears the limit error that its mentions caused.
                                 composer.setDrafts((current) => ({ ...current, [chatId]: value }));
@@ -2582,7 +2595,15 @@ function ChatPane({
               </PanelSwipe>
             </View>
             {terminalShown && chat && (
-              <TerminalDock key={chatId} chatId={chatId} places={terminalPlaces(chat)} keyboard={ownsKeyboard} onClose={() => setTerminalFor(null)} />
+              <TerminalDock
+                key={chatId}
+                chatId={chatId}
+                places={terminalPlaces(chat)}
+                keyboard={ownsKeyboard && terminalTyping}
+                onHeight={setTerminalHeight}
+                onCount={setTerminalCount}
+                onClose={() => setTerminalFor(null)}
+              />
             )}
             <PlanPanel panel={planPanel} />
           </View>
