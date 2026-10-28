@@ -1741,7 +1741,7 @@ test("worktree:remove removes a Chats home worktree and drops its Chat", async (
 });
 
 test("worktree:remove of a Chats home worktree holding files needs delete, and delete removes it", async (t) => {
-  const { runtime, chatsHome, worktree, chatId } = await homeChatOnWorktree(t);
+  const { runtime, chatsHome, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
   await fs.writeFile(path.join(worktree.path, "notes.md"), "keep me");
   const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
   assert.equal(seen.removable, false);
@@ -1754,4 +1754,7 @@ test("worktree:remove of a Chats home worktree holding files needs delete, and d
   const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: true, chatId }]);
   assert.equal(result.removed, true);
   await assert.rejects(fs.stat(worktree.path), { code: "ENOENT" });
+  const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
+  assert.equal(state.worktrees[worktree.id], undefined);
+  assert.equal(state.sessions[sessionId], undefined);
 });

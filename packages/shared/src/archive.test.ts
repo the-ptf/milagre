@@ -42,13 +42,16 @@ test("a worktree with unsaved work offers only delete, with what would be lost a
     );
 });
 
-// A project-less Chat works on a worktree under the worktree root's chats/ folder, which the Chats home (an internal
-// repository) made, so the ordinary archive choices apply to it unchanged.
-const chatsWorktree = { id: 3, project_id: 1, path: "/tmp/wt/chats/chat-k95o", name: "milagre/chat-k95o", base: "main" };
+// A project-less Chat works on a worktree at `<worktree root>/chats/<slug>` with its base recorded, as worktree:create
+// makes it in the Chats home (an internal repository). Whether that counts as Milagre's is decided by isMilagreWorktree
+// against the real roots, never assumed, so these tests fail if that layout ever stops being Milagre-made.
+const worktreeRoot = "/tmp/wt";
+const chatsWorktree = { id: 3, project_id: 1, path: `${worktreeRoot}/chats/chat-k95o`, name: "milagre/chat-k95o", base: "main" };
+const chatsPlan = (status: WorktreeStatus) => plan({ milagreOwned: isMilagreWorktree(chatsWorktree, [worktreeRoot]), status });
 
 test("archiveChoices for a clean Chats home worktree offers only remove", () => {
-  assert.equal(isMilagreWorktree(chatsWorktree, ["/tmp/wt"]), true);
-  const result = archiveChoices({ plan: plan({ milagreOwned: isMilagreWorktree(chatsWorktree, ["/tmp/wt"]), status: clean }), running: false });
+  assert.equal(chatsPlan(clean).milagreOwned, true);
+  const result = archiveChoices({ plan: chatsPlan(clean), running: false });
   assert.deepEqual(
     result.choices.map((choice) => choice.mode),
     ["remove"],
@@ -58,12 +61,18 @@ test("archiveChoices for a clean Chats home worktree offers only remove", () => 
 
 test("archiveChoices for a Chats home worktree with uncommitted files offers only delete, in the danger tone", () => {
   const files: WorktreeStatus = { uncommitted: 2, unpushed: 0, branch: "milagre/chat-k95o", head: "abc", removable: false };
-  const result = archiveChoices({ plan: plan({ milagreOwned: isMilagreWorktree(chatsWorktree, ["/tmp/wt"]), status: files }), running: false });
+  assert.equal(chatsPlan(files).milagreOwned, true);
+  const result = archiveChoices({ plan: chatsPlan(files), running: false });
   assert.deepEqual(
     result.choices.map((choice) => [choice.mode, choice.tone]),
     [["delete", "danger"]],
   );
   assert.equal(result.reason, "2 uncommitted files will be lost. Commit them first to keep them.");
+});
+
+test("a Chats home worktree is Milagre's only with its base recorded and under a root", () => {
+  assert.equal(isMilagreWorktree({ ...chatsWorktree, base: undefined }, [worktreeRoot]), false);
+  assert.equal(isMilagreWorktree(chatsWorktree, ["/elsewhere"]), false);
 });
 
 test("a check that failed never offers deletion", () => {
