@@ -859,6 +859,8 @@ function App() {
   const pendingApproval = run?.approvals[0];
   // Approvals come first; a question shows once none is waiting.
   const pendingQuestion = pendingApproval ? undefined : run?.questions[0];
+  // Its answers were sent: the card goes at once, as on the phone, instead of waiting for the agent's word back.
+  const questionSent = Boolean(pendingQuestion && sentReply(run, pendingQuestion.requestId));
 
   // A running turn takes the new mode at once instead of at its next message.
   function changePermissionMode(mode: PermissionMode) {
@@ -3587,6 +3589,7 @@ function App() {
                         saveNotice={dockSaveNotice}
                         notice={notice}
                         onDismissNotice={() => setNotice(null)}
+                        approvalHidden={questionSent && !pendingApproval && !remoteDelegations.length}
                         approval={
                           pendingApproval || pendingQuestion || remoteDelegations.length ? (
                             <div className="flex w-full flex-col gap-2">
@@ -3599,13 +3602,16 @@ function App() {
                                   onAnswer={answerApproval}
                                 />
                               ) : pendingQuestion ? (
-                                <QuestionCard
-                                  key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
-                                  request={pendingQuestion}
-                                  waiting={(run?.questions.length ?? 1) - 1}
-                                  answering={sentReply(run, pendingQuestion.requestId)}
-                                  onAnswer={answerQuestion}
-                                />
+                                // Hidden, not unmounted, while the answers travel: if they don't arrive, the card comes back as it was.
+                                <div className={questionSent ? "hidden" : "contents"}>
+                                  <QuestionCard
+                                    key={`${chatKey(project.path, selectedSession?.id ?? 0)}:${pendingQuestion.requestId}`}
+                                    request={pendingQuestion}
+                                    waiting={(run?.questions.length ?? 1) - 1}
+                                    answering={sentReply(run, pendingQuestion.requestId)}
+                                    onAnswer={answerQuestion}
+                                  />
+                                </div>
                               ) : null}
                               {/* Delegations this Chat sent to other computers, their turns mirrored live from there. */}
                               {remoteDelegations.map((delegation) => (

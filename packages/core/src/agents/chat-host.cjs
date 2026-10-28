@@ -669,7 +669,8 @@ class ChatHost {
    * Shows the user's answers to a question as their message, after the reply streamed so far, and tells the windows
    * with an "answers-sent" event, before anything is written: the answers go to the agent at once, and the save follows
    * (a failed one stays dirty and is tried again). `answered` comes from the run's request, for the answer card.
-   * Resolves with the message's id, or null when there's nothing to show.
+   * Resolves with the message's id, or null when there's nothing to show. The change is queued when this is called, so
+   * the answers can go to the agent at once: whatever it streams next is folded after them.
    */
   async recordAnswers(chatId, body, { requestId, answers } = {}) {
     const projectPath = projectOfKey(chatId);
