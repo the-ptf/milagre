@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
@@ -25,6 +25,7 @@ export function NewChatHeading({
   groups,
   noProject,
   onProjectChange,
+  onOpenChange,
 }: {
   projectKey: string;
   projectName: string;
@@ -34,8 +35,11 @@ export function NewChatHeading({
   noProject?: ProjectGroup;
   /** `home`: the key is a Chats home, and whether that computer has made it yet. */
   onProjectChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void;
+  /** The picker opened or closed, so the caller can raise the heading above the composer only while it is open. */
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
   const { thisMac, computers } = useComputers();
   const chats = projectKind === "chats";
   const computerId = computerOfKey(projectKey);

@@ -11,3 +11,11 @@ export function newChatLook(kind: ProjectKind | undefined): NewChatLook {
   if (kind === "chats") return { heading: "Just chat", tray: "chats", trayLabel: "Yapping around", placeholder: "Ask anything" };
   return { heading: "Start building in", tray: "project" };
 }
+
+/**
+ * The heading's stacking layer. Its Project dropdown has to cover the composer, so the wrapper is raised while the dropdown is
+ * open; closed, it stays under the composer's `/` and `@` menu (z-20), which would otherwise show the heading through it.
+ */
+export function headingLayer(pickerOpen: boolean): string {
+  return pickerOpen ? "z-30" : "";
+}

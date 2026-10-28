@@ -107,7 +107,7 @@ import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
 import { bridgeForKey } from "../lib/computer-bridge";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
-import { newChatLook } from "../lib/new-chat-look";
+import { headingLayer, newChatLook } from "../lib/new-chat-look";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -1262,6 +1262,7 @@ export function ChatComposer({
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
   // bot's new Chat keeps the composer centred.
+  const [headingOpen, setHeadingOpen] = useState(false);
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
   const newChatProjectKey = newChatProject?.key ?? projectPath;
   const newChatProjectName = newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
@@ -1441,7 +1442,7 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
-            className="chat-gutter relative z-30 mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6"
+            className={`chat-gutter relative ${headingLayer(headingOpen)} mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6`}
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
             <NewChatHeading
@@ -1451,6 +1452,7 @@ export function ChatComposer({
               groups={projectGroups}
               noProject={noProjectGroup}
               onProjectChange={newChatProject?.onChange}
+              onOpenChange={setHeadingOpen}
             />
           </div>
         )}
