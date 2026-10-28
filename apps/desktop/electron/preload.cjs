@@ -247,6 +247,7 @@ function makeBridge(invoke, listen, send) {
       resolveThread: (request) => invoke("pr:resolve-thread", request),
       merge: (request) => invoke("pr:merge", request),
       ready: (request) => invoke("pr:ready", request),
+      image: (request) => invoke("pr:image", request),
       labels: (request) => invoke("pr:labels", request),
       setLabels: (request) => invoke("pr:set-labels", request),
       reviewerCandidates: (request) => invoke("pr:reviewer-candidates", request),

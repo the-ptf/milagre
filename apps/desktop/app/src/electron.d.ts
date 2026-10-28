@@ -507,6 +507,8 @@ export type MilagreBridge = {
     }) => Promise<PullRequestWriteResult>;
     /** Marks a draft ready for review, or turns it back into a draft (`draft`). */
     ready: (request: { cwd: string; number: number; draft?: boolean }) => Promise<PullRequestWriteResult>;
+    /** A GitHub attachment of the PR's description or comments, read with gh's token, as a data URL. */
+    image: (request: { cwd: string; url: string }) => Promise<{ ok: true; dataUrl: string } | { ok: false; message: string }>;
     /** The repository's labels, for the labels picker. */
     labels: (request: { cwd: string }) => Promise<RepoLabelsResult>;
     setLabels: (request: { cwd: string; number: number; add: string[]; remove: string[] }) => Promise<PullRequestWriteResult>;

@@ -4,6 +4,8 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { ImageAttachment } from "@milagre/shared/model";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { codeLanguageFromClassName } from "../../lib/code-languages";
 import { fileLinkTarget } from "../../lib/file-links";
 import { localFileLink } from "@milagre/shared/file-link";
@@ -30,6 +32,66 @@ const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((mo
 
 const CODE_CLASS = "rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink";
 const MarkdownImages = createContext<ImageAttachment[] | undefined>(undefined);
+/** Reads a remote image the text shows inline, as a data URL; null for an image it doesn't read, which stays a link. */
+export type MarkdownImageLoader = (src: string) => Promise<string> | null;
+const ImageLoader = createContext<MarkdownImageLoader | undefined>(undefined);
+
+function LoadedImage({ load, src, alt, width }: { load: Promise<string>; src: string; alt?: string; width?: string | number }) {
+  const [state, setState] = useState<{ load: Promise<string>; url: string | null; failed: boolean }>({ load, url: null, failed: false });
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let live = true;
+    load.then(
+      (url) => live && setState({ load, url, failed: false }),
+      () => live && setState({ load, url: null, failed: true }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [load]);
+  const current = state.load === load ? state : { url: null, failed: false };
+  if (current.failed) return <ImageLink src={src} alt={alt} />;
+  const size = Number(width) > 0 ? { width: Number(width) } : undefined;
+  if (!current.url)
+    return (
+      <span
+        data-markdown-image-loading=""
+        className="inline-block h-24 max-w-full animate-pulse rounded-[6px] bg-field align-middle"
+        style={size ?? { width: 160 }}
+      />
+    );
+  const name = alt || "Image";
+  return (
+    <>
+      <img
+        src={current.url}
+        alt={alt}
+        title={alt}
+        style={size}
+        onClick={(event) => {
+          // An image inside a link opens here, not in the browser, which couldn't read a private repository's image.
+          event.preventDefault();
+          setOpen(true);
+        }}
+        className="inline-block h-auto max-w-full cursor-zoom-in rounded-[6px] align-middle"
+      />
+      {open && (
+        <MediaLightbox
+          items={[{ id: src, name, src: current.url, kind: "image", file: current.url }]}
+          start={0}
+          close={() => setOpen(false)}
+          thumbFor={() => null}
+        />
+      )}
+    </>
+  );
+}
+
+function MarkdownImage({ src, alt, width }: { src?: string; alt?: string; width?: string | number }) {
+  const loader = useContext(ImageLoader);
+  const load = src ? loader?.(src) : null;
+  return load && src ? <LoadedImage load={load} src={src} alt={alt} width={width} /> : <ImageLink src={src} alt={alt} />;
+}
 
 function ImageLink({ src, alt }: { src?: string; alt?: string }) {
   const images = useContext(MarkdownImages);
@@ -151,17 +213,17 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   return isGenuiFence(fence) ? <GenerativeUI code={text} fallback={plain} /> : plain;
 }
 
-// Raw HTML in a reply is shown as text (react-markdown's default), and unsafe link protocols are dropped.
+// Raw HTML in a reply is shown as text (react-markdown's default), and unsafe link protocols are dropped. Text from
+// GitHub (`html`) renders its HTML as GitHub does, through GitHub's own sanitize schema.
 const components: Components = {
   pre: MarkdownPre,
   code: InlineCode,
   a({ href, children }) {
     return <Link href={href}>{children}</Link>;
   },
-  // Remote images in a reply would load without asking; show them as links instead.
-  img({ src, alt }) {
-    const href = typeof src === "string" ? src : undefined;
-    return <ImageLink src={href} alt={alt} />;
+  // Remote images in a reply would load without asking; show them as links instead, unless an image loader reads them.
+  img({ src, alt, width }) {
+    return <MarkdownImage src={typeof src === "string" ? src : undefined} alt={alt} width={width} />;
   },
   table({ children }) {
     return (
@@ -173,11 +235,14 @@ const components: Components = {
 };
 
 const REMARK_PLUGINS = [remarkGfm];
+const HTML_PLUGINS = [rehypeRaw, rehypeSanitize];
+// Cache keys of `html` texts: the same text parses to a different tree.
+const HTML_KEY = "\0html\0";
 
-function parseMarkdown(text: string): ReactElement {
+function parseMarkdown(text: string, html = false): ReactElement {
   // react-markdown's sync component uses no hooks: called directly it parses now and returns the element tree, whose
   // components (links, code blocks) still render, and read their context, wherever the tree is mounted.
-  return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, components });
+  return ReactMarkdown({ children: text, remarkPlugins: REMARK_PLUGINS, rehypePlugins: html ? HTML_PLUGINS : undefined, components });
 }
 
 // Parsed bodies outlive their Chat's transcript, so reopening a Chat (or a transcript slot remounting) reuses them
@@ -190,40 +255,54 @@ const CACHE_MAX_TEXT = 200_000;
 const parsedBodies = new Map<string, ReactElement>();
 let parsedChars = 0;
 
-function cachedMarkdown(text: string): ReactElement {
-  const hit = parsedBodies.get(text);
+function cachedMarkdown(text: string, html = false): ReactElement {
+  const key = html ? HTML_KEY + text : text;
+  const hit = parsedBodies.get(key);
   if (hit) {
     // Most recently used last: Map keeps insertion order.
-    parsedBodies.delete(text);
-    parsedBodies.set(text, hit);
+    parsedBodies.delete(key);
+    parsedBodies.set(key, hit);
     return hit;
   }
-  const parsed = parseMarkdown(text);
+  const parsed = parseMarkdown(text, html);
   if (text.length > CACHE_MAX_TEXT) return parsed;
-  parsedBodies.set(text, parsed);
-  parsedChars += text.length;
-  for (const key of parsedBodies.keys()) {
+  parsedBodies.set(key, parsed);
+  parsedChars += key.length;
+  for (const oldest of parsedBodies.keys()) {
     if (parsedBodies.size <= CACHE_ENTRIES && parsedChars <= CACHE_CHARS) break;
-    parsedBodies.delete(key);
-    parsedChars -= key.length;
+    parsedBodies.delete(oldest);
+    parsedChars -= oldest.length;
   }
   return parsed;
 }
 
 // Parsed output of one block of text; memoized so a block that stopped changing never parses again. A block still
 // being written (`cache={false}`) changes on every batch, so it stays out of the cache it would only churn.
-const MarkdownBody = memo(function MarkdownBody({ text, cache = true }: { text: string; cache?: boolean }) {
-  return cache ? cachedMarkdown(text) : parseMarkdown(text);
+const MarkdownBody = memo(function MarkdownBody({ text, cache = true, html = false }: { text: string; cache?: boolean; html?: boolean }) {
+  return cache ? cachedMarkdown(text, html) : parseMarkdown(text, html);
 });
 
 const WRAPPER = "markdown break-words [overflow-wrap:anywhere]";
 
-export const Markdown = memo(function Markdown({ text, images }: { text: string; images?: ImageAttachment[] }) {
+/** `html` renders the text's HTML, sanitized (a PR description or comment); `loadImage` reads the images it can show. */
+export const Markdown = memo(function Markdown({
+  text,
+  images,
+  html,
+  loadImage,
+}: {
+  text: string;
+  images?: ImageAttachment[];
+  html?: boolean;
+  loadImage?: MarkdownImageLoader;
+}) {
   return (
     <MarkdownImages.Provider value={images}>
-      <div className={WRAPPER}>
-        <MarkdownBody text={text} />
-      </div>
+      <ImageLoader.Provider value={loadImage}>
+        <div className={WRAPPER}>
+          <MarkdownBody text={text} html={html} />
+        </div>
+      </ImageLoader.Provider>
     </MarkdownImages.Provider>
   );
 });

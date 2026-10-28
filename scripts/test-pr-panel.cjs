@@ -26,6 +26,12 @@ const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
 const PATCH = ["diff --git a/src/save.ts b/src/save.ts", "--- a/src/save.ts", "+++ b/src/save.ts", "@@ -1,3 +1,4 @@",
   " export async function save(file) {", "-  toast();", "+  await pick();", '+  showToast("File saved.");', " }", ""].join("\\n");
+const ATTACHMENT = "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da";
+const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+// GitHub's own HTML, as a drag-dropped screenshot writes it, next to an image of another host and a script.
+const COMMENT = ["Looks **good** to me.", "", "| before | after |", "|---|---|",
+  "| <img width='250' src='" + ATTACHMENT + "' /> | <img src='https://example.com/x.png' alt='elsewhere'> |", "",
+  "<script>window.ran = true</script>"].join("\\n");
 const pr = {
   number: 673, url: "https://github.com/the-ptf/milagre/pull/673", title: "fix: open shared files across devices", body: "Shared files **open** on paired Macs.",
   state: "OPEN", isDraft: false, author: "victorlucss", createdAt: "2026-10-25T10:00:00Z", updatedAt: "2026-10-25T10:00:00Z",
@@ -40,7 +46,7 @@ const pr = {
   ],
   threads: [{ id: "T1", path: "src/save.ts", line: 3, side: "RIGHT", resolved: false, outdated: false,
     comments: [{ id: "C1", author: "jefo3", body: "Should the toast wait for the picker?", createdAt: "2026-10-25T11:00:00Z" }] }],
-  comments: [{ id: "IC1", author: "marcosgenesis", body: "Looks **good** to me.", createdAt: "2026-10-25T12:00:00Z" }], pendingReview: { id: "R1", count: 1 },
+  comments: [{ id: "IC1", author: "marcosgenesis", body: COMMENT, createdAt: "2026-10-25T12:00:00Z" }], pendingReview: { id: "R1", count: 1 },
 };
 window.calls = [];
 window.prDetailBase = pr;
@@ -58,6 +64,7 @@ window.milagre = {
     resolveThread: record("resolveThread"), merge: record("merge"), ready: record("ready"),
     labels: async (request) => (window.calls.push({ name: "labels", ...request }), { ok: true, labels: [{ name: "bug", color: "d73a4a", description: "Something isn't working" }, { name: "ui", color: "0e8a16", description: "" }] }),
     setLabels: record("setLabels"),
+    image: async (request) => (window.calls.push({ name: "image", ...request }), { ok: true, dataUrl: PNG }),
     reviewerCandidates: async () => ({ ok: true, logins: ["jefo3", "marcosgenesis", "octocat", "victorlucss"] }),
     requestReviewers: record("requestReviewers"),
   },
@@ -158,6 +165,15 @@ async function browserChecks() {
     assert.deepEqual(await cards(), ["IC1", "T1"]);
     assert.equal(await text("[data-pr-open-thread=T1] [data-pr-thread-path]"), "src/save.ts:3");
     assert.match(await text("[data-pr-comment=IC1]"), /marcosgenesis.*Looks good to me\./s);
+    // A comment's HTML renders: its GitHub attachment loads through pr:image, another host's image stays a link, a script doesn't run.
+    await waitFor('document.querySelector("[data-pr-comment=IC1] td img")?.src.startsWith("data:image/png")');
+    assert.equal(await evaluate('document.querySelector("[data-pr-comment=IC1] td img").style.width'), "250px");
+    assert.equal(await evaluate("document.querySelector(\"[data-pr-comment=IC1] a[href='https://example.com/x.png']\")?.textContent"), "elsewhere");
+    assert.doesNotMatch(await text("[data-pr-comment=IC1]"), /<img|<script/);
+    assert.equal(await evaluate("window.ran ?? null"), null);
+    assert.deepEqual(await evaluate('window.calls.filter((call) => call.name === "image").map((call) => [call.cwd, call.url])'), [
+      ["/fixture", "https://github.com/user-attachments/assets/1a75943a-4133-4d9d-8fa3-99d4a0b689da"],
+    ]);
     await click("[data-pr-comments-sort]");
     assert.deepEqual(await cards(), ["T1", "IC1"], "Oldest first flips them");
     await delay(150);

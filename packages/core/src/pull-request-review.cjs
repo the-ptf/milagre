@@ -13,6 +13,10 @@ const MAX_BODY = 65_000;
 const FILE_PAGES = 30;
 const METHODS = new Set(["squash", "merge", "rebase"]);
 const EVENTS = new Set(["COMMENT", "APPROVE", "REQUEST_CHANGES"]);
+// An image dragged into a PR description or comment. A private repository's answers 404 without a GitHub token, so
+// they are read here with gh's, and only these: the token goes to github.com and to no other host.
+const ATTACHMENT = /^https:\/\/github\.com\/(?:user-attachments\/assets|[\w.-]+\/[\w.-]+\/assets\/\d+)\/[0-9a-f-]{36}$/;
+const MAX_IMAGE = 15 * 1024 * 1024;
 
 const DETAIL_QUERY = `query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){
@@ -250,7 +254,13 @@ function range(base, head) {
  * `exec(command, args, options)` resolves `{ stdout }` or rejects with `stdout`/`stderr`/`code`, as
  * promisified execFile does. Every method returns a result object and never throws.
  */
-function createPullRequestReview({ exec = defaultExec, env = process.env, diff = createGitDiff({ env }), git = createGit({ env }) } = {}) {
+function createPullRequestReview({
+  exec = defaultExec,
+  env = process.env,
+  diff = createGitDiff({ env }),
+  git = createGit({ env }),
+  fetch = globalThis.fetch,
+} = {}) {
   async function gh(cwd, args) {
     const { stdout } = await exec("gh", args, ghOptions(cwd, env));
     return stdout;
@@ -325,8 +335,27 @@ function createPullRequestReview({ exec = defaultExec, env = process.env, diff =
     return true;
   }
 
+  /** The attachment's bytes as a data URL: github.com answers with a signed address on its storage, read without the token. */
+  async function attachment(cwd, url) {
+    if (typeof url !== "string" || !ATTACHMENT.test(url)) throw new ReviewError("That isn't a GitHub attachment.");
+    const token = (await gh(cwd, ["auth", "token", "--hostname", "github.com"])).trim();
+    const signed = await fetch(url, { redirect: "manual", headers: token ? { Authorization: `token ${token}` } : {} });
+    const location = signed.headers.get("location");
+    if (signed.status < 300 || signed.status >= 400 || !location?.startsWith("https://")) throw new ReviewError("GitHub didn't send this image.");
+    const image = await fetch(location);
+    const type = image.headers.get("content-type")?.split(";")[0].trim() ?? "";
+    if (!image.ok || !type.startsWith("image/")) throw new ReviewError("GitHub didn't send this image.");
+    if (Number(image.headers.get("content-length")) > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
+    const bytes = Buffer.from(await image.arrayBuffer());
+    if (bytes.length > MAX_IMAGE) throw new ReviewError("This image is too large to show here.");
+    return `data:${type};base64,${bytes.toString("base64")}`;
+  }
+
   return {
     detail: ({ cwd, number: n } = {}) => guard(async () => ({ ok: true, pr: await read(cwd, number(n)) })),
+
+    /** An image of the PR's description or comments, which a private repository serves only to a signed-in viewer. */
+    image: ({ cwd, url } = {}) => guard(async () => ({ ok: true, dataUrl: await attachment(cwd, url) })),
 
     /** The PR's files as GitHub diffs them: merge-base(base, head)..head, read from the folder's own git. */
     diffFiles: ({ cwd, base, head } = {}) =>
