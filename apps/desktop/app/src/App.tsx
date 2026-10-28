@@ -13,6 +13,7 @@ import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
+import { isChatsHomeProject, type ProjectKind } from "@milagre/shared/chats-home";
 import { BridgeContext, ScopeContext, bridgeFor, bridgeForKey, forgetBridge, isRemoteKey, onAnyAgentEvent } from "./lib/computer-bridge";
 import type { WorktreeRename } from "@milagre/shared/project-edits";
 import { reconcileState } from "@milagre/shared/reconcile";
@@ -484,9 +485,10 @@ function App() {
     };
   }, [commandPaletteOpen]);
   const [pickedIsolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
-  // A Project outside Git has one Worktree, the folder itself: its Chats always work there.
+  // A Project outside Git has one Worktree, the folder itself: its Chats always work there. A Chat without a Project
+  // always gets its own Worktree of the Chats home, a new empty folder.
   const noGit = project?.git === false;
-  const isolation: Isolation = noGit ? "local" : pickedIsolation;
+  const isolation: Isolation = isChatsHomeProject(project) ? "worktree" : noGit ? "local" : pickedIsolation;
   // The open Project's branches, from the last read of them (branchLists); a read that changes them renders again.
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
@@ -2498,15 +2500,17 @@ function App() {
   }
   // New chat (⌘N, the sidebar's +, the command palette, a Link's) always opens the same screen on this Mac: the open
   // Project when it is this Mac's, else the one opened here last. Another computer's Project or a Link gets a new Chat
-  // from its own header's +, or the heading's Project dropdown.
+  // from its own header's +, or the heading's Project dropdown. A Chat without a Project on screen is no Project to
+  // start in: only No project in the heading's dropdown starts one.
   const startNewChatOnThisMac = useEvent(async (draftText: string = "") => {
     const current = projectRef.current?.path;
-    if (!selectedLinkRef.current && current && computerOfKey(current) === LOCAL_COMPUTER) {
+    const currentKind = projectRef.current?.kind;
+    if (!selectedLinkRef.current && current && currentKind !== "chats" && computerOfKey(current) === LOCAL_COMPUTER) {
       startNewChat(draftText);
       return;
     }
     const recent = await window.milagre.listRecentProjects().catch((): RecentProject[] => []);
-    const home = newChatProject({ currentPath: current, recent });
+    const home = newChatProject({ currentPath: current, currentKind, recent });
     if (home) startNewChatIn(home, draftText);
     // This Mac has no Project: the new Chat stays where it is.
     else if (!selectedLinkRef.current) startNewChat(draftText);
@@ -2516,10 +2520,22 @@ function App() {
     const { prompt } = await window.milagre.prepareTriage(`Milagre desktop ${await window.milagre.getAppVersion()} on ${navigator.platform}`);
     await startNewChatOnThisMac(prompt);
   });
-  // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far.
-  const moveNewChat = useEvent((key: string) => {
+  // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far. No project
+  // (or the computer chip on its draft) moves it to that computer's Chats home, made first when it isn't there yet.
+  const moveNewChat = useEvent(async (key: string, kind?: ProjectKind) => {
     const from = projectRef.current?.path;
     if (selectedLinkRef.current || !from || from === key) return;
+    if (kind === "chats") {
+      try {
+        await bridgeForKey(key).ensureChatsHome();
+      } catch (error) {
+        // The draft stays where it was typed.
+        if (!selectedLinkRef.current && projectRef.current?.path === from)
+          setNewChatError(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
+        return;
+      }
+      if (selectedLinkRef.current || projectRef.current?.path !== from) return;
+    }
     const carried = draftStore.get();
     // The text leaves this Project's new Chat, so it isn't waiting here too on the way back.
     if (carried) setDraft("");
@@ -3555,7 +3571,7 @@ function App() {
                         permissionMode={permissionMode}
                         onPermissionModeChange={changePermissionMode}
                         onRecommendationSelect={sendRecommendation}
-                        newChatProject={{ key: project.path, name: project.name, onChange: moveNewChat }}
+                        newChatProject={{ key: project.path, name: project.name, kind: project.kind, onChange: moveNewChat }}
                         worktrees={composerWorktrees}
                         selectedWorktreeId={selectedWorktree?.id}
                         onWorktreeChange={(id) => {

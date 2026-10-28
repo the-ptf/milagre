@@ -113,6 +113,8 @@ interface PromptComposerProps {
   contextUsage?: ContextUsage;
   /** The Chat is saved: `/undo` is offered, and sending it opens Undo changes instead of reaching the agent. */
   canUndo?: boolean;
+  /** The idle field's prompt in place of the default, e.g. a Chat without a Project's. */
+  placeholder?: string;
 }
 
 const NO_HISTORY: string[] = [];
@@ -182,6 +184,7 @@ export function PromptComposer({
   alwaysExpanded = false,
   contextUsage,
   canUndo = false,
+  placeholder,
 }: PromptComposerProps) {
   const mentions = useChatMentions();
   const [dismissed, setDismissed] = useState(false);
@@ -889,7 +892,7 @@ export function PromptComposer({
                       providerCapabilities(provider).steer
                       ? "Steer the agent…"
                       : "Queue a message for the next turn…"
-                    : "Prompt or mention a file or Chat with @") +
+                    : (placeholder ?? "Prompt or mention a file or Chat with @")) +
                   (offlineName ? offlinePlaceholder(offlineName) : reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}

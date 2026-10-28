@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LOCAL_COMPUTER, computerOfKey, unqualifyKey } from "@milagre/shared/chat-scopes";
+import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome } from "@milagre/shared/chats-home";
 import { groupByOrigin } from "@milagre/shared/project-origin";
+import { bridgeFor } from "./computer-bridge.ts";
 import { useComputers, useHiddenComputers } from "./computers.ts";
 import { useComputerScopes } from "./computer-scopes.ts";
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
@@ -37,6 +39,82 @@ export function rememberProjectComputer(copy: Pick<ProjectCopy, "origin" | "comp
 export function preferredCopy(group: ProjectGroup): ProjectCopy {
   const last = group.origin ? readLastComputers()[group.origin] : undefined;
   return group.copies.find((copy) => copy.computerId === last) ?? group.copies.find((copy) => copy.computerId === LOCAL_COMPUTER) ?? group;
+}
+
+/** The key a picked row moves the new Chat to: where it already is when that is one of the row's copies, else its preferred copy. */
+export function pickedProjectKey(group: ProjectGroup, currentKey: string): string {
+  if (group.copies.some((copy) => copy.key === currentKey)) return currentKey;
+  const copy = preferredCopy(group);
+  rememberProjectComputer(copy);
+  return copy.key;
+}
+
+/**
+ * The picker's No project row: one copy per computer, its Chats home there (made on pick when it doesn't exist yet), This
+ * Mac's first so picking the row starts here.
+ */
+export function chatsGroup(homes: { computerId: string; computer: string; online?: boolean; home: ChatsHome }[]): ProjectGroup {
+  const copies = homes
+    .map(({ computerId, computer, online, home }) => ({
+      key: home.path,
+      name: NO_PROJECT_LABEL,
+      computerId,
+      computer,
+      online: online ?? true,
+    }))
+    .toSorted((a, b) => Number(b.computerId === LOCAL_COMPUTER) - Number(a.computerId === LOCAL_COMPUTER));
+  const first = copies[0] ?? { key: CHATS_GROUP_KEY, name: NO_PROJECT_LABEL, computerId: LOCAL_COMPUTER, computer: "", online: true };
+  return { ...first, key: CHATS_GROUP_KEY, name: NO_PROJECT_LABEL, copies };
+}
+
+/** The picker's rows for a search: No project first, then the Projects; the Chats home itself is never a Project row. */
+export function projectPickerRows({ groups, noProject, query }: { groups: ProjectGroup[]; noProject?: ProjectGroup; query: string }): ProjectGroup[] {
+  const search = query.trim().toLowerCase();
+  const matches = (group: ProjectGroup) =>
+    group.name.toLowerCase().includes(search) || group.copies.some((copy) => copy.computer.toLowerCase().includes(search));
+  const homes = new Set(noProject?.copies.map((copy) => copy.key));
+  const projects = groups.filter((group) => !group.copies.some((copy) => homes.has(copy.key)) && matches(group));
+  return noProject && noProject.copies.length > 0 && matches(noProject) ? [noProject, ...projects] : projects;
+}
+
+/**
+ * The No project row for the new-chat picker: each computer's Chats home, This Mac's and every paired computer that
+ * isn't off or hidden. A computer whose home can't be read is left out. Undefined until This Mac's is read.
+ */
+export function useChatsGroup(enabled: boolean): ProjectGroup | undefined {
+  const { thisMac, computers } = useComputers();
+  const hiddenComputers = useHiddenComputers();
+  const [homes, setHomes] = useState<Record<string, ChatsHome>>({});
+  // Each computer to read, with its state so one that comes back online is read again.
+  const reads = [
+    `${LOCAL_COMPUTER} online`,
+    ...computers.filter((computer) => computer.state !== "off").map((computer) => `${computer.id} ${computer.state}`),
+  ].join("\n");
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    for (const read of reads.split("\n")) {
+      const id = read.split(" ")[0]!;
+      const readHome = async () => {
+        const home = await bridgeFor(id).chatsHome?.();
+        if (live && home?.path) setHomes((previous) => (previous[id]?.path === home.path ? previous : { ...previous, [id]: home }));
+      };
+      readHome().catch(() => {});
+    }
+    return () => {
+      live = false;
+    };
+  }, [enabled, reads]);
+  return useMemo(() => {
+    if (!enabled || !homes[LOCAL_COMPUTER]) return undefined;
+    const list: Parameters<typeof chatsGroup>[0] = [{ computerId: LOCAL_COMPUTER, computer: thisMac, online: true, home: homes[LOCAL_COMPUTER] }];
+    for (const computer of computers) {
+      const home = homes[computer.id];
+      if (!home || computer.state === "off" || hiddenComputers.has(computer.id)) continue;
+      list.push({ computerId: computer.id, computer: computer.name, online: computer.state === "online", home });
+    }
+    return chatsGroup(list);
+  }, [enabled, homes, thisMac, computers, hiddenComputers]);
 }
 
 /** A path on another computer reads from its home folder: "/Users/ana/Code/app" as "~/Code/app". */
