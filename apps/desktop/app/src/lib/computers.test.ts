@@ -58,7 +58,11 @@ test("the dot, dimming and read-only follow the state", () => {
   );
   assert.equal(isDimmed(view({ state: "offline" })), true);
   assert.equal(isDimmed(view({ state: "reconnecting" })), false);
-  assert.equal(isReadOnly(view({ state: "reconnecting" })), true);
+  assert.equal(isReadOnly(view({ state: "reconnecting" })), false, "a reconnect is a blip: sends wait for it");
+  assert.equal(isReadOnly(view({ state: "connecting" })), false);
+  assert.equal(isReadOnly(view({ state: "offline" })), true);
+  assert.equal(isReadOnly(view({ state: "refused" })), true);
+  assert.equal(isReadOnly(view({ state: "off" })), true);
   assert.equal(isReadOnly(view()), false);
   assert.equal(isReadOnly(undefined), true);
 });

@@ -502,7 +502,7 @@ test("a call made while the runtime moves to the LAN waits for it and goes throu
   assert.equal(computers.list()[0].address, new URL(LAN).hostname);
 });
 
-test("a switch whose recovery fails reads Reconnecting… and the call waiting on it fails", async (t) => {
+test("a switch whose recovery fails reads Reconnecting… and the call waiting on it goes through once it is back", async (t) => {
   const mac = fakeMac({ lan: [LAN] });
   holdLanSnapshot(mac);
   const { computers, changes, state } = await paired(t, mac);
@@ -511,16 +511,43 @@ test("a switch whose recovery fails reads Reconnecting… and the call waiting o
   await until(() => mac.held.length === 1, "the runtime to be recovering on the LAN");
   const id = computers.list()[0].id;
   const seen = changes.length;
-  const called = assert.rejects(computers.invoke(id, "project:recent"), /disconnected/);
+  const called = computers.invoke(id, "project:recent", ["x"]);
   mac.hold = null;
   mac.held.length = 0;
   for (const socket of mac.sockets.filter((item) => item.url.startsWith(LAN))) socket.closeWith(1006);
-  await called;
-  assert.ok(
-    changes.slice(seen).some((list) => list[0]?.state === "reconnecting"),
-    "the failed switch is not swallowed as part of the switch",
-  );
+  await until(() => changes.slice(seen).some((list) => list[0]?.state === "reconnecting"), "the failed switch is not swallowed as part of the switch");
   await until(() => state() === "online", "back online");
+  assert.deepEqual(await called, { echo: ["x"] });
+});
+
+test("a call made while a computer reconnects waits for it instead of failing as offline, and fails once it is offline", async (t) => {
+  const mac = fakeMac();
+  const lines = [];
+  const { computers, state } = await paired(t, mac, { offlineAfterMs: 300, log: (line) => lines.push(line) });
+  await computers.add(macLink(mac), { name: "studio" });
+  await computers.setEnabled(true);
+  await until(() => state() === "online", "online");
+  const id = computers.list()[0].id;
+  mac.hello = "full";
+  mac.drop();
+  await until(() => state() === "reconnecting", "reconnecting");
+  let settled = false;
+  const called = computers.invoke(id, "project:recent", ["x"]).finally(() => (settled = true));
+  await delay(40);
+  assert.equal(settled, false, "the call waits for the reconnect");
+  mac.hello = "accept";
+  assert.deepEqual(await called, { echo: ["x"] });
+  assert.ok(
+    lines.some((line) => / studio reconnecting from relay: \S/.test(line)) && lines.some((line) => / studio online relay/.test(line)),
+    lines.join("\n"),
+  );
+
+  mac.hello = "full";
+  mac.drop();
+  await until(() => state() === "reconnecting", "reconnecting again");
+  const waiting = assert.rejects(computers.invoke(id, "project:recent"), /studio is offline/);
+  await until(() => state() === "offline", "offline");
+  await waiting;
 });
 
 test("a computer whose first calls fail keeps no channel open between its retries", async (t) => {

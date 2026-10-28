@@ -66,8 +66,12 @@ export function routeLine(view: ComputerView, now: number): string {
 export const settingsTooltip = (name: string) => `${name} settings: rename, connection, remove`;
 /** Its Projects and rows are dimmed (spec "Sidebar"). */
 export const isDimmed = (view: ComputerView | undefined) => view?.state === "offline" || view?.state === "refused";
-/** Nothing can be sent to it: the composer is disabled and sends are refused. */
-export const isReadOnly = (view: ComputerView | undefined) => view?.state !== "online";
+/**
+ * Nothing can be sent to it: the composer is disabled and sends are refused. Connecting and Reconnecting are not: those
+ * blips last a second or two, and a send made meanwhile waits for the computer (computers.cjs invoke).
+ */
+export const isReadOnly = (view: ComputerView | undefined) =>
+  !view || !(view.state === "online" || view.state === "connecting" || view.state === "reconnecting");
 
 /** The banner over an offline computer's chat (design sidebar-c-sections v3). */
 export function offlineBanner(view: ComputerView, now: number): string {

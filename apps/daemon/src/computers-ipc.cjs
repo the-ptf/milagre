@@ -118,7 +118,9 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
     const method = ALIASES[name] ?? name;
     const bare = stripComputer(computerId, Array.isArray(args) ? args : []);
     const computer = computers.list().find((item) => item.id === computerId);
-    // Away (or off): its last copy answers what it can; nothing is sent.
+    // Away (or off): its last copy answers what it can; nothing is sent. Connecting or reconnecting is a blip: what the
+    // copy can't answer (a message, an approval) waits for the computer to be back instead of failing as offline.
+    const blip = computer?.state === "connecting" || computer?.state === "reconnecting";
     if (computer && computer.state !== "online") {
       let kept = null;
       // An unreadable copy is deleted by the cache, so a second look reads as no copy.
@@ -130,8 +132,8 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
           warn(computerId, error);
         }
       }
-      if (kept === null) throw new Error(`${computer.name} is offline.`);
-      return qualifyResult(computerId, method, kept);
+      if (kept !== null) return qualifyResult(computerId, method, kept);
+      if (!blip) throw new Error(`${computer.name} is offline.`);
     }
     const result = await computers.invoke(computerId, method, bare);
     // The copy is written once the answer is on its way: a Project's state is megabytes to serialize and write.
