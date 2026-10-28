@@ -14,6 +14,7 @@ import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { isChatsHomeProject, type ChatsHome } from "@milagre/shared/chats-home";
+import { projectSurfaces } from "./lib/project-surfaces";
 import { BridgeContext, ScopeContext, bridgeFor, bridgeForKey, forgetBridge, isRemoteKey, onAnyAgentEvent } from "./lib/computer-bridge";
 import type { WorktreeRename } from "@milagre/shared/project-edits";
 import { reconcileState } from "@milagre/shared/reconcile";
@@ -489,6 +490,10 @@ function App() {
   // always gets its own Worktree of the Chats home, a new empty folder.
   const noGit = project?.git === false;
   const isolation: Isolation = isChatsHomeProject(project) ? "worktree" : noGit ? "local" : pickedIsolation;
+  const surfaces = projectSurfaces(project);
+  // Git controls stay wherever they are today, a plain folder included (the places that need a repository check `noGit`
+  // themselves); only a Chat without a Project, whose repository is internal, loses them.
+  const showGit = surfaces.git || noGit;
   // The open Project's branches, from the last read of them (branchLists); a read that changes them renders again.
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
@@ -769,7 +774,7 @@ function App() {
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
   const sidePanels = useSidePanels();
   // The PR the open Chat's branch opened: the Changes panel's "PR #n" mode and its diff.
-  const branchPr = selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
+  const branchPr = showGit && selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
   const prChatKey = project && selectedSession ? chatKey(project.path, selectedSession.id) : null;
   const [prWanted, setPrWanted] = useState(false);
   // A PR picked in the panel's menu (or opened from a row's PR chip), over the branch's own, while its Chat is open.
@@ -788,7 +793,7 @@ function App() {
     cwd: selectedWorktree?.path,
     base: selectedWorktree?.base,
     chatId: prChatKey,
-    available: view === "chat" && Boolean(selectedSession && selectedWorktree),
+    available: view === "chat" && showGit && Boolean(selectedSession && selectedWorktree),
     pullRequest: prNumber ? { number: prNumber, range: prRange(prReview.pr) } : undefined,
   });
   const prShown = changes.open && changes.mode === "pr";
@@ -797,9 +802,11 @@ function App() {
   const diffComments = useDiffComments(project && selectedSession ? chatKey(project.path, selectedSession.id) : null, changes);
   const diffPrefs = useDiffPreferences();
   const diffPresence = useDiffPresence(changes.diffOpen);
-  const changesAvailable = view === "chat" && Boolean(selectedSession && selectedWorktree);
+  const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
+  const canvasAvailableRef = useRef(true);
+  canvasAvailableRef.current = surfaces.canvas;
   // The open Chat's Terminals; a draft has none until it is sent.
   const terminalChatId = view === "chat" && project && selectedSession && !selectedSession.archived ? chatKey(project.path, selectedSession.id) : null;
   const terminalChatRef = useRef(terminalChatId);
@@ -1141,7 +1148,7 @@ function App() {
   const readPullRequestRefs = useMemo(pullRequestRefsCache, []);
   // The open Chat's PRs, the same list its sidebar row shows, so the composer's action and the row agree.
   const selectedPullRequests =
-    project && selectedSession && selectedWorktree
+    showGit && project && selectedSession && selectedWorktree
       ? chatPullRequests(
           selectedSession.summary
             ? (selectedSession.summary.pullRequests ?? NO_REFS)
@@ -1195,21 +1202,22 @@ function App() {
         ...(backgroundChats.has(session.id) ? { background: backgroundChats.get(session.id) } : {}),
         unread: Boolean(session.unread),
         details: {
-          branch: worktree?.name,
+          branch: showGit ? worktree?.name : undefined,
           path: worktree?.path,
-          diff: worktree?.diff,
-          linearIssue: worktree ? linearIssues[worktree.path] : undefined,
+          diff: showGit ? worktree?.diff : undefined,
+          linearIssue: showGit && worktree ? linearIssues[worktree.path] : undefined,
           // The stored link (Worktree.linearIssue) and whether "Link issue…" applies: the chat's own Worktree,
           // not the main checkout, and not one another chat shares.
-          linearKey: linear.active ? (worktree?.linearIssue ?? undefined) : undefined,
-          linkable: linear.active && !!worktree && worktree.path !== project?.path && !worktreeShared(state, session.id),
-          pullRequests: worktree
-            ? chatPullRequests(
-                session.summary ? (summary.pullRequests ?? NO_REFS) : readPullRequestRefs(chatKey(project?.path ?? "", session.id), sessionMessages),
-                chatPrs[worktree.path] ?? {},
-                pullRequests[worktree.path] ?? undefined,
-              )
-            : [],
+          linearKey: showGit && linear.active ? (worktree?.linearIssue ?? undefined) : undefined,
+          linkable: showGit && linear.active && !!worktree && worktree.path !== project?.path && !worktreeShared(state, session.id),
+          pullRequests:
+            showGit && worktree
+              ? chatPullRequests(
+                  session.summary ? (summary.pullRequests ?? NO_REFS) : readPullRequestRefs(chatKey(project?.path ?? "", session.id), sessionMessages),
+                  chatPrs[worktree.path] ?? {},
+                  pullRequests[worktree.path] ?? undefined,
+                )
+              : [],
           failed: Boolean(failed) || summary.lastOutcome === "failed",
           lastAt: summary.lastAt,
           firstAt: summary.firstAt,
@@ -1237,6 +1245,7 @@ function App() {
     linear.active,
     agentPorts,
     project,
+    showGit,
     archivingChats,
   ]);
   const latest = useRef({ patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat });
@@ -2343,7 +2352,7 @@ function App() {
         } else if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
           event.preventDefault();
           changes.toggleDefault();
-        } else if (event.key.toLowerCase() === "l") {
+        } else if (event.key.toLowerCase() === "l" && canvasAvailableRef.current) {
           event.preventDefault();
           changes.closeDiff();
           setView("canvas");
@@ -2458,14 +2467,14 @@ function App() {
             onReveal: (id: string) => latest.current.revealChat(Number(id)),
             onOpenInEditor: (id: string) => latest.current.openChatInEditor(Number(id)),
           }),
-      onCommit: (id) => latest.current.openGitDialog(Number(id)),
+      ...(showGit ? { onCommit: (id: string) => latest.current.openGitDialog(Number(id)) } : { gitless: true }),
       onArchiveCheck: (id) => latest.current.checkArchive(Number(id)),
       // The row shows the progress until this settles.
       onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan),
       onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace),
       onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id)),
     }),
-    [remoteProject],
+    [remoteProject, showGit],
   );
   // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
   const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
@@ -3006,15 +3015,19 @@ function App() {
         keywords: "add repository workspace folder",
         run: () => openProject(),
       },
-      {
-        id: "canvas",
-        label: "Projects and Links",
-        group: "Actions",
-        icon: "git",
-        shortcut: `${modifier}⇧L`,
-        keywords: "canvas linked worktrees",
-        run: openCanvas,
-      },
+      ...(surfaces.canvas
+        ? [
+            {
+              id: "canvas",
+              label: "Projects and Links",
+              group: "Actions",
+              icon: "git" as const,
+              shortcut: `${modifier}⇧L`,
+              keywords: "canvas linked worktrees",
+              run: openCanvas,
+            },
+          ]
+        : []),
       {
         id: "routines",
         label: "Routines",
@@ -3063,15 +3076,19 @@ function App() {
         keywords: "appearance switch color mode",
         run: toggleTheme,
       },
-      {
-        id: "project-settings",
-        label: "Project settings",
-        group: "Actions",
-        icon: "settings",
-        detail: current.name,
-        keywords: "worktree setup files",
-        run: openProjectSettings,
-      },
+      ...(surfaces.settings
+        ? [
+            {
+              id: "project-settings",
+              label: "Project settings",
+              group: "Actions",
+              icon: "settings" as const,
+              detail: current.name,
+              keywords: "worktree setup files",
+              run: openProjectSettings,
+            },
+          ]
+        : []),
     ];
     if (view === "settings" || view === "routines")
       commands.push({ id: "back-to-chat", label: "Back to chat", group: "Actions", icon: "chat", run: () => setView("chat") });
@@ -3091,14 +3108,18 @@ function App() {
     if (selectedSession && view === "chat") {
       const sessionId = selectedSession.id;
       commands.unshift(
-        {
-          id: "git",
-          label: "Commit and open PR…",
-          group: "Current chat",
-          icon: "git",
-          keywords: "git changes pull request push",
-          run: () => openGitDialog(sessionId),
-        },
+        ...(showGit
+          ? [
+              {
+                id: "git",
+                label: "Commit and open PR…",
+                group: "Current chat",
+                icon: "git" as const,
+                keywords: "git changes pull request push",
+                run: () => openGitDialog(sessionId),
+              },
+            ]
+          : []),
         ...(isRemoteKey(project?.path)
           ? []
           : [
@@ -3285,7 +3306,7 @@ function App() {
               <PullRequestOpenContext.Provider value={openRowPullRequest}>
                 <SidebarNav
                   fill
-                  workspaceName={project.name}
+                  workspaceName={surfaces.name}
                   workspaceImage={projectImage(project.path)}
                   onSwitchLink={switchLinkFromSidebar}
                   onLinkProject={linkProjectFromSidebar}
@@ -3307,7 +3328,7 @@ function App() {
                   chatActions={chatActions}
                   onNewChat={startNewChatFromSidebar}
                   onOpenSettings={openSettings}
-                  onOpenCanvas={openCanvas}
+                  onOpenCanvas={surfaces.canvas ? openCanvas : undefined}
                   canvasActive={view === "canvas"}
                   onOpenRoutines={openRoutines}
                   routinesActive={view === "routines"}
@@ -3317,7 +3338,7 @@ function App() {
                   projectPath={project.path}
                   onSwitchProject={switchProjectFromSidebar}
                   attentionPaths={attentionPaths}
-                  onOpenProjectSettings={openProjectSettings}
+                  onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}
                   onNewChatInScope={newChatInScope}
                   usage={sidebarUsage}
                   runningKeys={sidebarRunKeys.running}
@@ -3343,7 +3364,7 @@ function App() {
                 <SettingsNav
                   section={settingsSection}
                   project={settingsProject ?? project}
-                  current={project}
+                  current={surfaces.settings ? project : undefined}
                   onSelect={setSettingsSection}
                   computerId={settingsComputer ?? undefined}
                   onSelectComputer={selectSettingsComputer}
@@ -3441,7 +3462,7 @@ function App() {
                     <RunChatHeader
                       chatKey={focusedChatKey}
                       title={chatTitle(selectedSession, displayedMessages)}
-                      branch={selectedWorktree?.name}
+                      branch={showGit ? selectedWorktree?.name : undefined}
                       onClose={closeRunPane}
                     />
                   )}
@@ -3488,7 +3509,7 @@ function App() {
                         }
                         onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
                         linearActive={linear.active}
-                        onStartFromIssue={noGit ? undefined : startFromIssue}
+                        onStartFromIssue={surfaces.git ? startFromIssue : undefined}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
                         pullRequestAction={
                           selectedSession && pullRequestBlockerAction && pullRequestActionRequest
@@ -3505,7 +3526,9 @@ function App() {
                                 { label: `Merge #${branchPr.number}`, tone: "green", onRun: changes.showPullRequest }
                               : undefined
                         }
-                        pullRequestReview={selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined}
+                        pullRequestReview={
+                          showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
+                        }
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
@@ -3585,7 +3608,7 @@ function App() {
                         noGit={noGit}
                         starters={
                           firstChat === project.path && displayedMessages.length === 0 && !isSending
-                            ? firstChatStarters(project.name).map((starter) => ({
+                            ? firstChatStarters(surfaces.name).map((starter) => ({
                                 ...starter,
                                 onPick: () => {
                                   setFirstChat(null);

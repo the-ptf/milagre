@@ -147,6 +147,8 @@ export type ChatRowActions = {
   remote?: boolean;
   /** Opens the chat with its "Commit and open PR" dialog. */
   onCommit?: (id: string) => void;
+  /** The chat has no Project, so no Git to the user: the menu leaves out "Commit and open PR…" and "Copy branch name". */
+  gitless?: boolean;
   /** Looks at the chat's worktree when "Archive" is clicked, to decide what the confirm step offers. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
@@ -1424,7 +1426,9 @@ function ChatMenu({
 
   const items: Array<MenuEntry | "divider"> = [
     { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
-    { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
+    ...(actions.gitless
+      ? []
+      : [{ key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch }]),
     { key: "rename", label: "Rename chat", icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
     {
       key: "reload",
@@ -1472,13 +1476,17 @@ function ChatMenu({
       disabled: !editor || !actions.onOpenInEditor || !details.path,
     },
     // Every chat's folder came from `git worktree list`, so a chat with a folder is in a repository.
-    {
-      key: "commit",
-      label: "Commit and open PR…",
-      icon: GitPullRequestIcon,
-      onSelect: run(() => actions.onCommit?.(item.id)),
-      disabled: !actions.onCommit || !details.path,
-    },
+    ...(actions.gitless
+      ? []
+      : [
+          {
+            key: "commit",
+            label: "Commit and open PR…",
+            icon: GitPullRequestIcon,
+            onSelect: run(() => actions.onCommit?.(item.id)),
+            disabled: !actions.onCommit || !details.path,
+          },
+        ]),
     item.pinned
       ? { key: "unpin", label: "Unpin", icon: PinOffIcon, onSelect: run(() => actions.onPin?.(item.id, null)), disabled: !actions.onPin }
       : { key: "pin", label: "Pin", icon: PinIcon, onSelect: run(() => actions.onPin?.(item.id)), disabled: !actions.onPin },
