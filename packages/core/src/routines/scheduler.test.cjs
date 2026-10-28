@@ -47,12 +47,10 @@ function setup({ enabled = true, chatOptions = {} } = {}) {
     },
     ...chatOptions,
   };
-  const awakeCalls = [];
-  const keepAwake = { setRoutinesActive: (active) => awakeCalls.push(active) };
   let changes = 0;
-  const make = () => createRoutineScheduler({ store, chats, keepAwake, now: () => clock.t, onChange: () => (changes += 1) });
+  const make = () => createRoutineScheduler({ store, chats, now: () => clock.t, onChange: () => (changes += 1) });
   const routine = store.upsertHeartbeat(base);
-  return { store, storeOptions, clock, state, calls, awakeCalls, routine, make, scheduler: make(), changes: () => changes };
+  return { store, storeOptions, clock, state, calls, routine, make, scheduler: make(), changes: () => changes };
 }
 
 const due = (ctx) => (ctx.clock.t = ctx.routine.nextRunAt);
@@ -263,20 +261,12 @@ test("a gone target completes the Routine and fails the Run", async () => {
   assert.deepEqual(ctx.store.list(), []);
 });
 
-test("start completes heartbeats of an archived Chat and keep-awake goes inactive", () => {
+test("start completes heartbeats of an archived Chat", () => {
   const ctx = setup();
   ctx.state.archived = true;
   ctx.scheduler.start();
   ctx.scheduler.stop();
   assert.deepEqual(ctx.store.list(), []);
-  assert.deepEqual(ctx.awakeCalls, [false]);
-});
-
-test("start reports keep-awake active while a Routine is enabled", () => {
-  const ctx = setup();
-  ctx.scheduler.start();
-  ctx.scheduler.stop();
-  assert.deepEqual(ctx.awakeCalls, [true]);
 });
 
 test("chatArchived completes that Chat's heartbeats", () => {
@@ -289,9 +279,6 @@ test("chatArchived completes that Chat's heartbeats", () => {
     ctx.store.list().map((routine) => routine.id),
     [kept.id],
   );
-  assert.equal(ctx.awakeCalls.at(-1), true);
-  ctx.scheduler.chatArchived("c2");
-  assert.equal(ctx.awakeCalls.at(-1), false);
 });
 
 test("a claim lost to a crash fails once on restart and does not fire again", async () => {
@@ -309,7 +296,6 @@ test("a claim lost to a crash fails once on restart and does not fire again", as
       send: async (...args) => ctx.calls.send.push(args) && { started: Promise.resolve(null) },
       replyText: () => "",
     },
-    keepAwake: { setRoutinesActive() {} },
     now: () => ctx.clock.t,
   });
   scheduler.start();
@@ -335,13 +321,12 @@ test("recovery runs once: a timer stopped and started again leaves a Run in flig
   assert.equal(lastRun(ctx).status, "running");
 });
 
-test("with the flag off ticks send nothing and keep-awake stays inactive", async () => {
+test("with the flag off ticks send nothing", async () => {
   const ctx = setup({ enabled: false });
   due(ctx);
   await ctx.scheduler.tick();
   assert.equal(ctx.calls.send.length, 0);
   assert.deepEqual(ctx.store.runs(ctx.routine.id), []);
-  assert.deepEqual(ctx.awakeCalls, [false]);
 });
 
 test("tick expires a Routine past its expiresAt before claiming", async () => {
@@ -372,7 +357,6 @@ test("start ticks on an interval that is unref'd, and stop clears it", () => {
   const scheduler = createRoutineScheduler({
     store: ctx.store,
     chats: { exists: () => true, archived: () => false, busy: () => false },
-    keepAwake: { setRoutinesActive() {} },
     now: () => ctx.clock.t,
     setInterval: (fn, ms) => {
       const handle = { fn, ms, unref: () => (handle.unrefd = true) };
@@ -706,7 +690,6 @@ function triggers({ chatOptions = {} } = {}) {
   const raw = createRoutineScheduler({
     store: spied,
     chats,
-    keepAwake: { setRoutinesActive() {} },
     now: () => clock.t,
     onChange: () => (changes += 1),
   });
@@ -1464,7 +1447,7 @@ test("a schedule with no next run pauses itself, and a heartbeat due in the same
     replyText: () => "",
     async patchRunContext() {},
   };
-  const scheduler = createRoutineScheduler({ store, chats, keepAwake: { setRoutinesActive() {} }, now: () => clock.t });
+  const scheduler = createRoutineScheduler({ store, chats, now: () => clock.t });
   scheduler.start();
   scheduler.stop();
   assert.equal(store.get(bad.id).pausedReason, "schedule has no next run");
