@@ -15,6 +15,12 @@ test("wrapper tags and line breaks go, their text stays", () => {
   assert.equal(githubHtmlToMarkdown("a <kbd>K</kbd> b"), "a <kbd>K</kbd> b", "Other tags stay as written");
 });
 
+test("comments go, across lines too, but not inside code", () => {
+  assert.equal(githubHtmlToMarkdown("<!-- triage:v1 -->\nBug fix"), "\nBug fix");
+  assert.equal(githubHtmlToMarkdown("a\n<!-- Describe\nthe change -->\nb"), "a\n\nb");
+  assert.equal(githubHtmlToMarkdown("```\n<!-- kept -->\n```"), "```\n<!-- kept -->\n```");
+});
+
 test("code keeps its tags", () => {
   const fenced = ["```html", `<img src="${ASSET}">`, "```", "`<br>` and <br>"].join("\n");
   assert.equal(githubHtmlToMarkdown(fenced), ["```html", `<img src="${ASSET}">`, "```", "`<br>` and  "].join("\n"));

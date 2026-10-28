@@ -60,7 +60,7 @@ function LoadedImage({ load, src, alt, width }: { load: Promise<string>; src: st
         style={size ?? { width: 160 }}
       />
     );
-  const name = alt || src.split("/").pop() || "image";
+  const name = alt || "Image";
   return (
     <>
       <img

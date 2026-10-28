@@ -29,12 +29,29 @@ function convert(text: string) {
 }
 
 /**
- * GitHub's HTML in a PR's text as the Markdown a renderer without HTML shows: images become Markdown images and
- * wrapper tags go, outside code. Code spans and fences keep their text as written.
+ * GitHub's HTML in a PR's text as the Markdown a renderer without HTML shows: images become Markdown images, and
+ * comments (a PR template's hints) and wrapper tags go, outside code. Code spans and fences keep their text as written.
  */
 export function githubHtmlToMarkdown(text: string): string {
   if (!text.includes("<")) return text;
   const out: string[] = [];
+  let prose: string[] = [];
+  const flush = () => {
+    if (!prose.length) return;
+    out.push(
+      ...prose
+        .join("\n")
+        .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+        .split("\n")
+        .map((line) =>
+          line
+            .split(/(`+[^`]*`+)/)
+            .map((part, index) => (index % 2 ? part : convert(part)))
+            .join(""),
+        ),
+    );
+    prose = [];
+  };
   let fence: string | null = null;
   for (const line of text.split("\n")) {
     const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
@@ -42,15 +59,11 @@ export function githubHtmlToMarkdown(text: string): string {
       if (marker && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
       out.push(line);
     } else if (marker) {
+      flush();
       fence = marker;
       out.push(line);
-    } else
-      out.push(
-        line
-          .split(/(`+[^`]*`+)/)
-          .map((part, index) => (index % 2 ? part : convert(part)))
-          .join(""),
-      );
+    } else prose.push(line);
   }
+  flush();
   return out.join("\n");
 }
