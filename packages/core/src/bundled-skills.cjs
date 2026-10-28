@@ -13,21 +13,25 @@ function bundledWritingInstructions() {
   ].join("\n\n");
 }
 
-// The QA fleet's personas as Claude agent types (qa-impatient, qa-mobile...): each prompt is the shared QA rules
-// (qa-fleet/agent.md) plus the persona's own file. Codex agents read the same files as their brief.
+// One QA persona as a Claude agent definition: its file's frontmatter name and description, and the shared QA rules
+// (qa-fleet/agent.md) followed by its own text. A Windows checkout has CRLF line endings.
+function personaAgent(text, rules) {
+  const [, front, body] = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text.replace(/\r\n/g, "\n"));
+  const field = (name) => new RegExp(`^${name}: (.+)$`, "m").exec(front)[1].trim();
+  return [field("name"), { description: field("description"), prompt: `${rules}\n\n${body.trim()}` }];
+}
+
+// The QA fleet's personas as Claude agent types (qa-impatient, qa-mobile...). Codex agents read the same files as
+// their brief.
 function bundledAgents() {
   const directory = path.join(BUNDLED_SKILLS_DIRECTORY, "qa-fleet");
-  const rules = fs.readFileSync(path.join(directory, "agent.md"), "utf8").trim();
+  const rules = fs.readFileSync(path.join(directory, "agent.md"), "utf8").replace(/\r\n/g, "\n").trim();
   return Object.fromEntries(
     fs
       .readdirSync(path.join(directory, "personas"))
       .filter((file) => file.endsWith(".md"))
-      .map((file) => {
-        const [, front, body] = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(fs.readFileSync(path.join(directory, "personas", file), "utf8"));
-        const field = (name) => new RegExp(`^${name}: (.+)$`, "m").exec(front)[1].trim();
-        return [field("name"), { description: field("description"), prompt: `${rules}\n\n${body.trim()}` }];
-      }),
+      .map((file) => personaAgent(fs.readFileSync(path.join(directory, "personas", file), "utf8"), rules)),
   );
 }
 
-module.exports = { BUNDLED_SKILLS_DIRECTORY, bundledAgents, bundledWritingInstructions };
+module.exports = { BUNDLED_SKILLS_DIRECTORY, bundledAgents, bundledWritingInstructions, personaAgent };

@@ -255,6 +255,12 @@ test("bundles the QA personas as agent types with the shared QA rules", () => {
     assert.ok(agent.prompt.includes("reached_first_success"));
   }
   assert.ok(agents["qa-mobile"].prompt.includes("375 x 812"));
+  // A Windows checkout has CRLF line endings.
+  const { personaAgent } = require("./bundled-skills.cjs");
+  const [name, agent] = personaAgent("---\r\nname: qa-x\r\ndescription: QA persona, x.\r\n---\r\n\r\nYou are x.\r\n", "Rules.");
+  assert.equal(name, "qa-x");
+  assert.equal(agent.description, "QA persona, x.");
+  assert.equal(agent.prompt, "Rules.\n\nYou are x.");
 });
 
 test("installed tldr overrides the bundled slash skill without duplicates", async (t) => {
