@@ -108,6 +108,17 @@ export function archiveChoices({ plan, running, chatsHome = false }) {
   };
 }
 
+/** What a Chat without a Project says once it is archived. Its folder goes with it, so there is no undo. */
+export const CHAT_ARCHIVED_NOTICE = "Chat archived";
+
+/**
+ * The notice after an archive: only a Chat without a Project says it went ("Chat archived"), since its folder goes
+ * with it and nothing lists it any more. A kept one ("kept": its folder stayed) already says why it came back.
+ */
+export function archivedNotice(outcome, { chatsHome = false } = {}) {
+  return chatsHome && (outcome === "hidden" || outcome === "removed") ? CHAT_ARCHIVED_NOTICE : null;
+}
+
 /** What archiving ends among the chat's Terminals: those running a command, by its name. */
 export function terminalNote(busy) {
   if (!busy.length) return null;

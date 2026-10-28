@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { ArchivePlan, WorktreeStatus } from "@milagre/shared/archive";
-import { archiveDialog, archiveFromPhone, checkArchive, confirmArchive, type AlertButton, type ArchiveClient, type ShowAlert } from "./archive.ts";
+import {
+  archiveActivity,
+  archiveDialog,
+  archiveFromPhone,
+  checkArchive,
+  confirmArchive,
+  type AlertButton,
+  type ArchiveClient,
+  type ShowAlert,
+} from "./archive.ts";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x-1", head: "abc", removable: true };
 const dirty: WorktreeStatus = { uncommitted: 2, unpushed: 1, branch: "milagre/x-1", head: "abc", removable: false };
@@ -311,6 +320,8 @@ test("a Chat without a Project: a clean one archives at once, one with files ask
   });
   assert.equal(result, "removed");
   assert.equal(shown.length, 0);
+  // It says it went, since nothing lists it any more.
+  assert.equal(archiveActivity().done, "Chat archived");
   const removal = calls.find((call) => call.method === "worktree:remove");
   assert.equal((removal?.args[1] as { force: boolean } | undefined)?.force, false);
 
@@ -335,6 +346,23 @@ test("a Chat without a Project: a clean one archives at once, one with files ask
     asked.shown[0]?.buttons.map((button) => button.text),
     ["Cancel", "Delete chat and its files"],
   );
+});
+
+test("a Project Chat's archive says nothing when it goes", async () => {
+  const { client } = fakeClient({ "worktree:remove": () => ({ removed: true }) });
+  const result = await archiveFromPhone({
+    client,
+    alert: fakeAlert("Archive and remove worktree").alert,
+    projectPath: "/work/shop",
+    state: state(),
+    chat: session(2, 2),
+    running: false,
+    notify: () => {},
+    refresh: async () => {},
+  });
+  assert.equal(result, "removed");
+  // The archive cleared any earlier confirmation and left none of its own.
+  assert.equal(archiveActivity().done, "");
 });
 
 test("whether to stop is read when the archive runs, not when Archive was tapped", async () => {

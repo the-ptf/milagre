@@ -4,6 +4,7 @@ import type { TerminalList } from "@milagre/shared/terminal";
 import {
   archiveChat,
   archiveChoices,
+  archivedNotice,
   isMilagreWorktree,
   worktreeShared,
   type ArchiveMode,
@@ -135,8 +136,10 @@ const archiving = new Set<string>();
  * archive outlives the screen it started on, so the Chat list reads both here: the Chat's row shows the progress
  * wherever it is listed, and the notice shows once the phone has moved on.
  */
-export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string };
-let activity: ArchiveActivity = { chats: new Set(), notice: "" };
+/** `done`: a short confirmation that the archive went ("Chat archived" for a Chat without a Project), gone after a while. */
+export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string; done: string };
+let activity: ArchiveActivity = { chats: new Set(), notice: "", done: "" };
+let doneTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 function setActivity(next: Partial<ArchiveActivity>) {
   activity = { ...activity, ...next };
@@ -153,7 +156,7 @@ export function subscribeArchiveActivity(listener: () => void) {
 }
 /** Marks a confirmed Chat as archiving; the returned function marks it done. A new archive clears an old notice. */
 export function startArchiving(chatId: string) {
-  setActivity({ chats: new Set(activity.chats).add(chatId), notice: "" });
+  setActivity({ chats: new Set(activity.chats).add(chatId), notice: "", done: "" });
   return () => {
     const chats = new Set(activity.chats);
     chats.delete(chatId);
@@ -165,6 +168,17 @@ export function showArchiveNotice(notice: string) {
 }
 export function clearArchiveNotice() {
   if (activity.notice) setActivity({ notice: "" });
+}
+/** Says the archive went, as the Chat screen's toast does, for a few seconds. */
+export function showArchiveDone(done: string, ms = 3000) {
+  if (doneTimer) clearTimeout(doneTimer);
+  setActivity({ done });
+  doneTimer = setTimeout(() => {
+    doneTimer = null;
+    setActivity({ done: "" });
+  }, ms);
+  // Node (the tests) needn't stay up for it; React Native's timers have no unref.
+  (doneTimer as { unref?: () => void }).unref?.();
 }
 
 /**
@@ -192,7 +206,7 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
     const latest = now?.project.state ?? request.state;
     const running = now ? Boolean(now.runs.runs[chatId]) : request.running;
     try {
-      return await archiveChat(
+      const outcome = await archiveChat(
         {
           projectPath,
           chatId,
@@ -211,6 +225,10 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
         mode,
         plan,
       );
+      // A Chat without a Project leaves no list behind it (its folder went too): the phone says it is gone.
+      const archived = archivedNotice(outcome, { chatsHome: request.chatsHome });
+      if (archived) showArchiveDone(archived);
+      return outcome;
     } finally {
       await request.refresh().catch(() => {});
     }
