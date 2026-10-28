@@ -106,7 +106,7 @@ import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, splitChats, type ChatLayout } from "./lib/chat-grid";
-import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
+import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
@@ -1318,7 +1318,15 @@ function App() {
     if (sessionId !== selectedSessionRef.current) {
       if (projectRef.current) beginChatSwitch(chatKey(projectRef.current.path, sessionId));
       advanceChatView();
-    }
+    } else if (
+      shownProject &&
+      readsOnPick({
+        onScreen: chatOnScreen({ view, runPane: runPaneOpen ? runPane : null, projectPath: shownProject.path, sessionId: selectedSessionRef.current }),
+        picked: chatKey(shownProject.path, sessionId),
+        unread: Boolean(openState()?.sessions[sessionId]?.unread),
+      })
+    )
+      patchChat(sessionId, { unread: false });
     setSelectedSessionId(sessionId);
     setSelectedWorktreeId(openState()?.sessions[sessionId]?.worktree_id ?? null);
     if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
