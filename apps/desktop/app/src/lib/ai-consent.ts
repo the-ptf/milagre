@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { AI_CONSENT_VERSION, createAiConsent } from "@milagre/shared/ai-consent";
 
 const KEY = "milagre.ai-sharing-consent";

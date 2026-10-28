@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import type { MergeMethod, PullRequestDetail, PullRequestThread } from "@milagre/shared/pull-request-review";
 import type { DiffLine } from "./diff-parse";
 

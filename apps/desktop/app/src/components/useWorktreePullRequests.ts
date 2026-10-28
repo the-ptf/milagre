@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CoordinatorState, PullRequest } from "../model";

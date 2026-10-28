@@ -75,6 +75,10 @@ type ThemeIo = { read(): Promise<string | null>; save(raw: string): Promise<void
 
 let state = DEFAULT_PHONE_THEME;
 let io: ThemeIo | null = null;
+let loading = false;
+let pendingPatch: Partial<PhoneThemeSettings> = {};
+let saves = Promise.resolve();
+let initialization = 0;
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((listener) => listener());
 
@@ -87,14 +91,30 @@ export function subscribeTheme(listener: () => void): () => void {
   };
 }
 
+function saveTheme(next: ThemeIo) {
+  const raw = JSON.stringify(state);
+  // Keep rapid changes in order, even when the underlying write is asynchronous.
+  saves = saves.then(() => next.save(raw)).catch(() => {});
+  return saves;
+}
+
 export function setThemeSettings(patch: Partial<PhoneThemeSettings>) {
   state = { ...state, ...patch };
+  if (!io || loading) pendingPatch = { ...pendingPatch, ...patch };
+  else void saveTheme(io);
   notify();
-  if (io) void io.save(JSON.stringify(state)).catch(() => {});
 }
 
 export async function initThemeStore(next: ThemeIo) {
+  const generation = ++initialization;
   io = next;
-  state = parsePhoneThemeSettings(await next.read().catch(() => null));
+  loading = true;
+  const saved = await next.read().catch(() => null);
+  if (generation !== initialization) return;
+  const changed = Object.keys(pendingPatch).length > 0;
+  state = { ...parsePhoneThemeSettings(saved), ...pendingPatch };
+  pendingPatch = {};
+  loading = false;
+  if (changed) void saveTheme(next);
   notify();
 }

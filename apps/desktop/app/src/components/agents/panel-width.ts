@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 /**
@@ -26,7 +27,7 @@ const clampPanelWidth = (panel: ResizablePanel, width: number) => {
 };
 
 function readWidth(panel: ResizablePanel) {
-  const saved = Number(window.localStorage.getItem(key(panel)));
+  const saved = Number(localStorage.getItem(key(panel)));
   return Number.isFinite(saved) && saved > 0 ? clampPanelWidth(panel, saved) : PANEL_WIDTHS[panel].default;
 }
 
@@ -53,7 +54,7 @@ function savedWidth(panel: ResizablePanel) {
 function saveWidth(panel: ResizablePanel, width: number) {
   const next = clampPanelWidth(panel, width);
   widths.set(panel, next);
-  window.localStorage.setItem(key(panel), String(next));
+  localStorage.setItem(key(panel), String(next));
   for (const listener of listeners) listener();
 }
 

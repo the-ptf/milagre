@@ -1,3 +1,4 @@
+import { preferenceStorage as localStorage } from "./preference-storage.ts";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { MODEL_CATALOG, PERMISSION_MODES } from "../model.ts";
 import type { PermissionMode } from "../model";
@@ -115,8 +116,8 @@ const DEFAULTS: AppSettings = {
 
 function load(): AppSettings {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<AppSettings> & { muriloMode?: unknown };
-    const legacyTheme = window.localStorage.getItem(LEGACY_THEME_KEY);
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<AppSettings> & { muriloMode?: unknown };
+    const legacyTheme = localStorage.getItem(LEGACY_THEME_KEY);
     const theme = saved.theme ?? legacyTheme;
     const customTheme = parseCustomTheme(saved.customTheme);
     return {
@@ -181,7 +182,7 @@ export function getSettings() {
 export function updateSettings(patch: Partial<AppSettings>) {
   current = { ...current, ...patch };
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
   } catch {
     // Settings still apply for this session when storage is unavailable.
   }
