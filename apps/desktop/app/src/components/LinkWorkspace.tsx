@@ -584,7 +584,11 @@ export function LinkWorkspace({
                       stop: () => agents.interrupt(key),
                       hide: async () => {
                         await bridge.patchChat(owner, Number(id), { archived: true });
-                        if (sessionId === Number(id)) pick(null);
+                        // The open Chat went: the new-chat screen takes its place, on this Mac as New chat opens it.
+                        if (sessionId === Number(id)) {
+                          if (onNewChat) onNewChat();
+                          else pick(null);
+                        }
                       },
                     }).catch((error) => setError(ipcErrorMessage(error)));
                   },
