@@ -39,8 +39,9 @@ named in the context file, one subdirectory per commit hash:
     git clone --depth 1 --filter=blob:none --branch <release-tag> \
       https://github.com/the-ptf/milagre-ade <source-cache-dir>/<hash>
 
-If the tag does not exist (a development build), clone `main` and treat file and line references as approximate. Reuse a
-directory left by an earlier triage run instead of cloning again.
+A development build, run from a checkout, reports version `0.1.0`. That is not a release: ignore the old `v0.1.0` tag and
+clone `main`, as for any version with no tag, and treat file and line references as approximate. Reuse a directory left by
+an earlier triage run instead of cloning again.
 
 Use the clone to map stack traces, log lines and error messages to real code. `packages/core/src/bundled-skills/milagre-help`
 in the clone describes how the host, desktop and phone fit together.
