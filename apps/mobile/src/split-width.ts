@@ -17,7 +17,7 @@ export const PANEL_MIN_WIDTH = 320;
 /** The gap between the Chat and the docked right panel, which holds the panel's resize grabber. */
 export const DOCK_GUTTER = 12;
 /** The room the docked right panel takes beside the Chat: the gutter, its card and the gap to its right. */
-export function dockSlot(panelWidth: number) {
+function dockSlot(panelWidth: number) {
   return DOCK_GUTTER + panelWidth + CARD_MARGIN;
 }
 /** The narrowest Chat the docked right panel leaves; a narrower window slides the panel over the Chat instead. */
