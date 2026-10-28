@@ -30,13 +30,16 @@ function partsFor(name) {
   return name.split("/");
 }
 const excluded = (name, patterns) => ARTIFACT.test(name) || SECRET_NAME.test(name) || patterns.some((p) => path.matchesGlob(name, p));
-const sizeOf = (name) => {
+const statOf = (name) => {
   try {
-    return fs.lstatSync(name).size;
+    return fs.lstatSync(name);
   } catch {
-    return 0;
+    return null;
   }
 };
+// A file written this close to a capture could change again within the clock's resolution without its stamp moving,
+// so its stamp is not kept and the next capture reads it again (Git's "racy" check).
+const RACY_MS = 2000;
 function execute(request) {
   const { root, identity, op } = request;
   const atRoot = () => {
@@ -87,7 +90,7 @@ function execute(request) {
       const end = fs.fstatSync(fd);
       if (offset > limit || end.size !== stat.size || end.mtimeMs !== stat.mtimeMs || offset !== stat.size)
         throw new Error(`File changed during checkpoint read: ${name}`);
-      return { bytes: buffer.subarray(0, offset), mode: stat.mode & 0o777 };
+      return { bytes: buffer.subarray(0, offset), mode: stat.mode & 0o777, stat };
     } catch (error) {
       if (error.code === "ENOENT") return { entry: null };
       if (["ENOTDIR", "ELOOP", "ENXIO"].includes(error.code) || /not a regular directory|directory changed/.test(error.message)) return { blocked: true };
@@ -113,7 +116,7 @@ function execute(request) {
     const found = bytesAt(name);
     if (!found.bytes) return found;
     if (secretContent(found.bytes)) return { blocked: true };
-    return { entry: { hash: hash(found.bytes), mode: found.mode }, bytes: found.bytes };
+    return { entry: { hash: hash(found.bytes), mode: found.mode }, bytes: found.bytes, stat: found.stat };
   };
   atRoot();
   const patterns = readRules();
@@ -125,10 +128,39 @@ function execute(request) {
     let total = 0;
     if (op === "scan") fs.mkdirSync(request.blobDirectory, { recursive: true, mode: 0o700 });
     // Smallest first: past the budget the largest files stay out, so the source an agent edits stays covered.
-    // A size read here only orders the files; each read below checks its file again.
+    // A size read here orders the files; each read below checks its file again.
     atRoot();
-    const sizes = new Map(request.names.map((name) => [name, sizeOf(name)]));
-    for (const name of request.names.toSorted((a, b) => sizes.get(a) - sizes.get(b))) {
+    const stats = new Map(request.names.map((name) => [name, statOf(name)]));
+    // `known`: each file's stamp (size, mtime, ctime, inode, device) and entry from this Worktree's last scan. A file whose
+    // stamp is the same, and whose blob is saved,, is the same file: it is not read and hashed again. `stamps` are
+    // this scan's, for the next one.
+    const known = op === "scan" ? (request.known ?? {}) : {};
+    const stamps = Object.create(null);
+    const settled = Date.now() - (request.racyMs ?? RACY_MS);
+    const stamp = (stat) => [stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino, stat.dev];
+    for (const name of request.names.toSorted((a, b) => (stats.get(a)?.size ?? 0) - (stats.get(b)?.size ?? 0))) {
+      const stat = stats.get(name),
+        was = known[name];
+      if (
+        stat?.isFile() &&
+        stat.nlink === 1 &&
+        Array.isArray(was) &&
+        same(stamp(stat), was.slice(0, 5)) &&
+        (stat.mode & 0o777) === was[6] &&
+        !excluded(name, patterns) &&
+        typeof was[5] === "string" &&
+        /^[0-9a-f]{64}$/.test(was[5]) &&
+        fs.existsSync(path.join(request.blobDirectory, was[5]))
+      ) {
+        if (total + stat.size > budget) {
+          blocked.push(name);
+          continue;
+        }
+        total += stat.size;
+        files[name] = { hash: was[5], mode: was[6] };
+        stamps[name] = was;
+        continue;
+      }
       const found = read(name, patterns);
       if (found.blocked || (found.entry && total + found.bytes.length > budget)) {
         blocked.push(name);
@@ -137,6 +169,8 @@ function execute(request) {
       if (!found.entry) continue;
       total += found.bytes.length;
       files[name] = found.entry;
+      if (op === "scan" && found.stat.mtimeMs < settled && found.stat.ctimeMs < settled)
+        stamps[name] = [...stamp(found.stat), found.entry.hash, found.entry.mode];
       if (op === "scan") {
         const dest = path.join(request.blobDirectory, found.entry.hash);
         if (!fs.existsSync(dest)) {
@@ -151,7 +185,7 @@ function execute(request) {
       }
     }
     atRoot();
-    return { files, blocked, patterns, total };
+    return { files, blocked, patterns, total, ...(op === "scan" ? { stamps } : {}) };
   }
   if (op !== "apply") throw new Error("Invalid checkpoint file operation");
   let restored = 0;

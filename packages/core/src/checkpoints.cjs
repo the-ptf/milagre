@@ -51,7 +51,7 @@ function fileOperation(request) {
     const child = execFile(
       process.execPath,
       [path.join(__dirname, "checkpoint-files.cjs")],
-      { cwd: request.root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 120000, maxBuffer: 16 * 1024 * 1024, encoding: "utf8" },
+      { cwd: request.root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 120000, maxBuffer: 64 * 1024 * 1024, encoding: "utf8" },
       (error, stdout) => {
         let result;
         try {
@@ -77,7 +77,11 @@ async function namesFor(root) {
 /** `budget` caps the bytes one capture saves across a Chat's Worktrees; past it the largest files stay out. */
 function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle = async () => {}, validateRoots = async () => {} }) {
   const running = new Map(),
-    previews = new Map();
+    previews = new Map(),
+    // Each Worktree's file stamps from its last full scan, so the next one reads only the files that changed. Kept
+    // for the Worktrees captured most recently; a restart starts them over.
+    stamps = new Map();
+  const stampsKey = (id) => JSON.stringify([id.root, id.dev, id.ino, id.gitDir]);
   let queue = Promise.resolve();
   const serial = (work) => {
     const next = queue.then(work);
@@ -102,6 +106,7 @@ function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle =
       total = 0;
     for (const [index, root] of roots.entries()) {
       const id = await identity(root);
+      const key = stampsKey(id);
       const captured = await fileOperation({
         op: "scan",
         root,
@@ -110,8 +115,15 @@ function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle =
         blobDirectory: path.join(directory, "blobs"),
         // A shared Chat's Worktrees take what the earlier ones left of the budget.
         budget: budget - total,
+        known: stamps.get(key),
       });
       if (!same(id, await identity(root))) throw new Error("Worktree changed during checkpoint capture");
+      // A restore's scan covers only the files it writes; the full scans keep the stamps.
+      if (!only) {
+        stamps.delete(key);
+        stamps.set(key, captured.stamps ?? {});
+        if (stamps.size > 32) stamps.delete(stamps.keys().next().value);
+      }
       total += captured.total;
       excluded += captured.blocked.length;
       snapshots.push({ identity: id, files: captured.files, blocked: captured.blocked });
