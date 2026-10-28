@@ -15,7 +15,8 @@ export function newChatLook(kind: ProjectKind | undefined): NewChatLook {
 /**
  * The heading's stacking layer. Its Project dropdown has to cover the composer, so the wrapper is raised while the dropdown is
  * open; closed, it stays under the composer's `/` and `@` menu (z-20), which would otherwise show the heading through it.
+ * A heading that is no longer shown never holds the layer, whatever the last reported state was.
  */
-export function headingLayer(pickerOpen: boolean): string {
-  return pickerOpen ? "z-30" : "";
+export function headingLayer(pickerOpen: boolean, shown = true): string {
+  return pickerOpen && shown ? "z-30" : "";
 }

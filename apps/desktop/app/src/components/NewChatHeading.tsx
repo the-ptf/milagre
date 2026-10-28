@@ -39,7 +39,11 @@ export function NewChatHeading({
   onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
-  useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
+  useEffect(() => {
+    onOpenChange?.(open);
+    // Unmounting with the picker open must not leave the caller believing it still is.
+    return () => onOpenChange?.(false);
+  }, [open, onOpenChange]);
   const { thisMac, computers } = useComputers();
   const chats = projectKind === "chats";
   const computerId = computerOfKey(projectKey);

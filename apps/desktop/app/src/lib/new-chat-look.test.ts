@@ -14,3 +14,7 @@ test("heading wrapper is raised only while its picker is open", () => {
   assert.equal(headingLayer(true), "z-30");
   assert.equal(headingLayer(false), "");
 });
+
+test("a heading that went away holds no layer even if its picker was last reported open", () => {
+  assert.equal(headingLayer(true, false), "");
+});
