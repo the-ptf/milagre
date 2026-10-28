@@ -802,7 +802,7 @@ export function LinkWorkspace({
                   loading={uncommittedLists.loading || committedLists.loading}
                   mode={linkMode}
                   onModeChange={changes.setMode}
-                  onRefresh={() => void refreshChanges()}
+                  onRefresh={refreshChanges}
                   onSelectFile={(member, path, mode) => {
                     setMemberId(member.projectId);
                     changes.selectFile(path, mode);

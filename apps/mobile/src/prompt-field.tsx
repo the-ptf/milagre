@@ -76,6 +76,7 @@ export function PromptField({
   onMention,
   onSubmit,
   onFocus,
+  onBlur,
   placeholder = "Message the agent",
   suggestion,
   onAcceptSuggestion,
@@ -101,6 +102,8 @@ export function PromptField({
   onSubmit?: () => void;
   /** The field took the keyboard (an iPad split gives the keyboard to this pane). */
   onFocus?: () => void;
+  /** The field gave the keyboard up. */
+  onBlur?: () => void;
   placeholder?: string;
   suggestion?: string;
   onAcceptSuggestion?: (text: string) => void;
@@ -343,7 +346,10 @@ export function PromptField({
             setFocused(true);
             onFocus?.();
           }}
-          onBlur={() => setFocused(false)}
+          onBlur={() => {
+            setFocused(false);
+            onBlur?.();
+          }}
           style={{
             backgroundColor: "transparent",
             fontSize: inputSize,

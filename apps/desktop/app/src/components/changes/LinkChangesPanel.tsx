@@ -44,7 +44,7 @@ export function LinkChangesPanel({
   /** The section the diff shows. */
   mode: DiffMode;
   onModeChange: (mode: DiffMode) => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<unknown>;
   onSelectFile: (member: WorktreeBinding, path: string, mode: DiffMode) => void;
   selectedProjectId?: string;
   activePath?: string;

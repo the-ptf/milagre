@@ -19,7 +19,8 @@ import {
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "@milagre/shared/model";
 import type { ArtifactStep } from "@milagre/shared/reply-parts";
-import { postDesignMessage } from "./design-outbox";
+import { postDesignMessage, sendDesignMessageNow } from "./design-outbox";
+import { usePanelTabs, type DesignsTab } from "./panel-tabs";
 import { File, Paths } from "expo-file-system";
 import { useSession } from "./session";
 import { useArtifactCatalog } from "./use-design-catalog";
@@ -206,6 +207,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
     steps.map((step) => step.artifact),
     feature.enabled === true,
   );
+  const openTab = usePanelTabs();
   const html = steps.findLast((step) => format(step.artifact) === "html");
   const designs = steps.filter((step) => format(step.artifact) === "design");
   if (html)
@@ -227,16 +229,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
       accessibilityLabel={`${steps.length} designs: ${titles}. Open full screen`}
       disabled={!openable}
       onPress={() =>
-        router.push({
-          pathname: "/artifact-sheet",
-          params: {
-            hostId: client!.url,
-            chatId: chatId!,
-            id: first.id,
-            version: String(first.version),
-            ...(chosen ? { chosen } : {}),
-          },
-        })
+        openDesigns(openTab, { hostId: client!.url, chatId: chatId!, id: first.id, version: String(first.version), ...(chosen ? { chosen } : {}) })
       }
       style={({ pressed }) => ({
         flexDirection: "row",
@@ -274,10 +267,21 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
   );
 }
 
+/** Opens a Chat's designs (or its HTML artifact) in the right panel docked beside it on an iPad, full screen on a phone. */
+function openDesigns(openTab: ReturnType<typeof usePanelTabs>, target: DesignsTab) {
+  if (openTab) {
+    openTab({ kind: "designs", target });
+    return;
+  }
+  const { html, ...params } = target;
+  router.push({ pathname: "/artifact-sheet", params: { ...params, ...(html ? { kind: "html" } : {}) } });
+}
+
 /** A design the agent showed. It opens the Chat's designs full screen; a saved Chat is needed to read them. */
 function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: ArtifactStep; chatId?: string; chosen?: string; kind?: "design" | "html" }) {
   const { colors } = useTheme();
   const { client, designs: feature } = useSession();
+  const openTab = usePanelTabs();
   if (kind === "design" && feature.enabled !== true) return null;
   const { id, version, title } = step.artifact;
   const openable = !!client && !!chatId && !chatId.includes("#new:");
@@ -290,16 +294,12 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
       }
       disabled={!openable}
       onPress={() =>
-        router.push({
-          pathname: "/artifact-sheet",
-          params: {
-            hostId: client!.url,
-            chatId: chatId!,
-            id,
-            ...(kind === "html" ? { kind } : {}),
-            ...(kind === "design" ? { version: String(version) } : {}),
-            ...(chosen ? { chosen } : {}),
-          },
+        openDesigns(openTab, {
+          hostId: client!.url,
+          chatId: chatId!,
+          id,
+          ...(kind === "html" ? { html: true } : { version: String(version) }),
+          ...(chosen ? { chosen } : {}),
         })
       }
       style={({ pressed }) => ({
@@ -360,11 +360,13 @@ const refOf = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.ver
  * width, pinching and scrolling as a web page does. Holding a spot on the page pins a comment there, written in a box
  * that opens from the pin; comments wait for Send, which hands them to the Chat as one message for the agent.
  */
-export function ArtifactSheet({ hostId, chatId, id }: { hostId?: string; chatId?: string; id?: string; kind?: string }) {
+/** `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
+export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string; chatId?: string; id?: string; kind?: string; onClose?: () => void }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { client, snapshot } = useSession();
   const insets = useSafeAreaInsets();
+  const close = useCallback(() => (onClose ? onClose() : router.back()), [onClose]);
   const source = client && chatId && id && (!hostId || hostId === client.url) ? client : null;
   const [state, setState] = useState<{ artifact: Artifact | null; error: string }>({ artifact: null, error: "" });
   // Share shows only once this host says sharing works for this Chat's page; a reply a newer check overtook is ignored.
@@ -586,7 +588,9 @@ export function ArtifactSheet({ hostId, chatId, id }: { hostId?: string; chatId?
         source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
       },
     });
-    router.back();
+    // Docked beside the Chat, the Chat is on screen already and sends it now.
+    if (onClose) sendDesignMessageNow(`${hostId}|${chatId}`);
+    close();
   };
   const openShare = () => {
     if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId, kind: "artifacts" } });
@@ -600,7 +604,8 @@ export function ArtifactSheet({ hostId, chatId, id }: { hostId?: string; chatId?
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
         <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
-          <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={() => router.back()} />
+          {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
+          {!onClose && <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
         </View>
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>

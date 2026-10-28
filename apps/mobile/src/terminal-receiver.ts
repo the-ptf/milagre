@@ -68,7 +68,21 @@ const SCRIPT = `
   term.loadAddon(fit);
   term.open(element);
   var ctrl = false;
+  // A dead key (an accent or quote on many keyboards, the Portuguese one's ' and ") starts a composition. WebKit inserts
+  // the key's own character while it waits for the next key, and xterm sends that at once and then the composed text at
+  // the end (a quote and then the quote with the next letter), so the quote came out twice. The character still being composed is dropped; what the
+  // composition ends with is sent.
+  var composing = null;
+  var textarea = element.querySelector("textarea");
+  if (textarea) {
+    textarea.addEventListener("input", function (event) { if (event.inputType === "insertCompositionText") composing = event.data; }, true);
+    textarea.addEventListener("compositionend", function () { composing = null; }, true);
+  }
   term.onData(function (data) {
+    if (composing !== null && data === composing) {
+      composing = null;
+      return;
+    }
     if (ctrl && data.length === 1) {
       var code = data.toUpperCase().charCodeAt(0);
       if (code >= 64 && code <= 95) data = String.fromCharCode(code - 64);

@@ -238,6 +238,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
+      // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
+      if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -567,7 +569,9 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
     },
     "expo-router": { router: {}, useFocusEffect: (fn) => react.effect(fn, [fn]) },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
-    "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
+    "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView", KeyboardStickyView: "KeyboardStickyView" },
+    "react-native-gesture-handler": { Gesture: {}, GestureDetector: "GestureDetector" },
+    "react-native-reanimated": { default: { View: "AnimatedView" } },
     "@expo/dom-webview": { DomWebView: "DomWebView" },
     "expo-file-system": { File() {}, Paths: {} },
     "@hugeicons/core-free-icons": {},
