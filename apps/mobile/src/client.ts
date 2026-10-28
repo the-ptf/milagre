@@ -2,6 +2,7 @@ import { uploadAttachment } from "@milagre/shared/attachment-upload";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ChatMessage, CoordinatorState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
+import type { ProjectKind } from "@milagre/shared/chats-home";
 import { applyStatePatch } from "@milagre/shared/state-patch";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import { phoneSnapshot } from "./chat-scope.ts";
@@ -13,6 +14,8 @@ import { localEndpoint, relayAddress, validAccess, validRelay, type Access, type
 export type OpenProject = {
   path: string;
   name: string;
+  /** "chats" for the Chats home. Absent for every other Project and on older hosts. */
+  kind?: ProjectKind;
   state: CoordinatorState;
   link?: OpenLink;
   /** Derived before the host removes shell output from phone snapshots. Absent on older hosts. */

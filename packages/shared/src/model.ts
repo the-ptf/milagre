@@ -1,4 +1,5 @@
 import type { GateMeta } from "./bots.mjs";
+import type { ProjectKind } from "./chats-home.ts";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";
@@ -1006,6 +1007,8 @@ export interface OpenProject {
   name: string;
   /** False for a folder outside Git: its one Worktree is the folder itself, and its Chats work there. */
   git?: boolean;
+  /** "chats" for the Chats home, the internal repository project-less Chats run in. Absent for every other Project. */
+  kind?: ProjectKind;
   state: CoordinatorState;
   /** Only on the first open after chats came back from linked worktrees' old files. */
   restoredChats?: RestoredChats[];
