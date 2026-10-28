@@ -643,7 +643,7 @@ export interface ArtifactRef {
 export interface ChatStep {
   id: string;
   kind: StepKind;
-  /** Host time when this step first started. Older hosts omit it; clients leave their titles static. */
+  /** Host time when this step first started. Older hosts omit it; clients show no duration for the running step. */
   startedAt?: number;
   /** Host completion time; together with startedAt gives wall time without adding parallel calls. */
   endedAt?: number;

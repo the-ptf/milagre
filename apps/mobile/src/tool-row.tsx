@@ -54,7 +54,6 @@ export function ToolRow({
   return (
     <ActivityItem
       title={stepDisplayTitle(step, running && !waiting)}
-      startedAt={step.startedAt}
       // A step that set a Heartbeat (listed in the activity sheet) wears the Heartbeat's pulse.
       icon={step.routine ? Pulse01Icon : icons[step.kind]}
       leading={step.source || stepSource(step).linear ? <ActivityIcon source={stepSource(step)} /> : undefined}

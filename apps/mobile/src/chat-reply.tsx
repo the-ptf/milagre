@@ -191,7 +191,7 @@ function ActivityRow({ steps, live, waitingIds, onPress }: { steps: ChatStep[]; 
       <ActivitySources steps={steps} />
       <View style={{ flexShrink: 1 }}>
         {current && (runningCount <= 1 || waiting) ? (
-          <ActivityTitle key={current.id} title={label} startedAt={current.startedAt} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
+          <ActivityTitle key={current.id} title={label} shimmer={!waiting} style={{ color: colors.ink2, fontSize: 14 }} />
         ) : (
           <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 14 }}>
             {current && runningCount > 1 ? `Running ${runningCount} calls` : label}
@@ -205,9 +205,9 @@ function ActivityRow({ steps, live, waitingIds, onPress }: { steps: ChatStep[]; 
           <Text style={{ color: colors.red, fontSize: 12.5 }}>{summary.failed} failed</Text>
         </View>
       )}
-      {!!elapsed && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
       <View style={{ flex: 1 }} />
       <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
+      {!!elapsed && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{elapsed}</Text>}
     </Pressable>
   );
 }

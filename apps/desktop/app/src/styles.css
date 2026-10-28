@@ -1107,14 +1107,14 @@ select:focus-visible,
   }
 }
 
-/* Running titles sweep twice, then fall back to this static rule even if JS is busy. */
+/* A running title's static tint, kept when reduced motion turns the sweep off. */
 .step-running {
   color: var(--ink-3);
   -webkit-text-fill-color: currentColor;
 }
 
 /* The fixed tile keeps all title spans in phase. Only keyframes own the gradient and text clipping:
- * there is no forwards fill, frozen band or retained animation after the two sweeps. */
+ * the sweep loops while the step runs and goes with the class when it finishes or waits. */
 @keyframes step-shimmer {
   from {
     background-position: 0 0;
@@ -1134,8 +1134,7 @@ select:focus-visible,
   background-size: 320px 100vh;
   background-repeat: repeat-x;
   background-attachment: fixed;
-  animation: step-shimmer 1.2s linear 2;
-  animation-delay: var(--sweep-delay, 0ms);
+  animation: step-shimmer 1.2s linear infinite;
 }
 
 @keyframes step-shimmer-code {

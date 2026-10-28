@@ -586,7 +586,7 @@ class ChatHost {
         (state) => {
           if (resolve) event = resolve(state.sessions[sessionId]);
           // One host timestamp goes to live clients and reload snapshots alike. A title update for the same
-          // running step keeps its original deadline, including while it waits for approval.
+          // running step keeps its original start, so its duration doesn't reset, including while it waits for approval.
           if (event.type === "step-started") {
             const startedAt = this.runs[chatId]?.steps.find((step) => step.id === event.step.id)?.startedAt ?? this.now();
             const command =

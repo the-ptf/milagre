@@ -163,7 +163,6 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/themes" ||
           id === "@milagre/shared/file-kinds" ||
           id === "@milagre/shared/streaming-blocks" ||
-          id === "@milagre/shared/step-sweep" ||
           id === "@milagre/shared/tool-activity") &&
         !(id in modules)
       )
@@ -5998,6 +5997,7 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
       },
       View: "AnimatedView",
       modulo: (value, divisor) => ({ value, divisor }),
+      loop: (animation) => Object.assign(animation, { looped: true }),
       timing: (value, config) => {
         const animation = {
           value,
@@ -6021,9 +6021,6 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
     "react-native": native,
     "@hugeicons/core-free-icons": icons,
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
-    "@milagre/shared/use-step-sweep": {
-      useStepSweep: (start, enabled) => (enabled ? require("@milagre/shared/step-sweep").sweepRemainingMs(start, Date.now()) : 0),
-    },
     "./display-clock": { useScreenActive: () => active, useDisplayValue: (_interval, compute) => compute(Date.now()) },
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./ui": {
@@ -6089,67 +6086,56 @@ function activityItemHost({ expandReasoning = false, effects = false, active = t
   };
 }
 
-test("phone titles resume only the remaining sweep and settle code chips to running ink", async (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: 11_700 });
-  const host = activityItemHost({ effects: true });
-  t.after(() => host.unmount());
-  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
-  host.title(props);
-  await Promise.resolve();
-  const moving = host.title(props);
-  assert.ok(find(moving, (node) => node.type === "MaskedView"));
-  const animation = host.animations.at(-1);
-  assert.equal(animation.config.duration, 700);
-  assert.ok(Math.abs(animation.value.value - (320 * 1700) / 1200) < 0.000001);
-  assert.equal(animation.config.toValue, 640);
-  assert.equal(animation.config.useNativeDriver, true);
-  assert.equal(animation.config.isInteraction, false);
-  const overlay = find(moving, (node) => node.type === "AnimatedView" && node.props.pointerEvents === "none");
-  assert.deepEqual([...overlay.props.style[1].opacity.outputRange], [1, 1, 0], "native completion hides the band even during a JS stall");
-  t.mock.timers.tick(700);
-  const settled = host.title(props);
-  assert.equal(
-    find(settled, (node) => node.type === "MaskedView"),
-    undefined,
-  );
-  const chip = find(settled, (node) => node.type === "Text" && node.props.children === "check");
-  assert.equal(chip.props.style.color, "#666");
-  assert.equal(chip.props.style.backgroundColor, "#222");
-  assert.equal(host.animations.length, 1);
-  const finished = host.title({ ...props, shimmer: false });
-  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
-});
-
-test("phone reduced motion reacts without restart, inactive screens and old hosts stay static", async (t) => {
+test("phone titles sweep in one native loop for the whole run and finish with normal chips", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
   const host = activityItemHost({ effects: true });
   t.after(() => host.unmount());
-  const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+  const props = { title: "Ran `check`", shimmer: true };
+  host.title(props);
+  await Promise.resolve();
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
+  const animation = host.animations.at(-1);
+  assert.equal(animation.looped, true);
+  assert.equal(animation.config.toValue, 320);
+  assert.equal(animation.config.duration, 1200);
+  assert.equal(animation.config.useNativeDriver, true);
+  assert.equal(animation.config.isInteraction, false);
+  t.mock.timers.tick(60_000);
+  assert.ok(
+    find(host.title(props), (node) => node.type === "MaskedView"),
+    "a long call keeps sweeping",
+  );
+  assert.equal(host.animations.length, 1, "renders do not restart the loop");
+  const finished = host.title({ ...props, shimmer: false });
+  assert.equal(
+    find(finished, (node) => node.type === "MaskedView"),
+    undefined,
+  );
+  assert.equal(find(finished, (node) => node.type === "Text" && node.props.children === "check").props.style.color, "#fff");
+});
+
+test("phone reduced motion and inactive screens keep running titles static with running ink", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
+  const host = activityItemHost({ effects: true });
+  t.after(() => host.unmount());
+  const props = { title: "Ran `check`", shimmer: true };
   host.title(props);
   await Promise.resolve();
   assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
   host.reduce(true);
+  const reduced = host.title(props);
   assert.equal(
-    find(host.title(props), (node) => node.type === "MaskedView"),
+    find(reduced, (node) => node.type === "MaskedView"),
     undefined,
   );
-  t.mock.timers.tick(3000);
+  const chip = find(reduced, (node) => node.type === "Text" && node.props.children === "check");
+  assert.equal(chip.props.style.color, "#666");
+  assert.equal(chip.props.style.backgroundColor, "#222");
   host.reduce(false);
-  assert.equal(
-    find(host.title(props), (node) => node.type === "MaskedView"),
-    undefined,
-    "motion changes cannot replay expired steps",
-  );
+  assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
   host.activate(false);
   assert.equal(
-    find(host.title({ ...props, startedAt: 13_000 }), (node) => node.type === "MaskedView"),
-    undefined,
-  );
-  host.activate(true);
-  host.title({ ...props, startedAt: undefined });
-  await Promise.resolve();
-  assert.equal(
-    find(host.title({ ...props, startedAt: undefined }), (node) => node.type === "MaskedView"),
+    find(host.title(props), (node) => node.type === "MaskedView"),
     undefined,
   );
 });
@@ -6159,7 +6145,7 @@ test("phone reactivation waits for fresh reduced-motion permission, including a 
     const pending = deferred();
     let calls = 0;
     const host = activityItemHost({ effects: true, permissionQuery: () => (++calls === 1 ? Promise.resolve(false) : pending.promise) });
-    const props = { title: "Ran `check`", shimmer: true, startedAt: 10_000 };
+    const props = { title: "Ran `check`", shimmer: true };
     host.title(props);
     await Promise.resolve();
     assert.ok(find(host.title(props), (node) => node.type === "MaskedView"));
