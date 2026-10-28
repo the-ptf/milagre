@@ -35,7 +35,7 @@ import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
-import { chatsGroupChats, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
+import { chatsGroupChats, chatsGroupList, chatsGroupNeedsAttention, chatsRowDetail } from "./chats-group";
 import { UpdateSettingsBadge } from "./update-sheet";
 import { useLinks } from "./use-links";
 import { useRoutinesAvailable } from "./use-routines";
@@ -468,28 +468,22 @@ const NavigationBody = memo(function NavigationBody({
     };
     const offlineIds = builds.filter((build) => build.reach === "offline").map((build) => build.hostId);
     const offlineLine: Row[] = offlineIds.length ? [{ key: "offline", path: "", kind: "offline", hostIds: offlineIds }] : [];
-    // Every computer's Chats without a Project in one list, newest first, above the Projects; none, no group.
+    // Every computer's Chats without a Project in one list, newest first, above the Projects. The group shows with none
+    // too, so its + is always there to start one.
     const homeRows = chatsGroupChats(
       builds.flatMap((build) => {
         const home = build.home;
         return home ? [{ hostId: build.hostId, chats: home.chats.map((entry): ChatRow => Object.assign(chatRow(build, home, entry), { home: true })) }] : [];
       }),
     ).map(({ entry }) => entry);
-    const chatsGroup: Row[] = homeRows.length
-      ? [
-          {
-            key: "chats-group",
-            path: "",
-            kind: "chatsGroup",
-            expanded: !chatsFolded,
-            count: homeRows.length,
-            offline: homeRows.every((row) => row.reach === "offline"),
-            // Each computer's home, so a Chat waiting in a folded group still marks it.
-            homes: builds.flatMap((build) => (build.home ? [{ hostId: build.hostId, path: build.home.path }] : [])),
-          },
-          ...(chatsFolded ? [] : homeRows),
-        ]
-      : [];
+    const chatsList = chatsGroupList({
+      computers: builds.length,
+      rows: homeRows,
+      folded: chatsFolded,
+      // Each computer's home, so a Chat waiting in a folded group still marks it.
+      homes: builds.flatMap((build) => (build.home ? [{ hostId: build.hostId, path: build.home.path }] : [])),
+    });
+    const chatsGroup: Row[] = chatsList ? [{ key: "chats-group", path: "", ...chatsList.header }, ...chatsList.rows] : [];
     // A search lists like ⌘K whichever way the list is set: matching Chats, then Messages and Projects below.
     if (needle || chatList === "list") {
       let rank = 0;

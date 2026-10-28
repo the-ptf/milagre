@@ -399,7 +399,8 @@ test("chatsGroups keeps an offline computer's copy", () => {
   );
 });
 
-test("chats group is absent when no computer has a home Chat", () => {
+// The group itself always shows (SidebarNav), its + one click from a quick chat; only its rows depend on the homes.
+test("the Chats group has no rows when no computer has a home Chat, or a home at all", () => {
   assert.deepEqual(chatsSidebarRows([], "recent"), []);
   assert.deepEqual(
     chatsSidebarRows(

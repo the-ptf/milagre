@@ -140,8 +140,9 @@ Project rows, desktop and phone. A usage-limit switch from one project-less Chat
   issue" and the Linear link are hidden. The PR action, PR pills, diffstat and "Commit and open PR…" don't render.
 - **Sidebar:** a **Chats** group sits above the Project groups and below Pinned, in both list layouts. In the flat
   layout it sits under the renamed **All chats** title, followed by a divider and the flat list of Project Chats. It lists every paired computer's project-less Chats in one newest-first list, each row with the computer
-  chip rows already show (Victor, 2026-10-28: one merged list, not grouped by computer). It is hidden when
-  there are none. Its header has a + that opens New chat with No project picked. The Chats home never appears as a
+  chip rows already show (Victor, 2026-10-28: one merged list, not grouped by computer). It always
+  shows, even with none yet and before any computer has a Chats home (Victor, 2026-10-28: a quick chat is one click
+  away): its header with no rows. Its header has a + that opens New chat with No project picked, on this computer. The Chats home never appears as a
   Project group, in Filters › Projects, on the canvas or in the Projects | Bots switch's Projects list.
 - **Chat header / title bar:** where a Chat shows its Project name, a project-less Chat shows "No project" (or
   nothing). It never shows "chats" or the folder path.

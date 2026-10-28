@@ -1230,44 +1230,44 @@ export default memo(function SidebarNav({
     ) : null,
   );
   const chatsOpen = !closedScopes.includes(CHATS_GROUP_KEY);
-  // Folds like a Project's group; hidden while no computer has a Chat without a Project outside Pinned.
-  const chatsGroup =
-    chatsRows.length > 0 ? (
-      <section data-sidebar-chats aria-label={CHATS_GROUP_LABEL} className="mb-2">
-        <ScopeHeader
-          name={CHATS_GROUP_LABEL}
-          icon={
-            <span className="flex size-5 items-center justify-center rounded-[6px] bg-ink text-surface">
-              <HugeIcon icon={BubbleChatIcon} size={12} />
-            </span>
-          }
-          open={chatsOpen}
-          current={homeGroups.some(({ current }) => current)}
-          // ⌘N from a Chat without a Project starts in a real Project, so this + is never the open scope's own.
-          plusIsCurrent={false}
-          attention={homeGroups.some(({ key, current }) => !current && attentionPaths.includes(key))}
-          onToggle={() => toggleScope(CHATS_GROUP_KEY)}
-          onNewChat={
-            onNewChatWithoutProject &&
-            (() => {
-              if (activeTitle === undefined) setDemoActiveTitle(null);
-              onNewChatWithoutProject();
-            })
-          }
-          menu={[]}
-        />
-        <div
-          inert={!chatsOpen}
-          data-scope-body
-          className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
-          style={{ gridTemplateRows: chatsOpen ? "1fr" : "0fr", opacity: chatsOpen ? 1 : 0 }}
-        >
-          <div className="min-w-0 overflow-hidden">
-            <FlatChatList chats={chatsRows} scopes={chatsScopes} projectLine={false} />
-          </div>
+  // Folds like a Project's group. It always shows, with no rows while no computer has a Chat without a Project outside
+  // Pinned (or a Chats home at all), so its + is one click from a quick chat on this Mac.
+  const chatsGroup = (
+    <section data-sidebar-chats aria-label={CHATS_GROUP_LABEL} className="mb-2">
+      <ScopeHeader
+        name={CHATS_GROUP_LABEL}
+        icon={
+          <span className="flex size-5 items-center justify-center rounded-[6px] bg-ink text-surface">
+            <HugeIcon icon={BubbleChatIcon} size={12} />
+          </span>
+        }
+        open={chatsOpen}
+        current={homeGroups.some(({ current }) => current)}
+        // ⌘N from a Chat without a Project starts in a real Project, so this + is never the open scope's own.
+        plusIsCurrent={false}
+        attention={homeGroups.some(({ key, current }) => !current && attentionPaths.includes(key))}
+        onToggle={() => toggleScope(CHATS_GROUP_KEY)}
+        onNewChat={
+          onNewChatWithoutProject &&
+          (() => {
+            if (activeTitle === undefined) setDemoActiveTitle(null);
+            onNewChatWithoutProject();
+          })
+        }
+        menu={[]}
+      />
+      <div
+        inert={!chatsOpen}
+        data-scope-body
+        className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+        style={{ gridTemplateRows: chatsOpen ? "1fr" : "0fr", opacity: chatsOpen ? 1 : 0 }}
+      >
+        <div className="min-w-0 overflow-hidden">
+          <FlatChatList chats={chatsRows} scopes={chatsScopes} projectLine={false} />
         </div>
-      </section>
-    ) : null;
+      </div>
+    </section>
+  );
   const flatBody = (
     <>
       {groups.map(({ scope, current, pinned, list }) =>
@@ -1285,31 +1285,25 @@ export default memo(function SidebarNav({
           />
         ) : null,
       )}
-      {(groups.length > 0 || chatsGroup) && (
-        <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
-          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
-          <Tooltip label="New chat" shortcut="⌘N" align="end">
-            <button
-              type="button"
-              aria-label="New chat"
-              onClick={() => {
-                if (activeTitle === undefined) setDemoActiveTitle(null);
-                onNewChat?.();
-              }}
-              className={CHATS_HEADER_BUTTON}
-            >
-              <IconPlusMedium size={16} />
-            </button>
-          </Tooltip>
-        </div>
-      )}
-      {chatsGroup && (
-        <>
-          {chatsGroup}
-          {/* It parts the Chats from the Projects' rows below, so it shows only when there are some. */}
-          {flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
-        </>
-      )}
+      <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
+        <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
+        <Tooltip label="New chat" shortcut="⌘N" align="end">
+          <button
+            type="button"
+            aria-label="New chat"
+            onClick={() => {
+              if (activeTitle === undefined) setDemoActiveTitle(null);
+              onNewChat?.();
+            }}
+            className={CHATS_HEADER_BUTTON}
+          >
+            <IconPlusMedium size={16} />
+          </button>
+        </Tooltip>
+      </div>
+      {chatsGroup}
+      {/* It parts the Chats from the Projects' rows below, so it shows only when there are some. */}
+      {flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
       <FlatChatList chats={flatChats} scopes={flatScopes} />
       {groups
         .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))
@@ -1321,7 +1315,7 @@ export default memo(function SidebarNav({
             </button>
           </p>
         ))}
-      {groups.length > 0 && flatChats.length === 0 && !chatsGroup && !anyPinned && (
+      {groups.length > 0 && flatChats.length === 0 && chatsRows.length === 0 && !anyPinned && (
         <p data-one-list-empty className="mx-2 h-8 pl-2 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
           {loadingScopes ? "Loading chats…" : "No chats yet"}
         </p>
