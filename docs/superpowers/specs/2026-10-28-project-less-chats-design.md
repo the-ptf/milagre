@@ -157,6 +157,15 @@ Project rows, desktop and phone. A usage-limit switch from one project-less Chat
   first call. Desktop and phone call it when No project is picked. Everything after that is the normal New chat flow
   (`chat:send` with `projectPath` = the home and a new Worktree).
 
+### Fix in the same PR: heading over the slash menu (Victor, 2026-10-28)
+
+On the New chat screen the "Start building in" heading draws over the composer's `/` and `@` menu (seen with
+"victor / milagre-ade" showing through the Milagre skills list). Cause: the heading's wrapper is `z-30`
+(`ChatComposer.tsx:1409`) so its Project picker can cover the composer, while the menu is `z-20`
+(`PromptComposer.tsx:643`). Fix: the heading wrapper takes the raised layer only while its own picker is open;
+otherwise the composer's menus draw above it. Check the phone's New chat screen for the same overlap with its
+skill and file menus, and fix it there if it shows.
+
 ## Constraints
 
 - One writer per Project: the daemon (ADR-0001, ADR-0003). The Chats home is created and owned by the daemon only.
