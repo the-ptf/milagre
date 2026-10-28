@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HostView } from "./all-computers-store.ts";
-import { newChatProjectGroups, newChatProjects, pickNewChatProject, preferredCopy } from "./new-chat-project.ts";
+import { newChatChoices, newChatProjectGroups, newChatProjects, noProjectChoice, pickNewChatProject, preferredCopy } from "./new-chat-project.ts";
 
-const view = (hostId: string, state: HostView["state"], paths: string[], hidden: string[] = []): HostView => ({
+const view = (hostId: string, state: HostView["state"], paths: string[], hidden: string[] = [], home?: HostView["home"]): HostView => ({
   hostId,
   name: hostId.toUpperCase(),
   state,
@@ -12,7 +12,9 @@ const view = (hostId: string, state: HostView["state"], paths: string[], hidden:
   projects: [...paths.map((path) => ({ path })), ...hidden.map((path) => ({ path, hidden: true }))],
   copies: new Map(),
   errors: new Map(),
+  ...(home !== undefined ? { home } : {}),
 });
+const home = (path: string, exists = true) => ({ path, exists });
 
 test("New Chat includes sidebar-hidden Projects, named by their folder when unnamed", () => {
   assert.deepEqual(newChatProjects([view("mac", "online", ["/code/a"], ["/code/secret"]), view("deer", "offline", ["/code/b"])]), [
@@ -50,4 +52,51 @@ test("one repository on several computers is one row, opening on the computer la
   assert.equal(preferredCopy(app, "arketa", "mac").hostId, "arketa");
   assert.equal(preferredCopy(app, "away", "mac").hostId, "mac");
   assert.equal(preferredCopy(app, null, "elsewhere").hostId, "mac");
+});
+
+test("newChatProjects lists No project first", () => {
+  const views = [
+    view("mac", "online", ["/code/a"], [], home("/Users/v/.milagre/chats")),
+    view("deer", "online", ["/code/b"], [], home("/Users/d/.milagre/chats", false)),
+    // A computer whose daemon predates Chats without a Project has no home to offer.
+    view("old", "online", ["/code/c"], [], null),
+  ];
+  const choices = newChatChoices(views, null, "mac");
+  assert.deepEqual(
+    choices.map((choice) => (choice.kind === "no-project" ? "No project" : choice.path)),
+    ["No project", "/code/a", "/code/b", "/code/c"],
+  );
+  const [first] = choices;
+  assert.ok(first?.kind === "no-project");
+  assert.equal(first.name, "No project");
+  assert.deepEqual(
+    first.copies.map((copy) => [copy.hostId, copy.home.path, copy.home.exists]),
+    [
+      ["mac", "/Users/v/.milagre/chats", true],
+      ["deer", "/Users/d/.milagre/chats", false],
+    ],
+  );
+  // The homes are never Projects of their own.
+  assert.ok(newChatProjects(views).every((project) => !project.path.endsWith("/.milagre/chats")));
+  // With no computer that has a home, there is no No project row.
+  assert.deepEqual(
+    newChatChoices([view("old", "online", ["/code/c"], [], null), view("unread", "checking", ["/code/d"])], null, "old").map((choice) => choice.kind),
+    ["project", "project"],
+  );
+});
+
+test("No project defaults to the computer last used for a Chat", () => {
+  const views = [
+    view("mac", "online", ["/a"], [], home("/m/chats")),
+    view("deer", "online", ["/b"], [], home("/d/chats", false)),
+    view("away", "offline", ["/c"], [], home("/w/chats")),
+  ];
+  assert.equal(noProjectChoice(views, "deer", "mac")?.computerId, "deer");
+  // A last computer that is offline or gone gives way to the open one, then to the first that answers.
+  assert.equal(noProjectChoice(views, "away", "mac")?.computerId, "mac");
+  assert.equal(noProjectChoice(views, "gone", "elsewhere")?.computerId, "mac");
+  assert.equal(noProjectChoice([view("away", "offline", ["/c"], [], home("/w/chats"))], null, "away")?.computerId, "away");
+  // The last new Chat having run in a home never makes New Chat pick that home as a Project.
+  const projects = newChatProjects(views);
+  assert.equal(pickNewChatProject(projects, { hostId: "mac", projectPath: "/m/chats" }, { hostId: "mac", projectPath: "/m/chats" })?.path, "/a");
 });

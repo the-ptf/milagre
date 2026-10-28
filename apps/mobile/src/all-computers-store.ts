@@ -1,3 +1,4 @@
+import type { ChatsHome } from "@milagre/shared/chats-home";
 import type { Client, OpenProject, ProjectPreview, RecentProject, Snapshot } from "./client";
 import type { SavedHost } from "./hosts-store";
 import { PROJECTS_EVERY, REQUESTS_AT_ONCE, createLimiter, nextDelay } from "./all-computers-schedule.ts";
@@ -7,7 +8,7 @@ export type Reach = "online" | "checking" | "offline";
 /** A Project's Chats as a computer last answered: a preview, or the full snapshot of a Link. */
 export type ProjectCopy = Snapshot | ProjectPreview;
 /** What the store reads from a computer's client. */
-export type StoreClient = Pick<Client, "url" | "call" | "recentScopes" | "preview" | "open" | "chatLists"> & Partial<Pick<Client, "retire">>;
+export type StoreClient = Pick<Client, "url" | "call" | "recentScopes" | "preview" | "open" | "chatLists"> & Partial<Pick<Client, "retire" | "chatsHome">>;
 
 /** Everything the sidebar knows about one computer; replaced, never changed, so it can be compared by identity. */
 export type HostView = {
@@ -22,6 +23,11 @@ export type HostView = {
   copies: ReadonlyMap<string, ProjectCopy>;
   /** The Projects whose last read failed, with why. */
   errors: ReadonlyMap<string, string>;
+  /**
+   * Where the computer keeps its Chats without a Project: undefined before it answered, null when it has none (an
+   * older daemon). Never one of `projects`; its Chats are in `copies` under its path once it exists.
+   */
+  home?: ChatsHome | null;
 };
 
 /** The session's own client and Project list, shared with the store instead of opening a second client. */
@@ -85,6 +91,7 @@ type Entry = {
   projects: RecentProject[];
   copies: Map<string, ProjectCopy>;
   errors: Map<string, string>;
+  home: ChatsHome | null | undefined;
   canonical: Map<string, string>;
   /** Projects the Mac refused to list, and until when they are left alone. */
   stuck: Map<string, number>;
@@ -142,6 +149,7 @@ export function createAllComputersStore(deps: StoreDeps) {
     projects: entry.projects,
     copies: entry.copies,
     errors: entry.errors,
+    ...(entry.home !== undefined ? { home: entry.home } : {}),
   });
   function publish(entry?: Entry) {
     if (entry) {
@@ -178,6 +186,7 @@ export function createAllComputersStore(deps: StoreDeps) {
   function prune(entry: Entry) {
     if (!entry.loaded) return;
     const known = new Set(entry.projects.map((item) => item.path));
+    if (entry.home?.exists) known.add(entry.home.path);
     let changed = false;
     const copies = new Map(entry.copies);
     const errors = new Map(entry.errors);
@@ -209,9 +218,25 @@ export function createAllComputersStore(deps: StoreDeps) {
   }
 
   function wanted(entry: Entry): string[] {
-    return entry.projects
+    const paths = entry.projects
       .filter((item) => !item.hidden && item.path && (entry.stuck.get(item.path) ?? 0) <= deps.now() && (expandAll || !isFolded(entry.id, item.path)))
       .map((item) => item.path);
+    // The drawer's Chats group isn't folded per computer, so a home that exists is always read.
+    const home = entry.home?.exists ? entry.home.path : "";
+    return home && !paths.includes(home) && (entry.stuck.get(home) ?? 0) <= deps.now() ? [...paths, home] : paths;
+  }
+  /**
+   * Opens a Project for its canonical path before its first read. The home opens with chats:ensure, which leaves the
+   * computer's shown Project alone: listing Chats must not move what a desktop window shows.
+   */
+  const openFor = (entry: Entry, client: StoreClient, path: string) =>
+    path === entry.home?.path ? client.call<OpenProject>("chats:ensure", []) : client.call<OpenProject>("project:open", [path]);
+  /** Records the computer's home as it answered, publishing only a change. */
+  function keepHome(entry: Entry, home: ChatsHome | null) {
+    if (entry.home === home || (entry.home && home && entry.home.path === home.path && entry.home.exists === home.exists)) return false;
+    entry.home = home;
+    prune(entry);
+    return true;
   }
 
   /** One Project's Chats the way the sidebar always read them: open it (once) for its path, then its Chat list. */
@@ -224,7 +249,7 @@ export function createAllComputersStore(deps: StoreDeps) {
     if (isLink(path)) return run(1, () => client.open(path));
     let canonical = entry.canonical.get(path);
     if (!canonical) {
-      const opened = await run(1, () => client.call<OpenProject>("project:open", [path]));
+      const opened = await run(1, () => openFor(entry, client, path));
       canonical = opened.path;
       entry.canonical.set(path, canonical);
     }
@@ -260,6 +285,17 @@ export function createAllComputersStore(deps: StoreDeps) {
       };
       try {
         if (force || !entry.projectsAt || deps.now() - entry.projectsAt >= PROJECTS_EVERY) {
+          // The Chats home is asked next to the Project list. A computer without the command has none; a failed ask keeps
+          // what was known, and the Project list's own outcome decides how the computer is doing.
+          const chatsHome = client.chatsHome;
+          const home = chatsHome
+            ? tracked(1, () => chatsHome()).then(
+                (found) => (alive(entry, client) && keepHome(entry, found) ? publish(entry) : undefined),
+                () => undefined,
+              )
+            : entry.home === undefined && keepHome(entry, null)
+              ? publish(entry)
+              : undefined;
           try {
             // The Project list costs three requests on the Mac.
             if (entry.shared) {
@@ -276,6 +312,8 @@ export function createAllComputersStore(deps: StoreDeps) {
             entry.projectsAt = deps.now();
           } catch (error) {
             if (error === STALE) return;
+          } finally {
+            await home;
           }
         }
         const paths = wanted(entry);
@@ -323,7 +361,7 @@ export function createAllComputersStore(deps: StoreDeps) {
           await Promise.all(
             unopened.map(async (path) => {
               try {
-                const opened = await tracked(1, () => client.call<OpenProject>("project:open", [path]));
+                const opened = await tracked(1, () => openFor(entry, client, path));
                 entry.canonical.set(path, opened.path);
               } catch (error) {
                 if (error !== STALE && error !== SKIPPED) {
@@ -456,6 +494,7 @@ export function createAllComputersStore(deps: StoreDeps) {
       projects: inherit?.projects ?? [],
       copies: inherit?.copies ?? new Map(),
       errors: new Map(),
+      home: inherit?.home,
       canonical: inherit?.canonical ?? new Map(),
       stuck: new Map(),
       noBatch: false,
@@ -555,6 +594,16 @@ export function createAllComputersStore(deps: StoreDeps) {
         return hidden ? { ...rest, hidden: true } : rest;
       });
       publish(entry);
+    },
+    /**
+     * The phone made a computer's Chats home (picking No project there): it shows as made at once and its Chats are read
+     * from now on, without waiting for the next read of the computer's Project list.
+     */
+    setHome(hostId: string, home: ChatsHome) {
+      const entry = entries.get(hostId);
+      if (!entry || !keepHome(entry, home)) return;
+      publish(entry);
+      if (active()) void cycle(entry);
     },
     /** Reads one Project again, after a Chat action changed it. */
     async refreshProject(hostId: string, path: string) {

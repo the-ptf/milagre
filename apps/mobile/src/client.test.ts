@@ -93,6 +93,31 @@ test("a Mac that doesn't list Links from mobile still answers its Projects, once
   await failed;
 });
 
+test("client asks chats:home alongside project:recent and tolerates a computer without it", async () => {
+  const held = heldFetcher({
+    "project:recent": () => answer([{ path: "/shop", name: "shop" }]),
+    "link:list": () => answer([]),
+    "project:registry": () => answer([]),
+    "chats:home": () => answer({ path: "/Users/v/.milagre/chats", exists: false }),
+  });
+  const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, held.fetcher);
+  const both = Promise.all([client.recentScopes(), client.chatsHome()]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(held.methods().toSorted(), ["chats:home", "link:list", "project:recent", "project:registry"]);
+  ["project:recent", "link:list", "project:registry", "chats:home"].forEach(held.release);
+  const [projects, home] = await both;
+  assert.deepEqual(projects, [{ path: "/shop", name: "shop" }], "the home is never one of the Projects");
+  assert.deepEqual(home, { path: "/Users/v/.milagre/chats", exists: false });
+  // A daemon older than Chats without a Project, or a demo computer, has no home; that is not a failure.
+  for (const refused of [refusal("Command is not available from mobile", 403), refusal("This demo computer only opens its demo project.", 403)]) {
+    const older = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => refused.clone());
+    assert.equal(await older.chatsHome(), null);
+  }
+  // Anything else is the read's failure, so the computer's state follows it.
+  const broken = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => refusal("Disk error"));
+  await assert.rejects(broken.chatsHome(), /Disk error/);
+});
+
 test("a retired client starts no request, even one that was waiting on a transport", async () => {
   let fetched = 0;
   const client = createClient({ address: "http://127.0.0.1:8787", token: "token" }, async () => {

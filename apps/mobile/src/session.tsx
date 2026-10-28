@@ -1,3 +1,4 @@
+import { isChatsHomeProject } from "@milagre/shared/chats-home";
 import { reconcileState } from "@milagre/shared/reconcile";
 import { keepOrder } from "@milagre/shared/stable-order";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -393,8 +394,9 @@ function useSessionState() {
         seen.current.set(`${client.url}|${projectPath}`, state).set(`${client.url}|${project.path}`, state);
         putSnapshot(reconcileState(latest.current ?? undefined, state));
         setError("");
+        // The Chats home is opened like a Project but never listed as one (the drawer's Chats group holds its Chats).
         setRecent((previous) =>
-          previous.some((item) => item.path === project.path)
+          previous.some((item) => item.path === project.path) || isChatsHomeProject(project)
             ? previous
             : [
                 ...previous,
