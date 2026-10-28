@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import { Alert, AppState, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { Alert, AppState, Keyboard, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView, KeyboardStickyView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import { scaledTiming, useMotionScale } from "./motion";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ClipboardPasteIcon, ComputerTerminal01Icon, KeyboardOffIcon } from "@hugeicons/core-free-icons";
+import * as Clipboard from "expo-clipboard";
 import type { LinkChatSession } from "@milagre/shared/model";
 import type { TerminalInfo, TerminalList, TerminalProfiles } from "@milagre/shared/terminal";
 import { followTerminal, type TerminalFollower } from "@milagre/shared/terminal-client";
 import type { Client } from "./client";
 import { useSession } from "./session";
-import { Icon } from "./icons";
+import { Icon, type IconData } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { CircleButton, PillButton, PullDown, useStyles } from "./ui";
@@ -122,20 +125,47 @@ const PHONE_READ_LIMIT = 64 * 1024;
 // How long a write waits for the page's word before the next read goes ahead anyway.
 const WRITE_ACK_MS = 3000;
 
-const KEYS: { label: string; send: string }[] = [
-  { label: "esc", send: "\x1b" },
-  { label: "tab", send: "\t" },
-  { label: "←", send: "\x1b[D" },
-  { label: "↑", send: "\x1b[A" },
-  { label: "↓", send: "\x1b[B" },
-  { label: "→", send: "\x1b[C" },
-  { label: "|", send: "|" },
-  { label: "~", send: "~" },
-  { label: "/", send: "/" },
-  { label: "-", send: "-" },
-];
+/** A key of the key bar: what it shows, what it sends, what VoiceOver says, and whether holding it repeats it. */
+type BarKey = { label: string; send: string; name: string; repeat?: boolean };
 
-type ViewHandle = { send(data: string): void; holdCtrl(held: boolean): void };
+// The key bar, in groups as Orca's mobile terminal has it: the keys a touch keyboard lacks, then the control shortcuts a
+// shell and its editors use most, then paging and the symbols a phone keyboard hides a layer down.
+const MOVE_KEYS: BarKey[] = [
+  { label: "esc", send: "\x1b", name: "Escape" },
+  { label: "tab", send: "\t", name: "Tab" },
+  { label: "⇧tab", send: "\x1b[Z", name: "Shift Tab" },
+  { label: "←", send: "\x1b[D", name: "Arrow left", repeat: true },
+  { label: "↑", send: "\x1b[A", name: "Arrow up", repeat: true },
+  { label: "↓", send: "\x1b[B", name: "Arrow down", repeat: true },
+  { label: "→", send: "\x1b[C", name: "Arrow right", repeat: true },
+];
+const CTRL_KEYS: BarKey[] = [
+  { label: "^C", send: "\x03", name: "Control C, interrupt" },
+  { label: "^D", send: "\x04", name: "Control D, end of input" },
+  { label: "^L", send: "\x0c", name: "Control L, clear screen" },
+  { label: "^R", send: "\x12", name: "Control R, search history" },
+  { label: "^Z", send: "\x1a", name: "Control Z, suspend" },
+  { label: "^A", send: "\x01", name: "Control A, start of line" },
+  { label: "^E", send: "\x05", name: "Control E, end of line" },
+  { label: "^W", send: "\x17", name: "Control W, delete word" },
+  { label: "^U", send: "\x15", name: "Control U, delete to start of line" },
+];
+const EDIT_KEYS: BarKey[] = [
+  { label: "home", send: "\x1b[H", name: "Home" },
+  { label: "end", send: "\x1b[F", name: "End" },
+  { label: "pgup", send: "\x1b[5~", name: "Page up", repeat: true },
+  { label: "pgdn", send: "\x1b[6~", name: "Page down", repeat: true },
+  { label: "del", send: "\x1b[3~", name: "Forward delete", repeat: true },
+  { label: "|", send: "|", name: "Pipe" },
+  { label: "~", send: "~", name: "Tilde" },
+  { label: "/", send: "/", name: "Slash" },
+  { label: "-", send: "-", name: "Dash" },
+];
+/** A held key waits this long, then repeats this often, as a hardware key does. */
+const REPEAT_DELAY_MS = 400;
+const REPEAT_EVERY_MS = 60;
+
+type ViewHandle = { send(data: string): void; holdCtrl(held: boolean): void; blur(): void };
 
 /**
  * The Chat's Terminals: a page of its own on a phone, docked below the Chat on an iPad (`onClose` set), where it keeps
@@ -166,6 +196,8 @@ export function TerminalSheet({
   const [error, setError] = useState("");
   const [opening, setOpening] = useState(false);
   const [ctrl, setCtrl] = useState(false);
+  // The on-screen keyboard is up: the key bar offers to put it away (a tap on the Terminal brings it back).
+  const keyboardUp = useKeyboardState((state) => state.isVisible);
   const [paused, setPaused] = useState(AppState.currentState !== "active");
   const [revision, setRevision] = useState(0);
   const view = useRef<ViewHandle>(null);
@@ -467,8 +499,19 @@ export function TerminalSheet({
             style={{ flexGrow: 0, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface }}
             contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 6), gap: 6 }}
           >
+            {keyboardUp && (
+              <KeyButton
+                label="Hide keyboard"
+                icon={KeyboardOffIcon}
+                onPress={() => {
+                  view.current?.blur();
+                  Keyboard.dismiss();
+                }}
+              />
+            )}
             <KeyButton
               label="ctrl"
+              name="Control, for the next key"
               held={ctrl}
               onPress={() => {
                 const next = !ctrl;
@@ -476,8 +519,25 @@ export function TerminalSheet({
                 view.current?.holdCtrl(next);
               }}
             />
-            {KEYS.map((key) => (
-              <KeyButton key={key.label} label={key.label} onPress={() => view.current?.send(key.send)} />
+            {MOVE_KEYS.map((key) => (
+              <KeyButton key={key.label} label={key.label} name={key.name} repeat={key.repeat} onPress={() => view.current?.send(key.send)} />
+            ))}
+            <KeyGap />
+            {CTRL_KEYS.map((key) => (
+              <KeyButton key={key.label} label={key.label} name={key.name} onPress={() => view.current?.send(key.send)} />
+            ))}
+            <KeyGap />
+            <KeyButton
+              label="Paste"
+              icon={ClipboardPasteIcon}
+              onPress={() => {
+                void Clipboard.getStringAsync().then((text) => {
+                  if (text) view.current?.send(text);
+                });
+              }}
+            />
+            {EDIT_KEYS.map((key) => (
+              <KeyButton key={key.label} label={key.label} name={key.name} repeat={key.repeat} onPress={() => view.current?.send(key.send)} />
             ))}
           </ScrollView>
         )}
@@ -486,14 +546,57 @@ export function TerminalSheet({
   );
 }
 
-function KeyButton({ label, onPress, held = false }: { label: string; onPress(): void; held?: boolean }) {
+/** A little more room between the key bar's groups. */
+function KeyGap() {
+  return <View style={{ width: 6 }} />;
+}
+
+/** A key of the key bar: a label or an icon; `repeat` keys send again while held, as a hardware key does. */
+function KeyButton({
+  label,
+  name,
+  icon,
+  onPress,
+  held = false,
+  repeat = false,
+}: {
+  label: string;
+  name?: string;
+  icon?: IconData;
+  onPress(): void;
+  held?: boolean;
+  repeat?: boolean;
+}) {
   const { colors } = useTheme();
+  const timer = useRef<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | null>(null);
+  const press = useRef(onPress);
+  useEffect(() => {
+    press.current = onPress;
+  });
+  const stop = useCallback(() => {
+    if (timer.current) clearInterval(timer.current as ReturnType<typeof setInterval>);
+    timer.current = null;
+  }, []);
+  useEffect(() => stop, [stop]);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label === "ctrl" ? "Control, for the next key" : label}
+      accessibilityLabel={name ?? label}
       accessibilityState={held ? { selected: true } : undefined}
-      onPress={onPress}
+      // A repeating key sends as the finger lands and again every REPEAT_EVERY_MS once held; the rest send on release.
+      onPressIn={
+        repeat
+          ? () => {
+              press.current();
+              stop();
+              timer.current = setTimeout(() => {
+                timer.current = setInterval(() => press.current(), REPEAT_EVERY_MS);
+              }, REPEAT_DELAY_MS);
+            }
+          : undefined
+      }
+      onPressOut={repeat ? stop : undefined}
+      onPress={repeat ? undefined : onPress}
       style={({ pressed }) => ({
         minWidth: 40,
         height: 34,
@@ -504,7 +607,11 @@ function KeyButton({ label, onPress, held = false }: { label: string; onPress():
         backgroundColor: held ? colors.accent : pressed ? colors.hover : colors.inset,
       })}
     >
-      <Text style={{ color: held ? colors.onAccent : colors.ink, fontSize: 14, fontFamily: "Menlo" }}>{label}</Text>
+      {icon ? (
+        <Icon icon={icon} size={17} tone="ink2" />
+      ) : (
+        <Text style={{ color: held ? colors.onAccent : colors.ink, fontSize: 14, fontFamily: "Menlo" }}>{label}</Text>
+      )}
     </Pressable>
   );
 }
@@ -586,6 +693,7 @@ function TerminalView({
   useImperativeHandle(ref, () => ({
     send: (data) => follower.current?.send(data),
     holdCtrl: (held) => run(`window.terminalCtrl(${held})`),
+    blur: () => run("window.terminalBlur()"),
   }));
 
   useEffect(() => {
@@ -693,6 +801,8 @@ function TerminalView({
 const DOCK_MIN = 200;
 const DOCK_MAX_SHARE = 0.6;
 const DOCK_SHARE = 0.3;
+/** It rises and sinks with iOS's own sheet timing, as the iPad's side panels slide. */
+const DOCK_SLIDE = { duration: 320, easing: Easing.bezier(0.32, 0.72, 0, 1), reduceMotion: ReduceMotion.System };
 
 /** A drag on the docked Terminal's grabber: up makes it taller, down shorter, within its bounds. */
 function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, max: number) {
@@ -712,12 +822,16 @@ function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, 
 export function TerminalDock({
   chatId,
   places,
+  open,
   keyboard,
   onHeight,
   onCount,
   onClose,
+  onClosed,
 }: {
   chatId: string;
+  /** Shown: it rises from below the Chat; put away, it sinks and then calls `onClosed` to unmount. */
+  open: boolean;
   places?: TerminalPlace[];
   /** The Terminal has the keyboard (see ChatPane): it rises with it, over the composer. */
   keyboard: boolean;
@@ -725,9 +839,25 @@ export function TerminalDock({
   onHeight: (height: number) => void;
   onCount?: (count: number) => void;
   onClose: () => void;
+  onClosed: () => void;
 }) {
   const { colors } = useTheme();
   const { client } = useSession();
+  const scale = useMotionScale();
+  const closed = useRef(onClosed);
+  useEffect(() => {
+    closed.current = onClosed;
+  });
+  // Defined on the JS side: the animation's end can only hand Worklets a function from here, never one made in the worklet.
+  const finishClosing = useCallback(() => closed.current(), []);
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.set(
+      withTiming(open ? 1 : 0, scaledTiming(DOCK_SLIDE, scale), (finished) => {
+        if (finished && !open) scheduleOnRN(finishClosing);
+      }),
+    );
+  }, [open, progress, scale, finishClosing]);
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const max = Math.round(window.height * DOCK_MAX_SHARE);
@@ -736,19 +866,24 @@ export function TerminalDock({
   const resize = useMemo(() => resizeGesture(height, start, max), [height, start, max]);
 
   const sized = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) }));
+  // The room it takes grows with the rise, so the Chat above gives it up as it comes; the Terminal itself keeps its full
+  // height and is uncovered from the top, so nothing inside it squeezes on the way.
+  const room = useAnimatedStyle(() => ({ height: Math.min(max, height.get()) * progress.get() }));
   return (
     // Lifted by the keyboard when it is typed into, over the composer; the composer rises past it otherwise.
     <KeyboardStickyView enabled={keyboard} offset={{ closed: 0, opened: Math.max(0, insets.bottom - 6) }}>
-      <Animated.View
-        onLayout={({ nativeEvent }) => onHeight(Math.round(nativeEvent.layout.height))}
-        style={[{ borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.page }, sized]}
-      >
-        <GestureDetector gesture={resize}>
-          <View accessibilityLabel="Resize Terminal" style={{ height: 18, alignItems: "center", justifyContent: "center" }}>
-            <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong }} />
-          </View>
-        </GestureDetector>
-        <TerminalSheet key={`${client?.url}:${chatId}`} hostId={client?.url} chatId={chatId} places={places} onClose={onClose} onCount={onCount} />
+      <Animated.View style={[{ overflow: "hidden", justifyContent: "flex-start" }, room]}>
+        <Animated.View
+          onLayout={({ nativeEvent }) => onHeight(Math.round(nativeEvent.layout.height))}
+          style={[{ borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.page }, sized]}
+        >
+          <GestureDetector gesture={resize}>
+            <View accessibilityLabel="Resize Terminal" style={{ height: 18, alignItems: "center", justifyContent: "center" }}>
+              <View style={{ width: 36, height: 5, borderRadius: 3, backgroundColor: colors.lineStrong }} />
+            </View>
+          </GestureDetector>
+          <TerminalSheet key={`${client?.url}:${chatId}`} hostId={client?.url} chatId={chatId} places={places} onClose={onClose} onCount={onCount} />
+        </Animated.View>
       </Animated.View>
     </KeyboardStickyView>
   );

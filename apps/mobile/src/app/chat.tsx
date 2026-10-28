@@ -331,6 +331,8 @@ function ChatPane({
   const [dockHeight, setDockHeight] = useState(140);
   // The Chat whose Terminals are docked below it (an iPad); another Chat in this pane starts without them.
   const [terminalFor, setTerminalFor] = useState<string | null>(null);
+  // The Chat whose docked Terminals are on screen, also while they sink away after being put away.
+  const [terminalMounted, setTerminalMounted] = useState<string | null>(null);
   const [terminalHeight, setTerminalHeight] = useState(0);
   const [terminalCount, setTerminalCount] = useState<number | undefined>(undefined);
   // The composer has the keyboard; without it, a keyboard up over the docked Terminal is the Terminal's.
@@ -1773,6 +1775,7 @@ function ChatPane({
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
+  if (terminalShown && terminalMounted !== chatId) setTerminalMounted(chatId);
   // The composer floats above the transcript and rides the keyboard, stopping 8pt above it; with the Terminal below, it
   // sits clear of the home indicator already.
   const dockPadding = terminalShown ? 12 : Math.max(insets.bottom, 12);
@@ -2594,11 +2597,13 @@ function ChatPane({
                 </KeyboardStickyView>
               </PanelSwipe>
             </View>
-            {terminalShown && chat && (
+            {terminalMounted === chatId && chat && (
               <TerminalDock
                 key={chatId}
                 chatId={chatId}
                 places={terminalPlaces(chat)}
+                open={terminalShown}
+                onClosed={() => setTerminalMounted(null)}
                 keyboard={ownsKeyboard && terminalTyping}
                 onHeight={setTerminalHeight}
                 onCount={setTerminalCount}

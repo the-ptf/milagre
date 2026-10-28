@@ -99,6 +99,7 @@ const SCRIPT = `
   window.terminalReset = function (data, id) { term.reset(); term.write(data, wrote(id)); };
   window.terminalTheme = function (theme) { term.options.theme = theme; document.body.style.background = theme.background; };
   window.terminalFocus = function () { term.focus(); };
+  window.terminalBlur = function () { term.blur(); };
   window.terminalCtrl = function (held) { ctrl = held; };
   window.terminalSend = function (data) { post({ event: "input", data: data }); term.focus(); };
   refit();
