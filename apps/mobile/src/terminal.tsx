@@ -69,7 +69,7 @@ function useTerminals(client: Client | null, chatId: string | undefined) {
 }
 
 /** A Terminal's tab title: its own, numbered when another of the Chat's Terminals has the same one ("zsh 2"). */
-export function tabTitle(terminals: TerminalInfo[], terminal: TerminalInfo) {
+function tabTitle(terminals: TerminalInfo[], terminal: TerminalInfo) {
   const same = terminals.filter((item) => item.title === terminal.title);
   return same.length > 1 ? `${terminal.title} ${same.indexOf(terminal) + 1}` : terminal.title;
 }
