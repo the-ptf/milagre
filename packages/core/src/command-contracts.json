@@ -3507,9 +3507,13 @@
           }
         }
       ]
+    },
+    "app:dictation-open-settings": {
+      "parameters": []
     }
   },
   "native": [
+    "app:dictation-open-settings",
     "app:dictation-status",
     "app:dictation-transcribe",
     "app:retry-quit",

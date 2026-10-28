@@ -6,7 +6,8 @@ import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
-const SIZE = 32;
+export const MIC_SIZE = 32;
+const SIZE = MIC_SIZE;
 const LABELS: Record<DictationPhase, string> = {
   idle: "Dictate",
   preparing: "Starting dictation",
