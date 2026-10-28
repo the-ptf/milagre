@@ -1,4 +1,4 @@
-// The pure parts of dictating into the composer: where a transcript lands, how loud the mic is, and the state a take moves through.
+// The pure parts of dictating into the composer (desktop and phone): where a transcript lands, how loud the mic is, and the state a take moves through.
 
 export const RECORDING_LIMIT_SECONDS = 300;
 export const METERING_INTERVAL_MS = 80;

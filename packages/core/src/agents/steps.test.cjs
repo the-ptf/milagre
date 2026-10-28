@@ -253,7 +253,12 @@ test("Codex: file changes show what changed and the diff", () => {
 
 test("Codex: MCP tools, web searches and images", () => {
   const mcp = { type: "mcpToolCall", id: "exec-4", server: "argent", tool: "list-devices", status: "inProgress", arguments: {}, result: null, error: null };
-  assert.deepEqual(codexStep(mcp), { id: "exec-4", kind: "other", title: "Used `list-devices` from argent" });
+  assert.deepEqual(codexStep(mcp), {
+    id: "exec-4",
+    kind: "other",
+    title: "Used `list-devices` from argent",
+    source: { name: "list-devices", server: "argent" },
+  });
   assert.deepEqual(codexStepResult({ ...mcp, status: "completed", result: { content: [{ type: "text", text: '{"devices":[]}' }], structuredContent: null } }), {
     id: "exec-4",
     status: "done",
@@ -291,6 +296,7 @@ test("Codex: MCP tools, web searches and images", () => {
     id: "exec-7",
     kind: "other",
     title: "Used `lookup`",
+    source: { name: "lookup" },
   });
 });
 
@@ -337,7 +343,7 @@ test("editable design creation and batches show cards for Claude and Codex", () 
     const title = tool === "design_show" ? "Showed `Welcome screen`" : "Edited `a design`";
     const completedTitle = tool === "design_show" ? "Showed `Welcome screen`" : "Edited `Welcome screen`";
     const name = `mcp__milagre__${tool}`;
-    assert.deepEqual(claudeStep("design-1", name, args), { id: "design-1", kind: "artifact", title, tool });
+    assert.deepEqual(claudeStep("design-1", name, args), { id: "design-1", kind: "artifact", title, tool, source: { name: tool, server: "milagre" } });
     assert.deepEqual(claudeStepResult({ id: "design-1", name, input: args }, ok(result)), { id: "design-1", status: "done", artifact, title: completedTitle });
     assert.deepEqual(claudeStepResult({ id: "design-1", name, input: args }, ok("Design version conflict", { is_error: true })), {
       id: "design-1",
@@ -346,7 +352,7 @@ test("editable design creation and batches show cards for Claude and Codex", () 
     });
 
     const call = { type: "mcpToolCall", id: "design-2", server: "milagre", tool, status: "inProgress", arguments: args };
-    assert.deepEqual(codexStep(call), { id: "design-2", kind: "artifact", title, tool });
+    assert.deepEqual(codexStep(call), { id: "design-2", kind: "artifact", title, tool, source: { name: tool, server: "milagre" } });
     assert.deepEqual(codexStepResult({ ...call, status: "completed", result: { content: [{ type: "text", text: result }] } }), {
       id: "design-2",
       status: "done",
@@ -392,6 +398,8 @@ test("resolving a design comment reads as that, with the agent's note", () => {
     kind: "other",
     title: "Resolved a design comment",
     detail: "Bigger title",
+    source: { name: "artifact_resolve_comment", server: "milagre" },
+    input: JSON.stringify({ id: "0a1b2c3d", note: "Bigger title" }, null, 2),
   });
   assert.deepEqual(
     codexStep({ type: "mcpToolCall", id: "e1", server: "milagre", tool: "artifact_resolve_comment", status: "inProgress", arguments: { note: "Done" } }),
@@ -400,6 +408,8 @@ test("resolving a design comment reads as that, with the agent's note", () => {
       kind: "other",
       title: "Resolved a design comment",
       detail: "Done",
+      source: { name: "artifact_resolve_comment", server: "milagre" },
+      input: JSON.stringify({ note: "Done" }, null, 2),
     },
   );
 });
@@ -411,6 +421,8 @@ test("routine tools read as what they did to the Heartbeats and Routines, for Cl
     id: "t1",
     kind: "other",
     title: 'Set Heartbeat "watch CI"',
+    source: { name: "heartbeat_create", server: "milagre" },
+    input: JSON.stringify({ name: "watch CI", prompt: "p", every: "15m" }, null, 2),
   });
   assert.equal(codex("heartbeat_create", { name: "watch CI" }).title, 'Set Heartbeat "watch CI"');
   assert.equal(claude("heartbeat_create", {}).title, "Set a Heartbeat");
@@ -434,10 +446,22 @@ test("HTML artifact tool renders a typed artifact card for both providers", () =
   const args = { title: artifact.title, html: "<p>Why it works</p>" };
   const text = JSON.stringify({ ...artifact, versions: 1, width: 1280, height: 800 });
   const name = "mcp__milagre__artifact_show";
-  assert.deepEqual(claudeStep("html-1", name, args), { id: "html-1", kind: "artifact", title: "Showed `Explanation`", tool: "artifact_show" });
+  assert.deepEqual(claudeStep("html-1", name, args), {
+    id: "html-1",
+    kind: "artifact",
+    title: "Showed `Explanation`",
+    tool: "artifact_show",
+    source: { name: "artifact_show", server: "milagre" },
+  });
   assert.deepEqual(claudeStepResult({ id: "html-1", name, input: args }, ok(text)), { id: "html-1", status: "done", artifact, title: "Showed `Explanation`" });
   const call = { type: "mcpToolCall", id: "html-2", server: "milagre", tool: "artifact_show", status: "inProgress", arguments: args };
-  assert.deepEqual(codexStep(call), { id: "html-2", kind: "artifact", title: "Showed `Explanation`", tool: "artifact_show" });
+  assert.deepEqual(codexStep(call), {
+    id: "html-2",
+    kind: "artifact",
+    title: "Showed `Explanation`",
+    tool: "artifact_show",
+    source: { name: "artifact_show", server: "milagre" },
+  });
   assert.deepEqual(codexStepResult({ ...call, status: "completed", result: { content: [{ type: "text", text }] } }), {
     id: "html-2",
     status: "done",

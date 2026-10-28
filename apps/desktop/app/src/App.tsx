@@ -1334,17 +1334,18 @@ function App() {
 
   // Archiving hides the chat for good; a turn still running in it is stopped first. The steps and their order
   // live in lib/archive-flow.ts, which is passed what it touches.
-  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null) {
-    if (!project) return Promise.resolve();
-    const projectPath = project.path;
+  // Another Project's chat (a row of the all-Projects sidebar) archives the same way, from the copy its group shows.
+  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path) {
+    if (!projectPath) return Promise.resolve();
+    const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
-    const wasOpen = selectedSessionId === sessionId;
+    const wasOpen = open && selectedSessionId === sessionId;
     setArchivingChats((current) => new Set(current).add(key));
     return runArchive(
       {
         projectPath,
         chatId: key,
-        getState: () => openState() ?? null,
+        getState: () => archiveState(projectPath) ?? null,
         currentProjectPath: () => projectRef.current?.path,
         stop: () => (agentRuns.runs[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
         hide: async () => {
@@ -1353,7 +1354,8 @@ function App() {
         },
         // The worktree stays, so the chat comes back with it; it is reopened only if it was open and nothing else has been since.
         restore: () => {
-          patchChat(sessionId, { archived: false });
+          if (projectRef.current?.path === projectPath) patchChat(sessionId, { archived: false });
+          else void reportChatAction(bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: false }), "Could not update Chat", setNotice);
           if (wasOpen && selectedSessionRef.current === null) openChat(sessionId);
         },
         remove: (worktree, options) => bridgeForKey(options.projectPath).removeWorktree(worktree.path, options),
@@ -1387,14 +1389,28 @@ function App() {
 
   // What the archive menu offers depends on the chat's worktree: whether Milagre made it, whether another chat
   // uses it, and what it would lose.
-  async function checkArchive(sessionId: number): Promise<ArchivePlan> {
-    const latest = openState();
+  // The menu's Archive waits on this, so its reads go out together: one after another, each waiting its turn on a busy
+  // host, they kept Archive disabled for seconds.
+  async function checkArchive(sessionId: number, projectPath = project?.path): Promise<ArchivePlan> {
+    if (!projectPath) return { milagreOwned: false, shared: false, status: null };
+    const bridge = bridgeForKey(projectPath);
+    const latest = archiveState(projectPath);
     const worktree = latest ? latest.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1] : undefined;
-    const terminals = project ? await busyTerminals(chatKey(project.path, sessionId)) : [];
-    if (!latest || !isMilagreWorktree(worktree, await bridgeForKey(project?.path).getWorktreeRoots()))
-      return { milagreOwned: false, shared: false, status: null, terminals };
-    if (worktreeShared(latest, sessionId)) return { milagreOwned: true, shared: true, status: null, terminals };
-    return { milagreOwned: true, shared: false, status: await bridgeForKey(project?.path).getWorktreeStatus(worktree.path, worktree.base!), terminals };
+    const shared = latest ? worktreeShared(latest, sessionId) : false;
+    // Only a worktree Milagre made needs its status, and only then does a failed read count.
+    const status = worktree?.base && !shared ? bridge.getWorktreeStatus(worktree.path, worktree.base) : Promise.resolve(null);
+    status.catch(() => {});
+    const [terminals, roots] = await Promise.all([busyTerminals(chatKey(projectPath, sessionId)), bridge.getWorktreeRoots()]);
+    if (!latest || !isMilagreWorktree(worktree, roots)) return { milagreOwned: false, shared: false, status: null, terminals };
+    if (shared) return { milagreOwned: true, shared: true, status: null, terminals };
+    return { milagreOwned: true, shared: false, status: await status, terminals };
+  }
+
+  // The state the archive steps read: the open Project's, or the copy another Project's sidebar group shows.
+  function archiveState(projectPath: string) {
+    // A Project's key (not a `milagre-link:` one) holds a Project's state.
+    const scoped = isLinkScopeKey(projectPath) ? undefined : (cachedScopeState(projectPath) as CoordinatorState | undefined);
+    return statesRef.current[projectPath] ?? scoped ?? cachedProjectCopy(projectPath)?.state;
   }
 
   // "Commit and open PR…" opens the chat, with the dialog over it.
@@ -2484,6 +2500,9 @@ function App() {
     }),
     [remoteProject],
   );
+  // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
+  const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
+  const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
   const startNewChatFromSidebar = useEvent(() => startNewChat());
   const openProjectFromSidebar = useEvent(() => void openProject());
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
@@ -3281,6 +3300,8 @@ function App() {
                   waitingKeys={sidebarRunKeys.waiting}
                   askingKeys={sidebarRunKeys.asking}
                   onOpenScopeChat={openScopeChat}
+                  onScopeArchiveCheck={checkScopeArchive}
+                  onScopeArchive={archiveScopeChat}
                   onHoverChat={hoverChat}
                   onAskChat={askLinkedChat}
                   sidebarMode={sidebarMode}

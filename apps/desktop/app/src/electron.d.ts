@@ -298,6 +298,10 @@ export type MilagreBridge = {
   listSkills: (projectPath: string) => Promise<SkillCatalog>;
   /** The text of a SKILL.md the catalog listed (a shadowed one included), up to 256 KiB. */
   readSkill: (projectPath: string, file: string) => Promise<string>;
+  /** The words a dictated message about this folder likely holds, for the recognizer. */
+  dictationContext: (request: { cwd: string; chatTitle?: string }) => Promise<{ terms: string[] }>;
+  /** A dictated message with misheard names fixed by a small model of the Chat's agent; as dictated when none answers. */
+  polishDictation: (request: { cwd: string; text: string; chatTitle?: string; provider?: string }) => Promise<{ text: string; polished: boolean }>;
   /** Opens a listed SKILL.md in an editor, wherever it lives (user skills are outside any checkout). */
   openSkill: (request: { projectPath: string; file: string; editor?: string }) => Promise<Result<null>>;
   /** Shows a listed SKILL.md in the file manager. */
@@ -752,6 +756,12 @@ declare global {
       onComputerAddPending: (callback: () => void) => () => void;
       /** Every computer's runtime events. */
       onComputerEvent: (callback: (event: ComputerEvent) => void) => () => void;
+      /** Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM; the model downloads on first use. */
+      dictation: {
+        status: () => Promise<{ ready: boolean; size: number }>;
+        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
+        onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+      };
     };
   }
 }

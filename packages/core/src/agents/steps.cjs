@@ -18,6 +18,7 @@ const { capText, claudeEditDiff, codexChangesDiff, unwrapShell } = require("./pe
 
 // Command output keeps its end, where results and errors are (capOutput); diffs and other details keep their start.
 const { MAX_OUTPUT, capOutput } = require("@milagre/shared/agent-runs");
+const { toolMetadata } = require("@milagre/shared/tool-activity");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 
 const CLAUDE_EDIT_TOOLS = new Set(["Edit", "MultiEdit", "NotebookEdit"]);
@@ -115,7 +116,9 @@ function formatDuration(ms) {
 // --- Claude ---
 
 function claudeStep(id, name, input = {}) {
-  const step = (kind, title, detail, file) => compact({ id: String(id), kind, title, detail, file: filePath(file) });
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
+  const metadata = mcp ? toolMetadata(mcp[1], mcp[2], input) : {};
+  const step = (kind, title, detail, file) => compact({ id: String(id), kind, title, detail, file: filePath(file), ...metadata });
   if (name === "Bash") return step("shell", `Ran ${code(input.command)}`, capOutput(`$ ${input.command ?? ""}\n`));
   if (name === "Read") return step("read", `Read ${fileName(input.file_path)}`, undefined, input.file_path);
   if (CLAUDE_EDIT_TOOLS.has(name))
@@ -127,7 +130,6 @@ function claudeStep(id, name, input = {}) {
   if (name === "WebFetch") return step("other", `Fetched ${code(input.url)}`);
   if (CLAUDE_AGENT_TOOLS.has(name)) return step("other", `Ran an agent: ${input.description || "a subtask"}`);
   if (name === "TodoWrite") return step("other", "Updated the to-do list");
-  const mcp = /^mcp__(.+?)__(.+)$/.exec(String(name));
   if (mcp && isArtifactTool(mcp[1], mcp[2])) return artifactStep(step, input.title, mcp[2]);
   if (mcp && isResolveTool(mcp[1], mcp[2])) return step("other", "Resolved a design comment", input.note);
   const routine = mcp && routineTitle(mcp[1], mcp[2], input);
@@ -156,7 +158,10 @@ function claudeStepResult(call, block, structured) {
   const end = (extra = {}) => compact({ id: String(call.id), status: failed ? "failed" : "done", ...extra });
   if (name === "Bash") return end({ detail: capOutput(`$ ${input.command ?? ""}\n${text}`) });
   if (failed) return end({ detail: text ? capText(text) : undefined });
-  if (name === "Read") return end();
+  if (name === "Read")
+    return end(Number.isSafeInteger(structured?.file?.numLines) && structured.file.numLines >= 0 ? { summary: `${structured.file.numLines} lines` } : {});
+  if (name === "Grep" && Number.isSafeInteger(structured?.numMatches) && structured.numMatches >= 0)
+    return end({ detail: text ? capText(text) : undefined, summary: `${structured.numMatches} matches` });
   const designTool = /^mcp__milagre__(design_show|design_apply|artifact_show)$/.exec(name)?.[1];
   if (designTool) {
     const artifact = artifactRef(text);
@@ -205,7 +210,8 @@ function webResults(results) {
 
 // item/started item -> step, or null for items that aren't tool calls (messages, reasoning, plans…).
 function codexStep(item) {
-  const step = (kind, title, detail, file) => compact({ id: String(item.id), kind, title, detail, file: filePath(file) });
+  const metadata = item.type === "mcpToolCall" || item.type === "dynamicToolCall" ? toolMetadata(item.server, item.tool, item.arguments) : {};
+  const step = (kind, title, detail, file) => compact({ id: String(item.id), kind, title, detail, file: filePath(file), ...metadata });
   switch (item.type) {
     case "commandExecution": {
       const command = unwrapShell(String(item.command ?? ""));
@@ -277,7 +283,7 @@ function codexStepResult(item) {
       }
       return compact({
         id,
-        status: item.status === "completed" ? "done" : "failed",
+        status: done ? "done" : "failed",
         detail: capText(item.error?.message ?? text) || undefined,
       });
     }

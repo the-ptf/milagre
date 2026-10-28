@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { dictationLanguage } from "@milagre/shared/dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
@@ -143,6 +144,22 @@ export async function readExpandReasoning(): Promise<boolean> {
 export async function saveExpandReasoning(on: boolean) {
   try {
     await SecureStore.setItemAsync(expandReasoningKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+const dictationLanguageKey = "milagre.dictation-language.v1";
+/** Settings › Chat › Dictation: a language code, or "auto" (the phone's language on iPhone, detected each take on Android). */
+export async function readDictationLanguage(): Promise<string> {
+  try {
+    return dictationLanguage(await SecureStore.getItemAsync(dictationLanguageKey));
+  } catch {
+    return "auto";
+  }
+}
+export async function saveDictationLanguage(language: string) {
+  try {
+    await SecureStore.setItemAsync(dictationLanguageKey, language);
   } catch {
     /* best effort */
   }
