@@ -132,7 +132,11 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
           warn(computerId, error);
         }
       }
-      if (kept !== null) return qualifyResult(computerId, method, kept);
+      if (kept !== null) {
+        // A Project opened from the last copy can be hours old, and nothing on screen says so.
+        if (OPENED.has(method)) console.log(`computers: ${computerId} ${method} ${bare[0]} answered from its offline copy (${computer.state})`);
+        return qualifyResult(computerId, method, kept);
+      }
       if (!blip) throw new Error(`${computer.name} is offline.`);
     }
     const result = await computers.invoke(computerId, method, bare);
@@ -179,6 +183,12 @@ function registerComputers({ ipcMain, computers, thisMac, send, cache = null, on
     } catch (error) {
       warn(computerId, error);
     }
+  });
+
+  // A window's note about a computer's scope (an open whose copy lacked the Chat it opened), for daemon.log: the window
+  // keeps no log of its own.
+  ipcMain.handle("computers:note", (_event, id, line) => {
+    if (typeof line === "string" && line) console.log(`computers: ${String(id)} ${line.slice(0, 500)}`);
   });
 
   // A chat's last copy, for the window to paint while the computer answers (chat-messages.ts). Older turns are never
