@@ -937,7 +937,7 @@ function ArtifactDock({
     try {
       // Each pin's key is its comment's id, which the agent resolves it by. The host records the comments once the
       // message went, so a send that fails records none.
-      const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId, anchor, near }) => ({
+      const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId, anchor, near, tab }) => ({
         id: key,
         design,
         x,
@@ -946,6 +946,7 @@ function ArtifactDock({
         ...(nodeId ? { nodeId } : {}),
         ...(anchor ? { anchor } : {}),
         ...(near ? { near } : {}),
+        ...(tab ? { tab } : {}),
       }));
       if (await onSend(designFeedbackMessage({ choice, comments }))) {
         if (comments.length)
@@ -983,6 +984,7 @@ function ArtifactDock({
           ...(nodeId ? { nodeId } : {}),
           ...(onPage?.anchor ? { anchor: onPage.anchor } : {}),
           ...(onPage?.near ? { near: onPage.near } : {}),
+          ...(onPage?.tab ? { tab: onPage.tab } : {}),
         },
       ]);
       setOpenPin(key);
@@ -1222,6 +1224,7 @@ function htmlSentPins(comments: ArtifactComment[], page: { id: string; version: 
             text: comment.text,
             ...(comment.anchor ? { anchor: comment.anchor } : {}),
             ...(comment.near ? { near: comment.near } : {}),
+            ...(comment.tab ? { tab: comment.tab } : {}),
             ...(comment.resolved ? { resolved: comment.resolved.note } : {}),
           },
         ]

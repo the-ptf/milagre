@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, File01Icon, MoreHorizontalIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
+  artifactTab,
   designFeedbackMessage,
   designFeedbackText,
   newCommentId,
+  onArtifactTab,
   readPageMessage,
   sentNumbers,
   type Artifact,
@@ -359,6 +361,9 @@ const refOf = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.ver
  * browser's, close on the left, Send and ⋯ on the right, and the page under it filling the screen at the phone's
  * width, pinching and scrolling as a web page does. Holding a spot on the page pins a comment there, written in a box
  * that opens from the pin; comments wait for Send, which hands them to the Chat as one message for the agent.
+ *
+ * A page the agent split into tabs shows them in a row under the header, one tab's page at a time; a comment is pinned
+ * on its tab.
  */
 /** `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
 export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string; chatId?: string; id?: string; kind?: string; onClose?: () => void }) {
@@ -441,7 +446,10 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
       live = false;
     };
   }, [source, chatId, id, revision, pageRevision]);
-  const artifact = source ? state.artifact : null;
+  const artifact = source && state.artifact?.format === "html" ? state.artifact : null;
+  const [tabId, setTabId] = useState<string | null>(null);
+  const tab = artifact ? artifactTab(artifact, tabId) : null;
+  const tabs = artifact?.tabs && artifact.tabs.length > 1 ? artifact.tabs : null;
 
   const feedbackKey = hostId && chatId ? `${hostId}|${chatId}|artifacts` : null;
   const [notes, setNotes] = useState<Note[]>(() => (feedbackKey && unsent.get(feedbackKey)) || []);
@@ -469,9 +477,13 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
   // The pins on the page as it is now: waiting comments numbered in Send order, sent ones within their message.
   const numbers = useMemo(() => sentNumbers(sent), [sent]);
   const pins = useMemo<PagePin[]>(() => {
-    if (!artifact) return [];
+    if (!artifact || !tab) return [];
     const done = sent.flatMap((comment) =>
-      comment.design.id !== artifact.id || comment.design.version !== artifact.version || comment.x === undefined || comment.y === undefined
+      comment.design.id !== artifact.id ||
+      comment.design.version !== artifact.version ||
+      comment.x === undefined ||
+      comment.y === undefined ||
+      !onArtifactTab(comment, artifact, tab)
         ? []
         : [
             {
@@ -487,7 +499,7 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           ],
     );
     const waiting = notes.flatMap((note, index) =>
-      note.x === undefined || note.y === undefined
+      note.x === undefined || note.y === undefined || !onArtifactTab(note, artifact, tab)
         ? []
         : [
             {
@@ -503,7 +515,7 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           ],
     );
     return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
-  }, [artifact, sent, notes, numbers, composer?.key, colors.green, colors.ink2, colors.page, colors.accent, colors.onAccent]);
+  }, [artifact, tab, sent, notes, numbers, composer?.key, colors.green, colors.ink2, colors.page, colors.accent, colors.onAccent]);
   // A pin just opened scrolls near the top once the page has it, out of the keyboard's way; the page then says where it
   // landed, and the box opens there.
   const revealing = useRef<string | null>(null);
@@ -533,7 +545,7 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           setEpoch((value) => value + 1);
           return;
         case "press": {
-          if (!artifact || composer) return;
+          if (!artifact || !tab || composer) return;
           tap();
           const key = newCommentId();
           setNotes((current) => [
@@ -546,6 +558,7 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
               text: "",
               ...(message.a ? { anchor: message.a } : {}),
               ...(message.near ? { near: message.near } : {}),
+              ...(artifact.tabs ? { tab: { id: tab.id, title: tab.title } } : {}),
             },
           ]);
           revealing.current = key;
@@ -566,7 +579,7 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           return;
       }
     },
-    [artifact, composer, notes, sent],
+    [artifact, tab, composer, notes, sent],
   );
 
   const closeComposer = (remove = false) => {
@@ -624,6 +637,46 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           )}
         </View>
       </View>
+      {tabs && tab && (
+        <ScrollView
+          horizontal
+          accessibilityRole="tablist"
+          accessibilityLabel="Page tabs"
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8, gap: 6 }}
+        >
+          {tabs.map((item) => {
+            const selected = item.id === tab.id;
+            return (
+              <Pressable
+                key={item.id}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => {
+                  if (selected) return;
+                  closeComposer();
+                  setTabId(item.id);
+                }}
+                hitSlop={4}
+                style={{
+                  justifyContent: "center",
+                  height: 30,
+                  borderRadius: 999,
+                  paddingHorizontal: 12,
+                  backgroundColor: selected ? colors.surface : "transparent",
+                  borderWidth: 1,
+                  borderColor: selected ? colors.lineStrong : colors.line,
+                }}
+              >
+                <Text numberOfLines={1} style={{ color: selected ? colors.ink : colors.ink2, fontSize: 13, fontWeight: selected ? "600" : "400" }}>
+                  {item.title}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
       <View style={{ flex: 1, backgroundColor: "#ffffff" }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!source ? (
           <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
@@ -634,8 +687,8 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
             </Text>
             <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
           </View>
-        ) : artifact ? (
-          <ArtifactWebView key={`${artifact.id}:${artifact.version}`} ref={page} html={artifact.html} onMessage={onMessage} />
+        ) : artifact && tab ? (
+          <ArtifactWebView key={`${artifact.id}:${artifact.version}:${tab.id}`} ref={page} html={tab.html} onMessage={onMessage} />
         ) : (
           <Text style={[styles.muted, { padding: 20 }]}>Loading page...</Text>
         )}

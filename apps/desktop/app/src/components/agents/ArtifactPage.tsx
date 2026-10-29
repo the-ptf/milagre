@@ -1,7 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ARTIFACT_ESCAPE, type Artifact, type ArtifactPageMessage, type PagePin } from "@milagre/shared/artifact";
+import { ARTIFACT_ESCAPE, artifactTab, onArtifactTab, type ArtifactPageMessage, type HtmlArtifact, type PagePin } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import { THEME_EVENT } from "../../lib/theme-sheet";
+import { moveTab } from "../changes/ChangesPanel";
 import { ArtifactFrame, tellPage, type DesignPin, type PageState, type PinControls } from "./ArtifactCanvas";
 import { CommentPin, commentCursor } from "./CommentPin";
 
@@ -17,6 +18,8 @@ const MAX_SCALE = 3;
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 // The comment bubble's width (CommentPin's w-64) and a margin: a pin near the right edge opens it leftwards of the pin.
 const BUBBLE = 264;
+const tabClass = (on: boolean) =>
+  `flex h-6 shrink-0 items-center rounded-chip px-3 text-12 whitespace-nowrap transition-colors ${on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink"}`;
 
 /** The pin colours of the current theme, as the page draws them: waiting, sent, resolved. */
 function usePinColors() {
@@ -42,11 +45,14 @@ function usePinColors() {
  *
  * Comments are pinned on the page itself (its helper draws them, so they scroll with it): in comment mode a click
  * pins one, written in a bubble here at the pin's point, which follows the page as it scrolls.
+ *
+ * A page the agent split into tabs shows them in a row above it, one tab's page at a time; a comment is pinned on its
+ * tab, and opening one from the chat turns to that tab.
  */
 export const ArtifactPage = forwardRef<
   PageHandle,
   {
-    page: Artifact;
+    page: HtmlArtifact;
     commenting: boolean;
     comments: PinControls;
     /** The number on each sent comment's pin, by its key. */
@@ -73,7 +79,9 @@ export const ArtifactPage = forwardRef<
   const [scale, setScale] = useState(1);
   const following = useRef(true);
   const [wide, setWide] = useState<number | null>(null);
-  useEffect(() => setWide(null), [page.version]);
+  const [tabId, setTabId] = useState<string | null>(null);
+  const tab = artifactTab(page, tabId);
+  useEffect(() => setWide(null), [page.version, tab.id]);
   const fit = wide && room.width ? clamp(Math.min(1, room.width / wide)) : 1;
   useEffect(() => {
     if (following.current) setScale(fit);
@@ -123,7 +131,11 @@ export const ArtifactPage = forwardRef<
           onToggleComment();
           return;
         case "press": {
-          const key = controls.onPin(ref, message.x, message.y, undefined, { anchor: message.a || undefined, near: message.near || undefined });
+          const key = controls.onPin(ref, message.x, message.y, undefined, {
+            anchor: message.a || undefined,
+            near: message.near || undefined,
+            ...(page.tabs ? { tab: { id: tab.id, title: tab.title } } : {}),
+          });
           if (key) setAnchor({ key, sx: message.sx, sy: message.sy, shown: true });
           return;
         }
@@ -140,7 +152,7 @@ export const ArtifactPage = forwardRef<
     },
     // `ref` is rebuilt from `page` each render; the page's id and version are what it depends on.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-    [zoom, onToggleComment, page.id, page.version, page.title],
+    [zoom, onToggleComment, page.id, page.version, page.title, page.tabs, tab.id, tab.title],
   );
 
   // Escape pressed in the page comes out as a message: comment mode first, then the dock.
@@ -155,9 +167,17 @@ export const ArtifactPage = forwardRef<
   const colors = usePinColors();
   const open = comments.open;
   const waiting = comments.pins.filter((pin) => pin.design.id === page.id);
+  // A comment brought into view from the chat turns to its tab.
+  useEffect(() => {
+    const pin = reveal && [...comments.sent, ...comments.pins].find((item) => item.key === reveal.key);
+    if (pin?.tab) setTabId(pin.tab.id);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- asked again by the nonce, not by the pins changing.
+  }, [reveal?.key, reveal?.nonce]);
+  const sentHere = comments.sent.filter((pin) => onArtifactTab(pin, page, tab));
+  const waitingHere = waiting.filter((pin) => onArtifactTab(pin, page, tab));
   const pins = useMemo<PagePin[]>(
     () => [
-      ...comments.sent.map((pin) => {
+      ...sentHere.map((pin) => {
         const number = numbers.get(pin.key) ?? "";
         const resolved = pin.resolved !== undefined;
         return {
@@ -172,7 +192,7 @@ export const ArtifactPage = forwardRef<
           hide: pin.key === open,
         };
       }),
-      ...waiting.map((pin) => {
+      ...waitingHere.map((pin) => {
         const number = comments.pins.indexOf(pin) + 1;
         return {
           k: pin.key,
@@ -187,7 +207,7 @@ export const ArtifactPage = forwardRef<
         };
       }),
     ],
-    [comments.sent, comments.pins, waiting, numbers, colors, open],
+    [sentHere, comments.pins, waitingHere, numbers, colors, open],
   );
   const cursor = useMemo(() => commentCursor(colors.accent), [colors.accent]);
   const state: PageState = {
@@ -199,29 +219,69 @@ export const ArtifactPage = forwardRef<
   };
 
   const openPin: (DesignPin & { sent: boolean; number: number }) | null = useMemo(() => {
-    const sent = comments.sent.find((pin) => pin.key === open);
+    const sent = sentHere.find((pin) => pin.key === open);
     if (sent) return { ...sent, sent: true, number: numbers.get(sent.key) ?? 1 };
-    const pin = waiting.find((item) => item.key === open);
+    const pin = waitingHere.find((item) => item.key === open);
     return pin ? { ...pin, sent: false, number: comments.pins.indexOf(pin) + 1 } : null;
-  }, [comments.sent, comments.pins, waiting, numbers, open]);
+  }, [sentHere, comments.pins, waitingHere, numbers, open]);
   const at = openPin && anchor?.key === openPin.key && anchor.shown ? anchor : null;
 
+  const tabs = page.tabs && page.tabs.length > 1 ? page.tabs : null;
   return (
-    <div ref={box} data-slot="artifact-page" className="relative min-h-0 flex-1 overflow-hidden bg-white">
-      <div
-        className="absolute top-0 left-0 origin-top-left"
-        style={room.width ? { width: room.width / scale, height: room.height / scale, transform: `scale(${scale})` } : { width: "100%", height: "100%" }}
-      >
-        <ArtifactFrame html={page.html} title={page.title} format="html" page={state} onPage={onPage} frameRef={frame} />
-      </div>
-      {openPin && at && (
-        // The bubble over the page; around it the page keeps the mouse.
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute" style={{ left: Math.max(0, Math.min(at.sx * scale, room.width - BUBBLE)), top: at.sy * scale }}>
-            <CommentPin pin={{ ...openPin, x: 0, y: 0 }} number={openPin.number} open scale={1} comments={comments} sent={openPin.sent} />
-          </div>
+    <>
+      {tabs && (
+        <div
+          role="tablist"
+          aria-label="Page tabs"
+          data-slot="artifact-tabs"
+          onKeyDown={moveTab}
+          className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-line bg-surface px-3 py-1.5"
+        >
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              data-artifact-tab={item.id}
+              aria-selected={item.id === tab.id}
+              tabIndex={item.id === tab.id ? 0 : -1}
+              onClick={() => {
+                if (item.id === tab.id) return;
+                // The open bubble stays with its pin's tab.
+                comments.onOpen(null);
+                setAnchor(null);
+                setTabId(item.id);
+              }}
+              className={tabClass(item.id === tab.id)}
+            >
+              {item.title}
+            </button>
+          ))}
         </div>
       )}
-    </div>
+      <div ref={box} data-slot="artifact-page" className="relative min-h-0 flex-1 overflow-hidden bg-white">
+        <div
+          className="absolute top-0 left-0 origin-top-left"
+          style={room.width ? { width: room.width / scale, height: room.height / scale, transform: `scale(${scale})` } : { width: "100%", height: "100%" }}
+        >
+          <ArtifactFrame
+            html={tab.html}
+            title={tabs ? `${page.title}: ${tab.title}` : page.title}
+            format="html"
+            page={state}
+            onPage={onPage}
+            frameRef={frame}
+          />
+        </div>
+        {openPin && at && (
+          // The bubble over the page; around it the page keeps the mouse.
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute" style={{ left: Math.max(0, Math.min(at.sx * scale, room.width - BUBBLE)), top: at.sy * scale }}>
+              <CommentPin pin={{ ...openPin, x: 0, y: 0 }} number={openPin.number} open scale={1} comments={comments} sent={openPin.sent} />
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 });
