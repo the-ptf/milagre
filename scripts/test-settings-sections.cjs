@@ -16,6 +16,7 @@ import { useApplyTheme } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
 window.enabledCalls = [];
+window.computersEnabled = false;
 // Chimes record what would play instead of making noise.
 window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
@@ -56,7 +57,10 @@ window.milagre = {
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
     pageShares: async () => { throw new Error("No Chat exists"); },
   },
-  computers: { setEnabled: async (on) => void window.enabledCalls.push(on) },
+  computers: {
+    list: async () => ({ thisMac: "test-computer", computers: [], enabled: window.computersEnabled }),
+    setEnabled: async (on) => { window.enabledCalls.push(on); window.computersEnabled = on; },
+  },
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
@@ -437,14 +441,14 @@ async function browserChecks() {
     const other = `document.querySelector('main [role="switch"][aria-label="Drive other computers"]')`;
     await waitFor(`!!${other}`);
     assert.equal(await evaluate(`${other}.getAttribute("aria-checked")`), "false", "Drive other computers is off by default");
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false]'`);
+    assert.deepEqual(await evaluate("window.enabledCalls"), [], "opening Settings preserves the host's saved choice");
     await screenshot("devices-other-computers");
     await evaluate(`${other}.click()`);
     await waitFor(`${other}.getAttribute("aria-checked") === "true"`);
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true]'`);
+    await waitFor(`JSON.stringify(window.enabledCalls) === '[true]'`);
     await screenshot("other-computers-on");
     await evaluate(`${other}.click()`);
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true,false]'`);
+    await waitFor(`JSON.stringify(window.enabledCalls) === '[true,false]'`);
     await openSection("Notifications");
     assert.deepEqual(
       await switches(),
