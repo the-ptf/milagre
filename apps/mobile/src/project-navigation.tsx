@@ -822,15 +822,22 @@ const NavigationBody = memo(function NavigationBody({
       });
     else onNavigate({ pathname: "/chat", params: { ...params, id: String(chatId) } });
   }
-  // Choosing a Chat or a new Chat goes there at once on the open computer; the Chat loads the Project behind the splash
-  // mark. Another computer is connected first, as a notification opens one, with the splash mark over the list meanwhile.
+  // Revisited Chats adopt their full cached Project before routing, including on another computer. Only a cold
+  // destination needs to wait for its computer; messages start reading during the route handoff.
   async function enter(hostId: string, projectPath: string, chatId?: number, pending?: MobilePendingChat, prefill?: string) {
     if (busy) return;
+    const host = hostId === currentHostId ? undefined : allComputers.hostFor(hostId);
+    if (chatId !== undefined && !pending && (hostId === currentHostId || host)) {
+      const cached = session.openCachedChat(projectPath, chatId, host);
+      if (cached) {
+        navigateTo(hostId, projectPath, chatId);
+        return;
+      }
+    }
     if (hostId === currentHostId && session.client) {
       navigateTo(hostId, projectPath, chatId, pending, prefill);
       return;
     }
-    const host = allComputers.hostFor(hostId);
     if (!host) {
       setError("This computer is no longer in your list.");
       return;

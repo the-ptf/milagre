@@ -26,6 +26,15 @@ window.milagre = new Proxy({
   getAgentPorts: async () => ({}),
   getLinkedWork: async () => ({ delegations: [], negotiations: [], receiveOnly: [] }),
   getCurrentProject: async () => ({ path: "/fixture", name: "Fixture", state }),
+  listRecentProjects: async () => [
+    { path: "/fixture", name: "Fixture", openedAt: "" },
+    { path: "/second", name: "Second", openedAt: "" },
+  ],
+  readProject: () => new Promise(() => {}),
+  switchProject: (path) => new Promise((resolve, reject) => {
+    window.finishProjectSwitch = () => resolve({ path, name: "Second", state: { ...state, sessions: {}, messages: [], worktrees: { 1: { id: 1, name: "main", path, project_id: 1 } } } });
+    window.failProjectSwitch = () => reject(new Error("Computer unavailable"));
+  }),
   listBranches: async () => ["main"],
   listEditors: async () => [],
   getCachedUsage: async () => ({ providers: [] }),
@@ -147,6 +156,27 @@ async function browserChecks() {
     await expectPermissionMode("Full");
     await screenshot("beta-permission-full");
     console.log("PASS: permission mode is attached to each chat separately");
+
+    await newChat();
+    await type("Keep this draft visible");
+    await evaluate(`document.querySelector('[data-new-chat-project]').click()`);
+    const second = `[...document.querySelectorAll('[data-new-chat-heading] [data-picker-row]')].find(row => row.querySelector('strong')?.textContent === 'Second')`;
+    await waitFor(`!!(${second})`);
+    await evaluate(`(${second}).click()`);
+    await waitFor(`typeof window.finishProjectSwitch === 'function'`);
+    await promptIs("Keep this draft visible");
+    await type("Edited while connecting");
+    await evaluate(`window.failProjectSwitch()`);
+    await waitFor(`document.body.textContent.includes('Computer unavailable')`);
+    await promptIs("Edited while connecting");
+    await evaluate(`window.finishProjectSwitch = null; document.querySelector('[data-new-chat-project]').click()`);
+    await waitFor(`!!(${second})`);
+    await evaluate(`(${second}).click()`);
+    await waitFor(`typeof window.finishProjectSwitch === 'function'`);
+    await evaluate(`window.finishProjectSwitch()`);
+    await waitFor(`document.querySelector('[data-new-chat-project]')?.textContent.includes('Second')`);
+    await promptIs("Edited while connecting");
+    console.log("PASS: a slow or failed Project switch keeps the draft visible and carries edits made during the wait");
     app.exit(0);
   } catch (error) {
     console.error(error);

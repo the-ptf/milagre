@@ -2253,6 +2253,7 @@ function sessionHost(
       "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
+      "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
       "./use-links": { refreshLinks: async () => {} },
       "./use-designs": { useDesigns: () => designsOn },
     },
@@ -2582,6 +2583,7 @@ function chatHost({
   linear = { active: false },
   routines = [],
   routinesOn = true,
+  computers,
   screenWidth = 402,
   now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
@@ -2695,7 +2697,10 @@ function chatHost({
   };
   const icons = new Proxy({}, { get: (_, name) => String(name) });
   const router = {
-    setParams: (values) => Object.assign(params, values),
+    setParams: (values) => {
+      if (router.deferParams) router.pendingParams = { ...router.pendingParams, ...values };
+      else Object.assign(params, values);
+    },
     push(href) {
       (router.pushed ??= []).push(href);
     },
@@ -2707,6 +2712,7 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    ...(computers ? { "../all-computers": computers } : {}),
     "react-native-reanimated": { default: { View: "AnimatedView" }, useAnimatedStyle: (style) => style() },
     "../hosts-native": { savedChatDefaults: chatDefaults },
     "../genui/GenerativeUI": { GenerativeUIProvider: "GenerativeUIProvider" },
@@ -3203,6 +3209,63 @@ test("cancelling a computer switch preserves the active Chat selection", async (
   assert.equal(before.isSelected(), true);
 });
 
+test("a draft's computer switch keeps its old client and Project until the destination is ready", async () => {
+  const loading = deferred();
+  const old = { url: "mac", call: async () => [], snapshot: async (path) => snapshot(path) };
+  const next = { url: "studio", call: async () => [], recentScopes: async () => [], open: () => loading.promise };
+  const render = sessionHost(old, { clientFactory: (host) => (host.address === "studio" ? next : old) });
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/current");
+  const commits = [];
+  const switching = render().connect({ address: "studio", token: "token" }, false, {
+    projectPath: "/other",
+    onOpen: (state) => commits.push(state.project.path),
+  });
+  await settle();
+  assert.equal(render().client, old);
+  assert.equal(render().snapshot.project.path, "/current");
+  assert.equal(render().isSelected(), true);
+  assert.deepEqual(commits, []);
+  loading.resolve(snapshot("/other"));
+  assert.equal(await switching, true);
+  assert.equal(render().client, next);
+  assert.equal(render().snapshot.project.path, "/other");
+  assert.equal(render().isSelected(), true);
+  assert.deepEqual(commits, ["/other"]);
+});
+
+test("failed or cancelled draft computer switches never commit a destination", async (t) => {
+  for (const cancel of [false, true])
+    await t.test(cancel ? "cancelled" : "failed", async () => {
+      const loading = deferred();
+      const old = { url: "mac", call: async () => [], snapshot: async (path) => snapshot(path) };
+      const next = { url: "studio", call: async () => [], recentScopes: async () => [], open: () => loading.promise };
+      const render = sessionHost(old, { clientFactory: (host) => (host.address === "studio" ? next : old) });
+      await render().connect({ address: "mac", token: "token" });
+      await render().open("/current");
+      let committed = false;
+      const switching = render().connect({ address: "studio", token: "token" }, false, {
+        projectPath: "/other",
+        onOpen: () => {
+          committed = true;
+        },
+      });
+      await settle();
+      if (cancel) {
+        render().cancelNavigation();
+        loading.resolve(snapshot("/other"));
+        assert.equal(await switching, false);
+      } else {
+        loading.reject(new Error("Computer unavailable"));
+        await assert.rejects(switching, /Computer unavailable/);
+      }
+      assert.equal(committed, false);
+      assert.equal(render().client, old);
+      assert.equal(render().snapshot.project.path, "/current");
+      assert.equal(render().isSelected(), true);
+    });
+});
+
 function resumeHost({ target = { hostId: "mac", projectPath: "/last", chatId: 3 }, state = snapshot("/last"), failure } = {}) {
   const react = hookHost();
   react.useEffect = react.effect;
@@ -3358,6 +3421,7 @@ function navigationHost(
       return true;
     },
     cachedProject: () => undefined,
+    openCachedChat: () => null,
     previewProject: async () => state,
     openNotificationTargetCalls: [],
     openNotificationTarget: async (...args) => {
@@ -3617,6 +3681,32 @@ test("One list shows Chats from every computer in one list, each row naming its 
   assert.equal(nav.session.openNotificationTargetCalls?.[0]?.[0].id, "studio");
   assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/web", hostId: "studio", id: "1" } }]));
   assert.deepEqual(nav.calls, [], "nothing went through the open computer's client");
+});
+
+test("a cached Chat on another computer routes synchronously without the sidebar's loading state", () => {
+  const copy = snapshot("/web");
+  copy.project.state.worktrees = {};
+  copy.project.state.sessions[7] = { id: 7, title: "Cached remote Chat", agent_name: "main" };
+  const opened = [];
+  const nav = navigationHost(new Promise(() => {}), {
+    chatList: "list",
+    session: {
+      openCachedChat: (...args) => {
+        opened.push(args);
+        return { url: "studio" };
+      },
+    },
+    computers: [{ hostId: "studio", name: "Studio", state: "offline", projects: [{ path: "/web" }], copies: { "/web": copy } }],
+  });
+  nav.open(nav.row("chat")).props.onPress();
+  assert.equal(opened[0][2].id, "studio");
+  assert.equal(nav.routes.length, 1, "the route is issued before any promise settles");
+  assert.equal(nav.routes[0].params.id, "7");
+  assert.equal(nav.session.openNotificationTargetCalls.length, 0);
+  assert.equal(
+    find(nav.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+  );
 });
 
 test("mobile chat titles use summaries before transcripts load and switch to generated or renamed titles", () => {
@@ -4269,6 +4359,75 @@ test("a new Chat reached without a Worktree starts in the Project checkout once 
     find(host.render(), (node) => node.type === "LoadingLogo"),
     undefined,
   );
+});
+
+test("the new Chat computer picker keeps its composer and draft through slow and failed switches", async () => {
+  const projects = [
+    { hostId: "mac", hostName: "Mac", path: "/p", name: "P", origin: "github.com/test/p", offline: false },
+    { hostId: "studio", hostName: "Studio", path: "/other", name: "P", origin: "github.com/test/p", offline: false },
+  ];
+  const host = chatHost({
+    effects: true,
+    computers: {
+      useNewChatProjects: () => projects,
+      useNoProjectChoice: () => undefined,
+      allComputers: { hostFor: () => ({ address: "studio", token: "token" }) },
+    },
+  });
+  const loading = deferred();
+  host.session.connect = async (_host, remember, target) => {
+    assert.equal(remember, false);
+    assert.equal(target.projectPath, "/other");
+    const state = await loading.promise;
+    target.onOpen(state);
+    host.session.client = { ...host.session.client, url: "studio" };
+    host.session.snapshot = state;
+    return true;
+  };
+  const choose = () => find(host.render(), (node) => node.props?.label === "Choose computer");
+  const fieldKey = () => find(host.render(), (node) => node.type === "PromptField").key;
+  const beforeKey = fieldKey();
+  host.router.deferParams = true;
+  choose().props.onSelect("studio\n/other");
+  await settle();
+  assert.equal(host.field().value, "first message");
+  assert.equal(
+    find(host.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+  );
+  assert.equal(choose().props.nativeTrigger.disabled, true);
+  host.field().onChangeText("typed while connecting");
+  const state = structuredClone(host.session.snapshot);
+  state.project.path = "/other";
+  state.project.state.worktrees = { 9: { id: 9, name: "main", path: "/other" } };
+  loading.resolve(state);
+  await settle();
+  assert.equal(host.params.worktreeId, "1", "native navigation can publish the new params after the session commits");
+  assert.equal(host.field().value, "typed while connecting");
+  assert.equal(
+    find(host.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+    "a delayed route never replaces the composer with the splash",
+  );
+  Object.assign(host.params, host.router.pendingParams);
+  host.router.deferParams = false;
+  assert.equal(host.params.worktreeId, "9");
+  assert.equal(host.params.hostId, "studio");
+  assert.equal(host.field().value, "typed while connecting");
+  assert.equal(fieldKey(), beforeKey, "the native text input keeps its identity and keyboard focus");
+  assert.equal(host.session.drafts["/p#new:1"], undefined);
+  assert.equal(
+    find(host.render(), (node) => node.type === "LoadingLogo"),
+    undefined,
+  );
+  host.session.connect = async () => {
+    throw new Error("Computer unavailable");
+  };
+  choose().props.onSelect("mac\n/p");
+  await settle();
+  assert.equal(host.params.hostId, "studio");
+  assert.equal(host.field().value, "typed while connecting");
+  assert.ok(find(host.render(), (node) => node.type === "ErrorNotice" && node.props.message === "Computer unavailable"));
 });
 
 test("a Chat in another Project loads it behind the splash mark, and shows a failure with Retry", async () => {
@@ -5808,6 +5967,149 @@ test("reusing an empty Chat preserves its existing text and attachment drafts", 
   assert.equal(screen.session.attachments["/p#42"].length, 1);
   assert.equal(screen.session.attachments["/p#42"][0], photo);
   assert.equal(screen.field().value, "unsent in existing Chat");
+});
+
+test("cached Chat switches commit before the network, survive route handoff and refresh in place", async () => {
+  const update = deferred();
+  let waiting = false;
+  const copy = (path, title) => ({ ...snapshot(path), project: { path, state: { sessions: { 7: { id: 7, title } } } } });
+  const client = { url: "mac", call: async () => [], snapshot: async (path) => (waiting ? update.promise : copy(path, "Cached")) };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  await render().open("/b");
+  waiting = true;
+  assert.equal(render().openCachedChat("/a", 7), client);
+  assert.equal(render().snapshot.project.path, "/a", "the target is ready synchronously, before routing");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Cached");
+  assert.equal(render().isSelected(), true);
+  render().cancelNavigation(); // The drawer's route handoff cancels unfinished navigation, not this committed selection.
+  update.resolve(copy("/a", "Updated"));
+  await settle();
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Updated");
+});
+
+test("returning to the visible cached Chat cancels a cold open and restores its active selection", async () => {
+  const cold = deferred();
+  const client = {
+    url: "mac",
+    call: async () => [],
+    snapshot: async (path) =>
+      path === "/cold"
+        ? cold.promise
+        : {
+            project: { path, state: { sessions: { 7: { id: 7 } } } },
+            runs: { runs: {} },
+          },
+  };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  const opening = render().open("/cold");
+  assert.equal(render().isSelected(), false);
+  assert.equal(render().openCachedChat("/a", 7), client);
+  assert.equal(render().isSelected(), true);
+  assert.equal(render().opening, null);
+  cold.resolve(snapshot("/cold"));
+  await opening;
+  assert.equal(render().snapshot.project.path, "/a");
+});
+
+test("a cached Chat on another computer opens offline without borrowing the other computer's state", async () => {
+  const update = deferred();
+  let waiting = false;
+  const clients = Object.fromEntries(
+    ["one", "two"].map((url) => [
+      url,
+      {
+        url,
+        call: async () => [],
+        recentScopes: async () => [],
+        open: async (path) => (waiting ? update.promise : { project: { path, state: { sessions: { 7: { id: 7, title: url } } } }, runs: { runs: {} } }),
+      },
+    ]),
+  );
+  const render = sessionHost(clients.one, { clientFactory: (host) => clients[host.address] });
+  const host = (address) => ({ address, token: "token", name: address });
+  await render().connect(host("one"));
+  await render().open("/same");
+  await render().connect(host("two"));
+  await render().open("/same");
+  waiting = true;
+  assert.equal(render().openCachedChat("/same", 7, host("one")), clients.one);
+  assert.equal(render().client.url, "one");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "one");
+  update.reject(new Error("Offline"));
+  await settle();
+  assert.equal(render().error, "Offline");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "one");
+  assert.equal(render().isSelected(), true);
+});
+
+test("cached Chat revalidation cannot overwrite a later selection or a newer live snapshot", async () => {
+  const update = deferred();
+  let waiting = false;
+  const copy = (path, title) => ({ project: { path, state: { sessions: { 7: { id: 7, title } } } }, runs: { runs: {} } });
+  const client = { url: "mac", call: async () => [], snapshot: async (path) => copy(path, "Cached") };
+  const render = sessionHost(client);
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  await render().open("/b");
+  client.open = async (path) => (waiting ? update.promise : copy(path, "Later selection"));
+  waiting = true;
+  render().openCachedChat("/a", 7);
+  client.snapshot = async (path) => copy(path, "Live update");
+  await render().refresh();
+  update.resolve(copy("/a", "Old response"));
+  await settle();
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Live update");
+  const late = deferred();
+  client.open = (path) => (path === "/b" ? late.promise : Promise.resolve(copy(path, "Live update")));
+  render().openCachedChat("/b", 7);
+  render().openCachedChat("/a", 7);
+  late.reject(new Error("Old failure"));
+  await settle();
+  assert.equal(render().snapshot.project.path, "/a");
+  assert.equal(render().snapshot.project.state.sessions[7].title, "Live update");
+  assert.equal(render().error, "", "an old selection's failure cannot become the current Chat's error");
+});
+
+test("cached Chat revalidation drops a Chat removed on its computer", async () => {
+  const update = deferred();
+  let waiting = false;
+  const render = sessionHost({
+    url: "mac",
+    call: async () => [],
+    snapshot: async (path) =>
+      waiting
+        ? update.promise
+        : {
+            project: { path, state: { sessions: { 7: { id: 7 } } } },
+            runs: { runs: {} },
+          },
+  });
+  await render().connect({ address: "mac", token: "token" });
+  await render().open("/a");
+  await render().open("/b");
+  waiting = true;
+  render().openCachedChat("/a", 7);
+  update.resolve(snapshot("/a"));
+  await settle();
+  assert.equal(render().snapshot.project.state.sessions[7], undefined);
+  assert.match(render().error, /no longer available/);
+  assert.equal(render().openCachedChat("/a", 7), null);
+});
+
+test("summary-only, missing and other-computer Chats do not qualify for cached navigation", async () => {
+  const client = { url: "one", call: async () => [], snapshot: async (path) => snapshot(path) };
+  const render = sessionHost(client, { clientFactory: (host) => (host.address === "one" ? client : { ...client, url: "two" }) });
+  await render().connect({ address: "one", token: "token" });
+  await render().open("/a");
+  render().seedPreview(client, "/summary", { project: { path: "/summary", state: { sessions: { 7: { id: 7 } } } }, previewOnly: true });
+  assert.equal(render().openCachedChat("/summary", 7), null);
+  assert.equal(render().openCachedChat("/a", 7), null);
+  assert.equal(render().openCachedChat("/a", 7, { address: "two", token: "token", name: "Two" }), null);
+  assert.equal(render().snapshot.project.path, "/a");
 });
 
 test("notification navigation reconnects and opens the target Chat only after loading current state", async () => {
@@ -8096,6 +8398,95 @@ test("an empty or denied clipboard gives a useful error without adding an attach
     "./attachments": require("../apps/mobile/src/attachments.ts"),
   });
   await assert.rejects(pickAttachments("paste"), /Copy an image.*paste access/);
+});
+
+test("revisited mobile transcripts render their cached messages before refresh, including offline", async () => {
+  const react = hookHost();
+  const { useChatPage, prefetchChatPage } = load("chat-pages.ts", {
+    react: { ...react, useEffect: react.effect, useSyncExternalStore: (_subscribe, read) => read() },
+  });
+  let requests = 0;
+  let offline = false;
+  const pending = deferred();
+  const client = {
+    url: "cached-transcripts",
+    chatMessages: async (_path, id) => {
+      requests++;
+      if (offline) return pending.promise;
+      return { messages: [{ id, session_id: id, role: "user", body: `Chat ${id}` }], total: 1, hasMore: false };
+    },
+  };
+  const render = (id, host = client) => {
+    react.begin();
+    const value = useChatPage(host, "/p", id);
+    react.flush();
+    return value;
+  };
+  prefetchChatPage(client, "/p", 7);
+  prefetchChatPage(client, "/p", 7);
+  assert.equal(requests, 1, "navigation prefetches share the first read");
+  await settle();
+  render(8);
+  await settle();
+  offline = true;
+  const count = requests;
+  prefetchChatPage(client, "/p", 7);
+  assert.equal(requests, count, "a cached prefetch needs no network");
+  const cached = render(7);
+  assert.equal(cached.loading, false);
+  assert.equal(cached.messages[0].body, "Chat 7");
+  pending.reject(new Error("Offline"));
+  await settle();
+  assert.equal(render(7).messages[0].body, "Chat 7");
+  assert.equal(render(7, { ...client, url: "another-computer" }).messages.length, 0);
+  await settle();
+});
+
+test("mobile message prefetch waits for a restarted computer's Project to open before retrying", async () => {
+  const react = hookHost();
+  const { useChatPage, prefetchChatPage, noteChatProjectOpening } = load("chat-pages.ts", {
+    react: { ...react, useEffect: () => {}, useSyncExternalStore: (_subscribe, read) => read() },
+  });
+  let reads = 0;
+  const opened = deferred();
+  const client = {
+    url: "restarted",
+    chatMessages: async () => {
+      if (++reads === 1) throw new Error("Open the Project before reading its messages.");
+      return { messages: [{ id: 1, session_id: 7, body: "Reconnected" }], hasMore: false, total: 1 };
+    },
+  };
+  const render = () => {
+    react.begin();
+    return useChatPage(client, "/p", 7);
+  };
+  noteChatProjectOpening(client, "/p", opened.promise);
+  prefetchChatPage(client, "/p", 7);
+  await settle();
+  assert.equal(reads, 1);
+  assert.equal(render().error, undefined);
+  opened.resolve({});
+  await settle();
+  assert.equal(reads, 2);
+  assert.equal(render().messages[0].body, "Reconnected");
+});
+
+test("a route handoff never reads the new Chat id from the previous computer or Project", (t) => {
+  const screen = ongoingChatHost();
+  screen.session.open = () => new Promise(() => {});
+  screen.session.snapshot.project.state.messagesInChats = true;
+  const reads = [];
+  globalThis.chatPage = (client, path, id) => {
+    if (client) reads.push([client.url, path, id]);
+  };
+  t.after(() => delete globalThis.chatPage);
+  screen.params.projectPath = "/destination";
+  screen.render();
+  assert.equal(reads.length, 0);
+  screen.params.projectPath = "/p";
+  screen.params.hostId = "other-computer";
+  screen.render();
+  assert.equal(reads.length, 0);
 });
 
 test("a mobile tail refresh retains history loaded while it was in flight", async () => {

@@ -2620,15 +2620,13 @@ function App() {
       }
       if (selectedLinkRef.current || projectRef.current?.path !== from) return;
     }
-    const carried = draftStore.get();
-    // The text leaves this Project's new Chat, so it isn't waiting here too on the way back.
-    if (carried) setDraft("");
     const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
     const start = () => {
-      // Keys typed after the text left, while the switch was on its way, landed in the screen being left: they follow.
-      const late = draftStore.take(typedKey);
-      if (late) scopeDrafts.save({ kind: "project", projectPath: from }, { text: "", sessionId: null });
-      startNewChat(carried + late || (remembered.sessionId === null ? remembered.text : ""));
+      // Keep the text visible while the computer loads, as on mobile. Only take it when the destination is ready;
+      // edits made during the wait come with it, and a failed switch leaves the original draft untouched.
+      const carried = draftStore.take(typedKey);
+      if (carried) scopeDrafts.save({ kind: "project", projectPath: from }, { text: "", sessionId: null });
+      startNewChat(carried || (remembered.sessionId === null ? remembered.text : ""));
     };
     const arrived = () => !selectedLinkRef.current && projectRef.current?.path === key;
     const switched = switchProject(key);
@@ -2636,8 +2634,6 @@ function App() {
     else {
       await switched;
       if (arrived()) start();
-      // The switch failed: the text comes back where it was typed.
-      else if (carried && !selectedLinkRef.current && projectRef.current?.path === from) setDraft(carried + draftStore.get());
     }
   }
   // The sidebar Chats group's +: a new Chat without a Project on this Mac, in its Chats home, made first when missing.
