@@ -1,4 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import type { KeybindingCommandId } from "@milagre/shared/keybindings";
+import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { File01Icon, ComputerTerminal01Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
@@ -50,13 +52,12 @@ export function useSidePanels() {
   return useSyncExternalStore(subscribe, snapshot);
 }
 
-// ⌘⇧D is the changes panel's, ⌘⇧T the theme's and ⌘⇧L the canvas's (App handles those). The Terminals take ⌘J, as
-// in VS Code; ⌘T, which adds one, is App's.
-const BUTTONS: { name: PanelName; label: string; icon: typeof PaintBoardIcon; shortcut: string; key: string; shift: boolean }[] = [
-  { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, shortcut: "⌘J", key: "j", shift: false },
-  { name: "artifacts", label: "artifacts", icon: File01Icon, shortcut: "⌘⇧A", key: "a", shift: true },
-  { name: "designs", label: "designs", icon: PaintBoardIcon, shortcut: "⌘⇧E", key: "e", shift: true },
-  { name: "simulator", label: "simulator", icon: SmartphoneIcon, shortcut: "⌘⇧S", key: "s", shift: true },
+// Changes, the theme and the canvas are App's keys. The Terminals take ⌘J by default, as in VS Code; New Terminal is App's.
+const BUTTONS: { name: PanelName; label: string; icon: typeof PaintBoardIcon; command: KeybindingCommandId }[] = [
+  { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
+  { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
+  { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
+  { name: "simulator", label: "simulator", icon: SmartphoneIcon, command: "simulator.toggle" },
 ];
 
 /**
@@ -78,8 +79,8 @@ export function PanelToggles({ right }: { right: number }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-      const button = BUTTONS.find(({ key, shift }) => key === event.key.toLowerCase() && shift === event.shiftKey);
+      const command = shortcutCommand(event);
+      const button = command && BUTTONS.find((item) => item.command === command);
       const panel = button && panels[button.name];
       if (!panel) return;
       event.preventDefault();
@@ -90,6 +91,7 @@ export function PanelToggles({ right }: { right: number }) {
   }, []);
   const buttons = BUTTONS.filter(({ name }) => shown[name]);
   const chrome = useWindowChrome();
+  const { rules } = useKeybindings();
   if (!buttons.length) return null;
   return (
     <div
@@ -97,10 +99,17 @@ export function PanelToggles({ right }: { right: number }) {
       className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 [-webkit-app-region:no-drag]"
       style={{ right: right + chrome.rightInset }}
     >
-      {buttons.map(({ name, label, icon, shortcut }) => {
+      {buttons.map(({ name, label, icon, command }) => {
         const panel = shown[name]!;
         return (
-          <Tooltip key={name} label={panel.open ? `Hide ${label}` : `Show ${label}`} shortcut={shortcut} compactHint side="bottom" align="end">
+          <Tooltip
+            key={name}
+            label={panel.open ? `Hide ${label}` : `Show ${label}`}
+            shortcut={shortcutLabel(rules, command)}
+            compactHint
+            side="bottom"
+            align="end"
+          >
             <button
               type="button"
               aria-label={`Toggle ${label} panel`}

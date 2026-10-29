@@ -137,6 +137,7 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:add",
     "accounts:assign",
     "chat:limit-switch",
+    "app:open-keybindings-file",
   ])
     assert.equal(isLocalOnly(channel), true, channel);
   for (const channel of [
@@ -151,6 +152,10 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:scope",
     "babysit:settings:read",
     "babysit:settings:save",
+    "keybindings:read",
+    "keybindings:set-command",
+    "keybindings:reset-command",
+    "keybindings:reset",
     "routines:list",
     "routines:enabled:save",
     "routines:create",

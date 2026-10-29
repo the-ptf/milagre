@@ -18,6 +18,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { filterCommands, type Command } from "../lib/commands";
 import { useShortcutHints } from "../lib/shortcut-hints";
+import { shortcutCommand, useShortcutLabel } from "../lib/keybindings";
+import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { ShortcutKeys } from "./primitives/ShortcutKeys";
 
@@ -37,6 +39,11 @@ const icons = {
   newChat: PencilEdit02Icon,
   triage: Bug01Icon,
 };
+
+function CommandKeys({ command }: { command: KeybindingCommandId }) {
+  const label = useShortcutLabel(command);
+  return label ? <ShortcutKeys shortcut={label} /> : null;
+}
 
 function Label({ command }: { command: Command }) {
   if (!command.highlight) return command.label;
@@ -193,12 +200,13 @@ export function CommandPalette({
         }
         if (event.nativeEvent.isComposing) return;
         // Consume Escape before the app's stop-agent shortcut sees it.
-        if (event.key === "Escape" || ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k")) {
+        const pressed = shortcutCommand(event);
+        if (event.key === "Escape" || pressed === "commandPalette.toggle") {
           event.preventDefault();
           event.stopPropagation();
           close();
-        } else if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
-          const command = commands.find((item) => item.shortcut?.replace(/^(⌘|Ctrl\+)/, "").toLowerCase() === event.key.toLowerCase());
+        } else if (pressed) {
+          const command = commands.find((item) => item.keybinding === pressed);
           if (command) {
             event.preventDefault();
             close(command);
@@ -260,7 +268,7 @@ export function CommandPalette({
                     <Label command={command} />
                   </span>
                   {command.detail && <span className="max-w-[45%] truncate text-[11px] text-ink-3">{command.detail}</span>}
-                  {showHints && command.shortcut && <ShortcutKeys shortcut={command.shortcut} />}
+                  {showHints && command.keybinding && <CommandKeys command={command.keybinding} />}
                 </div>
               ))}
           </div>

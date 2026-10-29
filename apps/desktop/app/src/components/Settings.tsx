@@ -36,6 +36,7 @@ import {
   ArrowLeft01Icon,
   BookOpen01Icon,
   BubbleChatIcon,
+  KeyboardIcon,
   ConnectIcon,
   FlaskConicalIcon,
   FolderKeyIcon,
@@ -101,6 +102,7 @@ import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { ChatListChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
+import { KeybindingsSettings } from "./settings/KeybindingsSettings";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -125,6 +127,7 @@ export type SettingsSection =
   | "accounts"
   | "appearance"
   | "chat"
+  | "keybindings"
   | "notifications"
   | "routines"
   | "connections"
@@ -147,6 +150,7 @@ const SECTIONS: Array<{
   { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
   { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
+  { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} /> },
   { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
   { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
   { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
@@ -2371,6 +2375,7 @@ export function SettingsPanel({
         )}
         {section === "appearance" && <AppearanceSettings />}
         {section === "chat" && <ChatSettings />}
+        {section === "keybindings" && <KeybindingsSettings />}
         {section === "notifications" && <NotificationsSettings />}
         {section === "routines" && <RoutinesSettings />}
         {section === "connections" && (

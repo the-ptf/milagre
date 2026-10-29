@@ -205,6 +205,10 @@
       "types": "./src/archive.d.mts",
       "default": "./src/archive.mjs"
     },
+    "./keybindings": {
+      "types": "./src/keybindings.d.mts",
+      "default": "./src/keybindings.mjs"
+    },
     "./bots": {
       "types": "./src/bots.d.mts",
       "default": "./src/bots.mjs"

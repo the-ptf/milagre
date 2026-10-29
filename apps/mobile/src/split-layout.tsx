@@ -10,7 +10,9 @@ import { RightPanel, usePanelScreen, useRightPanelScreen } from "./side-panels";
 import { useCardTop, useSplit } from "./split-context";
 import { CARD_MARGIN, CHANGES_WIDTH, DOCK_GUTTER, PANEL_MIN_WIDTH, SIDEBAR_WIDTH, clampPanelWidth } from "./split-width";
 import { setPanelWidth, usePanelWidth } from "./panel-width";
-import { chatShortcutIndex, useHardwareShortcuts, type ShortcutId } from "./hardware-keys";
+import type { KeybindingCommandId } from "@milagre/shared/keybindings";
+import { chatShortcutIndex, useHardwareShortcuts } from "./hardware-keys";
+import { rulesOf, useHostKeybindings } from "./keybindings-store";
 import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
@@ -222,36 +224,40 @@ function resizeGesture(width: SharedValue<number>, start: SharedValue<number>, m
 
 const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
-/** Desktop's shortcuts on an iPad's keyboard; renders nothing. Mount it once, inside the split and panel providers. */
+/** The connected Mac's keybindings on an iPad's keyboard; renders nothing. Mount it once, inside the split and panel providers. */
 export function HardwareShortcuts() {
   const split = useSplit();
   const panels = usePanelScreen();
+  const keybindings = useHostKeybindings(useSession().client);
   const onShortcut = useCallback(
-    (id: ShortcutId) => {
-      if (id === "settings") {
+    (command: KeybindingCommandId) => {
+      if (command === "settings.open") {
         router.push("/settings");
         return;
       }
-      if (id === "changes") {
+      if (command === "changes.toggle") {
         if (panels.right) panels.closeRight();
         else if (panels.worktreeId !== undefined) panels.show("right");
         return;
       }
-      if (id === "sidebar") {
+      if (command === "sidebar.toggle") {
         if (split.dockable) split.toggle();
         else if (panels.attached) panels.show(panels.open === "left" ? null : "left");
         return;
       }
-      // New Chat, search and ⌘1 to ⌘9 go to the Chats list on screen, showing it first where it is hidden or slides over.
-      const index = chatShortcutIndex(id);
-      requestNavigation(id === "new-chat" ? { kind: "new" } : id === "search" ? { kind: "search" } : { kind: "chat", index: index ?? 0 });
+      // New Chat, search and the Chat jumps go to the Chats list on screen, showing it first where it is hidden or slides over.
+      const index = chatShortcutIndex(command);
+      if (command !== "chat.new" && command !== "commandPalette.toggle" && index === null) return;
+      requestNavigation(
+        command === "chat.new" ? { kind: "new" } : command === "commandPalette.toggle" ? { kind: "search" } : { kind: "chat", index: index ?? 0 },
+      );
       if (split.dockable) {
         if (!split.pinned) split.toggle();
       } else if (panels.attached && panels.open !== "left") panels.show("left");
     },
     [split, panels],
   );
-  useHardwareShortcuts(onShortcut);
+  useHardwareShortcuts(rulesOf(keybindings), onShortcut);
   return null;
 }
 
