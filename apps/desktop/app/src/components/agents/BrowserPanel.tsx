@@ -9,7 +9,7 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
-import { usePanelWidth } from "./panel-width";
+import { MIN_CHAT_WIDTH, usePanelWidth } from "./panel-width";
 import {
   addBlankTab,
   addressText,
@@ -59,9 +59,12 @@ export function BrowserPanel({ chatKey, ports, onSendComments }: { chatKey: stri
   const chat = useChatBrowser(chatKey);
   const dock = useDockArea();
   const resize = usePanelWidth("browser");
+  // Dragged wider than the room left now (the changes panel or a simulator opened beside it), it narrows so the chat
+  // keeps its width, down to its minimum; wider, it would push the row past the window, over the sidebar.
+  const width = dock ? Math.max(resize.min, Math.min(resize.width, dock.width - dock.simulator - 12 - MIN_CHAT_WIDTH)) : resize.width;
   const close = useCallback(() => setBrowserOpen(chatKey, false), [chatKey]);
   useCloseWhenDesignsExpand(close);
-  useSidePanelRoom("browser", chat.open, resize.width + 12, close);
+  useSidePanelRoom("browser", chat.open, width + 12, close);
   useSidePanel("browser", { open: chat.open, toggle: () => setBrowserOpen(chatKey, !chatBrowser(chatKey).open) });
   // Localhost links in this Chat's replies open here while it is on screen.
   useEffect(() => registerBrowserHost(chatKey), [chatKey]);
@@ -76,7 +79,7 @@ export function BrowserPanel({ chatKey, ports, onSendComments }: { chatKey: stri
           // makes room through --browser-dock.
           panel="browser"
           label="Resize browser"
-          width={resize.width}
+          width={width}
           reserve="--browser-dock"
           role="region"
           aria-label="Browser"
@@ -111,6 +114,10 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
             <div
               key={tab.id}
               data-browser-tab={tab.id}
+              // A middle click closes the tab, as in a browser.
+              onAuxClick={(event) => {
+                if (event.button === 1) closeBrowserTab(chatKey, tab.id);
+              }}
               className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 ${selected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover/60"}`}
             >
               <button

@@ -33,7 +33,8 @@ type Page = {
 
 const pages = new Map<string, Page>();
 let layer: HTMLDivElement | null = null;
-let shown: { tabId: string; slot: HTMLElement } | null = null;
+/** The page on screen, the slot it is laid over, and the bottom corners' radius of the panel's card it rounds to. */
+let shown: { tabId: string; slot: HTMLElement; radius: number } | null = null;
 
 function ensureLayer() {
   if (layer?.isConnected) return layer;
@@ -165,8 +166,8 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
  * and letting clicks through: off screen, Chromium stops painting it and the viewer would get no frames.
  */
 function park(page: Page) {
-  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none" });
-  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none" });
+  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none", clipPath: "" });
+  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none", clipPath: "" });
 }
 
 function place() {
@@ -184,6 +185,12 @@ function place() {
   if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
   style.opacity = "1";
   style.pointerEvents = "auto";
+  // The page is outside the panel's card, so the card's clip misses it: it is cut at the dock's edges (sliding open or
+  // closed it would draw over the changes panel beside it) and takes the card's bottom corners.
+  const dock = shown.slot.closest("[data-slot=browser-dock]")?.getBoundingClientRect();
+  const cut = dock ? [Math.max(0, rect.right - dock.right), Math.max(0, dock.left - rect.left)] : [0, 0];
+  const clip = `inset(0 ${cut[0]}px 0 ${cut[1]}px round 0 0 ${shown.radius}px ${shown.radius}px)`;
+  if (style.clipPath !== clip) style.clipPath = clip;
 }
 
 // After anything that can move the slot (the panel springing open, a drag, the changes panel opening beside it), the
@@ -210,7 +217,9 @@ export function showBrowserPage(chatKey: string, tabId: string, slot: HTMLElemen
   if (!page) return () => {};
   page.shownAt = performance.now();
   for (const old of [...pages.values()].toSorted((a, b) => b.shownAt - a.shownAt).slice(LIVE_PAGES)) if (old !== page) destroyPage(old);
-  shown = { tabId, slot };
+  // The slot is the card's last child, so its bottom corners are the card's.
+  const radius = slot.parentElement ? parseFloat(getComputedStyle(slot.parentElement).borderBottomRightRadius) || 0 : 0;
+  shown = { tabId, slot, radius };
   place();
   settle();
   const resize = new ResizeObserver(settle);
@@ -248,11 +257,13 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     if (page) openBrowserTab(page.chatKey, url);
   });
   const offKey = bridge.onKey(({ from, key }) => {
-    const page = pageOfContents(from);
-    if (!page) return;
-    if (key === "r") safe(() => page.webview.reload(), undefined);
-    else if (key === "w") closeBrowserTab(page.chatKey, page.tabId);
-    else onKey(page.chatKey, page.tabId, key);
+    const sender = pageOfContents(from);
+    if (!sender) return;
+    // A page keeps the keyboard after another tab shows, so the key is for the tab on screen, not the one that sent it.
+    const tabId = chatBrowser(sender.chatKey).active ?? sender.tabId;
+    if (key === "r") safe(() => pages.get(tabId)?.webview.reload(), undefined);
+    else if (key === "w") closeBrowserTab(sender.chatKey, tabId);
+    else onKey(sender.chatKey, tabId, key);
   });
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
     if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);

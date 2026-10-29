@@ -3627,6 +3627,7 @@ function App() {
                       {/* One composer across Projects: its parked transcripts (TranscriptSlots) outlive a Project switch. */}
                       <DraftChatComposer
                         store={draftStore}
+                        offScreen={!((view === "chat" && !botsShown) || runPaneOpen)}
                         mentionContext={mentionContext}
                         messages={displayedMessages}
                         loading={messagesLoading}
