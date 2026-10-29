@@ -1436,6 +1436,23 @@ function App() {
     return Promise.resolve();
   }
 
+  // A Link Chat archives from its Link's sidebar; its row is gone from this window's sidebars too until the host answers,
+  // and comes back if the archive fails. The Link shows the error; a window that left it for a Project shows the notice.
+  const trackLinkArchive = useEvent((key: string, work: Promise<unknown>) => {
+    setArchivingChats((current) => new Set(current).add(key));
+    void work
+      .catch((error) => {
+        if (!selectedLinkRef.current) setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`);
+      })
+      .finally(() =>
+        setArchivingChats((current) => {
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        }),
+      );
+  });
+
   // What the archive menu offers depends on the chat's worktree: whether Milagre made it, whether another chat
   // uses it, and what it would lose.
   // The menu's Archive waits on this, so its reads go out together: one after another, each waiting its turn on a busy
@@ -3007,6 +3024,8 @@ function App() {
       usage={sidebarUsage}
       onNewChatInScope={newChatInScope}
       onNewChat={startNewChatOnThisMac}
+      archivingChats={archivingChats}
+      onArchiving={trackLinkArchive}
     />
   );
   const linkDialogs = (
