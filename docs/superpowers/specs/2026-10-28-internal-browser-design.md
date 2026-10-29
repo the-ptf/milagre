@@ -165,7 +165,13 @@ phone's tray the same way. No native build: the sheet is the existing WebView re
 | 4  | Agent `browser_*` tools over the adapter, bundled skill update.                                                                          |
 | 5  | Phone comments: tap-to-comment in the Browser sheet, phone tray and Send.                                                                |
 
-Designs for the panel, the comment box, the tray and the transcript card go on the Chat's canvas before PR 2.
+Designs are on the Chat's canvas (group Browser comments). Victor picked, 2026-10-28:
+
+- **Send in the toolbar** (`browser-comment-a`): pending comments live as numbered pins on the page and a dark
+  **Send n** button sits beside the comment toggle, as for Design comments. No tray.
+- **No intent** on a comment (no fix / change / question chips): just the text.
+- **Resolved pins stay** green with a check; hovering shows the agent's note (`browser-comment-sent`). The transcript
+  card lists each comment with its element screenshot and status.
 
 ## Research
 

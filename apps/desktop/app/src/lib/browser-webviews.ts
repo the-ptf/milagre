@@ -1,4 +1,6 @@
 import type { WebviewTag } from "electron";
+import { PAGE_PICK_CANCEL, pagePickScript, pagePinsHidden, pagePinsScript, type PagePin } from "@milagre/shared/page-picker";
+import type { PageElement } from "@milagre/shared/page-comments";
 import { chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavigation, type ChatBrowser } from "./browser-panel.ts";
 
 /**
@@ -14,7 +16,18 @@ import { chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavi
 const LIVE_PAGES = 8;
 const LAYER_Z = "11";
 
-type Page = { chatKey: string; tabId: string; surface: HTMLDivElement; webview: WebviewTag; contentsId: number | null; shownAt: number };
+type Page = {
+  chatKey: string;
+  tabId: string;
+  surface: HTMLDivElement;
+  webview: WebviewTag;
+  /** Over the page, inside its surface: what the panel draws on the page (a comment being written). */
+  overlay: HTMLDivElement;
+  contentsId: number | null;
+  shownAt: number;
+  /** The comment pins this page shows, put back after every load. */
+  pins: PagePin[];
+};
 
 const pages = new Map<string, Page>();
 let layer: HTMLDivElement | null = null;
@@ -43,16 +56,24 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
   webview.setAttribute("webpreferences", "disableHtmlFullscreenWindowResize=true");
   webview.setAttribute("src", url);
   Object.assign(webview.style, { width: "100%", height: "100%", display: "flex", background: "white" });
-  const page: Page = { chatKey, tabId, surface, webview, contentsId: null, shownAt: 0 };
+  const overlay = document.createElement("div");
+  overlay.dataset.browserOverlay = tabId;
+  Object.assign(overlay.style, { position: "absolute", inset: "0", pointerEvents: "none" });
+  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [] };
   const history = () => ({ canGoBack: safe(() => webview.canGoBack(), false), canGoForward: safe(() => webview.canGoForward(), false) });
   webview.addEventListener("dom-ready", () => {
     page.contentsId = safe(() => webview.getWebContentsId(), null);
+    // A new document starts without pins.
+    pinned.delete(page);
+    applyPins(page);
   });
   webview.addEventListener("did-start-loading", () => patchBrowserTab(chatKey, tabId, { loading: true, error: undefined }));
   webview.addEventListener("did-stop-loading", () => patchBrowserTab(chatKey, tabId, { loading: false, ...history() }));
   webview.addEventListener("did-navigate", (event) => patchBrowserTab(chatKey, tabId, { url: event.url, ...history() }));
   webview.addEventListener("did-navigate-in-page", (event) => {
-    if (event.isMainFrame) patchBrowserTab(chatKey, tabId, { url: event.url, ...history() });
+    if (!event.isMainFrame) return;
+    patchBrowserTab(chatKey, tabId, { url: event.url, ...history() });
+    applyPins(page);
   });
   webview.addEventListener("page-title-updated", (event) => patchBrowserTab(chatKey, tabId, { title: event.title }));
   webview.addEventListener("page-favicon-updated", (event) => patchBrowserTab(chatKey, tabId, { favicon: event.favicons[0] }));
@@ -64,7 +85,7 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
   webview.addEventListener("render-process-gone", () =>
     patchBrowserTab(chatKey, tabId, { loading: false, error: "The page stopped responding. Reload to try again." }),
   );
-  surface.append(webview);
+  surface.append(webview, overlay);
   ensureLayer().append(surface);
   pages.set(tabId, page);
   return page;
@@ -202,4 +223,67 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     offTab();
     offKey();
   };
+}
+
+/** Where the panel draws over a tab's page (the comment box), or null while the page isn't alive. */
+export const browserOverlay = (tabId: string): HTMLDivElement | null => pages.get(tabId)?.overlay ?? null;
+
+const accent = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#007df3";
+const green = () => getComputedStyle(document.documentElement).getPropertyValue("--green").trim() || "#199a4d";
+
+// Pages whose current document has pins: an empty list then has to take them away; otherwise it needs no script.
+const pinned = new WeakSet<Page>();
+function applyPins(page: Page) {
+  if (!page.pins.length && !pinned.has(page)) return;
+  if (page.pins.length) pinned.add(page);
+  else pinned.delete(page);
+  void page.webview.executeJavaScript(pagePinsScript(page.pins, { accent: accent(), green: green() })).catch(() => {});
+}
+
+/** Shows `pins` on a tab's page now and after every load. */
+export function setPagePins(tabId: string, pins: PagePin[]) {
+  const page = pages.get(tabId);
+  if (!page || JSON.stringify(page.pins) === JSON.stringify(pins)) return;
+  page.pins = pins;
+  if (page.contentsId) applyPins(page);
+}
+
+/**
+ * Lets the user pick an element on a tab's page: resolves to it; null when they press Escape, the page navigates or
+ * cancelPagePick runs; undefined when a newer pick replaced this one. The page is focused so its keys reach the picker.
+ */
+export async function pickOnPage(tabId: string): Promise<PageElement | null | undefined> {
+  const page = pages.get(tabId);
+  if (!page) return null;
+  page.webview.focus();
+  try {
+    return (await page.webview.executeJavaScript(pagePickScript(accent()), true)) as PageElement | null | undefined;
+  } catch {
+    return null;
+  }
+}
+
+export function cancelPagePick(tabId: string) {
+  void pages
+    .get(tabId)
+    ?.webview.executeJavaScript(PAGE_PICK_CANCEL)
+    .catch(() => {});
+}
+
+/** A PNG of an element's box on a tab's page (with a margin, without the pins), or null. */
+export async function capturePageElement(tabId: string, box: PageElement["box"]): Promise<string | null> {
+  const page = pages.get(tabId);
+  const capture = window.milagreBrowserPanel?.capture;
+  if (!page?.contentsId || !capture) return null;
+  const margin = 12;
+  try {
+    await page.webview.executeJavaScript(pagePinsHidden(true));
+    // A frame for the page to paint without them.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return await capture(page.contentsId, { x: box.x - margin, y: box.y - margin, width: box.width + margin * 2, height: box.height + margin * 2 });
+  } catch {
+    return null;
+  } finally {
+    void page.webview.executeJavaScript(pagePinsHidden(false)).catch(() => {});
+  }
 }

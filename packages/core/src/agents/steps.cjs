@@ -62,7 +62,8 @@ const artifactTitle = (title, tool) =>
 // The step names its tool: the Designs canvas opens when a design tool starts, not for an artifact page.
 const artifactStep = (step, title, tool) => ({ ...step("artifact", artifactTitle(title, tool)), tool });
 // Resolving a comment the user left on a design reads as that, not as a tool call.
-const isResolveTool = (server, tool) => server === "milagre" && tool === "artifact_resolve_comment";
+const isResolveTool = (server, tool) => server === "milagre" && (tool === "artifact_resolve_comment" || tool === "browser_resolve_comment");
+const resolvedTitle = (tool) => (tool === "browser_resolve_comment" ? "Resolved a page comment" : "Resolved a design comment");
 
 // Milagre's routine tools read as what they did to the Project's Heartbeats and Routines, not as tool calls.
 const ROUTINE_STEP_TOOLS = new Set(ROUTINE_TOOL_NAMES);
@@ -131,7 +132,7 @@ function claudeStep(id, name, input = {}) {
   if (CLAUDE_AGENT_TOOLS.has(name)) return step("other", `Ran an agent: ${input.description || "a subtask"}`);
   if (name === "TodoWrite") return step("other", "Updated the to-do list");
   if (mcp && isArtifactTool(mcp[1], mcp[2])) return artifactStep(step, input.title, mcp[2]);
-  if (mcp && isResolveTool(mcp[1], mcp[2])) return step("other", "Resolved a design comment", input.note);
+  if (mcp && isResolveTool(mcp[1], mcp[2])) return step("other", resolvedTitle(mcp[2]), input.note);
   const routine = mcp && routineTitle(mcp[1], mcp[2], input);
   if (routine) return step("other", routine);
   if (mcp) return step("other", `Used ${code(mcp[2])} from ${mcp[1]}`);
@@ -167,7 +168,7 @@ function claudeStepResult(call, block, structured) {
     const artifact = artifactRef(text);
     return end({ artifact, title: artifact ? artifactTitle(artifact.title, designTool) : undefined });
   }
-  if (name === "mcp__milagre__artifact_resolve_comment") return end({ detail: input.note });
+  if (name === "mcp__milagre__artifact_resolve_comment" || name === "mcp__milagre__browser_resolve_comment") return end({ detail: input.note });
   if (name === "mcp__milagre__heartbeat_create") {
     const { routine, detail } = routineRef(text);
     if (routine) return end({ routine, detail: detail ? capText(detail) : undefined });
@@ -231,7 +232,7 @@ function codexStep(item) {
       return step("edit", changeTitle(item.changes ?? []), undefined, item.changes?.length === 1 ? item.changes[0].path : undefined);
     case "mcpToolCall":
       if (isArtifactTool(item.server, item.tool)) return artifactStep(step, item.arguments?.title, item.tool);
-      if (isResolveTool(item.server, item.tool)) return step("other", "Resolved a design comment", item.arguments?.note);
+      if (isResolveTool(item.server, item.tool)) return step("other", resolvedTitle(item.tool), item.arguments?.note);
       return step("other", routineTitle(item.server, item.tool, item.arguments) ?? `Used ${code(item.tool)} from ${item.server}`);
     case "dynamicToolCall":
       return step("other", `Used ${code(item.tool)}`);

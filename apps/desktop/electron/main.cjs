@@ -31,7 +31,7 @@ const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts } = require("./app-shortcuts.cjs");
-const { BROWSER_PARTITION, hardenBrowserGuests } = require("./browser-guests.cjs");
+const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests } = require("./browser-guests.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
@@ -112,6 +112,8 @@ async function startDesktop() {
       void window.loadURL(url.href);
     },
   });
+  // A picked element on a Browser panel page, for its comment.
+  ipcMain.handle("browser-panel:capture", (event, contentsId, rect) => captureBrowserPage(event.sender, contentsId, rect));
   ipcMain.handle("settings:floating-inbox", (_event, on) => floating.setEnabled(on === true));
   ipcMain.handle("floating-inbox:toggle", () => floating.toggle());
   ipcMain.handle("floating-inbox:select", (_event, key) => floating.openItem(key));

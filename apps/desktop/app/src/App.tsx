@@ -3497,6 +3497,7 @@ function App() {
                             : undefined
                         }
                         onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
+                        onSendPageComments={(text, images) => executeSend(text, permissionMode, images, [], true)}
                         linearActive={linear.active}
                         onStartFromIssue={noGit ? undefined : startFromIssue}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}

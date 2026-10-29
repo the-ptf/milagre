@@ -3,6 +3,7 @@
 // before it attaches: no preload, no Node, sandboxed, one sign-in session for every page, and web pages only. A page
 // that opens a window gets a new panel tab instead; one that leaves the web (mailto:, an app's own scheme) goes through
 // the same external handler as links in replies.
+const { webContents } = require("electron");
 const { isAppShortcut, isSettingsKey } = require("./app-shortcuts.cjs");
 
 /** The one persistent session every Browser panel page shares, so signing in once lasts. */
@@ -98,4 +99,25 @@ function guardGuest(host, guest, { openExternal, platform }) {
   });
 }
 
-module.exports = { BROWSER_PARTITION, hardenBrowserGuests, isPageUrl };
+/**
+ * A PNG of part of one of `host`'s own pages (a picked element, for a page comment), at most 800 pixels wide; null for
+ * another window's page or any other webContents.
+ * @param {Electron.WebContents} host
+ * @param {unknown} contentsId
+ * @param {unknown} rect
+ */
+async function captureBrowserPage(host, contentsId, rect) {
+  const guest = Number.isSafeInteger(contentsId) ? webContents.fromId(/** @type {number} */ (contentsId)) : undefined;
+  if (!guest || guest.isDestroyed() || guest.getType() !== "webview" || guest.hostWebContents !== host) return null;
+  const area = /** @type {Record<string, unknown>} */ (rect && typeof rect === "object" ? rect : {});
+  const x = Math.round(Number(area.x)),
+    y = Math.round(Number(area.y)),
+    width = Math.round(Number(area.width)),
+    height = Math.round(Number(area.height));
+  if (![x, y, width, height].every(Number.isFinite) || width < 1 || height < 1) return null;
+  const image = await guest.capturePage({ x: Math.max(0, x), y: Math.max(0, y), width: Math.min(width, 4000), height: Math.min(height, 4000) });
+  if (image.isEmpty()) return null;
+  return (image.getSize().width > 800 ? image.resize({ width: 800 }) : image).toDataURL();
+}
+
+module.exports = { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, isPageUrl };

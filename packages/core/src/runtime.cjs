@@ -220,6 +220,14 @@ function createRuntime(options) {
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
+  // Comments the user left on Browser panel pages (spec docs/superpowers/specs/2026-10-28-internal-browser-design.md).
+  const { createChatPageComments, pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
+  const pageComments = createChatPageComments({
+    directory: path.join(dataDir, "page-comments"),
+    validateChat: existingChat("commenting on a page"),
+  });
+  commands.handle("browser-comments:add", (_context, request) => pageComments.add(request));
+  commands.handle("browser-comments:list", (_context, request) => pageComments.list(request));
   for (const method of ["list", "attach", "detach"])
     commands.handle(`simulator:${method}`, (context, request) => {
       if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
@@ -760,6 +768,7 @@ function createRuntime(options) {
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
       await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
+      await Promise.all(goneChats.map((id) => pageComments.removeChat(id).catch(() => {})));
       for (const id of goneChats) chats.forget(id);
       await pruneLinks();
     }
@@ -1971,6 +1980,7 @@ function createRuntime(options) {
       ...planTools.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
+      ...pageCommentToolDefinitions(chatId, pageComments),
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
@@ -2724,7 +2734,7 @@ function createRuntime(options) {
       await advisorMcp.close();
       await advisorStore.close();
       // Ending the Terminals first also answers their pending reads, which the wait for accepted commands includes.
-      await Promise.all([simulators.close(), browsers.close(), artifacts.close(), terminals.dispose()]);
+      await Promise.all([simulators.close(), browsers.close(), artifacts.close(), pageComments.close(), terminals.dispose()]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);

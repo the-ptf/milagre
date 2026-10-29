@@ -27,6 +27,7 @@ import {
 } from "../../lib/browser-panel";
 import { browserWebview, focusBrowserPage, listenToBrowserPages, showBrowserPage, syncBrowserPages } from "../../lib/browser-webviews";
 import { portUrl } from "../../lib/ports";
+import { CommentControls, PageCommenting, useSentPageComments, type SendPageComments } from "./BrowserComments";
 
 /** Sent with a Chat key when ⌘L is pressed in one of its pages: its address bar takes the focus. */
 export const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
@@ -53,7 +54,7 @@ const ICON_BUTTON =
  * page itself is a <webview> in browser-webviews.ts, laid over this panel's slot, so it outlives the panel closing and
  * the Chat switching. `ports` are the Chat's listening servers, offered on a blank tab.
  */
-export function BrowserPanel({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) {
+export function BrowserPanel({ chatKey, ports, onSendComments }: { chatKey: string; ports: AgentPort[]; onSendComments?: SendPageComments }) {
   const chat = useChatBrowser(chatKey);
   const dock = useDockArea();
   const resize = usePanelWidth("browser");
@@ -63,6 +64,7 @@ export function BrowserPanel({ chatKey, ports }: { chatKey: string; ports: Agent
   useSidePanel("browser", { open: chat.open, toggle: () => setBrowserOpen(chatKey, !chatBrowser(chatKey).open) });
   // Localhost links in this Chat's replies open here while it is on screen.
   useEffect(() => registerBrowserHost(chatKey), [chatKey]);
+  useSentPageComments(chatKey);
   const active = chat.tabs.find((tab) => tab.id === chat.active) ?? null;
   return createPortal(
     <AnimatePresence>
@@ -87,7 +89,7 @@ export function BrowserPanel({ chatKey, ports }: { chatKey: string; ports: Agent
           panelClassName="overflow-hidden rounded-window bg-surface text-ink shadow-card"
         >
           <BrowserTabs chatKey={chatKey} tabs={chat.tabs} active={active.id} onClose={close} />
-          <BrowserToolbar key={active.id} chatKey={chatKey} tab={active} />
+          <BrowserToolbar key={active.id} chatKey={chatKey} tab={active} onSendComments={onSendComments} />
           <BrowserPage chatKey={chatKey} tab={active} ports={ports} />
         </ResizableDockSlide>
       )}
@@ -161,7 +163,7 @@ const hostLabel = (url: string) => {
   }
 };
 
-function BrowserToolbar({ chatKey, tab }: { chatKey: string; tab: BrowserTab }) {
+function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab: BrowserTab; onSendComments?: SendPageComments }) {
   const input = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(addressText(tab.url));
   const [editing, setEditing] = useState(false);
@@ -238,6 +240,7 @@ function BrowserToolbar({ chatKey, tab }: { chatKey: string; tab: BrowserTab }) 
         }}
         className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-[12px] text-ink outline-none placeholder:text-ink-3 focus:border-line-strong focus:bg-surface"
       />
+      <CommentControls chatKey={chatKey} live={!blank && !tab.error} onSend={onSendComments} />
       <Tooltip label="Open in your browser" side="bottom" align="end">
         <button type="button" aria-label="Open in your browser" disabled={blank} onClick={() => window.open(tab.url, "_blank")} className={ICON_BUTTON}>
           <HugeiconsIcon icon={LinkSquare02Icon} size={15} aria-hidden />
@@ -274,6 +277,7 @@ function BrowserPage({ chatKey, tab, ports }: { chatKey: string; tab: BrowserTab
       ) : !live ? (
         <StartPage chatKey={chatKey} ports={ports} />
       ) : null}
+      <PageCommenting chatKey={chatKey} tab={tab} live={live} />
     </div>
   );
 }
