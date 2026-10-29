@@ -1,5 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, FlatList, Image, Pressable, Text, View, useWindowDimensions, type ImageSourcePropType } from "react-native";
+import {
+  AccessibilityInfo,
+  Animated,
+  FlatList,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+  type ImageSourcePropType,
+  type ScrollViewInstance,
+} from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -29,13 +42,100 @@ async function naturalSize(value: MediaValue | undefined): Promise<{ width: numb
   });
 }
 
-/** One full-screen image; a relay image that is still loading leaves the space empty. */
-function Figure({ name, source, width, height }: { name: string; source: MediaValue; width: number; height: number }) {
+/** How far a double tap zooms in, and the most a pinch can. */
+const DOUBLE_TAP_ZOOM = 2.5;
+const MAX_ZOOM = 4;
+
+/**
+ * One full-screen image, like Photos: pinch or double-tap to zoom (iOS), pan around it zoomed, double-tap again to fit.
+ * A relay image that is still loading leaves the space empty.
+ */
+function Figure({
+  name,
+  source,
+  width,
+  height,
+  scrollRef,
+  onZoom,
+}: {
+  name: string;
+  source: MediaValue;
+  width: number;
+  height: number;
+  scrollRef: (view: ScrollViewInstance | null) => void;
+  onZoom: (zoomed: boolean) => void;
+}) {
   const ready = useMedia(source);
-  return ready ? (
-    <Image accessibilityLabel={name} source={ready} resizeMode="contain" style={{ width, height }} />
-  ) : (
-    <View accessibilityLabel={name} style={{ width, height }} />
+  const [ratio, setRatio] = useState<number | null>(null);
+  const view = useRef<ScrollViewInstance | null>(null);
+  const scale = useRef(1);
+  const tap = useRef({ x: 0, y: 0, t: 0, last: 0 });
+  // The image fitted inside the page's image area, so a zoomed image pans to its own edges, not into letterbox bars.
+  const box = height * FILL;
+  const fitted = !ratio ? { width, height: box } : ratio > width / box ? { width, height: width / ratio } : { width: box * ratio, height: box };
+  const doubleTap = (x: number, y: number) => {
+    // Android's ScrollView does not zoom.
+    if (Platform.OS !== "ios") return;
+    if (scale.current > 1.01) return view.current?.scrollResponderZoomTo({ x: 0, y: 0, width: fitted.width, height: fitted.height });
+    // At fit the content sits centred on the page: move the tap into the image's own coordinates and zoom around it.
+    const cx = Math.min(fitted.width, Math.max(0, x - (width - fitted.width) / 2)),
+      cy = Math.min(fitted.height, Math.max(0, y - (height - fitted.height) / 2));
+    const w = width / DOUBLE_TAP_ZOOM,
+      h = height / DOUBLE_TAP_ZOOM;
+    view.current?.scrollResponderZoomTo({ x: cx - w / 2, y: cy - h / 2, width: w, height: h });
+  };
+  return (
+    <ScrollView
+      ref={(node) => {
+        view.current = node;
+        scrollRef(node);
+      }}
+      style={{ width, height }}
+      maximumZoomScale={MAX_ZOOM}
+      minimumZoomScale={1}
+      bouncesZoom
+      centerContent
+      // At fit nothing scrolls, so a downward drag stays free to pull the viewer closed.
+      alwaysBounceHorizontal={false}
+      alwaysBounceVertical={false}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      scrollEventThrottle={32}
+      onScroll={({ nativeEvent }) => {
+        const zoom = nativeEvent.zoomScale ?? 1;
+        if (zoom > 1.01 !== scale.current > 1.01) onZoom(zoom > 1.01);
+        scale.current = zoom;
+      }}
+      onTouchStart={({ nativeEvent: e }) => {
+        tap.current.x = e.pageX;
+        tap.current.y = e.pageY;
+        tap.current.t = e.timestamp;
+      }}
+      onTouchEnd={({ nativeEvent: e }) => {
+        // A tap is a short touch that barely moved; two of them close together in time and place are a double tap.
+        const still = Math.abs(e.pageX - tap.current.x) < 10 && Math.abs(e.pageY - tap.current.y) < 10 && e.timestamp - tap.current.t < 250;
+        if (!still || e.touches.length > 0) return void (tap.current.last = 0);
+        if (e.timestamp - tap.current.last < 300) {
+          tap.current.last = 0;
+          doubleTap(e.pageX, e.pageY);
+        } else tap.current.last = e.timestamp;
+      }}
+    >
+      {ready ? (
+        <Image
+          accessibilityLabel={name}
+          source={ready}
+          resizeMode="contain"
+          onLoad={({ nativeEvent }) => {
+            const { width: w, height: h } = nativeEvent.source;
+            if (w > 0 && h > 0) setRatio(w / h);
+          }}
+          style={fitted}
+        />
+      ) : (
+        <View accessibilityLabel={name} style={fitted} />
+      )}
+    </ScrollView>
   );
 }
 
@@ -61,6 +161,14 @@ export default function Viewer() {
     pose.fade.setValue(to ? 0 : 1);
   };
   const closingRef = useRef(false);
+  // Each page's zoom view, and whether the page on screen is zoomed in: zoomed, a drag pans the image instead of closing.
+  const pages = useRef(new Map<number, ScrollViewInstance>());
+  const zoomed = useRef(false);
+  // The list renders its pages once, so their callbacks read the page on screen from here.
+  const pageRef = useRef(index);
+  const fit = (i: number) => {
+    if (Platform.OS === "ios") pages.current.get(i)?.scrollResponderZoomTo({ x: 0, y: 0, width, height });
+  };
   // Where a touch started, to tell a downward pull from a sideways swipe between images.
   const touch = useRef({ x: 0, y: 0, t: 0 });
 
@@ -88,6 +196,7 @@ export default function Viewer() {
   const close = () => {
     if (closingRef.current) return;
     closingRef.current = true;
+    if (zoomed.current) fit(page);
     void Promise.all([AccessibilityInfo.isReduceMotionEnabled(), toThumb(current?.from, current?.source)]).then(([reduced, end]) => {
       setPose(reduced ? null : end);
       Animated.parallel([Animated.spring(progress, { toValue: 0, ...SPRING }), Animated.spring(drag, { toValue: 0, ...SPRING })]).start(() => router.back());
@@ -99,7 +208,8 @@ export default function Viewer() {
     onTouchStart: ({ nativeEvent: e }: { nativeEvent: { pageX: number; pageY: number; timestamp: number } }) => {
       touch.current = { x: e.pageX, y: e.pageY, t: e.timestamp };
     },
-    onMoveShouldSetResponder: ({ nativeEvent: e }: { nativeEvent: { pageX: number; pageY: number } }) => {
+    onMoveShouldSetResponder: ({ nativeEvent: e }: { nativeEvent: { pageX: number; pageY: number; touches: readonly unknown[] } }) => {
+      if (zoomed.current || e.touches.length > 1) return false;
       const dy = e.pageY - touch.current.y,
         dx = e.pageX - touch.current.x;
       return dy > 12 && Math.abs(dy) > Math.abs(dx) * 1.5;
@@ -143,11 +253,26 @@ export default function Viewer() {
           getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
           keyExtractor={(_, i) => String(i)}
           showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={({ nativeEvent }) => setPage(Math.round(nativeEvent.contentOffset.x / width))}
-          renderItem={({ item }) => (
-            <View style={{ width, height, justifyContent: "center" }}>
-              <Figure name={item.name} source={item.source} width={width} height={height * FILL} />
-            </View>
+          onMomentumScrollEnd={({ nativeEvent }) => {
+            const next = Math.round(nativeEvent.contentOffset.x / width);
+            if (next === page) return;
+            // Like Photos, the image you swiped away from is back at fit when you return to it.
+            fit(page);
+            zoomed.current = false;
+            pageRef.current = next;
+            setPage(next);
+          }}
+          renderItem={({ item, index: i }) => (
+            <Figure
+              name={item.name}
+              source={item.source}
+              width={width}
+              height={height}
+              scrollRef={(view) => (view ? pages.current.set(i, view) : pages.current.delete(i))}
+              onZoom={(on) => {
+                if (i === pageRef.current) zoomed.current = on;
+              }}
+            />
           )}
         />
       </Animated.View>
