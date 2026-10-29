@@ -34,7 +34,7 @@ const IPAD: WhenContext = { isIpad: true };
  * The hardware keyboard shortcuts: the rules of the Mac's keybindings.json for the commands an iPad has (`mobile` in
  * the catalog), whose `when` holds on an iPad. Holding ⌘ lists them by title. An id is `<command>#<n>`.
  */
-export function hardwareShortcuts(rules: readonly KeybindingRule[]): Shortcut[] {
+function hardwareShortcuts(rules: readonly KeybindingRule[]): Shortcut[] {
   return rules.flatMap((rule, index) => {
     const command = keybindingCommand(rule.command);
     const shortcut = parseKey(rule.key);

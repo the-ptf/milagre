@@ -67,7 +67,7 @@ function focusContext(): WhenContext {
 }
 
 /** The `when` context now. */
-export function keyContext(): WhenContext {
+function keyContext(): WhenContext {
   return { isMac, ...appContext, ...focusContext() };
 }
 
