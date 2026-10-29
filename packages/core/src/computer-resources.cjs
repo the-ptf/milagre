@@ -40,10 +40,27 @@ function parseProcesses(text) {
   return processes;
 }
 
+// What a process is, from its executable's name: an agent, a terminal's shell, or (null) Milagre itself. Linux cuts a
+// command to its first 15 characters, so names match by their start.
+const KINDS = [
+  ["claude", (name) => name === "claude"],
+  ["codex", (name) => name.startsWith("codex")],
+  ["antigravity", (name) => name.startsWith("agy_acp_server") || name.startsWith("localharness")],
+  ["terminals", (name) => /^-?(zsh|bash|fish|sh|nu|pwsh|tcsh|ksh)$/.test(name)],
+];
+const PART_ORDER = ["claude", "codex", "antigravity", "terminals", "app"];
+
+function kindOf(command) {
+  const name = path.basename(command).toLowerCase();
+  return KINDS.find(([, matches]) => matches(name))?.[0] ?? null;
+}
+
 /**
  * Resident memory of the processes Milagre owns: the app, when this daemon runs inside it (its parent is the same
  * executable), or this daemon alone, with every agent, terminal and server below it. Shared pages count in each
- * process, so it reads a little above Activity Monitor.
+ * process, so it reads a little above Activity Monitor. Each part counts a whole subtree: an agent's shells and MCP
+ * servers are that agent's, and everything outside an agent or a terminal is the app. `count` is how many agents or
+ * terminals run.
  */
 function treeMemory(processes, { pid, ppid, execPath }) {
   const byPid = new Map(processes.map((entry) => [entry.pid, entry]));
@@ -57,17 +74,25 @@ function treeMemory(processes, { pid, ppid, execPath }) {
     list.push(entry.pid);
     children.set(entry.ppid, list);
   }
+  const parts = new Map(PART_ORDER.map((kind) => [kind, { kind, bytes: 0, count: 0 }]));
   let total = 0;
-  const queue = [root];
+  // Breadth first from the root, so a process takes its nearest-to-root agent or terminal.
+  const queue = [[root, null]];
   const seen = new Set();
-  while (queue.length) {
-    const next = queue.pop();
+  for (let index = 0; index < queue.length; index += 1) {
+    const [next, inherited] = queue[index];
     if (seen.has(next)) continue;
     seen.add(next);
-    total += byPid.get(next)?.rss ?? 0;
-    queue.push(...(children.get(next) ?? []));
+    const entry = byPid.get(next);
+    const own = next === root || !entry ? null : kindOf(entry.command);
+    const kind = inherited ?? own;
+    const part = parts.get(kind ?? "app");
+    part.bytes += entry?.rss ?? 0;
+    if (!inherited && own) part.count += 1;
+    total += entry?.rss ?? 0;
+    for (const child of children.get(next) ?? []) queue.push([child, kind]);
   }
-  return total;
+  return { total, parts: [...parts.values()].filter((part) => part.bytes > 0) };
 }
 
 /** The folders Milagre writes: its worktrees and shares under ~/.milagre, and the app's data folder when it sits elsewhere. */
@@ -76,14 +101,30 @@ function milagreFolders({ homeDir, dataDir }) {
   return folders.filter((folder) => !folders.some((other) => folder.startsWith(`${other}${path.sep}`)));
 }
 
-/** `du -sk` totals in bytes. */
-function parseDu(text) {
+/**
+ * `du -k -d 3` over Milagre's folders, in bytes: the folders' total, the worktrees folder's size and how many
+ * worktrees it holds (one level of Projects, then one folder per worktree).
+ */
+function parseDu(text, { folders, worktrees }) {
   let total = 0;
+  let worktreeBytes = 0;
+  let count = 0;
   for (const line of text.split("\n")) {
-    const match = /^(\d+)\s/.exec(line);
-    if (match) total += Number(match[1]) * 1024;
+    const match = /^(\d+)\s+(.*)$/.exec(line);
+    if (!match) continue;
+    const bytes = Number(match[1]) * 1024;
+    const folder = path.resolve(match[2]);
+    if (folders.includes(folder)) total += bytes;
+    else if (folder === worktrees) worktreeBytes = bytes;
+    else if (path.dirname(path.dirname(folder)) === worktrees) count += 1;
   }
-  return total;
+  return {
+    total,
+    parts: [
+      { kind: "worktrees", bytes: Math.min(worktreeBytes, total), count },
+      { kind: "data", bytes: Math.max(total - worktreeBytes, 0), count: 0 },
+    ].filter((part) => part.bytes > 0),
+  };
 }
 
 function createComputerResources({
@@ -97,7 +138,8 @@ function createComputerResources({
   totalMemory = os.totalmem,
   self = { pid: process.pid, ppid: process.ppid, execPath: process.execPath },
 } = {}) {
-  let disk = { bytes: null, measuredAt: null };
+  let disk = { bytes: null, parts: null, measuredAt: null };
+  const worktrees = path.join(homeDir, ".milagre", "worktrees");
   let measuring = null;
 
   function measureDisk() {
@@ -111,8 +153,10 @@ function createComputerResources({
           )
         )
           folders.push(folder);
-      const bytes = folders.length ? parseDu(await exec("du", ["-sk", ...folders], { allowFailure: true })) : 0;
-      disk = { bytes, measuredAt: now() };
+      const measured = folders.length
+        ? parseDu(await exec("du", ["-k", "-d", "3", ...folders], { allowFailure: true }), { folders, worktrees })
+        : { total: 0, parts: [] };
+      disk = { bytes: measured.total, parts: measured.parts, measuredAt: now() };
     })()
       .catch(() => {})
       .finally(() => {
@@ -123,7 +167,7 @@ function createComputerResources({
 
   async function memory() {
     const total = totalMemory();
-    const [available, milagre] = await Promise.all([
+    const [available, tree] = await Promise.all([
       availableMemory(total, { platform, exec }),
       platform === "win32"
         ? null
@@ -132,7 +176,7 @@ function createComputerResources({
             () => null,
           ),
     ]);
-    return { total, available: Math.min(available, total), milagre };
+    return { total, available: Math.min(available, total), milagre: tree?.total ?? null, parts: tree?.parts ?? null };
   }
 
   async function space() {
@@ -150,7 +194,7 @@ function createComputerResources({
       const [memoryNow, spaceNow] = await Promise.all([memory(), space().catch(() => null)]);
       return {
         memory: memoryNow,
-        disk: spaceNow && { ...spaceNow, milagre: disk.bytes, measuredAt: disk.measuredAt, measuring: measuring !== null },
+        disk: spaceNow && { ...spaceNow, milagre: disk.bytes, parts: disk.parts, measuredAt: disk.measuredAt, measuring: measuring !== null },
       };
     },
     measureDisk,

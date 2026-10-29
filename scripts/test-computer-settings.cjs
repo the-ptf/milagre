@@ -30,8 +30,26 @@ const fallback = { get(target, key) { return target[key] ?? (String(key).startsW
 const GB = 1024 ** 3;
 const remote = (id) => ({
   readComputerResources: async () => ({
-    memory: { total: 32 * GB, available: 20 * GB, milagre: 2 * GB },
-    disk: { total: 2e12, available: 1.5e12, milagre: 80e9, measuredAt: Date.now(), measuring: false },
+    memory: {
+      total: 32 * GB,
+      available: 20 * GB,
+      milagre: 2 * GB,
+      parts: [
+        { kind: "claude", bytes: 1.5 * GB, count: 2 },
+        { kind: "app", bytes: 0.5 * GB, count: 0 },
+      ],
+    },
+    disk: {
+      total: 2e12,
+      available: 1.5e12,
+      milagre: 80e9,
+      parts: [
+        { kind: "worktrees", bytes: 75e9, count: 12 },
+        { kind: "data", bytes: 5e9, count: 0 },
+      ],
+      measuredAt: Date.now(),
+      measuring: false,
+    },
   }),
   readAutoUpdate: async () => ({ autoUpdate: false }),
   saveAutoUpdate: async (value) => (window.autoSaves.push([id, value]), { autoUpdate: value }),
@@ -116,10 +134,21 @@ async function browserChecks() {
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /arketa-web, infra\. Accounts and simulators stay on arketa\./);
-    // Its memory and disk come from that computer, Milagre's share named beside what is free.
+    // Its memory and disk come from that computer; Milagre's amount lives in the bar's hover, and the computer's own page
+    // opens with what Milagre uses there.
     await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);
-    assert.equal(await text("[data-computer-settings] [data-resource-meter=memory]"), "Memory20 GB free of 32 GB · Milagre 2 GB");
-    assert.equal(await text("[data-computer-settings] [data-resource-meter=disk]"), "Disk1.5 TB free of 2 TB · Milagre 80 GB");
+    assert.equal(await text("[data-computer-settings] [data-resource-meter=memory]"), "20 GBfree of 32 GB");
+    assert.equal(await text("[data-computer-settings] [data-resource-meter=disk]"), "1.5 TBfree of 2 TB");
+    assert.match(
+      await evaluate(`document.querySelector('[data-computer-settings] [data-resource-bar=memory]').getAttribute('aria-label')`),
+      /Milagre 2 GB · Other apps 10 GB/,
+    );
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-computer-settings] [data-resource-parts] li')].map((item) => item.textContent)`), [
+      "Claude · 2 agents1.5 GB",
+      "Milagre app512 MB",
+      "Worktrees · 1275 GB",
+      "App data5 GB",
+    ]);
     // Auto update flips on that computer, through its own calls.
     await waitFor(`document.querySelector('[data-computer-auto-update] [role=switch]')?.getAttribute('aria-checked') === 'false'`);
     await evaluate(`document.querySelector('[data-computer-auto-update] [role=switch]').click()`);

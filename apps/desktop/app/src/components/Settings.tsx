@@ -55,6 +55,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers, useHiddenComputers } from "../lib/computers";
 import type {
+  ComputerView,
   FilesToCopy as FilesToCopyResult,
   MilagreBridge,
   PairedDevice,
@@ -80,8 +81,7 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
-import { ComputerResourcesRow } from "./settings/ComputerResources";
-import { RESOURCES_HINT, RESOURCES_TITLE } from "@milagre/shared/computer-resources";
+import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
@@ -420,7 +420,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             </Row>
           )}
         </div>
-        <ComputerResourcesRow name="Memory and disk" bridge={bridgeFor(id)} enabled={computer.state === "online"} />
+        <ComputerResourceList computers={[resourceComputer(computer, now)]} initiallyOpen={computer.id} />
         {computer.state === "online" && (
           <div data-computer-auto-update>
             <AutoUpdateRow key={id} bridge={bridgeFor(id)} />
@@ -1104,16 +1104,37 @@ function AppearanceSettings() {
 }
 
 /** Settings › Devices: memory and disk on this Mac and on every computer it drives, Milagre's share marked. */
+/** A paired computer as a memory and disk row: its route while it answers, else when it was last seen. */
+function resourceComputer(computer: ComputerView, now: number): ResourceComputer {
+  const online = computer.state === "online";
+  const seen = seenAgo(computer.lastSeen, now);
+  return {
+    id: computer.id,
+    name: computer.name,
+    detail: online ? routeLine(computer, now) : "Offline",
+    bridge: bridgeFor(computer.id),
+    online,
+    seen: seen ? `Seen ${seen}` : null,
+  };
+}
+
+/** Settings › Devices: memory and disk on this Mac and on every computer it drives. */
 function DeviceResources() {
   const { otherComputers } = useSettings();
   const { thisMac, computers } = useComputers();
+  // "Seen 2h ago" keeps counting while the page stays open.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const rows: ResourceComputer[] = [
+    { id: "this-mac", name: thisMac, detail: "This Mac", bridge: window.milagre, online: true },
+    ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
+  ];
   return (
-    <Group title={RESOURCES_TITLE} footer={RESOURCES_HINT}>
-      <ComputerResourcesRow name={thisMac} detail={thisMac === "This Mac" ? undefined : "This Mac"} bridge={window.milagre} />
-      {otherComputers &&
-        computers.map((computer) => (
-          <ComputerResourcesRow key={computer.id} name={computer.name} bridge={bridgeFor(computer.id)} enabled={computer.state === "online"} />
-        ))}
+    <Group>
+      <ComputerResourceList computers={rows} />
     </Group>
   );
 }
@@ -1121,7 +1142,7 @@ function DeviceResources() {
 function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }) {
   const { otherComputers } = useSettings();
   return (
-    <Group title="Other computers">
+    <Group>
       <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
         <Switch label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
@@ -1226,7 +1247,6 @@ const DANGER_BUTTON =
   "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
 
 function DeviceGroup({
-  title,
   devices,
   fresh,
   now,
@@ -1236,7 +1256,6 @@ function DeviceGroup({
   footer,
   onRemove,
 }: {
-  title: string;
   devices: PairedDevice[];
   /** Keys marked New. */
   fresh: ReadonlySet<string>;
@@ -1249,7 +1268,7 @@ function DeviceGroup({
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   return (
-    <Group title={title}>
+    <Group>
       {error ? (
         <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red-ink">
           {error}
@@ -1406,7 +1425,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
     <>
       <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
       <DeviceResources />
-      <Group title="Access">
+      <Group>
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
           <Switch
             label="Allow devices to connect"
@@ -1444,7 +1463,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         )}
       </Group>
       {on && (
-        <Group title="Pair a device">
+        <Group>
           {(status.pairingOptions?.length ?? 0) > 1 && (
             <Row
               label="Connect through"
@@ -1516,9 +1535,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         </Group>
       )}
       <OtherComputersSetting onAddComputer={onAddComputer} />
-      {computers.length > 0 && <DeviceGroup title="Computers" devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
+      {computers.length > 0 && <DeviceGroup devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
       <DeviceGroup
-        title="Phones"
         devices={phones}
         fresh={paired.fresh}
         now={paired.now}
@@ -1529,7 +1547,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         onRemove={removeDevice}
       />
       {status?.enabled && (
-        <Group title="Reset">
+        <Group>
           <Row
             label="Reset access"
             description={
