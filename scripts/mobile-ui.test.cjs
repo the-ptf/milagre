@@ -199,6 +199,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       }
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
+      if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
@@ -1696,8 +1697,22 @@ for (const reactCompiler of [false, true])
     }
   });
 
-function markdownHost({ media, basePath, reachable = null, reactCompiler = false, copy = async () => {}, haptic = () => {}, textPx = 15, codeSize = 12 } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
+function markdownHost({
+  media,
+  basePath,
+  reachable = null,
+  openChatLink,
+  reactCompiler = false,
+  copy = async () => {},
+  haptic = () => {},
+  textPx = 15,
+  codeSize = 12,
+} = {}) {
+  const react = {
+    ...hookHost({ effects: true }),
+    memo: (fn) => fn,
+    useContext: (context) => (context === "ReachableHostContext" ? reachable : context === "ChatLinkContext" ? openChatLink : undefined),
+  };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
@@ -1932,6 +1947,32 @@ test("plain URLs in mobile replies render as links and open the exact address", 
       await link.props.onPress();
       assert.deepEqual(screen.links, [url]);
     }
+  }
+});
+
+test("mobile reply links open an associated PR in the Chat and leave unrelated links external", async () => {
+  const { associatedPullRequest } = require("../packages/shared/src/chats.mjs");
+  const prs = [
+    { url: "https://github.com/team/first/pull/12", cwd: "/first" },
+    { url: "https://github.com/team/second/pull/12", cwd: "/second" },
+  ];
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      openChatLink: (url) => {
+        const pr = associatedPullRequest(url, prs);
+        if (pr) opened.push(pr);
+        return !!pr;
+      },
+    });
+    await find(
+      screen.render("[PR](https://github.com/team/second/pull/12/files#diff-123)", streaming),
+      (node) => node.props?.accessibilityRole === "link",
+    ).props.onPress();
+    assert.deepEqual(opened, [prs[1]]);
+    assert.deepEqual(screen.links, []);
+    await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
   }
 });
 
@@ -3107,7 +3148,10 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
   const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
   const member = (projectId) => ({ projectId, projectPath: `/${projectId}`, worktreePath: `/wt/${projectId}`, branch: `milagre/${projectId}`, base: "main" });
   const pr = (number, state) => ({ number, title: `Change ${number}`, url: `https://github.com/o/${number}/pull/${number}`, state, readyToMerge: false });
-  globalThis.branchPullRequests = { "/wt/api": pr(12, "MERGED"), "/wt/web": pr(12, "OPEN") };
+  globalThis.branchPullRequests = {
+    "/wt/api": { ...pr(12, "MERGED"), url: "https://github.com/o/api/pull/12" },
+    "/wt/web": { ...pr(12, "OPEN"), url: "https://github.com/o/web/pull/12" },
+  };
   globalThis.openedPullRequests = [];
   try {
     const chat = chatHost({ effects: true });
@@ -3141,6 +3185,11 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
+    const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
+    assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
+    assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
+    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), false);
+    assert.equal(globalThis.openedPullRequests.length, 2);
   } finally {
     delete globalThis.branchPullRequests;
     delete globalThis.openedPullRequests;
@@ -5364,6 +5413,58 @@ test("a New Chat opened while another one is still sending starts empty and send
   assert.equal(first.params.id, "42");
   assert.equal(second.params.id, undefined);
   assert.equal(transcriptMessages(second)[0]?.body, "second message");
+});
+
+test("an accepted mobile send releases the composer before a slow refresh finishes", async () => {
+  const screen = chatHost();
+  const refresh = deferred();
+  screen.session.refresh = () => refresh.promise;
+  screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "Send this";
+  screen.send();
+  await settle();
+  screen.sending.resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next message");
+  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
+  refresh.resolve();
+});
+
+test("switching the mounted mobile composer between computers isolates concurrent sends", async () => {
+  const sends = [deferred(), deferred()];
+  let count = 0;
+  const screen = chatHost({ call: (method) => (method === "chat:send" ? sends[count++].promise : Promise.resolve([])) });
+  const state = screen.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "First computer";
+  screen.send();
+  await settle();
+  // The routed pane stays mounted, including when the other computer uses the same path and Chat id.
+  screen.session.client.url = "other-mac";
+  screen.field().onChangeText("Second computer");
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false, "the first computer's send does not lock the second");
+  screen.send();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(Object.keys(screen.session.pendingChats).length, 2);
+  // The first completion must not release the second computer's duplicate-send guard.
+  sends[0].resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Sending...");
+  button.props.onPress();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(button.props.disabled, true);
+  sends[1].reject(new Error("Second computer refused the send"));
+  await settle();
+  assert.equal(screen.field().value, "Second computer\n\nNext draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
 });
 
 test("the drawer reopens a New Chat that is still sending", async () => {

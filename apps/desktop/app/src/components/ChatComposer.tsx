@@ -134,6 +134,7 @@ import { splitFences } from "../lib/message-fences";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
+import { LoadingMark } from "./StartupSplash";
 
 const NO_WAITING_STEPS: string[] = [];
 
@@ -768,6 +769,8 @@ interface ChatComposerProps {
   onSendPageComments?: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   /** Opens a file's diff in the Changes panel, from the undo preview. */
   onOpenDiff?: (path: string, worktree: string) => void;
+  /** Opens an associated PR in this Chat's Git panel; false leaves normal link handling in place. */
+  onOpenPullRequestLink?: (url: string) => boolean;
   /** A Link's or a bot's Chat starts without the new-chat header. */
   scopeKind?: "project" | "link" | "bot";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
@@ -1277,6 +1280,7 @@ export function ChatComposer({
   onSendDesignMessage,
   onSendPageComments,
   onOpenDiff,
+  onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const chatWidth = useSettings().appearance.chatWidth;
@@ -1317,8 +1321,8 @@ export function ChatComposer({
   // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
-  // The Browser panel opens pages on this Mac, so it is offered for this Mac's Chats only.
-  const browserChat = !isNewChat && runtimeChat && !isRemoteKey(runtimeChat) ? runtimeChat : null;
+  // Pages open on the viewing Mac, including pages linked from a Chat on another computer.
+  const browserChat = !isNewChat ? runtimeChat : null;
   // The panel docks outside the chat pane, so the pane hiding doesn't hide it.
   const browserShown = browserChat && !offScreen ? browserChat : null;
   useEffect(() => {
@@ -1457,6 +1461,15 @@ export function ChatComposer({
     >
       <div
         ref={root}
+        onClickCapture={(event) => {
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+          const href = anchor?.getAttribute("href");
+          if (href && onOpenPullRequestLink?.(href)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
         className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
@@ -1504,13 +1517,15 @@ export function ChatComposer({
           view={scrollKey}
           messageCount={messages.length}
           element={
-            isNewChat ? null : messages.length === 0 ? (
-              <div
-                className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2"
-                role={loadError ? "alert" : "status"}
-              >
-                <p>{loadError ? `Could not load this Chat: ${loadError}` : "Loading Chat..."}</p>
-                {loadError && onRetryLoad && (
+            isNewChat ? null : messages.length === 0 && !loadError ? (
+              // The splash mark, as on the phone; it waits a beat so a transcript that is already near doesn't flash it.
+              <div className="chat-loading relative flex min-h-0 flex-1 items-center justify-center" role="status" aria-label="Loading Chat">
+                <LoadingMark size={48} />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2" role="alert">
+                <p>Could not load this Chat: {loadError}</p>
+                {onRetryLoad && (
                   <button type="button" onClick={onRetryLoad} className="rounded-control border border-line px-3 py-1.5 hover:bg-hover">
                     Try again
                   </button>
