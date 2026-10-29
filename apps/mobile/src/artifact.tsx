@@ -4,13 +4,13 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import {
-  ArrowDown01Icon,
   ArrowRight01Icon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   File01Icon,
   MoreHorizontalIcon,
   PaintBoardIcon,
+  UnfoldMoreIcon,
 } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
@@ -645,12 +645,15 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
               setTabId(id);
             }}
           >
-            {heading}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-              <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
-                {tab.title}
-              </Text>
-              <Icon icon={ArrowDown01Icon} size={12} tone="ink2" />
+            {/* PullDown lays its children in a wrapper of its own; this centres the tab line under the title. */}
+            <View style={{ alignItems: "center" }}>
+              {heading}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+                  {tab.title}
+                </Text>
+                <Icon icon={UnfoldMoreIcon} size={12} tone="ink3" />
+              </View>
             </View>
           </PullDown>
         ) : (
