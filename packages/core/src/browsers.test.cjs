@@ -496,6 +496,11 @@ test("the agent's DevTools session acts on the Chat's newest panel page, is reus
   await assert.rejects(f.service.devtools({ chatId: "chat-b", page: first.target.id }), /not in this Chat/);
   await assert.rejects(f.service.devtools({ chatId: "chat-c" }), /no browser page/);
   await panel([{ id: "D".repeat(32), chatId: "chat-a", title: "Old", url: "http://localhost:5173/a" }]);
-  await f.service.devtools({ chatId: "chat-a" });
-  assert.equal(first.session.closed, true, "a session on a page that closed is closed");
+  assert.equal(first.session.closed, true, "a session on a page that left the panel is closed");
+  // Two tools at once share the session being made, and the refs one of them keeps.
+  const [one, two] = await Promise.all([f.service.devtools({ chatId: "chat-a" }), f.service.devtools({ chatId: "chat-a" })]);
+  assert.equal(one.session, two.session);
+  assert.equal(one.state, two.state);
+  await f.service.disconnect("desktop-1");
+  assert.equal(one.session.closed, true, "the desktop going ends the sessions on its pages");
 });

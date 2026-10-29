@@ -14,7 +14,7 @@ const { createCdpProxy } = require("@milagre/core/cdp-proxy");
  * }} options
  */
 function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser panel (Electron ${process.versions.electron ?? ""})` }) {
-  /** @type {Map<number, { pageId: string; chatKey: string; host: Electron.WebContents; users: number; ours: boolean }>} */
+  /** @type {Map<number, { pageId: string; chatKey: string; host: Electron.WebContents; users: number; ours: boolean; off: () => void }>} */
   const pages = new Map();
   const live = () =>
     [...pages.entries()].flatMap(([contentsId, page]) => {
@@ -116,6 +116,7 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       for (const [contentsId, page] of pages)
         if (page.host === host && !wanted.has(contentsId)) {
           pages.delete(contentsId);
+          page.off();
           proxy.drop(page.pageId);
         }
       for (const [contentsId, { chatKey, guest }] of wanted) {
@@ -124,18 +125,23 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
           known.chatKey = chatKey;
           continue;
         }
-        pages.set(contentsId, { pageId: randomBytes(16).toString("hex").toUpperCase(), chatKey, host, users: 0, ours: false });
         // The host's list follows the page's title and address; a page that goes takes its DevTools connections with it.
         const changed = () => schedule();
-        guest.on("page-title-updated", changed);
-        guest.on("did-navigate", changed);
-        guest.on("did-navigate-in-page", changed);
-        guest.once("destroyed", () => {
+        const destroyed = () => {
           const page = pages.get(contentsId);
           pages.delete(contentsId);
           if (page) proxy.drop(page.pageId);
           schedule();
-        });
+        };
+        const events = /** @type {const} */ (["page-title-updated", "did-navigate", "did-navigate-in-page"]);
+        for (const event of events) guest.on(/** @type {any} */ (event), changed);
+        guest.once("destroyed", destroyed);
+        // Taken off again when the renderer stops listing the page, which may list it again later.
+        const off = () => {
+          for (const event of events) guest.removeListener(/** @type {any} */ (event), changed);
+          guest.removeListener("destroyed", destroyed);
+        };
+        pages.set(contentsId, { pageId: randomBytes(16).toString("hex").toUpperCase(), chatKey, host, users: 0, ours: false, off });
       }
       schedule();
     },

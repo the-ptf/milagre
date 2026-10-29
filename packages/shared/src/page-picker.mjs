@@ -148,11 +148,23 @@ export function pagePickScript(accent = "#007df3") {
   </style><div class="catch"></div><div class="box"></div><div class="label"></div>\`;
   const [catcher, box, label] = [root.querySelector(".catch"), root.querySelector(".box"), root.querySelector(".label")];
   let target = null;
+  // What a person calls the element: its role and its text ("Button “Pay now”"), else its kind.
+  const KINDS = { a: "Link", button: "Button", input: "Field", textarea: "Field", select: "Menu", img: "Image", h1: "Heading", h2: "Heading", h3: "Heading", h4: "Heading", p: "Text", li: "List item", ul: "List", ol: "List", nav: "Navigation", form: "Form", label: "Label", table: "Table", svg: "Icon", video: "Video" };
+  const name = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const role = el.getAttribute("role");
+    const kind = role ? role[0].toUpperCase() + role.slice(1) : KINDS[tag] || (/^(div|section|article|main|header|footer|aside|span)$/.test(tag) ? "Box" : tag);
+    const text = (el.getAttribute("aria-label") || el.getAttribute("alt") || el.getAttribute("placeholder") || el.innerText || "").replace(/\\s+/g, " ").trim();
+    return text ? kind + " “" + (text.length > 40 ? text.slice(0, 39) + "…" : text) + "”" : kind;
+  };
   // Where the pointer last was: a comment pins there, as fractions of the picked element's box.
   let pointer = null;
-  // The layer itself steps aside while the page is asked what is under the pointer.
+  // The layer and the comment pins step aside while the page is asked what is under the pointer: Milagre's own
+  // elements are never something to comment on.
   const under = (x, y) => {
+    const pins = document.querySelector("milagre-pins");
     host.style.pointerEvents = "none";
+    if (pins) pins.style.visibility = "hidden";
     let el = document.elementFromPoint(x, y);
     while (el?.shadowRoot) {
       const inner = el.shadowRoot.elementFromPoint(x, y);
@@ -160,7 +172,8 @@ export function pagePickScript(accent = "#007df3") {
       el = inner;
     }
     host.style.pointerEvents = "";
-    return el && el !== host && el !== document.documentElement && el !== document.body ? el : null;
+    if (pins) pins.style.visibility = "";
+    return el && !/^MILAGRE-/.test(el.tagName) && el !== document.documentElement && el !== document.body ? el : null;
   };
   const show = (el) => {
     target = el;
@@ -173,8 +186,7 @@ export function pagePickScript(accent = "#007df3") {
       const name = typeof fiber.type === "function" ? fiber.type.displayName || fiber.type.name : "";
       if (name && /^[A-Z]/.test(name)) component = name;
     }
-    const cls = [...el.classList].filter((name) => !/\\d{3,}/.test(name)).slice(0, 2).map((name) => "." + name).join("");
-    label.textContent = el.tagName.toLowerCase() + cls + (component ? "  ·  <" + component + ">" : "") + "  ·  " + Math.round(r.width) + "×" + Math.round(r.height);
+    label.textContent = name(el) + (component ? "  ·  " + component : "");
     label.style.display = "block";
     const top = r.top - 24 >= 0 ? r.top - 24 : Math.min(innerHeight - 22, r.bottom + 6);
     Object.assign(label.style, { left: Math.max(4, Math.min(r.left - 2, innerWidth - 220)) + "px", top: top + "px" });
@@ -227,16 +239,16 @@ export function pageDescribeAtScript(x, y) {
   return `(() => {
   const describe = ${describe.toString()};
   const px = ${fraction(x)} * innerWidth, py = ${fraction(y)} * innerHeight;
-  const pick = document.querySelector("milagre-pins");
-  if (pick) pick.style.visibility = "hidden";
+  const layers = [...document.querySelectorAll("milagre-pins, milagre-pick")];
+  for (const layer of layers) layer.style.visibility = "hidden";
   let el = document.elementFromPoint(px, py);
   while (el?.shadowRoot) {
     const inner = el.shadowRoot.elementFromPoint(px, py);
     if (!inner || inner === el) break;
     el = inner;
   }
-  if (pick) pick.style.visibility = "";
-  if (!el || el === document.documentElement || el === document.body) return null;
+  for (const layer of layers) layer.style.visibility = "";
+  if (!el || /^MILAGRE-/.test(el.tagName) || el === document.documentElement || el === document.body) return null;
   const value = describe(el, ${JSON.stringify(STYLES)});
   const r = el.getBoundingClientRect();
   const at = (p, start, size) => size > 0 ? Math.round(Math.min(1, Math.max(0, (p - start) / size)) * 1000) / 1000 : 0.5;
@@ -265,10 +277,14 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
     const root = host.attachShadow({ mode: "closed" });
     root.innerHTML = \`<style>
       :host{all:initial}
-      .pin{position:fixed;width:22px;height:22px;border-radius:0 11px 11px 11px;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgb(0 0 0/.3);color:#fff;font:600 11px/22px -apple-system,system-ui,sans-serif;text-align:center;pointer-events:auto;cursor:default;display:none}
+      .pin{position:fixed;width:22px;height:22px;border-radius:11px 11px 11px 0;box-shadow:0 0 0 1.5px #fff,0 1px 3px rgb(0 0 0/.3);color:#fff;font:600 11px/22px -apple-system,system-ui,sans-serif;text-align:center;pointer-events:auto;cursor:default;display:none}
       .pin svg{width:12px;height:12px;margin-top:5px}
-      .tip{position:fixed;display:none;max-width:260px;padding:7px 10px;border-radius:3px 10px 10px 10px;background:#fff;color:#1c222b;border:1px solid #e0e1e3;box-shadow:0 4px 16px rgb(0 0 0/.12);font:400 12px/16px -apple-system,system-ui,sans-serif;white-space:pre-wrap;pointer-events:none}
+      .pin.open{background:#fff !important;box-shadow:0 0 0 1.5px currentColor,0 1px 3px rgb(0 0 0/.3)}
+      .pin.open::after{content:"";position:absolute;left:7px;top:7px;width:8px;height:8px;border-radius:4px;background:currentColor}
+      .tip{position:fixed;display:none;box-sizing:border-box;max-width:min(260px,calc(100vw - 8px));padding:7px 10px;border-radius:10px;background:#fff;color:#1c222b;border:1px solid #e0e1e3;box-shadow:0 4px 16px rgb(0 0 0/.12);font:400 12px/16px -apple-system,system-ui,sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none}
+      .tip .text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:8;overflow:hidden}
       .tip b{display:block;font-weight:500;color:${green};margin-top:3px}
+      .tip i{display:block;font-style:normal;color:#6b7280;margin-top:3px}
     </style><div class="tip"></div>\`;
     const tip = root.querySelector(".tip");
     let items = [];
@@ -284,8 +300,12 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
         const point = item.pin.point;
         const x = point ? r.left + point.x * r.width : r.right - 12;
         const y = point ? r.top + point.y * r.height : r.top - 4;
-        item.node.style.left = Math.min(innerWidth - 24, Math.max(2, x)) + "px";
-        item.node.style.top = Math.min(innerHeight - 24, Math.max(2, y)) + "px";
+        // The pin's point sits on the spot and its body above and right of it, off the text that was clicked. On a short
+        // element (a button, a line of text) the spot moves up to its top edge, so the pin never covers its label.
+        // Pins on the same element sit side by side.
+        const top = r.height <= 48 ? r.top : y;
+        item.node.style.left = Math.min(innerWidth - 24, Math.max(2, x + item.offset * 24)) + "px";
+        item.node.style.top = Math.min(innerHeight - 24, Math.max(2, top - 22)) + "px";
       }
     };
     const schedule = () => { if (!frame && items.length) frame = requestAnimationFrame(place); };
@@ -296,29 +316,38 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
       hidden: false,
       set(next, colors) {
         for (const item of items) item.node.remove();
+        const seen = new Map();
         items = next.map((pin) => {
+          const offset = seen.get(pin.selector) ?? 0;
+          seen.set(pin.selector, offset + 1);
           const node = document.createElement("div");
           node.className = "pin";
           node.style.background = pin.state === "resolved" ? colors.green : colors.accent;
-          if (pin.state === "resolved") node.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+          if (pin.state === "open") { node.classList.add("open"); node.style.color = colors.accent; }
+          else if (pin.state === "resolved") node.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
           else node.textContent = String(pin.n);
           node.addEventListener("pointerenter", () => {
-            tip.textContent = pin.text;
+            const text = document.createElement("span");
+            text.className = "text";
+            text.textContent = pin.text;
+            tip.replaceChildren(text);
             if (pin.note) { const note = document.createElement("b"); note.textContent = "Resolved · " + pin.note; tip.append(note); }
+            else if (pin.state === "open") { const wait = document.createElement("i"); wait.textContent = "Sent · waiting on the agent"; tip.append(wait); }
             const r = node.getBoundingClientRect();
             tip.style.display = "block";
-            tip.style.left = Math.min(innerWidth - 270, r.right + 6) + "px";
-            tip.style.top = Math.min(innerHeight - tip.offsetHeight - 6, r.top) + "px";
+            const right = r.right + 6 + tip.offsetWidth <= innerWidth - 4;
+            tip.style.left = Math.max(4, right ? r.right + 6 : r.left - 6 - tip.offsetWidth) + "px";
+            tip.style.top = Math.max(4, Math.min(innerHeight - tip.offsetHeight - 4, r.top)) + "px";
           });
           node.addEventListener("pointerleave", () => { tip.style.display = "none"; });
           root.append(node);
-          return { pin, node };
+          return { pin, node, offset };
         });
         host.style.display = items.length && !this.hidden ? "block" : "none";
         if (items.length && !host.isConnected) (document.body || document.documentElement).append(host);
         place();
       },
-      hide(hidden) { this.hidden = hidden; host.style.display = items.length && !hidden ? "block" : "none"; },
+      hide(hidden) { this.hidden = hidden; tip.style.display = "none"; host.style.display = items.length && !hidden ? "block" : "none"; },
     };
   }
   layer.set(pins, ${JSON.stringify({ accent, green })});

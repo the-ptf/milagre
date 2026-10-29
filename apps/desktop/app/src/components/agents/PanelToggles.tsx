@@ -53,11 +53,12 @@ export function useSidePanels() {
 }
 
 // Changes, the theme and the canvas are App's keys. The Terminals take ⌘J by default, as in VS Code; New Terminal is App's.
-const BUTTONS: { name: PanelName; label: string; icon: typeof PaintBoardIcon; command: KeybindingCommandId }[] = [
+// `title`, when the tooltip names the panel differently from its button's accessible name.
+const BUTTONS: { name: PanelName; label: string; title?: string; icon: typeof PaintBoardIcon; command: KeybindingCommandId }[] = [
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
   { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
   { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
-  { name: "browser", label: "browser", icon: Globe02Icon, command: "browser.toggle" },
+  { name: "browser", label: "browser", title: "Browser panel", icon: Globe02Icon, command: "browser.toggle" },
   { name: "simulator", label: "simulator", icon: SmartphoneIcon, command: "simulator.toggle" },
 ];
 
@@ -100,12 +101,12 @@ export function PanelToggles({ right }: { right: number }) {
       className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 [-webkit-app-region:no-drag]"
       style={{ right: right + chrome.rightInset }}
     >
-      {buttons.map(({ name, label, icon, command }) => {
+      {buttons.map(({ name, label, title = label, icon, command }) => {
         const panel = shown[name]!;
         return (
           <Tooltip
             key={name}
-            label={panel.open ? `Hide ${label}` : `Show ${label}`}
+            label={panel.open ? `Hide ${title}` : `Show ${title}`}
             shortcut={shortcutLabel(rules, command)}
             compactHint
             side="bottom"
