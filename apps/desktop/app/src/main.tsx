@@ -1,6 +1,7 @@
 import { StrictMode, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { BrowserPages } from "./components/agents/BrowserPanel";
 import "./fonts.css";
 import "./styles.css";
 import { AppMotionConfig } from "./components/motion/AppMotionConfig";
@@ -22,7 +23,10 @@ createRoot(document.getElementById("root")!).render(
           <FloatingInbox view={floatingView} />
         </Suspense>
       ) : (
-        <App />
+        <>
+          <App />
+          <BrowserPages />
+        </>
       )}
     </AppMotionConfig>
   </StrictMode>,

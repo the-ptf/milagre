@@ -1,0 +1,205 @@
+import type { WebviewTag } from "electron";
+import { chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavigation, type ChatBrowser } from "./browser-panel.ts";
+
+/**
+ * The Browser panels' pages: one <webview> per tab, made once and never moved. A webview moved in the document, or
+ * taken out of it, loses its page, so every page lives in one fixed layer on <body> that no Chat switch, Link or view
+ * change touches. The page on screen is laid over its panel's slot; the others are parked off screen at their last
+ * size and keep running. Only the pages shown most recently stay alive; an older one is closed and loads again when it
+ * shows.
+ *
+ * The layer sits above the app's docked panels (z-10 for the whole dock layer) and below what the app portals to the
+ * body (menus, tooltips, dialogs at z-50), so those still open over a page.
+ */
+const LIVE_PAGES = 8;
+const LAYER_Z = "11";
+
+type Page = { chatKey: string; tabId: string; surface: HTMLDivElement; webview: WebviewTag; contentsId: number | null; shownAt: number };
+
+const pages = new Map<string, Page>();
+let layer: HTMLDivElement | null = null;
+let shown: { tabId: string; slot: HTMLElement } | null = null;
+
+function ensureLayer() {
+  if (layer?.isConnected) return layer;
+  layer = document.createElement("div");
+  layer.dataset.browserPages = "";
+  Object.assign(layer.style, { position: "fixed", inset: "0", zIndex: LAYER_Z, pointerEvents: "none", overflow: "hidden" });
+  document.body.append(layer);
+  return layer;
+}
+
+const PARKED = { left: "-100000px", top: "0px" };
+
+function createPage(chatKey: string, tabId: string, address: string): Page {
+  // An address typed before the page existed is the one it opens on.
+  const url = takeNavigation(tabId) ?? address;
+  const surface = document.createElement("div");
+  surface.dataset.browserPage = tabId;
+  Object.assign(surface.style, { position: "absolute", width: "1280px", height: "800px", ...PARKED, pointerEvents: "none" });
+  const webview = document.createElement("webview") as WebviewTag;
+  webview.setAttribute("partition", window.milagreBrowserPanel?.partition ?? "persist:milagre-browser");
+  webview.setAttribute("allowpopups", "");
+  webview.setAttribute("webpreferences", "disableHtmlFullscreenWindowResize=true");
+  webview.setAttribute("src", url);
+  Object.assign(webview.style, { width: "100%", height: "100%", display: "flex", background: "white" });
+  const page: Page = { chatKey, tabId, surface, webview, contentsId: null, shownAt: 0 };
+  const history = () => ({ canGoBack: safe(() => webview.canGoBack(), false), canGoForward: safe(() => webview.canGoForward(), false) });
+  webview.addEventListener("dom-ready", () => {
+    page.contentsId = safe(() => webview.getWebContentsId(), null);
+  });
+  webview.addEventListener("did-start-loading", () => patchBrowserTab(chatKey, tabId, { loading: true, error: undefined }));
+  webview.addEventListener("did-stop-loading", () => patchBrowserTab(chatKey, tabId, { loading: false, ...history() }));
+  webview.addEventListener("did-navigate", (event) => patchBrowserTab(chatKey, tabId, { url: event.url, ...history() }));
+  webview.addEventListener("did-navigate-in-page", (event) => {
+    if (event.isMainFrame) patchBrowserTab(chatKey, tabId, { url: event.url, ...history() });
+  });
+  webview.addEventListener("page-title-updated", (event) => patchBrowserTab(chatKey, tabId, { title: event.title }));
+  webview.addEventListener("page-favicon-updated", (event) => patchBrowserTab(chatKey, tabId, { favicon: event.favicons[0] }));
+  webview.addEventListener("did-fail-load", (event) => {
+    // -3 is a load the next one replaced (a redirect, a new address typed).
+    if (!event.isMainFrame || event.errorCode === -3) return;
+    patchBrowserTab(chatKey, tabId, { loading: false, error: loadError(event.errorCode, event.errorDescription, event.validatedURL) });
+  });
+  webview.addEventListener("render-process-gone", () =>
+    patchBrowserTab(chatKey, tabId, { loading: false, error: "The page stopped responding. Reload to try again." }),
+  );
+  surface.append(webview);
+  ensureLayer().append(surface);
+  pages.set(tabId, page);
+  return page;
+}
+
+function loadError(code: number, description: string, url: string) {
+  // The usual one: the Chat's dev server isn't running (yet).
+  if (code === -102) return `Nothing is answering at ${hostOf(url)}. Is the server running?`;
+  if (code === -105) return `${hostOf(url)} could not be found.`;
+  return `The page didn't load (${description || code}).`;
+}
+
+const hostOf = (url: string) => safe(() => new URL(url).host, url);
+
+function safe<T>(read: () => T, fallback: T): T {
+  try {
+    return read();
+  } catch {
+    return fallback;
+  }
+}
+
+function destroyPage(page: Page) {
+  page.surface.remove();
+  pages.delete(page.tabId);
+}
+
+/** The webview of a tab, if its page is alive. */
+export const browserWebview = (tabId: string): WebviewTag | null => pages.get(tabId)?.webview ?? null;
+
+/** Brings every Chat's pages in line with its tabs: new tabs get a page, closed ones lose theirs, typed addresses load. */
+export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
+  const wanted = new Set<string>();
+  for (const [chatKey, chat] of chats)
+    for (const tab of chat.tabs) {
+      wanted.add(tab.id);
+      const page = pages.get(tab.id);
+      const url = page && takeNavigation(tab.id);
+      if (page && url) void page.webview.loadURL(url).catch(() => {});
+      // A tab gets its page the first time it shows; a remembered tab of another Chat stays a URL until then.
+      else if (!page && chat.open && chat.active === tab.id && tab.url !== "about:blank" && !tab.error) createPage(chatKey, tab.id, tab.url);
+    }
+  for (const page of pages.values()) if (!wanted.has(page.tabId)) destroyPage(page);
+}
+
+function park(page: Page) {
+  Object.assign(page.surface.style, PARKED, { pointerEvents: "none" });
+}
+
+function place() {
+  if (!shown) return;
+  const page = pages.get(shown.tabId);
+  if (!page) return;
+  const rect = shown.slot.isConnected ? shown.slot.getBoundingClientRect() : null;
+  // The panel is out of the document (another view, a Link) or not laid out yet: the page waits off screen.
+  if (!rect || rect.width < 2 || rect.height < 2) {
+    park(page);
+    return;
+  }
+  const style = page.surface.style;
+  const next = { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` };
+  if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
+  style.pointerEvents = "auto";
+}
+
+// After anything that can move the slot (the panel springing open, a drag, the changes panel opening beside it), the
+// page follows it for a moment each frame; at rest nothing runs but a slow check that the panel is still on screen.
+let settleUntil = 0;
+let frame = 0;
+function settle() {
+  settleUntil = performance.now() + 600;
+  if (frame) return;
+  const tick = () => {
+    place();
+    frame = performance.now() < settleUntil ? requestAnimationFrame(tick) : 0;
+  };
+  frame = requestAnimationFrame(tick);
+}
+
+/**
+ * Lays tab `tabId`'s page over `slot` until the returned function runs, which parks it again. The page is made if it
+ * isn't alive; the least recently shown pages beyond LIVE_PAGES close.
+ */
+export function showBrowserPage(chatKey: string, tabId: string, slot: HTMLElement): () => void {
+  const tab = chatBrowser(chatKey).tabs.find((item) => item.id === tabId);
+  const page = pages.get(tabId) ?? (tab ? createPage(chatKey, tabId, tab.url) : null);
+  if (!page) return () => {};
+  page.shownAt = performance.now();
+  for (const old of [...pages.values()].toSorted((a, b) => b.shownAt - a.shownAt).slice(LIVE_PAGES)) if (old !== page) destroyPage(old);
+  shown = { tabId, slot };
+  place();
+  settle();
+  const resize = new ResizeObserver(settle);
+  resize.observe(slot);
+  // The docked panel moves by its style (`right`) when a panel right of it opens; its size alone wouldn't say so.
+  const moves = new MutationObserver(settle);
+  const dock = slot.closest<HTMLElement>("[data-slot=browser-dock]");
+  if (dock) moves.observe(dock, { attributes: true, attributeFilter: ["style"] });
+  window.addEventListener("resize", settle);
+  const check = window.setInterval(place, 400);
+  return () => {
+    resize.disconnect();
+    moves.disconnect();
+    window.removeEventListener("resize", settle);
+    window.clearInterval(check);
+    if (shown?.tabId === tabId) shown = null;
+    const current = pages.get(tabId);
+    if (current) park(current);
+  };
+}
+
+/** Focuses the page on screen, so typing goes to it. */
+export function focusBrowserPage(tabId: string) {
+  pages.get(tabId)?.webview.focus();
+}
+
+const pageOfContents = (contentsId: number) => [...pages.values()].find((page) => page.contentsId === contentsId);
+
+/** Main's events about pages: a page asking for a new window gets a tab beside it; ⌘L, ⌘R and ⌘W pressed in a page. */
+export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key: "l" | "r" | "w") => void): () => void {
+  const bridge = window.milagreBrowserPanel;
+  if (!bridge) return () => {};
+  const offTab = bridge.onOpenTab(({ from, url }) => {
+    const page = pageOfContents(from);
+    if (page) openBrowserTab(page.chatKey, url);
+  });
+  const offKey = bridge.onKey(({ from, key }) => {
+    const page = pageOfContents(from);
+    if (!page) return;
+    if (key === "r") page.webview.reload();
+    else if (key === "w") closeBrowserTab(page.chatKey, page.tabId);
+    else onKey(page.chatKey, page.tabId, key);
+  });
+  return () => {
+    offTab();
+    offKey();
+  };
+}

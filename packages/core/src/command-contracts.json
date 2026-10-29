@@ -1134,6 +1134,7 @@
               "terminal.new",
               "artifacts.toggle",
               "designs.toggle",
+              "browser.toggle",
               "simulator.toggle"
             ]
           }
@@ -1182,6 +1183,7 @@
               "terminal.new",
               "artifacts.toggle",
               "designs.toggle",
+              "browser.toggle",
               "simulator.toggle"
             ]
           }

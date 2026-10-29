@@ -16,6 +16,7 @@ export type KeybindingCommandId =
   | "terminal.new"
   | "artifacts.toggle"
   | "designs.toggle"
+  | "browser.toggle"
   | "simulator.toggle";
 
 export interface KeybindingCommand {

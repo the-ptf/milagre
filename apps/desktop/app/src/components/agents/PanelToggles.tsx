@@ -2,14 +2,14 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { File01Icon, ComputerTerminal01Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
+import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
 import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
 
 /** A side panel the open Chat can show: whether it is open, and what shows or hides it. */
 export type SidePanel = { open: boolean; toggle: () => void };
-type PanelName = "terminal" | "designs" | "artifacts" | "simulator";
+type PanelName = "terminal" | "designs" | "artifacts" | "browser" | "simulator";
 
 // The Chat's Terminals, designs and simulator register here while they have something to show, so the window's top-right
 // corner can offer a button for each without owning their state.
@@ -57,6 +57,7 @@ const BUTTONS: { name: PanelName; label: string; icon: typeof PaintBoardIcon; co
   { name: "terminal", label: "Terminals", icon: ComputerTerminal01Icon, command: "terminal.toggle" },
   { name: "artifacts", label: "artifacts", icon: File01Icon, command: "artifacts.toggle" },
   { name: "designs", label: "designs", icon: PaintBoardIcon, command: "designs.toggle" },
+  { name: "browser", label: "browser", icon: Globe02Icon, command: "browser.toggle" },
   { name: "simulator", label: "simulator", icon: SmartphoneIcon, command: "simulator.toggle" },
 ];
 

@@ -37,6 +37,7 @@ export const KEYBINDING_COMMANDS = Object.freeze([
   { id: "terminal.new", title: "New Terminal", group: "Panels", defaults: ["mod+t"] },
   { id: "artifacts.toggle", title: "Show or hide artifacts", group: "Panels", defaults: ["mod+shift+a"], forward: true },
   { id: "designs.toggle", title: "Show or hide designs", group: "Panels", defaults: ["mod+shift+e"], forward: true },
+  { id: "browser.toggle", title: "Show or hide the browser", group: "Panels", defaults: ["mod+shift+b"], forward: true },
   { id: "simulator.toggle", title: "Show or hide the simulator", group: "Panels", defaults: ["mod+shift+s"], forward: true },
 ]);
 

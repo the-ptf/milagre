@@ -2,6 +2,8 @@ import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
 import { UpdatePillSlot } from "./UpdateNotice";
 import { BrowserTrack } from "./agents/BrowserTrack";
+import { BrowserPanel } from "./agents/BrowserPanel";
+import { openBrowserTab } from "../lib/browser-panel";
 import { SimulatorTrack } from "./agents/SimulatorTrack";
 import { ArtifactCards, ArtifactsProvider, DesignFeedbackCard } from "./agents/ArtifactCard";
 import { GenerativeUIProvider } from "./genui/GenerativeUI";
@@ -1295,6 +1297,8 @@ export function ChatComposer({
   // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
+  // The Browser panel opens pages on this Mac, so it is offered for this Mac's Chats only.
+  const browserChat = !isNewChat && runtimeChat && !isRemoteKey(runtimeChat) ? runtimeChat : null;
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
@@ -1612,10 +1616,16 @@ export function ChatComposer({
                 </PillSlot>
               )}
             </AnimatePresence>
-            <PortTrack key={`ports-${messages[0]?.session_id ?? "new"}`} ports={ports} onStop={onStopPort} />
+            <PortTrack
+              key={`ports-${messages[0]?.session_id ?? "new"}`}
+              ports={ports}
+              onStop={onStopPort}
+              onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
+            />
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
             <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
+            {browserChat && <BrowserPanel key={`browser-panel-${browserChat}`} chatKey={browserChat} ports={ports ?? []} />}
             <SubagentTrack
               key={chatId}
               chatKey={runtimeChat}

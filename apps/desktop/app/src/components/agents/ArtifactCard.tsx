@@ -851,7 +851,7 @@ function ArtifactDock({
   // with no room for that (or for the narrower width it was dragged to) beside the chat and a docked simulator, it
   // fills the workspace instead.
   const resize = usePanelWidth(kind);
-  const fits = area ? Math.min(resize.width, area.width - area.simulator - 12 - MIN_CHAT_WIDTH) : resize.width;
+  const fits = area ? Math.min(resize.width, area.width - area.simulator - area.browser - 12 - MIN_CHAT_WIDTH) : resize.width;
   const cramped = !!area && fits < Math.min(resize.width, resize.reset);
   const dockWidth = Math.max(resize.min, fits);
   const full = expanded || cramped;
@@ -1054,12 +1054,12 @@ function ArtifactDock({
           ? {
               top: area.top,
               left: area.left,
-              right: `calc(${area.right + 12}px + var(--simulator-dock, 0px))`,
+              right: `calc(${area.right + 12}px + var(--simulator-dock, 0px) + var(--browser-dock, 0px))`,
               bottom: area.bottom,
             }
           : {
               top: area?.top ?? 40,
-              right: `calc(${(area?.right ?? 0) + 12}px + var(--simulator-dock, 0px))`,
+              right: `calc(${(area?.right ?? 0) + 12}px + var(--simulator-dock, 0px) + var(--browser-dock, 0px))`,
               bottom: area?.bottom ?? 12,
             }
       }
