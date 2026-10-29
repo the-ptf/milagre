@@ -105,6 +105,8 @@ export function LinkWorkspace({
   ports,
   onNewChatInScope,
   onNewChat,
+  archivingChats,
+  onArchiving,
 }: {
   opened: OpenLink;
   state: LinkState;
@@ -134,6 +136,10 @@ export function LinkWorkspace({
   onNewChatInScope?: (scopeKey: string) => void;
   /** New chat (⌘N, the sidebar's +, the command palette) starts on this Mac's Project; only the Link's own + starts a Link Chat. */
   onNewChat?: (draftText?: string) => void;
+  /** Chats with an archive under way, by chat key: their rows are gone from every sidebar until it ends. */
+  archivingChats?: ReadonlySet<string>;
+  /** A Chat's archive started; its row comes back if `work` fails. */
+  onArchiving?: (key: string, work: Promise<unknown>) => void;
 }) {
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
@@ -501,10 +507,12 @@ export function LinkWorkspace({
   }
   // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
   // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
-  const recents = scopeChats(owner, state, chatOrder, runMarks).map((row) => ({
-    ...row,
-    details: { ...row.details, path: state.sessions[Number(row.id)]?.workspacePath },
-  }));
+  const recents = scopeChats(owner, state, chatOrder, runMarks)
+    .filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))))
+    .map((row) => ({
+      ...row,
+      details: { ...row.details, path: state.sessions[Number(row.id)]?.workspacePath },
+    }));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
@@ -616,20 +624,24 @@ export function LinkWorkspace({
                     status: null,
                     terminals: await busyTerminals(chatKeyForScope(scope, Number(id))),
                   }),
+                  // As a Project's archive: the row goes and the window leaves the Chat at once, without waiting on the
+                  // host; a Chat whose archive fails comes back with the error.
                   onArchive: (id) => {
-                    const key = chatKeyForScope(scope, Number(id));
-                    return archiveLinkChat({
+                    const chat = Number(id);
+                    const key = chatKeyForScope(scope, chat);
+                    const work = archiveLinkChat({
                       running: Boolean(agents.runs[key]),
                       stop: () => agents.interrupt(key),
-                      hide: async () => {
-                        await bridge.patchChat(owner, Number(id), { archived: true });
-                        // The open Chat went: the new-chat screen takes its place, on this Mac as New chat opens it.
-                        if (sessionId === Number(id)) {
-                          if (onNewChat) onNewChat();
-                          else pick(null);
-                        }
-                      },
-                    }).catch((error) => setError(ipcErrorMessage(error)));
+                      hide: () => bridge.patchChat(owner, chat, { archived: true }),
+                    });
+                    onArchiving?.(key, work);
+                    void work.catch((error) => setError(ipcErrorMessage(error)));
+                    // The open Chat went: the new-chat screen takes its place, on this Mac as New chat opens it.
+                    if (sessionId === chat) {
+                      if (onNewChat) onNewChat();
+                      else pick(null);
+                    }
+                    return Promise.resolve();
                   },
                 }}
               />
