@@ -111,6 +111,10 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
             <div
               key={tab.id}
               data-browser-tab={tab.id}
+              // A middle click closes the tab, as in a browser.
+              onAuxClick={(event) => {
+                if (event.button === 1) closeBrowserTab(chatKey, tab.id);
+              }}
               className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 ${selected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover/60"}`}
             >
               <button

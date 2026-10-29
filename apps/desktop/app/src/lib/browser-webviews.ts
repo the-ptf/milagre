@@ -165,8 +165,8 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
  * and letting clicks through: off screen, Chromium stops painting it and the viewer would get no frames.
  */
 function park(page: Page) {
-  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none" });
-  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none" });
+  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none", clipPath: "" });
+  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none", clipPath: "" });
 }
 
 function place() {
@@ -184,6 +184,12 @@ function place() {
   if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
   style.opacity = "1";
   style.pointerEvents = "auto";
+  // The page is outside the panel's card, so the card's clip misses it: sliding open or closed, it is cut at the dock's
+  // edges, or it would draw over the changes panel beside it.
+  const dock = shown.slot.closest("[data-slot=browser-dock]")?.getBoundingClientRect();
+  const cut = dock ? [Math.max(0, rect.right - dock.right), Math.max(0, dock.left - rect.left)] : [0, 0];
+  const clip = cut[0] || cut[1] ? `inset(0 ${cut[0]}px 0 ${cut[1]}px)` : "";
+  if (style.clipPath !== clip) style.clipPath = clip;
 }
 
 // After anything that can move the slot (the panel springing open, a drag, the changes panel opening beside it), the
@@ -248,11 +254,13 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     if (page) openBrowserTab(page.chatKey, url);
   });
   const offKey = bridge.onKey(({ from, key }) => {
-    const page = pageOfContents(from);
-    if (!page) return;
-    if (key === "r") safe(() => page.webview.reload(), undefined);
-    else if (key === "w") closeBrowserTab(page.chatKey, page.tabId);
-    else onKey(page.chatKey, page.tabId, key);
+    const sender = pageOfContents(from);
+    if (!sender) return;
+    // A page keeps the keyboard after another tab shows, so the key is for the tab on screen, not the one that sent it.
+    const tabId = chatBrowser(sender.chatKey).active ?? sender.tabId;
+    if (key === "r") safe(() => pages.get(tabId)?.webview.reload(), undefined);
+    else if (key === "w") closeBrowserTab(sender.chatKey, tabId);
+    else onKey(sender.chatKey, tabId, key);
   });
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
     if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);
