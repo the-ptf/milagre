@@ -5469,6 +5469,58 @@ test("a New Chat opened while another one is still sending starts empty and send
   assert.equal(transcriptMessages(second)[0]?.body, "second message");
 });
 
+test("an accepted mobile send releases the composer before a slow refresh finishes", async () => {
+  const screen = chatHost();
+  const refresh = deferred();
+  screen.session.refresh = () => refresh.promise;
+  screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "Send this";
+  screen.send();
+  await settle();
+  screen.sending.resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next message");
+  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
+  refresh.resolve();
+});
+
+test("switching the mounted mobile composer between computers isolates concurrent sends", async () => {
+  const sends = [deferred(), deferred()];
+  let count = 0;
+  const screen = chatHost({ call: (method) => (method === "chat:send" ? sends[count++].promise : Promise.resolve([])) });
+  const state = screen.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "First computer";
+  screen.send();
+  await settle();
+  // The routed pane stays mounted, including when the other computer uses the same path and Chat id.
+  screen.session.client.url = "other-mac";
+  screen.field().onChangeText("Second computer");
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false, "the first computer's send does not lock the second");
+  screen.send();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(Object.keys(screen.session.pendingChats).length, 2);
+  // The first completion must not release the second computer's duplicate-send guard.
+  sends[0].resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Sending...");
+  button.props.onPress();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(button.props.disabled, true);
+  sends[1].reject(new Error("Second computer refused the send"));
+  await settle();
+  assert.equal(screen.field().value, "Second computer\n\nNext draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
+});
+
 test("the drawer reopens a New Chat that is still sending", async () => {
   const first = chatHost();
   first.send();

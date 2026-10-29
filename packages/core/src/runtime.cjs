@@ -91,6 +91,7 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createComputerResources } = require("./computer-resources.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createDoneSettings } = require("./done-settings.cjs");
@@ -1395,6 +1396,8 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  const computerResources = createComputerResources({ dataDir, worktreeRoot: worktreeRoot() });
+  commands.handle("computer:resources:read", () => computerResources.read());
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());
@@ -2915,6 +2918,7 @@ function createRuntime(options) {
       accounts.close();
       keybindings.close();
       keepAwake.quit();
+      computerResources.close();
       ports.close();
       diffs.close();
       if (!states.closed) {

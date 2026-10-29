@@ -99,6 +99,31 @@ async function browserChecks() {
   }
   const occurrences = (body) => evaluate(`(${transcript}?.textContent.match(new RegExp(${JSON.stringify(body)}, 'g')) ?? []).length`);
   try {
+    // Keep two sends pending in one mounted App. Neither lock, preview nor completion belongs to the other Chat.
+    await loadFixture(process.argv[2]);
+    await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
+    await newChat("Local");
+    await send("First computer is still saving");
+    await waitFor("window.calls.sent.length === 1");
+    await newChat("Local");
+    await send("Second chat can send immediately");
+    await waitFor("window.calls.sent.length === 2");
+    await immediate("Second chat can send immediately");
+    assert.equal(await evaluate(`document.querySelector('aside').textContent.includes('First computer is still saving')`), true);
+    await evaluate(`[...document.querySelectorAll('aside [data-row]')].find(row => row.textContent.includes('First computer is still saving')).click()`);
+    await waitFor(`${transcript}?.textContent.includes('First computer is still saving')`);
+    await type("Next draft for the first Chat");
+    await evaluate(`document.querySelector(${JSON.stringify(prompt)}).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+    assert.equal(await evaluate("window.calls.sent.length"), 2, "reopening a pending Chat still blocks duplicate submits");
+    // Complete the other Chat first; it cannot clear this Chat's lock or steal its draft.
+    await evaluate("window.pendingSends[1].save(); window.pendingSends[1].ack()");
+    await waitFor(`document.querySelector('aside').textContent.includes('Second chat can send immediately')`);
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Send"]')?.disabled || !!document.querySelector('[aria-label="Stop agent"]')`), true);
+    await evaluate("window.pendingSends[0].fail('First computer refused the send')");
+    await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('First computer refused the send')`);
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "First computer is still saving\n\nNext draft for the first Chat");
+    await screenshot("concurrent-send-recovery");
+
     await loadFixture(process.argv[2] + "?link=1");
     await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
     await send("Retry a shared Chat");
@@ -107,6 +132,22 @@ async function browserChecks() {
     assert.equal(sharedSends[0].operationId, sharedSends[1].operationId, "a shared Chat retry keeps its operation id");
     await waitFor(`document.querySelector(${JSON.stringify(prompt)}).value === ''`);
     assert.equal(await evaluate("document.body.textContent.includes('Your command was not sent')"), false);
+
+    await loadFixture(process.argv[2] + "?link=1&concurrent=1");
+    await waitFor(`!!document.querySelector(${JSON.stringify(prompt)})`, 1200);
+    await send("First shared Chat");
+    await waitFor("window.calls.sent.length === 1");
+    await evaluate("window.pickLinkChat(2)");
+    await waitFor(`!${transcript}?.textContent.includes('First shared Chat')`);
+    await send("Second shared Chat");
+    await waitFor("window.calls.sent.length === 2");
+    await evaluate("window.pendingSends[0].ack()");
+    await type("Another shared draft");
+    await evaluate(`document.querySelector(${JSON.stringify(prompt)}).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+    assert.equal(await evaluate("window.calls.sent.length"), 2, "another shared Chat's completion cannot release this one's lock");
+    await evaluate("window.pendingSends[1].fail()");
+    await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('Shared send failed')`);
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(prompt)}).value`), "Second shared Chat\n\nAnother shared draft");
 
     // A chat on an agent that can't steer: its held queue sits above the composer, each message with Send now and Remove.
     await loadFixture(process.argv[2] + "?queue=1");

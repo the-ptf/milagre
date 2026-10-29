@@ -358,7 +358,8 @@ function ChatPane({
   const [actionBusy, setBusy] = useState(false);
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
-  const sendingRef = useRef(false);
+  const sendingRef = useRef(new Set<string>());
+  const [sendingKeys, setSendingKeys] = useState<string[]>([]);
   /** Which typed @mentions name a Project file: those are tinted and attached at send. */
   const knownFiles = useRef(createKnownFiles());
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
@@ -530,7 +531,8 @@ function ChatPane({
   // A send the computer took no longer holds the composer while its saved copy is on the way: a stale snapshot would
   // otherwise keep the button spinning until the turn ends.
   const unsent = !!pending && !pending.accepted;
-  const busy = actionBusy || unsent;
+  const sendingKey = `${connected?.url}|${originChatId}`;
+  const busy = actionBusy || unsent || sendingKeys.includes(sendingKey);
   const focused = useRef<object | null>(null);
   useFocusEffect(
     useCallback(() => {
@@ -1328,9 +1330,9 @@ function ChatPane({
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
     if (!body && !(withAttachments && attachments.length)) return false;
-    if (busy || sendingRef.current || picking) return "busy";
-    sendingRef.current = true;
-    setBusy(true);
+    if (busy || sendingRef.current.has(sendingKey) || picking) return "busy";
+    sendingRef.current.add(sendingKey);
+    setSendingKeys((current) => [...current, sendingKey]);
     setError("");
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
     // against the Project (the one just typed) is asked about now, for up to a second.
@@ -1513,7 +1515,7 @@ function ChatPane({
         if (!params.id) adoptChat(result.sessionId);
       }
       // The message went; a busy Mac that can't answer this read yet is caught up by the live connection.
-      await session.refresh().catch(() => {});
+      void session.refresh().catch(() => {});
       return true;
     } catch (e) {
       if (!accepted) {
@@ -1533,8 +1535,8 @@ function ChatPane({
       if (current()) setError((e as Error).message);
       return accepted;
     } finally {
-      sendingRef.current = false;
-      setBusy(false);
+      sendingRef.current.delete(sendingKey);
+      setSendingKeys((current) => current.filter((key) => key !== sendingKey));
     }
   }
   function headerAction(id: string) {

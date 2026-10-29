@@ -8,6 +8,7 @@ import { savedHosts } from "../../hosts-native";
 import { forgetComputer, renameComputer, routeLabel } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Group, Row } from "../../settings-list";
+import { ComputerResourcesGroup } from "../../computer-resources-group";
 import { ErrorNotice, PageScroll, RowSwitch } from "../../ui";
 import { useTheme } from "../../theme";
 
@@ -92,6 +93,7 @@ export default function ComputerScreen() {
             }
           />
         </Group>
+        <ComputerResourcesGroup host={host} online={state === "online"} />
         <Group title="Settings on this Mac" footer={connecting ? "Connecting…" : "Changes here apply to this Mac and every device paired with it."}>
           <Row title="General" icon={Settings01Icon} disabled={connecting} onPress={() => void open("general")} />
           <Row title="Accounts" icon={UserCircleIcon} disabled={connecting} onPress={() => void open("accounts")} />

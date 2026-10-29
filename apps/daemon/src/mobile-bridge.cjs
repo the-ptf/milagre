@@ -51,6 +51,7 @@ const METHODS = new Set([
   "limits:auto-switch:save",
   "app-update:auto:read",
   "app-update:auto:save",
+  "computer:resources:read",
   "keybindings:read",
   "keybindings:set-command",
   "keybindings:reset-command",
