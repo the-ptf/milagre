@@ -237,6 +237,8 @@ export type ComputersApi = {
   ) => Promise<void>;
   /** A chat's offline copy, read to paint it while the computer's own answer is on its way; null without one. */
   recall?: (id: string, entry: { kind: "chat"; scope: string; chatId: number }) => Promise<{ messages: unknown[]; hasMore: boolean; total: number } | null>;
+  /** A line about the computer's scopes for daemon.log, which the window has no log of its own for. */
+  note?: (id: string, line: string) => Promise<void>;
 };
 
 import type { DiffMode, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";

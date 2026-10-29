@@ -511,6 +511,7 @@ const bridge = {
     invoke: (id, method, args) => ipcRenderer.invoke("computers:invoke", id, method, args),
     remember: (id, entry) => ipcRenderer.invoke("computers:remember", id, entry),
     recall: (id, entry) => ipcRenderer.invoke("computers:recall", id, entry),
+    note: (id, line) => ipcRenderer.invoke("computers:note", id, line),
   },
   onComputersChanged: (callback) => listenHere("computers:changed", callback),
   onComputerAddPending: (callback) => listenHere("computers:pending", () => callback()),

@@ -3472,6 +3472,24 @@
         }
       ]
     },
+    "computers:note": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "line",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "app:dictation-status": {
       "parameters": []
     },

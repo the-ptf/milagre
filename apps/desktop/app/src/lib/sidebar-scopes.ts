@@ -1,5 +1,5 @@
 import { bridgeForKey } from "./computer-bridge.ts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type { CoordinatorState, LinkState, OpenProject, Routine } from "@milagre/shared/model";
 import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
@@ -248,6 +248,15 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const [attempt, setAttempt] = useState(0);
   const joined = keys.join("\n");
+
+  // The Link's and the Project's workspaces stay mounted behind each other (<Activity>), and a hidden sidebar hears no
+  // events. Shown again, it takes what the shown one kept meanwhile, before paint, instead of the states it froze with.
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    setStates((previous) =>
+      Object.keys(scopeStateCache).some((key) => previous[key] !== scopeStateCache[key]) ? { ...previous, ...scopeStateCache } : previous,
+    );
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;

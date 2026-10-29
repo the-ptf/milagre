@@ -126,7 +126,7 @@ import { visibleProviders } from "./components/usage/format";
 import { useUsage } from "./components/usage/useUsage";
 import { loadChatPreferences, saveChatPreferences } from "./lib/chat-preferences";
 import { useComposerPreferences } from "./lib/use-composer-preferences";
-import { startOfflineCache } from "./lib/offline-cache";
+import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -1916,6 +1916,12 @@ function App() {
       if (navigation === projectNavigation.current) setNotice(ipcErrorMessage(error));
     }
   }
+  // Another computer's Project opened from a copy that lacks the Chat being opened lists none of its Chats ("No chats
+  // yet"). Nothing on screen says which copy that was, so it goes to daemon.log.
+  function noteMissingChat(projectPath: string, sessionId: number, source: string, state: CoordinatorState | undefined) {
+    if (!isRemoteKey(projectPath) || !state?.sessions || state.sessions[sessionId]) return;
+    noteComputer(projectPath, `${projectPath} opened Chat ${sessionId} from ${source}, which lacks it (${Object.keys(state.sessions).length} Chats)`);
+  }
   async function openCanvasChat(projectPath: string, sessionId: number, adopt: Parameters<typeof adoptProject>[1] = {}) {
     // A Link's Chat, or one of the open Project's: selectLink and openChat read its page and measure the switch first.
     if (isLinkScopeKey(projectPath)) {
@@ -1945,6 +1951,7 @@ function App() {
     const seen = projectsSeen.current.get(projectPath);
     const instant = cachedState && seen ? { ...seen, state: cachedState } : cachedProjectCopy(projectPath);
     if (instant) {
+      noteMissingChat(projectPath, sessionId, cachedState && seen ? "the window's copy" : "the sidebar's copy", instant.state);
       adoptProject(instant, { ...adopt, sessionId });
       openChat(sessionId);
     }
@@ -1952,6 +1959,8 @@ function App() {
     try {
       const next = await request;
       if (navigation !== projectNavigation.current) return;
+      // A host read carries its state's number; the offline copy and the numbered copy kept here don't.
+      noteMissingChat(projectPath, sessionId, "version" in next ? `the host's read (state ${next.version})` : "a copy without a number", next.state);
       if (!instant || next.path !== projectRef.current?.path || selectedLinkRef.current) {
         adoptProject(next, { ...adopt, sessionId });
         openChat(sessionId);
