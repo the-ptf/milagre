@@ -367,10 +367,15 @@ function createAccounts({
   }
   async function login(provider, id) {
     account(provider, id);
-    // Antigravity's default profile belongs to Milagre, so it signs in here; other defaults belong to the terminal.
-    if (id === "default" && provider !== "antigravity") throw new Error("Use Add account to sign in without replacing your connected CLI account.");
     if (closed) throw new Error("Account manager is closing.");
     if (logins.size) throw new Error("Finish or cancel the current sign-in first.");
+    // Antigravity's default profile belongs to Milagre, so it signs in here. Other defaults belong to the terminal:
+    // one that isn't signed in yet (a first launch) signs in here too, the way `claude auth login` would, but a
+    // signed-in one is never replaced.
+    if (id === "default" && provider !== "antigravity") {
+      const identity = identities.get(key(provider, id)) ?? (await check(provider, id));
+      if (identity.state === "ready") throw new Error("Use Add account to sign in without replacing your connected CLI account.");
+    }
     const status = await cli(provider);
     if (status.problem || !status.command) throw new Error(status.problem || "Install the provider CLI first.");
     const k = key(provider, id);

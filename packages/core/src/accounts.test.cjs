@@ -377,3 +377,20 @@ test("installation during an account check refreshes the newly available provide
   await first;
   assert.equal(group(await afterInstall, "antigravity").accounts[0].state, "ready");
 });
+
+test("a connected CLI account that isn't signed in yet signs in where the terminal would", async (t) => {
+  const f = fixture(t);
+  let signedIn = false;
+  f.options.inspect = async (p) => (signedIn ? { state: "ready", email: `${p}@example.test` } : { state: "signed-out" });
+  const accounts = createAccounts(f.options);
+  t.after(() => accounts.close());
+  await accounts.list();
+  assert.equal(group(await accounts.login("claude", "default"), "claude").accounts[0].state, "signing-in");
+  assert.deepEqual(f.children[0].args, ["auth", "login", "--claudeai"]);
+  assert.equal(f.children[0].opts.env.CLAUDE_CONFIG_DIR, undefined, "The terminal's own profile signs in");
+  signedIn = true;
+  f.children[0].child.emit("close", 0);
+  await tick();
+  assert.equal(group(accounts.snapshot(), "claude").accounts[0].state, "ready");
+  await assert.rejects(accounts.login("claude", "default"), /Add account/);
+});
