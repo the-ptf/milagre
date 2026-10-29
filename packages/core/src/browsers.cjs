@@ -111,7 +111,10 @@ function createBrowsers(options = {}) {
   const frameWaitMs = options.frameWaitMs ?? 2500;
   const owners = new Map(),
     viewers = new Map(),
-    captures = new Map();
+    captures = new Map(),
+    // "chatId\0targetId" -> { chatId, target, session, state }: the agent tools' DevTools sessions, kept while the page
+    // stays the Chat's.
+    devtoolsSessions = new Map();
   // browserId -> { chatId, pid }: the Chat whose agent started it, kept until that browser exits.
   const lineage = new Map();
   const attachments = new Map();
@@ -504,6 +507,42 @@ function createBrowsers(options = {}) {
      * What a desktop's Browser panel shows: its DevTools endpoint (cdp-proxy.cjs) and each page with its Chat. Replaces
      * what that desktop registered before; an empty list takes its pages away, and viewers of a page that went close.
      */
+    /**
+     * A DevTools session on one of the Chat's pages for the agent's browser tools: `page` names a target from `list`;
+     * without it, the Chat's Browser panel page shown most recently, else its first page. Each call checks again that
+     * the page is still the Chat's. The session is kept between calls (its `state` holds what the tools remember).
+     */
+    async devtools(request) {
+      if (closed) throw new Error("Browser service is closed.");
+      const chatId = requireChat(request);
+      if (!supported) throw new Error("Browser pages are not supported on this computer.");
+      const world = await snapshot();
+      const { targets } = view(world, chatId);
+      const panel = targets.filter((item) => item.source === "panel");
+      const target = typeof request.page === "string" && request.page ? targets.find((item) => item.id === request.page) : (panel.at(-1) ?? targets[0]);
+      if (!target)
+        throw new Error(
+          request.page
+            ? "That page is not in this Chat. List the pages with browser_list."
+            : "This Chat has no browser page. Open one with browser_open, or ask the user to open the Browser panel.",
+        );
+      // Sessions on pages that left this Chat, or whose page closed, go.
+      for (const [key, entry] of devtoolsSessions)
+        if (entry.chatId === chatId && (entry.session.closed || !targets.some((item) => item.id === entry.target.id))) {
+          entry.session.close();
+          devtoolsSessions.delete(key);
+        }
+      const key = `${chatId}\0${target.id}`;
+      const known = devtoolsSessions.get(key);
+      if (known) return { target, session: known.session, state: known.state };
+      const match = TARGET.exec(target.id);
+      const browser = match && allBrowsers(world).find((item) => item.id === match[1]);
+      if (!browser || typeof adapter.session !== "function") throw new Error("This page can't be driven from here.");
+      const session = await adapter.session(browser, match[2]);
+      const entry = { chatId, target, session, state: {} };
+      devtoolsSessions.set(key, entry);
+      return { target, session, state: entry.state };
+    },
     async setPanelPages(request, owner) {
       if (typeof owner !== "string" || !owner || owner.length > 1024) throw new Error("A trusted desktop connection is required.");
       const pages = Array.isArray(request?.pages) ? request.pages : [];
@@ -548,6 +587,8 @@ function createBrowsers(options = {}) {
       clearInterval(lineageTimer);
       for (const state of owners.values()) state.dead = true;
       for (const capture of captures.values()) releaseHeld(capture);
+      for (const entry of devtoolsSessions.values()) entry.session.close();
+      devtoolsSessions.clear();
       const stopping = Promise.resolve(adapter.stop());
       return serial(async () => {
         for (const v of viewers.values()) await remove(v);

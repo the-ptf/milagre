@@ -384,6 +384,9 @@ async function startDesktop() {
         if (channel === "phone:paired") void deviceNotices.paired(payload);
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
+        // The agent opened a page (browser_open): the window with the Chat's Browser panel opens it in a tab.
+        if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
+          mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
         if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;

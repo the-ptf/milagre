@@ -2003,6 +2003,10 @@ function createRuntime(options) {
       ...simulatorToolDefinitions(chatId, simulators),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
+      // Driving the Chat's browser pages; browser_open asks the desktop to open a Browser panel tab (browser-panel:open).
+      ...require("./chat-browser-tools.cjs").browserPageToolDefinitions(chatId, browsers, {
+        openInPanel: (target, url) => emit("browser-panel:open", { chatId: target, url }),
+      }),
       ...(existsSync(path.join(__dirname, "design-mcp-tools.cjs"))
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
