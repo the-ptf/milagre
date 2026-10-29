@@ -1,4 +1,4 @@
-export type AlertButton = { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void };
+type AlertButton = { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void };
 /** React Native's Alert.alert, passed in so the dialog can be tested. */
 export type ShowAlert = (
   title: string,
