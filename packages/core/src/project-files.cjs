@@ -29,10 +29,13 @@ async function walkFiles(root, limit = 20000) {
   return files.slice(0, limit);
 }
 
-// Milagre's own metadata folder (Chat storage, the runtime lock) is never a Project file to mention or dictate: outside
-// Git the walk skips it as a hidden folder, and in a repository that doesn't ignore it ls-files lists it as untracked.
-// A new Chats home has nothing else, so its @ menu would offer only the lock.
-const isMetadata = (file) => file === ".milagre" || file.startsWith(".milagre/");
+// What Milagre itself writes in a Project's .milagre folder (Chat storage, the runtime lock, saved details and images,
+// its Worktrees) is never a Project file to mention or dictate: in a repository that doesn't ignore it, ls-files lists it
+// as untracked, and a new Chats home has nothing else, so its @ menu would offer only the lock. What people write there
+// themselves (worktree.json, checkpoint-ignore) is still found.
+const INTERNAL_FOLDERS = ["runtime.lock", "runtime", "subagents", "details", "images", "worktrees"];
+const INTERNAL_FILES = /^\.milagre\/(chats\.db|coordination\.json)(\b|$)/;
+const isMilagreState = (file) => INTERNAL_FILES.test(file) || INTERNAL_FOLDERS.some((folder) => file.startsWith(`.milagre/${folder}/`));
 
 function createFileSearch({ now = Date.now, ttl = 5000 } = {}) {
   const cache = new Map();
@@ -58,7 +61,7 @@ function createFileSearch({ now = Date.now, ttl = 5000 } = {}) {
           ? walkFiles(root)
           : git
               .checked(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-              .then(({ stdout }) => [...new Set(stdout.split("\0").filter((file) => file && !isMetadata(file)))]),
+              .then(({ stdout }) => [...new Set(stdout.split("\0").filter((file) => file && !isMilagreState(file)))]),
       );
       entry = { at: now(), promise };
       cache.set(root, entry);

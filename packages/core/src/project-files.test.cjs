@@ -30,10 +30,22 @@ test("searches tracked and untracked files, excludes ignored files, ranks names,
   now = 11;
   assert.deepEqual(await search(root, "new"), ["new.txt"]);
   assert.equal((await search(root, "", 2)).length, 2);
-  // Milagre's own metadata in a repository that doesn't ignore it is never offered.
+  // Milagre's own state in a repository that doesn't ignore it is never offered; what people write there still is.
   await fs.mkdir(path.join(root, ".milagre", "runtime.lock"), { recursive: true });
-  await fs.writeFile(path.join(root, ".milagre", "runtime.lock", "owner.json"), "{}");
+  await fs.mkdir(path.join(root, ".milagre", "subagents"), { recursive: true });
+  for (const [name, text] of [
+    ["runtime.lock/owner.json", "{}"],
+    ["coordination.json", "{}"],
+    ["coordination.json.12.3.tmp", "{}"],
+    ["chats.db", ""],
+    ["chats.db-wal", ""],
+    ["subagents/a.json", "{}"],
+    ["worktree.json", '{"setup":"npm ci"}'],
+    ["checkpoint-ignore", "dist\n"],
+  ])
+    await fs.writeFile(path.join(root, ".milagre", name), text);
   now = 22;
   assert.deepEqual(await search(root, "owner"), []);
-  assert.ok(!(await search.list(root)).some((file) => file.startsWith(".milagre/")));
+  assert.deepEqual((await search.list(root)).filter((file) => file.startsWith(".milagre/")).sort(), [".milagre/checkpoint-ignore", ".milagre/worktree.json"]);
+  assert.deepEqual(await search(root, "worktree.json"), [".milagre/worktree.json"]);
 });
