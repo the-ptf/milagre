@@ -535,8 +535,7 @@ const NavigationBody = memo(function NavigationBody({
     };
     const offlineIds = builds.filter((build) => build.reach === "offline").map((build) => build.hostId);
     const offlineLine: Row[] = offlineIds.length ? [{ key: "offline", path: "", kind: "offline", hostIds: offlineIds }] : [];
-    // Every computer's Chats without a Project in one list, newest first, above the Projects. The group shows with none
-    // too, so its + is always there to start one.
+    // Every computer's Chats without a Project in one list, newest first, above the Projects. With none, no group.
     const homeRows = chatsGroupChats(
       builds.flatMap((build) => {
         const home = build.home;

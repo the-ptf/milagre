@@ -45,18 +45,19 @@ test("the Chats group header marks a Chat waiting in the open computer's home, f
   assert.equal(chatsGroupNeedsAttention([], "mac", ["/Users/me/.milagre/chats"]), false);
 });
 
-test("the Chats group always shows once a computer is listed, with no Chats and no Chats home yet", () => {
-  // No home on any computer yet: the header still shows, for its + (which makes this computer's home).
-  assert.deepEqual(chatsGroupList({ computers: 1, rows: [], folded: false, homes: [] }), {
-    header: { kind: "chatsGroup", expanded: true, count: 0, offline: false, homes: [] },
-    rows: [],
-  });
+test("the Chats group shows only while a computer has a Chat without a Project", () => {
+  // No Chat without a Project yet, home or not: no group. The New Chat picker's No project row starts one.
+  assert.equal(chatsGroupList({ computers: 1, rows: [], folded: false, homes: [] }), null);
+  assert.equal(chatsGroupList({ computers: 1, rows: [], folded: true, homes: [{ hostId: "mac", path: "/Users/me/.milagre/chats" }] }), null);
   const rows = [
     { reach: "online", name: "regex" },
     { reach: "offline", name: "port" },
   ];
   const homes = [{ hostId: "mac", path: "/Users/me/.milagre/chats" }];
-  assert.deepEqual(chatsGroupList({ computers: 2, rows, folded: false, homes })?.rows, rows);
+  assert.deepEqual(chatsGroupList({ computers: 2, rows, folded: false, homes }), {
+    header: { kind: "chatsGroup", expanded: true, count: 2, offline: false, homes },
+    rows,
+  });
   // Folded: the header counts them, the rows go.
   const folded = chatsGroupList({ computers: 2, rows, folded: true, homes });
   assert.deepEqual(folded?.rows, []);
@@ -64,5 +65,5 @@ test("the Chats group always shows once a computer is listed, with no Chats and 
   assert.equal(folded?.header.offline, false);
   assert.equal(chatsGroupList({ computers: 2, rows: [{ reach: "offline" }], folded: false, homes })?.header.offline, true);
   // Nothing paired or shown: no computer to start a Chat on, so the drawer says how to pair instead.
-  assert.equal(chatsGroupList({ computers: 0, rows: [], folded: false, homes: [] }), null);
+  assert.equal(chatsGroupList({ computers: 0, rows, folded: false, homes }), null);
 });

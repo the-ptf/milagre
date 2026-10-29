@@ -110,8 +110,9 @@ async function browserChecks() {
 
     assert.equal(await evaluate(checked), "One list", "Settings › Chat starts on One list");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
-    // The Chats group (Chats without a Project) heads the list in both layouts; it isn't a Project header.
-    assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 1, "The Chats group shows above the list");
+    // The Chats group (Chats without a Project) shows only once such a Chat exists; these Projects have none.
+    assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 0, "No Chats group without a Chat without a Project");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-chats-divider]").length`), 0, "No divider without the Chats group");
     assert.equal(
       await evaluate(`[...document.querySelectorAll("[data-scope-toggle]")].filter((node) => !node.closest("[data-sidebar-chats]")).length`),
       0,

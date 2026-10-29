@@ -1244,9 +1244,9 @@ export default memo(function SidebarNav({
     ) : null,
   );
   const chatsOpen = !closedScopes.includes(CHATS_GROUP_KEY);
-  // Folds like a Project's group. It always shows, with no rows while no computer has a Chat without a Project outside
-  // Pinned (or a Chats home at all), so its + is one click from a quick chat on this Mac.
-  const chatsGroup = (
+  // Folds like a Project's group. It shows only while some computer has a Chat without a Project outside Pinned; with
+  // none, a new Chat's No project row starts one.
+  const chatsGroup = chatsRows.length > 0 && (
     <section data-sidebar-chats aria-label={CHATS_GROUP_LABEL} className="mb-2">
       <ScopeHeader
         name={CHATS_GROUP_LABEL}
@@ -1316,8 +1316,8 @@ export default memo(function SidebarNav({
         </Tooltip>
       </div>
       {chatsGroup}
-      {/* It parts the Chats from the Projects' rows below, so it shows only when there are some. */}
-      {flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
+      {/* It parts the Chats from the Projects' rows below, so it shows only when there are both. */}
+      {chatsGroup && flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
       <FlatChatList chats={flatChats} scopes={flatScopes} />
       {groups
         .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))

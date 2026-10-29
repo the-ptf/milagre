@@ -42,9 +42,9 @@ export type ChatsGroupHeader = {
 };
 
 /**
- * The Chats group's header and rows. It always shows once a computer is listed, its + one tap from a quick chat, even
- * before any computer has a Chat without a Project or a Chats home at all (the + makes this computer's). Its rows go
- * only while it is folded. `null` with no computer to start one on.
+ * The Chats group's header and rows. It shows only while some computer has a Chat without a Project; with none, the
+ * New Chat picker's No project row starts one. Its rows go only while it is folded. `null` with no such Chat or no
+ * computer listed.
  */
 export function chatsGroupList<T extends { reach?: string }>({
   computers,
@@ -57,7 +57,7 @@ export function chatsGroupList<T extends { reach?: string }>({
   folded: boolean;
   homes: { hostId: string; path: string }[];
 }): { header: ChatsGroupHeader; rows: readonly T[] } | null {
-  if (computers === 0) return null;
+  if (computers === 0 || rows.length === 0) return null;
   return {
     header: { kind: "chatsGroup", expanded: !folded, count: rows.length, offline: rows.length > 0 && rows.every((row) => row.reach === "offline"), homes },
     rows: folded ? [] : rows,
