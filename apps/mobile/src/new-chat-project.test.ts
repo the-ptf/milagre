@@ -24,6 +24,15 @@ test("New Chat includes sidebar-hidden Projects, named by their folder when unna
   ]);
 });
 
+test("New Chat adds each computer's known Projects after its recent ones, once each, and a computer without them keeps its recent ones", () => {
+  const known = new Map([["mac", [{ path: "/code/a" }, { path: "/code/old", name: "Old", origin: "github.com/x/old" }]]]);
+  assert.deepEqual(newChatProjects([view("mac", "online", ["/code/a"]), view("deer", "online", ["/code/b"])], known), [
+    { hostId: "mac", hostName: "MAC", offline: false, path: "/code/a", name: "a" },
+    { hostId: "mac", hostName: "MAC", offline: false, path: "/code/old", name: "Old", origin: "github.com/x/old" },
+    { hostId: "deer", hostName: "DEER", offline: false, path: "/code/b", name: "b" },
+  ]);
+});
+
 test("New Chat opens the last new Chat's Project, then the open one, then the first reachable one", () => {
   const projects = newChatProjects([view("mac", "online", ["/a", "/b"]), view("deer", "offline", ["/c"])]);
   assert.equal(pickNewChatProject(projects, { hostId: "mac", projectPath: "/b" }, { hostId: "mac", projectPath: "/a" })?.path, "/b");

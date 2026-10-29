@@ -150,6 +150,9 @@ function issueRunDivider(message: ChatMessage, merged?: { count: number; last: R
   return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
 }
 
+/** Below this, the new-Chat tray's Linear chip shows only its logo so the row fits on one line (a phone; an iPad keeps the label). */
+const COMPACT_TRAY_ROW_WIDTH = 460;
+
 /** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
 /** The choice sheet's rows for a list of Linear issues. */
@@ -353,6 +356,8 @@ function ChatPane({
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
+  // The new-Chat tray row's width: 0 until it is laid out, which keeps the Linear chip compact on a phone from the start.
+  const [trayRowWidth, setTrayRowWidth] = useState(0);
   const [dockHeight, setDockHeight] = useState(140);
   // The Chat whose Terminals are docked below it (an iPad); another Chat in this pane starts without them.
   const [terminalFor, setTerminalFor] = useState<string | null>(null);
@@ -828,8 +833,8 @@ function ChatPane({
     setDrafts((current) => (current[prefillKey] ? current : { ...current, [prefillKey]: text }));
     router.setParams({ prefill: undefined });
   }, [prefillKey, params.prefill, setDrafts]);
-  // The Projects a new Chat can switch to, on every shown computer.
-  const newChatProjects = useNewChatProjects();
+  // The Projects a new Chat can switch to, on every shown computer: each computer's every known Project while it is new.
+  const newChatProjects = useNewChatProjects(!params.id);
   const noProject = useNoProjectChoice(session.client?.url);
   // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
@@ -1050,6 +1055,10 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
+  // The computer chip's rows: every copy of the Project, or the open one alone before the lists have found it.
+  const computerCopies: NewChatProject[] = projectCopies.length
+    ? projectCopies
+    : [{ hostId: client.url, hostName: computerName || "This computer", offline: false, path: project.path, name: projectName }];
   // The computer a Chat without a Project runs on, named in its "Just chat on <Computer>" heading.
   const chatsComputer = noProject?.copies.find((copy) => copy.hostId === client.url)?.hostName ?? session.hostName ?? "this computer";
   // A Chat beside on another computer than the open one says which.
@@ -2186,7 +2195,7 @@ function ChatPane({
                     ) : (
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Start building in ${hostName ? `${hostName} / ` : ""}${projectName}. Change project`}
+                        accessibilityLabel={`Start building in ${projectName}. Change project`}
                         disabled={busy}
                         onPress={chooseProject}
                         style={({ pressed }) => ({
@@ -2201,7 +2210,6 @@ function ChatPane({
                         <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
                           <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
-                            {hostName ? <Text style={{ color: colors.ink3 }}>{hostName} / </Text> : null}
                             {projectName}
                           </Text>
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2366,10 +2374,16 @@ function ChatPane({
                             </View>
                           ) : (
                             startTray && (
-                              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                {onSeveralComputers && (
+                              // One row, never wrapped: the computer and branch names truncate, and the Linear chip drops its label when the row is narrow.
+                              <View
+                                style={{ flexDirection: "row", alignItems: "center" }}
+                                onLayout={(event) => setTrayRowWidth(event.nativeEvent.layout.width)}
+                              >
+                                {/* Every Project has the chip, on one computer or several: the heading never names the computer. */}
+                                {
                                   <PullDown
                                     label="Choose computer"
+                                    style={{ flexShrink: 1 }}
                                     nativeTrigger={{
                                       title: computerName,
                                       systemImage: "desktopcomputer",
@@ -2380,7 +2394,7 @@ function ChatPane({
                                     sections={[
                                       {
                                         title: "Run on",
-                                        items: projectCopies.map((item) => ({
+                                        items: computerCopies.map((item) => ({
                                           id: `${item.hostId}\n${item.path}`,
                                           title: item.hostName,
                                           subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
@@ -2401,6 +2415,7 @@ function ChatPane({
                                     <View
                                       style={{
                                         maxWidth: 140,
+                                        flexShrink: 1,
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
@@ -2416,7 +2431,7 @@ function ChatPane({
                                       <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                     </View>
                                   </PullDown>
-                                )}
+                                }
                                 <PullDown
                                   label="Choose isolation"
                                   nativeTrigger={{
@@ -2454,6 +2469,7 @@ function ChatPane({
                                 >
                                   <View
                                     style={{
+                                      flexShrink: 1,
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
@@ -2463,12 +2479,15 @@ function ChatPane({
                                     }}
                                   >
                                     <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
-                                    <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
+                                    <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
+                                      {isolation === "local" ? "Local" : "New worktree"}
+                                    </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
                                 </PullDown>
                                 <PullDown
                                   label="Choose branch"
+                                  style={{ flexShrink: 1 }}
                                   searchable={{
                                     placeholder: newWorktree ? "Search branches" : "Search worktrees",
                                     emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
@@ -2505,6 +2524,7 @@ function ChatPane({
                                   <View
                                     style={{
                                       maxWidth: 180,
+                                      flexShrink: 1,
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
@@ -2536,7 +2556,7 @@ function ChatPane({
                                     })}
                                   >
                                     <LinearLogo size={13} />
-                                    <Text style={styles.label}>Linear issue</Text>
+                                    {trayRowWidth >= COMPACT_TRAY_ROW_WIDTH && <Text style={styles.label}>Linear issue</Text>}
                                   </Pressable>
                                 )}
                               </View>

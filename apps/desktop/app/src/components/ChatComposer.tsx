@@ -925,11 +925,11 @@ function ChipButton({
       type="button"
       aria-expanded={open}
       onClick={(event) => onClick(event.currentTarget)}
-      className={`flex h-7 items-center gap-1.5 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
+      className={`flex h-7 min-w-0 items-center gap-1.5 rounded-[8px] px-1.5 text-[12px] font-medium whitespace-nowrap transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
     >
-      {leading ?? (icon && <Icon icon={icon} size={14} />)}
-      {label}
-      <span className="text-ink-3">
+      <span className="flex shrink-0">{leading ?? (icon && <Icon icon={icon} size={14} />)}</span>
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="shrink-0 text-ink-3">
         <Icon icon={ArrowDown01Icon} size={12} />
       </span>
     </button>
@@ -979,7 +979,8 @@ function NewChatHeader({
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"computer" | "isolation" | "branch" | "issue" | null>(null);
   const copy = copies.find((item) => item.key === currentKey);
-  const chooseComputer = copies.length > 1 && copy && onComputerChange;
+  // Shown for every Project, on one computer or several, so the heading never has to name the computer.
+  const chooseComputer = copy && onComputerChange;
   const [query, setQuery] = useState("");
   const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];
@@ -1045,9 +1046,10 @@ function NewChatHeader({
         </p>
       )}
       {(chats || (!noGit && selected)) && (
-        <div data-new-chat-pickers className="relative mb-1 flex items-center gap-1">
+        // One row, never wrapped: a narrow composer truncates the chips' names instead.
+        <div data-new-chat-pickers className="relative mb-1 flex min-w-0 items-center gap-1">
           {chooseComputer && (
-            <Tooltip label="Choose the computer">
+            <Tooltip label="Choose the computer" className="min-w-0">
               <ChipButton
                 icon={ComputerIcon}
                 label={copy.computer}
@@ -1064,7 +1066,7 @@ function NewChatHeader({
           ) : (
             selected && (
               <>
-                <Tooltip label="Choose the isolation level">
+                <Tooltip label="Choose the isolation level" className="min-w-0">
                   <ChipButton
                     icon={isolationOption.icon}
                     label={isolationOption.name}

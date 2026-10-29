@@ -2059,6 +2059,9 @@
     "project:recent": {
       "parameters": []
     },
+    "project:known": {
+      "parameters": []
+    },
     "onboarding:agent-folders": {
       "parameters": []
     },

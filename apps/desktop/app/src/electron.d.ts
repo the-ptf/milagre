@@ -550,6 +550,8 @@ export type MilagreBridge = {
   readMedia: (request: { scope: string; path: string }) => Promise<MediaBytes>;
   /** Projects opened lately, most recent first; folders that are gone are left out. */
   listRecentProjects: () => Promise<RecentProject[]>;
+  /** Every Project the computer knows, newest opened first, for the new-chat picker. Rejects on a computer that predates it. */
+  listKnownProjects: () => Promise<RecentProject[]>;
   /** Onboarding: folders Claude Code and Codex sessions on this Mac worked in, newest first. */
   listAgentFolders: () => Promise<import("@milagre/shared/model").AgentFolder[]>;
   /** Onboarding: a new folder in ~/Code with Git, opened as a Project. */
