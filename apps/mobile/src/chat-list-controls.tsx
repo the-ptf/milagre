@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type Ref } from "react";
-import { Linking, StyleSheet, TextInput, View, type NativeScrollEvent, type NativeSyntheticEvent, type TextInputInstance } from "react-native";
+import {
+  Linking,
+  StyleSheet,
+  TextInput,
+  useWindowDimensions,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type TextInputInstance,
+  type ViewInstance,
+} from "react-native";
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { LiquidGlassView } from "@sbaiahmed1/react-native-blur";
 import { FilterHorizontalIcon, PencilEdit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
@@ -122,17 +132,36 @@ export function ChatListControls({
   }, [dictationError, dismiss]);
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 12);
+  // How far above the window's bottom the list ends: the iPad's docked sidebar is a card with a margin under it. The
+  // keyboard lifts the controls by its whole height, so without this they float that much above it.
+  const window = useWindowDimensions();
+  const frame = useRef<ViewInstance | null>(null);
+  const [below, setBelow] = useState(0);
+  const measure = () => frame.current?.measureInWindow((_x, y, _width, height) => setBelow(Math.max(0, Math.round(window.height - y - height))));
   const travel = CONTROLS_HEIGHT + bottom + 16;
   const slide = useAnimatedStyle(() => ({ transform: [{ translateY: shownHidden(hidden.get(), pinned.get()) * travel }] }));
   const fade = useAnimatedStyle(() => ({ opacity: 1 - shownHidden(hidden.get(), pinned.get()) }));
   return (
-    <KeyboardStickyView pointerEvents="box-none" offset={{ closed: 0, opened: bottom - KEYBOARD_GAP }} style={StyleSheet.absoluteFill}>
-      <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, fade]}>
-        <EdgeFade edge="bottom" height={CONTROLS_HEIGHT + bottom + FADE_EXTRA} />
-      </Animated.View>
-      <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
-        <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
-          <View style={[s.circle, filters.active && { borderWidth: 1.5, borderColor: colors.accent, borderRadius: CONTROLS_HEIGHT / 2 }]}>
+    <>
+      <View ref={frame} pointerEvents="none" onLayout={measure} style={StyleSheet.absoluteFill} />
+      <KeyboardStickyView pointerEvents="box-none" offset={{ closed: 0, opened: bottom - KEYBOARD_GAP + below }} style={StyleSheet.absoluteFill}>
+        <Animated.View pointerEvents="none" style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, fade]}>
+          <EdgeFade edge="bottom" height={CONTROLS_HEIGHT + bottom + FADE_EXTRA} />
+        </Animated.View>
+        <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
+          <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
+            <View style={[s.circle, filters.active && { borderWidth: 1.5, borderColor: colors.accent, borderRadius: CONTROLS_HEIGHT / 2 }]}>
+              <LiquidGlassView
+                pointerEvents="none"
+                glassType="regular"
+                isInteractive={false}
+                reducedTransparencyFallbackColor={colors.surface}
+                style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
+              />
+              <Icon icon={FilterHorizontalIcon} tone={filters.active ? "accent" : "ink"} size={20} />
+            </View>
+          </PullDown>
+          <View style={s.search}>
             <LiquidGlassView
               pointerEvents="none"
               glassType="regular"
@@ -140,71 +169,61 @@ export function ChatListControls({
               reducedTransparencyFallbackColor={colors.surface}
               style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
             />
-            <Icon icon={FilterHorizontalIcon} tone={filters.active ? "accent" : "ink"} size={20} />
-          </View>
-        </PullDown>
-        <View style={s.search}>
-          <LiquidGlassView
-            pointerEvents="none"
-            glassType="regular"
-            isInteractive={false}
-            reducedTransparencyFallbackColor={colors.surface}
-            style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
-          />
-          <Icon icon={Search01Icon} tone="ink3" size={18} />
-          <TextInput
-            ref={inputRef}
-            accessibilityLabel="Search chats, messages and projects"
-            placeholder="Search"
-            placeholderTextColor={colors.ink3}
-            selectionColor={colors.accent}
-            value={query}
-            onChangeText={onQuery}
-            onFocus={() => {
-              setFocused(true);
-              onFocus();
-            }}
-            onBlur={() => setFocused(false)}
-            onSelectionChange={(event) => {
-              caret.current = event.nativeEvent.selection;
-            }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            clearButtonMode="while-editing"
-            style={{ flex: 1, color: colors.ink, fontSize: 16, paddingVertical: 0, height: CONTROLS_HEIGHT }}
-          />
-          {dictation.available ? (
-            <View>
-              {dictationError ? (
-                <DictationNotice
-                  error={dictationError}
-                  micSize={MIC_SIZE}
-                  onDismiss={dismiss}
-                  onOpenSettings={() => {
-                    dismiss();
-                    void Linking.openSettings();
+            <Icon icon={Search01Icon} tone="ink3" size={18} />
+            <TextInput
+              ref={inputRef}
+              accessibilityLabel="Search chats, messages and projects"
+              placeholder="Search"
+              placeholderTextColor={colors.ink3}
+              selectionColor={colors.accent}
+              value={query}
+              onChangeText={onQuery}
+              onFocus={() => {
+                setFocused(true);
+                onFocus();
+              }}
+              onBlur={() => setFocused(false)}
+              onSelectionChange={(event) => {
+                caret.current = event.nativeEvent.selection;
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+              style={{ flex: 1, color: colors.ink, fontSize: 16, paddingVertical: 0, height: CONTROLS_HEIGHT }}
+            />
+            {dictation.available ? (
+              <View>
+                {dictationError ? (
+                  <DictationNotice
+                    error={dictationError}
+                    micSize={MIC_SIZE}
+                    onDismiss={dismiss}
+                    onOpenSettings={() => {
+                      dismiss();
+                      void Linking.openSettings();
+                    }}
+                  />
+                ) : null}
+                <VoiceMicButton
+                  phase={dictation.phase}
+                  level={dictation.level}
+                  onPress={() => {
+                    if (dictation.phase === "recording") return void dictation.stop();
+                    // Where the words land is fixed now, at the caret the user left, or at the end before there is one.
+                    const end = query.length;
+                    void dictation.start({ draft: query, selection: caret.current ?? { start: end, end } });
                   }}
                 />
-              ) : null}
-              <VoiceMicButton
-                phase={dictation.phase}
-                level={dictation.level}
-                onPress={() => {
-                  if (dictation.phase === "recording") return void dictation.stop();
-                  // Where the words land is fixed now, at the caret the user left, or at the end before there is one.
-                  const end = query.length;
-                  void dictation.start({ draft: query, selection: caret.current ?? { start: end, end } });
-                }}
-              />
-            </View>
-          ) : null}
-        </View>
-        <View style={s.circle}>
-          <GlassIconButton label="New Chat" systemImage="square.and.pencil" icon={PencilEdit02Icon} onPress={onNewChat} />
-        </View>
-      </Animated.View>
-    </KeyboardStickyView>
+              </View>
+            ) : null}
+          </View>
+          <View style={s.circle}>
+            <GlassIconButton label="New Chat" systemImage="square.and.pencil" icon={PencilEdit02Icon} onPress={onNewChat} />
+          </View>
+        </Animated.View>
+      </KeyboardStickyView>
+    </>
   );
 }
 

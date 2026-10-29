@@ -6,10 +6,14 @@ import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 
-// An inline View in Text sits with its bottom on the text baseline, so both chips share one box (`chipBox`) and one
-// shift down (`chipShift`) that centres it on the line, however the label or icon inside it is made.
-const chipBox = (px: number) => ({ height: Math.round(px * 1.35), paddingHorizontal: 6, borderRadius: 6, borderWidth: 1 });
-const chipShift = (px: number) => Math.round(px * 0.3);
+// An inline View in Text sits with its bottom on the text baseline, so every chip shares one box (`chipBox`) and one
+// shift down (`chipShift`) that centres it on the line, however the label or icon inside it is made. The box stays
+// inside the bubble's line (1.47em) and its label a step smaller than the prose, so a chip reads as a token in the
+// sentence rather than a button pushing the lines apart.
+const chipBox = (px: number) => ({ height: Math.round(px * 1.2), paddingHorizontal: 5, borderRadius: 5, borderWidth: 1 });
+const chipShift = (px: number) => Math.round(px * 0.22);
+const chipLabel = (px: number) => ({ fontSize: Math.round(px * 0.875), lineHeight: Math.round(px * 1.05) });
+const chipIcon = (px: number) => Math.round(px * 0.85);
 
 function Box({
   px,
@@ -30,7 +34,7 @@ function Box({
     ...chipBox(px),
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 4,
+    gap: 3,
     borderColor: color,
     backgroundColor: fill,
     transform: [{ translateY: chipShift(px) }],
@@ -50,8 +54,8 @@ export function SkillChip({ name }: { name: string }) {
   const { colors, textPx } = useTheme();
   return (
     <Box px={textPx} color={withAlpha(colors.accent, 0.4)} fill={colors.accentTint}>
-      <Icon icon={MagicWand01Icon} size={Math.round(textPx * 0.95)} color={colors.accentInk} />
-      <Text numberOfLines={1} style={{ color: colors.accentInk, fontSize: textPx, lineHeight: Math.round(textPx * 1.2) }}>
+      <Icon icon={MagicWand01Icon} size={chipIcon(textPx)} color={colors.accentInk} />
+      <Text numberOfLines={1} style={{ color: colors.accentInk, ...chipLabel(textPx) }}>
         {skillLabel(name)}
       </Text>
     </Box>
@@ -76,8 +80,8 @@ export function FileMentionChip({ path, onOpen }: { path: string; onOpen?: () =>
   const name = path.split("/").findLast(Boolean) ?? path;
   return (
     <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Preview ${name}`}>
-      <KindIcon path={path} size={textPx} />
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
+      <KindIcon path={path} size={Math.round(textPx * 0.9)} />
+      <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
         {name}
       </Text>
     </Box>
@@ -90,8 +94,8 @@ export function ImageMentionChip({ index, onOpen }: { index: number; onOpen?: ()
   const label = imageLabel(index);
   return (
     <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Preview ${label}`}>
-      <Icon icon={Image01Icon} color="#26a69a" size={Math.round(textPx * 0.95)} strokeWidth={1.8} />
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
+      <Icon icon={Image01Icon} color="#26a69a" size={chipIcon(textPx)} strokeWidth={1.8} />
+      <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
         {label}
       </Text>
     </Box>
@@ -103,8 +107,8 @@ export function ChatMentionChip({ title, onOpen }: { title: string; onOpen?: () 
   const { colors, textPx } = useTheme();
   return (
     <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Open ${title}`}>
-      <Icon icon={BubbleChatIcon} size={Math.round(textPx * 0.95)} color={colors.ink2} />
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: textPx, lineHeight: Math.round(textPx * 1.2), flexShrink: 1 }}>
+      <Icon icon={BubbleChatIcon} size={chipIcon(textPx)} color={colors.ink2} />
+      <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
         {title}
       </Text>
     </Box>
