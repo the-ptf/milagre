@@ -152,6 +152,8 @@ export function LinkWorkspace({
   const [sessionId, setSessionId] = useState<number | null>(
     () => initialSessionId ?? (drafts.has(scope) ? saved.sessionId : (Object.values(state.sessions).findLast((session) => !session.archived)?.id ?? null)),
   );
+  const [draftId, setDraftId] = useState(0);
+  const sendKey = `${owner}#${sessionId ?? `new:${draftId}`}`;
   const session = sessionId == null ? undefined : state.sessions[sessionId];
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
@@ -202,13 +204,17 @@ export function LinkWorkspace({
   );
   // The message just sent, shown at once while the host prepares the Chat (its Worktrees' checkpoint, the agent
   // starting), as a Project Chat's and the phone's are. `sent`: the host took it, and the agent is starting.
-  const [pendingSend, setPendingSend] = useState<(PendingChat & { sent?: boolean; provider: ModelProvider }) | null>(null);
-  const pendingHere = pendingSend !== null && pendingSend.targetSessionId === (sessionId ?? null);
+  const [pendingSends, setPendingSends] = useState<(PendingChat & { key: string; sent?: boolean; provider: ModelProvider })[]>([]);
+  const pendingSend = pendingSends.findLast((pending) => pending.key === sendKey || (sessionId !== null && pending.targetSessionId === sessionId));
+  const pendingHere = pendingSend !== undefined;
+  const preparing = Boolean(pendingSend && !pendingSend.sent);
+  const sendsInFlight = useRef(new Set<string>());
   const shownMessages = useMemo(() => (pendingHere ? withPreview(messages, pendingSend) : messages), [pendingHere, pendingSend, messages]);
   // The saved copy replaces the preview once this Chat's messages hold it.
   useEffect(() => {
     const id = pendingSend?.message.clientMessageId;
-    if (pendingSend?.sent && pendingHere && messages.some((message) => message.clientMessageId === id)) setPendingSend(null);
+    if (pendingSend?.sent && pendingHere && messages.some((message) => message.clientMessageId === id))
+      setPendingSends((current) => current.filter((pending) => pending.message.clientMessageId !== id));
   }, [pendingSend, pendingHere, messages]);
   const remoteCount = lean ? chatWindow.total - chatWindow.messages.length : 0;
   const earlierMessages = useMemo(
@@ -218,7 +224,6 @@ export function LinkWorkspace({
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
   const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner);
-  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
@@ -270,7 +275,6 @@ export function LinkWorkspace({
   useEffect(() => {
     if (gitChoice !== null) memberDialog.current?.showModal();
   }, [gitChoice]);
-  const pendingOperation = useRef<string | null>(null);
   const latest = useRef({ sessionId, text: "", active: true, selection: 0 });
   latest.current.sessionId = sessionId;
   useEffect(() => {
@@ -317,6 +321,7 @@ export function LinkWorkspace({
       latest.current.selection++;
       drafts.newSelection(scope);
       setSessionId(initialSessionId);
+      if (initialSessionId === null) setDraftId((id) => id + 1);
     }
   }, [initialSessionId, openNonce]);
   const { modelForChat: _modelForChat, showModel: _showModel, onModelChange: _onModelChange, ...composerModels } = preferences;
@@ -392,13 +397,12 @@ export function LinkWorkspace({
     drafts.newSelection(scope);
     setCanvasOpen(false);
     setSessionId(id);
+    if (id === null) setDraftId((id) => id + 1);
     imageDraft.clear();
     setError(null);
     setMemberId("");
     changes.closeDiff();
     setFindOpen(false);
-    pendingOperation.current = null;
-    setPendingSend(null);
   }
   useEffect(() => {
     const settings = getSettings();
@@ -418,12 +422,11 @@ export function LinkWorkspace({
   async function send(body = draftStore.get().trim(), preserve = false, attach = true) {
     const images = attach ? imageDraft.images : [];
     const files = attach ? imageDraft.files : [];
-    if (preparing || imageDraft.loading || (!body && !images.length && !files.length)) return false;
+    if (preparing || sendsInFlight.current.has(sendKey) || imageDraft.loading || (!body && !images.length && !files.length)) return false;
     const selection = latest.current.selection;
     const operation = drafts.beginSend(scope, sessionId, JSON.stringify({ body, images, files }));
-    setPreparing(true);
+    sendsInFlight.current.add(sendKey);
     setError(null);
-    pendingOperation.current = operation;
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
     // A Link's state has no Worktrees (its Chats own theirs); the preview reads only its sessions and messages.
@@ -438,7 +441,7 @@ export function LinkWorkspace({
       provider: model.provider,
     });
     const previewId = preview.message.clientMessageId;
-    setPendingSend({ ...preview, provider: model.provider });
+    setPendingSends((current) => [...current, { ...preview, key: sendKey, provider: model.provider }]);
     // The message shows in the Chat now, so it leaves the composer now; a failed send puts it back.
     const clears = !preserve && draftStore.get().trim() === body;
     if (clears) {
@@ -466,18 +469,19 @@ export function LinkWorkspace({
       };
       const sent = await retrySend(() => bridge.sendLinkMessage(request), { retryable: (error) => retryKind(error) !== null });
       drafts.acknowledgeSend(operation, sent.sessionId);
-      if (pendingOperation.current === operation) pendingOperation.current = null;
-      setPendingSend((pending) =>
-        pending && pending.message.clientMessageId === previewId
-          ? { ...pending, sent: true, targetSessionId: sent.sessionId, acceptedSessionId: sent.sessionId }
-          : pending,
+      setPendingSends((current) =>
+        current.map((pending) =>
+          pending.message.clientMessageId === previewId
+            ? { ...pending, sent: true, targetSessionId: sent.sessionId, acceptedSessionId: sent.sessionId }
+            : pending,
+        ),
       );
       if (latest.current.active && latest.current.selection === selection) {
         setSessionId(sent.sessionId);
       }
       return true;
     } catch (error) {
-      setPendingSend((pending) => (pending?.message.clientMessageId === previewId ? null : pending));
+      setPendingSends((current) => current.filter((pending) => pending.message.clientMessageId !== previewId));
       if (latest.current.active && latest.current.selection === selection) {
         if (clears) {
           const remapped = imageDraft.restore(images, files, draftStore.get());
@@ -487,7 +491,7 @@ export function LinkWorkspace({
       }
       return false;
     } finally {
-      if (latest.current.active) setPreparing(false);
+      sendsInFlight.current.delete(sendKey);
     }
   }
   useEffect(() => {
