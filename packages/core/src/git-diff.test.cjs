@@ -451,3 +451,66 @@ for (const [reason, failure] of [
     assert.equal(retried.statsUnavailable, undefined);
   });
 }
+
+test("commit inspection is immutable, keeps renames/binaries/deletions, and excludes later or local changes", async (t) => {
+  const { cwd, git, write, diff } = await fixture(t);
+  git("mv", "old.txt", "renamed.txt");
+  await fs.rm(path.join(cwd, "gone.txt"));
+  await write("README.md", "one\ncommit version\nthree\n");
+  await write("logo.png", Buffer.from([0, 1, 2]));
+  git("add", ".");
+  git("commit", "-m", "selected");
+  const commit = git("rev-parse", "HEAD").trim();
+  await write("README.md", "later commit\n");
+  await write("later.txt", "later\n");
+  git("add", ".");
+  git("commit", "-m", "later");
+  await write("README.md", "uncommitted\n");
+  await write("local.txt", "untracked\n");
+  const result = await diff.listDiffFiles({ cwd, mode: "committed", commit });
+  assert.equal(result.commit, commit);
+  const files = byPath(result.files);
+  assert.deepEqual(Object.keys(files).sort(), ["README.md", "gone.txt", "logo.png", "renamed.txt"]);
+  assert.equal(files["gone.txt"].status, "deleted");
+  assert.equal(files["logo.png"].binary, true);
+  assert.equal(files["renamed.txt"].oldPath, "old.txt");
+  const patch = await diff.readDiffFile({ cwd, mode: "committed", commit, path: "README.md" });
+  assert.match(patch.patch, /\+commit version/);
+  assert.doesNotMatch(patch.patch, /later commit|uncommitted/);
+  const renamed = await diff.readDiffFile({ cwd, mode: "committed", commit, path: "renamed.txt", oldPath: "old.txt" });
+  assert.match(renamed.patch, /rename from old.txt/);
+});
+
+test("commit inspection supports the root commit and compares merges to their first parent", async (t) => {
+  const { cwd, git, write, diff } = await fixture(t);
+  const root = git("rev-parse", "HEAD").trim();
+  const initial = await diff.listDiffFiles({ cwd, mode: "committed", commit: root });
+  assert.equal(initial.files.length, 3);
+  assert.ok(initial.files.every((file) => file.status === "added"));
+  const patch = await diff.readDiffFile({ cwd, mode: "committed", commit: root, path: "README.md" });
+  assert.match(patch.patch, /\+one/);
+  git("checkout", "-b", "side");
+  await write("side.txt", "side\n");
+  git("add", ".");
+  git("commit", "-m", "side");
+  git("checkout", "main");
+  await write("main.txt", "main\n");
+  git("add", ".");
+  git("commit", "-m", "main");
+  git("merge", "--no-ff", "side", "-m", "merge");
+  const commit = git("rev-parse", "HEAD").trim();
+  const merged = await diff.listDiffFiles({ cwd, mode: "committed", commit });
+  assert.deepEqual(
+    merged.files.map((file) => file.path),
+    ["side.txt"],
+  );
+});
+
+test("commit inspection rejects refs, options, nonexistent commits and the uncommitted mode", async (t) => {
+  const { cwd, git, diff } = await fixture(t);
+  for (const commit of ["HEAD", "--output=/tmp/unsafe", "a".repeat(8), "f".repeat(40)]) {
+    await assert.rejects(diff.listDiffFiles({ cwd, mode: "committed", commit }));
+    await assert.rejects(diff.readDiffFile({ cwd, mode: "committed", commit, path: "README.md" }));
+  }
+  await assert.rejects(diff.listDiffFiles({ cwd, mode: "uncommitted", commit: git("rev-parse", "HEAD").trim() }));
+});

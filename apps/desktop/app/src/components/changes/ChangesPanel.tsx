@@ -29,6 +29,7 @@ import type { Comparison } from "./useComparison";
 import Tooltip from "../primitives/Tooltip";
 import type { DiffList } from "./useDiffFiles";
 import { useRefreshSpin } from "./useRefreshSpin";
+import { CommitFiles } from "./CommitFiles";
 import { ScrollArea } from "../primitives/ScrollArea";
 
 const STATUS = {
@@ -257,7 +258,7 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
         <Notice>{c.loading ? "Reading commits…" : (c.data.message ?? "No commits since the comparison branch.")}</Notice>
       )}
       {c.data.commits.map((commit) => (
-        <CommitRow key={commit.sha} commit={commit} />
+        <CommitRow key={`${c.cwd}:${commit.sha}`} commit={commit} comparison={c} />
       ))}
       {c.data.hasMore && c.limit < 300 && (
         <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-[12px] text-ink-2 hover:bg-hover">
@@ -269,7 +270,8 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
   );
 }
 
-function CommitRow({ commit }: { commit: GitCommit }) {
+function CommitRow({ commit, comparison }: { commit: GitCommit; comparison: Comparison }) {
+  const [showFiles, setShowFiles] = useState(false);
   const [copy, setCopy] = useState("Copy SHA");
   return (
     <details className="py-2.5 text-[12px]">
@@ -321,6 +323,15 @@ function CommitRow({ commit }: { commit: GitCommit }) {
           <HugeiconsIcon icon={Copy01Icon} size={12} />
           <span className="sr-only">{copy}</span>
         </button>
+        <button
+          type="button"
+          aria-expanded={showFiles}
+          onClick={() => setShowFiles((value) => !value)}
+          className="mt-2 min-h-6 rounded-control px-2 text-12 text-ink-2 transition-colors hover:bg-hover active:bg-hover-2"
+        >
+          {showFiles ? "Hide files in this commit" : "Show files in this commit"}
+        </button>
+        {showFiles && <CommitFiles cwd={comparison.cwd} sha={commit.sha} bridge={comparison.bridge} />}
       </div>
     </details>
   );
@@ -549,7 +560,7 @@ function Notice({ children }: { children: string }) {
 
 type TreeProps = { onSelectFile: (path: string) => void; activePath?: string; commentCounts?: Record<string, number> };
 
-function Tree({ nodes, depth, ...rest }: { nodes: DiffTreeNode<DiffFileEntry>[]; depth: number } & TreeProps) {
+export function Tree({ nodes, depth, ...rest }: { nodes: DiffTreeNode<DiffFileEntry>[]; depth: number } & TreeProps) {
   return (
     <>
       {nodes.map((node) => (

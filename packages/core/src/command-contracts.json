@@ -5884,6 +5884,9 @@
         "base": {
           "type": "string"
         },
+        "commit": {
+          "type": "string"
+        },
         "mode": {
           "enum": ["uncommitted", "committed"]
         }
@@ -5898,6 +5901,9 @@
           "type": "string"
         },
         "base": {
+          "type": "string"
+        },
+        "commit": {
           "type": "string"
         },
         "mode": {
@@ -7059,11 +7065,11 @@
           "$ref": "#/$defs/T171",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2221": {
+        "__@toStringTag@2223": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2221"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2223"],
       "additionalProperties": false
     },
     "T168": {

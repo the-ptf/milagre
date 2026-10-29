@@ -56,6 +56,8 @@ window.releaseHistory = () => { window.historyHeld = false; window.historyWaiter
 window.externalCommit = false;
 window.externalEdit = false;
 window.fileCalls = [];
+window.commitFileCalls = [];
+window.commitPatchCalls = [];
 window.milagre = {
   git: {
     history: async request => {
@@ -71,12 +73,14 @@ window.milagre = {
         commits: !request.limit ? [] : request.limit >= 60 ? [commit, { ...commit, sha: "b".repeat(40), message: "Earlier feature commit", files: 2, added: 7, removed: 3, statsUnavailable: undefined }] : [commit] };
     },
     diffFiles: async request => {
+      if (request.commit) { window.commitFileCalls.push(request); return { isRepo: true, commit: request.commit, base: request.commit, files: entries.filter(entry => entry.path === "README.md") }; }
       window.listCalls.push(request.mode);
       if (request.mode === "committed") window.lastBase = request.base;
       if (request.mode === "committed") return { isRepo: true, base: request.base === "refs/heads/parent" ? "parent" : "main", files: entries.filter(entry => entry.path === (request.base === "refs/heads/parent" ? "README.md" : "packages/app/src/index.ts")) };
       return { isRepo: true, base: null, files: window.externalCommit ? [] : entries };
     },
     diffFile: async request => {
+      if (request.commit) window.commitPatchCalls.push(request);
       window.fileCalls.push(request.mode + ":" + request.path);
       const file = FILES[request.path];
       return { patch: window.externalEdit ? file.patch.replace("No events scheduled", "External edit") : file.patch, binary: Boolean(file.binary), tooLarge: false };
@@ -356,6 +360,19 @@ async function browserChecks() {
       fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "comparison-history.png"), (await window.webContents.capturePage()).toPNG());
     }
     // A slow larger page keeps the visible commit card, its expansion and branch metadata in place.
+    await evaluate('[...document.querySelectorAll("[data-commit-history] button")].find(button => button.textContent === "Show files in this commit").click()');
+    await waitFor('document.querySelector("[data-commit-files] [data-diff-tree-file]")');
+    assert.equal(await evaluate("window.commitFileCalls.at(-1).commit"), "a".repeat(40));
+    assert.equal(await evaluate('document.querySelectorAll("[data-commit-files] [data-diff-tree-file]").length'), 1);
+    await evaluate('document.querySelector("[data-commit-files] [data-diff-tree-file]").click()');
+    await waitFor('window.commitPatchCalls.length > 0 && document.querySelector("[data-commit-files] pre")');
+    assert.equal(await evaluate("window.commitPatchCalls.at(-1).commit"), "a".repeat(40));
+    assert.ok(await evaluate('document.querySelector("[data-commit-files] pre").textContent.includes("+New tagline")'));
+    await evaluate('document.querySelector("[data-commit-files] pre").scrollIntoView({ block: "end", behavior: "instant" })');
+    await delay(150);
+    if (process.env.MILAGRE_SCREENSHOT_DIR)
+      await fs.promises.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "commit-files.png"), (await window.webContents.capturePage()).toPNG());
+    await evaluate('[...document.querySelectorAll("[data-commit-history] button")].find(button => button.textContent === "Hide files in this commit").click()');
     await evaluate(
       'window.historyHeld = true; window.retainedCommit = document.querySelector("[data-commit-history] details"); [...document.querySelectorAll("button")].find(button => button.textContent === "Show more commits").click()',
     );
