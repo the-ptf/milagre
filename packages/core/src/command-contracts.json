@@ -3626,6 +3626,20 @@
     "app:dictation-open-settings": {
       "parameters": []
     },
+    "browser-panel:pages": {
+      "parameters": [
+        {
+          "name": "pages",
+          "optional": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/T172"
+            }
+          }
+        }
+      ]
+    },
     "browser-panel:capture": {
       "parameters": [
         {
@@ -3639,7 +3653,7 @@
           "name": "rect",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T172"
+            "$ref": "#/$defs/T173"
           }
         }
       ]
@@ -3655,6 +3669,7 @@
     "artifact-preview:register",
     "artifact-preview:release",
     "browser-panel:capture",
+    "browser-panel:pages",
     "editor:list",
     "editor:open",
     "floating-inbox:close",
@@ -7072,6 +7087,19 @@
       "additionalProperties": false
     },
     "T172": {
+      "type": "object",
+      "properties": {
+        "contentsId": {
+          "type": "number"
+        },
+        "chatKey": {
+          "type": "string"
+        }
+      },
+      "required": ["contentsId", "chatKey"],
+      "additionalProperties": false
+    },
+    "T173": {
       "type": "object",
       "properties": {
         "x": {

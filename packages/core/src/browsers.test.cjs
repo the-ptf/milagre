@@ -409,3 +409,55 @@ test("unsupported hosts and invalid requests reach no browser", async (t) => {
   await assert.rejects(g.service.list({}), /chat/i);
   await assert.rejects(g.service.open({ chatId: "chat-a", targetId: target(PAGE) }, ""), /owner/i);
 });
+
+test("a desktop's Browser panel pages belong to the Chat whose panel shows them, and go with the desktop", async (t) => {
+  const f = fixture(t);
+  const PANEL_A = "D".repeat(32),
+    PANEL_B = "E".repeat(32);
+  const prefix = `/${"f".repeat(48)}`;
+  await f.service.setPanelPages(
+    {
+      port: 51234,
+      prefix,
+      pages: [
+        { id: PANEL_A, chatId: "chat-a", title: "Checkout", url: "http://localhost:5173/checkout" },
+        { id: PANEL_B, chatId: "chat-c", title: "Docs", url: "http://localhost:3000/" },
+      ],
+    },
+    "desktop-1",
+  );
+  const own = (await f.service.list({ chatId: "chat-a" })).targets.filter((page) => page.source === "panel");
+  assert.deepEqual(
+    own.map((page) => [page.title, page.url, page.browser]),
+    [["Checkout", "http://localhost:5173/checkout", "Browser panel"]],
+  );
+  // A Chat without an agent running still sees its panel's pages; another Chat sees neither, nor can attach them.
+  const c = await f.service.list({ chatId: "chat-c" });
+  assert.deepEqual(
+    c.targets.map((page) => page.title),
+    ["Docs"],
+  );
+  assert.ok(!c.others.some((browser) => browser.id.startsWith("panel-")));
+  assert.ok(!(await f.service.list({ chatId: "chat-b" })).targets.some((page) => page.source === "panel"));
+  // Viewing one connects through the endpoint's token path.
+  const viewer = await f.service.open({ chatId: "chat-a", targetId: own[0].id }, "phone");
+  assert.equal(f.channels.at(-1).browserId.port, 51234);
+  assert.equal(f.channels.at(-1).browserId.prefix, prefix);
+  await assert.rejects(f.service.open({ chatId: "chat-b", targetId: own[0].id }, "phone"), /not available in this Chat/);
+  // The page closing in the panel closes its viewers; the desktop going takes the rest.
+  await f.service.setPanelPages({ port: 51234, prefix, pages: [{ id: PANEL_B, chatId: "chat-c", title: "Docs", url: "http://localhost:3000/" }] }, "desktop-1");
+  assert.equal(f.channels.at(-1).closed, true);
+  await assert.rejects(f.service.status({ viewerId: viewer.viewerId }, "phone"), /Unknown browser viewer/);
+  await f.service.disconnect("desktop-1");
+  assert.deepEqual((await f.service.list({ chatId: "chat-c" })).targets, []);
+});
+
+test("Browser panel pages must name a loopback endpoint's token path, page ids and Chats", async (t) => {
+  const f = fixture(t);
+  const page = { id: "D".repeat(32), chatId: "chat-a", title: "x", url: "http://localhost/" };
+  await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: "/short", pages: [page] }, "desktop-1"), /endpoint/);
+  await assert.rejects(f.service.setPanelPages({ port: 0, prefix: `/${"f".repeat(48)}`, pages: [page] }, "desktop-1"), /endpoint/);
+  await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ ...page, id: "nope" }] }, "desktop-1"), /page/);
+  await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ ...page, chatId: "" }] }, "desktop-1"), /Chat/);
+  await assert.rejects(f.service.setPanelPages({ pages: [] }, ""), /desktop connection/);
+});

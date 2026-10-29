@@ -131,7 +131,9 @@ function createBrowserAdapter(options = {}) {
   async function connect(browser, pageId) {
     if (!PAGE_ID.test(pageId) || ![...LOOPBACK.values()].includes(browser?.host) || !Number.isInteger(browser.port) || browser.port < 1 || browser.port > 65535)
       throw new Error("Invalid browser page.");
-    const socket = new Socket(`ws://${browser.host}:${browser.port}/devtools/page/${pageId}`);
+    // A Browser panel's pages are served behind a token path (cdp-proxy.cjs); a real browser has none.
+    if (browser.prefix !== undefined && !/^\/[a-f0-9]{48}$/.test(browser.prefix)) throw new Error("Invalid browser page.");
+    const socket = new Socket(`ws://${browser.host}:${browser.port}${browser.prefix ?? ""}/devtools/page/${pageId}`);
     const pending = new Map(),
       listeners = new Set();
     let nextId = 0,

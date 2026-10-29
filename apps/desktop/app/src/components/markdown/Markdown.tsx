@@ -24,8 +24,9 @@ import { isRemoteKey, useScope } from "../../lib/computer-bridge";
 import { useComputers } from "../../lib/computers";
 import { LoopbackPortsContext } from "../../lib/ports";
 import { computerOfKey } from "@milagre/shared/chat-scopes";
-import { isLoopbackUrl, reachableUrl } from "@milagre/shared/loopback-url";
+import { reachableUrl } from "@milagre/shared/loopback-url";
 import { openInBrowserPanel } from "../../lib/browser-panel";
+import { opensInPanel } from "../../lib/link-target";
 import { remoteImageDataUrl } from "../../lib/remote-media";
 import { MediaLightbox } from "../motion/LazyMediaLightbox";
 
@@ -175,10 +176,12 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
         title={reachable}
         target="_blank"
         rel="noreferrer"
-        // This Mac's localhost link opens in the Browser panel of the Chat on screen; ⌘-click opens it in the user's browser.
+        // A web link opens where Settings › Browser says (the Browser panel of the Chat on screen, or the user's browser);
+        // ⌘-click opens it in the other one.
         onClick={(event) => {
-          if (!reachable || isRemoteKey(scope) || !isLoopbackUrl(reachable) || event.metaKey || event.ctrlKey || event.shiftKey) return;
-          if (openInBrowserPanel(reachable)) event.preventDefault();
+          if (!reachable || !/^https?:\/\//i.test(reachable) || event.shiftKey || !opensInPanel(event)) return;
+          event.preventDefault();
+          if (!openInBrowserPanel(reachable)) window.open(reachable, "_blank", "noreferrer");
         }}
         className={LINK_CLASS}
       >

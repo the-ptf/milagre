@@ -261,6 +261,11 @@ function createRuntime(options) {
   commands.handle("browser:list", (_context, request) => browsers.list(request));
   commands.handle("browser:attach", (_context, request) => browsers.attach(request));
   commands.handle("browser:detach", (_context, request) => browsers.detach(request));
+  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
+  commands.handle("browser:panel-pages", (context, request) => {
+    if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
+    return browsers.setPanelPages(request, context.clientId);
+  });
   for (const method of ["open", "frame", "status", "control", "input", "close"]) {
     commands.handle(`browser:${method}`, (context, request) => {
       if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");

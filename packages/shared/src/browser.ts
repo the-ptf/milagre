@@ -1,5 +1,5 @@
 /** A page in a browser that this Chat's agent started (`agent`) or that the user attached (`attached`). */
-export type BrowserTarget = { id: string; title: string; url: string; browser: string; source: "agent" | "attached" };
+export type BrowserTarget = { id: string; title: string; url: string; browser: string; source: "agent" | "attached" | "panel" };
 /** A browser on this computer that no Chat's agent started. Attaching it is an explicit user action. */
 export type BrowserCandidate = { id: string; browser: string; pages: number; title: string };
 export type BrowserList = { supported: boolean; targets: BrowserTarget[]; others: BrowserCandidate[]; error?: string };

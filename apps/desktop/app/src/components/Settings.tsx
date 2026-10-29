@@ -40,6 +40,7 @@ import {
   ConnectIcon,
   FlaskConicalIcon,
   FolderKeyIcon,
+  Globe02Icon,
   InformationCircleIcon,
   LaptopIcon,
   LaptopPhoneSyncIcon,
@@ -69,7 +70,7 @@ import type { ModelOption, PermissionMode } from "../model";
 import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useWindowChrome } from "../lib/window-chrome";
-import type { ClaudeReplies, UsageDisplay } from "../lib/settings";
+import type { ClaudeReplies, OpenLinksIn, UsageDisplay } from "../lib/settings";
 import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
@@ -128,6 +129,7 @@ export type SettingsSection =
   | "appearance"
   | "chat"
   | "keybindings"
+  | "browser"
   | "notifications"
   | "routines"
   | "connections"
@@ -151,6 +153,7 @@ const SECTIONS: Array<{
   { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
   { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
   { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} /> },
+  { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} /> },
   { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
   { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
   { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
@@ -646,6 +649,25 @@ function ChatSettings() {
         </Row>
       </Group>
     </>
+  );
+}
+
+function BrowserSettings() {
+  const settings = useSettings();
+  return (
+    <Group title="Links" footer="⌘-click a link to open it in the other one.">
+      <Row label="Open links in" description="Web links in replies and the Chat's servers in the Ports pill.">
+        <Select<OpenLinksIn>
+          label="Open links in"
+          value={settings.openLinksIn}
+          onChange={(openLinksIn) => updateSettings({ openLinksIn })}
+          options={[
+            { value: "milagre", label: "Milagre browser" },
+            { value: "external", label: "Your browser" },
+          ]}
+        />
+      </Row>
+    </Group>
   );
 }
 
@@ -2376,6 +2398,7 @@ export function SettingsPanel({
         {section === "appearance" && <AppearanceSettings />}
         {section === "chat" && <ChatSettings />}
         {section === "keybindings" && <KeybindingsSettings />}
+        {section === "browser" && <BrowserSettings />}
         {section === "notifications" && <NotificationsSettings />}
         {section === "routines" && <RoutinesSettings />}
         {section === "connections" && (

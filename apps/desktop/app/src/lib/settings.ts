@@ -20,6 +20,8 @@ export type ThemePreference = "system" | "light" | "dark";
 export type UsageDisplay = "used" | "remaining";
 /** How long Claude's replies run: Concise is Claude Code's own terse output style. */
 export type ClaudeReplies = "concise" | "normal";
+/** Settings › Browser: web links in replies and the Ports pill open in the Browser panel, or in the user's browser. */
+export type OpenLinksIn = "milagre" | "external";
 
 export interface AppSettings {
   theme: ThemePreference;
@@ -48,6 +50,8 @@ export interface AppSettings {
   editorId: string;
   /** Applies to Claude only; Codex is unchanged. */
   claudeReplies: ClaudeReplies;
+  /** Where web links open; ⌘-click opens them in the other one. */
+  openLinksIn: OpenLinksIn;
   /** Apply TLDR writing rules to both providers. */
   tldrEnabled: boolean;
   /** Sidebar chats by start date, or with the latest message first. */
@@ -99,6 +103,7 @@ const DEFAULTS: AppSettings = {
   keepAwake: true,
   editorId: "",
   claudeReplies: "concise",
+  openLinksIn: "milagre",
   tldrEnabled: true,
   chatOrder: "created",
   chatList: "list",
@@ -143,6 +148,7 @@ function load(): AppSettings {
       editorId: typeof saved.editorId === "string" ? saved.editorId : DEFAULTS.editorId,
       tldrEnabled: typeof saved.tldrEnabled === "boolean" ? saved.tldrEnabled : DEFAULTS.tldrEnabled,
       claudeReplies: CLAUDE_REPLIES.has(saved.claudeReplies as ClaudeReplies) ? saved.claudeReplies! : DEFAULTS.claudeReplies,
+      openLinksIn: saved.openLinksIn === "external" ? "external" : DEFAULTS.openLinksIn,
       chatOrder: CHAT_ORDERS.has(saved.chatOrder as ChatOrder) ? saved.chatOrder! : DEFAULTS.chatOrder,
       chatList: parseChatList(saved.chatList),
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),

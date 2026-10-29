@@ -48,6 +48,8 @@ function hardenBrowserGuests(host, { session, openExternal, platform = process.p
     webPreferences.webSecurity = true;
     webPreferences.allowRunningInsecureContent = false;
     webPreferences.webviewTag = false;
+    // Opaque, like a browser tab: a page without a background of its own is white, also in the phone's screencast.
+    webPreferences.transparent = false;
   });
   host.on("did-attach-webview", (_event, guest) => guardGuest(host, guest, { openExternal, platform }));
 }

@@ -29,7 +29,9 @@ presses Send, and the agent fixes them in one turn and resolves each pin, withou
 
 - A **Browser** panel per Chat: tabs, address bar, back/forward/reload, loading state, favicon and title. It docks and
   resizes like Simulator and is toggled from the panel corner (shortcut ⌘⇧B).
-- The Chat's dev servers are one click away: Ports pill rows and localhost links in replies open in the panel.
+- The Chat's dev servers are one click away: Ports pill rows and web links in replies open in the panel.
+- Settings › Browser › Open links in: Milagre browser (default) or Your browser, for every web link in replies and the
+  Ports pill; ⌘-click opens the other one (Victor, 2026-10-29).
 - One persistent sign-in session for every internal page (`persist:milagre-browser`), so logging in once is enough.
 - **Comment mode** (C, or the toolbar button): hovering highlights the element under the pointer, a click opens a
   comment box anchored to it, and Add drops a numbered pin that follows the element as the page scrolls and resizes.
