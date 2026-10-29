@@ -17,6 +17,8 @@ import {
   comparisonBaseMissing,
   withHistoryBranches,
   commitStatsNotice,
+  commitComparisonLabel,
+  diffFileCountLabel,
   type GitBranchCatalog,
   commitInitials,
   comparisonOptions,
@@ -116,7 +118,7 @@ export function ChangeSections({
   base?: string;
   /** Bumped by pull-to-refresh: both lists read again, keeping their folders as they are. */
   revision?: number;
-  onOpen: (file: DiffFileEntry, mode: DiffMode, base: string | null) => void;
+  onOpen: (file: DiffFileEntry, mode: DiffMode, base: string | null, commit?: string, commitParent?: string | null) => void;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -126,6 +128,7 @@ export function ChangeSections({
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [view, setView] = useState<"files" | "commits">("files");
   const [limit, setLimit] = useState(0);
+  const [commitFiles, setCommitFiles] = useState<{ cwd: string; client: Client | null; commit: GitCommit }>();
   const [narrow, setNarrow] = useState(false);
   const selected = choices[cwd] ?? "";
   const comparisonBase = selected || base;
@@ -292,13 +295,30 @@ export function ChangeSections({
       {history.error ? <ErrorNotice message={history.error} retry={history.refresh} /> : null}
     </View>
   );
+  if (view === "commits" && !unavailable && commitFiles?.cwd === cwd && commitFiles.client === client)
+    return (
+      <>
+        {controls}
+        <Pressable accessibilityRole="button" onPress={() => setCommitFiles(undefined)} style={{ minHeight: 44, justifyContent: "center" }}>
+          <Text style={styles.label}>Back to commits</Text>
+        </Pressable>
+        <Text style={styles.label}>{commitFiles.commit.message.split("\n")[0]}</Text>
+        <Text style={styles.caption}>{commitFiles.commit.sha.slice(0, 8)}</Text>
+        <CommitFiles
+          client={client}
+          cwd={cwd}
+          sha={commitFiles.commit.sha}
+          onOpen={(file, parent) => onOpen(file, "committed", null, commitFiles.commit.sha, parent)}
+        />
+      </>
+    );
   if (view === "commits" && !unavailable)
     return (
       <>
         {controls}
         {!history.data && !history.error && <Text style={styles.muted}>Reading commits…</Text>}
         {data?.commits.map((commit) => (
-          <CommitCard key={commit.sha} commit={commit} />
+          <CommitCard key={`${cwd}:${commit.sha}`} commit={commit} onShowFiles={() => setCommitFiles({ cwd, client, commit })} />
         ))}
         {data && !data.commits.length && !data.message && (
           <Text style={styles.muted}>{history.loading ? "Reading commits…" : (data.message ?? "No commits since the comparison branch.")}</Text>
@@ -370,7 +390,7 @@ export function ChangeSections({
   );
 }
 
-function CommitCard({ commit }: { commit: GitCommit }) {
+function CommitCard({ commit, onShowFiles }: { commit: GitCommit; onShowFiles?: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
@@ -435,16 +455,61 @@ function CommitCard({ commit }: { commit: GitCommit }) {
             <Icon icon={Copy01Icon} size={14} tone="ink3" />
             <Text style={styles.caption}>{copy}</Text>
           </Pressable>
+          {onShowFiles && (
+            <Pressable accessibilityRole="button" onPress={onShowFiles} style={{ minHeight: 44, justifyContent: "center" }}>
+              <Text style={styles.label}>Show files in this commit</Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
   );
 }
 
+function CommitFiles({
+  client,
+  cwd,
+  sha,
+  onOpen,
+}: {
+  client: Client | null;
+  cwd: string;
+  sha: string;
+  onOpen: (file: DiffFileEntry, parent?: string | null) => void;
+}) {
+  const styles = useStyles();
+  const screenActive = useScreenActive();
+  const shown = useContext(ChangesShownContext);
+  const active = screenActive && shown;
+  const { data, error, refresh } = useRpc<DiffFilesResult>(client, "git:diff-files", [{ cwd, mode: "committed", commit: sha }], active);
+  if (error) return <ErrorNotice message={error} retry={refresh} />;
+  if (!data) return <Text style={styles.muted}>Reading changes…</Text>;
+  if (!data.isRepo) return <Text style={styles.muted}>{data.message}</Text>;
+  if (data.commit !== sha) return <Text style={styles.muted}>This computer needs an update to show files in a commit.</Text>;
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={styles.caption}>
+        {diffFileCountLabel(data)} · {commitComparisonLabel(data.commitParent)}
+      </Text>
+      {!data.files.length && <Text style={styles.muted}>No changes in this commit.</Text>}
+      <ChangeTree nodes={buildDiffTree(data.files)} depth={0} onOpen={(file) => onOpen(file, data.commitParent)} />
+    </View>
+  );
+}
+
 /** The file's diff address: the mode and base it was listed under. */
-export function diffTarget(file: DiffFileEntry, mode: DiffMode, base: string | null, where: { worktreeId: string; memberId?: string }): DiffTarget {
+export function diffTarget(
+  file: DiffFileEntry,
+  mode: DiffMode,
+  base: string | null,
+  where: { worktreeId: string; memberId?: string },
+  commit?: string,
+  commitParent?: string | null,
+): DiffTarget {
   return {
     ...where,
+    ...(commit ? { commit } : {}),
+    ...(commitParent !== undefined ? { commitParent: commitParent ?? "" } : {}),
     mode,
     path: file.path,
     status: file.status,

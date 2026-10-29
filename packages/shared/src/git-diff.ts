@@ -12,8 +12,10 @@ export type DiffFileEntry = {
   untracked?: boolean;
 };
 
-/** `base` is the branch name `committed` compares with, null for `uncommitted` or when there is none. `message` explains an empty list (no shared history with the base). */
-export type DiffFilesResult = { isRepo: false; message: string } | { isRepo: true; base: string | null; files: DiffFileEntry[]; message?: string };
+/** `base` is the branch name `committed` compares with, null for `uncommitted` or when there is none. `commit` confirms an immutable first-parent comparison. `message` explains an empty list (no shared history with the base). */
+export type DiffFilesResult =
+  | { isRepo: false; message: string }
+  | { isRepo: true; commit?: string; commitParent?: string | null; truncated?: boolean; base: string | null; files: DiffFileEntry[]; message?: string };
 
 /** `patch` is empty when the file is binary or `tooLarge` (over 1 MB). */
 export type DiffFileResult = { patch: string; binary: boolean; tooLarge: boolean };
@@ -116,4 +118,13 @@ export function commitStatsNotice(reason: NonNullable<GitCommit["statsUnavailabl
   return reason === "timeout"
     ? "Totals unavailable: Git exceeded the read time limit. Retrying automatically."
     : "Totals unavailable: Git exceeded the output limit. Retrying automatically.";
+}
+
+/** Older hosts can omit the parent metadata; avoid asserting a parent until it is known. */
+export function commitComparisonLabel(parent: string | null | undefined): string {
+  return parent === null ? "First commit" : parent ? "Compared with first parent" : "Commit changes";
+}
+
+export function diffFileCountLabel(data: Extract<DiffFilesResult, { isRepo: true }>): string {
+  return `${data.files.length}${data.truncated ? "+" : ""} ${data.files.length === 1 && !data.truncated ? "file" : "files"}`;
 }

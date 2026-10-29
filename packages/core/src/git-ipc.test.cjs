@@ -72,8 +72,11 @@ test("the dialog's channels reach the git actions", async () => {
     { name: "push", request: { cwd: "/repo/wt" } },
     { name: "openPr", request: { cwd: "/repo/wt", base: "main", title: "Fix x", body: "Fixes x." } },
     { name: "history", request: { cwd: "/repo/wt", base: "main", recordedBase: "parent", branchesVersion: "catalogue-v1", limit: 30 } },
-    { name: "listDiffFiles", request: { cwd: "/repo/wt", base: "main", mode: "committed" } },
-    { name: "readDiffFile", request: { cwd: "/repo/wt", base: "main", mode: "uncommitted", path: "a.ts", oldPath: "b.ts", untracked: false } },
+    { name: "listDiffFiles", request: { cwd: "/repo/wt", base: "main", mode: "committed", commit: undefined } },
+    {
+      name: "readDiffFile",
+      request: { cwd: "/repo/wt", base: "main", mode: "uncommitted", commit: undefined, path: "a.ts", oldPath: "b.ts", untracked: false },
+    },
   ]);
 });
 
@@ -157,4 +160,13 @@ test("the PR channels reach the review in the Chat's folder, and only there", as
   assert.deepEqual(seen[2].request.add, ["bug"]);
   assert.deepEqual(seen[3].request.remove, ["octo"]);
   await fs.rm(folder, { recursive: true, force: true });
+});
+
+test("commit inspection forwards the SHA through the confined Git handlers", async () => {
+  const { invoke, calls } = register();
+  const commit = "a".repeat(40);
+  await invoke("git:diff-files", { cwd: "/repo/wt", mode: "committed", commit });
+  await invoke("git:diff-file", { cwd: "/repo/wt", mode: "committed", commit, path: "a.ts" });
+  assert.equal(calls[0].request.commit, commit);
+  assert.equal(calls[1].request.commit, commit);
 });
