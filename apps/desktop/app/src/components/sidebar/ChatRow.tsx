@@ -70,6 +70,7 @@ import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
 import { WorkspaceIcon } from "../WorkspaceIcon";
+import { fileManager } from "@/lib/shortcut-hints";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -220,8 +221,6 @@ type MenuEntry = {
   danger?: boolean;
   archiveChoice?: boolean;
 };
-
-const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 
 /* ─────────────────────────────────────────────────────────
  * CHAT MARK
@@ -1483,7 +1482,7 @@ function ChatMenu({
       : [
           {
             key: "reveal",
-            label: IS_MAC ? "Open in Finder" : "Open in file manager",
+            label: `Open in ${fileManager}`,
             icon: FolderOpenIcon,
             onSelect: run(() => actions.onReveal?.(item.id)),
             disabled: !actions.onReveal || !details.path,

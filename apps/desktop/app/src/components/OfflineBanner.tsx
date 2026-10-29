@@ -1,3 +1,5 @@
+import { thisComputer } from "../lib/shortcut-hints";
+
 /** Over an offline computer's chat (design sidebar-c-sections v3): the last copy it sent, readable, nothing sendable. */
 export function OfflineBanner({ text, empty }: { text: string; empty: boolean }) {
   return (
@@ -8,7 +10,7 @@ export function OfflineBanner({ text, empty }: { text: string; empty: boolean })
       </div>
       {empty && (
         <p data-offline-empty className="mt-6 text-center text-[13px] text-ink-3">
-          No copy of this chat on this Mac yet.
+          No copy of this chat on {thisComputer} yet.
         </p>
       )}
     </div>

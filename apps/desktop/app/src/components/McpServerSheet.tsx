@@ -123,7 +123,7 @@ export function McpServerSheet({
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-[8px] py-1.5 text-[13px] disabled:opacity-40 ${kind === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-2"}`}
             >
               <HugeiconsIcon icon={value === "url" ? Globe02Icon : CommandLineIcon} size={14} strokeWidth={1.75} color="currentColor" />
-              {value === "url" ? "URL" : remote ? "Command (on the Mac)" : "Command"}
+              {value === "url" ? "URL" : remote ? "Command (on the computer)" : "Command"}
             </button>
           ))}
         </div>

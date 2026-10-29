@@ -8,6 +8,7 @@ const { NEGOTIATION_ROUNDS } = require("@milagre/shared/limits");
 const { neutralizeTags, truncateText } = require("@milagre/shared/untrusted-text");
 const { clip } = require("./linked-summary.cjs");
 const { callerMode, raisesMode } = require("./agents/permissions.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 // Delegations and Negotiations (ADR-0002). A Delegation is a message from a Chat to another Chat, across a
 // Link or in its own Project, carried out by that Chat's own agent; the reply of the turn that took it comes
@@ -442,7 +443,7 @@ class Delegations {
     for (const delegation of open) {
       delegation.status = "cancelled";
       delete delegation.unconfirmed;
-      delegation.report = `${delegation.remote.computerName} was removed from this Mac's computers, so this Delegation was cancelled here and its report can't come back. It may still be running there: "${clip(delegation.message, 120)}"`;
+      delegation.report = `${delegation.remote.computerName} was removed from ${thisComputer}'s computers, so this Delegation was cancelled here and its report can't come back. It may still be running there: "${clip(delegation.message, 120)}"`;
     }
     await this.persist();
     const results = await Promise.allSettled(

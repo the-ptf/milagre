@@ -134,6 +134,7 @@ import { splitFences } from "../lib/message-fences";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
+import { ThisComputer } from "../lib/shortcut-hints";
 
 const NO_WAITING_STEPS: string[] = [];
 
@@ -1090,7 +1091,7 @@ function NewChatHeader({
                 <PickerRow
                   key={item.key}
                   icon={<Icon icon={ComputerIcon} size={14} />}
-                  label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · This Mac` : item.computer}
+                  label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · ${ThisComputer}` : item.computer}
                   // A Chats home's folder is Milagre's own, not a place the user picked.
                   description={chats ? undefined : shortPath(item.key)}
                   trailing={item.online ? undefined : "Offline"}

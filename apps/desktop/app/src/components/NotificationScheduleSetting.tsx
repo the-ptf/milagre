@@ -7,6 +7,7 @@ import {
 } from "@milagre/shared/notification-schedule";
 import { useSettings, updateSettings } from "../lib/settings";
 import { Select } from "./primitives/Select";
+import { thisComputer } from "../lib/shortcut-hints";
 
 const zones = notificationTimeZones().map((value) => ({ value, label: value.replaceAll("_", " ") }));
 const save = (value: NotificationSchedule | null) => updateSettings({ notificationSchedule: value });
@@ -98,7 +99,8 @@ export function NotificationScheduleSetting() {
             />
           </div>
           <p className="text-[12px] text-ink-3">
-            {schedule.start > schedule.end ? "Ends the next day. " : ""}Applies to Chat alerts and sounds on this Mac. Quiet-hour alerts are not sent later.
+            {schedule.start > schedule.end ? "Ends the next day. " : ""}Applies to Chat alerts and sounds on {thisComputer}. Quiet-hour alerts are not sent
+            later.
           </p>
         </>
       )}

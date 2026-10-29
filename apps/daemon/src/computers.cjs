@@ -10,6 +10,7 @@ const { connectPeer, PeerError } = require("./peer-client.cjs");
 const { computerProblem } = require("./computer-errors.cjs");
 const { createComputersStore, lanRoutesFrom } = require("./computers-store.cjs");
 const { createComputerKeys } = require("./computer-keys.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 // Spec "Errors": amber ("Reconnecting…") while it comes back, grey ("Offline") once it has been gone this long.
 const OFFLINE_AFTER_MS = 30_000;
@@ -29,8 +30,8 @@ const RECONNECT_WAIT_MS = 15_000;
 const LAN_WAIT_MS = 500;
 // Problems worth a line under a computer while it keeps retrying; the rest read as Reconnecting… or Offline.
 const SHOWN = new Set(["full", "outdated", "kind", "bad-hello", "busy"]);
-const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac.";
-const TUNNEL_LINK = "This link reaches its Mac through a Cloudflare tunnel, which computers can't use yet.";
+const NOT_A_LINK = "That isn't a Milagre pairing link. Copy it from Settings › Devices on the other computer.";
+const TUNNEL_LINK = "This link reaches its computer through a Cloudflare tunnel, which computers can't use yet.";
 
 // A refusal retrying can't fix. A keychain that can't open this Mac's keys (an Error with code "keys", not a PeerError) is
 // final only while adding: a computer already here keeps retrying, as the keychain may be unlocked or allowed later.
@@ -574,7 +575,7 @@ function createComputers({
     } catch {
       /* unknown: no check */
     }
-    if (relay.hostId === own) throw new Error("That's this Mac's own link. Copy the one on the other Mac.");
+    if (relay.hostId === own) throw new Error(`That's ${thisComputer}'s own link. Copy the one on the other computer.`);
     const existing = store.list().find((computer) => computer.hostId === relay.hostId);
     if (existing && !entries.get(existing.id)?.refused) throw new Error(`${existing.name} is already in your computers.`);
     return { pairing, relay, replaces: existing?.id ?? null };

@@ -48,7 +48,7 @@ import Tooltip from "@/components/primitives/Tooltip";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
-import { useShortcutHints } from "../lib/shortcut-hints";
+import { thisComputer, useShortcutHints } from "../lib/shortcut-hints";
 import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
@@ -356,7 +356,7 @@ function ScopeHeader({
         {/* Never shrinks: a long Project name gives way first. */}
         {computer && (
           <Tooltip
-            label={computer.offline ? `${computer.name}, offline` : computer.local ? `${computer.name} · this Mac` : computer.name}
+            label={computer.offline ? `${computer.name}, offline` : computer.local ? `${computer.name} · ${thisComputer}` : computer.name}
             align="end"
             className="shrink-0"
           >

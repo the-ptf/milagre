@@ -23,7 +23,7 @@ import {
 import { bridgeFor } from "../../lib/computer-bridge";
 import { useComputers } from "../../lib/computers";
 import { useKeybindings } from "../../lib/keybindings";
-import { isMac } from "../../lib/shortcut-hints";
+import { isMac, ThisComputer } from "../../lib/shortcut-hints";
 import { Select } from "../primitives/Select";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import Tooltip from "../primitives/Tooltip";
@@ -203,8 +203,8 @@ export function KeybindingsSettings() {
   const shown = KEYBINDING_COMMANDS.filter(matches);
 
   const scopeOptions = [
-    { value: ALL, label: "All computers", description: online.length ? `This Mac and ${online.length} more` : "This Mac" },
-    { value: LOCAL_COMPUTER, label: thisMac, description: "This Mac" },
+    { value: ALL, label: "All computers", description: online.length ? `${ThisComputer} and ${online.length} more` : ThisComputer },
+    { value: LOCAL_COMPUTER, label: thisMac, description: ThisComputer },
     ...computers.map((computer) => ({
       value: computer.id,
       label: computer.name,
