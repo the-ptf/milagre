@@ -174,7 +174,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
           <button
             type="button"
             data-slot="design-page-revoke-confirm"
-            className={`${button} text-red`}
+            className={`${button} text-red-ink`}
             disabled={!!busy}
             onClick={() => void revokeLink(share.id)}
           >
@@ -183,7 +183,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
         </div>
       </div>
     ) : (
-      <button type="button" className="text-[12px] text-ink-3 hover:text-red disabled:opacity-40" disabled={!!busy} onClick={() => setRevoke(share.id)}>
+      <button type="button" className="text-[12px] text-ink-3 hover:text-red-ink disabled:opacity-40" disabled={!!busy} onClick={() => setRevoke(share.id)}>
         Revoke link
       </button>
     );
@@ -226,7 +226,7 @@ export function DesignPageShareDialog({ chatId, kind = "designs", onClose }: { c
   const messages = (
     <>
       {!!error && (
-        <p role="alert" className="mt-3 text-[12px] text-red">
+        <p role="alert" className="mt-3 text-[12px] text-red-ink">
           {error}
         </p>
       )}

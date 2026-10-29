@@ -25,7 +25,7 @@ export function CompactionDivider({ context }: { context: CompactionContext }) {
         ) : (
           <HugeiconsIcon icon={ArrowShrink01Icon} size={13} strokeWidth={1.8} color="currentColor" />
         )}
-        <span className={context.status === "failed" ? "text-orange" : ""}>{label.title}</span>
+        <span className={context.status === "failed" ? "text-orange-ink" : ""}>{label.title}</span>
         {label.before && (
           <span className="font-mono text-[11.5px] tabular-nums">
             <span className={label.after ? "" : "font-medium text-ink-2"}>{label.before}</span>

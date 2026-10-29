@@ -63,10 +63,10 @@ const STATUS_COPY: Record<ToolApprovalStatus, string> = {
 };
 
 function statusTone(status: ToolApprovalStatus) {
-  if (status === "error" || status === "denied") return "border-red/30 bg-red-tint text-red";
-  if (status === "approved" || status === "complete") return "border-green/30 bg-green-tint text-green";
+  if (status === "error" || status === "denied") return "border-red/30 bg-red-tint text-red-ink";
+  if (status === "approved" || status === "complete") return "border-green/30 bg-green-tint text-green-ink";
   if (status === "approving" || status === "running") return "border-accent/30 bg-accent-tint text-accent-ink";
-  return "border-orange/30 bg-orange-tint text-orange";
+  return "border-orange/30 bg-orange-tint text-orange-ink";
 }
 
 function StatusIcon({ status, reduce }: { status: ToolApprovalStatus; reduce: boolean }) {

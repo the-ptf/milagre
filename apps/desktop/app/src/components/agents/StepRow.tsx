@@ -98,7 +98,9 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
         )}
       </span>
       {step.status !== "running" && (step.summary || step.note) && (
-        <span className={`max-w-[40%] shrink truncate text-[11.5px] ${step.status === "failed" ? "text-red" : "text-ink-3"}`}>{step.summary || step.note}</span>
+        <span className={`max-w-[40%] shrink truncate text-[11.5px] ${step.status === "failed" ? "text-red-ink" : "text-ink-3"}`}>
+          {step.summary || step.note}
+        </span>
       )}
       {state && <span className="sr-only">{state}</span>}
       {waiting ? (
@@ -106,7 +108,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
           Waiting for approval
         </span>
       ) : step.status === "failed" ? (
-        <span aria-hidden className="flex shrink-0 items-center gap-1 text-[11.5px] text-red">
+        <span aria-hidden className="flex shrink-0 items-center gap-1 text-[11.5px] text-red-ink">
           <Icon icon={Alert02Icon} size={13} />
           {!step.summary && "Failed"}
         </span>

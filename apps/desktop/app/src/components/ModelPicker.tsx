@@ -245,7 +245,7 @@ function SettingRow({
   on: boolean;
   onChange: (on: boolean) => void;
 }) {
-  const ink = tone === "purple" ? "text-purple-ink" : "text-orange";
+  const ink = tone === "purple" ? "text-purple-ink" : "text-orange-ink";
   return (
     <button
       type="button"

@@ -298,7 +298,7 @@ export function RoutinesPage({
           )}
         </div>
         {(error || loadError) && (
-          <p role="alert" className="mt-4 text-[13px] break-words text-red">
+          <p role="alert" className="mt-4 text-[13px] break-words text-red-ink">
             {error ?? loadError}
           </p>
         )}

@@ -202,7 +202,7 @@ function ActivityRow({ steps, live, waitingIds, onPress }: { steps: ChatStep[]; 
       {summary.failed > 0 && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Icon icon={Alert02Icon} tone="red" size={13} />
-          <Text style={{ color: colors.red, fontSize: 12.5 }}>{summary.failed} failed</Text>
+          <Text style={{ color: colors.redInk, fontSize: 12.5 }}>{summary.failed} failed</Text>
         </View>
       )}
       <View style={{ flex: 1 }} />

@@ -264,7 +264,7 @@ export function ImageGeneration({
             {showStatus ? (
               <div
                 aria-live="polite"
-                className={cx("flex min-h-5 items-center gap-2 text-[12.5px] font-medium text-ink", status === "error" && "text-red", statusClassName)}
+                className={cx("flex min-h-5 items-center gap-2 text-[12.5px] font-medium text-ink", status === "error" && "text-red-ink", statusClassName)}
               >
                 <DitherMark status={status} reduce={reduce} />
                 <AnimatePresence mode="popLayout" initial={false}>

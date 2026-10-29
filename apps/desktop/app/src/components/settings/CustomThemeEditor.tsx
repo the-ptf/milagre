@@ -153,7 +153,7 @@ export function CustomThemeEditor() {
         </div>
         <Preview theme={theme} scheme={editing} />
       </div>
-      <p data-contrast className={`text-[12px] ${weak ? "text-orange" : "text-ink-3"}`}>
+      <p data-contrast className={`text-[12px] ${weak ? "text-orange-ink" : "text-ink-3"}`}>
         Text on background: {contrast.text.toFixed(1)}:1. Accent on background: {contrast.accent.toFixed(1)}:1.
       </p>
       <div className="flex flex-wrap items-center gap-2">
@@ -208,7 +208,7 @@ export function CustomThemeEditor() {
           </button>
         ))}
       </div>
-      {pasteError && <p className="text-[12px] text-red">{pasteError}</p>}
+      {pasteError && <p className="text-[12px] text-red-ink">{pasteError}</p>}
     </div>
   );
 }

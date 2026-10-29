@@ -1,4 +1,4 @@
-import { mix, onColor, withAlpha } from "./color.ts";
+import { contrastRatio, mix, onColor, readableOn, withAlpha } from "./color.ts";
 import type { Ansi, Scheme, ThemePalette, ThemeSource } from "./types.ts";
 import type { SyntaxKind } from "../file-syntax.mjs";
 
@@ -6,11 +6,14 @@ import type { SyntaxKind } from "../file-syntax.mjs";
 const tint = (page: string, color: string, scheme: Scheme, light: number, dark: number) =>
   scheme === "dark" ? withAlpha(color, dark) : mix(page, color, light);
 
+/** Text tokens solved from the rest of the palette at the end, so a theme never sets them below 4.5:1. */
+type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk";
+
 export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette {
   const { page, surface, ink, accent, green, orange, red } = source;
   const dark = scheme === "dark";
   const toward = (t: number) => mix(surface, ink, t);
-  const derived: ThemePalette = {
+  const derived: Omit<ThemePalette, Solved> = {
     page,
     surface,
     ink,
@@ -44,7 +47,23 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     selection: withAlpha(accent, 0.3),
   };
   const given = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined));
-  return { ...derived, ...given } as ThemePalette;
+  const palette = { ...derived, ...given } as Omit<ThemePalette, Solved>;
+  // ink3 and the status colors carry metadata, descriptions and counts at 10–13px, so as text they need 4.5:1 on the
+  // page and on cards. A theme's own ink3 stays as ink4, for icons at rest, dots and disabled controls.
+  const on = [palette.page, palette.surface];
+  const worst = (color: string) => Math.min(...on.map((bg) => contrastRatio(color, bg)));
+  const ink2 = readableOn(palette.ink2, palette.ink, on);
+  // Where ink2 is itself close to 4.5:1, a readable ink3 would pass it; the levels then share ink2.
+  const ink3 = readableOn(palette.ink3, palette.ink, on);
+  return {
+    ...palette,
+    ink2,
+    ink3: worst(ink3) > worst(ink2) ? ink2 : ink3,
+    ink4: palette.ink3,
+    greenInk: readableOn(palette.green, palette.ink, on),
+    orangeInk: readableOn(palette.orange, palette.ink, on),
+    redInk: readableOn(palette.red, palette.ink, on),
+  };
 }
 
 export function ansi(c: {

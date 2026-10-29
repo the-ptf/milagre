@@ -653,7 +653,7 @@ export function LinkWorkspace({
                   {error && session && (
                     <p
                       role="alert"
-                      className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red shadow-overlay"
+                      className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red-ink shadow-overlay"
                     >
                       {error}
                     </p>

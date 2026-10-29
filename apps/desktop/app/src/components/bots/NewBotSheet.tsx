@@ -9,7 +9,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 import { BotAvatar } from "./BotAvatar";
 
-const FIELD = "mt-1 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-line-strong";
+const FIELD = "mt-1 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-accent";
 const LABEL = "mt-4 text-[12px] font-medium text-ink-2";
 
 /** New bot: a starter template's setup card, then the bot is created on this Mac. */
@@ -186,7 +186,7 @@ export function NewBotSheet({
           </div>
         </ScrollArea>
         {error && (
-          <p role="alert" className="mt-3 whitespace-pre-wrap text-[13px] text-red">
+          <p role="alert" className="mt-3 whitespace-pre-wrap text-[13px] text-red-ink">
             {error}
           </p>
         )}

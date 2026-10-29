@@ -75,7 +75,7 @@ function AccountPicker({
         }))}
       />
       {error && (
-        <p role="alert" className="text-[12px] text-red">
+        <p role="alert" className="text-[12px] text-red-ink">
           {error}
         </p>
       )}

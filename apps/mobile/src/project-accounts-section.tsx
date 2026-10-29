@@ -144,7 +144,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   if (error)
     return (
       <View style={{ paddingVertical: 8 }}>
-        <Text accessibilityRole="alert" style={[styles.text, { color: colors.red }]}>
+        <Text accessibilityRole="alert" style={[styles.text, { color: colors.redInk }]}>
           {error}
         </Text>
         <ListRow compact title="Retry" onPress={() => setRetry((value) => value + 1)} />
@@ -215,7 +215,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
           </View>
         </PullDown>
         {attention ? (
-          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.red, paddingLeft: 32 }]}>
+          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk, paddingLeft: 32 }]}>
             {attention}
           </Text>
         ) : effective?.message ? (
@@ -313,7 +313,7 @@ function ProjectAccountsForComputer() {
         <View style={dividerFor(colors)}>
           {error ? (
             <View style={{ paddingVertical: 8 }}>
-              <Text accessibilityRole="alert" style={[styles.text, { color: colors.red }]}>
+              <Text accessibilityRole="alert" style={[styles.text, { color: colors.redInk }]}>
                 {error}
               </Text>
               <ListRow compact title="Retry" onPress={() => setRetry((value) => value + 1)} />

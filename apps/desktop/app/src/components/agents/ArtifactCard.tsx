@@ -400,7 +400,7 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
       <span className="min-w-0 flex-1">
         <span className={`block ${resolved === undefined ? "text-ink" : "text-ink-3 line-through"}`}>{comment.text}</span>
         {resolved !== undefined && (
-          <span data-slot="design-feedback-resolved" className="mt-0.5 flex items-start gap-1 text-[12px] text-green">
+          <span data-slot="design-feedback-resolved" className="mt-0.5 flex items-start gap-1 text-[12px] text-green-ink">
             <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="mt-px shrink-0" aria-hidden />
             <span>{resolved}</span>
           </span>
@@ -1160,7 +1160,7 @@ function ArtifactDock({
             resetProps={{ "data-slot": "artifact-zoom" }}
           />
           {error && (
-            <p role="alert" className="absolute right-4 bottom-4 rounded-control bg-surface px-2 py-1 text-[12px] text-red shadow-card">
+            <p role="alert" className="absolute right-4 bottom-4 rounded-control bg-surface px-2 py-1 text-[12px] text-red-ink shadow-card">
               {error}
             </p>
           )}

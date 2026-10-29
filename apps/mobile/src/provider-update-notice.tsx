@@ -61,7 +61,7 @@ export function ProviderUpdateNotice() {
           Install the update on {session.hostName || "your computer"} now or review provider settings.
         </Text>
         {!!error && (
-          <Text accessibilityRole="alert" style={{ color: colors.red, fontSize: 13 }}>
+          <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: 13 }}>
             {error}
           </Text>
         )}

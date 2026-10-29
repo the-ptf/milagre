@@ -28,7 +28,10 @@ export interface ThemePalette {
   field: string;
   ink: string;
   ink2: string;
+  /** Tertiary text: metadata, descriptions, placeholders. Always 4.5:1 on page and surface. */
   ink3: string;
+  /** The theme's own faint ink, for icons at rest, dots and disabled controls; not for text. */
+  ink4: string;
   onAccent: string;
   line: string;
   lineStrong: string;
@@ -41,6 +44,10 @@ export interface ThemePalette {
   orangeTint: string;
   red: string;
   redTint: string;
+  /** The status colors as text: 4.5:1 on page and surface. The plain ones stay for fills, dots and icons. */
+  greenInk: string;
+  orangeInk: string;
+  redInk: string;
   purple: string;
   diffAdd: string;
   diffAddWord: string;

@@ -154,7 +154,7 @@ export function MermaidBlock({ code }: { code: string }) {
       {source || error ? (
         <>
           {error && !source && (
-            <p role="alert" className="px-3 pt-2 text-[12px] text-red">
+            <p role="alert" className="px-3 pt-2 text-[12px] text-red-ink">
               The diagram didn't draw: {error}
             </p>
           )}

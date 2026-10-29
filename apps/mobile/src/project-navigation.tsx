@@ -1418,7 +1418,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             )}
             <View style={{ flex: 1 }} />
             {unsaved && (
-              <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.red }]}>
+              <Text accessibilityLabel="Changes not saved" style={[s.detail, { color: colors.redInk }]}>
                 Unsaved
               </Text>
             )}
@@ -1832,7 +1832,7 @@ function ComputerTag({ name, offline, chip = false, large = false }: { name: str
   return (
     <View style={[{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }, chip && s.chip]}>
       <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={large ? 14 : 13} />
-      <Text numberOfLines={1} style={[large ? s.inboxText : s.detail, { flexShrink: 1 }, offline && { color: colors.orange }]}>
+      <Text numberOfLines={1} style={[large ? s.inboxText : s.detail, { flexShrink: 1 }, offline && { color: colors.orangeInk }]}>
         {offline ? `${name}, offline` : name}
       </Text>
     </View>

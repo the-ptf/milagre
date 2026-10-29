@@ -9,7 +9,7 @@ interface RecommendationCardProps {
 
 function RecommendedBars() {
   return (
-    <span className="flex items-end gap-0.5 text-green" aria-hidden="true">
+    <span className="flex items-end gap-0.5 text-green-ink" aria-hidden="true">
       {[0, 1, 2].map((bar) => (
         <span key={bar} className="w-1 rounded-full bg-current" style={{ height: `${8 + bar * 3}px` }} />
       ))}
@@ -64,7 +64,7 @@ export function RecommendationCard({ question, options, onSelect }: Recommendati
           >
             <RecommendedBars />
             <span className="min-w-0 flex-1 text-[13px] leading-5 text-ink">{recommendation.label}</span>
-            <span className="shrink-0 text-[11px] font-medium text-green">Recommended</span>
+            <span className="shrink-0 text-[11px] font-medium text-green-ink">Recommended</span>
           </button>
         )}
         {!separate && others.length > 0 && <div className={recommendation ? "mt-1" : "mt-3"}>{rows}</div>}

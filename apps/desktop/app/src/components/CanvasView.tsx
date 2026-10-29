@@ -237,7 +237,7 @@ function SectionNode({ data }: NodeProps<SectionNode>) {
   );
 }
 
-const toneClass: Record<CanvasTone, string> = { accent: "text-accent", orange: "text-orange", red: "text-red", ink3: "text-ink-2" };
+const toneClass: Record<CanvasTone, string> = { accent: "text-accent", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-2" };
 const MARK_ICON = { question: BubbleChatIcon, waiting: ShieldAlertIcon, delegated: Link04Icon } as const;
 
 /** The sidebar's mark: an icon when the chat asks for you, a spinner while it runs, a dot otherwise. */
@@ -249,7 +249,7 @@ function Mark({ mark, failed }: { mark: CanvasMark; failed: boolean }) {
       ) : mark === "background" ? (
         <ChatMarkDotInline mark="background" failed={false} />
       ) : mark in MARK_ICON ? (
-        <span className={`flex ${mark === "waiting" ? "text-orange" : "text-accent"}`}>
+        <span className={`flex ${mark === "waiting" ? "text-orange-ink" : "text-accent"}`}>
           <HugeiconsIcon icon={MARK_ICON[mark as keyof typeof MARK_ICON]} size={13} strokeWidth={2} color="currentColor" />
         </span>
       ) : (
@@ -711,7 +711,7 @@ export function CanvasView({
               <button
                 type="button"
                 data-canvas-remove-link
-                className="h-8 rounded-control bg-surface px-3 text-[12.5px] font-medium text-red shadow-card transition-colors hover:bg-hover"
+                className="h-8 rounded-control bg-surface px-3 text-[12.5px] font-medium text-red-ink shadow-card transition-colors hover:bg-hover"
                 onClick={() => void remove()}
               >
                 Remove Link
@@ -724,7 +724,7 @@ export function CanvasView({
       {error && (
         <div
           role="alert"
-          className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red shadow-overlay"
+          className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red-ink shadow-overlay"
         >
           {error}
         </div>

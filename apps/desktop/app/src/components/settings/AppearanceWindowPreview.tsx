@@ -348,7 +348,7 @@ function Composer() {
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
       </span>
-      <span className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-green">
+      <span className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-green-ink">
         <Icon icon={SecurityCheckIcon} size={14} />
         Auto
       </span>

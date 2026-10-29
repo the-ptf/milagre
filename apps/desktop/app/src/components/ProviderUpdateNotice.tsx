@@ -40,7 +40,7 @@ export function ProviderUpdateNotice({ onSettings, onUpdated }: { onSettings: ()
       <div className="flex items-center gap-2 pr-5 text-[14px] font-medium">
         <span className="relative">
           <ProviderLogo provider={current.provider} size={19} />
-          <span aria-hidden="true" className="absolute -bottom-1 -right-1 rounded-full bg-surface text-[11px] leading-none text-green">
+          <span aria-hidden="true" className="absolute -bottom-1 -right-1 rounded-full bg-surface text-[11px] leading-none text-green-ink">
             ↓
           </span>
         </span>
@@ -50,7 +50,7 @@ export function ProviderUpdateNotice({ onSettings, onUpdated }: { onSettings: ()
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-3">Install the update now or review provider settings.</p>
       {error && (
-        <p role="alert" className="mt-2 break-words text-[12px] text-red">
+        <p role="alert" className="mt-2 break-words text-[12px] text-red-ink">
           {error}
         </p>
       )}

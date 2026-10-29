@@ -13,7 +13,7 @@ import { routineIcon } from "./routine-icon";
 type HugeIconData = typeof PlayIcon;
 const MENU_WIDTH = 200;
 const outlineButton = "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover";
-const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red transition-colors hover:bg-red-tint";
+const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red-ink transition-colors hover:bg-red-tint";
 
 /** What is wrong with the Routine, in red under its meta: why it paused itself while off, else its latest error. */
 export function routineProblem(routine: Routine): string | undefined {
@@ -121,9 +121,9 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
                     close(false);
                     entry.onSelect();
                   }}
-                  className={`relative z-10 flex h-8 w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 ${entry.danger ? "text-red" : "text-ink"}`}
+                  className={`relative z-10 flex h-8 w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 ${entry.danger ? "text-red-ink" : "text-ink"}`}
                 >
-                  <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red" : "text-ink-2"}`}>
+                  <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
                     <HugeiconsIcon icon={entry.icon} size={16} strokeWidth={1.8} color="currentColor" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13px]">{entry.label}</span>
@@ -226,7 +226,7 @@ export function RoutineRow({
               <span className="truncate">{meta}</span>
             </span>
             {problem && (
-              <span data-routine-problem className="truncate text-[12px] text-red" title={problem}>
+              <span data-routine-problem className="truncate text-[12px] text-red-ink" title={problem}>
                 {problem}
               </span>
             )}

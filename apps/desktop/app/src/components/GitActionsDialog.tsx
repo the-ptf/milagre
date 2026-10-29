@@ -62,7 +62,7 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const FIELD =
-  "w-full rounded-control border border-line bg-field px-2.5 py-2 text-[13px] leading-5 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-line-strong";
+  "w-full rounded-control border border-line bg-field px-2.5 py-2 text-[13px] leading-5 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent";
 
 /** A text field that stays editable while its text is generated; the spinner sits inside it. Read-only while steps run. */
 function GeneratedField({
@@ -124,7 +124,7 @@ function StepLine({ state, result }: { state: StepState; result: GitRunResult })
   return (
     <li className="flex min-h-6 items-center gap-2 text-[13px]" data-step={state.step} data-status={state.status}>
       <span
-        className={`flex size-4 shrink-0 items-center justify-center ${state.status === "failed" ? "text-red" : state.status === "done" ? "text-green" : "text-ink-3"}`}
+        className={`flex size-4 shrink-0 items-center justify-center ${state.status === "failed" ? "text-red-ink" : state.status === "done" ? "text-green-ink" : "text-ink-3"}`}
       >
         {state.status === "running" ? <Spinner /> : <Icon icon={state.status === "done" ? Tick02Icon : Alert02Icon} size={14} />}
       </span>
@@ -168,7 +168,7 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
         {changes.files.map((file) => (
           <li key={file.path} className="flex items-center gap-2 px-3 py-0.5 text-[12px]" title={file.path}>
             <span
-              className={`w-3 shrink-0 font-mono font-semibold ${file.status === "added" ? "text-diff-add" : file.status === "deleted" ? "text-diff-remove" : "text-orange"}`}
+              className={`w-3 shrink-0 font-mono font-semibold ${file.status === "added" ? "text-diff-add" : file.status === "deleted" ? "text-diff-remove" : "text-orange-ink"}`}
             >
               {file.status === "added" ? "A" : file.status === "deleted" ? "D" : "M"}
             </span>
@@ -176,7 +176,7 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
             {file.secret && (
               <span
                 data-secret
-                className="flex shrink-0 items-center gap-1 text-[11.5px] text-orange"
+                className="flex shrink-0 items-center gap-1 text-[11.5px] text-orange-ink"
                 title="This looks like a secret. Milagre won't commit it."
               >
                 <Icon icon={Alert02Icon} size={12} />
@@ -519,7 +519,7 @@ export function GitActionsDialog({
             </p>
           )}
           {readError && (
-            <p role="alert" className="text-[13px] text-red">
+            <p role="alert" className="text-[13px] text-red-ink">
               {readError}
             </p>
           )}

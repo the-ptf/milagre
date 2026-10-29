@@ -6,7 +6,7 @@ const statusTable = (colors: Palette) =>
   ({
     added: { letter: "A", label: "Added", color: colors.add, tint: colors.diffAdd },
     deleted: { letter: "D", label: "Deleted", color: colors.remove, tint: colors.diffRemove },
-    modified: { letter: "M", label: "Modified", color: colors.orange, tint: colors.orangeTint },
+    modified: { letter: "M", label: "Modified", color: colors.orangeInk, tint: colors.orangeTint },
     renamed: { letter: "R", label: "Renamed", color: colors.accentInk, tint: colors.accentTint },
   }) as const;
 

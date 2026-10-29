@@ -24,7 +24,9 @@ export function AdvisorResultCard({ context, body }: { context: AdvisorResultCon
           <ProviderLogo provider={context.provider} size={18} />
           <span>{advisorResultRole(context)}</span>
           {context.outcome !== "completed" && (
-            <span className={`ml-auto ${context.outcome === "failed" ? "text-red" : "text-ink-2"}`}>{context.outcome === "failed" ? "Failed" : "Stopped"}</span>
+            <span className={`ml-auto ${context.outcome === "failed" ? "text-red-ink" : "text-ink-2"}`}>
+              {context.outcome === "failed" ? "Failed" : "Stopped"}
+            </span>
           )}
           <button
             type="button"

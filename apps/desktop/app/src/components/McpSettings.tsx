@@ -254,7 +254,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
       )}
       <div className="mt-6 space-y-6">
         {error && (
-          <p role="alert" className="text-[13px] text-red">
+          <p role="alert" className="text-[13px] text-red-ink">
             {error}
           </p>
         )}

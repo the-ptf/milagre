@@ -94,7 +94,7 @@ export function ComputerAllowPrompt() {
           </h2>
           <p className="mt-1 text-[13px] text-ink-2">{ALLOW_DETAIL}</p>
           {error && (
-            <p role="alert" className="mt-3 text-[13px] text-red">
+            <p role="alert" className="mt-3 text-[13px] text-red-ink">
               {error}
             </p>
           )}

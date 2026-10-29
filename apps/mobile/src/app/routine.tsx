@@ -239,7 +239,7 @@ export default function RoutineScreen() {
           <Chip icon={SecurityCheckIcon} text={mode} />
         </ScrollView>
         {times ? <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>{times}</Text> : null}
-        {problem ? <Text style={{ color: colors.red, fontSize: 13, paddingHorizontal: 4 }}>{problem}</Text> : null}
+        {problem ? <Text style={{ color: colors.redInk, fontSize: 13, paddingHorizontal: 4 }}>{problem}</Text> : null}
         <Text accessibilityRole="header" style={[styles.label, { paddingHorizontal: 4, marginTop: 8 }]}>
           Runs
         </Text>

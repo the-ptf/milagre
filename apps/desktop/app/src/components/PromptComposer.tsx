@@ -693,7 +693,7 @@ export function PromptComposer({
                 );
               })}
               {menu === "at" && !plusOpen && fileSearch.error && (
-                <div role="status" className="px-2 text-xs text-red">
+                <div role="status" className="px-2 text-xs text-red-ink">
                   {fileSearch.error}
                 </div>
               )}
@@ -788,7 +788,7 @@ export function PromptComposer({
               <PickerRow
                 key={mode.id}
                 icon={
-                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green" : "text-accent-ink"}`}>
+                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
                     <Icon icon={SecurityCheckIcon} size={14} />
                   </span>
                 }
@@ -838,7 +838,7 @@ export function PromptComposer({
             </div>
           )}
           {imageDraft.error && (
-            <div role="alert" className="px-2 text-xs text-red">
+            <div role="alert" className="px-2 text-xs text-red-ink">
               {imageDraft.error}
             </div>
           )}
@@ -929,7 +929,7 @@ export function PromptComposer({
                   </span>
                 )}
                 {canUseFastMode && fastMode && (
-                  <span data-fast-mode className="text-orange">
+                  <span data-fast-mode className="text-orange-ink">
                     <Icon icon={FlashIcon} size={13} />
                   </span>
                 )}
@@ -948,7 +948,7 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
             >
               <Icon icon={SecurityCheckIcon} size={14} />
               <span className="hidden min-[900px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>

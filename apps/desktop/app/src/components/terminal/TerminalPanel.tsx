@@ -221,7 +221,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                         <button
                           type="button"
                           onClick={() => close(terminal)}
-                          className="mr-1 shrink-0 rounded-[5px] bg-red-tint px-1.5 py-0.5 text-[11px] font-medium text-red"
+                          className="mr-1 shrink-0 rounded-[5px] bg-red-tint px-1.5 py-0.5 text-[11px] font-medium text-red-ink"
                         >
                           End {terminal.title}
                         </button>
@@ -230,7 +230,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                           type="button"
                           aria-label={`Close ${terminal.title}`}
                           onClick={() => close(terminal)}
-                          className={`mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px] hover:bg-inset ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
+                          className={`relative mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px] hover:bg-inset before:absolute before:-inset-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
                         >
                           <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} color="currentColor" />
                         </button>

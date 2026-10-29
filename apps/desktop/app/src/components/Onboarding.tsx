@@ -172,7 +172,7 @@ function AgentStep({ onNext }: { onNext: () => void }) {
         })}
       </ul>
       {error && (
-        <p role="alert" className="-mt-3 text-[13px] text-red">
+        <p role="alert" className="-mt-3 text-[13px] text-red-ink">
           {error}
         </p>
       )}
@@ -286,7 +286,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
         </form>
       )}
       {error && (
-        <p role="alert" className="-mt-2 text-[13px] text-red">
+        <p role="alert" className="-mt-2 text-[13px] text-red-ink">
           {error}
         </p>
       )}
@@ -428,7 +428,7 @@ export function FirstChatStarters({ starters }: { starters: Starter[] }) {
               size={16}
               strokeWidth={1.7}
               color="currentColor"
-              className="text-ink-3 opacity-0 transition-opacity group-hover:opacity-100"
+              className="text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
             />
           </button>
         </li>
