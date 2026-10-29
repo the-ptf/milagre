@@ -273,7 +273,7 @@ function RoutePill({ state }: { state: "In use" | "Ready" | "Not available" }) {
     <span
       data-connection-state
       className="rounded-full px-2 py-0.5 text-[11.5px]"
-      style={state === "In use" ? { background: "var(--green-tint)", color: "var(--green)" } : { background: "var(--hover)", color: "var(--ink-3)" }}
+      style={state === "In use" ? { background: "var(--green-tint)", color: "var(--green-ink)" } : { background: "var(--hover)", color: "var(--ink-3)" }}
     >
       {state}
     </span>
@@ -432,7 +432,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         </section>
       )}
       {error && (
-        <p role="alert" className="mt-3 text-[13px] text-red">
+        <p role="alert" className="mt-3 text-[13px] text-red-ink">
           {error}
         </p>
       )}
@@ -576,7 +576,7 @@ function RemoteDelegationSettings() {
         />
       </Row>
       {setting.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
           {setting.error}
         </p>
       )}
@@ -592,7 +592,7 @@ function BotsSettings() {
         <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
       </Row>
       {bots.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red">
+        <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
           {bots.error}
         </p>
       )}
@@ -727,7 +727,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               label: mode.name,
               description: mode.description,
               icon: (
-                <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green" : "text-accent-ink"}`}>
+                <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
                   <Icon icon={SecurityCheckIcon} size={14} />
                 </span>
               ),
@@ -1205,7 +1205,7 @@ function usePairedDevices() {
 const SECONDARY_BUTTON =
   "rounded-control border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50";
 const DANGER_BUTTON =
-  "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
+  "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
 
 function DeviceGroup({
   title,
@@ -1233,7 +1233,7 @@ function DeviceGroup({
   return (
     <Group title={title}>
       {error ? (
-        <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red">
+        <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red-ink">
           {error}
         </p>
       ) : (
@@ -1296,7 +1296,7 @@ function DeviceGroup({
                 disabled={busy}
                 data-device-remove
                 onClick={() => setConfirming(device.key)}
-                className="shrink-0 rounded-control px-2 py-1 text-[12.5px] text-red transition-colors hover:bg-red/5 disabled:cursor-default disabled:opacity-50"
+                className="shrink-0 rounded-control px-2 py-1 text-[12.5px] text-red-ink transition-colors hover:bg-red/5 disabled:cursor-default disabled:opacity-50"
               >
                 Remove
               </button>
@@ -1414,12 +1414,12 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
           </p>
         )}
         {status?.state === "error" && status.error && (
-          <p data-phone-error className="break-words px-4 py-3 text-[12px] text-red">
+          <p data-phone-error className="break-words px-4 py-3 text-[12px] text-red-ink">
             {status.error}
           </p>
         )}
         {error && (
-          <p data-phone-action-error className="break-words px-4 py-3 text-[12px] text-red">
+          <p data-phone-action-error className="break-words px-4 py-3 text-[12px] text-red-ink">
             Couldn't change device access: {error}
           </p>
         )}
@@ -1793,14 +1793,14 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
         </p>
       )}
       {loadError ? (
-        <p className="text-[12px] text-red">Couldn't read this project's files: {loadError}</p>
+        <p className="text-[12px] text-red-ink">Couldn't read this project's files: {loadError}</p>
       ) : (
         <p data-files-to-copy-preview className="break-words text-[12px] text-ink-3">
           {found ? previewSentence(found.matches) : "Checking…"}
         </p>
       )}
       {saveError && (
-        <p data-files-to-copy-error className="break-words text-[12px] text-red">
+        <p data-files-to-copy-error className="break-words text-[12px] text-red-ink">
           Couldn't save: {saveError}
         </p>
       )}
@@ -1905,12 +1905,12 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
         </p>
       )}
       {resolved?.note && (
-        <p data-setup-command-note className="break-words text-[12px] text-red">
+        <p data-setup-command-note className="break-words text-[12px] text-red-ink">
           {resolved.note}
         </p>
       )}
       {error && (
-        <p data-setup-command-error className="break-words text-[12px] text-red">
+        <p data-setup-command-error className="break-words text-[12px] text-red-ink">
           {error}
         </p>
       )}
@@ -1981,7 +1981,7 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
         </button>
       </div>
       {error && (
-        <p data-project-icon-error className="break-words text-[12px] text-red">
+        <p data-project-icon-error className="break-words text-[12px] text-red-ink">
           {error}
         </p>
       )}
@@ -2025,7 +2025,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
       <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
         <Switch label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2058,7 +2058,7 @@ export function MainSyncDefaultSetting() {
       <Row label={MAIN_SYNC_TITLE} description={MAIN_SYNC_HINT}>
         <Switch label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2244,7 +2244,7 @@ function LinearSettings() {
           </div>
         </Row>
       )}
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
   );
 }
@@ -2295,7 +2295,7 @@ export function MainSyncSetting({ projectPath }: { projectPath: string }) {
           options={mainSyncChoices(sync?.defaultValue ?? false).map((choice) => ({ value: choice.value, label: choice.title }))}
         />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red">{error}</p>}
+      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
   );
 }

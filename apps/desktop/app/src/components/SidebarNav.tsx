@@ -363,7 +363,7 @@ function ScopeHeader({
             <span
               data-scope-computer
               data-offline={computer.offline || undefined}
-              className={`flex h-[18px] items-center gap-1 rounded-[5px] px-1.5 text-[length:calc(11px+var(--sidebar-delta))] font-medium ${computer.offline ? "bg-orange-tint text-orange" : "bg-ink/[0.07] text-ink-2"}`}
+              className={`flex h-[18px] items-center gap-1 rounded-[5px] px-1.5 text-[length:calc(11px+var(--sidebar-delta))] font-medium ${computer.offline ? "bg-orange-tint text-orange-ink" : "bg-ink/[0.07] text-ink-2"}`}
             >
               <HugeIcon icon={computer.offline ? CloudOffIcon : LaptopIcon} size={11} />
               <span className="max-w-[72px] truncate">{computerAlias(computer.name)}</span>
@@ -489,7 +489,7 @@ function ScopeMenuButton({ name, items }: { name: string; items: ScopeMenuItem[]
                       <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
                         <HugeIcon icon={item.icon} size={16} />
                       </span>
-                      <span className={`min-w-0 flex-1 truncate text-[13.5px] ${item.destructive ? "text-red" : "text-ink"}`}>{item.label}</span>
+                      <span className={`min-w-0 flex-1 truncate text-[13.5px] ${item.destructive ? "text-red-ink" : "text-ink"}`}>{item.label}</span>
                     </button>
                   </Fragment>
                 ))}
@@ -2484,7 +2484,7 @@ function ChatList({
   const target = (invalid: boolean, hint: string | null) => (
     <>
       {invalid && hint ? (
-        <span className="absolute left-0 top-full z-40 mt-1 rounded-[6px] bg-surface px-2 py-1 text-[11.5px] text-red shadow-overlay">{hint}</span>
+        <span className="absolute left-0 top-full z-40 mt-1 rounded-[6px] bg-surface px-2 py-1 text-[11.5px] text-red-ink shadow-overlay">{hint}</span>
       ) : (
         <HugeIcon icon={Link04Icon} size={14} />
       )}

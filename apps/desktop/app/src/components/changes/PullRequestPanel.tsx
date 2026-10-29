@@ -50,9 +50,9 @@ import type { PullRequestReview } from "./usePullRequest";
 export type { PrSource };
 
 const CHECK_ICON: Record<PullRequestCheck["outcome"], { icon: IconSvgElement; className: string }> = {
-  pass: { icon: CheckmarkCircle02Icon, className: "text-green" },
-  fail: { icon: CancelCircleIcon, className: "text-red" },
-  running: { icon: Loading03Icon, className: "text-orange animate-spin" },
+  pass: { icon: CheckmarkCircle02Icon, className: "text-green-ink" },
+  fail: { icon: CancelCircleIcon, className: "text-red-ink" },
+  running: { icon: Loading03Icon, className: "text-orange-ink animate-spin" },
   skipped: { icon: MinusSignCircleIcon, className: "text-ink-3" },
   neutral: { icon: CircleIcon, className: "text-ink-3" },
 };
@@ -62,7 +62,7 @@ const CHECK_ORDER: Record<PullRequestCheck["outcome"], number> = { fail: 0, runn
 const STATE_PILL = {
   draft: { label: "Draft", className: "bg-hover text-ink-2" },
   MERGED: { label: "Merged", className: "bg-purple-tint text-purple-ink" },
-  CLOSED: { label: "Closed", className: "bg-red-tint text-red" },
+  CLOSED: { label: "Closed", className: "bg-red-tint text-red-ink" },
 } as const;
 
 const icon = (glyph: IconSvgElement, size = 14) => <HugeiconsIcon icon={glyph} size={size} strokeWidth={1.8} color="currentColor" />;
@@ -307,10 +307,10 @@ function Header({
       </div>
       {open && (status.tone === "blocked" || status.tone === "draft") && (
         <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-[12px] leading-4">
-          <span className={`flex h-4 shrink-0 items-center ${status.tone === "blocked" ? "text-red" : "text-ink-3"}`}>{icon(AlertCircleIcon, 13)}</span>
+          <span className={`flex h-4 shrink-0 items-center ${status.tone === "blocked" ? "text-red-ink" : "text-ink-3"}`}>{icon(AlertCircleIcon, 13)}</span>
           {/* Wraps rather than cutting the base branch off in a narrow panel. */}
           <span className="line-clamp-2 min-w-0 text-ink-2">
-            <span className={`font-semibold ${status.tone === "blocked" ? "text-red" : "text-ink"}`}>{status.title}</span> · {status.detail}
+            <span className={`font-semibold ${status.tone === "blocked" ? "text-red-ink" : "text-ink"}`}>{status.title}</span> · {status.detail}
           </span>
         </div>
       )}
@@ -319,7 +319,7 @@ function Header({
           type="button"
           data-pr-local={notInPr}
           onClick={local?.onOpen}
-          className="-mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-[12px] text-orange hover:bg-hover"
+          className="-mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-[12px] text-orange-ink hover:bg-hover"
         >
           <span className="flex shrink-0">{icon(CloudUploadIcon, 13)}</span>
           <span className="truncate">{notInPr.replace(" · ", " and ")} not in the PR yet</span>
@@ -327,7 +327,7 @@ function Header({
         </button>
       )}
       {review.writeError && (
-        <p data-pr-write-error className="text-[12px] leading-4 text-red">
+        <p data-pr-write-error className="text-[12px] leading-4 text-red-ink">
           {review.writeError}
         </p>
       )}
@@ -378,7 +378,7 @@ function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "fil
         {progress.label && (
           <span
             data-pr-checks-status={progress.tone}
-            className={`ml-auto flex items-center gap-1.5 text-[12px] whitespace-nowrap ${progress.tone === "fail" ? "text-red" : progress.tone === "pass" ? "text-green" : "text-ink-2"}`}
+            className={`ml-auto flex items-center gap-1.5 text-[12px] whitespace-nowrap ${progress.tone === "fail" ? "text-red-ink" : progress.tone === "pass" ? "text-green-ink" : "text-ink-2"}`}
           >
             {progress.tone === "running" ? (
               <SpinnerRing size={13} color="var(--orange)" />
@@ -646,7 +646,7 @@ function FileNode({ node, depth, activePath, threads, onOpenFile }: { node: Diff
         <span
           data-pr-file-threads={count}
           aria-label={`${count} open threads`}
-          className="flex shrink-0 items-center gap-0.5 text-[11px] text-orange tabular-nums"
+          className="flex shrink-0 items-center gap-0.5 text-[11px] text-orange-ink tabular-nums"
         >
           {icon(Comment01Icon, 12)}
           {count}

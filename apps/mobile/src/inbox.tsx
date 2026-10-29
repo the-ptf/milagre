@@ -408,7 +408,7 @@ function PhoneInboxCard({
             style={{
               fontSize: 17,
               fontWeight: "500",
-              color: item.status === "failed" ? colors.red : colors.ink,
+              color: item.status === "failed" ? colors.redInk : colors.ink,
             }}
           >
             {item.status === "failed" ? "Turn failed" : item.status === "working" ? item.title : "Ready to review"}

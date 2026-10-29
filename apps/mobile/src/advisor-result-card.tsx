@@ -49,7 +49,7 @@ export function AdvisorResultCard({
           <ProviderLogo provider={context.provider} size={18} />
           <Text style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flex: 1 }}>{advisorResultRole(context)}</Text>
           {context.outcome !== "completed" && (
-            <Text style={{ color: context.outcome === "failed" ? colors.red : colors.ink2, fontSize: 12 }}>
+            <Text style={{ color: context.outcome === "failed" ? colors.redInk : colors.ink2, fontSize: 12 }}>
               {context.outcome === "failed" ? "Failed" : "Stopped"}
             </Text>
           )}

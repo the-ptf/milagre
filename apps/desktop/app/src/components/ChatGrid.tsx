@@ -235,7 +235,7 @@ const ChatTile = memo(function ChatTile({
           {branch ? ` · ${branch}` : ""}
         </span>
         {onOpenRoutine && session && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
-        {needsYou && !focused && <span className="shrink-0 font-medium text-orange">Needs you</span>}
+        {needsYou && !focused && <span className="shrink-0 font-medium text-orange-ink">Needs you</span>}
         {onClose && (
           <Tooltip label="Close" side="bottom">
             <button

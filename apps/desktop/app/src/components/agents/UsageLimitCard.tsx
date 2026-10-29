@@ -71,7 +71,7 @@ export function UsageLimitCard({
       className="mt-2.5 flex w-full max-w-md flex-col gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13px]"
     >
       <div className="flex items-start gap-2">
-        <HugeiconsIcon icon={Clock01Icon} size={16} className="mt-px shrink-0 text-orange" aria-hidden />
+        <HugeiconsIcon icon={Clock01Icon} size={16} className="mt-px shrink-0 text-orange-ink" aria-hidden />
         <div className="min-w-0">
           <p className="font-medium">{title}</p>
           <p className="text-[12px] text-ink-3">{detail}</p>
@@ -123,7 +123,7 @@ export function UsageLimitCard({
         )
       )}
       {error && (
-        <p role="alert" data-usage-limit-error className="text-[12px] text-red">
+        <p role="alert" data-usage-limit-error className="text-[12px] text-red-ink">
           {error}
         </p>
       )}

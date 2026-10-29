@@ -34,7 +34,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 const STATUS = {
   added: { letter: "A", label: "Added", className: "bg-green-tint text-diff-add" },
   deleted: { letter: "D", label: "Deleted", className: "bg-red-tint text-diff-remove" },
-  modified: { letter: "M", label: "Modified", className: "bg-orange-tint text-orange" },
+  modified: { letter: "M", label: "Modified", className: "bg-orange-tint text-orange-ink" },
   renamed: { letter: "R", label: "Renamed", className: "bg-accent-tint text-accent-ink" },
 } as const;
 
@@ -240,7 +240,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         </div>
       )}
       {c.error && (
-        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-[11px] text-red">
+        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-[11px] text-red-ink">
           {c.error}. Retry
         </button>
       )}
@@ -329,7 +329,7 @@ function CommitRow({ commit }: { commit: GitCommit }) {
 /** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
 export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
 
-const TONES = { purple: "text-purple-500", red: "text-red", orange: "text-orange", green: "text-green" } as const;
+const TONES = { purple: "text-purple-500", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" } as const;
 
 /** Merged purple, closed grey, otherwise the sidebar's tone: blocked red, checks running orange, open green. */
 function prLook(pr: PullRequest | undefined) {

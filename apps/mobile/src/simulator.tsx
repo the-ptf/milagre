@@ -268,7 +268,7 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
           >
             {!list && <Text style={styles.muted}>Finding running simulators...</Text>}
             {!!list?.error && (
-              <Text accessibilityRole="alert" style={{ color: colors.red }}>
+              <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
                 {list.error}
               </Text>
             )}
@@ -447,7 +447,7 @@ function SimulatorWebView({
   if (error)
     return (
       <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.red }}>
+        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
           {error}
         </Text>
         <PillButton

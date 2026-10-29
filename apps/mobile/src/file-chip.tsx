@@ -25,7 +25,7 @@ export function FileChip({ path }: { path: string }) {
       }}
     >
       <View style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ color: ext === "PDF" ? colors.red : colors.ink2, fontSize: 9, fontWeight: "700" }}>{ext}</Text>
+        <Text style={{ color: ext === "PDF" ? colors.redInk : colors.ink2, fontSize: 9, fontWeight: "700" }}>{ext}</Text>
       </View>
       <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "500", flexShrink: 1 }}>
         {name}

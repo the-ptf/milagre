@@ -45,7 +45,7 @@ function RoutineStatusPill({ on }: { on: boolean }) {
   return (
     <span
       data-routine-status-pill={on ? "on" : "paused"}
-      className={`inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2 text-[11.5px] font-semibold ${on ? "bg-green-tint text-green" : "bg-field text-ink-3"}`}
+      className={`inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2 text-[11.5px] font-semibold ${on ? "bg-green-tint text-green-ink" : "bg-field text-ink-3"}`}
     >
       <span aria-hidden="true" className={`size-1.5 rounded-full ${on ? "bg-green" : "bg-ink-3"}`} />
       {on ? "On" : "Paused"}
@@ -209,12 +209,12 @@ export function RoutinePage({
           </p>
         )}
         {problem && (
-          <p data-routine-problem className="mt-2 text-[12.5px] break-words text-red">
+          <p data-routine-problem className="mt-2 text-[12.5px] break-words text-red-ink">
             {problem}
           </p>
         )}
         {error && (
-          <p role="alert" className="mt-2 text-[13px] break-words text-red">
+          <p role="alert" className="mt-2 text-[13px] break-words text-red-ink">
             {error}
           </p>
         )}
@@ -224,7 +224,12 @@ export function RoutinePage({
               <p className="min-w-0 flex-1 text-[12.5px] text-ink-2">
                 Routine created. Send POST requests to this URL. While this Mac is away, the relay holds them for up to 24 hours.
               </p>
-              <button type="button" aria-label="Dismiss" className="rounded-md p-0.5 text-ink-3 hover:bg-hover hover:text-ink" onClick={onDismissHook}>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"
+                onClick={onDismissHook}
+              >
                 <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.8} color="currentColor" />
               </button>
             </div>

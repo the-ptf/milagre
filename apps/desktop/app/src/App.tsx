@@ -3059,7 +3059,7 @@ function App() {
           </div>
           <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             {notice && (
-              <p role="alert" className="break-words text-[13px] text-red">
+              <p role="alert" className="break-words text-[13px] text-red-ink">
                 {notice}
               </p>
             )}

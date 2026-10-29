@@ -49,7 +49,7 @@ export function RemoveProjectDialog({ project, onClose }: { project: { path: str
         it back. Running Chats keep running.
       </p>
       {error && (
-        <p role="alert" className="mt-3 break-words text-[12px] text-red">
+        <p role="alert" className="mt-3 break-words text-[12px] text-red-ink">
           {error}
         </p>
       )}

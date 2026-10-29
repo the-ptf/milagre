@@ -145,7 +145,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   if (error)
     return (
       <View style={{ paddingVertical: 8 }}>
-        <Text accessibilityRole="alert" style={[styles.text, { color: colors.red }]}>
+        <Text accessibilityRole="alert" style={[styles.text, { color: colors.redInk }]}>
           {error}
         </Text>
         <ListRow compact title="Retry" onPress={() => setRetry((value) => value + 1)} />
@@ -202,7 +202,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
               <Text style={[styles.text, { fontWeight: "500", fontSize: 15, lineHeight: 20 }]}>{name}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {type ? <Icon icon={typeIcon} tone="ink3" size={13} /> : null}
-                <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontSize: 13, color: missing ? colors.red : colors.ink2 }]}>
+                <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontSize: 13, color: missing ? colors.redInk : colors.ink2 }]}>
                   {missing ? "Unavailable account" : shown?.email || shown?.label || "No computer default"}
                 </Text>
                 {group.accountId === null ? (
@@ -216,7 +216,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
           </View>
         </PullDown>
         {attention ? (
-          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.red, paddingLeft: 32 }]}>
+          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk, paddingLeft: 32 }]}>
             {attention}
           </Text>
         ) : effective?.message ? (
@@ -325,7 +325,7 @@ function ProjectAccountsForComputer() {
         <View style={dividerFor(colors)}>
           {error ? (
             <View style={{ paddingVertical: 8 }}>
-              <Text accessibilityRole="alert" style={[styles.text, { color: colors.red }]}>
+              <Text accessibilityRole="alert" style={[styles.text, { color: colors.redInk }]}>
                 {error}
               </Text>
               <ListRow compact title="Retry" onPress={() => setRetry((value) => value + 1)} />

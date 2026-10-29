@@ -9,9 +9,10 @@ const PILL_IN: Transition = { duration: 0.26, ease: EASE_OUT };
 // Each tone sets the glass tint and ring the .status-pill surface draws (styles.css), and the text colour.
 export const PILL_TONES = {
   ink: "text-ink-2",
-  orange: "text-orange [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)] focus-visible:outline-orange",
-  green: "text-green [--status-pill-tint:var(--green)] [--status-pill-ring:color-mix(in_oklab,var(--green)_25%,transparent)] focus-visible:outline-green",
-  red: "text-red [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)] focus-visible:outline-red",
+  orange:
+    "text-orange-ink [--status-pill-tint:var(--orange)] [--status-pill-ring:color-mix(in_oklab,var(--orange)_25%,transparent)] focus-visible:outline-orange",
+  green: "text-green-ink [--status-pill-tint:var(--green)] [--status-pill-ring:color-mix(in_oklab,var(--green)_25%,transparent)] focus-visible:outline-green",
+  red: "text-red-ink [--status-pill-tint:var(--red)] [--status-pill-ring:color-mix(in_oklab,var(--red)_25%,transparent)] focus-visible:outline-red",
 } as const;
 
 /** Motion Off in Appearance, or the system asking for reduced motion (motion's own useReducedMotion ignores the app setting). */

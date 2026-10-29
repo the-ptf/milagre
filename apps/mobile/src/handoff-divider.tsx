@@ -39,7 +39,7 @@ export function HandoffDivider({
         )}
         <ProviderLogo provider={context.to.provider} size={13} />
         <Text style={{ color: colors.ink2, fontSize: 12, fontWeight: "500" }}>{sides.to}</Text>
-        {context.status === "failed" && <Text style={{ color: colors.orange, fontSize: 12 }}>· Handoff failed</Text>}
+        {context.status === "failed" && <Text style={{ color: colors.orangeInk, fontSize: 12 }}>· Handoff failed</Text>}
       </View>
       <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
     </Pressable>

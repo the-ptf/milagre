@@ -160,7 +160,7 @@ export function DesignPageShareSheet({
     <>
       {state.error && (
         <View style={{ gap: 10 }}>
-          <Text accessibilityRole="alert" selectable style={{ color: colors.red }}>
+          <Text accessibilityRole="alert" selectable style={{ color: colors.redInk }}>
             {state.error}
           </Text>
           <PillButton title="Refresh" secondary disabled={!!state.busy} onPress={() => void sharing.refresh()} />

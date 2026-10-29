@@ -155,7 +155,7 @@ export function Attachments({
               type="button"
               aria-label={`Remove ${item.name}`}
               onClick={item.remove}
-              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink"
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink before:absolute before:-inset-0.5"
             >
               ×
             </button>
@@ -170,7 +170,7 @@ export function Attachments({
               type="button"
               aria-label={`Cancel uploading ${upload.name}`}
               onClick={() => cancelUpload(upload.id)}
-              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink"
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink before:absolute before:-inset-0.5"
             >
               ×
             </button>

@@ -40,7 +40,7 @@ export function MermaidBlock({ code, plain }: { code: string; plain: ReactNode }
   if (drawn?.error)
     return (
       <View style={{ gap: 6 }}>
-        <Text style={{ color: colors.red, fontSize: 13 }}>{`The diagram didn’t draw: ${drawn.error}`}</Text>
+        <Text style={{ color: colors.redInk, fontSize: 13 }}>{`The diagram didn’t draw: ${drawn.error}`}</Text>
         {plain}
       </View>
     );
@@ -118,7 +118,7 @@ export function DiagramSheet() {
           <SvgXml xml={drawn.svg} width={drawn.width * grow} height={drawn.height * grow} />
         </ScrollView>
       ) : (
-        <Text style={{ color: colors.red, padding: 20 }}>{drawn?.error || "This diagram is no longer open."}</Text>
+        <Text style={{ color: colors.redInk, padding: 20 }}>{drawn?.error || "This diagram is no longer open."}</Text>
       )}
     </View>
   );

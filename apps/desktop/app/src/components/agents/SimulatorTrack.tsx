@@ -226,7 +226,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             </p>
           )}
           {list.error && (
-            <p role="alert" className="p-3 text-[13px] text-red">
+            <p role="alert" className="p-3 text-[13px] text-red-ink">
               {list.error}
             </p>
           )}

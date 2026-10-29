@@ -82,7 +82,7 @@ function StatusPill({ on }: { on: boolean }) {
       }}
     >
       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: on ? colors.green : colors.ink3 }} />
-      <Text style={{ color: on ? colors.green : colors.ink3, fontSize: 12, fontWeight: "600" }}>{on ? "On" : "Paused"}</Text>
+      <Text style={{ color: on ? colors.greenInk : colors.ink3, fontSize: 12, fontWeight: "600" }}>{on ? "On" : "Paused"}</Text>
     </View>
   );
 }
@@ -239,7 +239,7 @@ export default function RoutineScreen() {
           <Chip icon={SecurityCheckIcon} text={mode} />
         </ScrollView>
         {times ? <Text style={[styles.caption, { fontSize: 13, paddingHorizontal: 4 }]}>{times}</Text> : null}
-        {problem ? <Text style={{ color: colors.red, fontSize: 13, paddingHorizontal: 4 }}>{problem}</Text> : null}
+        {problem ? <Text style={{ color: colors.redInk, fontSize: 13, paddingHorizontal: 4 }}>{problem}</Text> : null}
         <Text accessibilityRole="header" style={[styles.label, { paddingHorizontal: 4, marginTop: 8 }]}>
           Runs
         </Text>

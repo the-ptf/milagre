@@ -9,7 +9,7 @@ import { useDismiss } from "../../lib/use-dismiss";
 // The PR's review in its diff: GitHub's threads under their lines, and the bar that submits the viewer's pending review.
 
 const STATE_LABEL = { open: "Open", resolved: "Resolved", outdated: "Outdated", pending: "Pending" } as const;
-const STATE_TONE = { open: "text-orange", resolved: "text-ink-3", outdated: "text-ink-3", pending: "text-accent-ink" } as const;
+const STATE_TONE = { open: "text-orange-ink", resolved: "text-ink-3", outdated: "text-ink-3", pending: "text-accent-ink" } as const;
 
 export type ThreadActions = {
   reply: (thread: PullRequestThread, body: string) => Promise<boolean>;
@@ -222,7 +222,7 @@ export function ReviewBar({
                 Submit
               </button>
             </div>
-            {error && <p className="text-[12px] text-red">{error}</p>}
+            {error && <p className="text-[12px] text-red-ink">{error}</p>}
           </div>
         )}
         <div className="flex h-11 items-center gap-2.5 pr-1.5 pl-4">

@@ -125,7 +125,7 @@ export function BabysitSection() {
   const caption = (text: string) => <Text style={styles.caption}>{text}</Text>;
   const saveMark = (mark: SaveState) =>
     mark === "error" ? (
-      <Text accessibilityRole="alert" style={[styles.caption, { color: colors.red }]}>
+      <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk }]}>
         Not saved
       </Text>
     ) : mark === "saving" ? (

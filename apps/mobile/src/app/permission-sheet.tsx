@@ -69,7 +69,7 @@ export default function PermissionSheet() {
               >
                 <PermissionIcon mode={mode.id} size={20} />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={{ color: mode.id === "full" ? colors.orange : colors.ink, fontSize: 16, fontWeight: "500" }}>{mode.name}</Text>
+                  <Text style={{ color: mode.id === "full" ? colors.orangeInk : colors.ink, fontSize: 16, fontWeight: "500" }}>{mode.name}</Text>
                   <Text style={styles.caption}>{mode.description}</Text>
                 </View>
                 {mode.id === current && <Icon icon={Tick02Icon} tone="accent" size={18} />}

@@ -127,7 +127,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
   const { shown, error, busy, signingIn, load, act } = useProjectAccounts(scope);
   if (error)
     return (
-      <p role="alert" className="px-4 py-3 text-[13px] text-red">
+      <p role="alert" className="px-4 py-3 text-[13px] text-red-ink">
         {error}{" "}
         <button className="underline" onClick={() => void load(true)}>
           Retry
@@ -163,7 +163,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
         </div>
         {(missing || needsSignIn) && (
           <div className="flex items-center justify-between gap-3 pl-7">
-            <p className="text-[12px] text-red">
+            <p className="text-[12px] text-red-ink">
               {missing
                 ? "The assigned account is unavailable. Choose another saved account."
                 : `${effective!.email || effective!.label} · ${statusLabel(effective!.state)}`}
@@ -259,7 +259,7 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
             />
           </div>
           {scopeError ? (
-            <p role="alert" className="px-4 py-3 text-[13px] text-red">
+            <p role="alert" className="px-4 py-3 text-[13px] text-red-ink">
               {scopeError}{" "}
               <button className="underline" onClick={() => setScopeReload((value) => value + 1)}>
                 Retry

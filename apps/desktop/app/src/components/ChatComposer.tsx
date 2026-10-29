@@ -1706,7 +1706,7 @@ export function ChatComposer({
             </div>
           </div>
           {newChatError && (
-            <p role="alert" className="mt-2 px-1 text-[12px] text-red">
+            <p role="alert" className="mt-2 px-1 text-[12px] text-red-ink">
               {newChatError}
             </p>
           )}

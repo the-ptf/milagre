@@ -892,7 +892,7 @@ const DesignFrame = memo(function DesignFrame({
         )}
       </div>
       {editError && (
-        <p role="alert" className="max-w-full px-2 text-[12px] text-red">
+        <p role="alert" className="max-w-full px-2 text-[12px] text-red-ink">
           {editError}
         </p>
       )}
