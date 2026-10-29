@@ -482,12 +482,12 @@ export type MilagreBridge = {
     }) => Promise<import("@milagre/shared/git-diff").GitHistory>;
     changes: (request: { cwd: string; base?: string }) => Promise<GitChanges>;
     /** Files changed against HEAD or the comparison branch. With `commit`, compares that immutable SHA with its first parent (or the empty tree). */
-    diffFiles: (request: { cwd: string; base?: string; commit?: string; mode: DiffMode }) => Promise<DiffFilesResult>;
+    diffFiles: (request: { cwd: string; base?: string; commit?: string | null; mode: DiffMode }) => Promise<DiffFilesResult>;
     /** One file's unified patch. Rejects for a path that is absolute or climbs out of the folder. */
     diffFile: (request: {
       cwd: string;
       base?: string;
-      commit?: string;
+      commit?: string | null;
       mode: DiffMode;
       path: string;
       oldPath?: string;

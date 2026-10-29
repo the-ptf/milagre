@@ -121,8 +121,8 @@ function MemberChanges({
           cwd={member.worktreePath}
           base={member.base}
           revision={revision}
-          onOpen={(file, mode, base, commit) => {
-            const target = diffTarget(file, mode, base, { worktreeId: String(chatId), memberId: member.projectId }, commit);
+          onOpen={(file, mode, base, commit, commitParent) => {
+            const target = diffTarget(file, mode, base, { worktreeId: String(chatId), memberId: member.projectId }, commit, commitParent);
             if (onOpen) onOpen(target);
             else router.push({ pathname: "/diff", params: target });
           }}

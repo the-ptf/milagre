@@ -17,6 +17,8 @@ import {
   comparisonBaseMissing,
   withHistoryBranches,
   commitStatsNotice,
+  commitComparisonLabel,
+  diffFileCountLabel,
   type GitBranchCatalog,
   commitInitials,
   comparisonOptions,
@@ -116,7 +118,7 @@ export function ChangeSections({
   base?: string;
   /** Bumped by pull-to-refresh: both lists read again, keeping their folders as they are. */
   revision?: number;
-  onOpen: (file: DiffFileEntry, mode: DiffMode, base: string | null, commit?: string) => void;
+  onOpen: (file: DiffFileEntry, mode: DiffMode, base: string | null, commit?: string, commitParent?: string | null) => void;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -301,8 +303,13 @@ export function ChangeSections({
           <Text style={styles.label}>Back to commits</Text>
         </Pressable>
         <Text style={styles.label}>{commitFiles.commit.message.split("\n")[0]}</Text>
-        <Text style={styles.caption}>{commitFiles.commit.sha.slice(0, 8)} · Compared with first parent</Text>
-        <CommitFiles client={client} cwd={cwd} sha={commitFiles.commit.sha} onOpen={(file) => onOpen(file, "committed", null, commitFiles.commit.sha)} />
+        <Text style={styles.caption}>{commitFiles.commit.sha.slice(0, 8)}</Text>
+        <CommitFiles
+          client={client}
+          cwd={cwd}
+          sha={commitFiles.commit.sha}
+          onOpen={(file, parent) => onOpen(file, "committed", null, commitFiles.commit.sha, parent)}
+        />
       </>
     );
   if (view === "commits" && !unavailable)
@@ -459,7 +466,17 @@ function CommitCard({ commit, onShowFiles }: { commit: GitCommit; onShowFiles?: 
   );
 }
 
-function CommitFiles({ client, cwd, sha, onOpen }: { client: Client | null; cwd: string; sha: string; onOpen: (file: DiffFileEntry) => void }) {
+function CommitFiles({
+  client,
+  cwd,
+  sha,
+  onOpen,
+}: {
+  client: Client | null;
+  cwd: string;
+  sha: string;
+  onOpen: (file: DiffFileEntry, parent?: string | null) => void;
+}) {
   const styles = useStyles();
   const screenActive = useScreenActive();
   const shown = useContext(ChangesShownContext);
@@ -471,9 +488,11 @@ function CommitFiles({ client, cwd, sha, onOpen }: { client: Client | null; cwd:
   if (data.commit !== sha) return <Text style={styles.muted}>This computer needs an update to show files in a commit.</Text>;
   return (
     <View style={{ gap: 8 }}>
-      <Text style={styles.caption}>{data.files.length} files</Text>
+      <Text style={styles.caption}>
+        {diffFileCountLabel(data)} · {commitComparisonLabel(data.commitParent)}
+      </Text>
       {!data.files.length && <Text style={styles.muted}>No changes in this commit.</Text>}
-      <ChangeTree nodes={buildDiffTree(data.files)} depth={0} onOpen={onOpen} />
+      <ChangeTree nodes={buildDiffTree(data.files)} depth={0} onOpen={(file) => onOpen(file, data.commitParent)} />
     </View>
   );
 }
@@ -485,10 +504,12 @@ export function diffTarget(
   base: string | null,
   where: { worktreeId: string; memberId?: string },
   commit?: string,
+  commitParent?: string | null,
 ): DiffTarget {
   return {
     ...where,
     ...(commit ? { commit } : {}),
+    ...(commitParent !== undefined ? { commitParent: commitParent ?? "" } : {}),
     mode,
     path: file.path,
     status: file.status,

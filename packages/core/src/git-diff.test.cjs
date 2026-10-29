@@ -486,6 +486,7 @@ test("commit inspection supports the root commit and compares merges to their fi
   const root = git("rev-parse", "HEAD").trim();
   const initial = await diff.listDiffFiles({ cwd, mode: "committed", commit: root });
   assert.equal(initial.files.length, 3);
+  assert.equal(initial.commitParent, null);
   assert.ok(initial.files.every((file) => file.status === "added"));
   const patch = await diff.readDiffFile({ cwd, mode: "committed", commit: root, path: "README.md" });
   assert.match(patch.patch, /\+one/);
@@ -500,6 +501,7 @@ test("commit inspection supports the root commit and compares merges to their fi
   git("merge", "--no-ff", "side", "-m", "merge");
   const commit = git("rev-parse", "HEAD").trim();
   const merged = await diff.listDiffFiles({ cwd, mode: "committed", commit });
+  assert.equal(merged.commitParent, git("rev-parse", "HEAD^1").trim());
   assert.deepEqual(
     merged.files.map((file) => file.path),
     ["side.txt"],
@@ -513,4 +515,59 @@ test("commit inspection rejects refs, options, nonexistent commits and the uncom
     await assert.rejects(diff.readDiffFile({ cwd, mode: "committed", commit, path: "README.md" }));
   }
   await assert.rejects(diff.listDiffFiles({ cwd, mode: "uncommitted", commit: git("rev-parse", "HEAD").trim() }));
+});
+
+test("null commit behaves like an omitted commit for lists, tracked patches, and untracked patches", async (t) => {
+  const { cwd, write, diff } = await fixture(t);
+  await write("README.md", "changed\n");
+  await write("new.txt", "untracked\n");
+  for (const mode of ["uncommitted", "committed"]) {
+    const request = { cwd, base: "main", mode };
+    assert.deepEqual(await diff.listDiffFiles({ ...request, commit: null }), await diff.listDiffFiles(request));
+    assert.deepEqual(await diff.readDiffFile({ ...request, path: "README.md", commit: null }), await diff.readDiffFile({ ...request, path: "README.md" }));
+  }
+  const request = { cwd, mode: "uncommitted", path: "new.txt", untracked: true };
+  assert.deepEqual(await diff.readDiffFile({ ...request, commit: null }), await diff.readDiffFile(request));
+  assert.match((await diff.readDiffFile({ ...request, commit: null })).patch, /\+untracked/);
+});
+
+test("lists report truncation only when files were omitted, including untracked files", async (t) => {
+  const { cwd, git } = await fixture(t);
+  const commit = git("rev-parse", "HEAD").trim();
+  const real = require("node:child_process").execFile;
+  for (const size of [1000, 1001]) {
+    const names = Array.from({ length: size }, (_, index) => `file-${index}.txt`);
+    const diff = createGitDiff({
+      execFile: (cmd, args, options, callback) => {
+        if (args.includes("--name-status")) return callback(null, names.map((name) => `A\0${name}\0`).join(""), "");
+        if (args.includes("--numstat")) return callback(null, names.map((name) => `1\t0\t${name}\0`).join(""), "");
+        return real(cmd, args, options, callback);
+      },
+    });
+    const listed = await diff.listDiffFiles({ cwd, mode: "committed", commit });
+    assert.equal(listed.files.length, 1000);
+    assert.equal(!!listed.truncated, size > 1000);
+  }
+  const untracked = createGitDiff({
+    execFile: (cmd, args, options, callback) => {
+      if (args.includes("--name-status")) return callback(null, Array.from({ length: 1000 }, (_, index) => `A\0file-${index}.txt\0`).join(""), "");
+      if (args.includes("--numstat")) return callback(null, "", "");
+      if (args.includes("ls-files")) return callback(null, "extra.txt\0", "");
+      return real(cmd, args, options, callback);
+    },
+  });
+  assert.equal((await untracked.listDiffFiles({ cwd, mode: "uncommitted" })).truncated, true);
+});
+
+test("file list Git errors and timeouts reject instead of appearing as an empty comparison", async (t) => {
+  const { cwd } = await fixture(t);
+  const real = require("node:child_process").execFile;
+  for (const field of ["--name-status", "--numstat"]) {
+    for (const failure of [Object.assign(new Error("Git failed"), { code: 128 }), Object.assign(new Error("Read timed out"), { killed: true })]) {
+      const diff = createGitDiff({
+        execFile: (cmd, args, options, callback) => (args.includes(field) ? callback(failure, "", failure.message) : real(cmd, args, options, callback)),
+      });
+      await assert.rejects(diff.listDiffFiles({ cwd, mode: "uncommitted" }), new RegExp(failure.message));
+    }
+  }
 });

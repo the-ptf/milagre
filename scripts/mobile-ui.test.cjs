@@ -15594,6 +15594,8 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   let picker;
   let deleted = false;
   let unrelated = false;
+  let rootCommit = false;
+  let truncatedCommitFiles = false;
   let legacyCommitFiles = false;
   let commitFilesError = "";
   let phoneClient = {};
@@ -15657,6 +15659,8 @@ test("phone changes choose a comparison branch and keep its base when opening a 
               : {
                   isRepo: true,
                   commit: legacyCommitFiles ? undefined : request.commit,
+                  commitParent: rootCommit ? null : "b".repeat(40),
+                  truncated: truncatedCommitFiles,
                   base: request.mode === "committed" ? base : null,
                   files: request.mode === "committed" ? [file] : [],
                 },
@@ -15693,12 +15697,21 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
   find(tree, (node) => node.type === CommitCard).props.onShowFiles();
   tree = render();
-  assert.ok(textOf(tree).includes("Compared with first parent"));
+  assert.ok(textOf(tree).includes(commit.sha.slice(0, 8)));
   const commitFiles = find(tree, (node) => node.type?.name === "CommitFiles");
   const filesTree = commitFiles.type(commitFiles.props);
   assert.equal(calls.findLast((call) => call.method === "git:diff-files").request.commit, commit.sha);
   find(filesTree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
-  assert.deepEqual(opened[1], [file, "committed", null, commit.sha]);
+  assert.deepEqual(opened[1], [file, "committed", null, commit.sha, "b".repeat(40)]);
+  assert.ok(textOf(filesTree).includes("Compared with first parent"));
+  rootCommit = true;
+  truncatedCommitFiles = true;
+  const rootFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(rootFiles).includes("First commit"));
+  assert.ok(textOf(rootFiles).includes("1+ files"));
+  assert.equal(textOf(rootFiles).includes("Compared with first parent"), false);
+  rootCommit = false;
+  truncatedCommitFiles = false;
   legacyCommitFiles = true;
   const legacyFiles = commitFiles.type(commitFiles.props);
   assert.ok(textOf(legacyFiles).includes("needs an update"));
@@ -15712,6 +15725,8 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   commitFilesError = "";
   const { diffTarget } = load("change-tree.tsx", modules);
   assert.equal(diffTarget(file, "committed", null, { worktreeId: "1", memberId: "project" }, commit.sha).commit, commit.sha);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, null).commitParent, "");
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, "b".repeat(40)).commitParent, "b".repeat(40));
 
   find(tree, (node) => node.type === "Pressable" && textOf(node) === "Back to commits").props.onPress();
   tree = render();
@@ -15902,6 +15917,7 @@ test("phone commit diffs preserve their SHA and member scope when reading the pa
   const { DiffView } = load("app/diff.tsx", {
     react: { ...react, memo: (component) => component },
     "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
     "react-native": { FlatList: "FlatList", Text: "Text", View: "View" },
     "expo-router": { Redirect: "Redirect", Stack: "Stack", useLocalSearchParams: () => ({}) },
     "../display-clock": { useScreenActive: () => true },
@@ -15933,4 +15949,13 @@ test("phone commit diffs preserve their SHA and member scope when reading the pa
   assert.equal(calls[0].request.commit, commit);
   assert.equal(calls[0].request.path, "old.txt");
   assert.ok(textOf(tree.props.ListHeaderComponent).includes("Commit aaaaaaaa"));
+  for (const [commitParent, expected] of [
+    ["", "First commit"],
+    ["b".repeat(40), "Compared with first parent"],
+    [undefined, "Commit changes"],
+  ]) {
+    react.begin();
+    const view = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit, commitParent } });
+    assert.ok(textOf(view.props.ListHeaderComponent).includes(expected));
+  }
 });
