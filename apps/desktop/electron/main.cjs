@@ -32,6 +32,7 @@ const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-backgroun
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
 const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests } = require("./browser-guests.cjs");
+const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
@@ -194,6 +195,13 @@ async function startDesktop() {
       ?.invoke("app-update:auto:read", [])
       .then((value) => updates.setAuto(value?.autoUpdate === true))
       .catch(() => updates.setAuto(false));
+  // The Browser panel's pages, served to this Mac's host over a loopback DevTools endpoint for the pill, the phone and
+  // the agent. An older host has no such command; its pages simply stay in the panel.
+  const panelPages = createBrowserPanelPages({
+    fromId: (id) => require("electron").webContents.fromId(id),
+    publish: (request) => (runtime ? runtime.invoke("browser:panel-pages", [request]) : Promise.reject(new Error("No host"))),
+  });
+  ipcMain.handle("browser-panel:pages", (event, list) => panelPages.setPages(event.sender, list));
   // The keys caught from every frame follow this Mac's keybindings.json; an older host has none, so the defaults stay.
   const readKeybindings = () =>
     void runtime
@@ -386,6 +394,7 @@ async function startDesktop() {
             nativeCommands.publish();
             readAutoUpdate();
             readKeybindings();
+            panelPages.republish();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }

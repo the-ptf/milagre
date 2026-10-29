@@ -27,6 +27,8 @@ type Page = {
   shownAt: number;
   /** The comment pins this page shows, put back after every load. */
   pins: PagePin[];
+  /** Viewed from the phone or the pill: parked where it still paints. */
+  viewed: boolean;
 };
 
 const pages = new Map<string, Page>();
@@ -59,10 +61,12 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
   const overlay = document.createElement("div");
   overlay.dataset.browserOverlay = tabId;
   Object.assign(overlay.style, { position: "absolute", inset: "0", pointerEvents: "none" });
-  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [] };
+  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [], viewed: false };
   const history = () => ({ canGoBack: safe(() => webview.canGoBack(), false), canGoForward: safe(() => webview.canGoForward(), false) });
   webview.addEventListener("dom-ready", () => {
+    const before = page.contentsId;
     page.contentsId = safe(() => webview.getWebContentsId(), null);
+    if (page.contentsId !== before) reportPages();
     // A new document starts without pins.
     pinned.delete(page);
     applyPins(page);
@@ -111,6 +115,13 @@ function safe<T>(read: () => T, fallback: T): T {
 function destroyPage(page: Page) {
   page.surface.remove();
   pages.delete(page.tabId);
+  reportPages();
+}
+
+/** Tells main which webview is which Chat's, so the host can serve the pages to the pill, the phone and the agent. */
+function reportPages() {
+  const list = [...pages.values()].flatMap((page) => (page.contentsId ? [{ contentsId: page.contentsId, chatKey: page.chatKey }] : []));
+  void window.milagreBrowserPanel?.setPages?.(list).catch(() => {});
 }
 
 /** The webview of a tab, if its page is alive. */
@@ -131,8 +142,13 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
   for (const page of pages.values()) if (!wanted.has(page.tabId)) destroyPage(page);
 }
 
+/**
+ * Takes a page off screen. One viewed from the phone or the pill stays in the window at its size instead, invisible
+ * and letting clicks through: off screen, Chromium stops painting it and the viewer would get no frames.
+ */
 function park(page: Page) {
-  Object.assign(page.surface.style, PARKED, { pointerEvents: "none" });
+  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none" });
+  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none" });
 }
 
 function place() {
@@ -148,6 +164,7 @@ function place() {
   const style = page.surface.style;
   const next = { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` };
   if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
+  style.opacity = "1";
   style.pointerEvents = "auto";
 }
 
@@ -219,9 +236,16 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
     else if (key === "w") closeBrowserTab(page.chatKey, page.tabId);
     else onKey(page.chatKey, page.tabId, key);
   });
+  const offViewed = bridge.onViewed?.(({ from, viewed }) => {
+    const page = pageOfContents(from);
+    if (!page) return;
+    page.viewed = viewed;
+    if (shown?.tabId !== page.tabId) park(page);
+  });
   return () => {
     offTab();
     offKey();
+    offViewed?.();
   };
 }
 

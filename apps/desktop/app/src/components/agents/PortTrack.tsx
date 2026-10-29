@@ -7,12 +7,13 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { PillMorph } from "../motion/PillMorph";
+import { opensInPanel } from "../../lib/link-target";
 
 /**
  * The ports the chat's commands listen on: a "Ports n" pill that grows in place into their list (see PillMorph).
  * A row opens the port in the browser; its stop button ends the command behind it.
  */
-/** `onOpen`, when set, opens this Mac's ports in the Chat's Browser panel; ⌘-click still opens them in the user's browser. */
+/** `onOpen`, when set, opens this Mac's ports in the Chat's Browser panel when Settings › Browser says so; ⌘-click opens the other one. */
 export function PortTrack({
   ports: listed,
   onStop,
@@ -108,7 +109,7 @@ export function PortTrack({
                       rel="noopener noreferrer"
                       title={`Open ${url}`}
                       onClick={(event) => {
-                        if (!onOpen || computer || !url || event.metaKey || event.ctrlKey) return;
+                        if (!onOpen || computer || !url || !opensInPanel(event)) return;
                         event.preventDefault();
                         setOpened(false);
                         onOpen(url);

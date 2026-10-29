@@ -8,7 +8,7 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { PillMorph } from "../motion/PillMorph";
 import { viewerTheme } from "./viewerTheme";
-import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
+import { isRemoteKey, onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 
 const POLL_MS = 15_000;
@@ -42,7 +42,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     if (!api || !chatId || document.hidden) return;
     try {
       const next = await api.list({ chatId });
-      if (mounted.current) setList(next);
+      if (mounted.current) setList(withoutOwnPanel(next, chatId));
     } catch (error) {
       if (mounted.current) setList((current) => ({ ...current, error: ipcErrorMessage(error) }));
     } finally {
@@ -114,7 +114,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     setAttaching(browserId);
     try {
       const next = await api.attach({ chatId, browserId });
-      if (mounted.current) setList(next);
+      if (mounted.current) setList(withoutOwnPanel(next, chatId));
     } catch (error) {
       if (mounted.current) setList((current) => ({ ...current, error: ipcErrorMessage(error) }));
     } finally {
@@ -127,7 +127,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     try {
       const next = await api.detach({ chatId, browserId });
       if (mounted.current) {
-        setList(next);
+        setList(withoutOwnPanel(next, chatId));
         if (selected && selected.id.startsWith(`${browserId}:`)) {
           setSelected(null);
           setPage(null);
@@ -351,4 +351,13 @@ function BrowserFrame({
       className="min-h-0 w-full flex-1 border-0 bg-surface"
     />
   );
+}
+
+/**
+ * This Mac's own Browser panel pages are on screen in the panel already; the pill lists them only for a Chat on another
+ * computer, whose panel this window doesn't show. The phone lists them all.
+ */
+function withoutOwnPanel(list: BrowserList, chatId: string | null | undefined): BrowserList {
+  if (isRemoteKey(chatId)) return list;
+  return { ...list, targets: list.targets.filter((target) => target.source !== "panel") };
 }

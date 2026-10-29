@@ -795,6 +795,10 @@ declare global {
       onOpenTab: (callback: (request: { from: number; url: string }) => void) => () => void;
       /** ⌘L, ⌘R or ⌘W pressed inside the page with webContents id `from`. */
       onKey: (callback: (request: { from: number; key: "l" | "r" | "w" }) => void) => () => void;
+      /** A page with webContents id `from` started or stopped being viewed from the phone or the pill. */
+      onViewed?: (callback: (request: { from: number; viewed: boolean }) => void) => () => void;
+      /** The panel's pages in this window, each webview's webContents id and its Chat, for the host's browser service. */
+      setPages: (pages: { contentsId: number; chatKey: string }[]) => Promise<void>;
       /** A PNG data URL of part of the page with webContents id `contentsId`, in its CSS pixels; null if it is gone. */
       capture: (contentsId: number, rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>;
     };

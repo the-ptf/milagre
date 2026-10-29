@@ -1,4 +1,4 @@
-const { randomBytes } = require("node:crypto");
+const { createHash, randomBytes } = require("node:crypto");
 
 // A browser belongs to a Chat on evidence only: its browser process descends from that Chat's agent
 // process (lineage), or the user attached it to the Chat. Names, titles and URLs never decide it.
@@ -115,6 +115,10 @@ function createBrowsers(options = {}) {
   // browserId -> { chatId, pid }: the Chat whose agent started it, kept until that browser exits.
   const lineage = new Map();
   const attachments = new Map();
+  // A desktop's Browser panel pages, by the desktop connection that registered them (setPanelPages): its loopback
+  // DevTools endpoint and each page with the Chat whose panel shows it. The panel opening a page is the ownership
+  // evidence, like lineage; the desktop disconnecting takes them away.
+  const panels = new Map();
   let closed = false,
     queue = Promise.resolve(),
     pending = 0,
@@ -180,17 +184,40 @@ function createBrowsers(options = {}) {
     })();
     return discovering;
   }
+  /** Each Chat's Browser panel pages, as one browser that Chat owns. */
+  function panelBrowsers() {
+    const browsers = [];
+    for (const [owner, panel] of panels) {
+      const byChat = new Map();
+      for (const page of panel.pages) byChat.set(page.chatId, [...(byChat.get(page.chatId) ?? []), page]);
+      for (const [chatId, pages] of byChat)
+        browsers.push({
+          id: `panel-${createHash("sha256").update(`${owner}\0${chatId}`).digest("hex").slice(0, 24)}`,
+          pid: 0,
+          host: "127.0.0.1",
+          port: panel.port,
+          prefix: panel.prefix,
+          product: "Browser panel",
+          owner: chatId,
+          panel: true,
+          pages: pages.map(({ id, title, url }) => ({ id, title, url })),
+        });
+    }
+    return browsers;
+  }
+  const allBrowsers = (world) => [...world.browsers, ...panelBrowsers()];
   /** Whether a page can belong to this Chat now: its agent runs, or a browser was attached to it or started by its agent. */
   function mayOwn(chatId) {
     if (attachments.has(chatId) || roots().has(chatId)) return true;
+    for (const panel of panels.values()) if (panel.pages.some((page) => page.chatId === chatId)) return true;
     for (const known of lineage.values()) if (known.chatId === chatId) return true;
     return false;
   }
   function view(world, chatId) {
     const targets = [],
       others = [];
-    for (const browser of world.browsers) {
-      const owner = lineage.get(browser.id)?.chatId;
+    for (const browser of allBrowsers(world)) {
+      const owner = browser.owner ?? lineage.get(browser.id)?.chatId;
       if (owner === chatId || attachments.get(chatId)?.has(browser.id)) {
         for (const page of browser.pages)
           targets.push({
@@ -198,7 +225,7 @@ function createBrowsers(options = {}) {
             title: String(page.title ?? "").slice(0, 300),
             url: String(page.url ?? "").slice(0, 2048),
             browser: browser.product,
-            source: owner === chatId ? "agent" : "attached",
+            source: browser.panel ? "panel" : owner === chatId ? "agent" : "attached",
           });
       } else if (!owner)
         others.push({ id: browser.id, browser: browser.product, pages: browser.pages.length, title: String(browser.pages[0]?.title ?? "").slice(0, 300) });
@@ -342,7 +369,7 @@ function createBrowsers(options = {}) {
         if (!match) throw new Error("Unknown browser page. Choose another page.");
         const world = await snapshot();
         const target = view(world, chatId).targets.find((item) => item.id === request.targetId);
-        const browser = world.browsers.find((item) => item.id === match[1]);
+        const browser = allBrowsers(world).find((item) => item.id === match[1]);
         if (!target || !browser) throw new Error("This page is not available in this Chat. Choose another page.");
         let capture = captures.get(target.id);
         if (capture && metadata(capture).error) {
@@ -473,7 +500,38 @@ function createBrowsers(options = {}) {
         return null;
       });
     },
+    /**
+     * What a desktop's Browser panel shows: its DevTools endpoint (cdp-proxy.cjs) and each page with its Chat. Replaces
+     * what that desktop registered before; an empty list takes its pages away, and viewers of a page that went close.
+     */
+    async setPanelPages(request, owner) {
+      if (typeof owner !== "string" || !owner || owner.length > 1024) throw new Error("A trusted desktop connection is required.");
+      const pages = Array.isArray(request?.pages) ? request.pages : [];
+      if (pages.length > 128) throw new Error("Too many Browser panel pages.");
+      if (!pages.length) panels.delete(owner);
+      else {
+        const port = request?.port;
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || typeof request.prefix !== "string" || !/^\/[a-f0-9]{48}$/.test(request.prefix))
+          throw new Error("Invalid Browser panel endpoint.");
+        panels.set(owner, {
+          port,
+          prefix: request.prefix,
+          pages: pages.map((page) => {
+            if (typeof page?.id !== "string" || !/^[A-F0-9]{32}$/.test(page.id)) throw new Error("Invalid Browser panel page.");
+            if (typeof page.chatId !== "string" || !page.chatId || page.chatId.length > 1024) throw new Error("A Browser panel page names its Chat.");
+            return { id: page.id, chatId: page.chatId, title: String(page.title ?? "").slice(0, 300), url: String(page.url ?? "").slice(0, 2048) };
+          }),
+        });
+      }
+      const live = new Set(panelBrowsers().flatMap((browser) => browser.pages.map((page) => `${browser.id}:${page.id}`)));
+      return serial(async () => {
+        // A copy: removing a viewer awaits channel cleanup.
+        for (const v of Array.from(viewers.values())) if (v.capture.key.startsWith("panel-") && !live.has(v.capture.key)) await remove(v);
+        return { pages: pages.length };
+      });
+    },
     disconnect(owner) {
+      panels.delete(owner);
       const state = owners.get(owner);
       if (state) {
         state.dead = true;
