@@ -88,3 +88,38 @@ test("under a tenth free is low, a disk not measured yet spins, an unreadable di
   assert.equal(partOpacity(0), 1);
   assert.equal(partOpacity(40), partOpacity(5), "past the last shade, the last one");
 });
+
+test("rounding carries into the next unit", () => {
+  assert.equal(formatMemory(999.96 * 1024 ** 2), "1000 MB", "still under 1 GB in binary units");
+  assert.equal(formatMemory(1023.7 * 1024 ** 2), "1 GB");
+  assert.equal(formatDisk(999.96e9), "1 TB");
+  assert.equal(formatDisk(999_600), "1 MB");
+  assert.equal(formatMemory(Number.NaN), "0 KB");
+});
+
+test("an answer this version can't read gives no rows instead of throwing, and unknown parts are left out", () => {
+  const read = resourceGauges as (value: unknown) => ReturnType<typeof resourceGauges>;
+  assert.equal(read({ disk: null }), null);
+  assert.equal(read({ memory: null, disk: null }), null);
+  assert.equal(read({ memory: { total: 1024, milagre: 0 }, disk: null }), null, "no available memory");
+  assert.equal(read(null), null);
+  const odd = read({
+    memory: { total: 100, available: 50, milagre: 10, parts: "x" },
+    disk: { total: "big", available: 1, milagre: null, measuredAt: null, measuring: false },
+  });
+  assert.deepEqual(odd?.memory.parts, []);
+  assert.equal(odd?.disk, null, "a disk without numbers has no row");
+  const mixed = read({
+    memory: {
+      total: 100,
+      available: 50,
+      milagre: 10,
+      parts: [null, { kind: "gpu", bytes: 5, count: 0 }, { kind: "app", bytes: Number.NaN, count: 0 }, { kind: "claude", bytes: 10, count: 1 }],
+    },
+    disk: null,
+  });
+  assert.deepEqual(
+    mixed?.memory.parts.map((part) => part.label),
+    ["Claude · 1 agent"],
+  );
+});

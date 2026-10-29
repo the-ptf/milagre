@@ -5,6 +5,7 @@ import {
   BREAKDOWN_TITLE,
   MEASURING_TOOLTIP,
   RESOURCES_REFRESH_MS,
+  UNREADABLE,
   partOpacity,
   resourceGauges,
   type ComputerResources,
@@ -153,16 +154,19 @@ function ComputerResourceRow({ computer, open, onToggle }: { computer: ResourceC
   const icon = isDesktop(computer.name) ? ComputerIcon : LaptopIcon;
   // An older Milagre answers with an unknown command.
   const older = error !== null && /unknown|not (available|allowed|supported)|no handler/i.test(error);
-  if (!computer.online || (!gauges && error)) {
+  const unreadable = resources !== null && gauges === null;
+  if (!computer.online || (!gauges && (error || unreadable))) {
     return (
       <div data-computer-resources={computer.name} className={`${COLUMNS} px-4 py-3 ${computer.online ? "" : "opacity-70"}`}>
         <Who computer={computer} icon={icon} />
         <span className="col-span-2 truncate text-12 text-ink-3">
           {!computer.online
             ? (computer.seen ?? "Offline")
-            : older
-              ? `Milagre on ${computer.name} can't report memory and disk yet. Update it to see them.`
-              : `Couldn't read: ${error}`}
+            : unreadable
+              ? UNREADABLE
+              : older
+                ? `Milagre on ${computer.name} can't report memory and disk yet. Update it to see them.`
+                : `Couldn't read: ${error}`}
         </span>
         <span />
       </div>

@@ -57,6 +57,8 @@ export type ResourceGauge = {
 
 export const BREAKDOWN_TITLE = "What Milagre uses";
 export const MEASURING_TOOLTIP = "Measuring Milagre's folders";
+/** What a row says when the host's answer can't be read. */
+export const UNREADABLE = "Couldn't read this computer's memory and disk.";
 const LOW_SHARE = 0.1;
 
 function format(bytes: number, unit: number): string {
@@ -67,14 +69,19 @@ function format(bytes: number, unit: number): string {
     value /= unit;
     index += 1;
   }
-  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  let rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  // 999.96 MB rounds to 1000: that is 1 GB.
+  if (rounded >= unit && index < units.length - 1) {
+    index += 1;
+    rounded = Math.round((value / unit) * 10) / 10;
+  }
   return `${rounded} ${units[index]}`;
 }
 
 /** Memory in binary units, as Activity Monitor shows it: 24 GB for a 24 GB Mac. */
-export const formatMemory = (bytes: number) => format(Math.max(0, bytes), 1024);
+export const formatMemory = (bytes: number) => format(Number.isFinite(bytes) ? Math.max(0, bytes) : 0, 1024);
 /** Disk in decimal units, as Finder shows it. */
-export const formatDisk = (bytes: number) => format(Math.max(0, bytes), 1000);
+export const formatDisk = (bytes: number) => format(Number.isFinite(bytes) ? Math.max(0, bytes) : 0, 1000);
 
 function shares(total: number, available: number, milagre: number | null) {
   if (!(total > 0)) return { milagre: 0, other: 0, free: 1 };
@@ -84,6 +91,7 @@ function shares(total: number, available: number, milagre: number | null) {
   return { milagre: ours / total, other: (total - free - ours) / total, free: free / total };
 }
 
+const PART_KINDS = new Set<string>(["claude", "codex", "antigravity", "terminals", "app", "worktrees", "data"]);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 function partLabel({ kind, count }: ResourcePart): string {
@@ -106,7 +114,9 @@ function partLabel({ kind, count }: ResourcePart): string {
 }
 
 function gaugeParts(parts: ResourcePart[] | null | undefined, milagreShare: number, formatBytes: (bytes: number) => string): GaugePart[] {
-  const known = (parts ?? []).filter((part) => part.bytes > 0);
+  const known = (Array.isArray(parts) ? parts : []).filter(
+    (part): part is ResourcePart => Boolean(part) && PART_KINDS.has(part.kind) && Number.isFinite(part.bytes) && part.bytes > 0,
+  );
   const sum = known.reduce((total, part) => total + part.bytes, 0);
   if (!sum) return [];
   const sorted = [...known];
@@ -121,8 +131,16 @@ function gaugeParts(parts: ResourcePart[] | null | undefined, milagreShare: numb
   }));
 }
 
-export function resourceGauges(resources: ComputerResources): { memory: ResourceGauge; disk: ResourceGauge | null } {
-  const { memory, disk } = resources;
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+
+/**
+ * The rows for one answer, or null when the answer isn't one this version can read (a broken or newer host): the row
+ * then says it couldn't read, instead of the page failing.
+ */
+export function resourceGauges(resources: ComputerResources | null | undefined): { memory: ResourceGauge; disk: ResourceGauge | null } | null {
+  const memory = resources?.memory;
+  if (!memory || !finite(memory.total) || !finite(memory.available) || (memory.milagre !== null && !finite(memory.milagre))) return null;
+  const disk = resources.disk && finite(resources.disk.total) && finite(resources.disk.available) ? resources.disk : null;
   const memoryShares = shares(memory.total, memory.available, memory.milagre);
   const memoryGauge: ResourceGauge = {
     kind: "memory",
@@ -140,8 +158,9 @@ export function resourceGauges(resources: ComputerResources): { memory: Resource
     parts: gaugeParts(memory.parts, memoryShares.milagre, formatMemory),
   };
   if (!disk) return { memory: memoryGauge, disk: null };
-  const diskShares = shares(disk.total, disk.available, disk.milagre);
-  const measuring = disk.milagre === null;
+  const diskMilagre = finite(disk.milagre) ? disk.milagre : null;
+  const diskShares = shares(disk.total, disk.available, diskMilagre);
+  const measuring = diskMilagre === null;
   return {
     memory: memoryGauge,
     disk: {
@@ -151,8 +170,8 @@ export function resourceGauges(resources: ComputerResources): { memory: Resource
       low: disk.total > 0 && disk.available / disk.total < LOW_SHARE,
       measuring,
       shares: diskShares,
-      tooltip: measuring ? MEASURING_TOOLTIP : `Milagre ${formatDisk(disk.milagre ?? 0)} · Everything else ${formatDisk(diskShares.other * disk.total)}`,
-      milagre: measuring ? null : formatDisk(disk.milagre ?? 0),
+      tooltip: measuring ? MEASURING_TOOLTIP : `Milagre ${formatDisk(diskMilagre ?? 0)} · Everything else ${formatDisk(diskShares.other * disk.total)}`,
+      milagre: measuring ? null : formatDisk(diskMilagre ?? 0),
       context: `of ${formatDisk(disk.total)} disk`,
       parts: gaugeParts(disk.parts, diskShares.milagre, formatDisk),
     },

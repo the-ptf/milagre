@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { HardDriveIcon, RamMemoryIcon } from "@hugeicons/core-free-icons";
-import { BREAKDOWN_TITLE, MEASURING_TOOLTIP, partOpacity, resourceGauges, type ResourceGauge } from "@milagre/shared/computer-resources";
+import { BREAKDOWN_TITLE, MEASURING_TOOLTIP, UNREADABLE, partOpacity, resourceGauges, type ResourceGauge } from "@milagre/shared/computer-resources";
 import { useSession } from "../../session";
 import { useComputerStatus } from "../../use-computer-status";
 import { useComputerResources } from "../../computer-resources-group";
@@ -60,21 +61,25 @@ export default function ComputerUsageScreen() {
   const session = useSession();
   const { id } = useLocalSearchParams<{ id: string }>();
   const host = session.hosts.find((saved) => saved.id === id);
-  const status = useComputerStatus(host ? [host] : []);
+  // One list per host: a fresh array each render would restart the status check after every answer, in a loop.
+  const hosts = useMemo(() => (host ? [host] : []), [host]);
+  const status = useComputerStatus(hosts);
   const online = host ? status[host.id] !== "offline" : false;
   const { resources, error } = useComputerResources(host, online);
-  const gauges = resources ? resourceGauges(resources) : null;
+  const gauges = resources && online ? resourceGauges(resources) : null;
   return (
     <>
       <Stack.Screen options={{ title: BREAKDOWN_TITLE }} />
       <PageScroll>
-        {gauges ? (
+        {!online ? (
+          <Text style={{ color: colors.ink3, fontSize: type.subheadline, paddingVertical: 16 }}>Offline</Text>
+        ) : gauges ? (
           <View style={{ gap: 22 }}>
             <PartsCard gauge={gauges.memory} />
             {gauges.disk ? <PartsCard gauge={gauges.disk} /> : null}
           </View>
-        ) : error ? (
-          <ErrorNotice message={error} />
+        ) : error || resources ? (
+          <ErrorNotice message={error || UNREADABLE} />
         ) : (
           <ActivityIndicator color={colors.ink3} style={{ marginTop: 24 }} />
         )}
