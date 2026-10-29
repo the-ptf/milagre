@@ -6,7 +6,7 @@ import type { MilagreBridge } from "../../electron";
 type ResourcesState = { resources: ComputerResources | null; error: string | null };
 
 /** A computer's memory and disk, read again every 15 seconds while shown. */
-export function useComputerResources(bridge: Pick<MilagreBridge, "readComputerResources">, enabled = true): ResourcesState {
+function useComputerResources(bridge: Pick<MilagreBridge, "readComputerResources">, enabled = true): ResourcesState {
   const [state, setState] = useState<ResourcesState>({ resources: null, error: null });
   useEffect(() => {
     if (!enabled) return;
