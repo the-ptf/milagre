@@ -2323,7 +2323,9 @@ function createRuntime(options) {
 
   commands.handle("project:current", async () => {
     const target = await launchProject(recentProjects(), cwd);
-    return target ? openProject(target) : null;
+    if (target) return openProject(target);
+    // Onboarding skipped to a Chat without a Project: that Chat opens again, instead of onboarding.
+    return (await chatsHome.exists()) ? openProject(chatsHome.path, { remember: false, register: false }) : null;
   });
 
   // Chats a quit stopped continue on launch in every recent project, not only the one on screen.

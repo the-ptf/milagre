@@ -2836,6 +2836,10 @@ function App() {
           setFirstChat(opened.path);
           adoptProject(opened);
         }}
+        onSkip={() => {
+          setOnboarding(false);
+          void newChatWithoutProject();
+        }}
       />
     );
 
