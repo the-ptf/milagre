@@ -272,6 +272,8 @@ function makeBridge(invoke, listen, send) {
     listDirs: (request) => invoke("fs:list-dirs", request),
     readMedia: (request) => invoke("media:read", request),
     listRecentProjects: () => invoke("project:recent"),
+    /** Every Project the computer knows, for the new-chat picker; the sidebar keeps to the recent ones. */
+    listKnownProjects: () => invoke("project:known"),
     listAgentFolders: () => invoke("onboarding:agent-folders"),
     createProject: (name) => invoke("onboarding:create", name),
     cloneProject: (url) => invoke("onboarding:clone", url),

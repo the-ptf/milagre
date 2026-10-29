@@ -720,6 +720,31 @@ test("project:recent names each Project's Git origin, so other computers can sho
   assert.equal(entry.origin, "github.com/the-ptf/milagre-ade");
 });
 
+test("project:known offers every Project the Mac knows, past the recent list's ten, newest first with its origin", async (t) => {
+  const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:The-PTF/milagre-ade.git"], { stdio: "ignore" });
+  const runtime = make();
+  await runtime.openProject(project);
+  const others = [];
+  for (let index = 0; index < 10; index++) {
+    const folder = path.join(path.dirname(project), `other-${index}`);
+    await fs.mkdir(folder);
+    execFileSync("git", ["init", "-q", folder], { stdio: "ignore" });
+    await runtime.openProject(folder);
+    others.push(folder);
+  }
+  const recent = await runtime.invoke("project:recent");
+  assert.equal(recent.length, 10);
+  assert.ok(!recent.some((item) => item.path === project), "the first Project fell off the recent list");
+  const known = await runtime.invoke("project:known");
+  assert.deepEqual(
+    known.map((item) => item.path),
+    [...others.toReversed(), project],
+  );
+  assert.equal(known.at(-1).origin, "github.com/the-ptf/milagre-ade");
+  assert.equal(known.at(-1).name, path.basename(project));
+});
+
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
   const { project, make } = await fixture(t);
   execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {

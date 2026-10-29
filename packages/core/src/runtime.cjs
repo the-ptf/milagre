@@ -2515,6 +2515,14 @@ function createRuntime(options) {
       }),
     );
   commands.handle("project:recent", async () => withOrigins(withoutHomes(await withHidden(await recentProjects().list()))));
+  // Every Project this Mac knows (the registry, folders that went away dropped), newest opened first: a new-chat picker
+  // offers them all, where the sidebar keeps to the recent ones. Hidden ones too: hiding is the sidebar's, not where a Chat starts.
+  commands.handle("project:known", async () => {
+    const known = withoutHomes(await projectRegistry().list())
+      .map((project) => ({ path: project.path, name: project.name || path.basename(project.path), openedAt: project.openedAt ?? "" }))
+      .toSorted((a, b) => String(b.openedAt).localeCompare(String(a.openedAt)));
+    return withOrigins(known);
+  });
   // Onboarding offers the folders Claude Code and Codex worked in on this Mac.
   commands.handle("onboarding:agent-folders", async () => withoutHomes(await (options.agentFolders ?? agentFolders)()));
   // A first Project made from onboarding opens at once: a new folder, a clone, or Git set up in a folder without it.

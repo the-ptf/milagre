@@ -1,6 +1,7 @@
 import { NO_PROJECT_LABEL, type ChatsHome } from "@milagre/shared/chats-home";
 import { groupByOrigin } from "@milagre/shared/project-origin";
 import type { HostView } from "./all-computers-store";
+import type { RecentProject } from "./client";
 
 /** A Project a new Chat can start in, on any shown computer. */
 export type NewChatProject = { hostId: string; hostName: string; offline: boolean; path: string; name: string; origin?: string };
@@ -14,10 +15,14 @@ export type NoProjectChoice = { kind: "no-project"; name: string; computerId: st
 /** One row of the new-chat picker: No project, or a Project with its copies. */
 export type NewChatChoice = NoProjectChoice | (NewChatProjectGroup & { kind: "project" });
 
-/** Every shown computer's Projects, including those hidden from the sidebar, in sidebar order. */
-export function newChatProjects(views: readonly HostView[]): NewChatProject[] {
+/**
+ * Every shown computer's Projects, including those hidden from the sidebar, in sidebar order. With `known` (each
+ * computer's project:known answer), the Projects it knows beyond its recent ones follow them: a repository opened long ago
+ * on one computer is still offered there, and its computer chip lists that copy.
+ */
+export function newChatProjects(views: readonly HostView[], known?: ReadonlyMap<string, readonly RecentProject[]>): NewChatProject[] {
   return views.flatMap((view) =>
-    view.projects.flatMap((project) =>
+    withKnown(view.projects, known?.get(view.hostId)).flatMap((project) =>
       // A computer's Chats home is never one of its Projects, even should a list name it.
       project.path === view.home?.path
         ? []
@@ -33,6 +38,13 @@ export function newChatProjects(views: readonly HostView[]): NewChatProject[] {
           ],
     ),
   );
+}
+
+/** A computer's recent Projects, then those it knows that aren't among them, in the order it answered. */
+function withKnown(recent: readonly RecentProject[], known: readonly RecentProject[] | undefined): readonly RecentProject[] {
+  if (!known?.length) return recent;
+  const listed = new Set(recent.map((project) => project.path));
+  return [...recent, ...known.filter((project) => typeof project?.path === "string" && !listed.has(project.path))];
 }
 
 type Place = { hostId: string; projectPath: string } | null | undefined;

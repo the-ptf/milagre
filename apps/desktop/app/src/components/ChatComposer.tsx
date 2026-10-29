@@ -979,7 +979,8 @@ function NewChatHeader({
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"computer" | "isolation" | "branch" | "issue" | null>(null);
   const copy = copies.find((item) => item.key === currentKey);
-  const chooseComputer = copies.length > 1 && copy && onComputerChange;
+  // Shown for every Project, on one computer or several, so the heading never has to name the computer.
+  const chooseComputer = copy && onComputerChange;
   const [query, setQuery] = useState("");
   const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];

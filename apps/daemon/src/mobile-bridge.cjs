@@ -28,6 +28,7 @@ const METHODS = new Set([
   "push:focus",
   "daemon:status",
   "project:recent",
+  "project:known",
   "project:open",
   "chats:home",
   "chats:ensure",

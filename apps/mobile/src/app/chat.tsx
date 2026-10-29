@@ -833,8 +833,8 @@ function ChatPane({
     setDrafts((current) => (current[prefillKey] ? current : { ...current, [prefillKey]: text }));
     router.setParams({ prefill: undefined });
   }, [prefillKey, params.prefill, setDrafts]);
-  // The Projects a new Chat can switch to, on every shown computer.
-  const newChatProjects = useNewChatProjects();
+  // The Projects a new Chat can switch to, on every shown computer: each computer's every known Project while it is new.
+  const newChatProjects = useNewChatProjects(!params.id);
   const noProject = useNoProjectChoice(session.client?.url);
   // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
@@ -1055,6 +1055,10 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
+  // The computer chip's rows: every copy of the Project, or the open one alone before the lists have found it.
+  const computerCopies: NewChatProject[] = projectCopies.length
+    ? projectCopies
+    : [{ hostId: client.url, hostName: computerName || "This computer", offline: false, path: project.path, name: projectName }];
   // The computer a Chat without a Project runs on, named in its "Just chat on <Computer>" heading.
   const chatsComputer = noProject?.copies.find((copy) => copy.hostId === client.url)?.hostName ?? session.hostName ?? "this computer";
   // A Chat beside on another computer than the open one says which.
@@ -2191,7 +2195,7 @@ function ChatPane({
                     ) : (
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Start building in ${hostName ? `${hostName} / ` : ""}${projectName}. Change project`}
+                        accessibilityLabel={`Start building in ${projectName}. Change project`}
                         disabled={busy}
                         onPress={chooseProject}
                         style={({ pressed }) => ({
@@ -2206,7 +2210,6 @@ function ChatPane({
                         <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
                           <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
-                            {hostName ? <Text style={{ color: colors.ink3 }}>{hostName} / </Text> : null}
                             {projectName}
                           </Text>
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2376,7 +2379,8 @@ function ChatPane({
                                 style={{ flexDirection: "row", alignItems: "center" }}
                                 onLayout={(event) => setTrayRowWidth(event.nativeEvent.layout.width)}
                               >
-                                {onSeveralComputers && (
+                                {/* Every Project has the chip, on one computer or several: the heading never names the computer. */}
+                                {
                                   <PullDown
                                     label="Choose computer"
                                     style={{ flexShrink: 1 }}
@@ -2390,7 +2394,7 @@ function ChatPane({
                                     sections={[
                                       {
                                         title: "Run on",
-                                        items: projectCopies.map((item) => ({
+                                        items: computerCopies.map((item) => ({
                                           id: `${item.hostId}\n${item.path}`,
                                           title: item.hostName,
                                           subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
@@ -2427,7 +2431,7 @@ function ChatPane({
                                       <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                     </View>
                                   </PullDown>
-                                )}
+                                }
                                 <PullDown
                                   label="Choose isolation"
                                   nativeTrigger={{

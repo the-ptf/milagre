@@ -101,6 +101,7 @@ const PATHS = Object.freeze({
   "push:focus": ([value]) => (value?.chatId === null || value?.chatId === undefined ? [] : [chatProject(value.chatId)]),
   "daemon:status": none,
   "project:recent": none,
+  "project:known": none,
   // Named Links span Projects. The single-folder demo must never expose them.
   "project:registry": denied,
   // Canvas Links reach other Projects too, so the demo has none.
@@ -349,7 +350,7 @@ function createConfinement({ allowedRoot, uploadsDir }) {
       const kept = await Promise.all(result.map((root) => allows(root)));
       return result.filter((_root, index) => kept[index]);
     }
-    if ((method === "project:recent" || method === "project:find") && Array.isArray(result)) {
+    if ((method === "project:recent" || method === "project:known" || method === "project:find") && Array.isArray(result)) {
       const kept = await Promise.all(result.map((entry) => allows(entry?.path)));
       return result.filter((_entry, index) => kept[index]);
     }

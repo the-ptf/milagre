@@ -6,7 +6,7 @@ import { createClient } from "./client";
 import { savedChatDefaults, savedFoldedProjects, savedHiddenProjects, savedProjectOrder } from "./hosts-native";
 import type { SavedHost } from "./hosts-store";
 import { newChatProjects, noProjectChoice, type NewChatProject, type NoProjectChoice } from "./new-chat-project";
-import type { Client } from "./client";
+import type { Client, RecentProject } from "./client";
 import { relayRuntime } from "./relay-native";
 import { useSession } from "./session";
 
@@ -114,11 +114,53 @@ export async function setOtherComputerProjectHidden(hostId: string, path: string
   if (!hidden) void allComputers.refreshProject(hostId, path).catch(() => {});
 }
 
-/** The Projects a new Chat can start in, on every shown computer, as the sidebars last read them. Reads nothing itself. */
-export function useNewChatProjects(): NewChatProject[] {
+// Each computer's every known Project (project:known), read while a new Chat is being set up and kept for the app's life,
+// so the next new Chat starts with it. A computer that predates the command has none: its recent Projects stand alone.
+const knownProjects = new Map<string, RecentProject[]>();
+const knownReadAt = new Map<string, number>();
+const knownListeners = new Set<() => void>();
+let knownVersion = 0;
+const KNOWN_EVERY = 60 * 1000;
+const subscribeKnown = (listener: () => void) => {
+  knownListeners.add(listener);
+  return () => knownListeners.delete(listener);
+};
+function readKnown(hostId: string) {
+  const at = knownReadAt.get(hostId);
+  if (at !== undefined && Date.now() - at < KNOWN_EVERY) return;
+  const client = allComputers.clientFor(hostId);
+  if (!client) return;
+  knownReadAt.set(hostId, Date.now());
+  client.call<RecentProject[]>("project:known", []).then(
+    (list) => {
+      if (!Array.isArray(list)) return;
+      knownProjects.set(hostId, list);
+      knownVersion++;
+      for (const listener of knownListeners) listener();
+    },
+    // Not answered (an older Mac, a dropped connection): asked again on the next new Chat after a while.
+    () => {},
+  );
+}
+
+/**
+ * The Projects a new Chat can start in, on every shown computer: what the sidebars last read, and with `read`, every
+ * Project each computer that answers knows (read while `read` is on, at most once a minute per computer).
+ */
+export function useNewChatProjects(read = false): NewChatProject[] {
   const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- versions changes exactly when a view does.
-  return useMemo(() => newChatProjects(allComputers.views()), [versions]);
+  const known = useSyncExternalStore(subscribeKnown, () => knownVersion);
+  const reachable = allComputers
+    .views()
+    .filter((view) => view.state !== "offline")
+    .map((view) => view.hostId)
+    .join("\n");
+  useEffect(() => {
+    if (!read || !reachable) return;
+    for (const hostId of reachable.split("\n")) readKnown(hostId);
+  }, [read, reachable]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- versions and known change exactly when a view or a known list does.
+  return useMemo(() => newChatProjects(allComputers.views(), read ? knownProjects : undefined), [versions, known, read]);
 }
 
 /** The new-chat picker's No project row, as the sidebars last read the computers. Reads nothing itself. */
