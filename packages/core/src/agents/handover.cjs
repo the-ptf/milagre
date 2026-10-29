@@ -71,7 +71,7 @@ function renderTranscript(state, sessionId, { after } = {}) {
     if (message.context?.kind === "handoff") {
       const failed = message.context.status === "failed" ? " (failed)" : "";
       parts.push(`## Handoff${failed}: ${providerName(message.context.from.provider)} → ${providerName(message.context.to.provider)}`);
-    } else if (["worktree-linked", "account-switch", "reload", "checkpoint-restore", "babysit-stopped"].includes(message.context?.kind)) {
+    } else if (["worktree-linked", "account-switch", "limit-reset", "reload", "checkpoint-restore", "babysit-stopped"].includes(message.context?.kind)) {
       parts.push(`## ${message.body}`);
     } else if (message.context?.kind === "routine-run") {
       // The heading, then what the beat asked.

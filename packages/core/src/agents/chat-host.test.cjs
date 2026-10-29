@@ -34,6 +34,271 @@ class FakeSession {
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
+
+async function limitedChat(h, extra = {}) {
+  const sent = await h.host.send(message(ALPHA, "finish the export", { effort: "high", guard: { level: "review" }, ...extra }));
+  await sent.started;
+  const chatId = `${ALPHA}#${sent.sessionId}`;
+  await h.host.receive(chatId, {
+    type: "turn-failed",
+    message: "usage limited",
+    limit: { provider: extra.provider ?? "claude", accountId: "default", resetsAt: new Date(NOW + 120_000).toISOString() },
+  });
+  return { chatId, sessionId: sent.sessionId };
+}
+
+test("limit continuation survives restart with options and fires only once", async (t) => {
+  let clock = NOW;
+  const h = harness({ now: () => clock });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), true);
+  const state = structuredClone(await h.states.load(ALPHA, [sessionId]));
+  const pending = state.sessions[sessionId].limitResume;
+  const restored = harness({ now: () => clock, read: async () => state });
+  t.after(() => Promise.all([restored.states.close(), restored.manager.closeAll()]));
+  clock += 180_000;
+  const results = await Promise.all([1, 2].map(() => restored.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId: pending.sendId })));
+  assert.equal(results.filter(Boolean).length, 1);
+  await waitUntil(() => restored.created[0]?.turns.length === 1);
+  assert.equal(restored.created.length, 1);
+  assert.equal(restored.created[0].turns[0].effort, "high");
+  assert.deepEqual(restored.created[0].turns[0].guard, { level: "review" });
+  const latest = await restored.states.get(ALPHA);
+  assert.equal(latest.sessions[sessionId].limitResume, undefined);
+  const lines = latest.messages.filter((item) => item.context?.kind === "limit-reset");
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].clientMessageId, pending.sendId);
+  assert.equal(lines[0].body, "Continued after the usage limit reset");
+});
+
+test("manual scheduling after restart retains the stopped turn even when automatic scheduling was off", async (t) => {
+  const h = harness();
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  const snapshot = structuredClone(await h.states.get(ALPHA));
+  assert.ok(snapshot.sessions[sessionId].limitTurn.turn);
+  assert.equal(snapshot.sessions[sessionId].limitResume, undefined);
+  const restored = harness({ read: async () => snapshot });
+  t.after(() => Promise.all([restored.states.close(), restored.manager.closeAll()]));
+  assert.equal(await restored.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
+});
+
+test("Cancel fences delayed automatic scheduling but allows a new manual schedule", async (t) => {
+  const h = harness();
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  const token = h.host.limitResumeToken(ALPHA, sessionId);
+  await h.host.cancelLimitResume(ALPHA, sessionId);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default", token }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
+});
+
+test("limit schedules reject unknown times, other accounts, queues and archived Chats; manual weekly schedules survive", async (t) => {
+  const h = harness();
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId } = await limitedChat(h);
+  const original = (await h.states.get(ALPHA)).sessions[sessionId];
+  for (const patch of [{ archived: true }, { queued: [{ id: "next" }] }, { limitTurn: { ...original.limitTurn, at: undefined } }]) {
+    await h.states.update(ALPHA, (s) => ({ ...s, sessions: { ...s.sessions, [sessionId]: { ...original, ...patch } } }));
+    assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), false);
+  }
+  await h.states.update(ALPHA, (s) => ({
+    ...s,
+    sessions: { ...s.sessions, [sessionId]: { ...original, limitTurn: { ...original.limitTurn, at: new Date(NOW + 5 * DAY).toISOString() } } },
+  }));
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "other" }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "automatic", accountId: "default" }), false);
+  assert.equal(await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
+  assert.equal((await h.states.get(ALPHA)).sessions[sessionId].limitResume.expiresAt, NOW + 6 * DAY + 60_000);
+});
+
+test("a send or Cancel while a reset continuation prepares never steers or starts it", async (t) => {
+  for (const action of ["cancel", "send"]) {
+    let clock = NOW;
+    let release;
+    let preparing;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const entered = new Promise((resolve) => {
+      preparing = resolve;
+    });
+    const h = harness({
+      now: () => clock,
+      hooks: {
+        beforeSend: async (request) => {
+          if (request.limitResumeId) {
+            preparing();
+            await gate;
+          }
+        },
+      },
+    });
+    t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+    const { sessionId } = await limitedChat(h);
+    await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+    const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+    clock += 180_000;
+    const continuing = h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId });
+    await entered;
+    if (action === "cancel") await h.host.cancelLimitResume(ALPHA, sessionId);
+    else await (await h.host.send(message(ALPHA, "do new work", { sessionId }))).started;
+    release();
+    assert.equal(await continuing, false);
+    assert.equal(
+      (await h.states.get(ALPHA)).messages.some((m) => m.context?.kind === "limit-reset"),
+      false,
+    );
+    assert.equal(h.created[0].turns.length, action === "send" ? 2 : 1);
+  }
+});
+
+test("a cancelled save cannot resurrect recovery fields, for reset and ordinary sends", async (t) => {
+  for (const reset of [true, false]) {
+    let clock = NOW;
+    let release, entered;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const preparing = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const h = harness({
+      now: () => clock,
+      hooks: {
+        beforeTask: async (request) => {
+          if (request.limitResumeId || request.body === "new request") {
+            entered();
+            await gate;
+            throw new Error("checkpoint failed");
+          }
+        },
+      },
+    });
+    t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+    const { sessionId } = await limitedChat(h);
+    await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+    const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+    clock += 180_000;
+    const sending = reset
+      ? h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId })
+      : h.host.send(message(ALPHA, "new request", { sessionId }));
+    const settled = sending.catch((error) => error);
+    await preparing;
+    await h.host.cancelLimitResume(ALPHA, sessionId);
+    release();
+    await settled;
+    const session = (await h.states.get(ALPHA)).sessions[sessionId];
+    assert.equal(session.limitResume, undefined);
+    assert.equal(session.limitTurn, undefined);
+  }
+});
+
+test("cancelled reset startup releases new queued work, but Stop and archive keep it stopped", async (t) => {
+  for (const action of ["new-send", "stop", "archive"]) {
+    let clock = NOW;
+    let release, entered;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const preparing = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const h = harness({
+      now: () => clock,
+      hooks: {
+        beforeTask: async (request) => {
+          if (request.limitResumeId) {
+            entered();
+            await gate;
+          }
+        },
+      },
+    });
+    t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+    const { sessionId, chatId } = await limitedChat(h, { provider: "antigravity" });
+    await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+    const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+    clock += 180_000;
+    const sending = h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId });
+    await preparing;
+    const queued = await h.host.send(message(ALPHA, "new work", { sessionId, provider: "antigravity" }));
+    assert.equal(queued.queued, true);
+    if (action !== "new-send") await h.host.cancelLimitResume(ALPHA, sessionId);
+    if (action === "archive")
+      await h.states.update(ALPHA, (state) => ({ ...state, sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], archived: true } } }));
+    release();
+    await sending;
+    await waitUntil(() => !h.host.runs[chatId] || h.created[0].turns.length === 2);
+    if (action === "new-send") {
+      await queued.started;
+      assert.equal(h.created[0].turns.length, 2);
+    } else {
+      assert.equal(h.created[0].turns.length, 1);
+      assert.equal((await h.states.get(ALPHA)).sessions[sessionId].queued.length, 1);
+    }
+    assert.equal(
+      (await h.states.get(ALPHA)).messages.some((message) => message.context?.kind === "limit-reset"),
+      false,
+    );
+  }
+});
+
+test("Stop while automatic queue release awaits beforeSend leaves the queued message unsent", async (t) => {
+  let clock = NOW;
+  let releaseReset, resetEntered, releaseQueue, queueEntered;
+  const resetGate = new Promise((resolve) => {
+    releaseReset = resolve;
+  });
+  const resetReady = new Promise((resolve) => {
+    resetEntered = resolve;
+  });
+  const queueGate = new Promise((resolve) => {
+    releaseQueue = resolve;
+  });
+  const queueReady = new Promise((resolve) => {
+    queueEntered = resolve;
+  });
+  const h = harness({
+    now: () => clock,
+    hooks: {
+      beforeTask: async (request) => {
+        if (request.limitResumeId) {
+          resetEntered();
+          await resetGate;
+        }
+      },
+      beforeSend: async (request) => {
+        if (request.queueReleaseToken) {
+          queueEntered();
+          await queueGate;
+        }
+      },
+    },
+  });
+  t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
+  const { sessionId, chatId } = await limitedChat(h, { provider: "antigravity" });
+  await h.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" });
+  const { sendId } = (await h.states.get(ALPHA)).sessions[sessionId].limitResume;
+  clock += 180_000;
+  const reset = h.host.runLimitResume(ALPHA, sessionId, { accountId: "default", sendId });
+  await resetReady;
+  await h.host.send(message(ALPHA, "new work", { sessionId, provider: "antigravity" }));
+  releaseReset();
+  await reset;
+  await queueReady;
+  await h.host.cancelLimitResume(ALPHA, sessionId);
+  releaseQueue();
+  await waitUntil(() => !h.host.runs[chatId]);
+  assert.equal(h.created[0].turns.length, 1);
+  await waitUntil(() => h.host.limitResumeFlights.size === 0);
+  const state = await h.states.get(ALPHA);
+  assert.equal(state.sessions[sessionId].queued.length, 1);
+  assert.equal(state.sessions[sessionId].queueHeld, true);
+  assert.equal(h.host.startsQueue(state.sessions[sessionId]), false);
+});
 const ALPHA = "/projects/alpha";
 const BETA = "/projects/beta";
 

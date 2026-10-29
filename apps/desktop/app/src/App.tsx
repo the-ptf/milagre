@@ -3607,6 +3607,9 @@ function App() {
                         store={draftStore}
                         mentionContext={mentionContext}
                         messages={displayedMessages}
+                        limitPending={selectedSession?.limitResume}
+                        limitSourceMessageId={selectedSession?.limitTurn?.sourceMessageId}
+                        limitResumeBlocked={!!selectedSession?.queued?.length}
                         loading={messagesLoading}
                         loadError={lean ? (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).error : undefined}
                         onRetryLoad={() => void (pendingHere && pendingCanonicalId !== null ? canonicalWindow : chatWindow).retry()}

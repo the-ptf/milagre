@@ -11388,6 +11388,8 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   const client = {
     async call(method, args) {
       calls.push([method, args]);
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "chat:limit-resume" || method === "chat:limit-resume:cancel") return true;
       if (method === "accounts:scope") return snapshot;
       if (method === "chat:limit-switch") {
         if (failSwitch) throw new Error(failSwitch);
@@ -11439,7 +11441,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   react.unmount();
   let tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   await settle();
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(["accounts:scope", ["/work/app", false]]));
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "accounts:scope")), JSON.stringify(["accounts:scope", ["/work/app", false]]));
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   const choices = rows(tree);
   assert.equal(choices.length, 2);
@@ -11491,6 +11493,31 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
     button.props.onPress();
     assert.equal(pushed.at(-1), "/accounts");
   }
+  react.unmount();
+  Object.assign(react, hookHost({ effects: true }));
+  const props = { limit, sessionId: 4, projectPath: "/work/app", sourceMessageId: 9, resumeAvailable: true };
+  render(props);
+  await settle();
+  let card = render(props);
+  let resume = find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at"));
+  assert.ok(resume);
+  await resume.props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "chat:limit-resume")), JSON.stringify(["chat:limit-resume", ["/work/app", 4, 9]]));
+  const pending = { at: limit.resetsAt, sourceMessageId: 9, sendId: "schedule-9" };
+  card = render({ ...props, pending });
+  assert.ok(texts(card).some((text) => text.startsWith("Continues at")));
+  await find(card, (n) => n.type === "PillButton" && n.props.title === "Cancel").props.onPress();
+  await settle();
+  assert.equal(
+    JSON.stringify(calls.find(([method]) => method === "chat:limit-resume:cancel")),
+    JSON.stringify(["chat:limit-resume:cancel", ["/work/app", 4, "schedule-9"]]),
+  );
+  card = render({ ...props, resumeBlocked: true });
+  assert.equal(
+    find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at")),
+    undefined,
+  );
 });
 
 test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {

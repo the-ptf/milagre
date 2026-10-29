@@ -141,6 +141,8 @@ const PATHS = Object.freeze({
   // Auto-switch after a usage limit names no folder and reaches every Project's accounts: a confined phone only reads it.
   "limits:auto-switch:read": none,
   "limits:auto-switch:save": denied,
+  "limits:resume-at-reset:read": none,
+  "limits:resume-at-reset:save": denied,
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
   "app-update:auto:save": denied,
@@ -187,6 +189,8 @@ const PATHS = Object.freeze({
   "chat:resume": ([projectPath]) => [projectPath],
   // Moves the Chat's Project to another account, like accounts:assign, then continues the Chat.
   "chat:limit-switch": ([projectPath]) => [projectPath],
+  "chat:limit-resume": ([projectPath]) => [projectPath],
+  "chat:limit-resume:cancel": ([projectPath]) => [projectPath],
   "advisor:stop": ([chatId]) => [chatProject(chatId)],
   "advisor:retry": ([chatId]) => [chatProject(chatId)],
   "agent:interrupt": ([chatId]) => [chatProject(chatId)],
@@ -311,7 +315,7 @@ function createConfinement({ allowedRoot, uploadsDir }) {
     // No push device is ever registered, so there is nothing to unregister or focus, and no daemon state to grow.
     if (method === "accounts:list") return { result: { providers: [] } };
     if (method === "accounts:scopes") return { result: [] };
-    if (method.startsWith("accounts:") || method === "chat:limit-switch" || method === "limits:auto-switch:save")
+    if (method.startsWith("accounts:") || method === "chat:limit-switch" || method === "limits:auto-switch:save" || method === "limits:resume-at-reset:save")
       throw failure(403, "Accounts cannot be changed on this demo computer.");
     if (method.startsWith("mcp:")) throw failure(403, MCP_REFUSED);
     if (method === "push:register") throw failure(403, NOTIFICATIONS_OFF);

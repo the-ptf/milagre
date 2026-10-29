@@ -48,16 +48,23 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
   }
 
   /** Moves the Chat's Project to `accountId` for `provider`, then continues the Chat on it. */
-  async function switchTo(projectPath, sessionId, provider, accountId) {
-    const snapshot = await assign(projectPath, provider, accountId);
+  async function switchTo(projectPath, sessionId, provider, accountId, token) {
+    if (token && !token.valid()) return { continued: false, label: "another account" };
+    const snapshot = await assign(
+      projectPath,
+      provider,
+      accountId,
+      token ? { canAssign: token.valid, preserveChat: `${projectPath}#${sessionId}` } : undefined,
+    );
+    if (!snapshot) return { continued: false, label: "another account" };
     const account = snapshot.providers.find((group) => group.provider === provider)?.accounts.find((item) => item.id === accountId);
     const label = account?.email || account?.label || "another account";
-    const continued = await chats.continueAfterLimit(projectPath, Number(sessionId), provider, label);
+    const continued = (!token || token.valid()) && (await chats.continueAfterLimit(projectPath, Number(sessionId), provider, label, token));
     return { continued, label };
   }
 
   /** A turn the limit stopped: remember the account, and with auto-switch on, move the Chat to the next ready one. */
-  async function observe(chatId, event) {
+  async function observe(chatId, event, token) {
     const limit = event.type === "turn-failed" ? event.limit : null;
     if (!limit?.accountId) return null;
     const resetsAt = limit.resetsAt ? Date.parse(limit.resetsAt) : NaN;
@@ -65,26 +72,36 @@ function createLimitSwitch({ file, assign, scope, chats, now = Date.now }) {
     if (!autoSwitch()) return null;
     const projectPath = projectOfKey(chatId);
     const group = (await scope(projectPath)).providers.find((item) => item.provider === limit.provider);
+    if (token && !token.valid()) return { continued: false, cancelled: true };
     // Someone already moved the Project to another account.
     if (!group || group.effectiveId !== limit.accountId) return null;
     const next = group.accounts.find(
       (account) => account.id !== limit.accountId && account.state === "ready" && !account.missing && !limitedUntil(limit.provider, account.id),
     );
-    return next ? switchTo(projectPath, sessionIdFromKey(chatId), limit.provider, next.id) : null;
+    return next ? switchTo(projectPath, sessionIdFromKey(chatId), limit.provider, next.id, token) : null;
   }
 
   function autoSwitch() {
     return read(file)?.autoSwitch === true;
   }
   function setAutoSwitch(value) {
+    return saveSetting("autoSwitch", value);
+  }
+  function resumeAtReset() {
+    return read(file)?.resumeAtReset !== false;
+  }
+  function setResumeAtReset(value) {
+    return saveSetting("resumeAtReset", value);
+  }
+  function saveSetting(name, value) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temp = `${file}.${randomUUID()}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify({ ...read(file), autoSwitch: value === true }));
+    fs.writeFileSync(temp, JSON.stringify({ ...read(file), [name]: value === true }));
     fs.renameSync(temp, file);
     return value === true;
   }
 
-  return { limitedUntil, decorate, switchTo, observe, autoSwitch, setAutoSwitch };
+  return { limitedUntil, decorate, switchTo, observe, autoSwitch, setAutoSwitch, resumeAtReset, setResumeAtReset };
 }
 
 module.exports = { createLimitSwitch, UNKNOWN_RESET_MS };

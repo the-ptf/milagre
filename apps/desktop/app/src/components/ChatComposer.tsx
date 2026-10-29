@@ -14,13 +14,13 @@ import { PullRequestActionCard } from "./agents/PullRequestActionCard";
 import { LinearIssueCard } from "./agents/LinearIssueCard";
 import { AdvisorResultCard } from "./agents/AdvisorResultCard";
 import { UsageLimitCard } from "./agents/UsageLimitCard";
-import { isAccountSwitch, usageLimitOf } from "@milagre/shared/usage-limit";
+import { isAccountSwitch, isLimitReset, limitResetText, usageLimitOf } from "@milagre/shared/usage-limit";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
 import { useEvent } from "../lib/stable";
 import { chatHistory } from "@milagre/shared/chat-history";
-import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
+import type { AgentPort, LimitResume, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment, Subagent } from "../model";
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -300,6 +300,9 @@ const MessageSection = memo(function MessageSection({
   animate = false,
   onOpenChat,
   limitInteractive = false,
+  limitPending,
+  limitSourceMessageId,
+  limitResumeBlocked,
   onOpenAccounts,
   models,
   merged,
@@ -341,6 +344,9 @@ const MessageSection = memo(function MessageSection({
   onOpenChat?: (chatKey: string) => void;
   /** The usage-limit card may offer account switches: this is the Chat's last message and no turn runs. */
   limitInteractive?: boolean;
+  limitPending?: LimitResume;
+  limitSourceMessageId?: number;
+  limitResumeBlocked?: boolean;
   /** Opens Settings > Accounts, from the limit card. */
   onOpenAccounts?: () => void;
 }) {
@@ -356,6 +362,14 @@ const MessageSection = memo(function MessageSection({
   if (isWorktreeLinked(message)) return <WorktreeLinkDivider context={message.context} />;
   if (isCompaction(message)) return <CompactionDivider context={message.context} />;
   if (isAccountSwitch(message)) return <AccountSwitchDivider context={message.context} />;
+  if (isLimitReset(message))
+    return (
+      <div data-limit-reset-divider role="group" aria-label={limitResetText()} className="flex w-full items-center gap-3 py-1 text-12 text-ink-3">
+        <span className="h-px flex-1 bg-line" />
+        {limitResetText()}
+        <span className="h-px flex-1 bg-line" />
+      </div>
+    );
   if (isChatReload(message)) return <ChatReloadDivider />;
   if (isBabysitStopped(message)) return <BabysitStoppedDivider context={message.context} />;
   if (isRoutineRun(message)) return <RoutineRunDivider context={message.context} merged={merged} />;
@@ -468,7 +482,18 @@ const MessageSection = memo(function MessageSection({
           </StepDetailsMessage>
         )}
         {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-xs text-ink-3">Turn stopped</p>}
-        {limit && <UsageLimitCard limit={limit} sessionId={message.session_id} interactive={limitInteractive} onOpenAccounts={onOpenAccounts} />}
+        {limit && (
+          <UsageLimitCard
+            limit={limit}
+            sessionId={message.session_id}
+            interactive={limitInteractive}
+            pending={limitPending?.sourceMessageId === message.id ? limitPending : undefined}
+            sourceMessageId={message.id}
+            resumeAvailable={message.id === limitSourceMessageId}
+            resumeBlocked={limitResumeBlocked}
+            onOpenAccounts={onOpenAccounts}
+          />
+        )}
         {showUpdateButton && outdatedProvider && onUpdateCli && (
           <div className="mt-2.5 flex items-center gap-2">
             <button
@@ -512,6 +537,9 @@ const MessageTranscript = memo(function MessageTranscript({
   cliStatus,
   onOpenLinkedChat,
   onOpenAccounts,
+  limitPending,
+  limitSourceMessageId,
+  limitResumeBlocked,
   offlineName,
   findOpen,
   models,
@@ -544,6 +572,9 @@ const MessageTranscript = memo(function MessageTranscript({
   | "cliStatus"
   | "onOpenLinkedChat"
   | "onOpenAccounts"
+  | "limitPending"
+  | "limitSourceMessageId"
+  | "limitResumeBlocked"
   | "offlineName"
   | "reconnectingName"
   | "findOpen"
@@ -697,7 +728,7 @@ const MessageTranscript = memo(function MessageTranscript({
 
   const openingIds = openingMessages.current.ids;
   // Only the Chat's last message, once its turn is over, can still switch accounts.
-  const limitMessageId = isSending || offlineName ? undefined : messages.at(-1)?.id;
+  const limitMessageId = isSending || offlineName ? undefined : (limitSourceMessageId ?? messages.at(-1)?.id);
   return (
     <>
       {historyError && (
@@ -737,6 +768,9 @@ const MessageTranscript = memo(function MessageTranscript({
               animate={!message.clientMessageId && !openingIds.has(message.id)}
               onOpenChat={onOpenLinkedChat}
               limitInteractive={message.id === limitMessageId}
+              limitPending={message.id === limitSourceMessageId ? limitPending : undefined}
+              limitSourceMessageId={message.id === limitSourceMessageId ? limitSourceMessageId : undefined}
+              limitResumeBlocked={message.id === limitSourceMessageId ? limitResumeBlocked : undefined}
               onOpenAccounts={onOpenAccounts}
               models={models}
               // Only the messages that show undo get its props: a send or turn end leaves the rest memoized.
@@ -755,6 +789,9 @@ const MessageTranscript = memo(function MessageTranscript({
 });
 
 interface ChatComposerProps {
+  limitPending?: LimitResume;
+  limitSourceMessageId?: number;
+  limitResumeBlocked?: boolean;
   mentionContext?: ChatMentionScope;
   /** The chat's computer is away: the composer is disabled and says so. */
   offlineName?: string | null;
@@ -1227,6 +1264,9 @@ export function ChatComposer({
   statusLabel,
   onOpenLinkedChat,
   onOpenAccounts,
+  limitPending,
+  limitSourceMessageId,
+  limitResumeBlocked,
   resume,
   queue,
   models,
@@ -1556,6 +1596,9 @@ export function ChatComposer({
                             cliStatus={cliStatus}
                             onOpenLinkedChat={onOpenLinkedChat}
                             onOpenAccounts={onOpenAccounts}
+                            limitPending={limitPending}
+                            limitSourceMessageId={limitSourceMessageId}
+                            limitResumeBlocked={limitResumeBlocked}
                             offlineName={offlineName}
                             models={models}
                           />
