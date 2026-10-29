@@ -179,6 +179,51 @@ test("the session's client is shared, and swapping it or forgetting the computer
   assert.deepEqual(store.views(), []);
 });
 
+test("switching computers keeps listed Projects and Chats until the new session's Project list answers", async () => {
+  const clients = { "https://a": fakeClient("https://a"), "https://b": fakeClient("https://b") };
+  const { store, settle } = setup(clients);
+  const hosts = [host("https://a"), host("https://b")];
+  store.sync(hosts, null);
+  const hide = store.show();
+  await settle();
+  hide();
+  const before = store.viewOf("https://b")!;
+  const selected = { hostId: "https://b", client: fakeClient("https://b").client, reload: async () => {} };
+  // A cached Chat opens before recentScopes answers. Unknown is not an authoritative empty list.
+  store.sync(hosts, { ...selected, projects: undefined });
+  assert.equal(store.viewOf("https://b")!.projects, before.projects);
+  assert.equal(store.viewOf("https://b")!.copies, before.copies);
+  assert.equal(store.viewOf("https://b")!.loaded, true);
+  // Further renders while the request is pending must not prune those Chats either.
+  store.sync(hosts, { ...selected, projects: undefined });
+  assert.equal(store.viewOf("https://b")!.copies, before.copies);
+  store.sync(hosts, { ...selected, projects: before.projects });
+  assert.equal(store.viewOf("https://b")!.copies, before.copies);
+  // A real empty answer still removes Projects and their Chats.
+  store.sync(hosts, { ...selected, projects: [] });
+  assert.deepEqual(store.viewOf("https://b")!.projects, []);
+  assert.equal(store.viewOf("https://b")!.copies.size, 0);
+});
+
+test("a selected computer with no Project list yet stays unloaded and requests its list", async () => {
+  const mac = fakeClient("https://a");
+  const { store, settle } = setup({ "https://a": mac });
+  let reloads = 0;
+  store.sync([host("https://a")], {
+    hostId: "https://a",
+    client: mac.client,
+    projects: undefined,
+    reload: async () => {
+      reloads++;
+    },
+  });
+  assert.equal(store.viewOf("https://a")!.loaded, false);
+  assert.deepEqual(store.viewOf("https://a")!.projects, []);
+  store.show();
+  await settle();
+  assert.equal(reloads, 1);
+});
+
 test("refreshHosts reads only the named computers, their Project lists too", async () => {
   const clients = { "https://a": fakeClient("https://a"), "https://b": fakeClient("https://b") };
   const { store, settle } = setup(clients);
