@@ -19,6 +19,7 @@ import { defaultPreferences, type TurnPreferences } from "./turn-options";
 import { pendingChatSessionId, type PendingChat } from "@milagre/shared/chats";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { createLinkOperations } from "./link-operations";
+import { noteChatProjectOpening, prefetchChatPage } from "./chat-pages";
 
 const hostOf = (url: string) =>
   // oxlint-disable-next-line unicorn/prefer-string-starts-ends-with -- url comes from a pairing payload that is not validated here (see the String(url || '') fallback), so it may be empty or missing
@@ -295,7 +296,7 @@ function useSessionState() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [client, snapshot?.project.path],
   );
-  const connect = async (host: HostLink, remember = true) => {
+  const connect = async (host: HostLink, remember = true, target?: { projectPath: string; onOpen: (state: Snapshot) => void }) => {
     const next = createClient(host, undefined, undefined, relayRuntime);
     const name = host.name || "";
     const current = ++generation.current;
@@ -303,6 +304,10 @@ function useSessionState() {
     try {
       await next.call("daemon:status");
       const projects = await savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, await next.recentScopes()));
+      if (current !== generation.current) return false;
+      // A draft changing computers keeps its current page until the destination is ready. Commit its route and
+      // Project together, without clearing the snapshot (which would unmount the composer and dismiss the keyboard).
+      const state = target ? await next.open(target.projectPath) : null;
       if (current !== generation.current) return false;
       if (process.env.EXPO_PUBLIC_DEMO !== "1") {
         if (remember) {
@@ -321,16 +326,19 @@ function useSessionState() {
         }
       }
       if (current !== generation.current) return false;
+      if (state && target) target.onOpen(state);
       if (process.env.EXPO_PUBLIC_DEMO !== "1") void learnRoutes(next, { token: host.token.trim(), relay: host.relay }).catch(() => {});
       setModels(null);
       setCliStatus(null);
       setProviderError("");
       autoOpen.current = false;
-      selection.current = null;
+      selection.current = state ? { client: next, path: state.project.path } : null;
+      if (state && target) seen.current.set(`${next.url}|${target.projectPath}`, state).set(`${next.url}|${state.project.path}`, state);
+      setOpening(null);
       setClient(next);
       listedFor.current = next.url;
       setRecent(projects);
-      putSnapshot(null);
+      putSnapshot(state);
       setError("");
       setHostName(name || hosts.find((saved) => saved.id === next.url)?.name || hostOf(next.url));
       return true;
@@ -338,6 +346,63 @@ function useSessionState() {
       if (current === generation.current) selection.current = previous;
       throw error;
     }
+  };
+  /** Adopt a previously opened Chat before routing, without waiting for its computer. Summaries aren't full snapshots. */
+  const openCachedChat = (projectPath: string, sessionId: number, host?: SavedHost): Client | null => {
+    const next = host ? createClient(host, undefined, undefined, relayRuntime) : client;
+    if (!next) return null;
+    const sameProject = next === client && latest.current?.project.path === projectPath;
+    const cached = sameProject ? latest.current : seen.current.get(`${next.url}|${projectPath}`);
+    if (!cached?.project.state.sessions[sessionId]) return null;
+    if (sameProject && selection.current?.client === next && selection.current.path === projectPath) {
+      if (cached.project.state.messagesInChats) prefetchChatPage(next, projectPath, sessionId);
+      return next;
+    }
+    autoOpen.current = false;
+    generation.current++;
+    const selected = { client: next, path: cached.project.path };
+    selection.current = selected;
+    setOpening(null);
+    if (next !== client) {
+      setModels(null);
+      setCliStatus(null);
+      setProviderError("");
+      setClient(next);
+      listedFor.current = null;
+      setRecent([]);
+      setHostName(host!.name);
+    }
+    putSnapshot(cached);
+    setError("");
+    const opened = next.open(projectPath);
+    noteChatProjectOpening(next, projectPath, opened);
+    if (cached.project.state.messagesInChats) prefetchChatPage(next, projectPath, sessionId);
+    // The route handoff cancels pending navigation; this selection is already committed. Guard background reads by
+    // selection instead, and don't replace a newer live snapshot with the answer to this earlier open.
+    void opened
+      .then((state) => {
+        if (selection.current !== selected || latest.current !== cached) return;
+        seen.current.set(`${next.url}|${projectPath}`, state).set(`${next.url}|${state.project.path}`, state);
+        putSnapshot(reconcileState(cached, state));
+        setError(state.project.state.sessions[sessionId] ? "" : "This Chat is no longer available on your computer.");
+        return undefined;
+      })
+      .catch((cause) => {
+        if (selection.current === selected && latest.current === cached) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    if (host) {
+      void next
+        .recentScopes()
+        .then(async (projects) => savedProjectOrder.apply(next.url, await savedHiddenProjects.apply(next.url, projects)))
+        .then((projects) => {
+          if (selection.current !== selected) return;
+          listedFor.current = next.url;
+          setRecent(projects);
+          return undefined;
+        })
+        .catch(() => {});
+    }
+    return next;
   };
   const openNotificationTarget = async (host: SavedHost, projectPath: string, sessionId: number) => {
     autoOpen.current = false;
@@ -374,7 +439,7 @@ function useSessionState() {
   const cancelNavigation = useCallback(() => {
     generation.current++;
   }, []);
-  const open = async (projectPath: string, options: { background?: boolean; chatId?: number } = {}) => {
+  const open = async (projectPath: string, options: { background?: boolean; chatId?: number; onOpen?: (state: Snapshot) => void } = {}) => {
     if (!client) throw new Error("Connect to your computer first.");
     const current = ++generation.current;
     const previous = selection.current;
@@ -390,6 +455,7 @@ function useSessionState() {
       if (current === generation.current) {
         if (options.chatId !== undefined && !state.project.state.sessions[options.chatId])
           throw new Error("This Chat is no longer available. Choose another Chat.");
+        options.onOpen?.(state);
         selection.current = { client, path: project.path };
         seen.current.set(`${client.url}|${projectPath}`, state).set(`${client.url}|${project.path}`, state);
         putSnapshot(reconcileState(latest.current ?? undefined, state));
@@ -637,6 +703,7 @@ function useSessionState() {
     providerRevision,
     connect,
     open,
+    openCachedChat,
     openNotificationTarget,
     navigationVersion,
     cancelNavigation,

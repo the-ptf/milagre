@@ -35,7 +35,7 @@ import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type LinearIssuesResult } from "@milagre/shared/linear";
 import { worktreeShared } from "@milagre/shared/archive";
-import type { Client, OpenProject } from "../client";
+import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { pullRequestAction, pullRequestBlockers, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
@@ -294,7 +294,7 @@ export default function ChatScreen() {
  */
 function ChatPane({
   visibleChat,
-  params,
+  params: routeParams,
   pane,
   keyboard: ownsKeyboard,
   onTyping,
@@ -311,6 +311,19 @@ function ChatPane({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
+  // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
+  const [arriving, setArriving] = useState<ChatParams | null>(null);
+  const params = arriving ?? routeParams;
+  useEffect(() => {
+    if (
+      arriving &&
+      routeParams.hostId === arriving.hostId &&
+      routeParams.projectPath === arriving.projectPath &&
+      routeParams.worktreeId === arriving.worktreeId
+    )
+      setArriving(null);
+  }, [arriving, routeParams.hostId, routeParams.projectPath, routeParams.worktreeId]);
   const navigation = useNavigation<NavigationProp<{ chat: { worktreeId?: string } }, "chat">>();
   const secondary = pane === "secondary";
   const paired = pane !== "single";
@@ -547,8 +560,14 @@ function ChatPane({
   // A host that keeps messages by Chat sends the snapshot without them: the Chat on screen reads its own as pages, its
   // last turns again as the Project state changes (a saved message changes it), never on a read of the streaming turns.
   const lean = !!session.snapshot?.project.state.messagesInChats;
-  const page = useChatPage(lean ? connected : null, projectPath, params.id ? Number(params.id) : null, mentionState, session.reconnects);
-  const canonicalPage = useChatPage(lean && pendingCanonicalId !== null ? connected : null, projectPath, pendingCanonicalId, mentionState, session.reconnects);
+  const page = useChatPage(lean && targetMatches ? connected : null, projectPath, params.id ? Number(params.id) : null, mentionState, session.reconnects);
+  const canonicalPage = useChatPage(
+    lean && targetMatches && pendingCanonicalId !== null ? connected : null,
+    projectPath,
+    pendingCanonicalId,
+    mentionState,
+    session.reconnects,
+  );
   const media = useCallback((path: string) => connected!.image(projectPath!, path), [connected, projectPath]);
   const savedMessages = useMemo(
     () => (lean ? page.messages : params.id && allMessages ? allMessages.filter((m) => m.session_id === Number(params.id)) : []),
@@ -1108,33 +1127,37 @@ function ChatPane({
       },
     });
   }
-  // The typed draft comes along to the other Project. Another computer is connected after the address changes, so the
-  // screen waits behind the splash mark instead of leaving for the list.
+  // Keep the composer, keyboard and heading mounted while the destination loads, as on desktop. Its route, Worktree
+  // and draft move in the same commit as the loaded Project, so there is no intermediate splash or empty composer.
   async function switchProject(hostId: string, projectPath: string) {
-    if (hostId === client.url && projectPath === project.path) return;
-    const back = { hostId: client.url, projectPath: project.path, worktreeId: params.worktreeId, prefill: draft || undefined };
+    if (busy || (hostId === client.url && projectPath === project.path)) return;
     const host = hostId === client.url ? null : allComputers.hostFor(hostId);
     if (hostId !== client.url && !host) {
       setError("This computer is no longer in your list.");
       return;
     }
     setError("");
-    if (draft) composer.setDrafts((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== chatId)));
-    router.setParams({ hostId, projectPath, worktreeId: undefined, prefill: draft || undefined });
-    // The open hook loads on focus only, so a Project on this computer is opened here; another computer's opens as its
-    // client arrives.
-    if (!host) {
-      session.open(projectPath).catch((e: Error) => {
-        router.setParams(back);
-        setError(e.message);
+    setBusy(true);
+    const onOpen = (state: Snapshot) => {
+      const worktrees = Object.values(state.project.state.worktrees);
+      const starter = worktrees.find((item) => item.path === state.project.path) ?? worktrees[0];
+      if (!starter) throw new Error("This Project has no available Worktree.");
+      const destination = `${state.project.path}#new:${starter.id}`;
+      composer.setDrafts((current) => {
+        const { [chatId]: carried, ...rest } = current;
+        return { ...rest, [destination]: carried || current[destination] || "" };
       });
-      return;
-    }
+      const destinationParams = { ...params, hostId, projectPath: state.project.path, worktreeId: String(starter.id), prefill: undefined };
+      setArriving(destinationParams);
+      router.setParams(destinationParams);
+    };
     try {
-      if (!(await session.connect(host, false))) router.setParams(back);
+      if (host) await session.connect(host, false, { projectPath, onOpen });
+      else await session.open(projectPath, { background: true, onOpen });
     } catch (e) {
-      router.setParams(back);
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
   async function action(work: () => Promise<unknown>, allowPending = false) {
@@ -2603,7 +2626,9 @@ function ChatPane({
                               </PageScroll>
                             )}
                             <PromptField
-                              key={chatId}
+                              // A draft keeps its native text input when its computer or Project changes, preserving
+                              // keyboard focus and the caret. Saved Chats still get an input of their own.
+                              key={params.id ? chatId : "new"}
                               chats={mentionChats}
                               currentId={chat?.id}
                               client={client}
