@@ -1099,6 +1099,9 @@
         }
       ]
     },
+    "computer:resources:read": {
+      "parameters": []
+    },
     "keybindings:read": {
       "parameters": []
     },

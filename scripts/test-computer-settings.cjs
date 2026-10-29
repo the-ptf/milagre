@@ -26,8 +26,13 @@ window.renames = [];
 window.removed = [];
 window.autoSaves = [];
 const fallback = { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } };
-// A paired computer's own calls: only Auto update answers; the rest stay as an older computer that has nothing.
+// A paired computer's own calls: only Auto update and its memory and disk answer; the rest stay as an older computer that has nothing.
+const GB = 1024 ** 3;
 const remote = (id) => ({
+  readComputerResources: async () => ({
+    memory: { total: 32 * GB, available: 20 * GB, milagre: 2 * GB },
+    disk: { total: 2e12, available: 1.5e12, milagre: 80e9, measuredAt: Date.now(), measuring: false },
+  }),
   readAutoUpdate: async () => ({ autoUpdate: false }),
   saveAutoUpdate: async (value) => (window.autoSaves.push([id, value]), { autoUpdate: value }),
   onAutoUpdate: () => () => {},
@@ -111,6 +116,10 @@ async function browserChecks() {
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /arketa-web, infra\. Accounts and simulators stay on arketa\./);
+    // Its memory and disk come from that computer, Milagre's share named beside what is free.
+    await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);
+    assert.equal(await text("[data-computer-settings] [data-resource-meter=memory]"), "Memory20 GB free of 32 GB · Milagre 2 GB");
+    assert.equal(await text("[data-computer-settings] [data-resource-meter=disk]"), "Disk1.5 TB free of 2 TB · Milagre 80 GB");
     // Auto update flips on that computer, through its own calls.
     await waitFor(`document.querySelector('[data-computer-auto-update] [role=switch]')?.getAttribute('aria-checked') === 'false'`);
     await evaluate(`document.querySelector('[data-computer-auto-update] [role=switch]').click()`);
@@ -119,7 +128,7 @@ async function browserChecks() {
     );
     assert.deepEqual(await evaluate("window.autoSaves"), [["c-arketa", true]]);
     await screenshot("computer-settings");
-    console.log("PASS: a computer's settings show its connection routes, which is in use, and what lives there");
+    console.log("PASS: a computer's settings show its connection routes, which is in use, what lives there and its memory and disk");
 
     window.webContents.focus();
     await evaluate(`(() => {

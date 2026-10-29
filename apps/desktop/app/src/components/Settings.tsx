@@ -80,6 +80,8 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
+import { ComputerResourcesRow } from "./settings/ComputerResources";
+import { RESOURCES_HINT, RESOURCES_TITLE } from "@milagre/shared/computer-resources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
@@ -418,6 +420,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             </Row>
           )}
         </div>
+        <ComputerResourcesRow name="Memory and disk" bridge={bridgeFor(id)} enabled={computer.state === "online"} />
         {computer.state === "online" && (
           <div data-computer-auto-update>
             <AutoUpdateRow key={id} bridge={bridgeFor(id)} />
@@ -1100,6 +1103,21 @@ function AppearanceSettings() {
   );
 }
 
+/** Settings › Devices: memory and disk on this Mac and on every computer it drives, Milagre's share marked. */
+function DeviceResources() {
+  const { otherComputers } = useSettings();
+  const { thisMac, computers } = useComputers();
+  return (
+    <Group title={RESOURCES_TITLE} footer={RESOURCES_HINT}>
+      <ComputerResourcesRow name={thisMac} detail={thisMac === "This Mac" ? undefined : "This Mac"} bridge={window.milagre} />
+      {otherComputers &&
+        computers.map((computer) => (
+          <ComputerResourcesRow key={computer.id} name={computer.name} bridge={bridgeFor(computer.id)} enabled={computer.state === "online"} />
+        ))}
+    </Group>
+  );
+}
+
 function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }) {
   const { otherComputers } = useSettings();
   return (
@@ -1387,6 +1405,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   return (
     <>
       <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
+      <DeviceResources />
       <Group title="Access">
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
           <Switch
