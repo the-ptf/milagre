@@ -182,6 +182,7 @@ function makeBridge(invoke, listen, send) {
     readAutoUpdate: () => invoke("app-update:auto:read"),
     saveAutoUpdate: (value) => invoke("app-update:auto:save", value),
     onAutoUpdate: (callback) => listen("app-update:auto", callback),
+    readComputerResources: () => invoke("computer:resources:read"),
     readKeybindings: () => invoke("keybindings:read"),
     setKeybindingCommand: (command, rules) => invoke("keybindings:set-command", command, rules),
     resetKeybindingCommand: (command) => invoke("keybindings:reset-command", command),
