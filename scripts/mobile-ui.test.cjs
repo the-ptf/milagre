@@ -67,10 +67,13 @@ function hookHost({ effects = false } = {}) {
       previous?.cleanup?.();
       slots[index] = { deps, cleanup: fn() };
     },
-    createContext() {
-      return {};
+    // Like React, a context read with no Provider above gives the context's default value.
+    createContext(defaultValue) {
+      return { defaultValue };
     },
-    useContext() {},
+    useContext(context) {
+      return context?.defaultValue;
+    },
     effect(fn, deps) {
       const index = cursor++;
       const previous = slots[index];

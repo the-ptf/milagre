@@ -13,6 +13,9 @@ const listeners = new Map<string, Set<() => void>>();
 const inflight = new Map<string, Promise<void>>();
 // Bumped as a write starts and ends: a read begun before then may show the PR from before the write, so its answer is dropped.
 const generations = new Map<string, number>();
+// When each PR was last read: the Chat's Review pill and the open panel both poll it, and one read serves both.
+const readAt = new Map<string, number>();
+const POLL_MS = 30000;
 const EMPTY: Entry = { pr: null, error: "", loading: true };
 
 const prKey = (cwd: string, number: number) => `${cwd}#${number}`;
@@ -53,7 +56,13 @@ function loadDetail(client: Client, cwd: string, number: number, fresh = false) 
     } catch (error) {
       next = { pr: (details.get(key) ?? current).pr, error: error instanceof Error ? error.message : String(error), loading: false };
     }
-    if ((generations.get(key) ?? 0) === generation) setEntry(key, next);
+    if (!next.error) readAt.set(key, Date.now());
+    if ((generations.get(key) ?? 0) !== generation) return;
+    // An answer that says what the store shows already keeps its objects: every reader (the whole Chat among them)
+    // would otherwise render again on each poll for nothing.
+    const shown = details.get(key);
+    if (shown && !shown.loading && shown.error === next.error && JSON.stringify(shown.pr) === JSON.stringify(next.pr)) return;
+    setEntry(key, next);
   })();
   inflight.set(key, task);
   // A fresh read may have taken the slot meanwhile.
@@ -110,11 +119,14 @@ export function usePrDetail(client: Client | null, cwd: string | undefined, numb
   );
   useEffect(() => {
     if (!client || !cwd || !active || !Number.isSafeInteger(number)) return;
+    // Skipped while another reader's poll is still fresh: opening the panel shows the PR the Chat read moments ago.
     const refresh = () => {
-      if (AppState.currentState === "active") void loadDetail(client, cwd, number);
+      if (AppState.currentState !== "active") return;
+      if (Date.now() - (readAt.get(prKey(cwd, number)) ?? 0) < POLL_MS - 5000) return;
+      void loadDetail(client, cwd, number);
     };
     refresh();
-    const timer = setInterval(refresh, 30000);
+    const timer = setInterval(refresh, POLL_MS);
     const subscription = AppState.addEventListener("change", refresh);
     return () => {
       clearInterval(timer);
