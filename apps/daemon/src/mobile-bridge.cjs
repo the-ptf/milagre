@@ -29,6 +29,8 @@ const METHODS = new Set([
   "daemon:status",
   "project:recent",
   "project:open",
+  "chats:home",
+  "chats:ensure",
   "project:forget",
   "project:find",
   "project:image",
@@ -984,7 +986,8 @@ async function startMobileBridge({
               result = rest;
             }
             // The phone reads a Project through /snapshot right after opening it; the opened state would double the download.
-            if (request.method === "project:open" && result && typeof result === "object") result = { path: result.path, name: result.name };
+            if ((request.method === "project:open" || request.method === "chats:ensure") && result && typeof result === "object")
+              result = { path: result.path, name: result.name, ...(result.kind ? { kind: result.kind } : {}) };
             if (request.method === "link:open" && result?.link) result = { id: result.link.id, name: result.link.name };
             // The phone only looks up the new worktree's Chat; a large Project's whole state is tens of MB, past what a LAN socket buffers.
             if (request.method === "worktree:create" && result?.project?.state)

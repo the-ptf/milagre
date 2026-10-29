@@ -3,12 +3,22 @@ import type { ReactNode } from "react";
 import type { ModelProvider, ProjectAccountScope, ProjectAccountsSnapshot } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Briefcase01Icon, UserIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, Briefcase01Icon, UserIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { CHATS_ACCOUNT_DETAIL } from "@milagre/shared/chats-home";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { Select, type SelectOption } from "./primitives/Select";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { ProviderLogo } from "./ProviderLogo";
 import { bridgeForKey } from "../lib/computer-bridge";
+
+/** The Chats home's mark, as the sidebar's Chats group shows it: it has no repository picture of its own. */
+function ChatsHomeMark() {
+  return (
+    <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-ink text-surface">
+      <HugeiconsIcon icon={BubbleChatIcon} size={14} />
+    </span>
+  );
+}
 
 function AccountIcon({ plan }: { plan?: string }) {
   const type = accountType(plan);
@@ -230,6 +240,7 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
             <div className="grid min-w-0 gap-0.5">
               <span className="text-[13.5px] font-medium text-ink">Project or Link</span>
               {selected?.kind === "link" && <span className="text-[12px] text-ink-3">This Link's accounts are independent of its member Projects.</span>}
+              {selected?.chatsHome && <span className="text-[12px] text-ink-3">{CHATS_ACCOUNT_DETAIL}.</span>}
             </div>
             <Select
               label="Project or Link"
@@ -243,7 +254,7 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
                   value: item.key,
                   label: item.name,
                   group: item.kind === "link" ? "Links" : "Projects",
-                  icon: <ProjectAvatarStack projects={item.projects} />,
+                  icon: item.chatsHome ? <ChatsHomeMark /> : <ProjectAvatarStack projects={item.projects} />,
                 }))}
             />
           </div>

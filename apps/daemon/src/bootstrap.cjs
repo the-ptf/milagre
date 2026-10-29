@@ -78,6 +78,7 @@ async function ensureDaemon({
   version,
   cwd = process.cwd(),
   worktreeRoot,
+  chatsHome,
   executable = process.execPath,
   entry = path.join(__dirname, "cli.cjs"),
   env = process.env,
@@ -108,6 +109,7 @@ async function ensureDaemon({
     try {
       const args = [entry, "serve", "--data-dir", dataDir, "--app-version", version, "--cwd", cwd];
       if (worktreeRoot) args.push("--worktree-root", worktreeRoot);
+      if (chatsHome) args.push("--chats-home", chatsHome);
       child = spawn(executable, args, {
         cwd,
         env: {

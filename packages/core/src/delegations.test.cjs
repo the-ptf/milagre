@@ -105,6 +105,7 @@ async function linkedProjects(t, { link = true, agentCli = async () => ({ comman
   const events = [];
   const options = {
     dataDir: path.join(dir, "profile"),
+    chatsHome: path.join(dir, "chats"),
     cwd: folders.api,
     version: "1.0.0",
     environmentReady: Promise.resolve(),

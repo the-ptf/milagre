@@ -226,3 +226,17 @@ test("remote usage is readable while every account mutation remains local", () =
     assert.equal(isLocalOnly(method), true, method);
   assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
 });
+
+test("chats:ensure result path is rewritten for a remote computer", () => {
+  const home = "/Users/a/.milagre/chats";
+  assert.deepEqual(qualifyResult(ID, "chats:ensure", { path: home, name: "chats", kind: "chats", state: {} }), {
+    path: `${ID}|${home}`,
+    name: "chats",
+    kind: "chats",
+    state: {},
+  });
+  assert.deepEqual(qualifyResult(ID, "chats:home", { path: home, exists: false }), { path: `${ID}|${home}`, exists: false });
+  // Each computer has its own home, so another computer's is reached like any of its Projects.
+  assert.equal(isLocalOnly("chats:home"), false);
+  assert.equal(isLocalOnly("chats:ensure"), false);
+});

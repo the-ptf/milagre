@@ -2118,6 +2118,12 @@
         }
       ]
     },
+    "chats:home": {
+      "parameters": []
+    },
+    "chats:ensure": {
+      "parameters": []
+    },
     "link:list": {
       "parameters": []
     },
@@ -3557,6 +3563,24 @@
           "optional": false,
           "schema": {
             "$ref": "#/$defs/T158"
+          }
+        }
+      ]
+    },
+    "computers:note": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "line",
+          "optional": false,
+          "schema": {
+            "type": "string"
           }
         }
       ]

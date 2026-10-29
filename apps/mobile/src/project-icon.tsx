@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Image, View } from "react-native";
-import { Folder01Icon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, Folder01Icon } from "@hugeicons/core-free-icons";
 import type { Client } from "./client";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
@@ -59,6 +59,26 @@ export function ProjectIcon({ client, path, size = 28 }: { client: Client | null
   ) : (
     <View style={[frame, { alignItems: "center", justifyContent: "center", backgroundColor: colors.field }]}>
       <Icon icon={Folder01Icon} tone="ink2" size={size * 0.57} />
+    </View>
+  );
+}
+
+/** The mark of Chats without a Project, in a Project icon's place: a chat bubble, since there is no repository to show. */
+export function ChatsHomeIcon({ size = 28 }: { size?: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 4,
+        borderCurve: "continuous",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.field,
+      }}
+    >
+      <Icon icon={BubbleChatIcon} tone="ink2" size={size * 0.57} />
     </View>
   );
 }

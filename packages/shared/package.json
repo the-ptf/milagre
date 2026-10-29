@@ -360,6 +360,10 @@
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./chats-home": {
+      "types": "./src/chats-home.d.mts",
+      "default": "./src/chats-home.mjs"
+    },
     "./chat-display": "./src/chat-display.ts",
     "./canvas": "./src/canvas.ts",
     "./genui-renderer": "./src/genui-renderer.tsx",

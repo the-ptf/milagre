@@ -356,6 +356,7 @@ async function startDesktop() {
       outdatedMessage: "Restart Milagre's background host to enable computer management.",
       cwd: process.cwd(),
       worktreeRoot: !app.isPackaged ? process.env.MILAGRE_WORKTREE_ROOT : undefined,
+      chatsHome: !app.isPackaged ? process.env.MILAGRE_CHATS_HOME : undefined,
       emit(channel, payload) {
         if (channel === "desktop:request") {
           void nativeCommands.receive(payload);

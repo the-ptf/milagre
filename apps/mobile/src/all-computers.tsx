@@ -3,9 +3,10 @@ import { AppState } from "react-native";
 import { createAllComputersStore, type HostView, type ViewPolicy } from "./all-computers-store";
 import { listArchivedChats } from "./chat-list-archived";
 import { createClient } from "./client";
-import { savedFoldedProjects, savedHiddenProjects, savedProjectOrder } from "./hosts-native";
+import { savedChatDefaults, savedFoldedProjects, savedHiddenProjects, savedProjectOrder } from "./hosts-native";
 import type { SavedHost } from "./hosts-store";
-import { newChatProjects, type NewChatProject } from "./new-chat-project";
+import { newChatProjects, noProjectChoice, type NewChatProject, type NoProjectChoice } from "./new-chat-project";
+import type { Client } from "./client";
 import { relayRuntime } from "./relay-native";
 import { useSession } from "./session";
 
@@ -115,6 +116,27 @@ export function useNewChatProjects(): NewChatProject[] {
   const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- versions changes exactly when a view does.
   return useMemo(() => newChatProjects(allComputers.views()), [versions]);
+}
+
+/** The new-chat picker's No project row, as the sidebars last read the computers. Reads nothing itself. */
+export function useNoProjectChoice(currentHostId: string | undefined): NoProjectChoice | undefined {
+  const versions = useSyncExternalStore(allComputers.subscribe, allComputers.versions);
+  return useMemo(
+    () => noProjectChoice(allComputers.views(), savedChatDefaults.readLastComputer(), currentHostId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- versions changes exactly when a view does.
+    [versions, currentHostId],
+  );
+}
+
+/**
+ * The folder a Chat without a Project opens in on this computer: its Chats home, made first when it doesn't exist yet
+ * (chats:ensure, which neither lists it as a Project nor moves the computer's shown one).
+ */
+export async function chatsHomePath(client: Client, hostId: string, home: { path: string; exists: boolean }): Promise<string> {
+  if (home.exists) return home.path;
+  const opened = await client.ensureChatsHome();
+  allComputers.setHome(hostId, { path: opened.path, exists: true });
+  return opened.path;
 }
 
 /**

@@ -147,6 +147,11 @@ export type ChatRowActions = {
   remote?: boolean;
   /** Opens the chat with its "Commit and open PR" dialog. */
   onCommit?: (id: string) => void;
+  /**
+   * The chat has no Project (a Chats home's), so no Git and no folder to the user: the menu leaves out "Copy path",
+   * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveChoices).
+   */
+  gitless?: boolean;
   /** Looks at the chat's worktree when "Archive" is clicked, to decide what the confirm step offers. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
@@ -1391,10 +1396,21 @@ function ChatMenu({
   const { editor } = useEditors();
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
-  const confirm = archiveArmed && plan ? archiveChoices({ plan, running }) : null;
+  // A Chat without a Project says what goes in plain words, and a clean one archives on the first click.
+  const choices = plan ? archiveChoices({ plan, running, chatsHome: actions.gitless }) : null;
+  const confirm = archiveArmed ? choices : null;
+  const archiveAtOnce = choices?.immediate && choices.choices.length === 1 ? choices.choices[0] : undefined;
   const archiveItems: Array<MenuEntry> =
     !confirm || !plan
-      ? [{ key: "archive", label: "Archive", icon: Archive02Icon, onSelect: () => setArchiveArmed(true), disabled: !actions.onArchive || !plan }]
+      ? [
+          {
+            key: "archive",
+            label: archiveAtOnce?.label ?? "Archive",
+            icon: Archive02Icon,
+            onSelect: archiveAtOnce && plan ? run(() => actions.onArchive?.(item.id, archiveAtOnce.mode, plan)) : () => setArchiveArmed(true),
+            disabled: !actions.onArchive || !plan,
+          },
+        ]
       : confirm.choices.map((choice) => ({
           key: `archive-${choice.mode}`,
           label: choice.label,
@@ -1423,8 +1439,12 @@ function ChatMenu({
   }, [confirmEntry]);
 
   const items: Array<MenuEntry | "divider"> = [
-    { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
-    { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
+    ...(actions.gitless
+      ? []
+      : [
+          { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
+          { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
+        ]),
     { key: "rename", label: "Rename chat", icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
     {
       key: "reload",
@@ -1457,28 +1477,33 @@ function ChatMenu({
           onSelect: run(() => actions.onMarkUnread?.(item.id, true)),
           disabled: !actions.onMarkUnread,
         },
-    {
-      key: "reveal",
-      label: IS_MAC ? "Open in Finder" : "Open in file manager",
-      icon: FolderOpenIcon,
-      onSelect: run(() => actions.onReveal?.(item.id)),
-      disabled: !actions.onReveal || !details.path,
-    },
-    {
-      key: "editor",
-      label: editor ? `Open in ${editor.name}` : "No editor found",
-      icon: SourceCodeIcon,
-      onSelect: run(() => actions.onOpenInEditor?.(item.id)),
-      disabled: !editor || !actions.onOpenInEditor || !details.path,
-    },
-    // Every chat's folder came from `git worktree list`, so a chat with a folder is in a repository.
-    {
-      key: "commit",
-      label: "Commit and open PR…",
-      icon: GitPullRequestIcon,
-      onSelect: run(() => actions.onCommit?.(item.id)),
-      disabled: !actions.onCommit || !details.path,
-    },
+    // A Chat without a Project has no folder to the user: no Finder, editor or commit.
+    ...(actions.gitless
+      ? []
+      : [
+          {
+            key: "reveal",
+            label: IS_MAC ? "Open in Finder" : "Open in file manager",
+            icon: FolderOpenIcon,
+            onSelect: run(() => actions.onReveal?.(item.id)),
+            disabled: !actions.onReveal || !details.path,
+          },
+          {
+            key: "editor",
+            label: editor ? `Open in ${editor.name}` : "No editor found",
+            icon: SourceCodeIcon,
+            onSelect: run(() => actions.onOpenInEditor?.(item.id)),
+            disabled: !editor || !actions.onOpenInEditor || !details.path,
+          },
+          // Every chat's folder came from `git worktree list`, so a chat with a folder is in a repository.
+          {
+            key: "commit",
+            label: "Commit and open PR…",
+            icon: GitPullRequestIcon,
+            onSelect: run(() => actions.onCommit?.(item.id)),
+            disabled: !actions.onCommit || !details.path,
+          },
+        ]),
     item.pinned
       ? { key: "unpin", label: "Unpin", icon: PinOffIcon, onSelect: run(() => actions.onPin?.(item.id, null)), disabled: !actions.onPin }
       : { key: "pin", label: "Pin", icon: PinIcon, onSelect: run(() => actions.onPin?.(item.id)), disabled: !actions.onPin },

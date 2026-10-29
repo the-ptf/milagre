@@ -281,6 +281,8 @@ function makeBridge(invoke, listen, send) {
      * @param {{ state?: boolean }} [options]
      */
     readProject: (projectPath, options) => invoke("project:read", projectPath, options),
+    chatsHome: () => invoke("chats:home"),
+    ensureChatsHome: () => invoke("chats:ensure"),
     listNamedLinks: () => invoke("link:list"),
     createNamedLink: (request) => invoke("link:create", request),
     updateNamedLink: (request) => invoke("link:update", request),
@@ -515,6 +517,7 @@ const bridge = {
     invoke: (id, method, args) => ipcRenderer.invoke("computers:invoke", id, method, args),
     remember: (id, entry) => ipcRenderer.invoke("computers:remember", id, entry),
     recall: (id, entry) => ipcRenderer.invoke("computers:recall", id, entry),
+    note: (id, line) => ipcRenderer.invoke("computers:note", id, line),
   },
   onComputersChanged: (callback) => listenHere("computers:changed", callback),
   onComputerAddPending: (callback) => listenHere("computers:pending", () => callback()),

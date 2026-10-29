@@ -22,6 +22,10 @@ An **MCP server** saved in Milagre's own list instead of a provider's config. Mi
 A git repository that has been opened in Milagre at least once. Every **Worktree** of the repository belongs to the same **Project**, whichever of its folders was opened.
 _Avoid_: folder, workspace, repo
 
+**Chats home**:
+The internal **Project** that holds a **Computer**'s **Chats** without a **Project**, one **Worktree** per **Chat**. A git repository at `~/.milagre/chats`, made on first use. Never shown as a **Project**: the UI calls it "No project" and lists its **Chats** in a **Chats** group. See ADR-0011.
+_Avoid_: quick chats, default project
+
 **Worktree**:
 A git working directory of a **Project**, the main checkout included. A **Worktree** is active while git lists it and its folder exists; only active **Worktrees** appear on the canvas.
 _Avoid_: branch (a **Worktree** has a branch, it isn't one)
@@ -36,6 +40,7 @@ _Avoid_: ticket, task (Linear's own word is issue)
 
 **Chat**:
 One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
+A **Chat** started with No project is a **Chat** in the **Chats home**, on its own **Worktree**; it has no Git controls.
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 
@@ -147,6 +152,7 @@ _Avoid_: client (any connection to the daemon, this Mac's own window included)
 ## Relationships
 
 - A **Project** has one or more **Worktrees**; an ordinary **Worktree** has one or more **Chats**. A named Link's shared **Chat** owns one **Worktree** per member **Project**.
+- A **Computer** has one **Chats home**, which holds one **Worktree** per project-less **Chat**.
 - A **Chat** has zero or more **Terminals**; each **Terminal** belongs to exactly one **Chat**.
 - A **Link** joins exactly two endpoints; each endpoint is a **Project** or a **Worktree**.
 - A **Delegation** goes from one **Chat** to one other **Chat**, along exactly one **Link**, or along none inside one **Project**.
