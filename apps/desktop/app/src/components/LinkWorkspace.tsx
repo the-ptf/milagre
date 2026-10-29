@@ -1,4 +1,5 @@
 import { archiveLinkChat } from "../lib/archive-flow";
+import { shortcutCommand } from "../lib/keybindings";
 import { prepareImageUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
@@ -326,13 +327,14 @@ export function LinkWorkspace({
         setCanvasOpen(false);
         return;
       }
-      if (canvasOpen && (event.metaKey || event.ctrlKey) && ["d", "f"].includes(event.key.toLowerCase())) return;
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "d" && session) {
+      const command = shortcutCommand(event);
+      if (canvasOpen && (command === "changes.toggle" || command === "chat.find")) return;
+      if (command === "changes.toggle" && session) {
         event.preventDefault();
         changes.toggle();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
+      if (command === "chat.new") {
         event.preventDefault();
         if (onNewChat) onNewChat();
         else {
@@ -341,15 +343,15 @@ export function LinkWorkspace({
           document.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
         }
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if (command === "commandPalette.toggle") {
         event.preventDefault();
         setCommandsOpen(true);
       }
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "t" && terminalChatId) {
+      if (command === "terminal.new" && terminalChatId) {
         event.preventDefault();
         newTerminal(terminalChatId, terminalPlaces, setError);
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      if (command === "chat.find") {
         event.preventDefault();
         setFindSeed(undefined);
         setFindOpen(true);
@@ -653,7 +655,7 @@ export function LinkWorkspace({
                   {error && session && (
                     <p
                       role="alert"
-                      className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red shadow-overlay"
+                      className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red-ink shadow-overlay"
                     >
                       {error}
                     </p>

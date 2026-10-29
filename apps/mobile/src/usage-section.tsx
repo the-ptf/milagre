@@ -76,7 +76,7 @@ function ProviderRows({ provider, now }: { provider: ProviderUsage; now: number 
         <Text
           selectable
           accessibilityRole={failed ? "alert" : undefined}
-          style={[styles.caption, { color: failed ? colors.orange : colors.ink2, lineHeight: 18 }]}
+          style={[styles.caption, { color: failed ? colors.orangeInk : colors.ink2, lineHeight: 18 }]}
         >
           {provider.message}
         </Text>
@@ -136,7 +136,7 @@ export function UsageSection() {
           <Text style={styles.muted}>No plan usage is available. Sign in to Claude, Codex or Antigravity on your computer, then refresh.</Text>
         ) : null}
         {usage.error ? (
-          <Text selectable accessibilityRole="alert" style={[styles.muted, { color: colors.orange }]}>
+          <Text selectable accessibilityRole="alert" style={[styles.muted, { color: colors.orangeInk }]}>
             {usage.error}
           </Text>
         ) : null}

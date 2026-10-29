@@ -1,5 +1,6 @@
 import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
+import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
 import type { McpAccount, McpAccountCheck, McpChangedEvent, McpProvider, McpServerDefinition, McpTarget } from "@milagre/shared/mcp";
 import type { LocalMcpApi } from "@milagre/shared/local-mcp";
@@ -20,6 +21,7 @@ import type {
   RoutineTrigger,
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
+import type { ChatsHome } from "@milagre/shared/chats-home";
 import type { BotRecord, BotsSnapshot, GateRecord } from "@milagre/shared/bots";
 import type { StatePatch } from "@milagre/shared/state-patch";
 export type FloatingDragOverlay = {
@@ -236,6 +238,8 @@ export type ComputersApi = {
   ) => Promise<void>;
   /** A chat's offline copy, read to paint it while the computer's own answer is on its way; null without one. */
   recall?: (id: string, entry: { kind: "chat"; scope: string; chatId: number }) => Promise<{ messages: unknown[]; hasMore: boolean; total: number } | null>;
+  /** A line about the computer's scopes for daemon.log, which the window has no log of its own for. */
+  note?: (id: string, line: string) => Promise<void>;
 };
 
 import type { DiffMode, DiffFilesResult, DiffFileResult } from "@milagre/shared/git-diff";
@@ -396,6 +400,17 @@ export type MilagreBridge = {
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
   /** The switch changed, here or from another device. */
   onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
+  /** Settings › Keybindings: the rules of keybindings.json on this computer (a paired computer's bridge reads that computer's). A missing file is created with the defaults. */
+  readKeybindings: () => Promise<KeybindingsState>;
+  /** Replaces one command's rules (none unbinds it). Rejects an unknown command, a key or `when` Milagre can't read, or a file with errors. */
+  setKeybindingCommand: (command: KeybindingCommandId, rules: Array<Pick<KeybindingRule, "key" | "when">>) => Promise<KeybindingsState>;
+  resetKeybindingCommand: (command: KeybindingCommandId) => Promise<KeybindingsState>;
+  /** Writes the defaults over the whole file, which also fixes a file with errors. */
+  resetKeybindings: () => Promise<KeybindingsState>;
+  /** The file changed, from Settings on any device or by hand; the callback gets the full state. */
+  onKeybindings: (callback: (state: KeybindingsState) => void) => () => void;
+  /** Opens this Mac's keybindings.json in the default editor. Only on this Mac's own bridge: a paired computer's refuses. */
+  openKeybindingsFile: () => Promise<void>;
   /** Settings › Babysit PRs: the one global configuration every Chat's babysitting follows. Kept by the host, so a paired desktop or the phone edits it too. */
   readBabysitSettings: () => Promise<BabysitSettings>;
   /** Merges the patch over the stored settings and returns the normalized result. */
@@ -553,6 +568,10 @@ export type MilagreBridge = {
     /** `state: false`: only the Project's path, name and state number, for a window that holds its state already. */
     (projectPath: string, options: { state: false }): Promise<ProjectRead>;
   };
+  /** Where this computer's Chats home is, the repository Chats without a Project run in, and whether it exists yet. */
+  chatsHome: () => Promise<ChatsHome>;
+  /** Makes the Chats home when it is missing and reads it, leaving the shown Project alone; never added to the recent list. */
+  ensureChatsHome: () => Promise<OpenProject & StateStamp & { kind: "chats" }>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
   createNamedLink: (request: { name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;
@@ -587,7 +606,7 @@ export type MilagreBridge = {
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app shortcut (⌘⇧ plus a letter, or ⌘,) pressed in any frame, forwarded by the main process. */
-  onAppShortcut: (callback: (shortcut: { key: string; shift: boolean }) => void) => () => void;
+  onAppShortcut: (callback: (shortcut: { key: string; code?: string; meta: boolean; control: boolean; alt: boolean; shift: boolean }) => void) => () => void;
   /** The canvas's Stop on a Link: the Negotiation stops, turns already running finish. */
   stopNegotiation: (id: string) => Promise<void>;
   setWorktreePosition: (id: string, worktreePath: string, position: { x: number; y: number }) => Promise<unknown>;

@@ -124,7 +124,7 @@ function AddButton({ commenting, hunk, line, side }: { commenting: Commenting; h
       onClick={(event) => {
         if (event.detail === 0) commenting.actions.start(target, event.shiftKey, false);
       }}
-      className="absolute top-0.5 left-1 flex size-4 items-center justify-center rounded-chip bg-ink text-surface opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+      className="absolute top-0.5 left-1 flex size-4 items-center justify-center rounded-chip bg-ink text-surface opacity-0 before:absolute before:-inset-x-1 before:-inset-y-0.5 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
     >
       <HugeiconsIcon icon={Add01Icon} size={11} strokeWidth={2.4} color="currentColor" />
     </button>

@@ -24,6 +24,7 @@ test("Auto update: the switch reaches every listener, and activity follows a tur
   const finish = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "profile"),
+    chatsHome: path.join(dir, "chats"),
     worktreeRoot: path.join(dir, "worktrees"),
     registryRoots: [],
     environmentReady: Promise.resolve(),

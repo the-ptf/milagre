@@ -194,7 +194,7 @@ export function CommentPin({
                 {pin.resolved === undefined ? (
                   <span className="px-1 text-[11px] text-ink-3">Sent to the agent</span>
                 ) : (
-                  <span data-slot="artifact-comment-resolved" className="flex items-start gap-1 px-1 text-[12px] text-green">
+                  <span data-slot="artifact-comment-resolved" className="flex items-start gap-1 px-1 text-[12px] text-green-ink">
                     <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="mt-px shrink-0" aria-hidden />
                     <span>{pin.resolved}</span>
                   </span>

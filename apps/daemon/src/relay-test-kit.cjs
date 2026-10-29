@@ -447,6 +447,7 @@ async function startTestMac(t, { autoAllow = true, lan = true, runtime: runtimeE
   const relay = await startLocalRelay(t, relayOptions);
   daemon = await startDaemon({
     dataDir,
+    // The temporary folder is the host's home folder too, so its Chats home is made there, never in the user's.
     homeDir: directory,
     version: "9.8.7",
     runtimeOptions: { cwd: project, environmentReady: Promise.resolve(), titleModels: {}, readPullRequests: async (_worktree, refs) => refs, ...runtimeExtra },

@@ -121,7 +121,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-pr]").textContent.includes("Ready")');
     await evaluate("window.pr = { ...window.pr, hasConflicts: true }; window.refreshPR()");
     await waitFor('document.querySelector("[data-chat-pr]").textContent.includes("Conflicts")');
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red")'), true);
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red-ink")'), true);
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("conflicts")'));
     await window.webContents.capturePage().then((image) => require("node:fs").writeFileSync("/tmp/milagre-sidebar-pr-conflicts.png", image.toPNG()));
     await evaluate("window.dismissBlockerAction()");
@@ -152,7 +152,7 @@ async function browserChecks() {
         .then((image) => require("node:fs").writeFileSync(require("node:path").join(process.env.MILAGRE_SCREENSHOT_DIR, name), image.toPNG()));
     await evaluate("window.pr = { ...window.pr, isBehind: true }; window.refreshPR()");
     await waitFor('document.querySelector("[data-chat-pr]").textContent.includes("Out of date")');
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-orange")'), true, "An outdated branch is orange");
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-orange-ink")'), true, "An outdated branch is orange");
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("out of date")'));
     await shot("sidebar-out-of-date.png");
     await evaluate('window.dismissBlockerAction("behind")');
@@ -160,7 +160,7 @@ async function browserChecks() {
     await evaluate("window.pr = { ...window.pr, changesRequested: true }; window.refreshPR()");
     await waitFor('document.querySelector("[data-chat-pr]").textContent.includes("Needs changes")');
     assert.equal(
-      await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red")'),
+      await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red-ink")'),
       true,
       "Requested changes outrank an outdated branch",
     );
@@ -171,7 +171,7 @@ async function browserChecks() {
     await waitFor('!window.dismissedConflicts.includes("behind:" + window.pr.url)');
     await evaluate('window.pr = { ...window.pr, checks: "running" }; window.refreshPR()');
     await waitFor('document.querySelector("[data-chat-pr]").textContent.includes("CI running")');
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-orange")'), true, "Running CI is orange");
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-orange-ink")'), true, "Running CI is orange");
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("CI running")'));
     assert.ok(
       await evaluate('[...document.querySelectorAll("[role=tooltip]")].every(node => !node.textContent.includes("CI running"))'),
@@ -180,7 +180,7 @@ async function browserChecks() {
     await shot("sidebar-ci-running.png");
     await evaluate('window.pr = { ...window.pr, checks: "failed" }; window.refreshPR()');
     await waitFor('document.querySelector("[data-chat-pr]").textContent.includes("CI failed")');
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red")'), true, "Failed CI is red");
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red-ink")'), true, "Failed CI is red");
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("ci failed")'));
     await shot("sidebar-ci-failed.png");
     await evaluate('window.dismissBlockerAction("checks-failed")');
@@ -228,7 +228,7 @@ async function browserChecks() {
     );
     assert.equal(await evaluate('document.querySelector("[data-chat-pr-more]").textContent'), "+1");
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("conflicts")'));
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red")'), true);
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red-ink")'), true);
     const multiGeometry = await evaluate(`(() => {
       const rows = [...document.querySelectorAll('[data-row]')];
       const row = rows[2].getBoundingClientRect();

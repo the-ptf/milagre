@@ -143,7 +143,7 @@ export function PortTrack({
                         aria-label={`Stop port ${port.port}`}
                         disabled={!onStop}
                         onClick={() => stop([port.pid])}
-                        className="flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-red focus-visible:outline-2 disabled:opacity-40"
+                        className="flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-red-ink focus-visible:outline-2 disabled:opacity-40"
                       >
                         <HugeiconsIcon icon={StopCircleIcon} size={14} />
                       </button>

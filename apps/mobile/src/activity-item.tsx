@@ -121,11 +121,11 @@ export function ActivityItem({
   const trailing = (
     <>
       {!!summary && (
-        <Text numberOfLines={1} style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.red : colors.ink3, fontSize: 12 }}>
+        <Text numberOfLines={1} style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.redInk : colors.ink3, fontSize: 12 }}>
           {summary}
         </Text>
       )}
-      {!!status && <Text style={{ color: failed ? colors.red : state === "waiting" ? colors.orange : colors.ink3, fontSize: 12 }}>{status}</Text>}
+      {!!status && <Text style={{ color: failed ? colors.redInk : state === "waiting" ? colors.orangeInk : colors.ink3, fontSize: 12 }}>{status}</Text>}
       {(onPress || expandable) &&
         (onPress ? (
           <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />

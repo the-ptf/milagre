@@ -816,7 +816,7 @@ export function DesignDocumentEditor({
               </div>
             )}
             {error && (
-              <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-line bg-red/10 px-4 py-2 text-[12px] text-red">
+              <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-line bg-red/10 px-4 py-2 text-[12px] text-red-ink">
                 <span className="flex-1">{error}</span>
               </div>
             )}
@@ -855,7 +855,7 @@ export function DesignDocumentEditor({
               <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col border-b border-line bg-canvas px-4 py-3 text-[12px]">
                 <p className="mb-2 font-medium">Review version {incoming.version}</p>
                 {merge.error && (
-                  <p role="alert" className="mb-2 text-red">
+                  <p role="alert" className="mb-2 text-red-ink">
                     These changes cannot be combined: {merge.error}
                   </p>
                 )}
@@ -876,7 +876,7 @@ export function DesignDocumentEditor({
                     {dirty && (
                       <button
                         type="button"
-                        className={`${buttonClass} mt-3 self-start border-red/40 text-red`}
+                        className={`${buttonClass} mt-3 self-start border-red/40 text-red-ink`}
                         disabled={saving}
                         onClick={() => void persist(state.current.document, incoming, true)}
                       >
@@ -1273,7 +1273,7 @@ export function DesignDocumentEditor({
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
                     Duplicate
                   </button>
-                  <button type="button" className={`${buttonClass} text-red`} disabled={saving} onClick={remove}>
+                  <button type="button" className={`${buttonClass} text-red-ink`} disabled={saving} onClick={remove}>
                     Delete
                   </button>
                 </div>
@@ -1307,7 +1307,7 @@ export function DesignDocumentEditor({
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
                     Duplicate
                   </button>
-                  <button type="button" className={`${buttonClass} text-red`} disabled={saving} onClick={remove}>
+                  <button type="button" className={`${buttonClass} text-red-ink`} disabled={saving} onClick={remove}>
                     Delete
                   </button>
                 </div>

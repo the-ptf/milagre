@@ -322,7 +322,8 @@ html[data-floating-inbox] #root {
   /* ink ramp */
   --ink: #1c222b;
   --ink-2: #616770;
-  --ink-3: #8c929a;
+  --ink-3: #6e737b;
+  --ink-4: #8c929a;
 
   /* borders — solid and crisp, not alpha */
   --line: #edeeee;
@@ -347,6 +348,9 @@ html[data-floating-inbox] #root {
   --orange-tint: #f5efee;
   --red: #e3474c;
   --red-tint: #f5ecef;
+  --green-ink: #008439;
+  --orange-ink: #c54b00;
+  --red-ink: #d3373f;
 
   /* shadows — our solid hairline ring + shadow-plugin's smooth layered stacks
    * (--shadow-xs…lg come from shadow-plugin/unprefixed) so every surface reads
@@ -374,7 +378,8 @@ html[data-floating-inbox] #root {
 
   --ink: #e9eff7;
   --ink-2: #9199a4;
-  --ink-3: #646c79;
+  --ink-3: #808996;
+  --ink-4: #646c79;
 
   --line: #273242;
   --line-strong: #303b4a;
@@ -395,6 +400,9 @@ html[data-floating-inbox] #root {
   --orange-tint: #f68f3c24;
   --red: #ee5c61;
   --red-tint: #ee5c6124;
+  --green-ink: var(--green);
+  --orange-ink: var(--orange);
+  --red-ink: var(--red);
 
   --shadow-hairline: 0 0 0 1px var(--line);
   /* Elevation rings go to a subtle *light* hairline in dark mode: the ring
@@ -422,6 +430,7 @@ html[data-floating-inbox] #root {
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
   --color-hover: var(--hover);
   --color-hover-2: var(--hover-2);
   --color-field: var(--field);
@@ -434,12 +443,15 @@ html[data-floating-inbox] #root {
   --color-diff-remove: var(--diff-remove-color, var(--red));
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
+  --color-green-ink: var(--green-ink);
   --color-purple-ink: var(--purple-ink);
   --color-purple-tint: var(--purple-tint);
   --color-orange: var(--orange);
   --color-orange-tint: var(--orange-tint);
+  --color-orange-ink: var(--orange-ink);
   --color-red: var(--red);
   --color-red-tint: var(--red-tint);
+  --color-red-ink: var(--red-ink);
 
   /* shadows */
   --shadow-hairline: var(--shadow-hairline);
@@ -756,10 +768,22 @@ a {
   cursor: pointer;
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 4px;
+/* The base focus ring lives in the base layer so a component's own focus-visible: utilities win over it, and a
+   rounded control keeps its radius; anything unrounded gets 4px. Unlayered rules below still override it. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Fields show focus with their own border or ring utilities, not the outline. */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [contenteditable]:focus-visible {
+    outline: none;
+  }
 }
 
 [data-position-thumb]:focus-visible,
@@ -796,13 +820,6 @@ a {
 [data-mcp-page] :focus-visible,
 [data-mcp-sheet] :focus-visible {
   outline-color: var(--ink);
-}
-
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-[contenteditable]:focus-visible {
-  outline: none;
 }
 
 /* ── shared keyframes ─────────────────────────────────── */
@@ -1473,9 +1490,22 @@ code.step-running.step-sweep {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .running-logo > span,
-  .spinner-ring {
+  .running-logo > span {
     animation: none !important;
+  }
+  /* Still show that something is loading: a slow two-step fade instead of the turn, no movement. */
+  .running-logo,
+  .spinner-ring {
+    animation: reduced-motion-loading 1.6s steps(2, jump-none) infinite !important;
+  }
+}
+
+@keyframes reduced-motion-loading {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
   }
 }
 

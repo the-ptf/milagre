@@ -85,7 +85,7 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
         </div>
       )}
       {error && (
-        <p role="alert" className="text-[12px] text-red">
+        <p role="alert" className="text-[12px] text-red-ink">
           {error}
         </p>
       )}
@@ -150,7 +150,7 @@ export function AccountsSettings() {
         </button>
       </div>
       {error && (
-        <p role="alert" className="text-[13px] text-red">
+        <p role="alert" className="text-[13px] text-red-ink">
           {error}
         </p>
       )}
@@ -285,7 +285,7 @@ export function AccountsSettings() {
                   value={label}
                   onChange={(event) => setLabel(event.target.value)}
                   placeholder="Personal or work"
-                  className="rounded-lg border border-line bg-field px-3 py-2 text-[13px] text-ink outline-none focus:border-line-strong"
+                  className="rounded-lg border border-line bg-field px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
                 />
               </label>
               <p className="text-[12px] text-ink-3">Sign-in opens in your computer's browser. Choose the account you want to add.</p>

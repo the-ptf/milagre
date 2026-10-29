@@ -9,7 +9,7 @@ const keyOf = (chip: Pick<McpChip, "provider" | "accountId">) => `${chip.provide
 const outlineButton =
   "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
 const solidButton = "rounded-lg bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-surface transition-opacity hover:opacity-90 disabled:opacity-40";
-const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red transition-colors hover:bg-red-tint";
+const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red-ink transition-colors hover:bg-red-tint";
 
 /** The name without the group it already sits under: "notion" for plugin:engineering:notion, "Gmail" for claude.ai Gmail. */
 const shortName = (row: McpRow) => (row.source ? row.name.replace(/^plugin:[^:]+:/, "").replace(/^claude\.ai /, "") : row.name);
@@ -20,14 +20,14 @@ const accountName = (chip: McpChip) =>
 function Tile({ row, warn = false }: { row: McpRow; warn?: boolean }) {
   const icon = row.transport === "command" ? CommandLineIcon : Globe02Icon;
   return (
-    <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${warn ? "bg-orange-tint text-orange" : "bg-hover text-ink-2"}`}>
+    <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${warn ? "bg-orange-tint text-orange-ink" : "bg-hover text-ink-2"}`}>
       <HugeiconsIcon icon={icon} size={16} strokeWidth={1.75} color="currentColor" />
     </span>
   );
 }
 
 function Failed() {
-  return <HugeiconsIcon data-mcp-failed icon={Alert02Icon} size={14} strokeWidth={2} className="shrink-0 text-red" color="currentColor" />;
+  return <HugeiconsIcon data-mcp-failed icon={Alert02Icon} size={14} strokeWidth={2} className="shrink-0 text-red-ink" color="currentColor" />;
 }
 
 /** A row that needs sign-in: Sign in, or Cancel while the browser is open. Compact inside a group. */
@@ -72,7 +72,7 @@ function AccountLines({ row, onSwitch }: { row: McpRow; onSwitch: (chip: McpChip
   return row.chips.map((chip) => (
     <div key={keyOf(chip)} className="flex min-h-10 items-center gap-3">
       <span className="w-64 shrink-0 truncate text-[13px] text-ink">{accountName(chip)}</span>
-      <span className={`min-w-0 flex-1 truncate text-[12px] ${chip.state === "failed" ? "text-red" : "text-ink-3"}`}>{mcpChipLine(chip)}</span>
+      <span className={`min-w-0 flex-1 truncate text-[12px] ${chip.state === "failed" ? "text-red-ink" : "text-ink-3"}`}>{mcpChipLine(chip)}</span>
       <span data-mcp-switch={`${keyOf(chip)}:${row.name}`} className="flex">
         <Switch
           label={`${row.name} for ${accountName(chip)}`}
@@ -113,7 +113,7 @@ export function McpServerRow({
         <Tile row={row} />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="truncate text-[13.5px] font-semibold text-ink">{row.name}</span>
-          <span className={`truncate text-[12px] ${failed ? "text-red" : "text-ink-3"}`}>{subtitle}</span>
+          <span className={`truncate text-[12px] ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
         </span>
         {row.everywhere && <span className="rounded-md bg-hover px-2 py-0.5 text-[11.5px] font-medium text-ink">Everywhere</span>}
         <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
@@ -193,7 +193,7 @@ export function McpOutsideRow({
     return (
       <div data-mcp-row={row.name} data-open={false} className="flex min-h-12 items-center gap-3 px-3 py-2">
         {name}
-        <span className={`flex min-w-0 items-center gap-1.5 truncate text-[12px] ${failed ? "text-red" : "text-ink-3"}`}>
+        <span className={`flex min-w-0 items-center gap-1.5 truncate text-[12px] ${failed ? "text-red-ink" : "text-ink-3"}`}>
           {failed && <Failed />}
           {line}
         </span>

@@ -28,6 +28,7 @@ import {
 import { browserWebview, focusBrowserPage, listenToBrowserPages, showBrowserPage, syncBrowserPages } from "../../lib/browser-webviews";
 import { portUrl } from "../../lib/ports";
 import { CommentControls, PageCommenting, useSentPageComments, type SendPageComments } from "./BrowserComments";
+import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 
 /** Sent with a Chat key when ⌘L is pressed in one of its pages: its address bar takes the focus. */
 const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
@@ -99,6 +100,7 @@ export function BrowserPanel({ chatKey, ports, onSendComments }: { chatKey: stri
 }
 
 function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs: BrowserTab[]; active: string; onClose: () => void }) {
+  const { rules } = useKeybindings();
   return (
     <div role="tablist" aria-label="Pages" className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
@@ -139,7 +141,7 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
           <HugeiconsIcon icon={PlusSignIcon} size={15} aria-hidden />
         </button>
       </Tooltip>
-      <Tooltip label="Hide browser" shortcut="⌘⇧B" side="bottom" align="end">
+      <Tooltip label="Hide browser" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
         <button type="button" aria-label="Hide browser" onClick={onClose} className={ICON_BUTTON}>
           <HugeiconsIcon icon={Cancel01Icon} size={15} aria-hidden />
         </button>

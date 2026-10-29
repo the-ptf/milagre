@@ -33,6 +33,22 @@ test("every theme builds a complete palette in both schemes with readable text",
     }
 });
 
+test("tertiary and status text reads at 4.5:1 on the page and on cards, in every theme", () => {
+  for (const theme of themes)
+    for (const scheme of ["light", "dark"] as const) {
+      const p = resolvePalette(theme.id, scheme);
+      for (const key of ["ink3", "greenInk", "orangeInk", "redInk"] as const)
+        for (const bg of ["page", "surface"] as const)
+          assert.ok(contrastRatio(p[key], p[bg]) >= 4.5, `${theme.id} ${scheme} ${key} ${p[key]} on ${bg} ${p[bg]}`);
+    }
+});
+
+test("a color that already reads keeps its value", () => {
+  const p = resolvePalette("milagre-blue", "dark");
+  assert.equal(p.greenInk, p.green);
+  assert.equal(resolvePalette("catppuccin-mocha", "dark").ink4, "#7f849c");
+});
+
 test("Gray keeps today's colors", () => {
   assert.equal(resolvePalette("gray", "light").page, "#fafafb");
   assert.equal(resolvePalette("gray", "dark").page, "#17181a");

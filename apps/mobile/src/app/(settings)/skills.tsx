@@ -107,7 +107,7 @@ function SkillRow({ skill, hidden, onPress }: { skill: SkillOption; hidden: numb
           /{skill.name}
         </Text>
         <Text style={skillBadge}>{skillProviderLabel(skill.provider)}</Text>
-        {hidden > 0 && <Text style={{ color: colors.orange, fontSize: 11 }}>{overrides(hidden)}</Text>}
+        {hidden > 0 && <Text style={{ color: colors.orangeInk, fontSize: 11 }}>{overrides(hidden)}</Text>}
       </View>
       <Text numberOfLines={1} style={[styles.caption, { color: colors.ink2, fontSize: 13 }]}>
         {skill.description}

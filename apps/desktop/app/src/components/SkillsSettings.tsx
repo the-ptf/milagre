@@ -130,7 +130,7 @@ function SkillRow({ skill, hidden, onOpen }: { skill: SkillOption; hidden: numbe
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[13.5px] font-medium text-ink">/{skill.name}</span>
           <span className={badge}>{skillProviderLabel(skill.provider)}</span>
-          {hidden > 0 && <span className="shrink-0 text-[11px] text-orange">{others(hidden)}</span>}
+          {hidden > 0 && <span className="shrink-0 text-[11px] text-orange-ink">{others(hidden)}</span>}
         </span>
         <span title={skill.description} className="truncate text-[12px] text-ink-2">
           {skill.description}
@@ -256,7 +256,7 @@ function SkillDetail({
             Reading SKILL.md…
           </p>
         ) : "error" in content ? (
-          <p role="alert" className="text-red">
+          <p role="alert" className="text-red-ink">
             Couldn't read this skill: {content.error}
           </p>
         ) : (

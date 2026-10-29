@@ -19,6 +19,7 @@ import {
   SecurityCheckIcon,
   Settings01Icon,
   UserCircleIcon,
+  KeyboardIcon,
 } from "@hugeicons/core-free-icons";
 import { chatListLabel } from "@milagre/shared/chat-display";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
@@ -45,6 +46,7 @@ type SettingsPage =
   | "project-accounts"
   | "appearance"
   | "chat-display"
+  | "keybindings"
   | "archived"
   | "notifications"
   | "connections"
@@ -231,6 +233,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           <Row title="Skills" icon={BookOpen01Icon} onPress={() => onOpen("skills")} />
           <Row title="MCP" icon={Plug01Icon} onPress={() => onOpen("mcp")} />
           <Row title="Milagre" leading={<MilagreMark />} onPress={() => onOpen("local-mcp")} />
+          {/* The Mac's keybindings.json, which an iPad's hardware keyboard runs too. */}
+          {Platform.OS === "ios" && Platform.isPad ? <Row title="Keybindings" icon={KeyboardIcon} onPress={() => onOpen("keybindings")} /> : null}
         </Group>
       ) : null}
       {/* The connected computer's Projects; each opens its own settings. */}

@@ -312,7 +312,7 @@ export function ThreadCard({
           )}
         </View>
       )}
-      {!!error && <Text style={{ color: colors.red, fontSize: 13 }}>{error}</Text>}
+      {!!error && <Text style={{ color: colors.redInk, fontSize: 13 }}>{error}</Text>}
     </View>
   );
 }
@@ -403,7 +403,7 @@ export function FileList({ pr, onOpenFile }: { pr: PullRequestDetail; onOpenFile
                   {threads.has(file.path) && (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
                       <Icon icon={BubbleChatIcon} tone="orange" size={13} />
-                      <Text style={{ color: colors.orange, fontSize: 12 }}>{threads.get(file.path)}</Text>
+                      <Text style={{ color: colors.orangeInk, fontSize: 12 }}>{threads.get(file.path)}</Text>
                     </View>
                   )}
                   <Text style={{ fontFamily: fonts.mono, fontSize: 12 }}>
@@ -600,7 +600,7 @@ export function PrReviewForm({ client, cwd, number, onDone }: Base & { onDone: (
             ? "You opened this PR, so GitHub only lets you comment on it."
             : "Long-press a line in a diff to add comments to this review."}
       </Text>
-      {!!error && <Text style={{ color: colors.red, fontSize: 14 }}>{error}</Text>}
+      {!!error && <Text style={{ color: colors.redInk, fontSize: 14 }}>{error}</Text>}
       <WideButton
         title={event === "APPROVE" ? "Approve" : event === "REQUEST_CHANGES" ? "Request changes" : "Submit review"}
         busy={busy}

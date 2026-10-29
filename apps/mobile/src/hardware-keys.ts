@@ -1,22 +1,61 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { Platform, findNodeHandle, type TextInputInstance } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
+import {
+  evaluateWhen,
+  keybindingCommand,
+  parseKey,
+  parseWhen,
+  type KeybindingCommandId,
+  type KeybindingRule,
+  type WhenContext,
+} from "@milagre/shared/keybindings";
 
-/** The hardware keyboard shortcuts, as desktop has them. Holding ⌘ on an iPad lists them by title. */
-const SHORTCUTS = [
-  { id: "new-chat", input: "n", modifiers: ["command"], title: "New Chat" },
-  { id: "search", input: "k", modifiers: ["command"], title: "Search Chats" },
-  { id: "sidebar", input: "b", modifiers: ["command"], title: "Toggle Sidebar" },
-  { id: "changes", input: "d", modifiers: ["command", "shift"], title: "Changes" },
-  { id: "settings", input: ",", modifiers: ["command"], title: "Settings" },
-  ...Array.from({ length: 9 }, (_, index) => ({
-    id: `chat-${index + 1}`,
-    input: String(index + 1),
-    modifiers: ["command"],
-    title: `Open Chat ${index + 1}`,
-  })),
-] as const;
-export type ShortcutId = (typeof SHORTCUTS)[number]["id"];
+// UIKeyCommand's inputs for the keys that aren't a character.
+const INPUTS: Record<string, string> = {
+  arrowleft: "UIKeyInputLeftArrow",
+  arrowright: "UIKeyInputRightArrow",
+  arrowup: "UIKeyInputUpArrow",
+  arrowdown: "UIKeyInputDownArrow",
+  escape: "UIKeyInputEscape",
+  enter: "\r",
+  tab: "\t",
+  space: " ",
+  backspace: "\b",
+  delete: "UIKeyInputDelete",
+  home: "UIKeyInputHome",
+  end: "UIKeyInputEnd",
+  pageup: "UIKeyInputPageUp",
+  pagedown: "UIKeyInputPageDown",
+};
+const IPAD: WhenContext = { isIpad: true };
+
+/**
+ * The hardware keyboard shortcuts: the rules of the Mac's keybindings.json for the commands an iPad has (`mobile` in
+ * the catalog), whose `when` holds on an iPad. Holding ⌘ lists them by title. An id is `<command>#<n>`.
+ */
+function hardwareShortcuts(rules: readonly KeybindingRule[]): Shortcut[] {
+  return rules.flatMap((rule, index) => {
+    const command = keybindingCommand(rule.command);
+    const shortcut = parseKey(rule.key);
+    if (!command?.mobile || !shortcut) return [];
+    if (rule.when) {
+      const tree = parseWhen(rule.when);
+      if (!tree || !evaluateWhen(tree, IPAD)) return [];
+    }
+    const input = INPUTS[shortcut.key] ?? (/^f([0-9]+)$/.test(shortcut.key) ? `UIKeyInputF${shortcut.key.slice(1)}` : shortcut.key);
+    const modifiers = [
+      ...(shortcut.mod || shortcut.meta ? ["command"] : []),
+      ...(shortcut.ctrl ? ["control"] : []),
+      ...(shortcut.alt ? ["alt"] : []),
+      ...(shortcut.shift ? ["shift"] : []),
+    ];
+    return [{ id: `${rule.command}#${index}`, input, modifiers, title: command.title }];
+  });
+}
+
+/** The command of a shortcut id. */
+const commandOf = (id: string) => id.split("#")[0] as KeybindingCommandId;
 
 type Shortcut = { id: string; input: string; modifiers: readonly string[]; title: string };
 type HardwareKeysModule = {
@@ -29,29 +68,34 @@ type HardwareKeysModule = {
 // Builds older than the iPad one have no module: Return keeps adding a line and there are no shortcuts.
 const native = Platform.OS === "ios" ? requireOptionalNativeModule<HardwareKeysModule>("MilagreHardwareKeys") : null;
 
-/** The ⌘ number of a `chat-N` shortcut, or null for the others. */
-export function chatShortcutIndex(id: string) {
-  const match = /^chat-([1-9])$/.exec(id);
+/** The Chat a `chat.jump.N` command opens, from 0, or null for the others. */
+export function chatShortcutIndex(command: KeybindingCommandId) {
+  const match = /^chat\.jump\.([1-9])$/.exec(command);
   return match ? Number(match[1]) - 1 : null;
 }
 
-/** Offers the shortcuts while mounted and hands each press to `onShortcut`; mount it once, at the root. */
-export function useHardwareShortcuts(onShortcut: (id: ShortcutId) => void) {
+/**
+ * Offers `rules`' shortcuts while mounted, again each time they change, and hands each press's command to
+ * `onShortcut`; mount it once, at the root.
+ */
+export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcut: (command: KeybindingCommandId) => void) {
   const latest = useRef(onShortcut);
   useEffect(() => {
     latest.current = onShortcut;
   }, [onShortcut]);
   useEffect(() => {
     if (!native) return;
-    void native.setShortcutsAsync(SHORTCUTS.map((item) => ({ ...item, modifiers: [...item.modifiers] }))).catch(() => {});
     const subscription = native.addListener("shortcut", ({ id }) => {
-      if (SHORTCUTS.some((item) => item.id === id)) latest.current(id as ShortcutId);
+      if (keybindingCommand(commandOf(id))?.mobile) latest.current(commandOf(id));
     });
     return () => {
       subscription.remove();
       void native.setShortcutsAsync([]).catch(() => {});
     };
   }, []);
+  useEffect(() => {
+    if (native) void native.setShortcutsAsync(hardwareShortcuts(rules)).catch(() => {});
+  }, [rules]);
 }
 
 /**

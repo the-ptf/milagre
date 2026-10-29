@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
 import type { TerminalInfo, TerminalProfiles } from "@milagre/shared/terminal";
@@ -32,6 +33,7 @@ import { TerminalSlide } from "./TerminalSlide";
  * every Chat; whether it shows is each Chat's own.
  */
 export function TerminalPanel({ chatId, places, notify }: { chatId: string | null; places?: TerminalPlace[]; notify: (message: string) => void }) {
+  const { rules } = useKeybindings();
   const { terminals, active, open, picking } = useChatTerminals(chatId);
   const height = useTerminalHeight();
   const panel = useRef<HTMLElement>(null);
@@ -221,7 +223,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                         <button
                           type="button"
                           onClick={() => close(terminal)}
-                          className="mr-1 shrink-0 rounded-[5px] bg-red-tint px-1.5 py-0.5 text-[11px] font-medium text-red"
+                          className="mr-1 shrink-0 rounded-[5px] bg-red-tint px-1.5 py-0.5 text-[11px] font-medium text-red-ink"
                         >
                           End {terminal.title}
                         </button>
@@ -230,7 +232,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                           type="button"
                           aria-label={`Close ${terminal.title}`}
                           onClick={() => close(terminal)}
-                          className={`mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px] hover:bg-inset ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
+                          className={`relative mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px] hover:bg-inset before:absolute before:-inset-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
                         >
                           <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} color="currentColor" />
                         </button>
@@ -239,7 +241,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                   );
                 })}
                 <div ref={plus} className="relative shrink-0">
-                  <Tooltip label="New Terminal" shortcut="⌘T" side="top">
+                  <Tooltip label="New Terminal" shortcut={shortcutLabel(rules, "terminal.new")} side="top">
                     <button
                       type="button"
                       aria-label="New Terminal"
@@ -282,7 +284,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                   onChange={(value) => void chooseShell(value)}
                 />
               )}
-              <Tooltip label="Hide Terminals" shortcut="⌘J" side="top" align="end">
+              <Tooltip label="Hide Terminals" shortcut={shortcutLabel(rules, "terminal.toggle")} side="top" align="end">
                 <button
                   type="button"
                   aria-label="Hide Terminals"

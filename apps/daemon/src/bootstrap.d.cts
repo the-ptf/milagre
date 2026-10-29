@@ -13,6 +13,8 @@ export interface DaemonOptions {
   version: string;
   cwd?: string;
   worktreeRoot?: string;
+  /** Where the host keeps this computer's Chats home instead of ~/.milagre/chats (a dev or test profile). */
+  chatsHome?: string;
   executable?: string;
   entry?: string;
   env?: NodeJS.ProcessEnv;

@@ -1,5 +1,7 @@
 # UI rules
 
+Type, ink levels, radius, sizes, spacing, depth and states follow [the interface system](../../.interface-design/system.md). Values outside it are drift.
+
 ## Scrolling
 
 Every scrolling list or panel is a `ScrollArea` (`apps/desktop/app/src/components/primitives/ScrollArea.tsx`). It brings vertical scroll that stays inside the container, the shared thin scrollbar and edge fades that show only while there's more to scroll that way. Pass `as="ul"` for lists, and `chainScroll` when it sits inside another scroller (tool output in the transcript, a list inside a scrolling dialog) so the wheel moves on to the outer one at the end.

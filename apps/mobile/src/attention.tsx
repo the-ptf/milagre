@@ -144,7 +144,7 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         backgroundColor: colors.orangeTint,
       }}
     >
-      <Text numberOfLines={1} style={{ color: colors.orange, fontSize: 13, fontWeight: "600", maxWidth: 220 }}>
+      <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: 13, fontWeight: "600", maxWidth: 220 }}>
         {label}
       </Text>
       <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={14} strokeWidth={2} />

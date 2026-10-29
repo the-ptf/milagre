@@ -32,6 +32,7 @@ async function fixture(t, provider = "claude") {
   const sessions = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
     worktreeRoot: path.join(dir, "worktrees"),
     cwd: project,
     environmentReady: Promise.resolve(),

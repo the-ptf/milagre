@@ -174,7 +174,7 @@ export function DesignFeedbackCard({
                     }}
                   >
                     <Icon icon={CheckmarkCircle02Icon} tone="green" size={14} />
-                    <Text selectable style={{ flex: 1, color: colors.green, fontSize: 13 }}>
+                    <Text selectable style={{ flex: 1, color: colors.greenInk, fontSize: 13 }}>
                       {resolved}
                     </Text>
                   </View>
@@ -629,7 +629,7 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
         ) : state.error ? (
           <View style={{ padding: 20, gap: 16 }}>
-            <Text accessibilityRole="alert" style={{ color: colors.red }}>
+            <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
               {state.error}
             </Text>
             <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
@@ -706,7 +706,7 @@ function ArtifactWebView({ ref, html, onMessage }: { ref?: React.Ref<DomWebViewR
   const uri = prepared?.uri;
   if (crashed || !prepared)
     return (
-      <Text accessibilityRole="alert" style={{ color: colors.red, padding: 20 }}>
+      <Text accessibilityRole="alert" style={{ color: colors.redInk, padding: 20 }}>
         Could not prepare this page.
       </Text>
     );

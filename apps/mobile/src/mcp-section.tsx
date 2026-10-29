@@ -190,7 +190,7 @@ function ServerRow({ row, compact = false }: { row: McpRow; compact?: boolean })
         <Text numberOfLines={1} style={[styles.text, { fontWeight: "500" }]}>
           {row.name}
         </Text>
-        <Text numberOfLines={1} style={[styles.caption, { fontSize: 13 }, failed ? { color: colors.red } : null]}>
+        <Text numberOfLines={1} style={[styles.caption, { fontSize: 13 }, failed ? { color: colors.redInk } : null]}>
           {line}
         </Text>
       </View>

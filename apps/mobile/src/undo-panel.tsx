@@ -135,7 +135,7 @@ export function UndoPanel({
             </Pressable>
           )}
           {!!review.notice && (
-            <Text accessibilityRole="alert" style={{ color: colors.orange, fontSize: 13 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.orangeInk, fontSize: 13 }}>
               {review.notice}
             </Text>
           )}
@@ -163,14 +163,14 @@ export function UndoPanel({
             </PageScroll>
           )}
           {!!review.error && (
-            <Text accessibilityRole="alert" style={{ color: colors.red, fontSize: 13 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: 13 }}>
               {review.error}
             </Text>
           )}
           {review.conflicts > 0 && !review.error && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Icon icon={Alert02Icon} tone="orange" size={14} />
-              <Text style={{ color: colors.orange, fontSize: 13 }}>
+              <Text style={{ color: colors.orangeInk, fontSize: 13 }}>
                 {review.conflicts === 1 ? "1 file needs a choice" : `${review.conflicts} files need a choice`}
               </Text>
             </View>
@@ -226,7 +226,7 @@ function FileRow({
           {file.conflict && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.orange }} />
-              <Text style={{ color: colors.orange, fontSize: 13 }}>Edited after this task</Text>
+              <Text style={{ color: colors.orangeInk, fontSize: 13 }}>Edited after this task</Text>
             </View>
           )}
         </View>

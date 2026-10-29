@@ -1,4 +1,5 @@
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
+import type { ProjectKind } from "@milagre/shared/chats-home";
 
 /** A project in the recent list, as the main process keeps it (most recent first). */
 /** `hidden`: kept out of the all-Projects sidebar and the phone's Projects list. */
@@ -35,10 +36,18 @@ export function projectRows({ recent, currentPath, currentName }: { recent: Rece
 /**
  * The Project a new Chat starts in: always one of this Mac's. The open Project when it is this Mac's (a Link on screen
  * keeps the Project behind it), else this Mac's most recent one, a hidden one only when there is no other. Null when
- * this Mac has none.
+ * this Mac has none. The Chats home is never it: only No project starts a Chat there, and the home is never recent.
  */
-export function newChatProject({ currentPath, recent }: { currentPath: string | undefined; recent: RecentProject[] }): string | null {
-  if (currentPath && computerOfKey(currentPath) === LOCAL_COMPUTER) return currentPath;
+export function newChatProject({
+  currentPath,
+  currentKind,
+  recent,
+}: {
+  currentPath: string | undefined;
+  currentKind?: ProjectKind;
+  recent: RecentProject[];
+}): string | null {
+  if (currentPath && currentKind !== "chats" && computerOfKey(currentPath) === LOCAL_COMPUTER) return currentPath;
   const local = recent.filter((project) => computerOfKey(project.path) === LOCAL_COMPUTER);
   return (local.find((project) => !project.hidden) ?? local[0])?.path ?? null;
 }

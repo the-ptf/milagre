@@ -30,7 +30,7 @@ const { createDictation } = require("./dictation.cjs");
 const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
-const { forwardAppShortcuts } = require("./app-shortcuts.cjs");
+const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
 const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests } = require("./browser-guests.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
@@ -194,6 +194,12 @@ async function startDesktop() {
       ?.invoke("app-update:auto:read", [])
       .then((value) => updates.setAuto(value?.autoUpdate === true))
       .catch(() => updates.setAuto(false));
+  // The keys caught from every frame follow this Mac's keybindings.json; an older host has none, so the defaults stay.
+  const readKeybindings = () =>
+    void runtime
+      ?.invoke("keybindings:read", [])
+      .then((state) => state?.rules && setForwardedRules(state.rules))
+      .catch(() => {});
   const autoInstall = createAutoInstall(updates, {
     activity: () => runtime.invoke("app-update:activity", []),
     inputIdleSeconds: () => powerMonitor.getSystemIdleTime(),
@@ -354,6 +360,7 @@ async function startDesktop() {
       outdatedMessage: "Restart Milagre's background host to enable computer management.",
       cwd: process.cwd(),
       worktreeRoot: !app.isPackaged ? process.env.MILAGRE_WORKTREE_ROOT : undefined,
+      chatsHome: !app.isPackaged ? process.env.MILAGRE_CHATS_HOME : undefined,
       emit(channel, payload) {
         if (channel === "desktop:request") {
           void nativeCommands.receive(payload);
@@ -368,6 +375,7 @@ async function startDesktop() {
         if (channel === "notification:waiting" && notifyWhenWaiting && Notification.isSupported()) notifier.notify(payload);
         if (channel === "phone:paired") void deviceNotices.paired(payload);
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
+        if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
         if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);
         if (channel === "runtime:connection") {
           connectionState = payload;
@@ -377,6 +385,7 @@ async function startDesktop() {
             registerHostMethods();
             nativeCommands.publish();
             readAutoUpdate();
+            readKeybindings();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }
@@ -460,6 +469,12 @@ async function startDesktop() {
   }
   registerHostMethods();
   ipcMain.handle("app:version", () => app.getVersion());
+  // keybindings.json of this Mac's host in the default editor; the read creates the file first.
+  ipcMain.handle("app:open-keybindings-file", async () => {
+    const state = await runtime.invoke("keybindings:read", []);
+    const failure = await shell.openPath(state.path);
+    if (failure) throw new Error(failure);
+  });
 
   computerUnlock = require("./computer-unlock.cjs").createComputerUnlock({
     dataDir: app.getPath("userData"),
@@ -579,6 +594,7 @@ async function startDesktop() {
       void runtime.setFocused(false).catch(() => {});
     });
     readAutoUpdate();
+    readKeybindings();
     if (app.isPackaged) watchAppUpdates(updates, { app, powerMonitor, autoInstall });
     else void updates.check();
     app.on("activate", () => {

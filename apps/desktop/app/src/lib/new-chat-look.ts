@@ -1,0 +1,21 @@
+import { CHATS_PLACEHOLDER, CHATS_TRAY_LABEL, JUST_CHAT_HEADING, type ProjectKind } from "@milagre/shared/chats-home";
+
+type ChatsLook = { heading: string; tray: "chats"; trayLabel: string; placeholder: string };
+/** What a new Chat's screen says: the heading before the Project button, and what the tray above the composer holds. */
+export type NewChatLook = { heading: string; tray: "project" } | ChatsLook;
+
+/** A Chats home draft has no Project to build in: no isolation, branch or issue to pick, only where it runs. */
+export function newChatLook(kind: "chats"): ChatsLook;
+export function newChatLook(kind: ProjectKind | undefined): NewChatLook;
+export function newChatLook(kind: ProjectKind | undefined): NewChatLook {
+  if (kind === "chats") return { heading: JUST_CHAT_HEADING, tray: "chats", trayLabel: CHATS_TRAY_LABEL, placeholder: CHATS_PLACEHOLDER };
+  return { heading: "Start building in", tray: "project" };
+}
+
+/**
+ * The heading's stacking layer. Its Project dropdown has to cover the composer, so the wrapper is raised while the dropdown is
+ * open; closed, it stays under the composer's `/` and `@` menu (z-20), which would otherwise show the heading through it.
+ */
+export function headingLayer(pickerOpen: boolean): string {
+  return pickerOpen ? "z-30" : "";
+}

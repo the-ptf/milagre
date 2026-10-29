@@ -137,6 +137,7 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:add",
     "accounts:assign",
     "chat:limit-switch",
+    "app:open-keybindings-file",
   ])
     assert.equal(isLocalOnly(channel), true, channel);
   for (const channel of [
@@ -151,6 +152,10 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:scope",
     "babysit:settings:read",
     "babysit:settings:save",
+    "keybindings:read",
+    "keybindings:set-command",
+    "keybindings:reset-command",
+    "keybindings:reset",
     "routines:list",
     "routines:enabled:save",
     "routines:create",
@@ -220,4 +225,18 @@ test("remote usage is readable while every account mutation remains local", () =
   for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
     assert.equal(isLocalOnly(method), true, method);
   assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
+});
+
+test("chats:ensure result path is rewritten for a remote computer", () => {
+  const home = "/Users/a/.milagre/chats";
+  assert.deepEqual(qualifyResult(ID, "chats:ensure", { path: home, name: "chats", kind: "chats", state: {} }), {
+    path: `${ID}|${home}`,
+    name: "chats",
+    kind: "chats",
+    state: {},
+  });
+  assert.deepEqual(qualifyResult(ID, "chats:home", { path: home, exists: false }), { path: `${ID}|${home}`, exists: false });
+  // Each computer has its own home, so another computer's is reached like any of its Projects.
+  assert.equal(isLocalOnly("chats:home"), false);
+  assert.equal(isLocalOnly("chats:ensure"), false);
 });

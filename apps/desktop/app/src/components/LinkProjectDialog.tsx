@@ -90,14 +90,14 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="e.g. RDFood"
-          className="mt-1 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-line-strong"
+          className="mt-1 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-accent"
         />
         <input
           aria-label="Search projects"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search projects"
-          className="mt-4 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-line-strong"
+          className="mt-4 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-accent"
         />
         <ScrollArea aria-label="Projects" aria-busy={loading} className="mt-2 max-h-[218px] min-h-0 rounded-control border border-line p-1">
           {loading && (
@@ -140,7 +140,7 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
         </ScrollArea>
         <p className="mt-2 text-[12px] text-ink-3">{selected.length} selected. Choose at least two Projects.</p>
         {error && (
-          <p role="alert" className="mt-3 whitespace-pre-wrap text-[13px] text-red">
+          <p role="alert" className="mt-3 whitespace-pre-wrap text-[13px] text-red-ink">
             {error}
           </p>
         )}

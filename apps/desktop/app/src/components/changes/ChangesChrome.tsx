@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useShortcutLabel } from "../../lib/keybindings";
 import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -81,9 +82,10 @@ export function DiffBar({
 /** Top-right window button; sits inside the drag strip, so it opts out of dragging. */
 export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const chrome = useWindowChrome();
+  const shortcut = useShortcutLabel("changes.toggle");
   return (
     <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset }}>
-      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut="⌘⇧D" compactHint side="bottom" align="end">
+      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
         <button
           type="button"
           aria-label="Toggle changes panel"
@@ -102,9 +104,10 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
 /** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` as AttentionButton's. */
 export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset: number; onToggle: () => void }) {
   const chrome = useWindowChrome();
+  const shortcut = useShortcutLabel("grid.toggle");
   return (
     <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
-      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut="⌘⇧M" compactHint side="bottom" align="end">
+      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
         <button
           type="button"
           aria-label="Show active Chats as a grid"
@@ -161,7 +164,7 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
         aria-haspopup={many ? "menu" : undefined}
         aria-expanded={many ? open : undefined}
         onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-[13px] font-medium text-orange transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
+        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-[13px] font-medium text-orange-ink transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
       >
         <span className="min-w-0 max-w-80 truncate">{label}</span>
         <HugeiconsIcon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />
@@ -201,7 +204,7 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
                   <span className="w-full truncate text-[13.5px] text-ink">{item.title || item.waitingFor || "Chat"}</span>
                   <span className="w-full truncate text-[11.5px] text-ink-3">
                     {item.project} ·{" "}
-                    <span className={item.asking ? "text-accent-ink" : "text-orange"}>{item.asking ? "Asking you" : "Waiting for approval"}</span>
+                    <span className={item.asking ? "text-accent-ink" : "text-orange-ink"}>{item.asking ? "Asking you" : "Waiting for approval"}</span>
                   </span>
                 </button>
               ))}

@@ -652,6 +652,18 @@ test("a confined phone reads the Babysit PRs settings but can't change them", as
   await assert.rejects(confine.checkCall("babysit:settings:save", [{ level: 5 }]), { status: 403, message: REFUSED });
 });
 
+// keybindings.json names no folder, but a confined phone has no business rebinding the Mac's keys.
+test("a confined phone reads the keybindings but can't change or reset them", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("keybindings:read", []);
+  for (const [method, args] of [
+    ["keybindings:set-command", ["chat.new", [{ key: "mod+u" }]]],
+    ["keybindings:reset-command", ["chat.new"]],
+    ["keybindings:reset", []],
+  ])
+    await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED }, method);
+});
+
 // Routines reach every Chat on the Mac: a confined (demo) phone sees them, and changes nothing.
 test("a confined phone reads Routines but can't switch, create, change, delete or run them, or list the owner's Linear choices", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });
@@ -889,4 +901,12 @@ test("provider update cards read and install through the phone bridge; confined 
   assert.deepEqual(installed, [["codex", "0.163.0"]]);
   assert.notEqual((await normal.rpc("agent:update-cli", ["codex", "$(bad)"])).status, 200);
   assert.equal(installed.length, 1);
+});
+
+// The Chats home is the Mac's own folder outside the demo, so a confined phone can't read or make it.
+test("chats commands are denied in the demo", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("chats:home", []), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("chats:ensure", []), { status: 403, message: REFUSED });
+  assert.ok(METHODS.has("chats:home") && METHODS.has("chats:ensure"));
 });

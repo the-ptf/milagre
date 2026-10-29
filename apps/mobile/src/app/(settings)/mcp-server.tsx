@@ -71,7 +71,7 @@ export default function McpServerScreen() {
                 <View style={{ paddingBottom: 6 }}>
                   <ChipLine
                     text={chip.state === "needs-sign-in" ? "Needs sign-in. Sign in on the Mac." : mcpChipLine(chip)}
-                    style={[styles.muted, { color: chip.state === "failed" ? colors.red : colors.ink2 }]}
+                    style={[styles.muted, { color: chip.state === "failed" ? colors.redInk : colors.ink2 }]}
                   />
                 </View>
               </View>

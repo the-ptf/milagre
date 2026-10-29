@@ -610,7 +610,7 @@ export function DesignPageEditor({
         >
           {loadError && (
             <div role="alert" className="rounded-control border border-red/30 bg-surface p-3 text-[12px]">
-              <p className="text-red">{loadError}</p>
+              <p className="text-red-ink">{loadError}</p>
               <button type="button" className={`${dialogButton} mt-2`} disabled={loading} onClick={() => setReload((value) => value + 1)}>
                 Retry loading designs
               </button>
@@ -618,7 +618,7 @@ export function DesignPageEditor({
           )}
           {loading && <p className="self-start rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] text-ink-3">Loading Designs page...</p>}
           {saveError && (
-            <p role="alert" className="rounded-control border border-red/30 bg-surface p-3 text-[12px] text-red">
+            <p role="alert" className="rounded-control border border-red/30 bg-surface p-3 text-[12px] text-red-ink">
               {saveError}
             </p>
           )}
@@ -689,7 +689,7 @@ export function DesignPageEditor({
             </button>
             <button
               type="button"
-              className={`${dialogButton} border-red/30 text-red`}
+              className={`${dialogButton} border-red/30 text-red-ink`}
               onClick={() => {
                 for (const session of sessionList()) session.discard();
                 current.current.onClose();

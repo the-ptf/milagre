@@ -25,7 +25,8 @@ const CHAT_PAGES = "chat-pages-v1";
 const SUBAGENT_TAILS = "subagent-tails-v1";
 // A host that can sends each archived subagent as a summary; the panel reads the rest when it opens one (subagent-transcripts.ts).
 const ARCHIVED_SUMMARIES = "archived-subagent-summaries-v1";
-// Calls whose reply is the Project the window shows from then on (server.cjs keeps the same list for its view).
+// Calls whose reply is the Project the window shows from then on (server.cjs keeps the same list for its view). Not
+// chats:ensure, which opens the Chats home without moving the window to it.
 const SHOWN_PROJECT = new Set([
   "project:open",
   "project:current",

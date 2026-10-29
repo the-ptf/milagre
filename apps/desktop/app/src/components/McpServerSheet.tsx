@@ -208,7 +208,7 @@ export function McpServerSheet({
           </div>
         </fieldset>
         {error && (
-          <p role="alert" className="text-[12.5px] break-words text-red">
+          <p role="alert" className="text-[12.5px] break-words text-red-ink">
             {error}
           </p>
         )}

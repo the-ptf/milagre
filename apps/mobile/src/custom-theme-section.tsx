@@ -175,7 +175,7 @@ export function CustomThemeSection() {
         />
       ))}
       <Preview theme={theme} scheme={editing} />
-      <Text style={[styles.caption, weak && { color: colors.orange }]}>
+      <Text style={[styles.caption, weak && { color: colors.orangeInk }]}>
         Text on background: {contrast.text.toFixed(1)}:1. Accent on background: {contrast.accent.toFixed(1)}:1.
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>

@@ -4,6 +4,7 @@ import type { TerminalList } from "@milagre/shared/terminal";
 import {
   archiveChat,
   archiveChoices,
+  archivedNotice,
   isMilagreWorktree,
   worktreeShared,
   type ArchiveMode,
@@ -24,7 +25,13 @@ export type ShowAlert = (
   buttons: AlertButton[],
   options?: { cancelable?: boolean; onDismiss?: () => void },
 ) => void;
-export type ArchiveDialog = { title: string; message?: string; choices: { mode: ArchiveMode; text: string; style: "default" | "destructive" }[] };
+/** `immediate`: the one choice needs no asking (a clean Chat without a Project), so the archive goes ahead at once. */
+export type ArchiveDialog = {
+  title: string;
+  message?: string;
+  choices: { mode: ArchiveMode; text: string; style: "default" | "destructive" }[];
+  immediate?: boolean;
+};
 
 // A worktree that can't be checked only hides the Chat, as on desktop.
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
@@ -73,15 +80,19 @@ async function worktreePlan(client: ArchiveClient, state: CoordinatorState, sess
   }
 }
 
-/** The native confirm: desktop's choices for the plan, the danger one destructive, and what would be lost as the message. */
-export function archiveDialog(plan: ArchivePlan | null, running: boolean): ArchiveDialog {
+/**
+ * The native confirm: desktop's choices for the plan, the danger one destructive, and what would be lost as the message.
+ * `chatsHome`: a Chat without a Project, in desktop's plain words; a clean one is archived without asking.
+ */
+export function archiveDialog(plan: ArchivePlan | null, running: boolean, chatsHome = false): ArchiveDialog {
   const title = "Archive this Chat?";
   if (!plan) return { title, choices: [{ mode: "hide", text: running ? "Stop and archive" : "Archive", style: "destructive" }] };
-  const { choices, reason } = archiveChoices({ plan, running });
+  const { choices, reason, immediate } = archiveChoices({ plan, running, chatsHome });
   return {
     title,
     ...(reason ? { message: reason } : {}),
     choices: choices.map((choice) => ({ mode: choice.mode, text: choice.label, style: choice.tone === "danger" ? "destructive" : "default" })),
+    ...(immediate && choices.length === 1 ? { immediate: true } : {}),
   };
 }
 
@@ -109,6 +120,8 @@ export type ArchiveRequest = {
   /** Whether a turn was running when Archive was tapped: the choices say "Stop and …". Whether to stop is read again
    * from the Mac once the archive goes ahead. */
   running: boolean;
+  /** The Chat has no Project (its Project is a Chats home): plain words, and a clean one archives without asking. */
+  chatsHome?: boolean;
   /** Called once the Chat is confirmed, before anything changes (the Chat screen marks itself busy). */
   onConfirm?: () => void;
   notify: (message: string) => void;
@@ -123,8 +136,10 @@ const archiving = new Set<string>();
  * archive outlives the screen it started on, so the Chat list reads both here: the Chat's row shows the progress
  * wherever it is listed, and the notice shows once the phone has moved on.
  */
-export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string };
-let activity: ArchiveActivity = { chats: new Set(), notice: "" };
+/** `done`: a short confirmation that the archive went ("Chat archived" for a Chat without a Project), gone after a while. */
+export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string; done: string };
+let activity: ArchiveActivity = { chats: new Set(), notice: "", done: "" };
+let doneTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 function setActivity(next: Partial<ArchiveActivity>) {
   activity = { ...activity, ...next };
@@ -141,7 +156,7 @@ export function subscribeArchiveActivity(listener: () => void) {
 }
 /** Marks a confirmed Chat as archiving; the returned function marks it done. A new archive clears an old notice. */
 export function startArchiving(chatId: string) {
-  setActivity({ chats: new Set(activity.chats).add(chatId), notice: "" });
+  setActivity({ chats: new Set(activity.chats).add(chatId), notice: "", done: "" });
   return () => {
     const chats = new Set(activity.chats);
     chats.delete(chatId);
@@ -153,6 +168,17 @@ export function showArchiveNotice(notice: string) {
 }
 export function clearArchiveNotice() {
   if (activity.notice) setActivity({ notice: "" });
+}
+/** Says the archive went, as the Chat screen's toast does, for a few seconds. */
+function showArchiveDone(done: string, ms = 3000) {
+  if (doneTimer) clearTimeout(doneTimer);
+  setActivity({ done });
+  doneTimer = setTimeout(() => {
+    doneTimer = null;
+    setActivity({ done: "" });
+  }, ms);
+  // Node (the tests) needn't stay up for it; React Native's timers have no unref.
+  (doneTimer as { unref?: () => void }).unref?.();
 }
 
 /**
@@ -169,7 +195,8 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
   let done = () => {};
   try {
     const plan = await checkArchive(client, request.state, chat.id, chatId);
-    const mode = await confirmArchive(request.alert, archiveDialog(plan, request.running));
+    const dialog = archiveDialog(plan, request.running, request.chatsHome);
+    const mode = dialog.immediate ? dialog.choices[0]!.mode : await confirmArchive(request.alert, dialog);
     if (!mode) return "cancelled";
     done = startArchiving(chatId);
     request.onConfirm?.();
@@ -179,7 +206,7 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
     const latest = now?.project.state ?? request.state;
     const running = now ? Boolean(now.runs.runs[chatId]) : request.running;
     try {
-      return await archiveChat(
+      const outcome = await archiveChat(
         {
           projectPath,
           chatId,
@@ -198,6 +225,10 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
         mode,
         plan,
       );
+      // A Chat without a Project leaves no list behind it (its folder went too): the phone says it is gone.
+      const archived = archivedNotice(outcome, { chatsHome: request.chatsHome });
+      if (archived) showArchiveDone(archived);
+      return outcome;
     } finally {
       await request.refresh().catch(() => {});
     }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import {
   ArrowDown01Icon,
@@ -95,6 +95,12 @@ const SECTIONS: { mode: DiffMode; title: string }[] = [
 ];
 
 /**
+ * False while the lists are mounted but out of sight (the right panel's Changes tab under its PR tab, or the panel
+ * slid away): they stop reading the Mac every few seconds and read again as soon as they show.
+ */
+export const ChangesShownContext = createContext(true);
+
+/**
  * A Worktree's changes as one list: what isn't committed yet, then what the branch committed since its base. An empty
  * section hides, as on desktop.
  */
@@ -114,7 +120,9 @@ export function ChangeSections({
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const active = useScreenActive();
+  const screenActive = useScreenActive();
+  const inSight = useContext(ChangesShownContext);
+  const active = screenActive && inSight;
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [view, setView] = useState<"files" | "commits">("files");
   const [limit, setLimit] = useState(0);

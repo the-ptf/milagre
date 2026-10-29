@@ -140,7 +140,7 @@ export function CommentBox({
           {sentComment.resolved ? (
             <View style={{ flexDirection: "row", gap: 4, alignItems: "flex-start" }}>
               <Icon icon={CheckmarkCircle02Icon} tone="green" size={14} />
-              <Text selectable style={{ flex: 1, color: colors.green, fontSize: 13 }}>
+              <Text selectable style={{ flex: 1, color: colors.greenInk, fontSize: 13 }}>
                 {sentComment.resolved.note}
               </Text>
             </View>

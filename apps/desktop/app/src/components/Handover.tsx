@@ -48,7 +48,7 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
         )}
         <ProviderLogo provider={context.to.provider} size={13} />
         <span className="font-medium text-ink-2">{label.to}</span>
-        {context.status === "failed" && <span className="text-orange">· Handoff failed</span>}
+        {context.status === "failed" && <span className="text-orange-ink">· Handoff failed</span>}
       </button>
       <span className="h-px flex-1 bg-line" />
       {open && context.brief && <HandoffBriefDialog title="Handoff brief" brief={context.brief} onClose={() => setOpen(false)} />}

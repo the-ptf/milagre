@@ -50,7 +50,7 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="truncate text-[13.5px] font-medium text-ink">Heartbeat set: {name}</span>
         {(error || failedRead || meta) && (
-          <span className={`truncate text-[12px] ${error || failedRead ? "text-red" : "text-ink-2"}`}>{error ?? failedRead ?? meta}</span>
+          <span className={`truncate text-[12px] ${error || failedRead ? "text-red-ink" : "text-ink-2"}`}>{error ?? failedRead ?? meta}</span>
         )}
       </span>
       {enabled === null ? null : routine ? (

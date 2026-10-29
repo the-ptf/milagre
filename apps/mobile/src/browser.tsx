@@ -194,7 +194,7 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
           >
             {!list && <Text style={styles.muted}>Finding browser pages...</Text>}
             {!!list?.error && (
-              <Text accessibilityRole="alert" style={{ color: colors.red }}>
+              <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
                 {list.error}
               </Text>
             )}
@@ -371,7 +371,7 @@ function BrowserWebView({
   if (error)
     return (
       <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.red }}>
+        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
           {error}
         </Text>
         <PillButton
