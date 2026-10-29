@@ -40,7 +40,7 @@ export function ShortcutKeys({
   /** Smaller keys, for a hint under one of a row of close icon buttons. */
   compact?: boolean;
 } & ComponentPropsWithRef<"kbd">) {
-  const all = shortcut.match(/Control|Ctrl|Shift|Alt|Meta|Enter|Escape|Esc|[^\s+]/gi) ?? [];
+  const all = shortcut.match(/Control|Ctrl|Shift|Alt|Meta|Enter|Escape|Esc|Tab|Space|Del|Home|End|PgUp|PgDn|F[0-9]{1,2}|[^\s+]/gi) ?? [];
   // Off the Mac a compact hint leaves out Ctrl, the key held to show it, and draws Shift as its arrow: "Ctrl Shift E"
   // would run into the next button's hint.
   const keys = compact && !isMac ? all.filter((key) => names[key.toLowerCase()] !== "Control") : all;
