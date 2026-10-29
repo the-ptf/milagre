@@ -26,6 +26,7 @@ const { acquireOwnership } = require("./ownership.cjs");
 const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
+const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
@@ -177,12 +178,18 @@ function createRuntime(options) {
     }
     let repositoryOwner;
     if (common && !repositoryOwners.has(common)) repositoryOwner = acquireOwnership(path.join(common, "milagre-runtime.lock"));
+    let owner;
     try {
-      const owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      if (common) ensureProjectIgnore(real);
       projectOwners.set(real, { openedAs: projectPath, owner });
       if (repositoryOwner) repositoryOwners.set(common, repositoryOwner);
     } catch (error) {
-      repositoryOwner?.release();
+      try {
+        owner?.release();
+      } finally {
+        repositoryOwner?.release();
+      }
       throw error;
     }
   }

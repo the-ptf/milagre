@@ -157,6 +157,111 @@ test("exclusive ownership rejects another profile owner and aliases of an open P
   assert.equal((await other.openProject(alias)).path, project);
 });
 
+test("opening and reopening a Git Project ignores runtime state while shared configuration stays stageable", async (t) => {
+  const { project, make } = await fixture(t);
+  const git = (...args) => execFileSync("git", ["-C", project, ...args], { encoding: "utf8" });
+  const runtime = make();
+  await Promise.all([runtime.openProject(project), runtime.openProject(project)]);
+  assert.equal(git("status", "--porcelain"), "");
+  const metadata = path.join(project, ".milagre");
+  // Include SQLite side files, migration backups and interrupted writes as well as completed saves.
+  for (const file of ["chats.db-wal", "chats.db-shm", "chats.db-journal", "coordination.json.before-chats-db", "coordination.json.123.1.tmp"])
+    await fs.writeFile(path.join(metadata, file), "");
+  for (const folder of ["runtime.lock.takeover", "details", "images", "subagents", "runtime", "worktrees"]) {
+    await fs.mkdir(path.join(metadata, folder), { recursive: true });
+    await fs.writeFile(path.join(metadata, folder, "local.json"), "{}");
+  }
+  git("add", ".");
+  assert.equal(git("diff", "--cached", "--name-only"), "");
+  const ignore = await fs.readFile(path.join(metadata, ".gitignore"), "utf8");
+  await runtime.close();
+  const reopened = make();
+  await reopened.openProject(project);
+  assert.equal(git("status", "--porcelain"), "");
+  assert.equal(await fs.readFile(path.join(metadata, ".gitignore"), "utf8"), ignore);
+  for (const file of ["worktree.json", "checkpoint-ignore", "team-notes.txt"]) await fs.writeFile(path.join(metadata, file), "shared\n");
+  git("add", ".");
+  assert.deepEqual(git("diff", "--cached", "--name-only").trim().split("\n"), [
+    ".milagre/checkpoint-ignore",
+    ".milagre/team-notes.txt",
+    ".milagre/worktree.json",
+  ]);
+});
+
+test("opening preserves an existing metadata ignore file, including when tracked", async (t) => {
+  const { project, make } = await fixture(t);
+  const metadata = path.join(project, ".milagre");
+  await fs.mkdir(metadata);
+  const original = "# Team rules\r\n*.local\r\n!worktree.json";
+  const file = path.join(metadata, ".gitignore");
+  await fs.writeFile(file, original);
+  const runtime = make();
+  await runtime.openProject(project);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  await runtime.close();
+  execFileSync("git", ["-C", project, "add", ".milagre/.gitignore"]);
+  const reopened = make();
+  await reopened.openProject(project);
+  assert.equal(await fs.readFile(file, "utf8"), original);
+  assert.equal(execFileSync("git", ["-C", project, "diff", "--", ".milagre/.gitignore"], { encoding: "utf8" }), "");
+});
+
+test("a partial ignore write releases both ownership locks and permits a protected retry", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const write = syncFs.writeFileSync;
+  const mocked = t.mock.method(syncFs, "writeFileSync", (file, ...args) => {
+    if (path.dirname(file) === path.join(project, ".milagre") && path.basename(file).startsWith(".gitignore.")) {
+      write(file, "# partial", { flag: "wx" });
+      throw Object.assign(new Error("ignore write denied"), { code: "ENOSPC" });
+    }
+    return write(file, ...args);
+  });
+  const runtime = make();
+  await assert.rejects(runtime.openProject(project), /ignore write denied/);
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  assert.deepEqual(await fs.readdir(path.join(project, ".milagre")), []);
+  mocked.mock.restore();
+  await runtime.openProject(project);
+  assert.ok(await fs.stat(path.join(project, ".milagre", ".gitignore")));
+  assert.equal(execFileSync("git", ["-C", project, "status", "--porcelain"], { encoding: "utf8" }), "");
+});
+
+test("ignore initialization still releases repository ownership if project-lock cleanup fails", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const link = syncFs.linkSync;
+  const unlink = syncFs.unlinkSync;
+  const mockedLink = t.mock.method(syncFs, "linkSync", (from, to) => {
+    if (to === path.join(project, ".milagre", ".gitignore")) throw new Error("ignore publish denied");
+    return link(from, to);
+  });
+  const mockedUnlink = t.mock.method(syncFs, "unlinkSync", (file) => {
+    if (file === path.join(project, ".milagre", "runtime.lock", "owner.json")) throw new Error("project-lock cleanup denied");
+    return unlink(file);
+  });
+  await assert.rejects(make().openProject(project), /project-lock cleanup denied/);
+  await assert.rejects(fs.stat(path.join(project, ".git", "milagre-runtime.lock")), { code: "ENOENT" });
+  mockedLink.mock.restore();
+  mockedUnlink.mock.restore();
+});
+
+test("opening a metadata symlink never creates an ignore file at its external destination", async (t) => {
+  const { project, make } = await fixture(t);
+  const external = path.join(path.dirname(project), "external-metadata");
+  await fs.mkdir(external);
+  await fs.symlink(external, path.join(project, ".milagre"), process.platform === "win32" ? "junction" : "dir");
+  await make().openProject(project);
+  await assert.rejects(fs.stat(path.join(external, ".gitignore")), { code: "ENOENT" });
+});
+
+test("opening a non-Git Project does not create Git ignore configuration", async (t) => {
+  const { project, make } = await fixture(t);
+  await fs.rm(path.join(project, ".git"), { recursive: true });
+  await make().openProject(project);
+  await assert.rejects(fs.stat(path.join(project, ".milagre", ".gitignore")), { code: "ENOENT" });
+});
+
 test("close waits for a command already changing saved settings before releasing ownership", async (t) => {
   const { project, make } = await fixture(t);
   const runtime = make();
