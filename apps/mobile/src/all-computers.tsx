@@ -43,7 +43,7 @@ export function useFoldedProjects(hostIds: string[]): ReadonlyMap<string, Readon
 /** Keeps the store in step with the session's saved computers and client, and reads while `visible`. */
 function useAllComputersStore({ visible, expandAll }: { visible: boolean; expandAll: boolean }) {
   const session = useSession();
-  const { client, recent, hosts, hostName, reloadProjects, seedPreview } = session;
+  const { client, recent, recentLoaded, hosts, hostName, reloadProjects, seedPreview } = session;
   const saved = useMemo<SavedHost[]>(
     () =>
       client && !hosts.some((host) => host.id === client.url)
@@ -53,8 +53,11 @@ function useAllComputersStore({ visible, expandAll }: { visible: boolean; expand
   );
   // Before paint, so the first frame of a sidebar already lists the session's own computer.
   useLayoutEffect(() => {
-    allComputers.sync(saved, client ? { hostId: client.url, client, projects: recent, reload: reloadProjects, seed: seedPreview } : null);
-  }, [saved, client, recent, reloadProjects, seedPreview]);
+    allComputers.sync(
+      saved,
+      client ? { hostId: client.url, client, projects: recentLoaded ? recent : undefined, reload: reloadProjects, seed: seedPreview } : null,
+    );
+  }, [saved, client, recent, recentLoaded, reloadProjects, seedPreview]);
   const folded = useFoldedProjects(useMemo(() => saved.map((host) => host.id), [saved]));
   useEffect(() => {
     for (const host of saved) void savedFoldedProjects.load(host.id);

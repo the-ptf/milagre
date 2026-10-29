@@ -464,7 +464,8 @@ html[data-floating-inbox] #root {
   --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--mono-font, ui-monospace, "SF Mono", monospace);
 
-  /* radii — chips 6, controls 8, cards 10, windows 14, pills 999 */
+  /* radii — inline 4, chips 6, controls 8, cards 10, windows 14, pills 999 (.interface-design/system.md) */
+  --radius-inline: 4px;
   --radius-chip: 6px;
   --radius-control: 8px;
   --radius-card: 10px;
@@ -475,6 +476,30 @@ html[data-floating-inbox] #root {
   --blur-overlay: 3px;
   --blur-chip: 8px;
   --blur-edge: 4px;
+}
+
+/* Type, motion: the scale in .interface-design/system.md. Each text size brings its line height, so a control's height
+   never depends on which size utility it uses. design-tokens.test.ts keeps new code on these. */
+@theme {
+  --text-10: 10px;
+  --text-10--line-height: 14px;
+  --text-11: 11px;
+  --text-11--line-height: 16px;
+  --text-12: 12px;
+  --text-12--line-height: 16px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+  --text-15: 15px;
+  --text-15--line-height: 20px;
+  --text-17: 17px;
+  --text-17--line-height: 24px;
+  --text-22: 22px;
+  --text-22--line-height: 28px;
+  --text-26: 26px;
+  --text-26--line-height: 32px;
+
+  --ease-enter: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-slide: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* ── base ─────────────────────────────────────────────── */

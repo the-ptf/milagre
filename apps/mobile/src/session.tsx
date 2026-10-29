@@ -690,6 +690,7 @@ function useSessionState() {
     client,
     designs,
     recent,
+    recentLoaded: !!client && listedFor.current === client.url,
     /** The Project state the computer last sent whole; its streaming turns live in `runsStore` (useRun). */
     snapshot,
     runsStore,

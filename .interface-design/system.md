@@ -30,6 +30,16 @@ Two weights: 500 (medium) and 600 (semibold). 700 only for the phone's 34pt larg
 - Sentence case everywhere; no tracked uppercase labels.
 - Letter-spacing 0 at 11px and below; `-0.02em` on 22px titles.
 
+## Tokens and enforcement
+
+- Desktop sizes are Tailwind utilities `text-10` … `text-26` (each with its line height), radii `rounded-inline`,
+  `rounded-chip`, `rounded-control`, `rounded-card`, `rounded-window`, `rounded-full`, easing `ease-enter` and
+  `ease-slide` (`apps/desktop/app/src/styles.css`).
+- Phone sizes and radii come from `apps/mobile/src/design-tokens.ts` (`type.footnote`, `radius.card`, …).
+- `design-tokens.test.ts` on both platforms counts off-scale font sizes and radii per file against
+  `design-tokens.baseline.json`. A file may only go down; after moving one onto the scale, lower the baseline with
+  `UPDATE_DESIGN_TOKENS=1` (the command is in each test's header).
+
 ## Ink levels
 
 | Token                                | Use                                                 | Floor                     |
