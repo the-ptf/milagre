@@ -24,7 +24,16 @@ window.computerList = [
   { id: "c-atlas", name: "atlas", hostId: "a".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 1, message: null, lan: true, lanRoutes: ["ws://192.168.0.24:8798"] },
   { id: "c-studio", name: "studio", hostId: "s".repeat(22), relayHost: "relay.milagre.cloud", state: "offline", route: null, lastSeen: Date.now() - 2 * HOUR, addedAt: 1, message: null, lan: false, lanRoutes: [] },
 ];
-let computersChanged = () => {};
+const computerListeners = new Set();
+const computersChanged = (snapshot) => { for (const listener of computerListeners) listener(snapshot); };
+window.computerEnableCalls = [];
+const daemonSettings = location.search.includes("daemon=1");
+let daemonEnabled = true;
+window.setDaemonEnabled = (enabled) => {
+  daemonEnabled = enabled;
+  computersChanged({ thisMac: "victor-mbp", computers: window.computerList, enabled });
+};
+window.setChatList = (chatList) => updateSettings({ chatList });
 const computerEvents = new Set();
 window.setComputers = (list) => { window.computerList = list; computersChanged({ thisMac: "victor-mbp", computers: list }); };
 const remoteState = (title, body) => ({ next_id: 9, projects: { 1: { id: 1, name: "p" } }, worktrees: { 1: { id: 1, name: "main", path: "/remote", project_id: 1 } }, sessions: { 4: { id: 4, worktree_id: 1, agent_name: "Claude", provider: "claude", status: "Idle", title } }, connections: {}, events: [], messages: [{ id: 4, session_id: 4, role: "user", body }], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] });
@@ -121,17 +130,20 @@ window.milagre = new Proxy({
   on: (id) => remotes[id],
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   listDevices: async () => [],
-  onComputersChanged: (callback) => ((computersChanged = callback), () => {}),
+  onComputersChanged: (callback) => { computerListeners.add(callback); return () => computerListeners.delete(callback); },
   onComputerEvent: (callback) => (computerEvents.add(callback), () => computerEvents.delete(callback)),
   computers: {
-    list: async () => ({ thisMac: "victor-mbp", computers: window.computerList }),
-    setEnabled: async () => {},
+    list: async () => ({ thisMac: "victor-mbp", computers: window.computerList, ...(daemonSettings ? { enabled: daemonEnabled } : {}) }),
+    setEnabled: async (enabled) => {
+      window.computerEnableCalls.push(enabled);
+      if (daemonSettings) window.setDaemonEnabled(enabled);
+    },
     invoke: async (id, method) => (method === "daemon:status" ? { version: "0.121.0" } : method === "project:recent" ? [] : null),
     preview: async () => { throw new Error("That isn't a Milagre pairing link. Copy it from Settings › Devices on the other Mac."); },
   },
 }, { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } });
 // settings.ts read localStorage when it was imported above, so the saved settings go through its own setter.
-updateSettings({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask", otherComputers: true, chatList: "grouped" });
+updateSettings({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask", otherComputers: !daemonSettings, chatList: "grouped" });
 window.setOther = (otherComputers) => updateSettings({ otherComputers });
 const { default: App } = await import("/src/App");
 createRoot(document.getElementById("root")).render(<App />);
@@ -647,6 +659,27 @@ async function browserChecks() {
     console.log("PASS: removing the last local Project keeps remote Projects accessible and opens one from the chooser");
     assert.deepEqual(errors, []);
     console.log("PASS: remote chats retain live pin settings through a delayed read and follow both Chat order choices");
+    // A host enabled outside this window overrides stale local preferences without a disconnect on launch.
+    await window.loadURL(process.argv[2] + "?daemon=1");
+    await waitFor(`!!document.querySelector('[data-computers-button]') && document.querySelectorAll('[data-sidebar-scope]').length === 4`);
+    assert.deepEqual(await evaluate(`window.computerEnableCalls`), [], "opening a window never overwrites the daemon's saved choice");
+    await evaluate(`window.setChatList('list')`);
+    await waitFor(`!!document.querySelector('[data-chat-list-flat] [data-chat-computer]')`);
+    const rowNames = await evaluate(`[...document.querySelectorAll('[data-chat-list-flat] [data-chat-computer]')].map(node => node.textContent.trim())`);
+    assert.ok(rowNames.includes("victor-mbp"), "the local Mac is tagged in One list too");
+    assert.ok(rowNames.includes("atlas"), "the online remote computer is tagged");
+    await screenshot("one-list-computer-tags");
+    await evaluate(`window.setDaemonEnabled(false)`);
+    await waitFor(`!document.querySelector('[data-computers-button]')`);
+    await evaluate(`window.setDaemonEnabled(true)`);
+    await waitFor(`!!document.querySelector('[data-computers-button]')`);
+    assert.deepEqual(await evaluate(`window.computerEnableCalls`), [], "external changes reach the UI without writing them back");
+    await evaluate(`window.setOther(false)`);
+    await waitFor(`window.computerEnableCalls.includes(false)`);
+    await evaluate(`window.setOther(true)`);
+    await waitFor(`window.computerEnableCalls.at(-1) === true`);
+    console.log("PASS: daemon settings restore and update the window; every computer has a tag in One list");
+    assert.deepEqual(errors, []);
     app.exit(0);
   } catch (error) {
     console.error(error);

@@ -211,7 +211,7 @@ export type ComputerView = {
   lanRoutes: string[];
 };
 /** This Mac's name and every computer it drives. */
-export type ComputersSnapshot = { thisMac: string; computers: ComputerView[] };
+export type ComputersSnapshot = { thisMac: string; computers: ComputerView[]; enabled?: boolean };
 /** What a pasted link names, read before any socket opens. */
 export type ComputerPreview = { name: string; hostId: string; relayHost: string };
 export type AddComputerResult = { ok: true; computer: ComputerView } | { ok: false; code: string; message: string };

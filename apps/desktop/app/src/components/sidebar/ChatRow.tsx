@@ -835,7 +835,7 @@ export const ChatRow = memo(function ChatRow({
             pullRequests={pullRequests}
             linearIssue={linearIssue}
             diff={diff}
-            computer={rowComputer && (!rowComputer.local || rowComputer.offline) ? rowComputer : undefined}
+            computer={rowComputer}
             archiving={archiving}
           />
         )}
