@@ -12,7 +12,16 @@ import { PillMorph } from "../motion/PillMorph";
  * The ports the chat's commands listen on: a "Ports n" pill that grows in place into their list (see PillMorph).
  * A row opens the port in the browser; its stop button ends the command behind it.
  */
-export function PortTrack({ ports: listed, onStop }: { ports?: AgentPort[]; onStop?: (pid: number) => Promise<unknown> }) {
+/** `onOpen`, when set, opens this Mac's ports in the Chat's Browser panel; ⌘-click still opens them in the user's browser. */
+export function PortTrack({
+  ports: listed,
+  onStop,
+  onOpen,
+}: {
+  ports?: AgentPort[];
+  onStop?: (pid: number) => Promise<unknown>;
+  onOpen?: (url: string) => void;
+}) {
   const [opened, setOpened] = useState(false);
   // Pids being stopped, each with a spinner until its stop call returns.
   const [stopping, setStopping] = useState<Set<number>>(new Set());
@@ -98,6 +107,12 @@ export function PortTrack({ ports: listed, onStop }: { ports?: AgentPort[]; onSt
                       target="_blank"
                       rel="noopener noreferrer"
                       title={`Open ${url}`}
+                      onClick={(event) => {
+                        if (!onOpen || computer || !url || event.metaKey || event.ctrlKey) return;
+                        event.preventDefault();
+                        setOpened(false);
+                        onOpen(url);
+                      }}
                       {...(computer ? { "data-port-remote": true } : {})}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-[13px] text-ink no-underline focus-visible:outline-2"
                     >

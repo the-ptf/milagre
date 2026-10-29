@@ -17,6 +17,7 @@ const {
   powerMonitor,
   net,
   screen,
+  session: electronSession,
 } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("node:path");
@@ -30,6 +31,7 @@ const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts } = require("./app-shortcuts.cjs");
+const { BROWSER_PARTITION, hardenBrowserGuests } = require("./browser-guests.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
 const { createDeviceNotices } = require("./device-notices.cjs");
@@ -515,6 +517,8 @@ async function startDesktop() {
         preload: path.join(__dirname, "preload.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
+        // The Browser panel's pages; browser-guests.cjs locks each one down before it attaches.
+        webviewTag: true,
         additionalArguments: [`--milagre-window-controls=${chrome.controls}`],
       },
     });
@@ -537,6 +541,10 @@ async function startDesktop() {
       }
     });
     guardNavigation(window.webContents, { appUrl, openExternal: (url) => shell.openExternal(url).catch(() => {}) });
+    hardenBrowserGuests(window.webContents, {
+      session: electronSession.fromPartition(BROWSER_PARTITION),
+      openExternal: (url) => shell.openExternal(url).catch(() => {}),
+    });
     forwardAppShortcuts(window.webContents, process.platform, electronIpcMain, () => void confirmQuit(window));
     // A reload keeps every turn running: the main process saves them, and the renderer takes the
     // turns streaming now, with their approval and question cards, from "chat:runs".

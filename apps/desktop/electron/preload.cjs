@@ -526,6 +526,14 @@ const controls = process.argv.find((argument) => argument.startsWith("--milagre-
 contextBridge.exposeInMainWorld("milagreWindowChrome", { controls: controls === "leading" || controls === "overlay" ? controls : "external" });
 contextBridge.exposeInMainWorld("milagre", bridge);
 
+// The Browser panel's pages live in this window, whichever computer is selected: a page asking for a new window, and
+// ⌘L, ⌘R and ⌘W pressed inside one (browser-guests.cjs).
+contextBridge.exposeInMainWorld("milagreBrowserPanel", {
+  partition: "persist:milagre-browser",
+  onOpenTab: (callback) => listenHere("browser-panel:open-tab", callback),
+  onKey: (callback) => listenHere("browser-panel:key", callback),
+});
+
 // Kept local to this window, independent of the selected computer or agent host.
 contextBridge.exposeInMainWorld("milagrePreferences", {
   get: (key) => ipcRenderer.sendSync("preferences:storage", "get", key),

@@ -768,6 +768,14 @@ declare global {
   interface Window {
     milagrePreferences?: import("./lib/preference-storage").PreferenceBridge;
     milagreWindowChrome?: { controls: "leading" | "overlay" | "external" };
+    /** The Browser panel's pages, which live in this window (electron/browser-guests.cjs). Absent outside Electron. */
+    milagreBrowserPanel?: {
+      partition: string;
+      /** A page asked for a new window; `from` is its webContents id. */
+      onOpenTab: (callback: (request: { from: number; url: string }) => void) => () => void;
+      /** ⌘L, ⌘R or ⌘W pressed inside the page with webContents id `from`. */
+      onKey: (callback: (request: { from: number; key: "l" | "r" | "w" }) => void) => () => void;
+    };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */
       on: (computerId: string) => MilagreBridge;

@@ -476,11 +476,11 @@ html[data-popover-open] .title-drag {
   -webkit-app-region: no-drag;
 }
 
-/* A docked simulator (SimulatorTrack) and an open design (ArtifactCard) sit in this space beside the chat. A chat pane
+/* A docked simulator (SimulatorTrack), the Browser panel and an open design (ArtifactCard) sit in this space beside the chat. A chat pane
    inside the workspace already has it from the workspace; reserving it twice would leave the chat no room. */
 [data-workspace-main],
 [data-chat-pane]:not([data-workspace-main] [data-chat-pane]) {
-  margin-right: calc(var(--simulator-dock, 0px) + var(--artifact-dock, 0px));
+  margin-right: calc(var(--simulator-dock, 0px) + var(--browser-dock, 0px) + var(--artifact-dock, 0px));
 }
 
 html {
