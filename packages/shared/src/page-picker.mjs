@@ -218,6 +218,33 @@ export function pagePickScript(accent = "#007df3") {
 }))()`;
 }
 
+/**
+ * The element at a point of the page, as fractions of the viewport (a tap on the phone's view of it), read like a pick:
+ * evaluates to its PageElement with the point on it, or null when there is nothing to comment on there.
+ */
+export function pageDescribeAtScript(x, y) {
+  const fraction = (value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.5);
+  return `(() => {
+  const describe = ${describe.toString()};
+  const px = ${fraction(x)} * innerWidth, py = ${fraction(y)} * innerHeight;
+  const pick = document.querySelector("milagre-pins");
+  if (pick) pick.style.visibility = "hidden";
+  let el = document.elementFromPoint(px, py);
+  while (el?.shadowRoot) {
+    const inner = el.shadowRoot.elementFromPoint(px, py);
+    if (!inner || inner === el) break;
+    el = inner;
+  }
+  if (pick) pick.style.visibility = "";
+  if (!el || el === document.documentElement || el === document.body) return null;
+  const value = describe(el, ${JSON.stringify(STYLES)});
+  const r = el.getBoundingClientRect();
+  const at = (p, start, size) => size > 0 ? Math.round(Math.min(1, Math.max(0, (p - start) / size)) * 1000) / 1000 : 0.5;
+  value.point = { x: at(px, r.left, r.width), y: at(py, r.top, r.height) };
+  return value;
+})()`;
+}
+
 /** Ends a picker the page is showing, if any; its promise resolves to null. */
 export const PAGE_PICK_CANCEL = "window.__milagrePick?.cancel(); true";
 

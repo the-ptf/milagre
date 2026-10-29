@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pageCommentsMessage, pageKey, parsePageComments, type PageComment } from "./page-comments.ts";
+import { pageCommentsMessage, pageKey, parsePageComments, type PageComment } from "./page-comments.mjs";
 
 const element = (label: string, extra: Partial<PageComment["element"]> = {}): PageComment["element"] => ({
   selector: "main > form > button.pay",

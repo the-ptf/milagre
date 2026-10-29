@@ -608,6 +608,10 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
     "./icons": { Icon: "Icon" },
     "./theme": themeHooks,
     "./status-pill": { StatusPill: "StatusPill" },
+    "./design-tokens": {
+      type: { caption2: 11, caption1: 12, footnote: 13, subheadline: 15, callout: 16, body: 17, title3: 20, title2: 22, title1: 28, largeTitle: 34 },
+      radius: { chip: 6, control: 10, card: 14, sheet: 20, full: 999 },
+    },
     "./ui": { CircleButton: "CircleButton", PillButton: "PillButton", PullDown: "PullDown" },
     "./terminal-receiver": {},
   });
@@ -7350,6 +7354,10 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
+      "./design-tokens": {
+        type: { caption2: 11, caption1: 12, footnote: 13, subheadline: 15, callout: 16, body: 17, title3: 20, title2: 22, title1: 28, largeTitle: 34 },
+        radius: { chip: 6, control: 10, card: 14, sheet: 20, full: 999 },
+      },
       "./theme": {
         hex: () => ({
           page: "#fafafb",
@@ -7721,6 +7729,10 @@ function browserHost(client) {
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
+      "./design-tokens": {
+        type: { caption2: 11, caption1: 12, footnote: 13, subheadline: 15, callout: 16, body: 17, title3: 20, title2: 22, title1: 28, largeTitle: 34 },
+        radius: { chip: 6, control: 10, card: 14, sheet: 20, full: 999 },
+      },
       "./theme": {
         hex: () => ({ page: "#fafafb", surface: "#ffffff", ink: "#1f2124", ink2: "#62656b", line: "#ecedef", hover: "#f4f5f6", accent: "#0285ff" }),
       },
@@ -10054,6 +10066,8 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./activity-item": { ActivityTitle: "ActivityTitle" },
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
@@ -10163,6 +10177,8 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./activity-item": { ActivityTitle: "ActivityTitle" },
       "./tool-row": { ToolRow: "ToolRow" },
       "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+      "@milagre/shared/page-comments": { parsePageComments: () => null },
+      "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
       "./answer-card": { AnswerCard: "AnswerCard" },
       "./chat-display-setting": { useToolCallDisplay: () => [display, () => {}] },
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
@@ -11263,6 +11279,8 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./activity-item": { ActivityTitle: "ActivityTitle" },
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
@@ -11318,6 +11336,8 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./activity-item": { ActivityTitle: "ActivityTitle" },
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["compact", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
@@ -14573,6 +14593,8 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./activity-item": { ActivityTitle: "ActivityTitle" },
     "./tool-row": { ToolRow: "ToolRow" },
     "./artifact": { ArtifactCards: "ArtifactCards", DesignFeedbackCard: "DesignFeedbackCard" },
+    "@milagre/shared/page-comments": { parsePageComments: () => null },
+    "./page-comments-card": { PageCommentsCard: "PageCommentsCard" },
     "./answer-card": { AnswerCard: "AnswerCard" },
     "./chat-display-setting": { useToolCallDisplay: () => ["full", () => {}] },
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },

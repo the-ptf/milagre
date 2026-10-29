@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { createChatPageComments, pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
+const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
 const { runTool } = require("./linked-tools.cjs");
 
 async function fixture() {
@@ -77,4 +77,32 @@ test("a Chat that is gone takes its comments with it", async () => {
   await store.add({ chatId: "/p#1", comments: [comment()] });
   await store.removeChat("/p#1");
   assert.deepEqual(await store.list({ chatId: "/p#1" }), []);
+});
+
+test("a tap on the phone names the element at that point, with its screenshot taken without the pins", async () => {
+  const sent = [];
+  const element = {
+    selector: "button.pay",
+    tag: "button",
+    label: 'button "Pay now"',
+    box: { x: 5, y: 100, width: 120, height: 40 },
+    viewport: { width: 390, height: 700 },
+  };
+  const page = {
+    send: async (method, params) => {
+      sent.push([method, method === "Runtime.evaluate" ? params.expression.slice(0, 40) : params]);
+      if (method === "Page.captureScreenshot") return { data: "iVBOR" };
+      if (method === "Runtime.evaluate" && params.expression.includes("elementFromPoint")) return { result: { value: element } };
+      return {};
+    },
+  };
+  const result = await commentAtPoint(page, 0.2, 0.15);
+  assert.deepEqual(result, { element, shot: "iVBOR" });
+  assert.match(sent[0][1], /^\(\(\) => \{/);
+  assert.deepEqual(sent[1], ["Runtime.evaluate", "window.__milagrePins?.hide(true)"]);
+  // The crop keeps a margin and never starts off the page.
+  assert.deepEqual(sent[2][1].clip, { x: 0, y: 88, width: 144, height: 64, scale: 1 });
+  assert.deepEqual(sent[3], ["Runtime.evaluate", "window.__milagrePins?.hide(false)"]);
+  const empty = { send: async () => ({ result: { value: null } }) };
+  await assert.rejects(commentAtPoint(empty, 0.5, 0.5), /nothing to comment on there/);
 });
