@@ -416,10 +416,20 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll('[data-sidebar-scope="/work/milagre-ade"] [data-chat-id]').length`), 1, "and keeps its chat");
     console.log("PASS: removing a computer's Project from the list leaves this Mac's list alone");
 
+    const rowsBeforeComputerSwitch = await evaluate(
+      `[...document.querySelectorAll('[data-sidebar-scope] [data-chat-id]')].map((row) => row.closest('[data-sidebar-scope]').dataset.sidebarScope + '#' + row.dataset.chatId)`,
+    );
     await evaluate(
       `[...document.querySelectorAll('[data-sidebar-scope="c-atlas|/Users/a/atlas-web"] [data-chat-id] button')].find((b) => b.textContent.includes('Fix flaky deploy check')).click()`,
     );
     await waitFor(`document.querySelector('[data-chat-pane]')?.textContent.includes('The deploy check fails about one run in five.')`);
+    assert.deepEqual(
+      await evaluate(
+        `[...document.querySelectorAll('[data-sidebar-scope] [data-chat-id]')].map((row) => row.closest('[data-sidebar-scope]').dataset.sidebarScope + '#' + row.dataset.chatId)`,
+      ),
+      rowsBeforeComputerSwitch,
+      "switching to another computer's Chat preserves every sidebar row and its position",
+    );
     // The window holds the Project's numbered state from the sidebar's read: the other Mac is only asked for its name and
     // number (project:read without the state), never project:switch, which would reorder its recent list and change its
     // open Project.
