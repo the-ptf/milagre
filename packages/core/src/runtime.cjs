@@ -27,6 +27,7 @@ const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
+const { dbFile: chatDbFile, readChatRows } = require("./chat-db.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
 const { ClaudeSession } = require("./agents/claude-provider.cjs");
@@ -2583,8 +2584,20 @@ function createRuntime(options) {
     const read = { withState: options?.withState === true };
     return options?.marks === true ? scopeStates.messageMarks(scope, read) : scopeStates.allMessages(scope, read);
   });
-  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too.
+  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too. A Chat of a
+  // Project this host knows but hasn't opened (another computer's window or the phone opening it, a background copy) is
+  // read from its chats.db as it is: opening the Project would hold the read behind Git and resume its stopped turns, and
+  // nothing of an unopened Project is held in memory to miss.
   commands.handle("chat:messages", async (_event, scope, chatId, options) => {
+    if (typeof scope === "string" && !isLinkScopeKey(scope) && !states.has(scope) && Number.isSafeInteger(chatId) && existsSync(chatDbFile(scope))) {
+      const known = chatsHome.isHome(scope) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === scope);
+      if (known && !states.has(scope))
+        return chatPage(
+          readChatRows(scope, [chatId]).map((row) => row.message),
+          chatId,
+          options ?? {},
+        );
+    }
     checkReadable(scope);
     return chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, options ?? {});
   });

@@ -134,6 +134,7 @@ import { splitFences } from "../lib/message-fences";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
+import { LoadingMark } from "./StartupSplash";
 
 const NO_WAITING_STEPS: string[] = [];
 
@@ -1499,13 +1500,15 @@ export function ChatComposer({
           view={scrollKey}
           messageCount={messages.length}
           element={
-            isNewChat ? null : messages.length === 0 ? (
-              <div
-                className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2"
-                role={loadError ? "alert" : "status"}
-              >
-                <p>{loadError ? `Could not load this Chat: ${loadError}` : "Loading Chat..."}</p>
-                {loadError && onRetryLoad && (
+            isNewChat ? null : messages.length === 0 && !loadError ? (
+              // The splash mark, as on the phone; it waits a beat so a transcript that is already near doesn't flash it.
+              <div className="chat-loading relative flex min-h-0 flex-1 items-center justify-center" role="status" aria-label="Loading Chat">
+                <LoadingMark size={48} />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2" role="alert">
+                <p>Could not load this Chat: {loadError}</p>
+                {onRetryLoad && (
                   <button type="button" onClick={onRetryLoad} className="rounded-control border border-line px-3 py-1.5 hover:bg-hover">
                     Try again
                   </button>

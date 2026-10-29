@@ -204,9 +204,11 @@ const NO_BRANCHES: string[] = [];
 // computer) in the background only once they are older than BRANCHES_FRESH_MS.
 const branchLists = new Map<string, { at: number; branches: string[] }>();
 
-/** Starts reading Chat `sessionId`'s page now, when `state` (the scope's, as held) comes from a host that keeps messages by Chat. */
+/** Starts reading Chat `sessionId`'s page now, unless `state` (the scope's, as held) comes from a host that doesn't keep
+ * messages by Chat. A scope not held yet (another computer's Project never opened here) reads too: every current host
+ * keeps them by Chat, and waiting for its open first is what left such a Chat on its loading state. */
 function prefetchLeanChat(scope: string, sessionId: number, state: CoordinatorState | LinkState | null | undefined) {
-  if (state && isLean(state)) prefetchChatMessages(scope, sessionId);
+  if (!state || isLean(state)) prefetchChatMessages(scope, sessionId);
 }
 const NO_REFS: string[] = [];
 const NO_KEYS: string[] = [];
@@ -2686,9 +2688,9 @@ function App() {
   // at once instead of waiting on the host, or on another computer's network.
   const hoverChat = useEvent((scopeKey: string, id: string) => {
     const state = isLinkScopeKey(scopeKey)
-      ? linkStatesRef.current[scopeKey.slice("milagre-link:".length)]
-      : (statesRef.current[scopeKey] ?? scopeStates[scopeKey]);
-    if (state && isLean(state)) prefetchChatMessages(scopeKey, Number(id));
+      ? (linkStatesRef.current[scopeKey.slice("milagre-link:".length)] ?? cachedScopeState(scopeKey))
+      : (statesRef.current[scopeKey] ?? scopeStates[scopeKey] ?? cachedScopeState(scopeKey) ?? cachedProjectCopy(scopeKey)?.state);
+    prefetchLeanChat(scopeKey, Number(id), state);
   });
   // "Link and ask A…" from the sidebar's Link popover: a plain user message to chat A on its own model, as its composer
   // would pick it, and the permission mode new turns get. A's agent decides whether to make a Delegation. Then A opens,
