@@ -231,13 +231,45 @@ function createRuntime(options) {
   commands.handle("artifact:add-comments", (_context, request) => artifacts.addComments(request));
   commands.handle("artifact:comments", (_context, request) => artifacts.comments(request));
   // Comments the user left on Browser panel pages (spec docs/superpowers/specs/2026-10-28-internal-browser-design.md).
-  const { createChatPageComments, pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
+  const { commentAtPoint, createChatPageComments, pageCommentToolDefinitions } = require("./chat-page-comments.cjs");
   const pageComments = createChatPageComments({
     directory: path.join(dataDir, "page-comments"),
     validateChat: existingChat("commenting on a page"),
   });
   commands.handle("browser-comments:add", (_context, request) => pageComments.add(request));
   commands.handle("browser-comments:list", (_context, request) => pageComments.list(request));
+  // A comment from the phone's view of a Browser panel page: the element at the tapped point (as fractions of the page),
+  // its screenshot, and the message, sent as the user's in the Chat's own provider, model and mode, then recorded.
+  commands.handle("browser-comments:send-from-page", async (_context, request) => {
+    const chatId = typeof request?.chatId === "string" ? request.chatId : "";
+    const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
+    const point = [request?.x, request?.y];
+    if (!chatId || !text) throw new Error("Write the comment first.");
+    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap an element of the page.");
+    const scope = projectOfKey(chatId);
+    const sessionId = sessionIdFromKey(chatId);
+    const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
+    if (!session) throw new Error("Open an existing Chat before commenting on a page.");
+    const { target, session: page } = await browsers.devtools({ chatId, page: typeof request.targetId === "string" ? request.targetId : undefined });
+    const { pageCommentId, pageCommentsMessage } = await import("@milagre/shared/page-comments");
+    const { element, shot } = await commentAtPoint(page, point[0], point[1]);
+    const id = pageCommentId();
+    const comment = { id, url: target.url, title: target.title, element, text };
+    const settings = chats.turnSettings(chatId) ?? {};
+    await chats.send({
+      ...settings,
+      provider: session.provider ?? settings.provider ?? "claude",
+      model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(await scopeStates.get(scope), sessionId) || settings.model,
+      permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
+      projectPath: scope,
+      sessionId,
+      body: pageCommentsMessage([comment], { screenshots: !!shot }),
+      images: shot ? [{ id: `page-comment-${id}`, name: `page-comment-${id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
+      files: [],
+    });
+    await pageComments.add({ chatId, comments: [comment] });
+    return { id };
+  });
   for (const method of ["list", "attach", "detach"])
     commands.handle(`simulator:${method}`, (context, request) => {
       if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");

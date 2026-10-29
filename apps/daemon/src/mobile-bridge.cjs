@@ -116,6 +116,8 @@ const METHODS = new Set([
   "artifact:revoke-page-share",
   "artifact:add-comments",
   "artifact:comments",
+  "browser-comments:list",
+  "browser-comments:send-from-page",
   "project:registry",
   // Canvas Links from the chat menu's "Link with…" / "Remove Link with…", and the grant its "Always allow Delegations" sets.
   "canvas:links",

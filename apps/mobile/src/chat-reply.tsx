@@ -25,6 +25,8 @@ import { ToolRow } from "./tool-row";
 import { ArtifactCards, DesignFeedbackCard } from "./artifact";
 import { AdvisorResultCard } from "./advisor-result-card";
 import { parseDesignFeedback } from "@milagre/shared/artifact";
+import { parsePageComments } from "@milagre/shared/page-comments";
+import { PageCommentsCard } from "./page-comments-card";
 import { AnswerCard } from "./answer-card";
 import { useToolCallDisplay } from "./chat-display-setting";
 import { PullRequestActionCard } from "./pr-action-card";
@@ -298,6 +300,8 @@ export const ChatReply = memo(function ChatReply({
   const waitingIds = waitingStepIds(run?.approvals);
   // Feedback sent from the design sheet or canvas shows as a card, not as the text the agent reads.
   const feedback = message?.role === "user" ? parseDesignFeedback(text) : null;
+  // And comments left on a Browser panel page.
+  const pageComments = message?.role === "user" && !feedback ? parsePageComments(text) : null;
   // So does a PR-blocker pill's action, instead of the skill prompt the agent read.
   const prAction = message?.role === "user" && isPullRequestAction(message.context) ? message.context : null;
   // And a Chat's first message when it was started from a Linear issue.
@@ -365,6 +369,8 @@ export const ChatReply = memo(function ChatReply({
           <LinearIssueCard issue={issue} />
         ) : feedback ? (
           <DesignFeedbackCard feedback={feedback} chatId={chatId} moved={designsMoved} />
+        ) : pageComments ? (
+          <PageCommentsCard comments={pageComments} chatId={chatId} moved={designsMoved} />
         ) : message.answered?.length ? (
           <AnswerCard answered={message.answered} />
         ) : (

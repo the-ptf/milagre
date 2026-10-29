@@ -127,4 +127,38 @@ function pageCommentToolDefinitions(chatId, pageComments) {
   ];
 }
 
-module.exports = { createChatPageComments, pageCommentToolDefinitions };
+/**
+ * What a tap on the phone's view of a page points at: the element at (x, y), fractions of the page's viewport, read like
+ * a pick (selector, label, HTML, styles, component, the point on it), and a PNG of it with a margin, the comment pins
+ * hidden. `page` is a DevTools session on the page. Throws when there is nothing to comment on there.
+ */
+async function commentAtPoint(page, x, y) {
+  const { pageDescribeAtScript } = await import("@milagre/shared/page-picker");
+  const found = await page.send("Runtime.evaluate", { expression: pageDescribeAtScript(x, y), returnByValue: true });
+  const element = found.result?.value;
+  if (!element || typeof element.selector !== "string" || !element.box) throw new Error("There is nothing to comment on there. Tap an element of the page.");
+  let shot = null;
+  await page.send("Runtime.evaluate", { expression: "window.__milagrePins?.hide(true)" }).catch(() => {});
+  try {
+    const margin = 12;
+    const { box } = element;
+    const capture = await page.send("Page.captureScreenshot", {
+      format: "png",
+      clip: {
+        x: Math.max(0, box.x - margin),
+        y: Math.max(0, box.y - margin),
+        width: Math.max(1, box.width + margin * 2),
+        height: Math.max(1, box.height + margin * 2),
+        scale: 1,
+      },
+    });
+    shot = typeof capture.data === "string" ? capture.data : null;
+  } catch {
+    // A comment without its screenshot is still a comment.
+  } finally {
+    await page.send("Runtime.evaluate", { expression: "window.__milagrePins?.hide(false)" }).catch(() => {});
+  }
+  return { element, shot };
+}
+
+module.exports = { commentAtPoint, createChatPageComments, pageCommentToolDefinitions };

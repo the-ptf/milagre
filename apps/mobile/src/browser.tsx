@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
+import { AppState, Pressable, Text, TextInput, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, Link01Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, CommentAdd01Icon, Link01Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
 import type { BrowserFrame, BrowserList, BrowserTarget } from "@milagre/shared/browser";
 import { createBrowserBridge, createBrowserReceiverHtml } from "@milagre/shared/browser-receiver";
 import type { Client } from "./client";
@@ -13,6 +13,7 @@ import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
+import { radius, type } from "./design-tokens";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
 function useBrowsers(client: Client | null, chatId: string | undefined) {
@@ -90,6 +91,9 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
   const canChoose = (list?.targets.length ?? 0) > 1 || (list?.others.length ?? 0) > 0;
   const [paused, setPaused] = useState(AppState.currentState !== "active");
   const [revision, setRevision] = useState(0);
+  // Comment mode on a Browser panel page: the next tap picks the element under it instead of clicking it.
+  const [commenting, setCommenting] = useState(false);
+  const [picked, setPicked] = useState<{ x: number; y: number } | null>(null);
   useFocusEffect(
     useCallback(() => {
       const subscription = AppState.addEventListener("change", (state) => {
@@ -184,7 +188,30 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
             />
           </View>
         ) : selected ? (
-          <BrowserWebView key={`${selected.id}:${revision}`} client={source} chatId={chatId} targetId={selected.id} onPage={setPage} />
+          <View style={{ flex: 1, minHeight: 0 }}>
+            <BrowserWebView
+              key={`${selected.id}:${revision}`}
+              client={source}
+              chatId={chatId}
+              targetId={selected.id}
+              onPage={setPage}
+              commenting={selected.source === "panel" && commenting}
+              onPick={setPicked}
+            />
+            {selected.source === "panel" && (
+              <PageComment
+                client={source}
+                chatId={chatId}
+                targetId={selected.id}
+                commenting={commenting}
+                picked={picked}
+                onCommenting={(on) => {
+                  setCommenting(on);
+                  setPicked(null);
+                }}
+              />
+            )}
+          </View>
         ) : (
           <PageScroll
             style={{ flex: 1 }}
@@ -279,17 +306,130 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
   );
 }
 
+/**
+ * Comment mode for a Browser panel page: the button that starts it, the hint while it waits for a tap, and the box the
+ * comment is written in. Sending makes the host read the element at the tapped point, screenshot it and send the
+ * comment to the Chat's agent, as the desktop's Send does.
+ */
+function PageComment({
+  client,
+  chatId,
+  targetId,
+  commenting,
+  picked,
+  onCommenting,
+}: {
+  client: Client;
+  chatId: string;
+  targetId: string;
+  commenting: boolean;
+  picked: { x: number; y: number } | null;
+  onCommenting(on: boolean): void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+  const send = async () => {
+    if (!picked || !text.trim() || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      await client.call("browser-comments:send-from-page", [{ chatId, targetId, x: picked.x, y: picked.y, text: text.trim() }]);
+      setText("");
+      setSent(true);
+      onCommenting(false);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "The comment didn't send.");
+    } finally {
+      setSending(false);
+    }
+  };
+  if (!commenting)
+    return (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+        <PillButton
+          title="Comment"
+          icon={CommentAdd01Icon}
+          secondary
+          onPress={() => {
+            setSent(false);
+            onCommenting(true);
+          }}
+        />
+        {sent && <Text style={styles.muted}>Sent to the agent.</Text>}
+      </View>
+    );
+  return (
+    <View
+      style={{
+        gap: 10,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: colors.surface,
+        borderTopLeftRadius: radius.card,
+        borderTopRightRadius: radius.card,
+      }}
+    >
+      {!picked ? (
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>Tap the element you want to comment on.</Text>
+      ) : (
+        <TextInput
+          autoFocus
+          multiline
+          value={text}
+          onChangeText={setText}
+          placeholder="What should change here?"
+          placeholderTextColor={colors.ink3}
+          accessibilityLabel="Comment"
+          style={{
+            minHeight: 64,
+            color: colors.ink,
+            fontSize: type.body,
+            padding: 10,
+            borderRadius: radius.control,
+            backgroundColor: colors.page,
+          }}
+        />
+      )}
+      {!!error && (
+        <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote }}>
+          {error}
+        </Text>
+      )}
+      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
+        <PillButton title="Cancel" secondary disabled={sending} onPress={() => onCommenting(false)} />
+        {picked && <PillButton title="Send" loading={sending} disabled={!text.trim() || sending} onPress={() => void send()} />}
+      </View>
+    </View>
+  );
+}
+
 function BrowserWebView({
   client,
   chatId,
   targetId,
   onPage,
+  commenting = false,
+  onPick,
 }: {
   client: Client;
   chatId: string;
   targetId: string;
   onPage(page: { title: string; url: string }): void;
+  /** While set, a tap picks a point on the page (onPick, as fractions of it) instead of clicking it. */
+  commenting?: boolean;
+  onPick?(point: { x: number; y: number }): void;
 }) {
+  // Read by the bridge, which lives as long as the viewer: kept current without reconnecting it.
+  const commentingRef = useRef(commenting);
+  const onPickRef = useRef(onPick);
+  useEffect(() => {
+    commentingRef.current = commenting;
+    onPickRef.current = onPick;
+  }, [commenting, onPick]);
   const { colors, scheme } = useTheme();
   const styles = useStyles();
   const theme = useMemo(() => {
@@ -331,7 +471,16 @@ function BrowserWebView({
       return { ...frame, data: "", uri: file.uri };
     };
     const currentBridge = createBrowserBridge(
-      (method, args) => client.call(`browser:${method}`, [args]),
+      (method, args) => {
+        // In comment mode a tap names a point instead of clicking: the receiver's mouse press and release stay here.
+        // A swipe still scrolls the page (wheel input).
+        const event = method === "input" ? (args as { event?: { kind?: string; phase?: string; x?: number; y?: number } }).event : undefined;
+        if (commentingRef.current && event?.kind === "mouse") {
+          if (event.phase === "up" && typeof event.x === "number" && typeof event.y === "number") onPickRef.current?.({ x: event.x, y: event.y });
+          return Promise.resolve({ accepted: true });
+        }
+        return client.call(`browser:${method}`, [args]);
+      },
       (reply) => {
         // Data stays JSON, never an executable string supplied by the remote peer.
         view.current?.injectJavaScript(`window.browserReply?.(${JSON.stringify(reply).replace(/</g, "\\u003c")});true;`);

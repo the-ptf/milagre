@@ -87,6 +87,9 @@ const PATHS = Object.freeze({
   "artifact:revoke-saved-page-share": denied,
   "artifact:add-comments": ([value]) => [chatProject(value?.chatId)],
   "artifact:comments": ([value]) => [chatProject(value?.chatId)],
+  // Page comments are read and sent through their Chat, which must be in the folder.
+  "browser-comments:list": ([value]) => [chatProject(value?.chatId)],
+  "browser-comments:send-from-page": ([value]) => [chatProject(value?.chatId)],
   // Live Activities summarize every open Project and Link, beyond a confined demo folder.
   "live-activity:state": denied,
   "live-activity:open": denied,
