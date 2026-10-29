@@ -296,7 +296,7 @@ test("a Mac holding the first pairing for Allow is waited for, and cancelling sa
 test("a refusal while pairing is worded for pairing, with its code", async (t) => {
   for (const [hello, message, code] of [
     [{ code: "unknown-phone" }, "This link expired. Copy a new one on studio.", "unknown-phone"],
-    [{ code: "unknown-phone", reason: "denied" }, "studio didn't allow this Mac.", "denied"],
+    [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`, "denied"],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect.", "kind"],
     ["full", "studio has too many devices connected. Remove one in its Settings › Devices.", "full"],
   ]) {
@@ -330,7 +330,7 @@ test("a refusal retrying can't fix stops the computer for good instead of retryi
 
 test("every refusal that retrying can't fix refuses, with its words", async (t) => {
   for (const [hello, message] of [
-    [{ code: "unknown-phone", reason: "denied" }, "studio didn't allow this Mac."],
+    [{ code: "unknown-phone", reason: "denied" }, `studio didn't allow ${thisComputer}.`],
     [{ code: "bad-token", reason: "reset" }, "studio was reset. Pair again with a new link."],
     [{ code: "bad-token" }, "studio has a new pairing link. Pair again with it."],
     [{ code: "bad-hello", reason: "kind" }, "Update Milagre on studio to connect."],

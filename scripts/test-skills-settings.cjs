@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { fileManager } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React from 'react';
@@ -118,7 +119,7 @@ async function browserChecks() {
     );
     await screenshot("detail");
     await click("Open in Cursor");
-    await click("Show in Finder");
+    await click(`Show in ${fileManager}`);
     await waitFor(`window.calls.reveal.length === 1`);
     assert.deepEqual(await evaluate("window.calls.open.map(r => r.file)"), ["/work/app/.claude/skills/review/SKILL.md"]);
     await click("All skills");

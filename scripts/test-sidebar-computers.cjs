@@ -10,6 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { thisComputer, ThisComputer } = require("@milagre/shared/host-computer");
 
 const fixture = `
 localStorage.setItem("milagre.hiddenRemoteScopes", JSON.stringify(["c-atlas|/Users/a/old-site"]));
@@ -183,7 +184,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-computers-button]') && !document.querySelector('.startup-splash-screen')`, 20000);
     await openPopover();
     assert.deepEqual(await lines(), [
-      ["this-mac", "victor-mbp", "This Mac"],
+      ["this-mac", "victor-mbp", ThisComputer],
       ["c-atlas", "atlas", "Same network"],
       ["c-studio", "studio", "Offline, seen 2h ago"],
     ]);
@@ -323,7 +324,7 @@ async function browserChecks() {
       ],
       "every computer's Projects under its computer, by name, the hidden one unchecked",
     );
-    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "atlas", "studio"]);
+    assert.deepEqual(await sectionHeaders(), [`victor-mbp · ${ThisComputer}`, "atlas", "studio"]);
     assert.equal(await evaluate(`document.querySelector('[data-project-choice="/work/milagre-ade"]').textContent.includes('Open')`), true);
     await screenshot("filters-projects");
     await evaluate(`document.querySelector('[data-project-choice="c-atlas|/Users/a/old-site"]').click()`);
@@ -343,7 +344,7 @@ async function browserChecks() {
       `window.setComputers([...window.computerList, { id: "c-new", name: "garden-mini", hostId: "n".repeat(22), relayHost: "relay.milagre.cloud", state: "online", route: "lan", lastSeen: Date.now(), addedAt: 3, message: null, lan: true, lanRoutes: [] }])`,
     );
     await waitFor(`!!document.querySelector('[data-project-choice="c-new|/Users/n/garden"]')`);
-    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "atlas", "garden-mini", "studio"], "a new computer's section joins by name");
+    assert.deepEqual(await sectionHeaders(), [`victor-mbp · ${ThisComputer}`, "atlas", "garden-mini", "studio"], "a new computer's section joins by name");
     await waitFor(`!!document.querySelector('[data-sidebar-scope="c-new|/Users/n/garden"]')`);
     await screenshot("filters-new-computer");
     await evaluate(`window.setComputers(window.computerList.filter((computer) => computer.id !== "c-new"))`);
@@ -374,7 +375,7 @@ async function browserChecks() {
     assert.match(await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').textContent`), /1 hidden/);
     await evaluate(`document.querySelector('[data-filters-panel] [data-sub="projects"]').click()`);
     await waitFor(`!!document.querySelector('[data-filters-sub="projects"]')`);
-    assert.deepEqual(await sectionHeaders(), ["victor-mbp · This Mac", "atlas"], "no section for the hidden computer");
+    assert.deepEqual(await sectionHeaders(), [`victor-mbp · ${ThisComputer}`, "atlas"], "no section for the hidden computer");
     assert.deepEqual(
       await choices(),
       [
@@ -515,7 +516,7 @@ async function browserChecks() {
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/notes"] [data-chat-id] button')].find((b) => b.textContent.includes('Never opened here')).click()`,
     );
     await waitFor(`!!document.querySelector('[data-offline-empty]')`);
-    assert.equal(await evaluate(`document.querySelector('[data-offline-empty]').textContent.trim()`), "No copy of this chat on this Mac yet.");
+    assert.equal(await evaluate(`document.querySelector('[data-offline-empty]').textContent.trim()`), `No copy of this chat on ${thisComputer} yet.`);
     // A host that keeps messages by Chat: the Chat's page read goes out first, then the Project's read, so it isn't queued
     // behind everything the switch's render asks the other Mac for.
     const notesCalls = await evaluate(

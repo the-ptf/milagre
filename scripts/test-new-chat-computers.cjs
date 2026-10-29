@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { ThisComputer } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React, { useState } from "react";
@@ -121,7 +122,7 @@ async function browserChecks() {
     assert.deepEqual(
       await evaluate(`[...document.querySelectorAll("[data-new-chat-pickers] [data-picker-row]")].map((row) => [row.textContent, row.disabled])`),
       [
-        ["victor-mbp · This Mac~/Code/milagre-ade", false],
+        [`victor-mbp · ${ThisComputer}~/Code/milagre-ade`, false],
         ["arketa~/work/milagre-ade", false],
         ["studio~/milagre-adeOffline", true],
       ],
