@@ -1,0 +1,96 @@
+# Builds a new native phone app from main on EAS and ships it: iOS to TestFlight, Android as the APK on the newest
+# GitHub release (the site's /download/android serves it from there). Every run waits for Victor's approval on the
+# mobile-release environment before anything builds. Ship JS-only changes with "Mobile OTA" instead.
+name: Mobile release
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        options: [ios, android, both]
+        default: ios
+permissions:
+  contents: read
+jobs:
+  release:
+    name: Release ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platform == 'both' && '["ios","android"]' || format('["{0}"]', inputs.platform)) }}
+    concurrency:
+      group: mobile-release-${{ matrix.platform }}
+      cancel-in-progress: false
+    # altool, which uploads to TestFlight, only exists on macOS.
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-15' || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    environment: mobile-release
+    permissions:
+      contents: write
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      PLATFORM: ${{ matrix.platform }}
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Phone releases build from main only. Pick main under \"Use workflow from\"."
+          exit 1
+      - name: Check credentials
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+        run: |
+          names="EXPO_TOKEN"
+          [ "$PLATFORM" = ios ] && names="$names ASC_KEY_ID ASC_ISSUER_ID ASC_API_KEY"
+          for name in $names; do
+            if [ -z "${!name}" ]; then echo "::error::Set $name in the mobile-release environment."; exit 1; fi
+          done
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build on EAS
+        working-directory: apps/mobile
+        run: |
+          profile=$([ "$PLATFORM" = ios ] && echo testflight || echo apk)
+          npx eas-cli@latest build --platform "$PLATFORM" --profile "$profile" --non-interactive --wait --json > "$RUNNER_TEMP/build.json"
+          node -e '
+            const fs = require("fs");
+            const [b] = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/build.json", "utf8"));
+            if (b?.status !== "FINISHED" || !b.artifacts?.buildUrl) { console.error(`EAS build ended ${b?.status}`); process.exit(1); }
+            const line = `${process.env.PLATFORM} build ${b.appBuildVersion} (EAS ${b.id.slice(0, 8)}), runtime ${b.runtime?.version}, main ${b.gitCommitHash?.slice(0, 8)}`;
+            console.log(line);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
+            fs.appendFileSync(process.env.GITHUB_ENV, `BUILD_URL=${b.artifacts.buildUrl}\nBUILD_NUMBER=${b.appBuildVersion}\n`);
+          '
+      - name: Download the build
+        run: curl --fail --silent --show-error --location --retry 3 "$BUILD_URL" --output "$RUNNER_TEMP/app.$([ "$PLATFORM" = ios ] && echo ipa || echo apk)"
+      - name: Upload to TestFlight
+        if: matrix.platform == 'ios'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_API_KEY: ${{ secrets.ASC_API_KEY }}
+        run: |
+          mkdir -p ~/.private_keys
+          printf '%s\n' "$ASC_API_KEY" > ~/.private_keys/"AuthKey_$ASC_KEY_ID.p8"
+          xcrun altool --upload-app --type ios --file "$RUNNER_TEMP/app.ipa" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          rm ~/.private_keys/"AuthKey_$ASC_KEY_ID.p8"
+          echo "Uploaded build $BUILD_NUMBER to TestFlight; App Store Connect processes it before testers see it." >> "$GITHUB_STEP_SUMMARY"
+      - name: Attach the APK to the newest release
+        if: matrix.platform == 'android'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r tag prerelease <<< "$(gh release list --exclude-drafts --limit 1 --json tagName,isPrerelease --jq '.[0] | "\(.tagName) \(.isPrerelease)"')"
+          if [ -z "$tag" ]; then echo "::error::No published release to attach the APK to."; exit 1; fi
+          name="Milagre-${tag#v}-android$([ "$prerelease" = true ] && echo -beta).apk"
+          mv "$RUNNER_TEMP/app.apk" "$RUNNER_TEMP/$name"
+          gh release upload "$tag" "$RUNNER_TEMP/$name" --clobber
+          echo "Attached $name to $tag; /download/android serves it now." >> "$GITHUB_STEP_SUMMARY"

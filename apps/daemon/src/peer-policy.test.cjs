@@ -25,6 +25,11 @@ test("a paired Mac reads and changes this Mac's Babysit PRs settings", () => {
   for (const method of ["babysit:settings:read", "babysit:settings:save"]) assert.equal(peerPolicy.denies(method), false, method);
 });
 
+test("a paired Mac reads and edits this Mac's keybindings", () => {
+  for (const method of ["keybindings:read", "keybindings:set-command", "keybindings:reset-command", "keybindings:reset"])
+    assert.equal(peerPolicy.denies(method), false, method);
+});
+
 test("a paired Mac reads and manages this Mac's Routines", () => {
   for (const method of [
     "routines:enabled:read",

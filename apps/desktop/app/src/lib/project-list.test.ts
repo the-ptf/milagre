@@ -82,3 +82,9 @@ test("a hidden Project of this Mac is used only when it is the only one", () => 
   assert.equal(newChatProject({ currentPath: "deer|/code/rd-events", recent: onlyHidden }), "/code/hidden");
   assert.equal(newChatProject({ currentPath: "deer|/code/rd-events", recent: [] }), null);
 });
+
+test("newChatProject skips the Chats home", () => {
+  // The home is never in the recent list, so ⌘N from a project-less Chat goes back to the last real Project.
+  assert.equal(newChatProject({ currentPath: "/Users/a/.milagre/chats", currentKind: "chats", recent }), "/code/milagre-ade");
+  assert.equal(newChatProject({ currentPath: "/Users/a/.milagre/chats", currentKind: "chats", recent: [] }), null);
+});

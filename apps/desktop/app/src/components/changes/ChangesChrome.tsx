@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useShortcutLabel } from "../../lib/keybindings";
 import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -81,9 +82,10 @@ export function DiffBar({
 /** Top-right window button; sits inside the drag strip, so it opts out of dragging. */
 export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const chrome = useWindowChrome();
+  const shortcut = useShortcutLabel("changes.toggle");
   return (
     <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset }}>
-      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut="⌘⇧D" compactHint side="bottom" align="end">
+      <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
         <button
           type="button"
           aria-label="Toggle changes panel"
@@ -102,9 +104,10 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
 /** Top right, left of the panel buttons: shows every active Chat as a grid, or the open one alone. `offset` as AttentionButton's. */
 export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset: number; onToggle: () => void }) {
   const chrome = useWindowChrome();
+  const shortcut = useShortcutLabel("grid.toggle");
   return (
     <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
-      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut="⌘⇧M" compactHint side="bottom" align="end">
+      <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
         <button
           type="button"
           aria-label="Show active Chats as a grid"

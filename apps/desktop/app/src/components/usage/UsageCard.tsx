@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider, ProviderUsage } from "../../model";
 import { useSettings } from "../../lib/settings";
-import { PROVIDER_NAMES, formatPercent, formatResetsIn, formatUpdatedAgo, shownPercent, shownSuffix } from "./format";
+import { PROVIDER_NAMES, accountPickerLabel, formatPercent, formatResetsIn, formatUpdatedAgo, shownPercent, shownSuffix } from "./format";
 import { ProviderLogo } from "../ProviderLogo";
 import { UsageBar } from "./UsageBar";
 import { projectAccountOptions, useProjectAccounts } from "../ProjectAccountsSettings";
@@ -18,6 +18,8 @@ type UsageCardProps = {
   usage: ProviderUsage;
   /** The Project or Link whose account the card can switch; none shows the account as plain text. */
   scope?: string;
+  /** The scope is a Chats home: its account is the one every Chat without a Project uses. */
+  chatsHome?: boolean;
   /** The account picker's panel opened or closed; it sits outside the card, so the card must not close under it. */
   onPickerOpenChange: (open: boolean) => void;
   loading: boolean;
@@ -39,11 +41,13 @@ function AccountText({ account }: { account?: string }) {
 // The account line in the card's header: a picker when the Project has more than one saved account for the provider.
 function AccountPicker({
   scope,
+  chatsHome,
   provider,
   account,
   onOpenChange,
 }: {
   scope: string;
+  chatsHome?: boolean;
   provider: ModelProvider;
   account?: string;
   onOpenChange: (open: boolean) => void;
@@ -55,7 +59,7 @@ function AccountPicker({
   return (
     <div className="flex min-w-0 flex-col items-start" data-usage-account>
       <Select
-        label={`${PROVIDER_NAMES[provider]} account for this Project`}
+        label={accountPickerLabel(provider, chatsHome)}
         value={group.accountId ?? ""}
         width={300}
         variant="text"
@@ -83,7 +87,19 @@ function AccountPicker({
   );
 }
 
-export function UsageCard({ id, usage, scope, loading, position, onRefresh, onPickerOpenChange, onPointerEnter, onPointerLeave, onBlur }: UsageCardProps) {
+export function UsageCard({
+  id,
+  usage,
+  scope,
+  chatsHome,
+  loading,
+  position,
+  onRefresh,
+  onPickerOpenChange,
+  onPointerEnter,
+  onPointerLeave,
+  onBlur,
+}: UsageCardProps) {
   const [now, setNow] = useState(() => Date.now());
   const name = PROVIDER_NAMES[usage.provider];
   const account = usage.account?.email || usage.account?.label;
@@ -122,7 +138,7 @@ export function UsageCard({ id, usage, scope, loading, position, onRefresh, onPi
         </span>
         <div className="min-w-0 flex-1">
           {scope && !isRemoteKey(scope) ? (
-            <AccountPicker scope={scope} provider={usage.provider} account={account} onOpenChange={onPickerOpenChange} />
+            <AccountPicker scope={scope} chatsHome={chatsHome} provider={usage.provider} account={account} onOpenChange={onPickerOpenChange} />
           ) : (
             <AccountText account={account} />
           )}

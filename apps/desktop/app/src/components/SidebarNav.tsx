@@ -1,4 +1,5 @@
 import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
+import { shortcutCommand, shortcutLabel, useKeybindings, chatJumpCommand } from "../lib/keybindings";
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
@@ -25,6 +26,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   ArrowDown01Icon,
+  BubbleChatIcon,
   Cancel01Icon,
   CloudOffIcon,
   Copy01Icon,
@@ -46,7 +48,7 @@ import Tooltip from "@/components/primitives/Tooltip";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
-import { shortcutModifier, useShortcutHints } from "../lib/shortcut-hints";
+import { useShortcutHints } from "../lib/shortcut-hints";
 import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
@@ -56,6 +58,8 @@ import { ChatRow, type ChatRowActions, type RowComputer, type SidebarRecent } fr
 import { useComputers, useHiddenComputers, isDimmed } from "../lib/computers";
 import { computerAlias, computerSections, mergeScopes, useComputerScopes, withoutLocal } from "../lib/computer-scopes";
 import { LOCAL_COMPUTER, computerOfKey, isLinkScopeKey, unqualifyKey } from "@milagre/shared/chat-scopes";
+import { ALL_CHATS_LABEL, CHATS_GROUP_KEY, CHATS_GROUP_LABEL, type ProjectKind } from "@milagre/shared/chats-home";
+import { useChatsGroup } from "../lib/project-copies";
 import { gridDrop, type GridDropTarget } from "@/lib/grid-drop";
 import { useDismiss } from "../lib/use-dismiss";
 import { dropIntent, pinOrderAt, type DropIntent, type DropZone } from "@/lib/chat-list";
@@ -76,13 +80,17 @@ import { NewBotSheet } from "./bots/NewBotSheet";
 import { useRoutines } from "../lib/routines";
 import {
   cachedProjectCopy,
+  cachedScopeState,
+  chatsSidebarRows,
   heartbeatKeys,
   heartbeatLines,
+  isChatsHomeScope,
   mergeScopeChats,
   railLive,
   rememberScopeRows,
   scopeChats,
   useScopeStates,
+  type ChatsGroupRow,
   type FlatChat,
   withHeartbeats,
 } from "../lib/sidebar-scopes";
@@ -175,6 +183,10 @@ type SidebarNavProps = {
   hintsEnabled?: boolean;
   /** The project folder, for the project menu's reveal and copy path. */
   projectPath?: string;
+  /** "chats" when `projectPath` is a Chats home: its Chats list in the Chats group, never as a Project. */
+  projectKind?: ProjectKind;
+  /** The Chats group's +: a new Chat without a Project on this Mac. */
+  onNewChatWithoutProject?: () => void;
   /** Opens a project from the recent list in the project menu. */
   onSwitchProject?: (path: string) => void;
   /** Other projects with a chat that waits on the user: their rows and the project button get a dot. */
@@ -198,7 +210,8 @@ type SidebarNavProps = {
   onOpenScopeChat?: (scopeKey: string, id: string) => void;
   /** Archive for another Project's rows (by its path): what the confirm step offers, then the archive itself. */
   onScopeArchiveCheck?: (scopeKey: string, id: string) => Promise<ArchivePlan>;
-  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown>;
+  /** `chatsHome`: the row is a Chat without a Project (the Chats group's). */
+  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, chatsHome?: boolean) => Promise<unknown>;
   /** Chats with an archive under way, by `projectPath#id`: their rows are gone at once, before the host answers. */
   archivingChats?: ReadonlySet<string>;
   /** The pointer rests on a chat's row: its page can be read before the click. */
@@ -257,12 +270,26 @@ type ScopeMenuItem = {
   separatorBefore?: boolean;
 };
 
+/** The keys the sidebar's hints show, as this Mac's keybindings have them. */
+function useSidebarKeys() {
+  const { rules } = useKeybindings();
+  return {
+    newChat: shortcutLabel(rules, "chat.new"),
+    sidebar: shortcutLabel(rules, "sidebar.toggle"),
+    search: shortcutLabel(rules, "commandPalette.toggle"),
+    addProject: shortcutLabel(rules, "project.add"),
+    settings: shortcutLabel(rules, "settings.open"),
+    jump: (index: number) => shortcutLabel(rules, chatJumpCommand(index)),
+  };
+}
+
 /** A Project or Link heading in the sidebar: folds its chats. Hovered, the chevron takes the icon's place, as in Paseo; the ⋯ menu and the + sit on the right. */
 function ScopeHeader({
   name,
   icon,
   open,
   current,
+  plusIsCurrent = current,
   attention,
   computer,
   onToggle,
@@ -273,15 +300,19 @@ function ScopeHeader({
   icon: ReactNode;
   open: boolean;
   current: boolean;
+  /** Whether the + is the open scope's own (⌘N); defaults to `current`. */
+  plusIsCurrent?: boolean;
   attention: boolean;
   /** The computer the Project or Link lives on, once there are two or more: a chip with its short name, the full one in
    * a tooltip. Its rows then leave it out. */
   computer?: RowComputer;
   onToggle: () => void;
-  onNewChat: () => void;
+  /** None hides the +. */
+  onNewChat?: () => void;
   /** The ⋯ menu's rows; none hides the button. */
   menu: ScopeMenuItem[];
 }) {
+  const keys = useSidebarKeys();
   // Room on the right for what shows there, so the name (and the computer chip) reach the edge: the attention dot, and
   // on hover the ⋯ and + with the dot slid left of them.
   const rightRoom = `${attention ? "pr-6" : "pr-2"} ${
@@ -348,17 +379,19 @@ function ScopeHeader({
       )}
       <div className="absolute right-1 flex items-center gap-0.5">
         {menu.length > 0 && <ScopeMenuButton name={name} items={menu} />}
-        <Tooltip label="New chat" shortcut={current ? "⌘N" : undefined} align="end">
-          <button
-            type="button"
-            data-scope-action
-            aria-label={current ? "New chat" : `New chat in ${name}`}
-            onClick={onNewChat}
-            className={`${SCOPE_HEADER_BUTTON} opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100`}
-          >
-            <IconPlusMedium size={14} />
-          </button>
-        </Tooltip>
+        {onNewChat && (
+          <Tooltip label="New chat" shortcut={plusIsCurrent ? keys.newChat : undefined} align="end">
+            <button
+              type="button"
+              data-scope-action
+              aria-label={plusIsCurrent ? "New chat" : `New chat in ${name}`}
+              onClick={onNewChat}
+              className={`${SCOPE_HEADER_BUTTON} opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100`}
+            >
+              <IconPlusMedium size={14} />
+            </button>
+          </Tooltip>
+        )}
       </div>
     </div>
   );
@@ -611,6 +644,8 @@ export default memo(function SidebarNav({
   onOpenCommands,
   hintsEnabled = true,
   projectPath,
+  projectKind,
+  onNewChatWithoutProject,
   onOpenProjectSettings,
   attentionPaths = NO_PATHS,
   recents = DEFAULT_RECENTS,
@@ -627,6 +662,7 @@ export default memo(function SidebarNav({
   onNewChatInScope,
   onAskChat,
 }: SidebarNavProps) {
+  const keys = useSidebarKeys();
   const { chatOrder, chatRowShow, chatList } = useSettings();
   // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
@@ -635,6 +671,10 @@ export default memo(function SidebarNav({
   // Computers unchecked in the computers popover: the sidebar leaves out their Projects, all but the open one.
   const hiddenComputers = useHiddenComputers();
   const remoteScopes = remote.scopes.filter((scope) => !hiddenComputers.has(scope.computerId));
+  // Each computer's Chats home (not off or hidden): its Chats make the Chats group, and it is never listed as a Project.
+  const homeCopies = useChatsGroup(true)?.copies;
+  const homeKeys = useMemo(() => new Set(homeCopies?.map((home) => home.key)), [homeCopies]);
+  const isHome = (key: string) => isChatsHomeScope(key, { currentKey: projectPath ?? "", currentKind: projectKind, homeKeys });
   // One object per computer and state, so memo'd rows keep their props.
   const rowComputers = useRef(new Map<string, RowComputer>());
   const rowComputer = (key: string): RowComputer | undefined => {
@@ -749,6 +789,7 @@ export default memo(function SidebarNav({
   // Every recent Project the user didn't hide, then every Link, like the phone's list. The open one is always there.
   const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
   const projectScopes = projects
+    .filter((row) => !isHome(row.path))
     .filter((row) => row.current || (!recentProjects.find((project) => project.path === row.path)?.hidden && !hiddenComputers.has(computerOfKey(row.path))))
     .map((row) => ({
       key: row.path,
@@ -780,7 +821,7 @@ export default memo(function SidebarNav({
   const scopes = multi
     ? mergeScopes(
         // The open Project of another computer is already among the local ones, under its qualified key.
-        [...localScopes, ...withoutLocal(remoteScopes, localScopes)],
+        [...localScopes, ...withoutLocal(remoteScopes, localScopes).filter((scope) => !isHome(scope.key))],
         computers.map((computer) => computer.id),
       )
     : localScopes;
@@ -794,6 +835,15 @@ export default memo(function SidebarNav({
   // One list: every scope's chats in one column, each row naming its Project; Grouped by Project keeps a fold per scope.
   // With no selected scope, keep even Projects and Links without Chats available to choose.
   const oneList = showAll && chatList === "list" && !!currentKey;
+  // The Chats group's homes: the open one, then each computer's that exists or that this window has a state of (one
+  // made since its home was read). Only those that exist are read.
+  const openHome = projectKind === "chats" && projectPath ? projectPath : undefined;
+  const homeScopes = [
+    ...(openHome ? [openHome] : []),
+    ...(homeCopies ?? [])
+      .filter((home) => home.key !== openHome && (home.exists || cachedScopeState(home.key) || cachedProjectCopy(home.key)))
+      .map((home) => home.key),
+  ];
   const {
     states: scopeStates,
     failed: failedScopes,
@@ -801,7 +851,7 @@ export default memo(function SidebarNav({
   } = useScopeStates(
     // Collapsed too: the rail's icons show each scope's chats' state and list the live ones.
     true,
-    scopes.filter((scope) => scope.key !== currentKey).map((scope) => scope.key),
+    [...scopes.map((scope) => scope.key), ...homeScopes].filter((key) => key !== currentKey),
   );
   // The open scope's rows carry facts read for it alone (PRs, Linear issues, ports); its rows keep them once another
   // scope is open, so switching doesn't shrink them.
@@ -829,16 +879,19 @@ export default memo(function SidebarNav({
     return marked;
   };
   // Another Project's or Link's chats can be pinned from here, and a Project's archived; the row menu's other actions
-  // stay with the open one. One object per scope, so its rows keep their memo.
+  // stay with the open one. One object per scope, so its rows keep their memo. A Chats home's rows are `gitless`: no
+  // branch to copy, no PR to open.
   const scopeActions = useRef(new Map<string, ChatRowActions>());
   const scopeArchive = useRef({ check: onScopeArchiveCheck, archive: onScopeArchive });
   scopeArchive.current = { check: onScopeArchiveCheck, archive: onScopeArchive };
-  const actionsFor = (key: string) => {
-    let actions = scopeActions.current.get(key);
+  const actionsFor = (key: string, gitless = false) => {
+    const cacheKey = gitless ? `gitless\n${key}` : key;
+    let actions = scopeActions.current.get(cacheKey);
     if (!actions) {
       const archivable = !key.startsWith("milagre-link:") && !!onScopeArchiveCheck && !!onScopeArchive;
       actions = {
         remote: isRemoteKey(key),
+        ...(gitless ? { gitless: true } : {}),
         onPin: (id, order) =>
           void bridgeForKey(key)
             .patchChat(key, Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order })
@@ -846,11 +899,11 @@ export default memo(function SidebarNav({
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
-              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan),
+              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan, gitless),
             }
           : {}),
       };
-      scopeActions.current.set(key, actions);
+      scopeActions.current.set(cacheKey, actions);
     }
     return actions;
   };
@@ -920,6 +973,38 @@ export default memo(function SidebarNav({
         };
       })
     : [];
+  // The Chats group's homes, each read like a Project's group; their rows merge into one list (chatsSidebarRows).
+  const homeGroups = showAll
+    ? homeScopes.map((key) => {
+        const current = key === currentKey;
+        const state = scopeStates[key] ?? cachedProjectCopy(key)?.state;
+        const rows = withBeats(key, current ? recents : state ? unarchived(key, scopeChats(key, state, chatOrder, marks, { gitless: true })) : []);
+        const list = {
+          isActive: current ? (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle) : NEVER_ACTIVE,
+          collapsed: false,
+          // The open home's actions come gitless from the window (App's chatActions), the rest from here.
+          actions: current ? chatActions : actionsFor(key, true),
+          showHints: current && showHints,
+          onPick: current ? pickChat : pickerFor(key),
+          onHover: hoverFor(key),
+          linkProjectId: null,
+          computer: rowComputer(key),
+          show: chatRowShow,
+        };
+        const offline = computerOfKey(key) !== LOCAL_COMPUTER && isDimmed(computers.find((computer) => computer.id === computerOfKey(key)));
+        return { key, current, list, offline, pinned: rows.filter((row) => row.pinned), rest: rows.filter((row) => !row.pinned) };
+      })
+    : [];
+  const chatsRows: ChatsGroupRow[] = chatsSidebarRows(
+    homeGroups.map(({ key, offline, pinned, rest }) => ({ key, offline, rows: [...pinned, ...rest] })),
+    chatOrder,
+  );
+  const chatsScopes = new Map(
+    homeGroups.map(({ key, list, pinned, rest }) => [
+      key,
+      { name: CHATS_GROUP_LABEL, badge: { projectImage: null, projectInitial: "" }, list, rows: [...pinned, ...rest] },
+    ]),
+  );
   // Grouped by Project: one repository's copies on several computers (one Git origin) share a heading, in its first
   // copy's place, and their chats merge under it, each naming its computer.
   const sections =
@@ -997,7 +1082,7 @@ export default memo(function SidebarNav({
     : currentLinkId && projectPath
       ? [{ scopeKey: projectPath, projectId: currentLinkId, projectName: workspaceName, rows: recents }]
       : [];
-  const anyPinned = groups.some((group) => group.pinned.length > 0);
+  const anyPinned = groups.some((group) => group.pinned.length > 0) || homeGroups.some((group) => group.pinned.length > 0);
   // Each group's slot in the Pinned section, for its list's portal; one ref callback per key, so slots don't remount.
   const [pinSlots, setPinSlots] = useState<Record<string, HTMLElement | null>>({});
   const pinSlotRefs = useRef(new Map<string, (node: HTMLDivElement | null) => void>());
@@ -1073,8 +1158,8 @@ export default memo(function SidebarNav({
         computerId: project.computerId,
       })),
   ]
-    // A hidden computer's Projects leave the chooser too; the open one stays, as it stays in the sidebar.
-    .filter((project) => project.current || !hiddenComputers.has(project.computerId))
+    // A hidden computer's Projects leave the chooser too; the open one stays, as it stays in the sidebar. No Chats home is a Project.
+    .filter((project) => !isHome(project.path) && (project.current || !hiddenComputers.has(project.computerId)))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.path.localeCompare(b.path));
 
   // A Project's ⋯ rows include removal, even for the open Project. A Link gets its name copied and can be edited.
@@ -1134,12 +1219,11 @@ export default memo(function SidebarNav({
     return () => query.removeEventListener("change", follow);
   }, []);
 
-  // ⌘B / Ctrl+B toggles the sidebar exactly like its collapse button.
+  // Its key (⌘B by default) toggles the sidebar exactly like its collapse button.
   useEffect(() => {
     function handleToggle(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "b") return;
+      if (shortcutCommand(event) !== "sidebar.toggle") return;
       event.preventDefault();
       toggle();
     }
@@ -1168,6 +1252,51 @@ export default memo(function SidebarNav({
       )
     : [];
   const loadingScopes = groups.some(({ scope, state, current }) => !state && !current && !failedScopes.has(scope.key));
+  // Pinned Chats without a Project sit in the Pinned section like any other, in both layouts.
+  const chatsPinned = homeGroups.map(({ key, list, pinned }) =>
+    pinned.length > 0 ? (
+      <ChatList key={key} recents={pinned} scopeKey={key} {...list} header={null} pinnedTarget={pinSlots[key] ?? null} anyPinned={anyPinned} />
+    ) : null,
+  );
+  const chatsOpen = !closedScopes.includes(CHATS_GROUP_KEY);
+  // Folds like a Project's group. It shows only while some computer has a Chat without a Project outside Pinned; with
+  // none, a new Chat's No project row starts one.
+  const chatsGroup = chatsRows.length > 0 && (
+    <section data-sidebar-chats aria-label={CHATS_GROUP_LABEL} className="mb-2">
+      <ScopeHeader
+        name={CHATS_GROUP_LABEL}
+        icon={
+          <span className="flex size-5 items-center justify-center rounded-[6px] bg-ink text-surface">
+            <HugeIcon icon={BubbleChatIcon} size={12} />
+          </span>
+        }
+        open={chatsOpen}
+        current={homeGroups.some(({ current }) => current)}
+        // ⌘N from a Chat without a Project starts in a real Project, so this + is never the open scope's own.
+        plusIsCurrent={false}
+        attention={homeGroups.some(({ key, current }) => !current && attentionPaths.includes(key))}
+        onToggle={() => toggleScope(CHATS_GROUP_KEY)}
+        onNewChat={
+          onNewChatWithoutProject &&
+          (() => {
+            if (activeTitle === undefined) setDemoActiveTitle(null);
+            onNewChatWithoutProject();
+          })
+        }
+        menu={[]}
+      />
+      <div
+        inert={!chatsOpen}
+        data-scope-body
+        className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+        style={{ gridTemplateRows: chatsOpen ? "1fr" : "0fr", opacity: chatsOpen ? 1 : 0 }}
+      >
+        <div className="min-w-0 overflow-hidden">
+          <FlatChatList chats={chatsRows} scopes={chatsScopes} inbox={false} />
+        </div>
+      </div>
+    </section>
+  );
   const flatBody = (
     <>
       {groups.map(({ scope, current, pinned, list }) =>
@@ -1185,24 +1314,25 @@ export default memo(function SidebarNav({
           />
         ) : null,
       )}
-      {groups.length > 0 && (
-        <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
-          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
-          <Tooltip label="New chat" shortcut="⌘N" align="end">
-            <button
-              type="button"
-              aria-label="New chat"
-              onClick={() => {
-                if (activeTitle === undefined) setDemoActiveTitle(null);
-                onNewChat?.();
-              }}
-              className={CHATS_HEADER_BUTTON}
-            >
-              <IconPlusMedium size={16} />
-            </button>
-          </Tooltip>
-        </div>
-      )}
+      <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
+        <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
+        <Tooltip label="New chat" shortcut={keys.newChat} align="end">
+          <button
+            type="button"
+            aria-label="New chat"
+            onClick={() => {
+              if (activeTitle === undefined) setDemoActiveTitle(null);
+              onNewChat?.();
+            }}
+            className={CHATS_HEADER_BUTTON}
+          >
+            <IconPlusMedium size={16} />
+          </button>
+        </Tooltip>
+      </div>
+      {chatsGroup}
+      {/* It parts the Chats from the Projects' rows below, so it shows only when there are both. */}
+      {chatsGroup && flatChats.length > 0 && <div aria-hidden data-chats-divider className="mx-4 mb-2 border-t border-line" />}
       <FlatChatList chats={flatChats} scopes={flatScopes} />
       {groups
         .filter(({ scope, state, current }) => !state && !current && failedScopes.has(scope.key))
@@ -1214,7 +1344,7 @@ export default memo(function SidebarNav({
             </button>
           </p>
         ))}
-      {groups.length > 0 && flatChats.length === 0 && !anyPinned && (
+      {groups.length > 0 && flatChats.length === 0 && chatsRows.length === 0 && !anyPinned && (
         <p data-one-list-empty className="mx-2 h-8 pl-2 text-[length:calc(13px+var(--sidebar-delta))] leading-8 text-ink-3">
           {loadingScopes ? "Loading chats…" : "No chats yet"}
         </p>
@@ -1342,7 +1472,7 @@ export default memo(function SidebarNav({
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
-          <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut="⌘B" side="bottom">
+          <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut={keys.sidebar} side="bottom">
             <button
               type="button"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -1400,7 +1530,7 @@ export default memo(function SidebarNav({
               </Tooltip>
             )}
             {onOpenCommands && (
-              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={`${shortcutModifier}K`}>
+              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={keys.search}>
                 <button
                   type="button"
                   aria-label="Command palette"
@@ -1454,10 +1584,15 @@ export default memo(function SidebarNav({
                             Pinned
                           </p>
                         )}
+                        {homeGroups.map(({ key }) => (
+                          <div key={key} ref={pinSlotRef(key)} data-pinned-scope={key} />
+                        ))}
                         {groups.map((group) => (
                           <div key={group.scope.key} ref={pinSlotRef(group.scope.key)} data-pinned-scope={group.scope.key} />
                         ))}
                       </div>
+                      {chatsPinned}
+                      {!oneList && chatsGroup}
                       {oneList
                         ? flatBody
                         : sections.map((section, index) => {
@@ -1564,7 +1699,7 @@ export default memo(function SidebarNav({
                       header={
                         <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
                           <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
-                          <Tooltip label="New chat" shortcut="⌘N" align="end">
+                          <Tooltip label="New chat" shortcut={keys.newChat} align="end">
                             <button
                               type="button"
                               aria-label="New chat"
@@ -1609,7 +1744,7 @@ export default memo(function SidebarNav({
             className={`flex border-t border-line py-1.5 ${usage ? "mt-1.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
-              <Tooltip label="Add project" shortcut="⌘O">
+              <Tooltip label="Add project" shortcut={keys.addProject}>
                 <button
                   type="button"
                   aria-label="Add project"
@@ -1640,7 +1775,7 @@ export default memo(function SidebarNav({
                 />
               )}
             </div>
-            <Tooltip label="Settings" shortcut="⌘," align={collapsed ? "start" : "end"}>
+            <Tooltip label="Settings" shortcut={keys.settings} align={collapsed ? "start" : "end"}>
               <button
                 type="button"
                 data-update-settings=""
@@ -1828,7 +1963,8 @@ const NO_BADGE: ScopeBadge = { projectImage: null, projectInitial: "" };
  * Chats of several scopes in one column. `inbox` (the One list): each row leads with its Project's icon and name. Off,
  * under one repository's heading, the rows look like a Project's and name their computer instead.
  */
-function FlatChatList({ chats, scopes, inbox = true }: { chats: FlatChat[]; scopes: Map<string, FlatScope>; inbox?: boolean }) {
+function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { offline?: boolean })[]; scopes: Map<string, FlatScope>; inbox?: boolean }) {
+  const keys = useSidebarKeys();
   const listRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1868,19 +2004,19 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: FlatChat[]; scop
   }, [scopes]);
   return (
     <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px" onPointerDown={startDrag}>
-      {chats.map(({ scopeKey, row }) => {
+      {chats.map(({ scopeKey, row, offline }) => {
         const scope = scopes.get(scopeKey)!;
         const { list } = scope;
         const position = list.showHints ? (hintPositions.get(row) ?? -1) : -1;
         const key = `${scopeKey}#${row.id}`;
         return (
-          <div key={key} data-chat-key={key} className="contents">
+          <div key={key} data-chat-key={key} data-offline={offline || undefined} className="contents">
             <ChatRow
               item={row}
               active={list.isActive(row)}
               collapsed={false}
               actions={actionsOf(scopeKey, scope)}
-              shortcutHint={position >= 0 && position < 9 ? `${shortcutModifier}${position + 1}` : undefined}
+              shortcutHint={position >= 0 && position < 9 ? keys.jump(position) : undefined}
               onPick={list.onPick}
               onHover={list.onHover}
               computer={list.computer}
@@ -1955,6 +2091,7 @@ function ChatList({
   projectInitial?: string;
   linkProjects?: number;
 }) {
+  const keys = useSidebarKeys();
   const listRef = useRef<HTMLDivElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
   const containers = () => [listRef.current, pinRef.current].filter((node): node is HTMLDivElement => !!node);
@@ -2327,7 +2464,7 @@ function ChatList({
       active={isActive(item)}
       collapsed={collapsed}
       actions={rowActions}
-      shortcutHint={showHints && hintOffset + index < 9 ? `${shortcutModifier}${hintOffset + index + 1}` : undefined}
+      shortcutHint={showHints && hintOffset + index < 9 ? keys.jump(hintOffset + index) : undefined}
       onPick={onPick}
       onHover={onHover}
       // The all-Projects sidebar names the computer in the Project's header; only its pinned rows, away from it, say it.

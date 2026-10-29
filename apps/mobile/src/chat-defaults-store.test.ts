@@ -77,3 +77,16 @@ test("the last new Chat's Project survives a fresh store", async () => {
   data.set("milagre.chat-last-project.v1", '{"hostId":1}');
   assert.equal(createChatDefaultsStore(storage).readLastProject(), null);
 });
+
+test("the computer last used for a new Chat is kept apart from its Project, falling back to the last Project's", async () => {
+  const data = new Map<string, string>();
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItemAsync: async (key: string, value: string) => void data.set(key, value) };
+  const store = createChatDefaultsStore(storage);
+  assert.equal(store.readLastComputer(), null);
+  await store.saveLastProject("mac", "/a");
+  assert.equal(store.readLastComputer(), "mac", "a phone from before keeps its last Project's computer");
+  // A Chat without a Project moves the computer only: New Chat still opens the last real Project.
+  await store.saveLastComputer("deer");
+  assert.equal(createChatDefaultsStore(storage).readLastComputer(), "deer");
+  assert.deepEqual(createChatDefaultsStore(storage).readLastProject(), { hostId: "mac", projectPath: "/a" });
+});

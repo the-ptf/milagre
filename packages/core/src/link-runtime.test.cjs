@@ -18,6 +18,7 @@ async function fixture(t, { approvals = null } = {}) {
     edits = ["api", "web", "admin"];
   const options = {
     dataDir: path.join(dir, "profile"),
+    chatsHome: path.join(dir, "chats"),
     worktreeRoot: path.join(dir, "worktrees"),
     registryRoots: [],
     version: "test",

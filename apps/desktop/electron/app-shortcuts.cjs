@@ -1,18 +1,37 @@
 // @ts-check
-// The app's ⌘⇧ shortcuts and ⌘, (Settings), caught before any frame gets the key. With focus inside an embedded frame (a
-// design on the canvas, an HTML reply, the simulator viewer) the key goes to that frame and the window's own listeners
-// never see it, so these are sent on to the renderer, which handles them as if pressed there. Every other key reaches
-// the focused frame as usual.
-const APP_SHORTCUT_KEYS = new Set(["d", "e", "l", "m", "s", "t"]);
+const { KEYBINDING_COMMANDS, compileRules, defaultKeybindings, eventMatches } = require("@milagre/shared/keybindings");
+
+// The app's frame-wide keys (Settings, the theme, the canvas, the grid and the side panels: the `forward` commands of
+// @milagre/shared/keybindings), caught before any frame gets the key. With focus inside an embedded frame (a design on
+// the canvas, an HTML reply, the simulator viewer) the key goes to that frame and the window's own listeners never see
+// it, so these are sent on to the renderer, which handles them as if pressed there. They follow this Mac's
+// keybindings.json (`setForwardedRules`); every other key reaches the focused frame as usual.
+const FORWARDED = new Set(KEYBINDING_COMMANDS.filter((command) => command.forward).map((command) => command.id));
+/** @type {ReturnType<typeof compileRules>} */
+let forwarded = [];
 
 /**
- * Whether this key is one of the app's ⌘⇧ shortcuts (Ctrl+Shift off macOS).
- * @param {{ type: string; key: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
+ * Follows a keybindings.json: the keys its rules give the `forward` commands are the ones caught. Their `when` is the
+ * renderer's to judge.
+ * @param {ReadonlyArray<{ key: string; command: string; when?: string }>} rules
+ */
+function setForwardedRules(rules) {
+  forwarded = compileRules(/** @type {any} */ (rules)).filter((rule) => FORWARDED.has(rule.command));
+}
+setForwardedRules(defaultKeybindings());
+
+/** @param {{ key: string; code?: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input */
+const asEvent = (input) => ({ key: input.key, code: input.code, metaKey: input.meta, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift });
+
+/**
+ * Whether this key is one the app catches from every frame.
+ * @param {{ type: string; key: string; code?: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
  * @param {NodeJS.Platform} platform
  */
 function isAppShortcut(input, platform) {
-  const command = platform === "darwin" ? input.meta : input.control;
-  return input.type === "keyDown" && command && input.shift && !input.alt && APP_SHORTCUT_KEYS.has(input.key.toLowerCase());
+  if (input.type !== "keyDown") return false;
+  const event = asEvent(input);
+  return forwarded.some((rule) => eventMatches(event, rule.shortcut, platform === "darwin"));
 }
 
 /**
@@ -34,14 +53,7 @@ function isCommandKey(input, platform, letter) {
 const isCloseKey = (input, platform) => isCommandKey(input, platform, "w");
 
 /**
- * Whether this key is ⌘, (Ctrl+, off macOS), which opens Settings. No frame uses it, so it is forwarded like the ⌘⇧ ones.
- * @param {{ type: string; key: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
- * @param {NodeJS.Platform} platform
- */
-const isSettingsKey = (input, platform) => isCommandKey(input, platform, ",");
-
-/**
- * Forwards the app's shortcuts from any frame of the window to its renderer, on "app:shortcut" as `{ key, shift }`. ⌘W closes the
+ * Forwards the app's shortcuts from any frame of the window to its renderer, on "app:shortcut" as the key and its modifiers. ⌘W closes the
  * focused Terminal (the renderer says so on "app:terminal-focused") and does nothing otherwise, so a stray press
  * never hides the window. ⌘Q goes to `onQuitKey`, which asks before quitting, instead of the menu.
  * @param {Electron.WebContents} contents
@@ -68,15 +80,10 @@ function forwardAppShortcuts(contents, platform = process.platform, ipc = requir
       onQuitKey();
       return;
     }
-    if (isSettingsKey(input, platform)) {
-      event.preventDefault();
-      contents.send("app:shortcut", { key: ",", shift: false });
-      return;
-    }
     if (!isAppShortcut(input, platform)) return;
     event.preventDefault();
-    contents.send("app:shortcut", { key: input.key.toLowerCase(), shift: true });
+    contents.send("app:shortcut", { key: input.key, code: input.code, meta: input.meta, control: input.control, alt: input.alt, shift: input.shift });
   });
 }
 
-module.exports = { forwardAppShortcuts, isAppShortcut, isCloseKey, isSettingsKey };
+module.exports = { forwardAppShortcuts, isAppShortcut, isCloseKey, setForwardedRules };

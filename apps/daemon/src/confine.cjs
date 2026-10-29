@@ -110,6 +110,9 @@ const PATHS = Object.freeze({
   "link:open": denied,
   "link:send": denied,
   "project:open": ([projectPath]) => [projectPath],
+  // The Chats home is the Mac's own folder, outside any demo folder.
+  "chats:home": denied,
+  "chats:ensure": denied,
   // Takes a Project off the recent list; its folder is never touched.
   "project:forget": ([projectPath]) => [projectPath],
   // The search names no path; its results are cut down to the folder (filterResult).
@@ -136,6 +139,11 @@ const PATHS = Object.freeze({
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
   "app-update:auto:save": denied,
+  // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
+  "keybindings:read": none,
+  "keybindings:set-command": denied,
+  "keybindings:reset-command": denied,
+  "keybindings:reset": denied,
   // Babysit PRs settings name no folder, but their level and instructions go into every future babysit Run in every Chat
   // on the Mac: a confined phone only reads them.
   "babysit:settings:read": none,

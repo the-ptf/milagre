@@ -578,3 +578,117 @@ test("Choose projects hides and shows another computer's Project in what its vie
   store.setProjectHidden("https://b", "/a", false);
   assert.equal(store.viewOf("https://b")?.projects[0]?.hidden, undefined);
 });
+
+test("each computer's Chats home is kept apart from its Projects and its Chats read like a Project's", async () => {
+  const methods: string[] = [];
+  let home: { path: string; exists: boolean } | null = { path: "/chats", exists: false };
+  const mac = fakeClient("https://a", { projects: ["/a"] });
+  const client = mac.client as unknown as Record<string, unknown>;
+  client.chatsHome = async () => {
+    methods.push("chats:home");
+    return home;
+  };
+  const recentScopes = client.recentScopes as () => Promise<unknown>;
+  client.recentScopes = () => {
+    methods.push("project:recent");
+    return recentScopes();
+  };
+  client.call = async (method: string, args: unknown[]) => {
+    methods.push(method);
+    return { path: method === "chats:ensure" ? "/chats" : String(args[0]) };
+  };
+  client.chatLists = async (paths: string[]) => {
+    mac.calls.lists.push(paths);
+    return Object.fromEntries(
+      paths.map((path) => [
+        path,
+        path === "/chats" && !methods.includes("chats:ensure") ? { error: "Open the project before reading its snapshot." } : copy(path),
+      ]),
+    );
+  };
+  const old = fakeClient("https://old");
+  const { store, timers, settle } = setup({ "https://a": mac, "https://old": old });
+  store.sync([host("https://a"), host("https://old")], null);
+  store.show();
+  await settle();
+  await settle();
+  assert.deepEqual(store.viewOf("https://a")?.home, { path: "/chats", exists: false });
+  assert.deepEqual(methods.slice(0, 2), ["project:recent", "chats:home"], "the home is asked behind the Project list, never in front of it");
+  assert.deepEqual(
+    store.viewOf("https://a")?.projects.map((item) => item.path),
+    ["/a"],
+    "the home is never one of the computer's Projects",
+  );
+  assert.deepEqual(mac.calls.lists, [["/a"]], "a home not made yet has no Chats to read");
+  assert.equal(store.viewOf("https://old")?.home, null, "a computer that can't say has no home");
+
+  // Made elsewhere (desktop, MCP), the home is found at the next read of the Project list and read in the batch; it
+  // opens with chats:ensure, which leaves the computer's shown Project alone, never project:open.
+  home = { path: "/chats", exists: true };
+  await store.refreshHosts(["https://a"]);
+  await settle();
+  await settle();
+  await settle();
+  assert.deepEqual(store.viewOf("https://a")?.home, { path: "/chats", exists: true });
+  assert.ok(methods.includes("chats:ensure"));
+  assert.ok(!methods.includes("project:open"));
+  assert.ok(store.viewOf("https://a")?.copies.has("/chats"));
+  assert.deepEqual(
+    store.viewOf("https://a")?.projects.map((item) => item.path),
+    ["/a"],
+  );
+  // Pruning what left the Project list keeps the home's Chats.
+  timers.at(-1)?.run();
+  await settle();
+  assert.ok(store.viewOf("https://a")?.copies.has("/chats"));
+
+  // Making the home from the phone says so at once, without waiting for the next read.
+  const fresh = fakeClient("https://b", { projects: [] });
+  (fresh.client as unknown as Record<string, unknown>).chatsHome = async () => ({ path: "/b-chats", exists: false });
+  const other = setup({ "https://b": fresh });
+  other.store.sync([host("https://b")], null);
+  other.store.show();
+  await other.settle();
+  other.store.setHome("https://b", { path: "/b-chats", exists: true });
+  assert.deepEqual(other.store.viewOf("https://b")?.home, { path: "/b-chats", exists: true });
+});
+
+test("the session's computer says where its Chats home is on the first read, though its Project list came with it", async () => {
+  const mac = fakeClient("https://a");
+  let asks = 0;
+  (mac.client as unknown as Record<string, unknown>).chatsHome = async () => {
+    asks++;
+    return { path: "/chats", exists: false };
+  };
+  const { store, timers, settle } = setup({ "https://a": mac });
+  // Just paired: the session already read the Project list, so the store has no Project list read of its own due.
+  store.sync([host("https://a")], { hostId: "https://a", client: mac.client, projects: [{ path: "/a", name: "a" }], reload: async () => {} });
+  store.show();
+  await settle();
+  await settle();
+  assert.deepEqual(store.viewOf("https://a")?.home, { path: "/chats", exists: false }, "No project can be offered at once");
+  assert.equal(asks, 1);
+  timers.at(-1)!.run();
+  await settle();
+  await settle();
+  assert.equal(asks, 1, "a known home is asked again only with the next Project list");
+});
+
+test("a failed Chats home ask neither ends the read nor counts against the computer", async () => {
+  const mac = fakeClient("https://a", { projects: ["/a", "/b"] });
+  (mac.client as unknown as Record<string, unknown>).chatsHome = async () => {
+    throw new Error("Disk error");
+  };
+  const { store, timers, settle } = setup({ "https://a": mac });
+  store.sync([host("https://a")], null);
+  store.show();
+  await settle();
+  await settle();
+  assert.deepEqual(mac.calls.lists, [["/a", "/b"]], "the Projects are read all the same");
+  assert.equal(store.viewOf("https://a")?.state, "online");
+  assert.equal(store.viewOf("https://a")?.home, undefined, "nothing is known about the home yet");
+  timers.at(-1)!.run();
+  await settle();
+  await settle();
+  assert.equal(store.viewOf("https://a")?.state, "online");
+});

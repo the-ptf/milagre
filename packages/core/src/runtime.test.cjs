@@ -21,10 +21,12 @@ async function fixture(t) {
   await fs.mkdir(project);
   execFileSync("git", ["init", "-b", "main", project], { stdio: "ignore" });
   const dataDir = path.join(dir, "profile");
+  const chatsHome = path.join(dir, "chats");
   const events = [];
   const options = {
     dataDir,
     cwd: project,
+    chatsHome,
     version: "9.8.7",
     environmentReady: Promise.resolve(),
     emit: (channel, payload) => events.push({ channel, payload }),
@@ -34,7 +36,7 @@ async function fixture(t) {
     runtimes.push(runtime);
     return runtime;
   };
-  return { project, dataDir, events, options, make };
+  return { project, dataDir, chatsHome, events, options, make };
 }
 
 test("the host Designs switch is always on, so saving it off changes nothing", async (t) => {
@@ -1561,4 +1563,198 @@ test("Project save failure and recovery publish status without another edit", as
   assert.equal(saved.sessions[session.id].title, "Newest title");
   assert.equal(saved.persistence, undefined);
   await assert.rejects(runtime.invoke("scope:retry-save", [path.join(project, "unopened")]), /Open the Project/);
+});
+
+test("chats:home reports a missing home without creating it", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: false });
+  await assert.rejects(fs.stat(chatsHome), { code: "ENOENT" });
+});
+
+test("chats:ensure opens the home with kind chats and isolation-ready worktrees", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
+  const opened = await runtime.invoke("chats:ensure");
+  assert.equal(opened.path, chatsHome);
+  assert.equal(opened.kind, "chats");
+  assert.equal(opened.name, "No project");
+  assert.notEqual(opened.git, false);
+  assert.ok(opened.state.worktrees);
+  assert.deepEqual(await runtime.invoke("chats:home"), { path: chatsHome, exists: true });
+  // A second ensure (a double click) opens the same home without another git init.
+  assert.equal((await runtime.invoke("chats:ensure")).path, chatsHome);
+  const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
+  assert.ok(made.project.state.worktrees[made.worktreeId].path.startsWith(path.join(path.dirname(chatsHome), "worktrees", "chats") + path.sep));
+  // The snapshot holds the home's state for a reconnecting window, marked as the home.
+  const listed = runtime.snapshot().projects.find((project) => project.path === chatsHome);
+  assert.equal(listed?.kind, "chats");
+  assert.equal(listed?.name, "No project");
+  assert.equal((await runtime.invoke("project:snapshot", [chatsHome])).kind, "chats");
+  const other = await runtime.invoke("project:current");
+  assert.equal("kind" in other, false);
+  assert.equal("kind" in (await runtime.invoke("project:snapshot", [other.path])), false);
+});
+
+test("openProject with remember:false leaves recent untouched", async (t) => {
+  const { make, project, chatsHome, dataDir } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  const recentBefore = await runtime.invoke("project:recent");
+  const registryBefore = await runtime.invoke("project:registry");
+  const plain = path.join(path.dirname(project), "notes");
+  await fs.mkdir(plain);
+  await runtime.openProject(plain, { remember: false, register: false });
+  assert.deepEqual(await runtime.invoke("project:recent"), recentBefore);
+  assert.deepEqual(await runtime.invoke("project:registry"), registryBefore);
+  // The home is never remembered, whichever way it opens: the phone's and a reconnect's project:open take the default.
+  await runtime.invoke("chats:ensure");
+  await runtime.openProject(chatsHome);
+  assert.deepEqual(await runtime.invoke("project:recent"), recentBefore);
+  assert.ok(!(await fs.readFile(path.join(dataDir, "recent-projects.json"), "utf8")).includes(chatsHome));
+  assert.ok(!(await fs.readFile(path.join(dataDir, "project-registry.json"), "utf8")).includes(chatsHome));
+  // Launch opens the last real Project, not the home.
+  assert.equal((await runtime.invoke("project:current")).path, project);
+});
+
+test("project:registry, project:recent and project_list leave the Chats home out", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  await runtime.invoke("chats:ensure");
+  for (const method of ["project:registry", "project:recent"]) {
+    const list = await runtime.invoke(method);
+    assert.ok(list.length > 0, method);
+    assert.ok(!list.some((item) => item.path === chatsHome), method);
+  }
+  const status = await runtime.invoke("local-mcp:status");
+  assert.ok(!status.projects.some((item) => item.path === chatsHome));
+});
+
+test("project:read and project:switch accept the Chats home without it being recent", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make();
+  await runtime.invoke("project:current");
+  await assert.rejects(runtime.invoke("project:read", [chatsHome]), /Open this project/);
+  await runtime.invoke("chats:ensure");
+  const read = await runtime.invoke("project:read", [chatsHome]);
+  assert.equal(read.kind, "chats");
+  assert.ok(read.state);
+  const lean = await runtime.invoke("project:read", [chatsHome, { state: false }]);
+  assert.equal(lean.kind, "chats");
+  assert.equal("state" in lean, false);
+  const switched = await runtime.invoke("project:switch", [chatsHome]);
+  assert.equal(switched.path, chatsHome);
+  assert.equal(switched.kind, "chats");
+  assert.ok(!(await runtime.invoke("project:recent")).some((item) => item.path === chatsHome));
+});
+
+test("a project-less Chat stopped by a quit continues on launch, though the home isn't recent", async (t) => {
+  const { make, chatsHome } = await fixture(t);
+  const first = make();
+  const opened = await first.invoke("chats:ensure");
+  const session = Object.values(opened.state.sessions)[0];
+  await first.invoke("chat:patch", [chatsHome, session.id, { title: "Quick question" }]);
+  await first.close();
+  const file = path.join(chatsHome, ".milagre/coordination.json");
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  saved.sessions[session.id].resumeTurn = { stoppedAt: 0 };
+  await fs.writeFile(file, JSON.stringify(saved));
+  const second = make();
+  await second.resumeRecentProjects();
+  assert.equal((await second.invoke("project:snapshot", [chatsHome])).kind, "chats");
+});
+
+// A Chat that waits on an approval: its turn starts and asks at once.
+function waitingSession(_provider, options) {
+  return {
+    turnActive: false,
+    async startTurn() {
+      this.turnActive = true;
+      options.emit({ type: "turn-started", turnId: "turn-1" });
+      options.emit({ type: "permission-request", requestId: "permission-1", kind: "command", tool: "Shell", title: "Run?", command: "ls", allowForChat: true });
+      return { turnId: "turn-1" };
+    },
+    respondToPermission: () => true,
+    async close() {
+      this.turnActive = false;
+    },
+    async interrupt() {},
+  };
+}
+
+async function waitingHomeChat(t) {
+  const { make, chatsHome } = await fixture(t);
+  const notices = [];
+  const runtime = make({
+    titleModels: {},
+    agentCli: async () => ({ command: "/fake" }),
+    createSession: waitingSession,
+    notifyWaiting: (notice) => notices.push(notice),
+  });
+  const opened = await runtime.invoke("chats:ensure");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:send", [{ projectPath: chatsHome, sessionId: session.id, body: "Explain this error", provider: "claude", model: "fixture" }]);
+  const deadline = Date.now() + 5000;
+  while (!notices.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  return { runtime, chatsHome, chatId: `${chatsHome}#${session.id}`, notices };
+}
+
+test('chat:inbox names a project-less Chat\'s Project "No project"', async (t) => {
+  const { runtime, chatId } = await waitingHomeChat(t);
+  const item = (await runtime.invoke("chat:inbox")).items.find((entry) => entry.key === chatId);
+  assert.equal(item?.status, "approval");
+  assert.equal(item.project, "No project");
+});
+
+test('an attention notice for a project-less Chat is titled "No project"', async (t) => {
+  const { chatId, notices } = await waitingHomeChat(t);
+  const notice = notices.find((entry) => entry.chatId === chatId);
+  assert.ok(notice, "the approval notice went out");
+  // A notice is titled by its Chat, and never names the home's folder.
+  assert.notEqual(notice.title, "chats");
+  assert.doesNotMatch(`${notice.title} ${notice.body}`, /\bchats\b/);
+});
+
+async function homeChatOnWorktree(t) {
+  const { make, chatsHome } = await fixture(t);
+  const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
+  await runtime.invoke("chats:ensure");
+  const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
+  const worktree = made.project.state.worktrees[made.worktreeId];
+  const session = Object.values(made.project.state.sessions).find((item) => item.worktree_id === worktree.id);
+  return { runtime, chatsHome, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
+}
+
+test("worktree:remove removes a Chats home worktree and drops its Chat", async (t) => {
+  const { runtime, chatsHome, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
+  assert.equal(seen.removable, true);
+  const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]);
+  assert.equal(result.removed, true);
+  await assert.rejects(fs.stat(worktree.path), { code: "ENOENT" });
+  const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
+  assert.equal(state.worktrees[worktree.id], undefined);
+  assert.equal(state.sessions[sessionId], undefined);
+  // The home itself stays.
+  assert.ok((await fs.stat(chatsHome)).isDirectory());
+});
+
+test("worktree:remove of a Chats home worktree holding files needs delete, and delete removes it", async (t) => {
+  const { runtime, chatsHome, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  await fs.writeFile(path.join(worktree.path, "notes.md"), "keep me");
+  const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
+  assert.equal(seen.removable, false);
+  assert.equal(seen.uncommitted, 1);
+  await assert.rejects(
+    runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]),
+    /changed after it was checked/,
+  );
+  assert.ok((await fs.stat(path.join(worktree.path, "notes.md"))).isFile());
+  const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: true, chatId }]);
+  assert.equal(result.removed, true);
+  await assert.rejects(fs.stat(worktree.path), { code: "ENOENT" });
+  const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
+  assert.equal(state.worktrees[worktree.id], undefined);
+  assert.equal(state.sessions[sessionId], undefined);
 });

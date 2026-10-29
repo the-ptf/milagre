@@ -38,6 +38,7 @@ async function fixture(t) {
       cwd: project,
       localMcpClients: { home: path.join(directory, "home"), env: {}, platform: "darwin" },
       worktreeRoot: path.join(directory, "worktrees"),
+      chatsHome: path.join(directory, "chats"),
       environmentReady: Promise.resolve(),
       titleModels: {},
       agentCli: async () => ({ command: "fixture" }),
@@ -448,4 +449,39 @@ test("a running Chat can add a Project mid-chat, create Worktrees in it, and del
   );
   await f.runtime.invoke("agent:respond-permission", [{ chatId: askChatId, requestId: secondReq.payload.event.requestId, decision: "deny" }]);
   await assert.rejects(afterForget, /declined access/);
+});
+
+test("project_add refuses the Chats home", async (t) => {
+  const f = await fixture(t);
+  const home = (await f.runtime.invoke("chats:ensure")).path;
+  const caller = Object.values(f.opened.state.sessions)[0];
+  await f.runtime.invoke("chat:send", [
+    { projectPath: f.project, sessionId: caller.id, body: "Add it", provider: "claude", model: "fixture", permissionMode: "full" },
+  ]);
+  await waitUntil(() => f.sessions.length === 1 && f.sessions[0].turns.length === 1);
+  const agent = { url: await f.sessions[0].options.linked.url(), token: "" };
+  await assert.rejects(call(agent, "project_add", { projectPath: home }), /belongs to Milagre's internal state/);
+  assert.ok(!(await f.runtime.invoke("project:registry")).some((item) => item.path === home));
+});
+
+test("MCP validateProject accepts the Chats home", async (t) => {
+  const f = await fixture(t);
+  const opened = await f.runtime.invoke("chats:ensure");
+  const home = opened.path;
+  const session = Object.values(opened.state.sessions)[0];
+  await f.runtime.invoke("chat:send", [
+    { projectPath: home, sessionId: session.id, body: "Just chat", provider: "claude", model: "fixture", permissionMode: "full" },
+  ]);
+  await waitUntil(() => f.sessions.length === 1 && f.sessions[0].turns.length === 1);
+  const agent = { url: await f.sessions[0].options.linked.url(), token: "" };
+  // The project-less Chat's own tools work on the home, while project_list still leaves it out.
+  const listed = await call(agent, "chat_list", { projectPath: home });
+  assert.ok(listed.some((chat) => chat.chatId === `${home}#${session.id}`));
+  assert.ok(!(await call(agent, "project_list")).some((item) => item.path === home));
+  assert.ok((await call(agent, "project_list")).some((item) => item.path === f.project));
+  // Designs reach a project-less Chat too, though the home isn't registered.
+  const designs = await f.runtime.invoke("local-mcp:create", [
+    { label: "Designs", grants: { designs: { chatId: `${home}#${session.id}`, designIds: "*", capabilities: ["read"] } } },
+  ]);
+  assert.ok(designs.url);
 });

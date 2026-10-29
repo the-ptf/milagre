@@ -1,4 +1,5 @@
 import type { GateMeta } from "./bots.mjs";
+import type { ProjectKind } from "./chats-home.mjs";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
 export type ModelProvider = "codex" | "claude" | "antigravity";
@@ -1006,6 +1007,8 @@ export interface OpenProject {
   name: string;
   /** False for a folder outside Git: its one Worktree is the folder itself, and its Chats work there. */
   git?: boolean;
+  /** "chats" for the Chats home, the internal repository project-less Chats run in. Absent for every other Project. */
+  kind?: ProjectKind;
   state: CoordinatorState;
   /** Only on the first open after chats came back from linked worktrees' old files. */
   restoredChats?: RestoredChats[];
@@ -1104,7 +1107,14 @@ export interface TranscriptState {
 export type LinkSendRequest = Omit<ChatSendRequest, "projectPath" | "worktreeId"> & { linkId: string; operationId: string };
 
 /** Host-local account assignments; null follows the computer selection. */
-export type ProjectAccountScope = { key: string; name: string; kind: "project" | "link"; projects: { id: string; path: string; name: string }[] };
+export type ProjectAccountScope = {
+  key: string;
+  name: string;
+  kind: "project" | "link";
+  projects: { id: string; path: string; name: string }[];
+  /** The computer's Chats home: a Project scope for every Chat without a Project, shown with the Chats mark, not a repository's. */
+  chatsHome?: true;
+};
 export type ProjectAccountsSnapshot = {
   scopeKey: string;
   providers: { provider: ModelProvider; accountId: string | null; effectiveId: string; defaultId: string; accounts: ProviderAccount[] }[];
