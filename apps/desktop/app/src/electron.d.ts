@@ -1,4 +1,5 @@
 import type { BabysitSettings } from "@milagre/shared/babysit";
+import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
@@ -417,6 +418,12 @@ export type MilagreBridge = {
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
+  /** Settings › Chats: how long a Chat stays in the Done list before the host archives it. Kept by the host. */
+  readDoneSettings: () => Promise<DoneSettings>;
+  /** Merges the patch over the stored settings and returns the normalized result. */
+  saveDoneSettings: (patch: Partial<DoneSettings>) => Promise<DoneSettings>;
+  /** The settings changed, here or from another device. */
+  onDoneSettings: (callback: (value: DoneSettings) => void) => () => void;
   /** Whether this Mac runs Routines: always `true` now; an older paired computer may still say `false`. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */

@@ -153,6 +153,9 @@ const PATHS = Object.freeze({
   // on the Mac: a confined phone only reads them.
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
+  // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
+  "done:settings:read": none,
+  "done:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
