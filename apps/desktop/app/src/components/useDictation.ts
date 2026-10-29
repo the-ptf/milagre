@@ -19,10 +19,6 @@ import { useSettings } from "../lib/settings";
 export type DictationAnchor = { selection: Selection };
 
 const SAMPLE_RATE = 16_000;
-const PERMISSION: DictationError = {
-  kind: "permission",
-  message: "Allow Milagre to use the microphone in your system's privacy settings to dictate.",
-};
 
 /** A recording as Whisper reads it: 16 kHz, mono, 16-bit PCM. The audio context resamples while it decodes. */
 async function pcm16(blob: Blob): Promise<ArrayBuffer> {
@@ -137,7 +133,7 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
       } catch (error) {
         if (counter.current !== id) return;
-        return fail(error instanceof DOMException && error.name === "NotAllowedError" ? PERMISSION : ERRORS.failed);
+        return fail(error instanceof DOMException && error.name === "NotAllowedError" ? ERRORS.permission : ERRORS.failed);
       }
       if (counter.current !== id) return void stream.getTracks().forEach((track) => track.stop());
       // The project's words are read while the user talks.
@@ -197,5 +193,10 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
     start,
     stop,
     dismiss: useCallback(() => move({ type: "dismiss" }), [move]),
+    /** This computer's microphone privacy settings, for a refused microphone. */
+    openSettings: useCallback(() => {
+      move({ type: "dismiss" });
+      void window.milagre.dictation.openSettings();
+    }, [move]),
   };
 }

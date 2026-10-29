@@ -131,9 +131,18 @@ async function main() {
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     };
+    // CDP can advertise the destination URL before its execution context leaves about:blank.
+    await waitFor(async () => {
+      const { result } = await connection.call("Runtime.evaluate", {
+        expression: `location.href === ${JSON.stringify(rendererUrl)} && document.readyState === "complete" && !!window.milagre`,
+        returnByValue: true,
+      });
+      return result.value;
+    }, "renderer document ready");
+    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
     // The sidebar's Project groups, not its One list, are what this check drives.
     await evaluate(
-      `localStorage.setItem("milagre-settings", JSON.stringify({ chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
+      `window.milagrePreferences.set("milagre-settings", JSON.stringify({ ...JSON.parse(window.milagrePreferences.get("milagre-settings").value || "{}"), chatList: "grouped" })); window.dispatchEvent(new StorageEvent("storage", { key: "milagre-settings" }))`,
     );
     const click = (text) => evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(text)}).click()`);
     const input = (selector, value) =>
@@ -154,7 +163,6 @@ async function main() {
       await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       await waitFor(() => evaluate(`!document.querySelector('[data-scope-menu-panel]')`), "scope menu closed");
     };
-    await waitFor(() => evaluate(`!!document.querySelector('[data-link-projects]') && !document.querySelector('.startup-splash-screen')`), "desktop ready");
     await waitFor(() => evaluate(`!!document.querySelector('[data-sidebar-scope][data-current] [data-scope-menu]')`), "Project group");
     await scopeMenu("[data-sidebar-scope][data-current]");
     assert.ok(await evaluate(`!!document.querySelector('[data-scope-menu-item="copy-path"]')`));
@@ -235,10 +243,6 @@ async function main() {
     await closeScopeMenu();
     await input("[data-prompt-editor]", "Update status.txt across both Projects.");
     await evaluate(`document.querySelector('button[aria-label="Send"]').click()`);
-    await waitFor(() => evaluate(`!!document.querySelector('dialog[open] #ai-consent-title')`), "AI sharing decision before Link send");
-    assert.equal(providerCalls, 0, "No provider call before consent");
-    assert.equal(Object.keys((await client.call("link:snapshot", [link.id])).state.sessions).length, 0, "Consent precedes Worktree allocation");
-    await click("Allow sharing");
     await waitFor(() => evaluate(`document.body.textContent.includes('Updated status.txt in both owned Worktrees.')`), "one shared transcript");
     const state = (await client.call("link:snapshot", [link.id])).state,
       session = Object.values(state.sessions)[0];
@@ -387,7 +391,15 @@ async function main() {
         ),
       "refresh shows committed changes in the API only",
     );
-    assert.ok(await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + " [data-diff-base]")})`), "The API compares its own recorded base");
+    await waitFor(
+      () => evaluate(`document.querySelector(${JSON.stringify(group(apiId) + ' [aria-label="Comparison branch"]')})?.textContent === "main"`),
+      "The API comparison row resolves its own recorded main base",
+    );
+    assert.equal(
+      await evaluate(`!!document.querySelector(${JSON.stringify(committed(apiId) + " [data-diff-base]")})`),
+      false,
+      "The committed section does not repeat the comparison base",
+    );
     assert.match(await evaluate(`document.querySelector(${JSON.stringify(committed(apiId) + " h3")}).textContent`), /\+1−1$/);
     await waitFor(
       () =>

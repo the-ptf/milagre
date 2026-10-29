@@ -233,6 +233,11 @@ async function startDesktop() {
       if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
     }),
   );
+  ipcMain.handle("app:dictation-open-settings", () =>
+    shell.openExternal(
+      process.platform === "win32" ? "ms-settings:privacy-microphone" : "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    ),
+  );
   ipcMain.handle("image:copy", (_event, file) => copyImageFile(file));
   ipcMain.handle("image:save", (event, file, name) => saveImageFile(event, file, name));
   ipcMain.handle("image:menu", (event, file, name) => {

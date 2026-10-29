@@ -43,13 +43,12 @@ function fakeTimers() {
   };
 }
 
-function setup({ file, settings = {}, enabled = true } = {}) {
+function setup({ file, settings = {} } = {}) {
   const dir = file ? path.dirname(file) : fs.mkdtempSync(path.join(os.tmpdir(), "pr-poller-"));
   file ??= path.join(dir, "routines.json");
   const clock = { t: START };
   let n = 0;
   const store = createRoutineStore({ file, now: () => clock.t, id: () => `id${++n}` });
-  if (enabled) store.setEnabled(true);
   const timers = fakeTimers();
   const world = { next: snapshot(), error: null, reads: [] };
   const delivered = [];
@@ -381,21 +380,6 @@ test("comments are never handed over again", async () => {
   ctx.clock.t += MINUTE;
   await ctx.poll();
   assert.equal(ctx.delivered.length, 1);
-});
-
-test("paused store polls nothing", async () => {
-  const ctx = setup({ enabled: false });
-  ctx.routine();
-  ctx.poller.start();
-  assert.deepEqual(ctx.timers.pending(), []);
-  await ctx.poll();
-  assert.equal(ctx.world.reads.length, 0);
-  ctx.store.setEnabled(true);
-  ctx.poller.sync();
-  assert.equal(ctx.timers.pending().length, 1);
-  ctx.store.setEnabled(false);
-  ctx.poller.sync();
-  assert.deepEqual(ctx.timers.pending(), []);
 });
 
 test("stop clears every timer", async () => {

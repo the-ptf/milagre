@@ -363,9 +363,9 @@
     "./chat-display": "./src/chat-display.ts",
     "./canvas": "./src/canvas.ts",
     "./genui-renderer": "./src/genui-renderer.tsx",
-    "./ai-consent": {
-      "types": "./src/ai-consent.d.mts",
-      "default": "./src/ai-consent.mjs"
+    "./site-links": {
+      "types": "./src/site-links.d.mts",
+      "default": "./src/site-links.mjs"
     },
     "./notification-chimes": {
       "types": "./src/notification-chimes.d.mts",

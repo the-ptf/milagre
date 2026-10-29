@@ -12,7 +12,7 @@ import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../
 import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
-import { ErrorNotice, HeaderButton, PageScroll, PillButton, PullDown, RowSwitch, useStyles } from "../ui";
+import { ErrorNotice, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
@@ -47,22 +47,6 @@ export default function RoutinesScreen() {
   const routines = useRoutines(client);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
-  const [allowing, setAllowing] = useState(false);
-  // Routines have no switch: the Mac runs them once a device allowed AI sharing for it. Allow asks this phone (beforeAiCall)
-  // and passes the permission on.
-  async function allow() {
-    if (!client) return;
-    setError("");
-    setAllowing(true);
-    try {
-      await client.call("routines:enabled:save", [true]);
-      await routines.refresh();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Could not allow Routines.");
-    } finally {
-      setAllowing(false);
-    }
-  }
   // "2 h ago" moves on with the app's shared half-minute clock.
   const now = useActivityClock(true);
   const all = routines.routines;
@@ -151,13 +135,6 @@ export default function RoutinesScreen() {
             <Text style={styles.muted}>
               {routines.unavailable === "older" ? "Update Milagre on this Mac to use Routines." : "Routines aren't available on this connection."}
             </Text>
-          ) : null}
-          {routines.enabled === false ? (
-            <View style={[styles.card, { gap: 8 }]}>
-              <Text style={[styles.text, { fontWeight: "600" }]}>{"Routines won't run on this Mac yet"}</Text>
-              <Text style={styles.muted}>Allow sharing with AI providers to let them run. Creating, turning on or running one also allows it.</Text>
-              <PillButton title={allowing ? "Allowing…" : "Allow"} disabled={allowing} onPress={() => void allow()} />
-            </View>
           ) : null}
           {all.length ? (
             <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>

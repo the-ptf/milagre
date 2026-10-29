@@ -3,7 +3,6 @@ import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { prepareImageUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
-import { AiConsentDialog } from "./components/AiConsent";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
 import { ComputerAllowPrompt } from "./components/ComputerAllowPrompt";
 import { LinkWorkspace } from "./components/LinkWorkspace";
@@ -112,6 +111,7 @@ import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGri
 import { chatRevealPath } from "./lib/reveal";
 import type { SettingsSection } from "./components/Settings";
 import { createPendingChat, createResendMemory, pendingChatSessionId, withPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
+import { sendStatusLabel } from "@milagre/shared/tool-activity";
 import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-retry";
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
@@ -212,7 +212,16 @@ const NO_REFS: string[] = [];
 const NO_KEYS: string[] = [];
 const NO_ROUTINES = new Set<string>();
 // `sent`: the main process saved the message; the preview stays until the saved message reaches the window's state.
-type PendingSend = PendingChat & { view: number; projectPath: string; originSessionId: number | null; originWorktreeId: number; sent?: boolean };
+// `creatingWorktree`: the send waits for its new Worktree; `provider`: the one the picker sent it to.
+type PendingSend = PendingChat & {
+  view: number;
+  projectPath: string;
+  originSessionId: number | null;
+  originWorktreeId: number;
+  sent?: boolean;
+  creatingWorktree?: boolean;
+  provider?: ModelProvider;
+};
 const NO_WORKTREE = -1;
 // The model picked in each open chat, by chat key.
 const CHAT_MODELS_KEY = "milagre.chatModels";
@@ -2034,6 +2043,8 @@ function App() {
       projectPath: project.path,
       originSessionId: selectedSession?.id ?? null,
       originWorktreeId: selectedWorktree.id,
+      creatingWorktree: previewWorktreeId === NO_WORKTREE,
+      provider: model.provider,
     });
     if (!preserveComposer) {
       setDraft("");
@@ -2060,7 +2071,9 @@ function App() {
       if (!target) return false;
       if (firstMessage && stillHere()) preparedTarget.current = { ...target, view, projectPath: project.path };
       setPendingSend((pending) =>
-        pending ? { ...pending, targetSessionId: target!.sessionId, session: { ...pending.session, worktree_id: target!.worktreeId } } : pending,
+        pending
+          ? { ...pending, creatingWorktree: false, targetSessionId: target!.sessionId, session: { ...pending.session, worktree_id: target!.worktreeId } }
+          : pending,
       );
       const sendTarget = target;
       // The main process saves the message, then starts the Chat's turn, even if the user has navigated away. A busy or
@@ -2340,20 +2353,34 @@ function App() {
     openChat(sessionId);
   }
 
-  // The main process sends on the app's ⌘⇧ shortcuts pressed inside an embedded frame (a design, the simulator), which
-  // the window's listeners never see; replayed here, every handler takes them as if pressed in the window.
+  // The main process sends on the app's ⌘⇧ shortcuts and ⌘, pressed in any frame, including an embedded one (a design,
+  // an HTML reply, the simulator) the window's listeners never see; replayed here, every handler takes them as if pressed
+  // in the window.
   useEffect(
     () =>
-      window.milagre.onAppShortcut?.((key) =>
-        window.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, shiftKey: true, bubbles: true, cancelable: true })),
+      window.milagre.onAppShortcut?.(({ key, shift }) =>
+        window.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, shiftKey: shift, bubbles: true, cancelable: true })),
       ),
     [],
   );
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
-      if (selectedLinkRef.current) return;
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
       if (!(event.metaKey || event.ctrlKey)) return;
+      // A Link's workspace takes its own Chat shortcuts (⌘⇧D, ⌘N, ⌘K, ⌘T, ⌘F) and has its own canvas and grid; the
+      // window-wide ones, Settings and the theme, still work over it.
+      const inLink = Boolean(selectedLinkRef.current);
+      if (event.key === "," && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setView("settings");
+        return;
+      }
+      if (event.shiftKey && !event.altKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        toggleTheme();
+        return;
+      }
+      if (inLink) return;
       // ⌘⌥← and ⌘⌥→ move focus to the grid's previous and next tile.
       if (event.altKey) {
         const tiles = shownTilesRef.current;
@@ -2369,10 +2396,7 @@ function App() {
         return;
       }
       if (event.shiftKey) {
-        if (event.key.toLowerCase() === "t") {
-          event.preventDefault();
-          toggleTheme();
-        } else if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
+        if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
           event.preventDefault();
           changes.toggleDefault();
         } else if (event.key.toLowerCase() === "l") {
@@ -2398,9 +2422,6 @@ function App() {
       } else if (event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandPaletteOpen(true);
-      } else if (event.key === ",") {
-        event.preventDefault();
-        setView("settings");
       } else if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         startNewChatOnThisMac();
@@ -2419,9 +2440,16 @@ function App() {
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
-      if (selectedLinkRef.current) return;
       // A menu, picker or search that Escape closed has already consumed it.
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      // Settings opened over a Link goes back to it; the Link's workspace takes every other Escape.
+      if (selectedLinkRef.current) {
+        if (view === "settings") {
+          event.preventDefault();
+          setView("chat");
+        }
+        return;
+      }
       if (findRef.current.open) {
         event.preventDefault();
         setFindOpen(false);
@@ -3587,6 +3615,7 @@ function App() {
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
+                        statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
                         subagents={subagents}
@@ -3758,14 +3787,13 @@ function App() {
             <ChangesPanelSlot open={changes.open && !botsShown}>
               <ChangesPanel
                 lists={changes.lists}
+                comparison={changes.comparison}
                 mode={changes.mode}
                 onModeChange={changes.setMode}
                 onRefresh={() => {
-                  void changes.refresh();
-                  if (changes.mode === "pr") {
-                    void prReview.refresh();
-                    localChanges.refresh();
-                  }
+                  if (changes.mode !== "pr") return changes.refresh();
+                  localChanges.refresh();
+                  return Promise.all([changes.refresh(), prReview.refresh()]);
                 }}
                 onSelectFile={changes.selectFile}
                 activePath={changes.activePath}
@@ -3933,7 +3961,6 @@ export default function AppWithUpdates() {
       <App />
       {/* Beside the app, so it asks whatever screen is open, Settings and Links included. */}
       <ComputerAllowPrompt />
-      <AiConsentDialog />
     </UpdateShell>
   );
 }

@@ -4,6 +4,8 @@ import {
   activityDuration,
   activitySources,
   stepDisplayTitle,
+  runStatusLabel,
+  sendStatusLabel,
   stepSections,
   stepSource,
   summarizeStep,
@@ -72,6 +74,33 @@ test("Linear issue titles use the known issue key and readable live verbs", () =
   assert.equal(stepDisplayTitle(step), "Read `ENG-12` from Linear");
   assert.equal(stepDisplayTitle(step, true), "Reading `ENG-12` from Linear");
   assert.equal(stepDisplayTitle({ ...step, input: '{"id":"large truncated' }), "Read issue from Linear");
+});
+
+test("a Link Chat's Worktree step and its setup say which Project they are for", () => {
+  const create = {
+    kind: "other",
+    status: "running",
+    title: "Used `link_worktree_create` from milagre",
+    source: { server: "milagre", name: "link_worktree_create" },
+    input: '{"project":"api"}',
+  };
+  assert.equal(stepDisplayTitle(create), "Created Worktree in api");
+  assert.equal(stepDisplayTitle(create, true), "Creating Worktree in api");
+  assert.equal(stepDisplayTitle({ ...create, input: '{"project":"trunc' }), "Created Worktree");
+  assert.equal(runStatusLabel([create]), "Creating Worktree in api");
+  assert.equal(runStatusLabel([create, { id: "s", kind: "setup", status: "running", title: "Running setup `npm ci`" }]), "Running setup in api");
+  assert.equal(runStatusLabel([{ id: "s", kind: "setup", status: "running", title: "Running setup `npm ci`" }]), "Running Worktree setup");
+  assert.equal(
+    runStatusLabel([
+      { ...create, status: "done" },
+      { kind: "shell", status: "running", title: "Ran `ls`" },
+    ]),
+    null,
+  );
+  assert.equal(runStatusLabel(), null);
+  assert.equal(sendStatusLabel({ creatingWorktree: true }), "Creating Worktree");
+  assert.equal(sendStatusLabel({ provider: "codex" }), "Sending");
+  assert.equal(sendStatusLabel({ sent: true, provider: "codex" }), "Starting Codex");
 });
 
 test("thought durations occupy the timing slot once, while old messages keep their title", () => {

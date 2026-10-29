@@ -1,7 +1,8 @@
 // @ts-check
-// The app's ⌘⇧ shortcuts, caught before any frame gets the key. With focus inside an embedded frame (a design on the
-// canvas, the simulator viewer) the key goes to that frame and the window's own listeners never see it, so these are
-// sent on to the renderer, which handles them as if pressed there. Every other key reaches the focused frame as usual.
+// The app's ⌘⇧ shortcuts and ⌘, (Settings), caught before any frame gets the key. With focus inside an embedded frame (a
+// design on the canvas, an HTML reply, the simulator viewer) the key goes to that frame and the window's own listeners
+// never see it, so these are sent on to the renderer, which handles them as if pressed there. Every other key reaches
+// the focused frame as usual.
 const APP_SHORTCUT_KEYS = new Set(["d", "e", "l", "m", "s", "t"]);
 
 /**
@@ -33,7 +34,14 @@ function isCommandKey(input, platform, letter) {
 const isCloseKey = (input, platform) => isCommandKey(input, platform, "w");
 
 /**
- * Forwards the app's shortcuts from any frame of the window to its renderer, on "app:shortcut". ⌘W closes the
+ * Whether this key is ⌘, (Ctrl+, off macOS), which opens Settings. No frame uses it, so it is forwarded like the ⌘⇧ ones.
+ * @param {{ type: string; key: string; meta: boolean; control: boolean; shift: boolean; alt: boolean }} input
+ * @param {NodeJS.Platform} platform
+ */
+const isSettingsKey = (input, platform) => isCommandKey(input, platform, ",");
+
+/**
+ * Forwards the app's shortcuts from any frame of the window to its renderer, on "app:shortcut" as `{ key, shift }`. ⌘W closes the
  * focused Terminal (the renderer says so on "app:terminal-focused") and does nothing otherwise, so a stray press
  * never hides the window. ⌘Q goes to `onQuitKey`, which asks before quitting, instead of the menu.
  * @param {Electron.WebContents} contents
@@ -60,10 +68,15 @@ function forwardAppShortcuts(contents, platform = process.platform, ipc = requir
       onQuitKey();
       return;
     }
+    if (isSettingsKey(input, platform)) {
+      event.preventDefault();
+      contents.send("app:shortcut", { key: ",", shift: false });
+      return;
+    }
     if (!isAppShortcut(input, platform)) return;
     event.preventDefault();
-    contents.send("app:shortcut", input.key.toLowerCase());
+    contents.send("app:shortcut", { key: input.key.toLowerCase(), shift: true });
   });
 }
 
-module.exports = { forwardAppShortcuts, isAppShortcut, isCloseKey };
+module.exports = { forwardAppShortcuts, isAppShortcut, isCloseKey, isSettingsKey };

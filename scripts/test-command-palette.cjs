@@ -13,9 +13,6 @@ const changesShortcut = mac ? "Command + Shift + D" : "Control + Shift + D";
 const fixture = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-// The question card's answer goes out from a device that has already accepted AI sharing.
-import { AI_CONSENT_VERSION } from "@milagre/shared/ai-consent";
-localStorage.setItem("milagre.ai-sharing-consent", AI_CONSENT_VERSION);
 import '/src/styles.css';
 // A project's state as the main process reads it.
 const state = { next_id: 1, projects: { 1: { id: 1, name: 'Milagre' } }, worktrees: {}, sessions: {}, connections: {}, events: [], messages: [], approvals: [], tasks: {}, artifacts: {}, outputs: [], conflicts: [] };

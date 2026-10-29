@@ -11,15 +11,12 @@ const { PERMISSION_MODES } = require("../agents/permissions.cjs");
 const { createGit } = require("../git/client.cjs");
 const { createRoutineStore } = require("./store.cjs");
 const { createRoutineScheduler, linearPrompt, schedulePrompt } = require("./scheduler.cjs");
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { createRoutineTools } = require("./tools.cjs");
 const { createLinearPoller } = require("./linear-poller.cjs");
 const { createPullRequestPoller } = require("./pr-poller.cjs");
 const { readPullRequestSnapshot } = require("./pull-request-watch.cjs");
 const { DEFAULT_SIGNING_HEADER, hookIdOf, newHookSecret, hookUrl, verifySignature, webhookPrompt } = require("./webhook.cjs");
 
-const OFF = "Routines can't run on this computer until AI sharing is allowed. Open Routines and choose Allow.";
-const TOOLS_OFF = "Routines can't run on this computer until the user allows AI sharing: ask them to open Routines and choose Allow.";
 const WEBHOOK_LATER = "Webhook Routines arrive in a later update.";
 const UNLISTED = "Choose a Project Milagre lists.";
 const NO_CHAT = "That Chat is no longer in its Project.";
@@ -28,7 +25,7 @@ const BUSY = "chat was busy";
 const busyError = () => Object.assign(new Error(BUSY), { busy: true });
 // A mode saved on a Chat, or undefined when it isn't one Milagre knows (a stale or hand-edited value falls back).
 const knownMode = (mode) => (PERMISSION_MODES.has(mode) ? mode : undefined);
-// How long stopping Routines (the switch off, Milagre quitting) waits for what the scheduler still has going. A Run cut
+// How long stopping Routines (Milagre quitting) waits for what the scheduler still has going. A Run cut
 // off after that is recovered on the next start as "daemon restarted"; the stopped scheduler sends nothing new meanwhile.
 const STOP_WAIT_MS = 5000;
 // A hung git (a fetch, a setup step) fails the Run instead of holding its slot until the daemon restarts.
@@ -125,7 +122,6 @@ function routineChats({
   linearWorkspaces = () => [],
   // Checks a Run's stored target again as the Run starts (routineTargets().atStart); throws to fail the Run.
   startCheck = async () => {},
-  canRun = () => true,
   now = Date.now,
   timeoutMs = START_TIMEOUT_MS,
   hooks = () => null,
@@ -320,7 +316,6 @@ function routineChats({
     // restart) takes its own provider and last model; what's still missing comes from `settings`, what the Routine said
     // when its Run was claimed (never what it says now, which an edit since may have changed).
     async send(chatId, { body, prompt, context, settings: claimed }) {
-      if (!canRun()) throw new Error("Routines are off. Enable Routines after allowing AI sharing.");
       if (isClosing()) throw new Error("Milagre is closing.");
       const projectPath = projectOfKey(chatId);
       const sessionId = sessionIdFromKey(chatId);
@@ -358,7 +353,6 @@ function routineChats({
           // of steering into it or starting beside it. It asks once more just before the turn starts, when the beat's
           // own run already holds the Chat: from that third ask on, the beat goes ahead.
           canStart: () => {
-            if (!canRun()) throw new Error("Routines are off. Enable Routines after allowing AI sharing.");
             asks += 1;
             if (asks > 2 || !busy(chatId)) return true;
             waited = true;
@@ -560,7 +554,7 @@ function createRoutines({
   let prPoller = null;
   // Every change may add, remove or switch a Linear or pull-request Routine, so the pollers look again (a cheap scan).
   const changed = () => {
-    emit("routines:changed", { enabled: store.enabled() });
+    emit("routines:changed", {});
     poller?.sync();
     prPoller?.sync();
   };
@@ -576,11 +570,7 @@ function createRoutines({
     chats,
     projects,
     projectState,
-    startCheck: (target) => {
-      if (!store.enabled()) throw new Error(OFF);
-      return checkTarget.atStart(target);
-    },
-    canRun: () => store.enabled(),
+    startCheck: (target) => checkTarget.atStart(target),
     linearWorkspaces: () => linearWorkspaces(),
     cachedState,
     openState,
@@ -839,35 +829,8 @@ function createRoutines({
     );
   }
 
-  async function save(value, consentVersion) {
-    if (value === true && consentVersion !== AI_CONSENT_VERSION)
-      throw new Error("AI sharing permission is required. Update Milagre and allow sharing before enabling Routines.");
-    const enabled = store.setEnabled(value === true);
-    if (enabled) {
-      scheduler.start();
-      poller.start();
-      prPoller.start();
-    } else {
-      poller.stop();
-      prPoller.stop();
-      // Off: one last tick, and the timer stops until the switch is on again. A comment already on its way goes back to
-      // its queue; this resolves once it has.
-      await scheduler.tick();
-      scheduler.stop();
-      await settleWithin();
-    }
-    changed();
-    return { enabled };
-  }
-  /** A write from a device that allowed AI sharing (it passes the consent version) lets this computer run Routines. */
-  async function authorize(consentVersion) {
-    if (consentVersion === AI_CONSENT_VERSION && !store.enabled()) await save(true, consentVersion);
-  }
-
   return {
-    enabled: () => store.enabled(),
-    // A session keeps the tools it was given, so each one checks the switch when it runs. An agent's write through a
-    // tool says routines changed, like a command's. The definitions are new on each call. A Chat on a Named Link gets
+    // An agent's write through a tool says routines changed, like a command's. The definitions are new on each call. A Chat on a Named Link gets
     // none: heartbeats there are out of scope (see the spec's non-goals).
     definitions: (chatId) =>
       (isLinkScopeKey(projectOfKey(chatId)) ? [] : tools.definitions(chatId))
@@ -875,7 +838,6 @@ function createRoutines({
         .map((tool) => {
           const { run } = tool;
           tool.run = async (input) => {
-            if (!store.enabled()) throw new Error(TOOLS_OFF);
             try {
               return await run(input);
             } finally {
@@ -895,10 +857,9 @@ function createRoutines({
     },
     sweepRunChats,
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
-    // Recovery runs once at start whatever the switch says; the timer and polling run only while it is on.
+    // Recovery first, then the timer and polling.
     start() {
       scheduler.recover();
-      if (!store.enabled()) return;
       scheduler.start();
       poller.start();
       prPoller.start();
@@ -916,29 +877,18 @@ function createRoutines({
       prPoller.stop();
       return settleWithin();
     },
-    // `enabled` is whether this computer may run Routines: a device that allowed AI sharing said so (there is no switch
-    // any more; a Routine created, turned on or run from such a device says it too, through authorize).
-    read: () => ({ enabled: store.enabled() }),
-    save,
     // Runs under way, which an app update waits for (app-auto-update.cjs).
     runningCount: () => store.runningCount(),
-    // store.list gives copies, so each takes its Runs in place. While this computer may not run Routines, none has a next
-    // Run: every surface (rows, a Routine's page, a Chat's Next check, the phone) would otherwise promise one that won't come.
-    list: () => {
-      const mayRun = store.enabled();
-      return {
-        routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) }, mayRun ? {} : { nextRunAt: null })),
-      };
-    },
+    // store.list gives copies, so each takes its Runs in place.
+    list: () => ({ routines: store.list().map((routine) => Object.assign(routine, { runs: store.runs(routine.id) })) }),
     // The live Routine babysitting a pull request (host/owner/repo, number), if any: babysit-watch.cjs asks before it adds one.
     findPullRequest: (repo, number) => store.findPullRequest(repo, number),
     /**
      * The `Babysit PR #<n>` Heartbeat for a pull request the Chat opened, made as its agent's: a heartbeat_create does the
      * same. It ends after `stopAfterDays` when that rule is on, else after 30 days, and follows the Chat's own provider,
-     * model and permission mode. Does nothing (null) while this computer may not run Routines, as the tools refuse then.
+     * model and permission mode.
      */
     async createBabysit({ chatId, url, repo, number, settings }) {
-      if (!store.enabled()) return null;
       const target = await checkTarget({ kind: "chat", chatId });
       const days = settings.stopAfterDays?.on ? settings.stopAfterDays.days : BABYSIT_DEFAULT_DAYS;
       const name = `Babysit PR #${number}`;
@@ -956,21 +906,19 @@ function createRoutines({
       return routine;
     },
     // A Routine from the Routines form: always the user's, whatever the input says.
-    async create(input, consentVersion) {
+    async create(input) {
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("A Routine needs its settings.");
       const target = await checkTarget(input.target);
-      await authorize(consentVersion);
       const routine =
         input.trigger?.kind === "webhook" ? webhooks.create({ ...input, target }) : store.create({ ...input, target, createdBy: { kind: "user" } });
       if (input.trigger?.kind !== "webhook") changed();
       await keepTarget(routine);
       return routine;
     },
-    async update(id, patch, consentVersion) {
+    async update(id, patch) {
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
       if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("A Routine change must be an object.");
       const checked = patch.target === undefined ? patch : { ...patch, target: await checkTarget(patch.target) };
-      if (patch.enabled !== false) await authorize(consentVersion);
       const webhook = store.get(id)?.trigger.kind === "webhook";
       const routine = webhook ? webhooks.update(id, checked) : store.update(id, checked);
       if (!webhook) changed();
@@ -990,10 +938,8 @@ function createRoutines({
     receiveHooks: (deliveries) => webhooks.receive(deliveries),
     hooksRefused: (ids) => webhooks.refused(ids),
     hookOwners: (ids) => webhooks.owners(ids),
-    async runNow(id, consentVersion) {
+    async runNow(id) {
       if (typeof id !== "string" || !id) throw new Error("Choose a Routine.");
-      await authorize(consentVersion);
-      if (!store.enabled()) throw new Error(OFF);
       return scheduler.runNow(id);
     },
   };
@@ -1162,8 +1108,8 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
       }
       return { url: hookUrl(relayUrl, secret) };
     },
-    /** The hooks the relay should hold deliveries for: none while the Routines switch is off. */
-    hookIds: () => (store.enabled() ? store.hookIds() : []),
+    /** The hooks the relay should hold deliveries for. */
+    hookIds: () => store.hookIds(),
     /**
      * Deliveries from the relay. Each is on disk before this returns (the relay deletes its copy on the ack that follows),
      * then dropped when no live webhook Routine has its hook, failed when its signature doesn't match, or queued. A throw
@@ -1184,7 +1130,7 @@ function createWebhooks({ store, scheduler, hooks, changed }) {
           console.warn("[routines] couldn't delete a webhook delivery", error?.message ?? error);
         }
       };
-      const routines = store.enabled() ? store.list().filter(live) : [];
+      const routines = store.list().filter(live);
       const items = [];
       let rejected = false;
       for (const delivery of list) {

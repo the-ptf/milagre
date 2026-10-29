@@ -1,4 +1,3 @@
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -139,6 +138,7 @@ const callsAt = (target, demo) => [
   ["worktree:create", [{ projectPath: target, baseBranch: "main", prompt: "Escape" }]],
   ["worktree:link-issue", [{ projectPath: target, worktreeId: 1, key: "ENG-1" }]],
   ["worktree:unlink-issue", [{ projectPath: target, worktreeId: 1 }]],
+  ["git:history", [{ cwd: target, base: "main", limit: 30 }]],
   ["git:diff-files", [{ cwd: target, mode: "uncommitted" }]],
   ["git:diff-file", [{ cwd: target, mode: "uncommitted", path: "secret.png" }]],
   ["worktree:status", [target, "main"]],
@@ -269,6 +269,11 @@ test("inside the folder the phone browses, reads changes, sends and sees images;
   const snapshot = await (await f.request(`/snapshot?projectPath=${encodeURIComponent(f.demo)}`)).json();
   const chat = Object.values(snapshot.result.project.state.sessions)[0];
   assert.equal((await f.rpc("git:diff-files", [{ cwd: f.demo, mode: "uncommitted" }])).status, 200);
+  const history = await f.rpc("git:history", [{ cwd: f.demo, base: "main", limit: 30 }]);
+  assert.equal(history.status, 200, JSON.stringify(history.body));
+  assert.equal(history.body.result.isRepo, true);
+  assert.equal(history.body.result.branch, "main");
+  assert.deepEqual(history.body.result.commits, []);
   assert.equal((await f.rpc("project:branches", [f.demo])).status, 200);
   assert.equal((await f.rpc("linear:worktree-issues", [f.demo])).status, 200);
   assert.equal((await f.rpc("chat:patch", [f.demo, chat.id, { title: "Inside" }])).status, 200);
@@ -311,6 +316,9 @@ test("inside the folder the phone browses, reads changes, sends and sees images;
   const worktree = created.body.result.project.state.worktrees[created.body.result.worktreeId].path;
   assert.ok(worktree.startsWith(f.demo + path.sep));
   assert.equal((await f.rpc("git:diff-files", [{ cwd: worktree, mode: "uncommitted" }])).status, 200);
+  const worktreeHistory = await f.rpc("git:history", [{ cwd: worktree, base: "main", limit: 30 }]);
+  assert.equal(worktreeHistory.status, 200, JSON.stringify(worktreeHistory.body));
+  assert.equal(worktreeHistory.body.result.isRepo, true);
 });
 
 test("a confined phone archives with the worktree check: roots inside the folder only, status, and removal", async (t) => {
@@ -652,7 +660,7 @@ test("a confined phone reads Routines but can't switch, create, change, delete o
   await confine.checkCall("routines:targets", []);
   await assert.rejects(confine.checkCall("routines:linear-options", [{ workspace: "acme", team: "ENG" }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:create", [{ name: "Daily", prompt: "Look" }]), { status: 403, message: REFUSED });
-  await assert.rejects(confine.checkCall("routines:enabled:save", [true, AI_CONSENT_VERSION]), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("routines:enabled:save", [true]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:update", ["r1", { enabled: false }]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:delete", ["r1"]), { status: 403, message: REFUSED });
   await assert.rejects(confine.checkCall("routines:run-now", ["r1"]), { status: 403, message: REFUSED });
@@ -783,7 +791,6 @@ test("the Mac-only MCP commands are not phone methods at all", async () => {
 // Routines name prompts, Run snapshots (Linear descriptions and comments) and Chats of every Project on the Mac.
 test("a confined phone reads only the Routines and targets of its own Project", async (t) => {
   const f = await fixture(t);
-  await f.owner.call("routines:enabled:save", [true, AI_CONSENT_VERSION]);
   const opened = {};
   for (const projectPath of [f.demo, f.outside]) {
     const state = (await f.owner.call("project:open", [projectPath])).state;

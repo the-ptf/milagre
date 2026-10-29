@@ -1,4 +1,3 @@
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { b64url } = require("@milagre/shared/relay-crypto");
@@ -255,14 +254,23 @@ test("a paired desktop reads and manages this Mac's Routines, and hears them cha
   for (const method of ["routines:list", "routines:create", "routines:update", "routines:delete", "routines:hook"])
     assert.ok(status.methods.includes(method), method);
   assert.equal((await desktop.call("routines:list")).error, undefined);
-  // A switch flipped in this Mac's window reaches the desktop as routines:changed, and the desktop can flip it back.
-  await mac.client.call("routines:enabled:save", [true, AI_CONSENT_VERSION]);
+  // A Routine made in this Mac's window reaches the desktop as routines:changed. An older desktop saving the old switch
+  // changes nothing: this Mac runs Routines.
+  await mac.client.call("project:open", [mac.project]);
+  await mac.client.call("routines:create", [
+    {
+      name: "Daily",
+      prompt: "Look",
+      trigger: { kind: "schedule", cron: "0 9 * * *", timezone: "UTC" },
+      target: { kind: "new-chat", projectPath: mac.project, workspace: "project" },
+    },
+  ]);
   await within(
-    desktop.event("routines:changed", (payload) => payload?.enabled === true),
+    desktop.event("routines:changed", () => true),
     "routines:changed",
   );
-  assert.equal((await desktop.call("routines:enabled:save", [false])).error, undefined);
-  assert.deepEqual(await mac.client.call("routines:enabled:read"), { enabled: false });
+  assert.deepEqual((await desktop.call("routines:enabled:save", [false])).result, { enabled: true });
+  assert.deepEqual(await mac.client.call("routines:enabled:read"), { enabled: true });
   assert.equal(desktop.error, null);
 });
 

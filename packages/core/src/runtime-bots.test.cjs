@@ -8,7 +8,6 @@ const { createRuntime } = require("./runtime.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
 const { runTool } = require("./linked-tools.cjs");
 const { claudeRequest, codexMcpRequest } = require("./agents/permissions.cjs");
-const { AI_CONSENT_VERSION } = require("@milagre/shared/ai-consent");
 
 // A Project with one commit, and fake agents that record each turn they are asked to start. `before` prepares the
 // data folder before the first runtime starts.
@@ -608,7 +607,6 @@ const claudeAsk = (tool) => claudeRequest(`mcp__milagre__${tool}`, {}, { toolUse
 
 test("Bot rules withhold Milagre's write tools from a bot's thread and its Chats, and never allow one", async (t) => {
   const f = await withOps(t);
-  await f.runtime.invoke("routines:enabled:save", [true, AI_CONSENT_VERSION]);
   // An ordinary Chat keeps them all, with no policy: its Routine writes ask on a card in Ask, routine_list doesn't.
   const { state } = await f.runtime.invoke("project:snapshot", [f.project]);
   const worktreeId = Object.values(state.worktrees).find((worktree) => worktree.path === f.project).id;
@@ -686,7 +684,6 @@ test("an ordinary Chat can't steer a bot's Chat, nor reach a bot's home, through
 
 test("no Routine runs in a bot's Chat or home", async (t) => {
   const f = await runningBotChat(t);
-  await f.runtime.invoke("routines:enabled:save", [true, AI_CONSENT_VERSION]);
   const routine = (target) => ({ name: "Beat", prompt: "Check CI", trigger: { kind: "schedule", cron: "*/5 * * * *", timezone: "UTC" }, target });
   await assert.rejects(f.runtime.invoke("routines:create", [routine({ kind: "chat", chatId: f.chatKey })]), /Ops runs that Chat, so no Routine runs there\./);
   await assert.rejects(

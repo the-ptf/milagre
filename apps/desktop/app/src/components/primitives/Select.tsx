@@ -10,6 +10,8 @@ export type SelectOption<T extends string> = {
   value: T;
   label: string;
   description?: string;
+  /** Branch names and other long choices can wrap above their description. */
+  wrapLabel?: boolean;
   icon?: ReactNode;
   // Shown in the trigger instead of the label when this option is selected.
   display?: ReactNode;
@@ -33,7 +35,7 @@ const GROUP_HEADING = 28;
 function naturalHeight<T extends string>(options: SelectOption<T>[], searchable: boolean) {
   let list = 0;
   options.forEach((option, index) => {
-    list += option.description ? ROW_WITH_DESCRIPTION : ROW;
+    list += option.description || option.wrapLabel ? ROW_WITH_DESCRIPTION : ROW;
     if (option.group && option.group !== options[index - 1]?.group) list += GROUP_HEADING;
   });
   return Math.min(LIST_MAX, list) + CHROME + (searchable ? SEARCH : 0);
@@ -219,6 +221,7 @@ export function Select<T extends string>({
                     label={option.label}
                     labelStyle={option.style}
                     description={option.description}
+                    wrapLabel={option.wrapLabel}
                     selected={option.value === value}
                     onClick={() => choose(option.value)}
                     option

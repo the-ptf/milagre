@@ -402,16 +402,15 @@ export type MilagreBridge = {
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
-  /** Whether this Mac may run Routines: a device that allowed AI sharing authorized it (with a Routine write, or `true` here). `false` stops them. */
+  /** Whether this Mac runs Routines: always `true` now; an older paired computer may still say `false`. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
-  saveRoutinesEnabled: (value: boolean, consentVersion?: string) => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
   listRoutines: () => Promise<{ routines: Array<Routine & { runs: RoutineRun[] }> }>;
-  updateRoutine: (id: string, patch: RoutineUpdate, consentVersion?: string) => Promise<Routine>;
+  updateRoutine: (id: string, patch: RoutineUpdate) => Promise<Routine>;
   deleteRoutine: (id: string) => Promise<{ removed: boolean }>;
-  runRoutineNow: (id: string, consentVersion?: string) => Promise<RoutineRun | undefined>;
+  runRoutineNow: (id: string) => Promise<RoutineRun | undefined>;
   /** `hookUrl` comes with a webhook Routine (a later update). */
-  createRoutine: (input: RoutineCreate, consentVersion?: string) => Promise<{ routine: Routine; hookUrl?: string }>;
+  createRoutine: (input: RoutineCreate) => Promise<{ routine: Routine; hookUrl?: string }>;
   routineTargets: () => Promise<RoutineTargets>;
   /** The Routines form's Linear choices: labels and states are the named team's. `error` says why a read failed. */
   routineLinearOptions: (args?: { workspace?: string; team?: string }) => Promise<RoutineLinearOptions>;
@@ -419,7 +418,7 @@ export type MilagreBridge = {
   routineHook: (id: string) => Promise<{ url: string; signed: boolean; signingHeader: string }>;
   /** A new URL for a webhook Routine; the old one stops at once. Signing stays as it was. */
   rotateRoutineHook: (id: string) => Promise<{ url: string }>;
-  onRoutinesChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
+  onRoutinesChanged: (callback: () => void) => () => void;
   saveLinearEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onLinearStatusChanged: (callback: (status: LinearStatus) => void) => () => void;
   mcp: {
@@ -459,6 +458,13 @@ export type MilagreBridge = {
   showImageMenu: (file: string, name?: string) => Promise<void>;
   /** The "Commit and open PR" dialog: git and gh run in the chat's folder (`cwd`). */
   git: {
+    history: (request: {
+      cwd: string;
+      base?: string;
+      recordedBase?: string;
+      branchesVersion?: string;
+      limit?: number;
+    }) => Promise<import("@milagre/shared/git-diff").GitHistory>;
     changes: (request: { cwd: string; base?: string }) => Promise<GitChanges>;
     /** Files a chat's folder changed: `uncommitted` against HEAD (untracked included), `committed` since the merge-base with the base branch. */
     diffFiles: (request: { cwd: string; base?: string; mode: DiffMode }) => Promise<DiffFilesResult>;
@@ -584,8 +590,8 @@ export type MilagreBridge = {
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
-  /** An app ⌘⇧ shortcut pressed while an embedded frame had focus, forwarded by the main process (its letter). */
-  onAppShortcut: (callback: (key: string) => void) => () => void;
+  /** An app shortcut (⌘⇧ plus a letter, or ⌘,) pressed in any frame, forwarded by the main process. */
+  onAppShortcut: (callback: (shortcut: { key: string; shift: boolean }) => void) => () => void;
   /** The canvas's Stop on a Link: the Negotiation stops, turns already running finish. */
   stopNegotiation: (id: string) => Promise<void>;
   setWorktreePosition: (id: string, worktreePath: string, position: { x: number; y: number }) => Promise<unknown>;
@@ -781,6 +787,8 @@ declare global {
         status: () => Promise<{ ready: boolean; size: number }>;
         transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
         onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+        /** The system's microphone privacy settings, where a refused microphone is allowed again. */
+        openSettings: () => Promise<void>;
       };
     };
   }

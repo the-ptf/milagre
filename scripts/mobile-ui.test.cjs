@@ -229,7 +229,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
         };
-      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton" };
+      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton", MIC_SIZE: 32 };
+      if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
       if (base === "all-computers" && !(id in modules))
@@ -253,6 +254,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
+      // The iPad panel's dragged width, kept on the device; a test keeps the default.
+      if (base === "panel-width" && !(id in modules)) return { usePanelWidth: () => 420, setPanelWidth() {} };
+      // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
+      if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -582,7 +587,16 @@ test("the phone selects the computer's shell for new Terminals and keeps selecti
     },
     "expo-router": { router: {}, useFocusEffect: (fn) => react.effect(fn, [fn]) },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
-    "react-native-keyboard-controller": { KeyboardAvoidingView: "KeyboardAvoidingView" },
+    "react-native-keyboard-controller": {
+      KeyboardAvoidingView: "KeyboardAvoidingView",
+      KeyboardStickyView: "KeyboardStickyView",
+      useKeyboardState: (select) => select({ isVisible: false, height: 0 }),
+    },
+    "react-native-gesture-handler": { Gesture: {}, GestureDetector: "GestureDetector" },
+    "react-native-reanimated": { default: { View: "AnimatedView" }, Easing: { bezier: () => () => 0 }, ReduceMotion: { System: "system" } },
+    "react-native-worklets": { scheduleOnRN() {} },
+    "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
+    "expo-clipboard": { getStringAsync: async () => "" },
     "@expo/dom-webview": { DomWebView: "DomWebView" },
     "expo-file-system": { File() {}, Paths: {} },
     "@hugeicons/core-free-icons": {},
@@ -6661,7 +6675,6 @@ test("relay transports: one per Mac, replaced by a new code, closed in the backg
   const phoneRandom = (n) => new Uint8Array(n);
   const { relayRuntime } = load("relay-native.ts", {
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
-    "./ai-consent": { beforeAiCall: async () => {} },
     "react-native": {
       AppState: {
         addEventListener: (_event, listener) => {
@@ -10203,7 +10216,14 @@ function loadSettings(state) {
   return load("app/(settings)/settings.tsx", {
     react: { useState: () => [state.linear ?? null, (value) => (state.set ??= []).push(value)], useCallback: (fn) => fn },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Platform: { OS: "ios" } },
+    "react-native": {
+      View: "View",
+      Text: "Text",
+      Pressable: "Pressable",
+      Platform: { OS: "ios" },
+      Linking: { openURL: async (url) => (state.urls ??= []).push(url) },
+      Alert: { alert() {} },
+    },
     "expo-router": {
       Stack: { Screen: "Screen", Toolbar: Object.assign(() => null, { Button: "Button", View: "View" }) },
       router: { push: (target) => (state.pushed ??= []).push(target), navigate: (target) => (state.pushed ??= []).push(target) },
@@ -10211,6 +10231,7 @@ function loadSettings(state) {
     },
     "@hugeicons/core-free-icons": {},
     "@milagre/shared/chat-display": { chatListLabel: (value) => (value === "list" ? "One list" : "Grouped by Project") },
+    "@milagre/shared/site-links": require("@milagre/shared/site-links"),
     "../session": {
       useSession: () => ({
         recent: state.recent ?? [],
@@ -10316,13 +10337,14 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
       [
         "About",
         [
-          ["Privacy & AI", ""],
+          ["Privacy policy", ""],
+          ["Support", ""],
           ["App update", "Up to date"],
         ],
       ],
     ],
   );
-  for (const row of [...groups[0].elements, ...groups[1].elements, groups[3].elements[0]]) row.props.onPress();
+  for (const row of [...groups[0].elements, ...groups[1].elements]) row.props.onPress();
   assert.deepEqual(opened, [
     "notifications",
     "appearance",
@@ -10336,8 +10358,12 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     "skills",
     "mcp",
     "local-mcp",
-    "privacy",
   ]);
+  // Privacy policy and Support open Milagre's site in the browser.
+  groups[3].elements[0].props.onPress();
+  groups[3].elements[1].props.onPress();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(state.urls, ["https://milagre.cloud/privacy", "https://milagre.cloud/support"]);
   // The tiles: the green dot and counts follow the computers' answers; Routines counts what is on once the Mac has them.
   state.reachability = { a: "online", b: "online", c: "offline" };
   assert.equal(tile(SettingsView({ onOpen() {} }), "Computers").props.value, "2 online · 1 offline");
@@ -10676,9 +10702,7 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
     "./session": { useSession: () => ({ client }) },
     "./settings-list": { Group: "Group", Row: "Row" },
     "./ui": { ErrorNotice: "ErrorNotice", Segmented: "Segmented", Toggle: "Toggle" },
-    "./use-routines": { useRoutines: () => ({ enabled: routinesEnabled }) },
   });
-  let routinesEnabled = true;
   const render = () => {
     react.begin();
     return BabysitSection();
@@ -10757,19 +10781,11 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(saves.length, savesBeforeReset + 1, "only the reset saves, not the half-typed text");
   assert.equal(field().props.value, "");
-  // Each PR keeps its settings; and a Mac that may not run Routines babysits nothing, which the screen says.
+  // Each PR keeps its settings.
   assert.equal(
     node((n) => n.type === "Group" && n.props.title === "When something needs fixing").props.footer,
     "Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.",
   );
-  const routinesNote =
-    "Routines aren't allowed on this Mac yet, so new PRs won't be babysat. Allow them on the Routines page, from the Routines button at the top.";
-  assert.equal(
-    node((n) => n.type === "Text" && n.props.children === routinesNote),
-    undefined,
-  );
-  routinesEnabled = false;
-  assert.ok(node((n) => n.type === "Text" && n.props.children === routinesNote));
 });
 
 test("mobile ChatReply shows the usage-limit card instead of the failed line, with a Project only when it can switch", () => {
@@ -11610,103 +11626,6 @@ test("mobile markdown routes mermaid fences to the diagram, with the code as its
     find(h.render("```ts\nconst x = 1\n```"), (node) => node.type === "MermaidBlock"),
     undefined,
   );
-});
-
-test("AI consent: native alert cancellation, persistence, reset and headless replies fail closed", async () => {
-  const shared = await import("../packages/shared/src/ai-consent.mjs");
-  let saved = null,
-    alert,
-    prompts = 0;
-  const appState = { currentState: "active" };
-  const { aiConsent, beforeAiCall } = load("ai-consent.ts", {
-    "@milagre/shared/ai-consent": shared,
-    "react-native": {
-      AppState: appState,
-      Linking: { openURL: async () => {} },
-      Alert: {
-        alert: (title, body, buttons, options) => {
-          prompts++;
-          alert = { title, body, buttons, options };
-        },
-      },
-    },
-    "expo-secure-store": {
-      getItemAsync: async () => saved,
-      setItemAsync: async (_key, value) => {
-        saved = value;
-      },
-      deleteItemAsync: async () => {
-        saved = null;
-      },
-      WHEN_UNLOCKED_THIS_DEVICE_ONLY: "device-only",
-    },
-  });
-  const cancelled = beforeAiCall("chat:send", []);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.match(alert.body, /Anthropic.*OpenAI.*Google/);
-  alert.buttons.find((button) => button.text === "Not now").onPress();
-  await assert.rejects(cancelled, /not sent/);
-  assert.equal(saved, null);
-  const accepted = beforeAiCall("link:send", []);
-  await new Promise((resolve) => setImmediate(resolve));
-  alert.buttons.find((button) => button.text === "Allow sharing").onPress();
-  await accepted;
-  await beforeAiCall("chat:resume", []);
-  assert.equal(prompts, 2);
-  await aiConsent.reset();
-  await assert.rejects(beforeAiCall("live-activity:answer", []), /permission/);
-  appState.currentState = "background";
-  await assert.rejects(beforeAiCall("chat:send", []), /permission/);
-  await beforeAiCall("agent:interrupt", []);
-  assert.equal(prompts, 2);
-});
-
-test("Privacy settings reset consent and expose policies without a paired computer", async () => {
-  const shared = await import("../packages/shared/src/ai-consent.mjs");
-  const host = hookHost({ effects: true });
-  let resets = 0;
-  const urls = [];
-  const { PrivacyView } = load("app/(settings)/privacy.tsx", {
-    react: host,
-    "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": {
-      Text: "Text",
-      View: "View",
-      Linking: {
-        openURL: async (url) => {
-          urls.push(url);
-        },
-      },
-    },
-    "expo-router": { Stack: { Screen: "Screen" } },
-    "@milagre/shared/ai-consent": shared,
-    "../ai-consent": {
-      aiConsent: {
-        allowed: async () => true,
-        reset: async () => {
-          resets++;
-        },
-      },
-    },
-    "../ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", PageScroll: "PageScroll", PillButton: "PillButton" },
-  });
-  const render = () => {
-    host.begin();
-    return PrivacyView();
-  };
-  render();
-  await new Promise((resolve) => setImmediate(resolve));
-  let tree = render();
-  const reset = find(tree, (n) => n.props.title === "Reset AI sharing permission");
-  assert.equal(reset.props.disabled, false);
-  reset.props.onPress();
-  await new Promise((resolve) => setImmediate(resolve));
-  tree = render();
-  assert.equal(resets, 1);
-  assert.equal(find(tree, (n) => n.props.title === "Reset AI sharing permission").props.disabled, true);
-  find(tree, (n) => n.props.title === "Milagre privacy policy").props.onPress();
-  find(tree, (n) => n.props.title === "Support").props.onPress();
-  assert.deepEqual(urls, [shared.PRIVACY_URL, shared.SUPPORT_URL]);
 });
 
 test("new Chat restores worktree choices on reopen, falls back from a removed branch and never starts a Linear issue", async () => {
@@ -13470,22 +13389,16 @@ test("flipping a Routine's switch on the phone writes routines:update with the n
   assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
 });
 
-test("a Mac that can't run Routines yet still lists them, and Allow passes this phone's permission on", async () => {
+test("an older Mac that says its Routines are off still lists them, with nothing to allow", async () => {
   const [heartbeat] = routineFixtures();
   const host = routinesHost({ routines: [heartbeat], enabled: false });
   host.render();
   await host.settle();
-  let tree = host.render();
-  assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines won't run on this Mac yet"));
-  assert.equal(host.rows(tree).length, 1, "its Routines are listed anyway");
-  find(tree, (node) => node.type === "PillButton" && node.props.title === "Allow").props.onPress();
-  await host.settle();
-  await host.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(host.calls.filter(([method]) => method === "routines:enabled:save"))), [["routines:enabled:save", [true]]]);
-  tree = host.render();
+  const tree = host.render();
+  assert.equal(host.rows(tree).length, 1, "its Routines are listed");
   assert.equal(
-    allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Routines won't run on this Mac yet"),
-    false,
+    find(tree, (node) => node.type === "PillButton" && node.props.title === "Allow"),
+    undefined,
   );
 });
 
@@ -15153,7 +15066,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
     "expo-camera": { CameraView: "CameraView", useCameraPermissions: () => [{ granted: false }, () => {}] },
     "expo-clipboard": { getStringAsync: async () => invitation },
     "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
-    "@milagre/shared/ai-consent": require("@milagre/shared/ai-consent"),
+    "@milagre/shared/site-links": require("@milagre/shared/site-links"),
     "@milagre/shared/pairing-link": pairing,
     "../pairing": pairing,
     "../session": {
@@ -15193,4 +15106,267 @@ test("Add computer can remove the public fallback before pairing a pasted invita
   assert.equal(connected[0].relay.url, direct[0]);
   assert.deepEqual(Array.from(connected[0].relay.direct), direct);
   assert.equal(connected[0].relay.key, identity.key);
+});
+
+test("phone changes choose a comparison branch and keep its base when opening a diff; commit details expand", () => {
+  const react = hookHost();
+  const calls = [];
+  const copied = [];
+  let picker;
+  let deleted = false;
+  let unrelated = false;
+  let phoneClient = {};
+  const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
+  const commit = {
+    sha: "a".repeat(40),
+    author: "Maria",
+    email: "maria@example.com",
+    date: "2026-10-28T10:00:00Z",
+    message: "Current work\n\nDetailed explanation",
+    files: 1,
+    added: 2,
+    removed: 0,
+  };
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {
+      setStringAsync: async (sha) => {
+        copied.push(sha);
+        return true;
+      },
+    },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet: (request) => (picker = request) },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method, [request]) => {
+        calls.push({ method, request });
+        const base = request.base === "refs/heads/parent" ? "parent" : "main";
+        return {
+          data:
+            method === "git:history"
+              ? {
+                  isRepo: true,
+                  branch: "current",
+                  base,
+                  total: 1,
+                  suggested: "refs/heads/parent",
+                  projectDefault: { name: "main", ref: "refs/heads/main" },
+                  comparisonRef: request.base === "refs/heads/parent" ? "refs/heads/parent" : "refs/heads/main",
+                  message: unrelated && request.base === "refs/heads/parent" ? "This branch shares no history with parent." : undefined,
+                  automatic: { name: "main", ref: "refs/heads/main", reason: "the recorded base" },
+                  branchesVersion: "v1",
+                  baseMissing: deleted && request.base === "refs/heads/parent",
+                  ...(request.branchesVersion === "v1"
+                    ? {}
+                    : {
+                        branches: [
+                          { ref: "refs/heads/parent", name: "parent" },
+                          { ref: "refs/heads/current", name: "current" },
+                          { ref: "refs/remotes/origin/main", name: "origin/main" },
+                        ].filter((branch) => !deleted || branch.ref !== "refs/heads/parent"),
+                      }),
+                  commits: request.limit ? [commit] : [],
+                  hasMore: false,
+                }
+              : { isRepo: true, base: request.mode === "committed" ? base : null, files: request.mode === "committed" ? [file] : [] },
+          error: "",
+          refresh() {},
+        };
+      },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  };
+  const { ChangeSections, CommitCard } = load("change-tree.tsx", modules, "\nexport { CommitCard };");
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: phoneClient, cwd: "/worktree", base: "main", onOpen: (...args) => opened.push(args) });
+  };
+  let tree = render();
+  find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/parent" && item.section === "Suggested"));
+  assert.ok(picker.items.some((item) => item.id === "refs/heads/current" && item.disabled && item.subtitle === "current"));
+  assert.ok(picker.items.some((item) => item.id === "refs/remotes/origin/main" && item.section === "Remote · origin"));
+  assert.equal(picker.items[0].subtitle, "main, the recorded base");
+  picker.onSelect("refs/heads/parent");
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files" && call.request.mode === "committed").request.base, "refs/heads/parent");
+  find(tree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[0], [file, "committed", "refs/heads/parent"]);
+  find(tree, (node) => node.props?.accessibilityLabel === "Commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
+  const cardReact = hookHost();
+  const card = load("change-tree.tsx", { ...modules, react: cardReact }, "\nexport { CommitCard };").CommitCard;
+  cardReact.begin();
+  let details = card({ commit });
+  find(details, (node) => node.type === "Pressable").props.onPress();
+  cardReact.begin();
+  details = card({ commit });
+  assert.ok(textOf(details).includes("maria@example.com"));
+  assert.ok(textOf(details).includes("Detailed explanation"));
+  find(details, (node) => node.props?.accessibilityLabel === "Copy SHA").props.onPress();
+  assert.deepEqual(copied, [commit.sha]);
+  assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
+  unrelated = true;
+  tree = render();
+  assert.ok(textOf(tree).includes("shares no history"));
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Compare with main instead").props.onPress();
+  render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "refs/heads/main");
+  picker.onSelect("refs/heads/parent");
+  deleted = true;
+  render();
+  tree = render();
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.base, "main");
+  assert.ok(textOf(tree).includes("parent no longer exists. Showing changes since main."));
+  find(tree, (node) => node.props?.accessibilityLabel === "Dismiss missing branch notice").props.onPress();
+  assert.equal(textOf(render()).includes("no longer exists"), false);
+  assert.equal(calls.findLast((call) => call.method === "git:history").request.branchesVersion, "v1");
+  find(render(), (node) => node.props?.accessibilityLabel === "Comparison branch").props.onPress();
+  assert.ok(
+    picker.items.some((item) => item.id === "refs/heads/parent"),
+    "omitted catalogues retain picker choices",
+  );
+  phoneClient = {};
+  render();
+  assert.equal(
+    calls.findLast((call) => call.method === "git:history").request.branchesVersion,
+    undefined,
+    "another host never borrows the previous host's catalogue token",
+  );
+  for (const reason of ["timeout", "tooLarge"]) {
+    const limited = { ...commit, files: null, added: null, removed: null, statsUnavailable: reason };
+    const limitedReact = hookHost();
+    const renderCard = load("change-tree.tsx", { ...modules, react: limitedReact }, "\nexport { CommitCard };\n").CommitCard;
+    limitedReact.begin();
+    let row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Totals unavailable"));
+    assert.equal(
+      find(row, (node) => node.type === "Counts"),
+      undefined,
+      "unavailable totals never render as zero",
+    );
+    find(row, (node) => node.type === "Pressable").props.onPress();
+    limitedReact.begin();
+    row = renderCard({ commit: limited });
+    assert.ok(textOf(row).includes("Detailed explanation") && textOf(row).includes("maria@example.com"));
+    assert.ok(textOf(row).includes("Retrying automatically"));
+  }
+});
+
+test("phone history retains metadata and commits during pagination, but never across repositories or clients", async () => {
+  const react = hookHost({ effects: true });
+  const pending = [];
+  let client = {
+    call: () => {
+      const request = deferred();
+      pending.push(request);
+      return request.promise;
+    },
+  };
+  const { useRpc } = load("use-rpc.ts", {
+    react,
+    "@milagre/shared/refresh-loop": {
+      startRefreshLoop: (options) => {
+        void options.refresh();
+        return () => {};
+      },
+    },
+  });
+  let cwd = "/project",
+    limit = 0;
+  const render = () => {
+    react.begin();
+    const result = useRpc(client, "git:history", [{ cwd, base: "main", limit }], true, JSON.stringify([cwd, "main"]));
+    react.flush();
+    return result;
+  };
+  render();
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: [] });
+  await settle();
+  limit = 30;
+  assert.equal(render().data.branch, "feature", "metadata stays while the initial commits load");
+  pending.shift().resolve({ branch: "feature", branches: ["main"], commits: ["first"] });
+  await settle();
+  limit = 60;
+  assert.deepEqual(render().data.commits, ["first"], "pagination retains the loaded list");
+  pending.shift().reject(new Error("Connection dropped"));
+  await settle();
+  assert.deepEqual(render().data.commits, ["first"], "a failed page keeps the prior list for retry");
+  assert.equal(render().error, "Connection dropped");
+  limit = 90;
+  render();
+  const old = pending.shift();
+  cwd = "/another-project";
+  assert.equal(render().data, null, "a different repository never borrows the old result");
+  old.resolve({ branch: "old", commits: ["wrong"] });
+  await settle();
+  assert.equal(render().data, null, "late answers for the prior repository are discarded");
+  pending.shift().resolve({ branch: "new", commits: ["new"] });
+  await settle();
+  assert.equal(render().data.branch, "new");
+  client = { call: () => new Promise(() => {}) };
+  assert.equal(render().data, null, "another computer with the same path cannot reuse this computer's result");
+  react.unmount();
+});
+
+test("older hosts without git history keep phone file diffs usable; network errors still offer retry", () => {
+  const react = hookHost();
+  let historyError = "Command is not available from mobile";
+  const { ChangeSections } = load("change-tree.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-clipboard": {},
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": {},
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "@milagre/shared/diff-tree": { buildDiffTree: (files) => files },
+    "./choice-store": { showChoiceSheet() {} },
+    "./display-clock": { useScreenActive: () => true },
+    "./use-rpc": {
+      useRpc: (_client, method) =>
+        method === "git:history"
+          ? { data: null, error: historyError, refresh() {} }
+          : { data: { isRepo: true, base: "main", files: [{ path: "changed.txt", added: 1, removed: 0 }] }, error: "", refresh() {} },
+    },
+    "./icons": { Icon: "Icon" },
+    "./diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "./ui": { ...uiHooks, ErrorNotice: "ErrorNotice" },
+    "./theme": themeHooks,
+  });
+  const opened = [];
+  const render = () => {
+    react.begin();
+    return ChangeSections({ client: {}, cwd: "/project", onOpen: (...args) => opened.push(args) });
+  };
+  for (const message of ["Command is not available from mobile", "Unknown command: git:history"]) {
+    historyError = message;
+    const tree = render();
+    assert.equal(
+      find(tree, (node) => node.props?.accessibilityLabel === "Comparison branch"),
+      undefined,
+    );
+    assert.equal(
+      find(tree, (node) => node.type === "ErrorNotice"),
+      undefined,
+    );
+    const files = find(tree, (node) => node.type?.name === "ChangeTree");
+    assert.ok(files, "ordinary files remain visible on an older host");
+    files.props.onOpen({ path: "changed.txt" });
+  }
+  assert.equal(opened.length, 2);
+  historyError = "Connection dropped";
+  const retry = find(render(), (node) => node.type === "ErrorNotice");
+  assert.equal(retry.props.message, historyError);
+  assert.equal(typeof retry.props.retry, "function");
 });

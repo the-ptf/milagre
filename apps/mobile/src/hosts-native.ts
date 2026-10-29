@@ -155,6 +155,23 @@ export async function saveExpandReasoning(on: boolean) {
     /* best effort */
   }
 }
+const panelWidthKey = "milagre.ipad-panel-width.v1";
+/** The width the iPad's docked right panel was dragged to; null until it has been. */
+export async function readPanelWidth(): Promise<number | null> {
+  try {
+    const saved = Number(await SecureStore.getItemAsync(panelWidthKey));
+    return Number.isFinite(saved) && saved > 0 ? saved : null;
+  } catch {
+    return null;
+  }
+}
+export async function savePanelWidth(width: number) {
+  try {
+    await SecureStore.setItemAsync(panelWidthKey, String(Math.round(width)));
+  } catch {
+    /* best effort */
+  }
+}
 const dictationLanguageKey = "milagre.dictation-language.v1";
 /** Settings › Chat › Dictation: a language code, or "auto" (the phone's language on iPhone, detected each take on Android). */
 export async function readDictationLanguage(): Promise<string> {

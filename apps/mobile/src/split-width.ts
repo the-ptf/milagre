@@ -10,13 +10,41 @@ export const SIDEBAR_WIDTH = 320;
 export const CARD_MARGIN = 12;
 /** The toolbar row at the top of a resizable iPad window, which holds its window controls. */
 const CONTROLS_ROW = 44;
-/** Changes slides over from the right as a card this wide. */
+/** The right panel (Changes, a PR, a simulator, designs) is a card this wide, docked beside the Chat or sliding over it. */
 export const CHANGES_WIDTH = 420;
+/** The narrowest the docked right panel can be dragged. */
+export const PANEL_MIN_WIDTH = 320;
+/** The gap between the Chat and the docked right panel, which holds the panel's resize grabber. */
+export const DOCK_GUTTER = 12;
+/** The room the docked right panel takes beside the Chat: the gutter, its card and the gap to its right. */
+function dockSlot(panelWidth: number) {
+  return DOCK_GUTTER + panelWidth + CARD_MARGIN;
+}
+/** The narrowest Chat the docked right panel leaves; a narrower window slides the panel over the Chat instead. */
+const MIN_DOCKED_CHAT = 360;
+/** The Chat keeps this much between the pinned sidebar and the docked right panel; with less, the sidebar gives way. */
+const MIN_CHAT_BETWEEN = 500;
 /** The transcript and composer keep to this reading column on a wide Chat, centered as on desktop. */
 export const READING_WIDTH = 760;
 
 export function widthClass(width: number): WidthClass {
   return width >= WIDE_WIDTH ? "wide" : width >= REGULAR_WIDTH ? "regular" : "compact";
+}
+
+/** Whether the right panel docks beside the Chat, pushing it over, or slides over it (a phone, a narrow window). */
+export function rightDocks(width: number) {
+  return widthClass(width) !== "compact" && width - dockSlot(CHANGES_WIDTH) >= MIN_DOCKED_CHAT;
+}
+
+/** Whether the pinned sidebar still leaves the Chat room with the right panel docked too, as desktop makes room. */
+export function sidebarFits(width: number, docked: boolean, panelWidth = CHANGES_WIDTH) {
+  return !docked || width - SIDEBAR_WIDTH - CARD_MARGIN - dockSlot(panelWidth) >= MIN_CHAT_BETWEEN;
+}
+
+/** A dragged panel width the window has room for: never narrower than the minimum, never leaving the Chat less than a phone's width. */
+export function clampPanelWidth(width: number, panelWidth: number) {
+  const max = Math.max(PANEL_MIN_WIDTH, width - MIN_DOCKED_CHAT - DOCK_GUTTER - CARD_MARGIN);
+  return Math.round(Math.min(max, Math.max(PANEL_MIN_WIDTH, panelWidth)));
 }
 
 /** The Chat's width once the pinned sidebar takes its share. */

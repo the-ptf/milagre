@@ -40,15 +40,17 @@ export function rememberProjectComputer(copy: Pick<ProjectCopy, "origin" | "comp
 }
 
 /** The copy a picked Project opens: the one on the computer last used for it, else This Mac's, else the first listed. */
-export function preferredCopy(group: ProjectGroup): ProjectCopy {
-  const last = group.origin ? readLastComputers()[group.origin] : undefined;
-  return group.copies.find((copy) => copy.computerId === last) ?? group.copies.find((copy) => copy.computerId === LOCAL_COMPUTER) ?? group;
+export function preferredCopy<T extends { computerId: string }>(origin: string | undefined, copies: [T, ...T[]]): T {
+  const last = origin ? readLastComputers()[origin] : undefined;
+  return copies.find((copy) => copy.computerId === last) ?? copies.find((copy) => copy.computerId === LOCAL_COMPUTER) ?? copies[0];
 }
 
 /** The key a picked row moves the new Chat to: where it already is when that is one of the row's copies, else its preferred copy. */
 export function pickedProjectKey(group: ProjectGroup, currentKey: string): string {
   if (group.copies.some((copy) => copy.key === currentKey)) return currentKey;
-  const copy = preferredCopy(group);
+  // The copies, not the row itself: the No project row's own key names the group, not any computer's Chats home.
+  const [first, ...rest] = group.copies;
+  const copy = preferredCopy(group.origin, first ? [first, ...rest] : [group]);
   rememberProjectComputer(copy);
   return copy.key;
 }

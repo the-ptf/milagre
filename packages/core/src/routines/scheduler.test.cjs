@@ -19,13 +19,12 @@ const runStatus = (store, runId) =>
     .flatMap((item) => store.runs(item.id))
     .find((item) => item.id === runId)?.status;
 
-function setup({ enabled = true, chatOptions = {} } = {}) {
+function setup({ chatOptions = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "routine-scheduler-"));
   const clock = { t: START };
   let n = 0;
   const storeOptions = { file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` };
   const store = createRoutineStore(storeOptions);
-  store.setEnabled(enabled);
   const calls = { send: [], patch: [], name: [] };
   const state = { busy: false, archived: false, exists: true, reply: "", startResult: { turnId: "t1" }, sendError: null, patchError: null };
   const chats = {
@@ -320,14 +319,6 @@ test("recovery runs once: a timer stopped and started again leaves a Run in flig
   ctx.scheduler.start();
   ctx.scheduler.stop();
   assert.equal(lastRun(ctx).status, "running");
-});
-
-test("with the flag off ticks send nothing", async () => {
-  const ctx = setup({ enabled: false });
-  due(ctx);
-  await ctx.scheduler.tick();
-  assert.equal(ctx.calls.send.length, 0);
-  assert.deepEqual(ctx.store.runs(ctx.routine.id), []);
 });
 
 test("tick expires a Routine past its expiresAt before claiming", async () => {
@@ -626,7 +617,6 @@ function triggers({ chatOptions = {} } = {}) {
   const clock = { t: START };
   let n = 0;
   const store = createRoutineStore({ file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` });
-  store.setEnabled(true);
   const calls = { start: [], send: [], patch: [], archive: [], linked: [], defer: [], order: [], name: [] };
   const state = { busy: new Set(), linked: "c1", gate: null, startError: null, createdWorktree: true, reply: "", nameError: null };
   const chats = {
@@ -1428,7 +1418,6 @@ test("a schedule with no next run pauses itself, and a heartbeat due in the same
   let n = 0;
   const options = { file: path.join(dir, "routines.json"), now: () => clock.t, id: () => `id${++n}` };
   const first = createRoutineStore(options);
-  first.setEnabled(true);
   const bad = first.upsertHeartbeat({ ...base, name: "bad", expiresIn: "30d" });
   const good = first.upsertHeartbeat({ ...base, name: "good", chatId: "c2", expiresIn: "30d" });
   const text = JSON.parse(fs.readFileSync(options.file, "utf8"));

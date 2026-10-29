@@ -45,7 +45,7 @@ function createPullRequestPoller({
   let running = false;
 
   const live = (routine) => Boolean(routine && routine.enabled && !routine.completedAt && routine.trigger.kind === "pull-request");
-  const watched = () => (running && store.enabled() ? store.list().filter(live) : []);
+  const watched = () => (running ? store.list().filter(live) : []);
   const baseOf = (routine) => routine.trigger.settings.intervalMinutes * MINUTE_MS;
 
   function drop(id) {
@@ -65,7 +65,7 @@ function createPullRequestPoller({
     state.timer?.unref?.();
   }
 
-  /** Matches the timers to the live pull-request Routines and the Routines switch. Cheap; safe to call often. */
+  /** Matches the timers to the live pull-request Routines. Cheap; safe to call often. */
   function sync() {
     const wanted = new Map(watched().map((routine) => [routine.id, routine]));
     for (const id of states.keys()) if (!wanted.has(id)) drop(id);
@@ -154,7 +154,7 @@ function createPullRequestPoller({
     const state = states.get(id);
     if (!running || !state || state.polling) return;
     const before = store.get(id);
-    if (!live(before) || !store.enabled()) return void drop(id);
+    if (!live(before)) return void drop(id);
     state.polling = true;
     clearTimer(state.timer);
     state.timer = null;

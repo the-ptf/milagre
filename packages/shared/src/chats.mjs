@@ -72,7 +72,7 @@ export function createPendingChat({ state, worktreeId, sessionId = null, body, i
   const session = state.sessions[sessionId] ?? {
     id,
     worktree_id: worktreeId,
-    agent_name: state.worktrees[worktreeId]?.name || "New Chat",
+    agent_name: state.worktrees?.[worktreeId]?.name || "New Chat",
     status: "Created",
     provider,
   };

@@ -22,6 +22,7 @@ import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
+import { runStatusLabel } from "@milagre/shared/tool-activity";
 import { LoopbackPortsContext } from "../lib/ports";
 import { createPortal } from "react-dom";
 import { commitChatSwitch, transcriptShown } from "../lib/chat-switch-timing";
@@ -819,6 +820,8 @@ interface ChatComposerProps {
   sessionProvider?: ModelProvider;
   /** The active turn's start time, independent of the chat view. */
   runStartedAt?: number;
+  /** What the Chat waits on before its agent works (the send going out, the agent starting), beside the running mark. */
+  statusLabel?: string;
   /** Opens the Chat a Delegation, report or agreement came from, in whichever Project it is. */
   onOpenLinkedChat?: (chatKey: string) => void;
   /** Opens Settings > Accounts, from the usage-limit card when the Project has no other account to switch to. */
@@ -1203,6 +1206,7 @@ export function ChatComposer({
   runModelName,
   sessionProvider,
   runStartedAt,
+  statusLabel,
   onOpenLinkedChat,
   onOpenAccounts,
   resume,
@@ -1282,6 +1286,8 @@ export function ChatComposer({
     [newChatChange, chatsDraft, noProjectGroup],
   );
   const workingModelName = runModelName ?? selectedModel.name;
+  // A Link Chat's Worktree being made, or a setup running, is named; the agent's own work shows the mark alone.
+  const phase = statusLabel ?? runStatusLabel(streamingSteps);
   const [scrolled, setScrolled] = useState(false);
   // The runtime knows a Chat by its Project's path, not the Worktree's `projectPath` it runs in.
   const runtimeChat = typeof chatId === "number" && chatId > 0 && projectPath ? (agentChatId ?? `${messageScope ?? projectPath}#${chatId}`) : null;
@@ -1538,7 +1544,11 @@ export function ChatComposer({
 
                     {isSending && (
                       <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-                        <ThinkingIndicator startedAt={runStartedAt} label={waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`} />
+                        <ThinkingIndicator
+                          startedAt={runStartedAt}
+                          label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
+                          showLabel={Boolean(phase)}
+                        />
                       </div>
                     )}
                     <BackgroundWork

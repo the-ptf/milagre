@@ -2,8 +2,7 @@ import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useBots } from "../lib/bots-store";
 import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
-import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/ai-consent";
-import { PrivacySettings } from "./AiConsent";
+import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { showUpdateNotice } from "./UpdateNotice";
 import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccountsSettings";
 import { AccountsSettings } from "./AccountsSettings";
@@ -134,7 +133,6 @@ export type SettingsSection =
   | "local-mcp"
   | "devices"
   | "experimental"
-  | "privacy"
   | "about"
   | "project"
   | "computer";
@@ -157,7 +155,6 @@ const SECTIONS: Array<{
   { key: "local-mcp", label: "Milagre", icon: <MilagreMark /> },
   { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} /> },
   { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
-  { key: "privacy", label: "Privacy & AI", icon: <Icon icon={SecurityCheckIcon} /> },
   { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} /> },
 ];
 
@@ -1661,6 +1658,16 @@ export function AboutSettings({ update }: { update: UpdateState | null }) {
         </Row>
       )}
       <Row label="License">MIT</Row>
+      {[
+        { label: "Privacy policy", url: PRIVACY_URL },
+        { label: "Support", url: SUPPORT_URL },
+      ].map(({ label, url }) => (
+        <Row key={url} label={label}>
+          <a href={url} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+            {url.replace("https://", "")}
+          </a>
+        </Row>
+      ))}
     </Group>
   );
 }
@@ -2393,7 +2400,6 @@ export function SettingsPanel({
         {section === "devices" && <DevicesSettings onAddComputer={onAddComputer} />}
         {section === "experimental" && <ExperimentalSettings title={title} />}
         {section === "computer" && computerId && <ComputerSettings key={computerId} id={computerId} onRemoved={() => onSectionChange?.("devices")} />}
-        {section === "privacy" && <PrivacySettings />}
         {section === "about" && <AboutSettings update={update} />}
         {section === "project" && project && <ProjectSettings key={project.path} project={project} onManageAccounts={() => onSectionChange?.("accounts")} />}
       </div>

@@ -24,6 +24,8 @@ module.exports = {
   "chat:inbox": [],
   // Designs are always on; older apps still save the old switch, which changes nothing.
   "designs:enabled:save": [p("value", b)],
+  // Every computer runs Routines; older apps still save the old switch, which changes nothing.
+  "routines:enabled:save": [p("value", b)],
   // What a restart to install an app update would stop; the desktop's updater asks (app-auto-update.cjs).
   "app-update:activity": [],
   "link:workspace-roots": [p("requested")],

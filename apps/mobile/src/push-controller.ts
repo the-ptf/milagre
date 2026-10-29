@@ -70,7 +70,6 @@ const SETTINGS_SHEET_PAGES = new Set([
   "mcp-server",
   "local-mcp",
   "experimental",
-  "privacy",
   "project-settings",
   "published-pages",
 ]);

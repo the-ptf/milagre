@@ -24,3 +24,17 @@ export function designMessageSent(chatKey: string, message: DesignMessage) {
   waiting.delete(chatKey);
   message.onSent();
 }
+
+const sendNowListeners = new Set<(chatKey: string) => void>();
+
+/** Written in the panel docked beside its Chat (an iPad), the message goes now: the Chat never left the screen to come back. */
+export function sendDesignMessageNow(chatKey: string) {
+  for (const listener of sendNowListeners) listener(chatKey);
+}
+
+export function onSendDesignMessageNow(listener: (chatKey: string) => void) {
+  sendNowListeners.add(listener);
+  return () => {
+    sendNowListeners.delete(listener);
+  };
+}
