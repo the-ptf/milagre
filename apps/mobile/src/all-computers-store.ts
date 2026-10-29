@@ -34,7 +34,8 @@ export type HostView = {
 export type CurrentHost = {
   hostId: string;
   client: StoreClient;
-  projects: RecentProject[];
+  /** Undefined until this session has read the computer's list; keep any list the sidebar already holds. */
+  projects: RecentProject[] | undefined;
   reload: () => Promise<void>;
   /** Hands the session a Project's Chat list the store just read from its own client, so opening that Project is warm. */
   seed?: (client: StoreClient, path: string, copy: ProjectCopy) => void;
@@ -562,7 +563,7 @@ export function createAllComputersStore(deps: StoreDeps) {
           if (shared) {
             existing.reload = current.reload;
             existing.seed = current.seed;
-            if (existing.projects !== current.projects || !existing.loaded) {
+            if (current.projects !== undefined && (existing.projects !== current.projects || !existing.loaded)) {
               existing.projects = current.projects;
               existing.loaded = true;
               prune(existing);
@@ -578,9 +579,13 @@ export function createAllComputersStore(deps: StoreDeps) {
         if (shared) {
           entry.reload = current.reload;
           entry.seed = current.seed;
-          entry.projects = current.projects;
-          entry.loaded = true;
-          entry.projectsAt = deps.now();
+          if (current.projects !== undefined) {
+            entry.projects = current.projects;
+            entry.loaded = true;
+            entry.projectsAt = deps.now();
+            prune(entry);
+          } else entry.projectsAt = 0;
+          entry.view = buildView(entry);
         }
         entries.set(host.id, entry);
         changed = true;

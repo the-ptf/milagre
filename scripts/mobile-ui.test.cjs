@@ -6046,6 +6046,68 @@ test("a cached Chat on another computer opens offline without borrowing the othe
   assert.equal(render().isSelected(), true);
 });
 
+test("a cached computer switch keeps sidebar rows while its Project list is pending or fails", async () => {
+  const { createAllComputersStore } = require("../apps/mobile/src/all-computers-store.ts");
+  const lists = deferred();
+  let switching = false;
+  const projects = [{ path: "/same", name: "Project" }];
+  const clients = Object.fromEntries(
+    ["one", "two"].map((url) => [
+      url,
+      {
+        url,
+        call: async () => [],
+        recentScopes: async () => (switching ? lists.promise : projects),
+        open: async (path) => ({ project: { path, state: { sessions: { 7: { id: 7, title: url } } } }, runs: { runs: {} } }),
+      },
+    ]),
+  );
+  const render = sessionHost(clients.one, { clientFactory: (host) => clients[host.address] });
+  const hosts = ["one", "two"].map((id) => ({ id, address: id, token: "token", name: id, lastUsed: 0 }));
+  const store = createAllComputersStore({
+    createClient: (host) => clients[host.id],
+    applyProjects: async (_id, value) => value,
+    now: () => 1,
+    random: () => 0.5,
+    setTimer: () => null,
+    clearTimer() {},
+  });
+  const sync = () => {
+    const session = render();
+    store.sync(hosts, {
+      hostId: session.client.url,
+      client: session.client,
+      projects: session.recentLoaded ? session.recent : undefined,
+      reload: session.reloadProjects,
+    });
+    return session;
+  };
+  await render().connect(hosts[0]);
+  await render().open("/same");
+  assert.equal(sync().recentLoaded, true);
+  await render().connect(hosts[1]);
+  await render().open("/same");
+  sync();
+  switching = true;
+  render().openCachedChat("/same", 7, hosts[0]);
+  assert.equal(sync().recentLoaded, false, "the new session has not fetched its Project list yet");
+  assert.deepEqual(
+    Array.from(store.viewOf("one").projects, (project) => project.path),
+    ["/same"],
+  );
+  lists.reject(new Error("Offline"));
+  await settle();
+  assert.equal(sync().recentLoaded, false);
+  assert.deepEqual(
+    Array.from(store.viewOf("one").projects, (project) => project.path),
+    ["/same"],
+  );
+  clients.one.recentScopes = async () => [];
+  await render().reloadProjects();
+  assert.equal(sync().recentLoaded, true, "an authoritative empty answer is loaded");
+  assert.equal(store.viewOf("one").projects.length, 0);
+});
+
 test("cached Chat revalidation cannot overwrite a later selection or a newer live snapshot", async () => {
   const update = deferred();
   let waiting = false;
