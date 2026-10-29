@@ -170,7 +170,7 @@ export function clearArchiveNotice() {
   if (activity.notice) setActivity({ notice: "" });
 }
 /** Says the archive went, as the Chat screen's toast does, for a few seconds. */
-export function showArchiveDone(done: string, ms = 3000) {
+function showArchiveDone(done: string, ms = 3000) {
   if (doneTimer) clearTimeout(doneTimer);
   setActivity({ done });
   doneTimer = setTimeout(() => {

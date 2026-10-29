@@ -110,8 +110,18 @@ async function browserChecks() {
 
     assert.equal(await evaluate(checked), "One list", "Settings › Chat starts on One list");
     assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-scope]").length`), 0, "No Project groups");
-    assert.equal(await evaluate(`document.querySelectorAll("[data-scope-toggle]").length`), 0, "No Project headers to fold");
-    assert.equal(await evaluate(`document.querySelectorAll("[data-chat-list-flat]").length`), 1, "One flat list");
+    // The Chats group (Chats without a Project) heads the list in both layouts; it isn't a Project header.
+    assert.equal(await evaluate(`document.querySelectorAll("[data-sidebar-chats]").length`), 1, "The Chats group shows above the list");
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("[data-scope-toggle]")].filter((node) => !node.closest("[data-sidebar-chats]")).length`),
+      0,
+      "No Project headers to fold",
+    );
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("[data-chat-list-flat]")].filter((node) => !node.closest("[data-sidebar-chats]")).length`),
+      1,
+      "One flat list",
+    );
 
     // Pinned Chats sit under the shared Pinned header, in their Project's slot.
     await waitFor(`document.querySelectorAll("[data-all-pinned] [data-chat-id]").length === 1`);
@@ -209,7 +219,11 @@ async function browserChecks() {
       "/work/shop",
       "/work/api",
     ]);
-    assert.equal(await evaluate(`document.querySelectorAll("[data-chat-list-flat]").length`), 0, "The flat list is gone");
+    assert.equal(
+      await evaluate(`[...document.querySelectorAll("[data-chat-list-flat]")].filter((node) => !node.closest("[data-sidebar-chats]")).length`),
+      0,
+      "The flat list is gone",
+    );
     assert.equal(await evaluate(`document.querySelectorAll("[data-chat-project]").length`), 0, "Rows no longer repeat their Project");
     assert.equal(await evaluate(`document.querySelectorAll("[data-inbox-row]").length`), 0, "Grouped rows keep their own look");
     assert.equal(JSON.parse(await evaluate(`localStorage.getItem("milagre-settings")`)).chatList, "grouped", "Grouped by Project is saved");

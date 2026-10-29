@@ -8,7 +8,7 @@ export type NewChatProject = { hostId: string; hostName: string; offline: boolea
 export type NewChatProjectGroup = NewChatProject & { computerId: string; copies: (NewChatProject & { computerId: string })[] };
 
 /** A computer a Chat without a Project can start on, and its Chats home there (made on pick when it doesn't exist yet). */
-export type NoProjectCopy = { hostId: string; hostName: string; offline: boolean; home: ChatsHome };
+type NoProjectCopy = { hostId: string; hostName: string; offline: boolean; home: ChatsHome };
 /** The picker's No project row: one for every computer, starting on `computerId` unless another is picked. */
 export type NoProjectChoice = { kind: "no-project"; name: string; computerId: string; copies: NoProjectCopy[] };
 /** One row of the new-chat picker: No project, or a Project with its copies. */
