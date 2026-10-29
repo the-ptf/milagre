@@ -21,7 +21,7 @@ import {
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Archive02Icon,
+  Delete02Icon,
   BubbleChatIcon,
   EthernetPortIcon,
   CircleDotIcon,
@@ -152,7 +152,7 @@ export type ChatRowActions = {
    * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveChoices).
    */
   gitless?: boolean;
-  /** Looks at the chat's worktree when "Archive" is clicked, to decide what the confirm step offers. */
+  /** Checks the Chat's Worktree to choose its deletion cleanup mode. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
   /** Links the chat's Worktree to a Linear issue by key. */
@@ -173,7 +173,7 @@ const NO_LINKS: LinkedEnd[] = [];
  */
 export const PullRequestOpenContext = createContext<((item: SidebarRecent, pr: PullRequest) => boolean) | null>(null);
 
-/** What the confirm step offers when nothing is known about the worktree: only hide the chat. */
+/** A pending Worktree check keeps files when the conversation is deleted. */
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
 
 const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
@@ -218,7 +218,6 @@ type MenuEntry = {
   onSelect: () => void;
   disabled?: boolean;
   danger?: boolean;
-  archiveChoice?: boolean;
 };
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
@@ -751,7 +750,7 @@ export const ChatRow = memo(function ChatRow({
             }}
             disabled={archiving}
             aria-busy={archiving || undefined}
-            aria-label={archiving ? `Archiving ${item.label}` : undefined}
+            aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
             className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-[8px] px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
               active ? "bg-hover-2" : "hover:bg-hover-2"
@@ -767,7 +766,7 @@ export const ChatRow = memo(function ChatRow({
             onClick={() => onPick(item)}
             disabled={archiving}
             aria-busy={archiving || undefined}
-            aria-label={archiving ? `Archiving ${item.label}` : undefined}
+            aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
             className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-[46px] items-start pt-1.5" : "h-8 items-center"} rounded-[8px] px-2 text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
               active ? "bg-hover-2" : "hover:bg-hover-2"
@@ -889,7 +888,7 @@ export const ChatRow = memo(function ChatRow({
           <div role="status" className="absolute inset-y-0 left-2 right-2 z-40 flex items-center justify-center">
             <span className="flex h-6 items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink shadow-card">
               <SpinnerRing size={12} />
-              {!collapsed && "Archiving..."}
+              {!collapsed && "Deleting..."}
             </span>
           </div>
         )}
@@ -1297,8 +1296,7 @@ function CardLine({ icon, children }: { icon: ReactNode; children: ReactNode }) 
 
 /* ─────────────────────────────────────────────────────────
  * ACTIONS MENU
- * From the row's ⋮ button or a right-click. Archive hides the
- * chat for good (there is no archived list), so it asks twice.
+ * From the row's ⋮ button or a right-click. Delete acts on the first click.
  * ───────────────────────────────────────────────────────── */
 /** The issue list over the menu's place, for "Link issue…". Picking an issue hands its key up and closes. */
 function LinkIssuePopover({ position, onPick, onClose }: { position: { x: number; y: number }; onPick: (issue: LinearIssue) => void; onClose: () => void }) {
@@ -1349,8 +1347,7 @@ function ChatMenu({
   actions: ChatRowActions;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [archiveArmed, setArchiveArmed] = useState(false);
-  // What the confirm step offers: null until the worktree has been looked at.
+  // A pending check never blocks deleting the conversation.
   const [plan, setPlan] = useState<ArchivePlan | null>(actions.onArchiveCheck ? null : HIDE_ONLY);
   const [top, setTop] = useState(position.y);
   const { details = {} } = item;
@@ -1360,18 +1357,16 @@ function ChatMenu({
     menuRef.current?.querySelector<HTMLElement>("[data-menu-row]")?.focus();
   }, []);
 
-  // The confirm step can add items and a line, so the height is measured again with it.
+  // Keep the menu within the window.
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
     // Opens upwards when there isn't room below.
     const height = menu.getBoundingClientRect().height;
     setTop(position.y + height > window.innerHeight - 8 ? Math.max(8, position.y - height - 8) : position.y);
-    if (archiveArmed) menu.querySelector<HTMLElement>("[data-archive-choice]:not(:disabled)")?.focus();
-  }, [position.y, archiveArmed, plan]);
+  }, [position.y, plan]);
 
-  // The worktree is checked as the menu opens, so "Archive" goes straight to its choice instead of
-  // flashing a checking row. Archive stays disabled until the check is back.
+  // Prefetch cleanup status without holding up Delete.
   useEffect(() => {
     if (!actions.onArchiveCheck || !actions.onArchive) return;
     let live = true;
@@ -1396,47 +1391,18 @@ function ChatMenu({
   const { editor } = useEditors();
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
-  // A Chat without a Project says what goes in plain words, and a clean one archives on the first click.
-  const choices = plan ? archiveChoices({ plan, running, chatsHome: actions.gitless }) : null;
-  const confirm = archiveArmed ? choices : null;
-  const archiveAtOnce = choices?.immediate && choices.choices.length === 1 ? choices.choices[0] : undefined;
-  const archiveItems: Array<MenuEntry> =
-    !confirm || !plan
-      ? [
-          {
-            key: "archive",
-            label: archiveAtOnce?.label ?? "Archive",
-            icon: Archive02Icon,
-            onSelect: archiveAtOnce && plan ? run(() => actions.onArchive?.(item.id, archiveAtOnce.mode, plan)) : () => setArchiveArmed(true),
-            disabled: !actions.onArchive || !plan,
-          },
-        ]
-      : confirm.choices.map((choice) => ({
-          key: `archive-${choice.mode}`,
-          label: choice.label,
-          icon: Archive02Icon,
-          onSelect: run(() => actions.onArchive?.(item.id, choice.mode, plan)),
-          danger: choice.tone === "danger",
-          archiveChoice: true,
-        }));
-
-  // Enter confirms the armed archive wherever focus is, since a mouse click on "Archive" leaves it on the page.
-  // A row focused with the arrow keys keeps Enter for itself.
-  const firstArchiveItem = archiveItems[0];
-  const confirmEntry = archiveItems.length === 1 && firstArchiveItem?.archiveChoice && !firstArchiveItem.disabled ? firstArchiveItem : null;
-  useEffect(() => {
-    if (!confirmEntry) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || event.isComposing) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (active?.matches("[data-menu-row]") && !active.matches("[data-archive-choice]")) return;
-      event.preventDefault();
-      event.stopPropagation();
-      confirmEntry.onSelect();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [confirmEntry]);
+  const deletionPlan = plan ?? HIDE_ONLY;
+  const choice = archiveChoices({ plan: deletionPlan, running, chatsHome: actions.gitless }).choices[0]!;
+  const archiveItems: MenuEntry[] = [
+    {
+      key: "archive",
+      label: "Delete",
+      icon: Delete02Icon,
+      danger: true,
+      onSelect: run(() => actions.onArchive?.(item.id, choice.mode, deletionPlan)),
+      disabled: !actions.onArchive,
+    },
+  ];
 
   const items: Array<MenuEntry | "divider"> = [
     ...(actions.gitless
@@ -1555,38 +1521,34 @@ function ChatMenu({
       aria-label={`Actions for ${item.label}`}
       data-chat-menu
       onKeyDown={moveFocus}
-      className="fixed z-[70] rounded-[12px] bg-surface p-1.5 shadow-overlay"
+      className="fixed z-[70] flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-[12px] bg-surface p-1.5 shadow-overlay"
       style={{ top, left: position.x, width: MENU_WIDTH, animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
     >
-      <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
-        {items.map((entry, index) =>
-          entry === "divider" ? (
-            <div key={`divider-${index}`} className="my-1 h-px bg-line" />
-          ) : (
-            <button
-              key={entry.key}
-              data-menu-row
-              role="menuitem"
-              type="button"
-              disabled={entry.disabled}
-              title={entry.hint}
-              onClick={entry.onSelect}
-              {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
-              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red-ink" : "text-ink"}`}
-            >
-              <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-                {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
-              </span>
-              <span className={`min-w-0 flex-1 text-[13px] ${entry.archiveChoice ? "leading-snug" : "truncate"}`}>{entry.label}</span>
-            </button>
-          ),
-        )}
-      </GlideMenu>
-      {confirm?.reason && (
-        <p data-archive-reason className="px-2 pb-1 pt-1.5 text-[12px] leading-snug text-ink-3">
-          {confirm.reason}
-        </p>
-      )}
+      <ScrollArea className="min-h-0">
+        <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
+          {items.map((entry, index) =>
+            entry === "divider" ? (
+              <div key={`divider-${index}`} className="my-1 h-px bg-line" />
+            ) : (
+              <button
+                key={entry.key}
+                data-menu-row
+                role="menuitem"
+                type="button"
+                disabled={entry.disabled}
+                title={entry.hint}
+                onClick={entry.onSelect}
+                className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 h-8 ${entry.danger ? "text-red-ink" : "text-ink"}`}
+              >
+                <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
+                  {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px]">{entry.label}</span>
+              </button>
+            ),
+          )}
+        </GlideMenu>
+      </ScrollArea>
     </div>,
     document.body,
   );

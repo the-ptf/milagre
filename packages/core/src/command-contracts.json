@@ -2549,6 +2549,24 @@
         }
       ]
     },
+    "chat:delete": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
     "chat:archive-subagent": {
       "parameters": [
         {
@@ -7062,11 +7080,11 @@
           "$ref": "#/$defs/T171",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2221": {
+        "__@toStringTag@2228": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2221"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2228"],
       "additionalProperties": false
     },
     "T168": {

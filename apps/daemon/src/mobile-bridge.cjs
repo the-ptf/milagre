@@ -172,6 +172,7 @@ const METHODS = new Set([
   "agent:update-cli",
   "scope:retry-save",
   "chat:patch",
+  "chat:delete",
   "chat:archive-subagent",
   "chat:archive-finished-subagents",
   // One subagent whole: the phone gets only the end of each transcript, and its subagent detail reads the rest.

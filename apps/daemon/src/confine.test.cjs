@@ -126,6 +126,7 @@ const callsAt = (target, demo) => [
   ],
   ["chat:resume", [target, 1]],
   ["chat:patch", [target, 1, { title: "Renamed" }]],
+  ["chat:delete", [target, 1]],
   ["chat:archive-subagent", [target, 1, "child", true]],
   ["chat:archive-finished-subagents", [target, 1]],
   ["agent:interrupt", [`${target}#1`]],

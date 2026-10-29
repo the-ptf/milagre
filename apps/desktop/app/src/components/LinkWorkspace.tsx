@@ -108,6 +108,7 @@ export function LinkWorkspace({
   onNewChat,
   archivingChats,
   onArchiving,
+  scopeChatActions,
 }: {
   opened: OpenLink;
   state: LinkState;
@@ -141,6 +142,7 @@ export function LinkWorkspace({
   archivingChats?: ReadonlySet<string>;
   /** A Chat's archive started; its row comes back if `work` fails. */
   onArchiving?: (key: string, work: Promise<unknown>) => void;
+  scopeChatActions?: ComponentProps<typeof SidebarNav>["scopeChatActions"];
 }) {
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
@@ -565,6 +567,7 @@ export function LinkWorkspace({
           <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden text-ink">
             <div className="flex min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
               <SidebarNav
+                scopeChatActions={scopeChatActions}
                 fill
                 attentionPaths={attentionPaths}
                 workspaceName={opened.link.name}
@@ -634,7 +637,7 @@ export function LinkWorkspace({
                     const work = archiveLinkChat({
                       running: Boolean(agents.runs[key]),
                       stop: () => agents.interrupt(key),
-                      hide: () => bridge.patchChat(owner, chat, { archived: true }),
+                      hide: () => bridge.deleteChat(owner, chat),
                     });
                     onArchiving?.(key, work);
                     void work.catch((error) => setError(ipcErrorMessage(error)));

@@ -874,7 +874,7 @@ const NavigationBody = memo(function NavigationBody({
     }
     const archiveKey = `${hostId}|${projectPath}#${chat.id}`;
     if (archiveRequests.has(archiveKey)) return;
-    if (action === "archive" && !chat.archived) archiveRequests.add(archiveKey);
+    if (action === "archive") archiveRequests.add(archiveKey);
     let confirmed = false;
     setError("");
     clearArchiveNotice();
@@ -900,7 +900,7 @@ const NavigationBody = memo(function NavigationBody({
         notify: showArchiveNotice,
       });
     } catch (e) {
-      if (confirmed) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (confirmed) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else if (alive.current) setError((e as Error).message);
     } finally {
       archiveRequests.delete(archiveKey);

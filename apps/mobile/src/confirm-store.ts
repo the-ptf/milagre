@@ -1,4 +1,5 @@
-import type { AlertButton, ShowAlert } from "./archive";
+type AlertButton = { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void };
+type ShowAlert = (title: string, message: string | undefined, buttons: AlertButton[], options?: { cancelable?: boolean; onDismiss?: () => void }) => void;
 
 /** A question shown in the confirmation sheet; `choose` runs once, with the button picked or null when dismissed. */
 type Confirmation = { title: string; message?: string; buttons: AlertButton[]; choose: (index: number | null) => void };

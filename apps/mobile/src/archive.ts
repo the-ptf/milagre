@@ -1,38 +1,13 @@
 import { readWithTimeout } from "@milagre/shared/read-timeout";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { TerminalList } from "@milagre/shared/terminal";
-import {
-  archiveChat,
-  archiveChoices,
-  archivedNotice,
-  isMilagreWorktree,
-  worktreeShared,
-  type ArchiveMode,
-  type ArchivePlan,
-  type WorktreeStatus,
-} from "@milagre/shared/archive";
+import { archiveChat, archiveChoices, archivedNotice, isMilagreWorktree, worktreeShared, type ArchivePlan, type WorktreeStatus } from "@milagre/shared/archive";
 
 /** What archiving needs from the connection to the Mac. */
 export type ArchiveClient = {
   call<T>(method: string, args?: unknown[]): Promise<T>;
   snapshot(projectPath: string): Promise<{ project: { state: CoordinatorState }; runs: { runs: Record<string, unknown> } }>;
 };
-export type AlertButton = { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void };
-/** React Native's Alert.alert, passed in so the dialog can be tested. */
-export type ShowAlert = (
-  title: string,
-  message: string | undefined,
-  buttons: AlertButton[],
-  options?: { cancelable?: boolean; onDismiss?: () => void },
-) => void;
-/** `immediate`: the one choice needs no asking (a clean Chat without a Project), so the archive goes ahead at once. */
-export type ArchiveDialog = {
-  title: string;
-  message?: string;
-  choices: { mode: ArchiveMode; text: string; style: "default" | "destructive" }[];
-  immediate?: boolean;
-};
-
 // A worktree that can't be checked only hides the Chat, as on desktop.
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
 // What the bridge answers for a method its daemon doesn't list: a Mac older than this check.
@@ -40,7 +15,7 @@ const OLD_DAEMON = /not available from mobile/i;
 const fromOldDaemon = (error: unknown) => OLD_DAEMON.test((error as Error)?.message ?? "");
 
 /**
- * What the confirm step offers for one Chat, as desktop's menu works it out: whether Milagre made its worktree, whether
+ * The cleanup plan for one Chat, as desktop works it out: whether Milagre made its worktree, whether
  * another Chat uses it, what removing it would lose, and what its Terminals run that archiving would end. `null` when the
  * Mac's daemon has no such check yet, so the phone archives as it did before: hide only.
  */
@@ -80,40 +55,8 @@ async function worktreePlan(client: ArchiveClient, state: CoordinatorState, sess
   }
 }
 
-/**
- * The native confirm: desktop's choices for the plan, the danger one destructive, and what would be lost as the message.
- * `chatsHome`: a Chat without a Project, in desktop's plain words; a clean one is archived without asking.
- */
-export function archiveDialog(plan: ArchivePlan | null, running: boolean, chatsHome = false): ArchiveDialog {
-  const title = "Archive this Chat?";
-  if (!plan) return { title, choices: [{ mode: "hide", text: running ? "Stop and archive" : "Archive", style: "destructive" }] };
-  const { choices, reason, immediate } = archiveChoices({ plan, running, chatsHome });
-  return {
-    title,
-    ...(reason ? { message: reason } : {}),
-    choices: choices.map((choice) => ({ mode: choice.mode, text: choice.label, style: choice.tone === "danger" ? "destructive" : "default" })),
-    ...(immediate && choices.length === 1 ? { immediate: true } : {}),
-  };
-}
-
-/** Shows the dialog; resolves to the chosen mode, or null for Cancel (or a dismissed alert on Android). */
-export function confirmArchive(alert: ShowAlert, dialog: ArchiveDialog): Promise<ArchiveMode | null> {
-  return new Promise((resolve) => {
-    alert(
-      dialog.title,
-      dialog.message,
-      [
-        { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
-        ...dialog.choices.map((choice) => ({ text: choice.text, style: choice.style, onPress: () => resolve(choice.mode) })),
-      ],
-      { cancelable: true, onDismiss: () => resolve(null) },
-    );
-  });
-}
-
 export type ArchiveRequest = {
   client: ArchiveClient;
-  alert: ShowAlert;
   projectPath: string;
   state: CoordinatorState;
   chat: AgentSession;
@@ -122,7 +65,7 @@ export type ArchiveRequest = {
   running: boolean;
   /** The Chat has no Project (its Project is a Chats home): plain words, and a clean one archives without asking. */
   chatsHome?: boolean;
-  /** Called once the Chat is confirmed, before anything changes (the Chat screen marks itself busy). */
+  /** Called as soon as deletion begins (the Chat screen leaves or marks itself busy). */
   onConfirm?: () => void;
   notify: (message: string) => void;
   refresh: () => Promise<unknown>;
@@ -132,7 +75,7 @@ export type ArchiveRequest = {
 const archiving = new Set<string>();
 
 /**
- * Chats whose archive was confirmed and is still running, by `projectPath#id`, and the last notice an archive left. An
+ * Chats whose deletion is still running, by `projectPath#id`, and the last notice an archive left. An
  * archive outlives the screen it started on, so the Chat list reads both here: the Chat's row shows the progress
  * wherever it is listed, and the notice shows once the phone has moved on.
  */
@@ -154,7 +97,7 @@ export function subscribeArchiveActivity(listener: () => void) {
     listeners.delete(listener);
   };
 }
-/** Marks a confirmed Chat as archiving; the returned function marks it done. A new archive clears an old notice. */
+/** Marks a Chat as deleting; the returned function marks it done. A new archive clears an old notice. */
 export function startArchiving(chatId: string) {
   setActivity({ chats: new Set(activity.chats).add(chatId), notice: "", done: "" });
   return () => {
@@ -182,7 +125,7 @@ function showArchiveDone(done: string, ms = 3000) {
 }
 
 /**
- * Archive from the phone: check the worktree, confirm natively, then desktop's archive steps with the phone's means:
+ * Delete from the phone immediately, using desktop's checked cleanup steps:
  * stop the turn if one runs now, hide the Chat, remove the worktree when the choice asks (the daemon closes the agent
  * and checks again), bring the Chat back with a notice when it stays, and read the Project again. A removed worktree's
  * Chats leave the Project's state on the Mac, so the refresh drops them here too.
@@ -194,12 +137,10 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
   archiving.add(chatId);
   let done = () => {};
   try {
-    const plan = await checkArchive(client, request.state, chat.id, chatId);
-    const dialog = archiveDialog(plan, request.running, request.chatsHome);
-    const mode = dialog.immediate ? dialog.choices[0]!.mode : await confirmArchive(request.alert, dialog);
-    if (!mode) return "cancelled";
     done = startArchiving(chatId);
     request.onConfirm?.();
+    const plan = await checkArchive(client, request.state, chat.id, chatId);
+    const mode = archiveChoices({ plan: plan ?? HIDE_ONLY, running: request.running, chatsHome: request.chatsHome }).choices[0]!.mode;
     // The Project as it is now: whether a turn runs in the Chat, read when the archive runs as desktop does, and
     // whether another Chat took up the worktree since the check.
     const now = await client.snapshot(projectPath).catch(() => null);
@@ -214,6 +155,7 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
           currentProjectPath: () => projectPath,
           stop: () => (running ? client.call("agent:interrupt", [chatId]).catch(() => {}) : undefined),
           hide: () => client.call("chat:patch", [projectPath, chat.id, { archived: true, unread: false }]),
+          destroy: () => client.call("chat:delete", [projectPath, chat.id]),
           restore: () => client.call("chat:patch", [projectPath, chat.id, { archived: false }]),
           remove: (worktree, options) => removeOrFindGone(client, projectPath, worktree.path, options),
           // The refresh below brings the Project as the Mac has it now, without the removed worktree and its Chats.

@@ -112,7 +112,6 @@ import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
-import { confirmSheet } from "../confirm-store";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
 import { useChatPage } from "../chat-pages";
@@ -1555,7 +1554,6 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
-    else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
   // Archive asks first, as desktop does, with what removing the worktree would lose; a running turn is stopped. Once
@@ -1594,7 +1592,6 @@ function ChatPane({
       else
         await archiveFromPhone({
           client,
-          alert: confirmSheet,
           projectPath: project.path,
           state: project.state,
           chat: target,
@@ -1608,7 +1605,7 @@ function ChatPane({
           refresh,
         });
     } catch (e) {
-      if (left) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (left) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else setError((e as Error).message);
     } finally {
       archiveRequest.current = false;
@@ -1790,8 +1787,8 @@ function ChatPane({
                   Link issue…
                 </Stack.Toolbar.MenuAction>
               ))}
-            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "archivebox"} disabled={busy} onPress={() => headerAction("archive")}>
-              {chat.archived ? "Restore" : "Archive"}
+            <Stack.Toolbar.MenuAction icon="trash" disabled={busy} onPress={() => headerAction("archive")}>
+              Delete
             </Stack.Toolbar.MenuAction>
           </Stack.Toolbar.Menu>
         )}
@@ -1832,8 +1829,9 @@ function ChatPane({
                 : []),
               {
                 id: "archive",
-                title: chat.archived ? "Restore" : "Archive",
-                systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox",
+                title: "Delete",
+                systemImage: "trash",
+                destructive: true,
                 disabled: busy,
               },
             ],

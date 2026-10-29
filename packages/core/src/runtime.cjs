@@ -74,7 +74,7 @@ const { isIssueKey } = require("./linear/links.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { archiveFinishedSubagents, archiveSubagent, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
+const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
@@ -1709,6 +1709,16 @@ function createRuntime(options) {
     await patchChat(projectPath, sessionId, patch);
     if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
+  });
+  commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
+    const chatId = `${projectPath}#${sessionId}`;
+    await existingChat("deleting it")(chatId);
+    await stopChatWork(chatId);
+    await worktreeSetups.cancel(chatId);
+    await agents.closeChat(chatId);
+    await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
+    await artifacts.removeChat(chatId).catch(() => {});
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>

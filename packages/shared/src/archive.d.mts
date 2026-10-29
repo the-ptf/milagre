@@ -25,6 +25,8 @@ export type ArchiveDeps = {
   stop: () => Promise<unknown> | undefined;
   /** Hides the chat (and leaves it if it is open). */
   hide: () => void | Promise<unknown>;
+  /** Permanently removes the conversation when its Worktree is kept. */
+  destroy: () => void | Promise<unknown>;
   /** Brings the chat back after `hide`, because its worktree is staying. */
   restore: () => void | Promise<unknown>;
   /** Removes the worktree; the daemon closes the chat's agent and checks again against `seen`. */
@@ -41,7 +43,7 @@ export function worktreeShared(state: CoordinatorState, sessionId: number): bool
 export function lossReason(status: WorktreeStatus): string;
 export function deleteNote(status: WorktreeStatus): string;
 export function homeLossReason(status: WorktreeStatus): string;
-/** `chatsHome`: a Chat without a Project, in plain words. `immediate`: the one choice needs no confirm step. */
+/** The cleanup mode for immediate deletion. No confirmation or explanatory text is shown. */
 export function archiveChoices(options: { plan: ArchivePlan; running: boolean; chatsHome?: boolean }): {
   choices: ArchiveChoice[];
   reason: string | null;
