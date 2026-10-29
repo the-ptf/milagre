@@ -150,6 +150,9 @@ function issueRunDivider(message: ChatMessage, merged?: { count: number; last: R
   return run ? <RoutineRunDivider context={run} merged={merged} /> : null;
 }
 
+/** Below this, the new-Chat tray's Linear chip shows only its logo so the row fits on one line (a phone; an iPad keeps the label). */
+const COMPACT_TRAY_ROW_WIDTH = 460;
+
 /** A row's id: two workspaces can both have an ENG-1. A Mac that predates workspaces sends the key alone. */
 const issueChoiceId = (issue: LinearIssue) => (issue.workspace ? `${issue.workspace}:${issue.key}` : issue.key);
 /** The choice sheet's rows for a list of Linear issues. */
@@ -353,6 +356,8 @@ function ChatPane({
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSends = useRef(createResendMemory());
   const [picking, setPicking] = useState(false);
+  // The new-Chat tray row's width: 0 until it is laid out, which keeps the Linear chip compact on a phone from the start.
+  const [trayRowWidth, setTrayRowWidth] = useState(0);
   const [dockHeight, setDockHeight] = useState(140);
   // The Chat whose Terminals are docked below it (an iPad); another Chat in this pane starts without them.
   const [terminalFor, setTerminalFor] = useState<string | null>(null);
@@ -2366,10 +2371,15 @@ function ChatPane({
                             </View>
                           ) : (
                             startTray && (
-                              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                              // One row, never wrapped: the computer and branch names truncate, and the Linear chip drops its label when the row is narrow.
+                              <View
+                                style={{ flexDirection: "row", alignItems: "center" }}
+                                onLayout={(event) => setTrayRowWidth(event.nativeEvent.layout.width)}
+                              >
                                 {onSeveralComputers && (
                                   <PullDown
                                     label="Choose computer"
+                                    style={{ flexShrink: 1 }}
                                     nativeTrigger={{
                                       title: computerName,
                                       systemImage: "desktopcomputer",
@@ -2401,6 +2411,7 @@ function ChatPane({
                                     <View
                                       style={{
                                         maxWidth: 140,
+                                        flexShrink: 1,
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
@@ -2454,6 +2465,7 @@ function ChatPane({
                                 >
                                   <View
                                     style={{
+                                      flexShrink: 1,
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
@@ -2463,12 +2475,15 @@ function ChatPane({
                                     }}
                                   >
                                     <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
-                                    <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
+                                    <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
+                                      {isolation === "local" ? "Local" : "New worktree"}
+                                    </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
                                 </PullDown>
                                 <PullDown
                                   label="Choose branch"
+                                  style={{ flexShrink: 1 }}
                                   searchable={{
                                     placeholder: newWorktree ? "Search branches" : "Search worktrees",
                                     emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
@@ -2505,6 +2520,7 @@ function ChatPane({
                                   <View
                                     style={{
                                       maxWidth: 180,
+                                      flexShrink: 1,
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
@@ -2536,7 +2552,7 @@ function ChatPane({
                                     })}
                                   >
                                     <LinearLogo size={13} />
-                                    <Text style={styles.label}>Linear issue</Text>
+                                    {trayRowWidth >= COMPACT_TRAY_ROW_WIDTH && <Text style={styles.label}>Linear issue</Text>}
                                   </Pressable>
                                 )}
                               </View>
