@@ -423,7 +423,7 @@ async function browserChecks() {
     const updateButton = `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Update branch')`;
     await evaluate('window.setPrAction({ label: "Update branch", tone: "orange" })');
     await waitFor(`!!(${updateButton})`);
-    assert.ok(await evaluate(`(${updateButton}).className.includes("text-orange")`), "An outdated branch uses the orange pill");
+    assert.ok(await evaluate(`(${updateButton}).className.includes("text-orange-ink")`), "An outdated branch uses the orange pill");
     await evaluate(`(${updateButton}).click()`);
     assert.equal(await evaluate("window.resolveClicks"), 2);
     await delay(250);
