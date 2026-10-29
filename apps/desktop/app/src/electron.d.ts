@@ -282,6 +282,7 @@ export type MilagreBridge = {
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
   browsers: BrowserApi;
+  pageComments: import("@milagre/shared/page-comments").PageCommentsApi;
   terminals: TerminalApi;
   /** A Chat's Terminals opened, closed or changed what they run. */
   onTerminalsChanged: (callback: (payload: { chatId: string }) => void) => () => void;
@@ -794,6 +795,8 @@ declare global {
       onOpenTab: (callback: (request: { from: number; url: string }) => void) => () => void;
       /** ⌘L, ⌘R or ⌘W pressed inside the page with webContents id `from`. */
       onKey: (callback: (request: { from: number; key: "l" | "r" | "w" }) => void) => () => void;
+      /** A PNG data URL of part of the page with webContents id `contentsId`, in its CSS pixels; null if it is gone. */
+      capture: (contentsId: number, rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>;
     };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */

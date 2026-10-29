@@ -72,6 +72,10 @@ function makeBridge(invoke, listen, send) {
       repair: (request) => invoke("simulator:repair", request),
       close: (request) => invoke("simulator:close", request),
     },
+    pageComments: {
+      add: (request) => invoke("browser-comments:add", request),
+      list: (request) => invoke("browser-comments:list", request),
+    },
     browsers: {
       list: (request) => invoke("browser:list", request),
       attach: (request) => invoke("browser:attach", request),
@@ -541,6 +545,8 @@ contextBridge.exposeInMainWorld("milagreBrowserPanel", {
   partition: "persist:milagre-browser",
   onOpenTab: (callback) => listenHere("browser-panel:open-tab", callback),
   onKey: (callback) => listenHere("browser-panel:key", callback),
+  /** @param {number} contentsId @param {{ x: number; y: number; width: number; height: number }} rect */
+  capture: (contentsId, rect) => ipcRenderer.invoke("browser-panel:capture", contentsId, rect),
 });
 
 // Kept local to this window, independent of the selected computer or agent host.

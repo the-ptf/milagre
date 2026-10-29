@@ -212,9 +212,20 @@ async function browserChecks() {
     }
     await evaluate(`document.querySelector("${pill}").click()`);
     await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
+    // A port row opens in the Chat's Browser panel; ⌘-click opens it in the user's browser instead.
     await evaluate('document.querySelector("[data-port-row] a").click()');
+    await waitFor('document.querySelector("[data-slot=browser-address]")?.value === "http://localhost:5173"');
+    assert.deepEqual(opened, [], "A port row opens in the Browser panel, not outside");
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
+    await evaluate("document.querySelector(\"[aria-label='Hide browser']\").click()");
+    await waitFor('!document.querySelector("[data-slot=browser-dock]")');
+    await evaluate(`document.querySelector("${pill}").click()`);
+    await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');
+    await evaluate(
+      'document.querySelector("[data-port-row] a").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true, ctrlKey: true }))',
+    );
     await delay(100);
-    assert.deepEqual(opened, ["http://localhost:5173/"], "A port row opens in the browser");
+    assert.deepEqual(opened, ["http://localhost:5173/"], "A ⌘-clicked port row opens in the browser");
     window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
 

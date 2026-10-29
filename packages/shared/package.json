@@ -399,6 +399,11 @@
     "./project-origin": {
       "types": "./src/project-origin.d.mts",
       "default": "./src/project-origin.mjs"
+    },
+    "./page-comments": "./src/page-comments.ts",
+    "./page-picker": {
+      "types": "./src/page-picker.d.mts",
+      "default": "./src/page-picker.mjs"
     }
   },
   "scripts": {

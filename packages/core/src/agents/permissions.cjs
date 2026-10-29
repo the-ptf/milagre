@@ -201,7 +201,7 @@ function codexMcpRequest(id, params) {
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
 const SELF_GATED_TOOLS = ["project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"];
 // Like the plan tools, these only write the Chat's own canvas, page or Negotiation (design_delete stays gated).
-const OWN_CHAT_TOOLS = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "conclude_negotiation"];
+const OWN_CHAT_TOOLS = ["design_show", "design_apply", "artifact_show", "artifact_resolve_comment", "browser_resolve_comment", "conclude_negotiation"];
 const ROUTINE_READS = ROUTINE_TOOL_NAMES.filter((name) => name === "routine_list");
 const PLAN_TOOLS = new Set([...PLAN_TOOL_NAMES, ...ROUTINE_READS, ...SELF_GATED_TOOLS, ...OWN_CHAT_TOOLS]);
 
@@ -220,7 +220,15 @@ const isUngatedMilagreTool = (definition) => definition.readOnly === true || PLA
  * tools alone, so every other one (Routine writes, Delegations, Worktree Links, other Chats, Linear writes…) is withheld
  * there, and so is any milagre write tool added later until it is listed here.
  */
-const BOT_RULES_TOOLS = new Set([...PLAN_TOOL_NAMES, "design_show", "design_apply", "artifact_show", "artifact_resolve_comment", ...BOT_TOOL_NAMES]);
+const BOT_RULES_TOOLS = new Set([
+  ...PLAN_TOOL_NAMES,
+  "design_show",
+  "design_apply",
+  "artifact_show",
+  "artifact_resolve_comment",
+  "browser_resolve_comment",
+  ...BOT_TOOL_NAMES,
+]);
 const isBotRulesTool = (definition) => definition.readOnly === true || BOT_RULES_TOOLS.has(definition.name);
 
 /**
