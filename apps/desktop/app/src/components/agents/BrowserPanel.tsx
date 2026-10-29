@@ -30,7 +30,7 @@ import { portUrl } from "../../lib/ports";
 import { CommentControls, PageCommenting, useSentPageComments, type SendPageComments } from "./BrowserComments";
 
 /** Sent with a Chat key when ⌘L is pressed in one of its pages: its address bar takes the focus. */
-export const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
+const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
 
 /** Keeps every Chat's pages in line with its tabs, and takes main's page events. Mounted once, beside the app. */
 export function BrowserPages() {
