@@ -1,5 +1,12 @@
 import type { AgentSession, LinkChatSession, ChatContext, ChatMessage, CoordinatorState, ImageAttachment, ModelProvider } from "./model.ts";
-export { pullRequestRefs, pullRequestRefsCache, chatPullRequests, createdPullRequestUrl, type PullRequestRef } from "./chat-pull-requests.mjs";
+export {
+  pullRequestRefs,
+  pullRequestRefsCache,
+  chatPullRequests,
+  createdPullRequestUrl,
+  associatedPullRequest,
+  type PullRequestRef,
+} from "./chat-pull-requests.mjs";
 
 export function chatMarkTone(
   mark: "question" | "waiting" | "delegated" | "interrupted" | "running" | "background" | "failed" | "unread" | "idle",

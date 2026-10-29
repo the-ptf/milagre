@@ -29,7 +29,16 @@ import {
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
-import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs, withPreview } from "@milagre/shared/chats";
+import {
+  associatedPullRequest,
+  chatPullRequests,
+  chatTitle,
+  createPendingChat,
+  createResendMemory,
+  pendingChatSessionId,
+  pullRequestRefs,
+  withPreview,
+} from "@milagre/shared/chats";
 import { runStatusLabel, sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -41,7 +50,7 @@ import { pullRequestAction, pullRequestBlockers, pullRequestPresentation, rowPul
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
-import { ReachableHostContext } from "../reachable-host";
+import { ChatLinkProvider } from "../chat-link-context";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
@@ -1005,16 +1014,21 @@ function ChatPane({
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
-  function openPr(number = pr?.number, page?: "threads") {
-    if (!number || !params.id || !worktree) return;
+  function openPr(number = pr?.number, page?: "threads", memberCwd?: string) {
+    if (!number || !params.id || !worktree) return false;
     // A Link Chat's PR is read in the Project it came from.
-    const cwd = project.link ? prChoices.find((choice) => choice.number === number)?.cwd : undefined;
-    if (project.link && !cwd) return;
+    const cwd = project.link ? (memberCwd ?? prChoices.find((choice) => choice.number === number)?.cwd) : undefined;
+    if (project.link && !cwd) return false;
     const route = { worktreeId: String(worktreeId), number: String(number), chat: chatId, ...(cwd ? { cwd } : {}) };
     // The right panel shows the routed Chat's PR; the Chat beside it opens the PR sheet.
     if (widthClass(window.width) !== "compact" && !secondary) panels.showPullRequest(prChoiceKey({ number, cwd }));
     else if (page) openPrPage(page, route);
     else openPullRequest(route);
+    return true;
+  }
+  function openChatLink(url: string) {
+    const entry = associatedPullRequest(url, rowPrs);
+    return entry ? openPr(entry.number, undefined, placeOf(entry)?.cwd) : false;
   }
   prChat.current = {
     send: (body) => send(body, false),
@@ -1911,7 +1925,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ReachableHostContext value={reachable}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
@@ -2807,7 +2821,7 @@ function ChatPane({
             <PlanPanel panel={planPanel} />
           </View>
         </PanelTabsContext>
-      </ReachableHostContext>
+      </ChatLinkProvider>
     </GenerativeUIProvider>
   );
 }

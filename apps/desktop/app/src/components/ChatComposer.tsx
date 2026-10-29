@@ -766,6 +766,8 @@ interface ChatComposerProps {
   onSendPageComments?: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   /** Opens a file's diff in the Changes panel, from the undo preview. */
   onOpenDiff?: (path: string, worktree: string) => void;
+  /** Opens an associated PR in this Chat's Git panel; false leaves normal link handling in place. */
+  onOpenPullRequestLink?: (url: string) => boolean;
   /** A Link's or a bot's Chat starts without the new-chat header. */
   scopeKind?: "project" | "link" | "bot";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
@@ -1274,6 +1276,7 @@ export function ChatComposer({
   onSendDesignMessage,
   onSendPageComments,
   onOpenDiff,
+  onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const chatWidth = useSettings().appearance.chatWidth;
@@ -1314,8 +1317,8 @@ export function ChatComposer({
   // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
-  // The Browser panel opens pages on this Mac, so it is offered for this Mac's Chats only.
-  const browserChat = !isNewChat && runtimeChat && !isRemoteKey(runtimeChat) ? runtimeChat : null;
+  // Pages open on the viewing Mac, including pages linked from a Chat on another computer.
+  const browserChat = !isNewChat ? runtimeChat : null;
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
@@ -1452,6 +1455,15 @@ export function ChatComposer({
     >
       <div
         ref={root}
+        onClickCapture={(event) => {
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+          const href = anchor?.getAttribute("href");
+          if (href && onOpenPullRequestLink?.(href)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
         className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
