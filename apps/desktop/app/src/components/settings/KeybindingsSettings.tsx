@@ -27,6 +27,8 @@ import { isMac } from "../../lib/shortcut-hints";
 import { Select } from "../primitives/Select";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import Tooltip from "../primitives/Tooltip";
+import { Switch } from "../primitives/Switch";
+import { Group, Row } from "./SettingsGroup";
 
 // Settings › Keybindings, as T3 Code has it: the rules of a computer's keybindings.json, edited on one computer or on all
 // of them at once. A key is recorded by pressing it; one another command already has asks before taking it over.
@@ -35,6 +37,8 @@ type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 const Icon = ({ icon, size = 15 }: { icon: IconData; size?: number }) => <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
 
 const ALL = "all";
+/** This window's Advanced switch: conditions (`when`) are edited only while it is on. */
+const ADVANCED_KEY = "milagre.keybindings.advanced";
 const GROUPS = ["General", "Navigation", "Chat", "Panels"] as const;
 type Edit = Array<{ command: KeybindingCommandId; rules: Array<{ key: string; when?: string }> }>;
 /** The key being recorded: a rule of a command, or a new one (`index` -1). */
@@ -82,6 +86,11 @@ export function KeybindingsSettings() {
   const nameOf = (id: string) => (id === LOCAL_COMPUTER ? thisMac : (computers.find((computer) => computer.id === id)?.name ?? "Computer"));
 
   const [query, setQuery] = useState("");
+  const [advanced, setAdvancedState] = useState(() => localStorage.getItem(ADVANCED_KEY) === "1");
+  const setAdvanced = (on: boolean) => {
+    setAdvancedState(on);
+    localStorage.setItem(ADVANCED_KEY, on ? "1" : "0");
+  };
   const [recording, setRecording] = useState<Recording | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
@@ -295,6 +304,7 @@ export function KeybindingsSettings() {
                   command={command}
                   rules={own(rules, command.id)}
                   customized={state ? !isDefault(rules, command.id) : false}
+                  advanced={advanced}
                   recording={recording?.command === command.id ? recording.index : null}
                   pending={pending?.command === command.id ? pending : null}
                   onRecord={(index) => {
@@ -313,6 +323,12 @@ export function KeybindingsSettings() {
         );
       })}
       {shown.length === 0 && <p className="mt-6 px-1 text-[13px] text-ink-3">No keybindings match “{query}”.</p>}
+
+      <Group title="Advanced">
+        <Row label="Conditions" description="Adds When to each keybinding, to run a key only in some places (for example not in a Terminal).">
+          <Switch label="Conditions" checked={advanced} onChange={setAdvanced} />
+        </Row>
+      </Group>
 
       <div className="mt-6 flex items-center justify-end gap-3 px-1 text-[12px]">
         {confirmReset ? (
@@ -350,6 +366,7 @@ function CommandRow({
   command,
   rules,
   customized,
+  advanced,
   recording,
   pending,
   onRecord,
@@ -362,6 +379,8 @@ function CommandRow({
   command: KeybindingCommand;
   rules: Array<{ key: string; when?: string }>;
   customized: boolean;
+  /** Settings' Advanced switch: shows When and the condition fields. */
+  advanced: boolean;
   /** The rule being recorded, -1 for a new one; null while none is. */
   recording: number | null;
   pending: Pending | null;
@@ -414,7 +433,7 @@ function CommandRow({
               </button>
             </Tooltip>
           )}
-          {rules.length > 0 && (
+          {advanced && rules.length > 0 && (
             <button
               type="button"
               data-keybinding-conditions
@@ -457,7 +476,7 @@ function CommandRow({
           </span>
         </div>
       )}
-      {editing && rules.length > 0 && (
+      {advanced && editing && rules.length > 0 && (
         <div className="mt-2 grid gap-1.5">
           {rules.map((rule, index) => (
             <WhenField key={`${rule.key}|${rule.when ?? ""}`} rule={rule} onChange={(when) => onWhen(index, when)} />
