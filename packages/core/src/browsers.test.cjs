@@ -77,6 +77,21 @@ function fixture(t, options = {}) {
       channels.push(channel);
       return channel;
     },
+    sessions: [],
+    async session(browser, pageId) {
+      const session = {
+        browser,
+        pageId,
+        closed: false,
+        on: () => () => {},
+        send: async () => ({}),
+        close() {
+          this.closed = true;
+        },
+      };
+      this.sessions.push(session);
+      return session;
+    },
     async stop() {
       this.stopped = true;
     },
@@ -460,4 +475,27 @@ test("Browser panel pages must name a loopback endpoint's token path, page ids a
   await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ ...page, id: "nope" }] }, "desktop-1"), /page/);
   await assert.rejects(f.service.setPanelPages({ port: 51234, prefix: `/${"f".repeat(48)}`, pages: [{ ...page, chatId: "" }] }, "desktop-1"), /Chat/);
   await assert.rejects(f.service.setPanelPages({ pages: [] }, ""), /desktop connection/);
+});
+
+test("the agent's DevTools session acts on the Chat's newest panel page, is reused, and ends when the page leaves", async (t) => {
+  const f = fixture(t);
+  const prefix = `/${"f".repeat(48)}`;
+  const panel = (pages) => f.service.setPanelPages({ port: 51234, prefix, pages }, "desktop-1");
+  await panel([
+    { id: "D".repeat(32), chatId: "chat-a", title: "Old", url: "http://localhost:5173/a" },
+    { id: "E".repeat(32), chatId: "chat-a", title: "New", url: "http://localhost:5173/b" },
+  ]);
+  const first = await f.service.devtools({ chatId: "chat-a" });
+  assert.equal(first.target.title, "New");
+  assert.equal(first.session.browser.prefix, prefix);
+  const again = await f.service.devtools({ chatId: "chat-a" });
+  assert.equal(again.session, first.session, "the session and what the tools remember are kept between calls");
+  assert.equal(again.state, first.state);
+  // A named page of the Chat (the agent's own browser), and nobody else's.
+  assert.equal((await f.service.devtools({ chatId: "chat-a", page: target(PAGE) })).target.title, "Login");
+  await assert.rejects(f.service.devtools({ chatId: "chat-b", page: first.target.id }), /not in this Chat/);
+  await assert.rejects(f.service.devtools({ chatId: "chat-c" }), /no browser page/);
+  await panel([{ id: "D".repeat(32), chatId: "chat-a", title: "Old", url: "http://localhost:5173/a" }]);
+  await f.service.devtools({ chatId: "chat-a" });
+  assert.equal(first.session.closed, true, "a session on a page that closed is closed");
 });

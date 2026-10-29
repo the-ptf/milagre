@@ -371,9 +371,80 @@ function createBrowserAdapter(options = {}) {
     }
   }
 
+  /**
+   * A plain DevTools session on one page, for the agent's browser tools: commands with replies, and events. Unlike
+   * `connect` it starts no capture and sends no input of its own.
+   */
+  async function session(browser, pageId) {
+    if (!PAGE_ID.test(pageId) || ![...LOOPBACK.values()].includes(browser?.host) || !Number.isInteger(browser.port) || browser.port < 1 || browser.port > 65535)
+      throw new Error("Invalid browser page.");
+    if (browser.prefix !== undefined && !/^\/[a-f0-9]{48}$/.test(browser.prefix)) throw new Error("Invalid browser page.");
+    const socket = new Socket(`ws://${browser.host}:${browser.port}${browser.prefix ?? ""}/devtools/page/${pageId}`);
+    const pending = new Map(),
+      listeners = new Set();
+    let nextId = 0,
+      closed = false;
+    const fail = (error) => {
+      closed = true;
+      for (const call of pending.values()) {
+        clearTimeout(call.timer);
+        call.reject(error);
+      }
+      pending.clear();
+    };
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("The page did not answer.")), 10000);
+      socket.addEventListener("open", () => (clearTimeout(timer), resolve()), { once: true });
+      socket.addEventListener("error", () => (clearTimeout(timer), reject(new Error("Could not reach the page."))), { once: true });
+    });
+    socket.addEventListener("message", ({ data }) => {
+      if (typeof data !== "string" || data.length > MAX_MESSAGE) return;
+      let message;
+      try {
+        message = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (Number.isSafeInteger(message.id) && pending.has(message.id)) {
+        const call = pending.get(message.id);
+        pending.delete(message.id);
+        clearTimeout(call.timer);
+        if (message.error) call.reject(new Error(String(message.error.message ?? "The page refused the command.")));
+        else call.resolve(message.result ?? {});
+      } else if (typeof message.method === "string") for (const listener of Array.from(listeners)) listener(message.method, message.params ?? {});
+    });
+    socket.addEventListener("close", () => fail(new Error("The page closed.")));
+    return {
+      get closed() {
+        return closed;
+      },
+      send(method, params = {}, timeoutMs = 15000) {
+        if (closed || socket.readyState !== Socket.OPEN) return Promise.reject(new Error("The page closed."));
+        const id = ++nextId;
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            pending.delete(id);
+            reject(new Error(`The page did not answer ${method} in time.`));
+          }, timeoutMs);
+          pending.set(id, { resolve, reject, timer });
+          socket.send(JSON.stringify({ id, method, params }));
+        });
+      },
+      on(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      close() {
+        fail(new Error("The page closed."));
+        if (socket.readyState === Socket.OPEN || socket.readyState === Socket.CONNECTING) socket.close(1000);
+      },
+    };
+  }
+
   return {
     discover,
     connect,
+    session,
     async stop() {
       await Promise.all([...channels].map((channel) => channel.close()));
     },
