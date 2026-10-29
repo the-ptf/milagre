@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
-import { ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, File01Icon, MoreHorizontalIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  File01Icon,
+  MoreHorizontalIcon,
+  PaintBoardIcon,
+} from "@hugeicons/core-free-icons";
 import {
   artifactShell,
   artifactTab,
@@ -362,8 +370,8 @@ const refOf = (page: Artifact): ArtifactRef => ({ id: page.id, version: page.ver
  * width, pinching and scrolling as a web page does. Holding a spot on the page pins a comment there, written in a box
  * that opens from the pin; comments wait for Send, which hands them to the Chat as one message for the agent.
  *
- * A page the agent split into tabs shows them in a row under the header, one tab's page at a time; a comment is pinned
- * on its tab.
+ * A page the agent split into tabs shows one tab's page at a time, chosen from the menu on the header's title; a
+ * comment is pinned on its tab.
  */
 /** `onClose` is set where the page is a tab of the right panel docked beside its Chat (an iPad), and closes the tab. */
 export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string; chatId?: string; id?: string; kind?: string; onClose?: () => void }) {
@@ -613,6 +621,11 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
   const openNote = composer && composer.kind !== "read" ? notes.find((note) => note.key === composer.key) : undefined;
   const openSent = composer?.kind === "read" ? sent.find((comment) => `sent:${comment.id}` === composer.key) : undefined;
   const [room, setRoom] = useState({ width: 0, height: 0 });
+  const heading = (
+    <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>
+      {artifact?.title ?? "Artifact"}
+    </Text>
+  );
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
@@ -620,14 +633,34 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
           {!onClose && <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
         </View>
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>
-            {artifact?.title ?? "Artifact"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
-            Artifact
-          </Text>
-        </View>
+        {tabs && tab ? (
+          // A page split into tabs: its title opens the menu of its tabs, and the line under it names the one shown.
+          <PullDown
+            label={`${artifact?.title ?? "Artifact"}, ${tab.title} tab. Choose a tab`}
+            style={{ flex: 1, alignItems: "center" }}
+            sections={[{ items: tabs.map((item) => ({ id: item.id, title: item.title, checked: item.id === tab.id })) }]}
+            onSelect={(id) => {
+              if (id === tab.id) return;
+              closeComposer();
+              setTabId(id);
+            }}
+          >
+            {heading}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+              <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+                {tab.title}
+              </Text>
+              <Icon icon={ArrowDown01Icon} size={12} tone="ink2" />
+            </View>
+          </PullDown>
+        ) : (
+          <View style={{ flex: 1, alignItems: "center" }}>
+            {heading}
+            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+              Artifact
+            </Text>
+          </View>
+        )}
         <View style={{ flexDirection: "row", gap: 8, width: 76, justifyContent: "flex-end" }}>
           {source && written.length > 0 && <SendButton count={written.length} onPress={send} />}
           {menu.length > 0 && (
@@ -637,46 +670,6 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
           )}
         </View>
       </View>
-      {tabs && tab && (
-        <ScrollView
-          horizontal
-          accessibilityRole="tablist"
-          accessibilityLabel="Page tabs"
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8, gap: 6 }}
-        >
-          {tabs.map((item) => {
-            const selected = item.id === tab.id;
-            return (
-              <Pressable
-                key={item.id}
-                accessibilityRole="tab"
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  if (selected) return;
-                  closeComposer();
-                  setTabId(item.id);
-                }}
-                hitSlop={4}
-                style={{
-                  justifyContent: "center",
-                  height: 30,
-                  borderRadius: 999,
-                  paddingHorizontal: 12,
-                  backgroundColor: selected ? colors.surface : "transparent",
-                  borderWidth: 1,
-                  borderColor: selected ? colors.lineStrong : colors.line,
-                }}
-              >
-                <Text numberOfLines={1} style={{ color: selected ? colors.ink : colors.ink2, fontSize: 13, fontWeight: selected ? "600" : "400" }}>
-                  {item.title}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
       <View style={{ flex: 1, backgroundColor: "#ffffff" }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!source ? (
           <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
