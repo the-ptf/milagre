@@ -32,6 +32,8 @@ module.exports = {
   "browser:panel-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatId: s, title: s, url: s })) }, ["pages"]),
   // What a restart to install an app update would stop; the desktop's updater asks (app-auto-update.cjs).
   "app-update:activity": [],
+  // Closing the Mac's Linear sign-in window cancels through main, without a renderer bridge method.
+  "linear:cancel": [],
   "link:workspace-roots": [p("requested")],
   "project:plain-root": [p("root")],
   "project:snapshot": project,
