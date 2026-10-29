@@ -269,7 +269,7 @@ function RoutePill({ state }: { state: "In use" | "Ready" | "Not available" }) {
     <span
       data-connection-state
       className="rounded-full px-2 py-0.5 text-[11.5px]"
-      style={state === "In use" ? { background: "var(--green-tint)", color: "var(--green)" } : { background: "var(--hover)", color: "var(--ink-3)" }}
+      style={state === "In use" ? { background: "var(--green-tint)", color: "var(--green-ink)" } : { background: "var(--hover)", color: "var(--ink-3)" }}
     >
       {state}
     </span>

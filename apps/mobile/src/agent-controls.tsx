@@ -87,7 +87,7 @@ export function PermissionChip({ mode, disabled, onPress }: { mode: PermissionMo
       })}
     >
       <PermissionIcon mode={mode} size={15} />
-      <Text style={{ color: mode === "full" ? colors.orange : colors.ink2, fontSize: 13 }}>{PERMISSION_MODE_LABEL[mode]}</Text>
+      <Text style={{ color: mode === "full" ? colors.orangeInk : colors.ink2, fontSize: 13 }}>{PERMISSION_MODE_LABEL[mode]}</Text>
     </Pressable>
   );
 }

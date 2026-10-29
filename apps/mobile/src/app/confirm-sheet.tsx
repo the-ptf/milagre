@@ -62,7 +62,7 @@ export default function ConfirmSheet() {
                 style={{
                   fontSize: 17,
                   fontWeight: cancel ? "500" : "600",
-                  color: button.style === "destructive" ? colors.red : cancel ? colors.ink2 : colors.ink,
+                  color: button.style === "destructive" ? colors.redInk : cancel ? colors.ink2 : colors.ink,
                 }}
               >
                 {button.text}

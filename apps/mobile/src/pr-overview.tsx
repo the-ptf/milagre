@@ -305,7 +305,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
           <View accessible accessibilityLabel={`${status.title}. ${status.detail}`} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Icon icon={AlertCircleIcon} tone={status.tone === "blocked" ? "red" : "ink3"} size={14} />
             <Text numberOfLines={2} style={{ flex: 1, color: colors.ink2, fontSize: 14 }}>
-              <Text style={{ color: status.tone === "blocked" ? colors.red : colors.ink, fontWeight: "600" }}>{status.title}</Text> · {status.detail}
+              <Text style={{ color: status.tone === "blocked" ? colors.redInk : colors.ink, fontWeight: "600" }}>{status.title}</Text> · {status.detail}
             </Text>
           </View>
         )}

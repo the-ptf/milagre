@@ -201,7 +201,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
               <Text style={[styles.text, { fontWeight: "500", fontSize: 15, lineHeight: 20 }]}>{name}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {type ? <Icon icon={typeIcon} tone="ink3" size={13} /> : null}
-                <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontSize: 13, color: missing ? colors.red : colors.ink2 }]}>
+                <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontSize: 13, color: missing ? colors.redInk : colors.ink2 }]}>
                   {missing ? "Unavailable account" : shown?.email || shown?.label || "No computer default"}
                 </Text>
                 {group.accountId === null ? (

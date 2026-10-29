@@ -76,7 +76,7 @@ function ProviderRows({ provider, now }: { provider: ProviderUsage; now: number 
         <Text
           selectable
           accessibilityRole={failed ? "alert" : undefined}
-          style={[styles.caption, { color: failed ? colors.orange : colors.ink2, lineHeight: 18 }]}
+          style={[styles.caption, { color: failed ? colors.orangeInk : colors.ink2, lineHeight: 18 }]}
         >
           {provider.message}
         </Text>
