@@ -20,6 +20,7 @@ import type {
   RoutineTrigger,
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
+import type { ChatsHome } from "@milagre/shared/chats-home";
 import type { BotRecord, BotsSnapshot, GateRecord } from "@milagre/shared/bots";
 import type { StatePatch } from "@milagre/shared/state-patch";
 export type FloatingDragOverlay = {
@@ -552,6 +553,10 @@ export type MilagreBridge = {
     /** `state: false`: only the Project's path, name and state number, for a window that holds its state already. */
     (projectPath: string, options: { state: false }): Promise<ProjectRead>;
   };
+  /** Where this computer's Chats home is, the repository Chats without a Project run in, and whether it exists yet. */
+  chatsHome: () => Promise<ChatsHome>;
+  /** Makes the Chats home when it is missing and reads it, leaving the shown Project alone; never added to the recent list. */
+  ensureChatsHome: () => Promise<OpenProject & StateStamp & { kind: "chats" }>;
   /** Every opened Project, seeded once from existing coordination files. */
   listNamedLinks: () => Promise<NamedProjectLink[]>;
   createNamedLink: (request: { name: string; projectIds: string[]; hidden?: boolean }) => Promise<NamedProjectLink>;

@@ -13,6 +13,7 @@ import {
   Add01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
+  BubbleChatIcon,
   Cancel01Icon,
   File01Icon,
   GitBranchIcon,
@@ -123,9 +124,19 @@ import { useActivityClock } from "../chat-row-store";
 import { useWorktreeLinearIssues } from "../use-worktree-linear-issues";
 import { savedChatDefaults } from "../hosts-native";
 import { showChoiceSheet } from "../choice-store";
-import { allComputers, useNewChatProjects } from "../all-computers";
+import { allComputers, chatsHomePath, useNewChatProjects, useNoProjectChoice } from "../all-computers";
+import {
+  CHATS_PLACEHOLDER,
+  CHATS_TRAY_LABEL,
+  isChatsHomeProject,
+  JUST_CHAT_HEADING,
+  NO_PROJECT_FOLDER,
+  NO_PROJECT_LABEL,
+  NO_PROJECT_LINE,
+} from "@milagre/shared/chats-home";
 import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new-chat-project";
-import { ProjectIcon } from "../project-icon";
+import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
+import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { BesideSession, touchPane } from "../beside-session";
 
@@ -371,7 +382,7 @@ function ChatPane({
   const [targetChoice, setTargetChoice] = useState(() => ({ scope: targetScope, ...savedChatDefaults.readTarget(targetHost, targetProject) }));
   const target = targetChoice.scope === targetScope ? targetChoice : { scope: targetScope, ...savedChatDefaults.readTarget(targetHost, targetProject) };
   if (targetChoice.scope !== targetScope) setTargetChoice(target);
-  const { isolation, baseBranch = "" } = target;
+  const { isolation: pickedIsolation, baseBranch = "" } = target;
   const chooseTarget = (patch: Partial<typeof target>) => {
     setTargetChoice({ ...target, ...patch });
     void savedChatDefaults.saveTarget(targetHost, targetProject, patch);
@@ -476,7 +487,13 @@ function ChatPane({
   const beating = routinesOn === true && routines.some((routine) => routine.enabled && routine.target.kind === "chat");
   // Now, to the half minute, only while some Heartbeat could show a Next check.
   const now = useActivityClock(beating);
-  const linearIssues = useWorktreeLinearIssues(connected, linearActive && projectPath && !session.snapshot?.project.link ? [projectPath] : [], linkVersion);
+  // A Chat without a Project runs in the Chats home: no branch, PR or Linear issue of its own to show (as on desktop).
+  const chatsHomeOpen = isChatsHomeProject(session.snapshot?.project);
+  const linearIssues = useWorktreeLinearIssues(
+    connected,
+    linearActive && projectPath && !session.snapshot?.project.link && !chatsHomeOpen ? [projectPath] : [],
+    linkVersion,
+  );
   const targetMatches = (!params.projectPath || params.projectPath === projectPath) && (!params.hostId || params.hostId === connected?.url);
   const originChatId = pendingOrigin(projectPath, params.id, params.worktreeId, draftId);
   const pending = targetMatches
@@ -558,7 +575,7 @@ function ChatPane({
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
   // The open Chat's PRs, read as its row in the Chat list reads them (same refs, same pooled lookups), so the PR action
   // above the composer and the row's status are about the same PRs.
-  const prPath = session.snapshot?.project.link ? undefined : worktreeOf?.path;
+  const prPath = session.snapshot?.project.link || chatsHomeOpen ? undefined : worktreeOf?.path;
   const openChat = params.id ? session.snapshot?.project.state.sessions[Number(params.id)] : undefined;
   const savedPrRefs = openChat ? (openChat.summary?.pullRequests ?? session.snapshot?.project.pullRequestRefs?.[openChat.id]) : undefined;
   const prRefs = useMemo(() => (openChat ? (savedPrRefs ?? pullRequestRefs(messages)) : []), [openChat, savedPrRefs, messages]);
@@ -736,7 +753,7 @@ function ChatPane({
   const savedChatKey = targetMatches && projectPath && params.id ? `${projectPath}#${params.id}` : undefined;
   const panels = useSidePanels({
     chatId: pending ? (pendingCanonicalId ?? pending.preview.session.id) : params.id ? Number(params.id) : undefined,
-    worktreeId: targetMatches && worktreeOf ? worktreeOf.id : undefined,
+    worktreeId: targetMatches && worktreeOf ? panelWorktree(session.snapshot?.project, worktreeOf.id) : undefined,
     pullRequest: savedChatKey && pr && prCwd ? { number: pr.number, chatKey: savedChatKey, choices: prChoices, ...(prPath ? {} : { cwd: prCwd }) } : undefined,
     passive: secondary,
   });
@@ -794,6 +811,7 @@ function ChatPane({
   }, [prefillKey, params.prefill, setDrafts]);
   // The Projects a new Chat can switch to, on every shown computer.
   const newChatProjects = useNewChatProjects();
+  const noProject = useNoProjectChoice(session.client?.url);
   // The "Start building in" line stays centred over the transcript, which the keyboard shortens: it rises half as far as
   // the composer does (the keyboard less the composer's own lift, as its KeyboardStickyView below).
   const keyboard = useReanimatedKeyboardAnimation();
@@ -992,6 +1010,8 @@ function ChatPane({
       : worktree?.name && branches.items.includes(worktree.name)
         ? worktree.name
         : branches.items[0];
+  // Each Chat without a Project gets its own new, empty folder: a Worktree of the Chats home, never its checkout.
+  const isolation = chatsHomeOpen ? "worktree" : pickedIsolation;
   const newWorktree = !project.link && !params.id && isolation === "worktree";
   const startTray = !params.id && !project.link;
   const targetDisabled = busy || picking;
@@ -1001,7 +1021,7 @@ function ChatPane({
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
   // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
-  const projectName = project.name || project.path.split("/").findLast(Boolean) || "Project";
+  const projectName = chatsHomeOpen ? NO_PROJECT_LABEL : project.name || project.path.split("/").findLast(Boolean) || "Project";
   const hostIds = new Set(newChatProjects.map((item) => item.hostId));
   // One row per repository: a Project cloned on several computers is one row, and the computer chip picks the copy.
   const projectGroups = newChatProjectGroups(newChatProjects);
@@ -1011,25 +1031,76 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
+  // The computer a Chat without a Project runs on, named in its "Just chat on <Computer>" heading.
+  const chatsComputer = noProject?.copies.find((copy) => copy.hostId === client.url)?.hostName ?? session.hostName ?? "this computer";
   // A Chat beside on another computer than the open one says which.
   const otherComputer = client.url !== openSession.client?.url;
+  /** Moves the new Chat to a computer's Chats home, made there first when it doesn't exist yet. */
+  async function startWithoutProject(hostId: string) {
+    const copy = noProject?.copies.find((item) => item.hostId === hostId);
+    const homeClient = hostId === client.url ? client : allComputers.clientFor(hostId);
+    if (!copy || !homeClient) {
+      setError("This computer is no longer in your list.");
+      return;
+    }
+    setError("");
+    try {
+      await switchProject(hostId, await chatsHomePath(homeClient, hostId, copy.home));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  /** "Just chat on <Computer> ▾": the computers that can hold a Chat without a Project. */
+  function chooseChatsComputer() {
+    if (busy || !noProject) return;
+    showChoiceSheet({
+      title: `${JUST_CHAT_HEADING} on`,
+      placeholder: "Search computers",
+      emptyLabel: "No computers",
+      icon: LaptopIcon,
+      items: noProject.copies.map((copy) => ({ id: copy.hostId, title: copy.hostName, checked: copy.hostId === client.url, disabled: copy.offline })),
+      onSelect: (hostId) => {
+        if (hostId !== client.url) void startWithoutProject(hostId);
+      },
+    });
+  }
   function chooseProject() {
     if (busy) return;
     showChoiceSheet({
       title: "Start building in",
       placeholder: "Search projects",
       emptyLabel: "No projects",
-      items: projectGroups.map((item, index) => ({
-        id: String(index),
-        title: item.name,
-        ...(item.copies.length > 1 ? { subtitle: `${item.copies.length} computers` } : {}),
-        keywords: item.copies.map((copy) => `${copy.hostName} ${copy.path}`).join(" "),
-        checked: item.copies.some(isOpenCopy),
-        disabled: item.copies.every((copy) => copy.offline),
-        ...(hostIds.size > 1 ? { section: item.hostName } : {}),
-        leading: <ProjectIcon client={item.hostId === client.url ? client : allComputers.clientFor(item.hostId)} path={item.path} size={24} />,
-      })),
+      items: [
+        // First, above every Project: a Chat with no repository, in its own empty folder.
+        ...(noProject
+          ? [
+              {
+                id: "no-project",
+                title: NO_PROJECT_LABEL,
+                subtitle: NO_PROJECT_FOLDER,
+                keywords: "just chat",
+                checked: chatsHomeOpen,
+                disabled: noProject.copies.every((copy) => copy.offline),
+                leading: <ChatsHomeIcon size={24} />,
+              },
+            ]
+          : []),
+        ...projectGroups.map((item, index) => ({
+          id: String(index),
+          title: item.name,
+          ...(item.copies.length > 1 ? { subtitle: `${item.copies.length} computers` } : {}),
+          keywords: item.copies.map((copy) => `${copy.hostName} ${copy.path}`).join(" "),
+          checked: item.copies.some(isOpenCopy),
+          disabled: item.copies.every((copy) => copy.offline),
+          ...(hostIds.size > 1 ? { section: item.hostName } : {}),
+          leading: <ProjectIcon client={item.hostId === client.url ? client : allComputers.clientFor(item.hostId)} path={item.path} size={24} />,
+        })),
+      ],
       onSelect: (id) => {
+        if (id === "no-project") {
+          if (!chatsHomeOpen && noProject) void startWithoutProject(noProject.computerId);
+          return;
+        }
         const group = projectGroups[Number(id)];
         if (!group || group.copies.some(isOpenCopy)) return;
         const copy = preferredCopy(group, group.origin ? savedChatDefaults.readOriginComputer(group.origin) : null, client.url);
@@ -1227,8 +1298,10 @@ function ChatPane({
     const sent = body;
     const sendingProjectPath = project.path;
     // The next New Chat opens where this one started, and so does a pick of this repository's Project.
+    // A Chat without a Project moves only the computer: New Chat still opens the last real Project.
     if (!params.id) {
-      void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
+      void savedChatDefaults.saveLastComputer(client.url);
+      if (!chatsHomeOpen) void savedChatDefaults.saveLastProject(client.url, sendingProjectPath);
       if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, client.url);
     }
     const sending = withAttachments ? [...attachments, ...mentions.added] : [];
@@ -1494,6 +1567,7 @@ function ChatPane({
           state: project.state,
           chat: target,
           running: !!run,
+          chatsHome: chatsHomeOpen,
           onConfirm: () => {
             session.expectActivity();
             leave();
@@ -1521,8 +1595,9 @@ function ChatPane({
   }
   // A Chat's own Worktree (not the main checkout, not one another Chat shares) can link an issue; a stored one is shown
   // with its hint when Linear can't see it. Nothing about the link shows while Linear is off.
-  const canLink = linearActive && !!chat && !project.link && !!worktree?.path && worktree.path !== project.path && !worktreeShared(project.state, chat.id);
-  const storedIssue = linearActive ? worktree?.linearIssue : undefined;
+  const canLink =
+    linearActive && !!chat && !project.link && !chatsHomeOpen && !!worktree?.path && worktree.path !== project.path && !worktreeShared(project.state, chat.id);
+  const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
   /** Picks an issue from the list and links it to this Chat's Worktree. */
   /** A short confirmation over the transcript that goes away on its own, for results that need no answer. */
@@ -1568,7 +1643,7 @@ function ChatPane({
             {title}
           </Text>
         </View>
-        {(paired || !project.link || (!!pr && !!chat)) && (
+        {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
             {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
             {paired && (
@@ -1581,7 +1656,7 @@ function ChatPane({
                 {otherComputer ? `${projectName} · ${hostName}` : projectName}
               </Text>
             )}
-            {!project.link && (
+            {!project.link && !chatsHomeOpen && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
                 <Icon icon={GitBranchIcon} tone="ink3" size={11} />
                 <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
@@ -1628,13 +1703,16 @@ function ChatPane({
         )
       ) : null}
       <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
-        <Stack.Toolbar.MenuAction
-          icon="doc.text.magnifyingglass"
-          subtitle={diff ? `+${diff.added} −${diff.removed}` : undefined}
-          onPress={() => headerAction("changes")}
-        >
-          View changes
-        </Stack.Toolbar.MenuAction>
+        {/* A Chat without a Project has no Git changes to review, as on desktop. */}
+        {!chatsHomeOpen && (
+          <Stack.Toolbar.MenuAction
+            icon="doc.text.magnifyingglass"
+            subtitle={diff ? `+${diff.added} −${diff.removed}` : undefined}
+            onPress={() => headerAction("changes")}
+          >
+            View changes
+          </Stack.Toolbar.MenuAction>
+        )}
         {chat && (
           <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" disabled={!!run} onPress={() => headerAction("undo")}>
             Undo changes
@@ -1693,7 +1771,11 @@ function ChatPane({
   const paneMenu: MenuSection[] = [
     {
       items: [
-        { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
+        ...(chatsHomeOpen
+          ? []
+          : [
+              { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
+            ]),
         ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
         ...(pr ? [{ id: "pr", title: `Pull request #${pr.number}`, systemImage: "arrow.triangle.pull", subtitle: prSubtitle }] : []),
         ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
@@ -2042,29 +2124,67 @@ function ChatPane({
                       startLineStyle,
                     ]}
                   >
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Start building in ${hostName ? `${hostName} / ` : ""}${projectName}. Change project`}
-                      disabled={busy}
-                      onPress={chooseProject}
-                      style={({ pressed }) => ({
-                        flexDirection: "row",
-                        flexWrap: "wrap",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        columnGap: 6,
-                        opacity: pressed ? 0.6 : 1,
-                      })}
-                    >
-                      <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                        <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
-                          {hostName ? <Text style={{ color: colors.ink3 }}>{hostName} / </Text> : null}
-                          {projectName}
-                        </Text>
-                        <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
-                      </View>
-                    </Pressable>
+                    {chatsHomeOpen ? (
+                      // No Project to pick here: the heading picks the computer, and the line under it goes back to the Projects.
+                      <>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`${JUST_CHAT_HEADING} on ${chatsComputer}. Change computer`}
+                          disabled={busy}
+                          onPress={chooseChatsComputer}
+                          style={({ pressed }) => ({
+                            flexDirection: "row",
+                            flexWrap: "wrap",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            columnGap: 6,
+                            opacity: pressed ? 0.6 : 1,
+                          })}
+                        >
+                          <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>{JUST_CHAT_HEADING} on</Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+                            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                              {chatsComputer}
+                            </Text>
+                            <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
+                          </View>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`${NO_PROJECT_LABEL}, ${NO_PROJECT_FOLDER.toLowerCase()}. Change project`}
+                          disabled={busy}
+                          onPress={chooseProject}
+                          hitSlop={8}
+                          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                        >
+                          <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LINE}</Text>
+                        </Pressable>
+                      </>
+                    ) : (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Start building in ${hostName ? `${hostName} / ` : ""}${projectName}. Change project`}
+                        disabled={busy}
+                        onPress={chooseProject}
+                        style={({ pressed }) => ({
+                          flexDirection: "row",
+                          flexWrap: "wrap",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          columnGap: 6,
+                          opacity: pressed ? 0.6 : 1,
+                        })}
+                      >
+                        <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+                          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                            {hostName ? <Text style={{ color: colors.ink3 }}>{hostName} / </Text> : null}
+                            {projectName}
+                          </Text>
+                          <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
+                        </View>
+                      </Pressable>
+                    )}
                   </Animated.View>
                 )}
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
@@ -2104,7 +2224,7 @@ function ChatPane({
                       key={`${client.url}|${project.path}`}
                       client={client}
                       scope={project.path}
-                      name={project.name}
+                      name={chatsHomeOpen ? NO_PROJECT_LABEL : project.name}
                       failure={project.state.persistence}
                       offline={!!session.error}
                     />
@@ -2117,15 +2237,19 @@ function ChatPane({
                         style={{ marginHorizontal: -12, flexGrow: 0 }}
                         contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
                       >
-                        {prAction && prActionRequest && chat && (
+                        {prAction && prActionRequest && chat && !chatsHomeOpen && (
                           <PullRequestAction
                             pr={prAction.pr}
                             disabled={busy || !!run}
                             onRun={() => void send(pullRequestActionBody(prActionRequest), false, prActionRequest)}
                           />
                         )}
-                        {!prAction && chat && pr?.state === "OPEN" && pr.readyToMerge && <PullRequestMerge pr={pr} onOpen={() => openPr(pr.number)} />}
-                        {chat && pr && prOpenThreads > 0 && <PullRequestReview count={prOpenThreads} onOpen={() => openPr(pr.number, "threads")} />}
+                        {!prAction && chat && !chatsHomeOpen && pr?.state === "OPEN" && pr.readyToMerge && (
+                          <PullRequestMerge pr={pr} onOpen={() => openPr(pr.number)} />
+                        )}
+                        {chat && !chatsHomeOpen && pr && prOpenThreads > 0 && (
+                          <PullRequestReview count={prOpenThreads} onOpen={() => openPr(pr.number, "threads")} />
+                        )}
                         <View style={{ flex: 1 }} />
                         <BrowserChip chatId={params.id ? chatId : undefined} />
                         {params.id && Number(params.id) > 0 && chat && !chat.archived && (
@@ -2211,42 +2335,102 @@ function ChatPane({
                               : undefined
                           }
                         >
-                          {startTray && (
-                            <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                              {onSeveralComputers && (
+                          {startTray && chatsHomeOpen ? (
+                            // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
+                              <Icon icon={BubbleChatIcon} tone="ink2" size={14} />
+                              <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
+                            </View>
+                          ) : (
+                            startTray && (
+                              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                {onSeveralComputers && (
+                                  <PullDown
+                                    label="Choose computer"
+                                    nativeTrigger={{
+                                      title: computerName,
+                                      systemImage: "desktopcomputer",
+                                      icon: "computer",
+                                      disabled: targetDisabled,
+                                      maxWidth: 140,
+                                    }}
+                                    sections={[
+                                      {
+                                        title: "Run on",
+                                        items: projectCopies.map((item) => ({
+                                          id: `${item.hostId}\n${item.path}`,
+                                          title: item.hostName,
+                                          subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
+                                          systemImage: "desktopcomputer",
+                                          icon: "computer",
+                                          checked: isOpenCopy(item),
+                                          disabled: targetDisabled || item.offline,
+                                        })),
+                                      },
+                                    ]}
+                                    onSelect={(id) => {
+                                      const [hostId = "", ...rest] = id.split("\n");
+                                      if (targetDisabled) return;
+                                      if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, hostId);
+                                      void switchProject(hostId, rest.join("\n"));
+                                    }}
+                                  >
+                                    <View
+                                      style={{
+                                        maxWidth: 140,
+                                        flexDirection: "row",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 6,
+                                        opacity: targetDisabled ? 0.35 : 1,
+                                      }}
+                                    >
+                                      <Icon icon={ComputerIcon} tone="ink2" size={14} />
+                                      <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
+                                        {computerName}
+                                      </Text>
+                                      <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                                    </View>
+                                  </PullDown>
+                                )}
                                 <PullDown
-                                  label="Choose computer"
+                                  label="Choose isolation"
                                   nativeTrigger={{
-                                    title: computerName,
-                                    systemImage: "desktopcomputer",
-                                    icon: "computer",
+                                    title: isolation === "local" ? "Local" : "New worktree",
+                                    systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
+                                    icon: isolation === "local" ? "laptop" : "fork",
                                     disabled: targetDisabled,
-                                    maxWidth: 140,
                                   }}
                                   sections={[
                                     {
-                                      title: "Run on",
-                                      items: projectCopies.map((item) => ({
-                                        id: `${item.hostId}\n${item.path}`,
-                                        title: item.hostName,
-                                        subtitle: item.offline ? "Offline" : item.path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~"),
-                                        systemImage: "desktopcomputer",
-                                        icon: "computer",
-                                        checked: isOpenCopy(item),
-                                        disabled: targetDisabled || item.offline,
-                                      })),
+                                      title: "Isolation",
+                                      items: [
+                                        {
+                                          id: "local",
+                                          title: "Local",
+                                          systemImage: "laptopcomputer",
+                                          icon: "laptop",
+                                          checked: isolation === "local",
+                                          disabled: targetDisabled,
+                                        },
+                                        {
+                                          id: "worktree",
+                                          title: "New worktree",
+                                          systemImage: "arrow.triangle.branch",
+                                          icon: "fork",
+                                          checked: isolation === "worktree",
+                                          disabled: targetDisabled,
+                                        },
+                                      ],
                                     },
                                   ]}
                                   onSelect={(id) => {
-                                    const [hostId = "", ...rest] = id.split("\n");
-                                    if (targetDisabled) return;
-                                    if (projectOrigin) void savedChatDefaults.saveOriginComputer(projectOrigin, hostId);
-                                    void switchProject(hostId, rest.join("\n"));
+                                    if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
                                   }}
                                 >
                                   <View
                                     style={{
-                                      maxWidth: 140,
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
@@ -2255,137 +2439,85 @@ function ChatPane({
                                       opacity: targetDisabled ? 0.35 : 1,
                                     }}
                                   >
-                                    <Icon icon={ComputerIcon} tone="ink2" size={14} />
+                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
+                                    <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
+                                    <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
+                                  </View>
+                                </PullDown>
+                                <PullDown
+                                  label="Choose branch"
+                                  searchable={{
+                                    placeholder: newWorktree ? "Search branches" : "Search worktrees",
+                                    emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
+                                  }}
+                                  nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
+                                  sections={[
+                                    {
+                                      title: newWorktree ? "Branch from" : "Choose a worktree",
+                                      items: newWorktree
+                                        ? (branches?.items || []).map((item) => ({
+                                            id: item,
+                                            title: item,
+                                            checked: item === base,
+                                            systemImage: "arrow.triangle.branch",
+                                            disabled: branchDisabled,
+                                          }))
+                                        : Object.values(project.state.worktrees).map((item) => ({
+                                            id: String(item.id),
+                                            title: item.name,
+                                            subtitle: item.path?.split("/").findLast(Boolean),
+                                            checked: item.id === worktreeId,
+                                            systemImage: "arrow.triangle.branch",
+                                            disabled: targetDisabled,
+                                          })),
+                                    },
+                                  ]}
+                                  onSelect={(id) => {
+                                    if (!branchDisabled) {
+                                      if (newWorktree) chooseTarget({ baseBranch: id });
+                                      else navigation.setParams({ worktreeId: id });
+                                    }
+                                  }}
+                                >
+                                  <View
+                                    style={{
+                                      maxWidth: 180,
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      opacity: branchDisabled ? 0.35 : 1,
+                                    }}
+                                  >
+                                    <Icon icon={GitBranchIcon} tone="ink2" size={14} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {computerName}
+                                      {branchName}
                                     </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
                                 </PullDown>
-                              )}
-                              <PullDown
-                                label="Choose isolation"
-                                nativeTrigger={{
-                                  title: isolation === "local" ? "Local" : "New worktree",
-                                  systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
-                                  icon: isolation === "local" ? "laptop" : "fork",
-                                  disabled: targetDisabled,
-                                }}
-                                sections={[
-                                  {
-                                    title: "Isolation",
-                                    items: [
-                                      {
-                                        id: "local",
-                                        title: "Local",
-                                        systemImage: "laptopcomputer",
-                                        icon: "laptop",
-                                        checked: isolation === "local",
-                                        disabled: targetDisabled,
-                                      },
-                                      {
-                                        id: "worktree",
-                                        title: "New worktree",
-                                        systemImage: "arrow.triangle.branch",
-                                        icon: "fork",
-                                        checked: isolation === "worktree",
-                                        disabled: targetDisabled,
-                                      },
-                                    ],
-                                  },
-                                ]}
-                                onSelect={(id) => {
-                                  if (!targetDisabled) chooseTarget({ isolation: id === "worktree" ? "worktree" : "local" });
-                                }}
-                              >
-                                <View
-                                  style={{
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 6,
-                                    paddingHorizontal: 10,
-                                    paddingVertical: 6,
-                                    opacity: targetDisabled ? 0.35 : 1,
-                                  }}
-                                >
-                                  <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
-                                  <Text style={styles.label}>{isolation === "local" ? "Local" : "New worktree"}</Text>
-                                  <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                                </View>
-                              </PullDown>
-                              <PullDown
-                                label="Choose branch"
-                                searchable={{
-                                  placeholder: newWorktree ? "Search branches" : "Search worktrees",
-                                  emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
-                                }}
-                                nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
-                                sections={[
-                                  {
-                                    title: newWorktree ? "Branch from" : "Choose a worktree",
-                                    items: newWorktree
-                                      ? (branches?.items || []).map((item) => ({
-                                          id: item,
-                                          title: item,
-                                          checked: item === base,
-                                          systemImage: "arrow.triangle.branch",
-                                          disabled: branchDisabled,
-                                        }))
-                                      : Object.values(project.state.worktrees).map((item) => ({
-                                          id: String(item.id),
-                                          title: item.name,
-                                          subtitle: item.path?.split("/").findLast(Boolean),
-                                          checked: item.id === worktreeId,
-                                          systemImage: "arrow.triangle.branch",
-                                          disabled: targetDisabled,
-                                        })),
-                                  },
-                                ]}
-                                onSelect={(id) => {
-                                  if (!branchDisabled) {
-                                    if (newWorktree) chooseTarget({ baseBranch: id });
-                                    else navigation.setParams({ worktreeId: id });
-                                  }
-                                }}
-                              >
-                                <View
-                                  style={{
-                                    maxWidth: 180,
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 6,
-                                    paddingHorizontal: 10,
-                                    paddingVertical: 6,
-                                    opacity: branchDisabled ? 0.35 : 1,
-                                  }}
-                                >
-                                  <Icon icon={GitBranchIcon} tone="ink2" size={14} />
-                                  <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                    {branchName}
-                                  </Text>
-                                  <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
-                                </View>
-                              </PullDown>
-                              {linearActive && (
-                                <Pressable
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Start from a Linear issue"
-                                  disabled={targetDisabled}
-                                  onPress={() => void chooseIssue()}
-                                  style={({ pressed }) => ({
-                                    flexDirection: "row",
-                                    alignItems: "center",
-                                    gap: 6,
-                                    paddingHorizontal: 10,
-                                    paddingVertical: 6,
-                                    opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
-                                  })}
-                                >
-                                  <LinearLogo size={13} />
-                                  <Text style={styles.label}>Linear issue</Text>
-                                </Pressable>
-                              )}
-                            </View>
+                                {linearActive && (
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Start from a Linear issue"
+                                    disabled={targetDisabled}
+                                    onPress={() => void chooseIssue()}
+                                    style={({ pressed }) => ({
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
+                                    })}
+                                  >
+                                    <LinearLogo size={13} />
+                                    <Text style={styles.label}>Linear issue</Text>
+                                  </Pressable>
+                                )}
+                              </View>
+                            )
                           )}
                           <View
                             style={{
@@ -2498,7 +2630,11 @@ function ChatPane({
                               commands={chat ? UNDO_COMMANDS : undefined}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
-                                run && !providerCapabilities(chat?.provider ?? actualProvider).steer ? "Queue a message for the next turn" : undefined
+                                run && !providerCapabilities(chat?.provider ?? actualProvider).steer
+                                  ? "Queue a message for the next turn"
+                                  : chatsHomeOpen && !params.id
+                                    ? CHATS_PLACEHOLDER
+                                    : undefined
                               }
                               // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
                               onSubmit={() => {

@@ -13,15 +13,29 @@ import { pinPatch } from "./pins";
  * section (chat-links.ts `linkMenuSection`), which goes after the pins when the Chat can be linked. `beside` leads with
  * "Open beside", which a wide iPad offers for another Chat on a computer that answers (split-chats.ts).
  */
-export function chatMenu(chat: AgentSession, worktree?: { path?: string; name?: string }, links?: MenuSection | null, beside = false): MenuSection[] {
+/**
+ * `project` false: a Chat without a Project, whose Worktree is the Chats home's own, internal to Milagre: no path or
+ * branch to copy.
+ */
+export function chatMenu(
+  chat: AgentSession,
+  worktree?: { path?: string; name?: string },
+  links?: MenuSection | null,
+  beside = false,
+  project = true,
+): MenuSection[] {
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
-    {
-      items: [
-        { id: "copy-path", title: "Copy path", systemImage: "doc.on.doc", disabled: !worktree?.path },
-        { id: "copy-branch", title: "Copy branch name", systemImage: "arrow.triangle.branch", disabled: !worktree?.name },
-      ],
-    },
+    ...(project
+      ? [
+          {
+            items: [
+              { id: "copy-path", title: "Copy path", systemImage: "doc.on.doc", disabled: !worktree?.path },
+              { id: "copy-branch", title: "Copy branch name", systemImage: "arrow.triangle.branch", disabled: !worktree?.name },
+            ],
+          },
+        ]
+      : []),
     {
       items: [
         { id: "rename", title: "Rename chat", systemImage: "pencil" },
@@ -62,6 +76,7 @@ export async function runChatAction({
   projectPath,
   state,
   link,
+  chatsHome,
   refresh,
   expectActivity,
   notify,
@@ -74,6 +89,8 @@ export async function runChatAction({
   projectPath: string;
   state: ArchiveRequest["state"];
   link?: OpenLink;
+  /** The Chat has no Project: archive asks in plain words, and not at all when its folder is clean. */
+  chatsHome?: boolean;
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
   expectActivity: () => void;
@@ -111,6 +128,7 @@ export async function runChatAction({
       state,
       chat,
       running,
+      chatsHome,
       onConfirm: () => {
         onConfirm?.();
         expectActivity();

@@ -165,7 +165,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           id === "@milagre/shared/file-kinds" ||
           id === "@milagre/shared/streaming-blocks" ||
           id === "@milagre/shared/tool-activity" ||
-          id === "@milagre/shared/project-origin") &&
+          id === "@milagre/shared/project-origin" ||
+          id === "@milagre/shared/chats-home") &&
         !(id in modules)
       )
         return require(id);
@@ -173,6 +174,18 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "react-native-gesture-handler") return { ScrollView: "GestureScrollView", ...modules[id] };
       // Image assets are opaque sources; any value stands in.
       if (id.endsWith(".png") && !(id in modules)) return { uri: id };
+      // The Chats home helpers (project-surfaces.ts, chats-group.ts) are pure: tests get the real ones.
+      if (relative === "project-surfaces" && !(id in modules)) return load("project-surfaces.ts", modules, "", cache);
+      if (relative === "chats-group" && !(id in modules))
+        return load(
+          "chats-group.ts",
+          {
+            "@milagre/shared/chat-row": require("../packages/shared/src/chat-row.ts"),
+            "./chat-list-order.ts": load("chat-list-order.ts", { "@milagre/shared/chats": require("../packages/shared/src/chats.mjs") }),
+          },
+          "",
+          cache,
+        );
       if (id === "@milagre/shared/model-copy" && !(id in modules)) return require("../packages/shared/src/model-copy.ts");
       if (id === "@milagre/shared/pull-request-review" && !(id in modules)) return require("../packages/shared/src/pull-request-review.ts");
       const base = id.replace(/^\.\.?\//, "");
@@ -225,6 +238,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           useArchivedCount: () => null,
           useArchivedChats: () => ({ chats: [], loading: false }),
           useNewChatProjects: () => [],
+          useNoProjectChoice: () => undefined,
+          chatsHomePath: async (_client, _hostId, home) => home.path,
           allComputers: { clientFor: () => null, hostFor: () => undefined },
         };
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.

@@ -2,6 +2,7 @@ import { uploadAttachment } from "@milagre/shared/attachment-upload";
 import { retryKind, retrySend } from "@milagre/shared/send-retry";
 import type { ChatMessage, CoordinatorState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { isLinkScopeKey, scopeKey } from "@milagre/shared/chat-scopes";
+import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { applyStatePatch } from "@milagre/shared/state-patch";
 import type { StatePatch } from "@milagre/shared/state-patch";
 import { phoneSnapshot } from "./chat-scope.ts";
@@ -13,6 +14,8 @@ import { localEndpoint, relayAddress, validAccess, validRelay, type Access, type
 export type OpenProject = {
   path: string;
   name: string;
+  /** "chats" for the Chats home. Absent for every other Project and on older hosts. */
+  kind?: ProjectKind;
   state: CoordinatorState;
   link?: OpenLink;
   /** Derived before the host removes shell output from phone snapshots. Absent on older hosts. */
@@ -405,6 +408,21 @@ export function createClient(host: ClientHost, fetcher: typeof fetch = fetch, ti
         })),
       ];
     },
+    /**
+     * Where this computer keeps its Chats without a Project, whether made yet or not; null when its daemon predates them
+     * (it refuses the command) or it is a demo computer. Asked next to the Project list, never as one of its entries.
+     */
+    async chatsHome(): Promise<ChatsHome | null> {
+      try {
+        const home = await request<ChatsHome | null>("/rpc", { v: 1, method: "chats:home", args: [] });
+        return home && typeof home.path === "string" && home.path ? { path: home.path, exists: home.exists === true } : null;
+      } catch (error) {
+        if (/not available from mobile|demo computer only/i.test((error as Error)?.message)) return null;
+        throw error;
+      }
+    },
+    /** Makes this computer's Chats home when it is missing and opens it, without moving the computer's shown Project. */
+    ensureChatsHome: () => request<{ path: string; name: string; kind?: ProjectKind }>("/rpc", { v: 1, method: "chats:ensure", args: [] }),
     async open(owner: string) {
       const link = isLinkScopeKey(owner);
       const opened = await request<{ path?: string }>(

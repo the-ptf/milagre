@@ -890,3 +890,11 @@ test("provider update cards read and install through the phone bridge; confined 
   assert.notEqual((await normal.rpc("agent:update-cli", ["codex", "$(bad)"])).status, 200);
   assert.equal(installed.length, 1);
 });
+
+// The Chats home is the Mac's own folder outside the demo, so a confined phone can't read or make it.
+test("chats commands are denied in the demo", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await assert.rejects(confine.checkCall("chats:home", []), { status: 403, message: REFUSED });
+  await assert.rejects(confine.checkCall("chats:ensure", []), { status: 403, message: REFUSED });
+  assert.ok(METHODS.has("chats:home") && METHODS.has("chats:ensure"));
+});

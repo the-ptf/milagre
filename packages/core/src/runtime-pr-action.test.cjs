@@ -17,6 +17,7 @@ async function fixture(t) {
   const turns = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
     cwd: project,
     environmentReady: Promise.resolve(),
     titleModels: {},

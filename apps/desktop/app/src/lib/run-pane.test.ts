@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chatOnScreen, keepsRoutinesView, runPaneRestore } from "./run-pane.ts";
+import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore } from "./run-pane.ts";
 
 test("keepsRoutinesView holds the view for the Run Chat being opened, by its whole chat key", () => {
   assert.equal(keepsRoutinesView("/code/a#7", "/code/a", 7), true);
@@ -38,4 +38,23 @@ test("chatOnScreen counts a Run Chat open in the pane beside its Routine's page 
   assert.equal(chatOnScreen({ view: "routines", runPane: null, ...at }), null);
   assert.equal(chatOnScreen({ view: "settings", runPane: "/code/a#9", ...at }), null);
   assert.equal(chatOnScreen({ view: "chat", runPane: null, projectPath: "/code/a", sessionId: null }), null);
+});
+
+test("picking the unread Chat already on screen reads it, a Chat without a Project too", () => {
+  const home = "/Users/me/.milagre/chats";
+  const onScreen = chatOnScreen({ view: "chat", runPane: null, projectPath: home, sessionId: 4 });
+  assert.equal(readsOnPick({ onScreen, picked: `${home}#4`, unread: true }), true);
+  assert.equal(
+    readsOnPick({ onScreen: chatOnScreen({ view: "chat", runPane: null, projectPath: "/code/a", sessionId: 4 }), picked: "/code/a#4", unread: true }),
+    true,
+  );
+  // Already read: nothing to send.
+  assert.equal(readsOnPick({ onScreen, picked: `${home}#4`, unread: false }), false);
+  // Another Chat is read by being put on screen (chat:set-open), not here.
+  assert.equal(readsOnPick({ onScreen, picked: `${home}#5`, unread: true }), false);
+  // Off the Chat view (settings, a Routine's page) the pick is what puts it on screen.
+  assert.equal(
+    readsOnPick({ onScreen: chatOnScreen({ view: "settings", runPane: null, projectPath: home, sessionId: 4 }), picked: `${home}#4`, unread: true }),
+    false,
+  );
 });

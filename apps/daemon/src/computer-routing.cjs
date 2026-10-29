@@ -133,6 +133,9 @@ const RESULTS = {
   "project:current": OPEN_PROJECT,
   "project:switch": OPEN_PROJECT,
   "project:read": OPEN_PROJECT,
+  // Each computer has its own Chats home: another's path comes back as a scope key, like any of its Projects.
+  "chats:home": OPEN_PROJECT,
+  "chats:ensure": OPEN_PROJECT,
   "project:recent": PROJECT_LIST,
   "project:forget": PROJECT_LIST,
   "project:registry": PROJECT_LIST,

@@ -110,6 +110,9 @@ const PATHS = Object.freeze({
   "link:open": denied,
   "link:send": denied,
   "project:open": ([projectPath]) => [projectPath],
+  // The Chats home is the Mac's own folder, outside any demo folder.
+  "chats:home": denied,
+  "chats:ensure": denied,
   // Takes a Project off the recent list; its folder is never touched.
   "project:forget": ([projectPath]) => [projectPath],
   // The search names no path; its results are cut down to the folder (filterResult).

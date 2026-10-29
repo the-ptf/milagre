@@ -24,6 +24,8 @@ The repo uses npm workspaces with one root lockfile. Run the existing commands f
 
 `npm run dev` starts Vite and opens the Electron shell. The renderer is served locally at port 5180 during development. Its production build is in `apps/desktop/dist/`; installers remain in the root `release/` directory. The desktop package keeps its existing app identity and data paths, so saved Chats and settings need no migration.
 
+An unpackaged app (`npm run dev`, the test scripts) reads two folder overrides and passes them to the background host it starts: `MILAGRE_WORKTREE_ROOT` for Milagre Worktrees (`~/.milagre/worktrees` otherwise) and `MILAGRE_CHATS_HOME` for the Chats home that holds Chats without a Project (`~/.milagre/chats` otherwise). Use absolute paths. A host that is already running keeps its folders, so stop it first. Packaged builds ignore both.
+
 ## Releases
 
 Merges into `main` cut no release. Releases ride a train with two stops, both run by the **Publish** workflow (`scripts/plan-release.cjs` plans each one):

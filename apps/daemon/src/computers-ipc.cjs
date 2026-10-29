@@ -3,8 +3,14 @@ const { ALIASES, NOT_REMOTE, isLocalOnly, qualifyEvent, qualifyResult, stripComp
 // Kept as they pass (main sees whole lists and the states a Project opens with); the window forwards the rest.
 const KEPT_LISTS = { "project:recent": "recent", "link:list": "links", "project:registry": "registry" };
 // Routines' reads, kept whole: a computer away shows its last list. Writes and webhook URLs (secrets) are never kept.
-const KEPT_OBJECTS = { "routines:enabled:read": "routines-enabled", "routines:list": "routines", "routines:targets": "routine-targets" };
-const OPENED = new Set(["project:read", "project:switch", "project:open", "project:current"]);
+const KEPT_OBJECTS = {
+  "routines:enabled:read": "routines-enabled",
+  "routines:list": "routines",
+  "routines:targets": "routine-targets",
+  // Where its Chats home is, so its project-less Chats stay listed while it is away.
+  "chats:home": "chats-home",
+};
+const OPENED = new Set(["project:read", "project:switch", "project:open", "project:current", "chats:ensure"]);
 // What a window reads that a computer's last copy can answer while it is away.
 const MAX_REMEMBERED_CHARS = 32 * 1024 * 1024;
 const nameOf = (projectPath, recent) =>
@@ -17,7 +23,9 @@ function readOffline(cache, id, method, args) {
   if (OPENED.has(method)) {
     const scope = args[0];
     const kept = typeof scope === "string" ? cache.get(id, "scope", scope) : null;
-    return kept ? { path: scope, name: kept.name, state: kept.state } : null;
+    // The copy keeps no `kind`; the home's last known path says which scope is the Chats home.
+    const home = kept && cache.get(id, "chats-home", "")?.path === scope;
+    return kept ? { path: scope, name: kept.name, ...(home ? { kind: "chats" } : {}), state: kept.state } : null;
   }
   if (method === "link:snapshot" || method === "link:open") {
     const kept = typeof args[0] === "string" ? cache.get(id, "scope", `milagre-link:${args[0]}`) : null;

@@ -2023,6 +2023,12 @@
         }
       ]
     },
+    "chats:home": {
+      "parameters": []
+    },
+    "chats:ensure": {
+      "parameters": []
+    },
     "link:list": {
       "parameters": []
     },

@@ -11,6 +11,7 @@ const { createChatScopes } = require("./chat-scopes.cjs");
 const { registerLinkRuntime } = require("./link-runtime.cjs");
 const { isLinkScopeKey, scopeFromKey, scopeKey } = require("@milagre/shared/chat-scopes");
 const { PROVIDERS } = require("@milagre/shared/providers");
+const { CHATS_ACCOUNT_LABEL } = require("@milagre/shared/chats-home");
 const { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } = require("@milagre/shared/pr-action");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { RELOAD_TEXT } = require("@milagre/shared/chat-reload");
@@ -102,6 +103,7 @@ const { dictationContext, polishDictation, createDictationModels } = require("./
 const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
+const { createChatsHome } = require("./chats-home.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
 
@@ -129,6 +131,13 @@ function createRuntime(options) {
   let advisorDelivery;
   // Set up at the end with what it needs; hidden homes are filtered out of every Project list (ADR-0010).
   let bots;
+  // Chats without a Project run in Worktrees of the Chats home. No Project list shows it (clients ask chats:home), and
+  // it is never registered or remembered, so the gates that need the registry or the recent list accept it by path.
+  const chatsHome = createChatsHome({ root: options.chatsHome ?? path.join(require("node:os").homedir(), ".milagre", "chats") });
+  // A Project result for the home says so: clients key on `kind`, since each computer's home is at its own path.
+  const withKind = (project) => (chatsHome.isHome(project.path) ? { ...project, kind: "chats" } : project);
+  // The home as the Milagre MCP host and Routines see it: a project-less Chat's own tools and Heartbeats reach it.
+  const chatsHomeEntries = async () => ((await chatsHome.exists()) ? [{ path: chatsHome.path, name: projectName(chatsHome.path), kind: "chats" }] : []);
   // The bot that runs a Chat (its thread, or a Chat it opened the user hasn't taken over), by name, else null.
   const botRunning = (chatId) => (typeof chatId === "string" ? (bots?.botForChat(chatId)?.bot.name ?? null) : null);
   function track(work, set = active) {
@@ -373,7 +382,8 @@ function createRuntime(options) {
     }
   }
 
-  const projectName = (projectPath) => path.basename(projectPath) || "Untitled project";
+  // The Chats home's folder is "chats"; every name a client shows (inbox, notices, a phone on an older app) says "No project".
+  const projectName = (projectPath) => (chatsHome.isHome(projectPath) ? "No project" : path.basename(projectPath) || "Untitled project");
 
   // Chats brought back from linked worktrees' old files, per project, until a window opening it shows the notice.
   const restoredChats = new Map();
@@ -1308,7 +1318,7 @@ function createRuntime(options) {
     // Webhook secrets and waiting deliveries, beside routines.json; URLs are on the relay the phone uses.
     hooks: () =>
       (routineHooks ??= { store: createHookStore({ file: path.join(dataDir, "routine-hooks.json") }), relayUrl: options.hookRelayUrl ?? HOOK_RELAY_URL }),
-    projects: () => projectRegistry().list(),
+    projects: async () => [...(await projectRegistry().list()), ...(await chatsHomeEntries())],
     // Read only: an open Project's state from memory, another's saved file, never opening it (no resume, no recovery).
     projectState: (projectPath) => projectStateReadOnly(projectPath),
     // Bots are made further down; until then no Chat is a bot's.
@@ -2212,17 +2222,20 @@ function createRuntime(options) {
   // Each way a project opens (launch, the folder dialog, a switch) puts it at the top of the recent list.
   // `takeNotice`: this open is a desktop window's, which shows the restored-chats notice. Over the daemon only the
   // desktop asks for it, so the phone's bridge opening the project first doesn't use the notice up.
-  async function openProject(projectPath, { takeNotice = true, focus = true } = {}) {
+  // `remember` / `register`: false keeps it off the recent list / out of the registry. The Chats home never goes on
+  // either, however it opens (chats:ensure, the phone's project:open, a reconnect opening the window's Project again).
+  async function openProject(projectPath, { takeNotice = true, focus = true, remember = true, register = true } = {}) {
     // One look at git gives the Project and its Worktrees, which the read reconciles with. A Project opened before by
     // this path (a switch back to it) keeps the identity read then while its Worktree list still starts at it.
     const known = openedIdentities.get(projectPath);
     const listed = known?.git ? await mainCheckoutWorktrees(projectPath) : null;
     const { identity, worktrees } = listed ? { identity: known, worktrees: listed } : await inspectProject(projectPath);
     openedIdentities.set(identity.path, identity);
-    const project = await readProject(identity.path, { discovered: worktrees });
-    await projectRegistry().add(identity);
+    const project = withKind(await readProject(identity.path, { discovered: worktrees }));
+    const home = project.kind === "chats";
+    if (register && !home) await projectRegistry().add(identity);
     // The identity says what rememberProject would ask git again: its path is a checkout's top folder, or outside Git.
-    await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
+    if (remember && !home) await rememberProject(recentProjects(), identity.path, { plain: async () => !identity.git, topLevel: async () => identity.path });
     if (focus) shownProjectPath = identity.path;
     // The first window to open the project after chats came back says so, once. A read at startup (resuming a turn)
     // or after removing a worktree keeps the notice for it.
@@ -2249,7 +2262,9 @@ function createRuntime(options) {
   // Chats a quit stopped continue on launch in every recent project, not only the one on screen.
   async function resumeRecentProjects() {
     const resolved = new Set();
-    for (const { path: recentPath } of await recentProjects().list()) {
+    // The Chats home isn't recent, and its Chats continue too.
+    const homes = (await chatsHome.exists()) ? [chatsHome.path] : [];
+    for (const recentPath of [...(await recentProjects().list()).map((entry) => entry.path), ...homes]) {
       let projectPath = recentPath;
       try {
         // An entry from before #117 can name a linked worktree. It is read as its repository, as opening it would be,
@@ -2285,6 +2300,19 @@ function createRuntime(options) {
           .filter(Boolean)
           .map(({ id, path, name }) => ({ id, path, name })),
       })),
+      // One choice for every Chat without a Project on this computer: a Project scope, marked so the screens show the
+      // Chats mark and not the home repository's picture.
+      ...((await chatsHome.exists())
+        ? [
+            {
+              key: chatsHome.path,
+              name: CHATS_ACCOUNT_LABEL,
+              kind: "project",
+              chatsHome: true,
+              projects: [{ id: chatsHome.path, path: chatsHome.path, name: CHATS_ACCOUNT_LABEL }],
+            },
+          ]
+        : []),
     ];
   }
   async function validateAccountScope(key, optional = false) {
@@ -2391,8 +2419,8 @@ function createRuntime(options) {
     if (!(await projectRegistry().list()).some((project) => project.path === requested)) throw new Error("Project is not in the registry.");
     return openProject(requested);
   });
-  // Bots' homes are Projects only to the runtime: no list shows them.
-  const withoutHomes = (list) => list.filter((project) => !bots.isHome(project.path));
+  // Bots' homes and the Chats home are Projects only to the runtime: no list shows them.
+  const withoutHomes = (list) => list.filter((project) => !bots.isHome(project.path) && !chatsHome.isHome(project.path));
   // Each recent Project says whether the user hid it from the sidebar and the phone's list.
   async function withHidden(list) {
     const hidden = await projectSettings().hiddenPaths();
@@ -2436,8 +2464,9 @@ function createRuntime(options) {
   // `{ state: false }`: { path, name, git } alone, for a window that holds the state already and only needs the Project
   // open on this host (the daemon adds the number of the state it last sent, see server.cjs).
   commands.handle("project:read", async (_event, projectPath, read) => {
-    if (!(await recentProjects().list()).some((item) => item.path === projectPath)) throw new Error("Open this project in Milagre first.");
-    const project = await readProject(projectPath);
+    const known = chatsHome.isHome(projectPath) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === projectPath);
+    if (!known) throw new Error("Open this project in Milagre first.");
+    const project = withKind(await readProject(projectPath));
     if (read?.state !== false) return project;
     const { state: _state, ...rest } = project;
     return rest;
@@ -2449,7 +2478,7 @@ function createRuntime(options) {
   });
   commands.handle("project:snapshot", async (_event, projectPath) => {
     if (!states.has(projectPath)) throw new Error("Open the project before reading its snapshot.");
-    return { path: projectPath, name: projectName(projectPath), git: projectsWithGit.get(projectPath) ?? true, state: await states.get(projectPath) };
+    return withKind({ path: projectPath, name: projectName(projectPath), git: projectsWithGit.get(projectPath) ?? true, state: await states.get(projectPath) });
   });
   // One saved message with the tool output its steps keep in a sidecar (see compactDetails), for a step opened on the
   // desktop or the phone. A Project, open already, or a Link (read like link:snapshot does), by scope key.
@@ -2505,12 +2534,22 @@ function createRuntime(options) {
     if (!states.has(projectPath)) throw new Error("Open the project before reading its worktrees.");
     return Object.values((await states.get(projectPath)).worktrees ?? {}).map((worktree) => worktree.path);
   });
-  commands.handle("project:switch", async (_event, requested) => openProject(await switchTarget(recentProjects(), requested)));
+  commands.handle("project:switch", async (_event, requested) => {
+    // Opening a project-less Chat switches the window to the home, which is on no list for switchTarget to find.
+    if (chatsHome.isHome(requested) && (await chatsHome.exists())) return openProject(chatsHome.path, { remember: false, register: false });
+    return openProject(await switchTarget(recentProjects(), requested));
+  });
+  // chats:home only says where this computer's home is; chats:ensure makes it when missing and reads it, never registered
+  // or remembered. It leaves the shown Project alone: another computer's window can ask for this home, and the window
+  // that moves to it does so with project:switch.
+  commands.handle("chats:home", async () => ({ path: chatsHome.path, exists: await chatsHome.exists() }));
+  commands.handle("chats:ensure", async () => openProject(await chatsHome.ensure(), { takeNotice: false, focus: false, remember: false, register: false }));
   const realDataDir = realpathSync(dataDir);
   const assertRegistrableProject = (folder) => {
     const relative = path.relative(realDataDir, folder);
     const insideDataDir = !relative || (!relative.startsWith("..") && !path.isAbsolute(relative));
-    if (bots.isHome(folder) || insideDataDir) throw Error("That folder belongs to Milagre's internal state and cannot be registered as a Project.");
+    if (bots.isHome(folder) || chatsHome.isHome(folder) || insideDataDir)
+      throw Error("That folder belongs to Milagre's internal state and cannot be registered as a Project.");
   };
   commands.handle("project:forget", async (_event, projectPath) => {
     localMcp.forgetProjectGrants(projectPath);
@@ -2524,7 +2563,7 @@ function createRuntime(options) {
   const designAdapter = path.join(__dirname, "design-mcp-tools.cjs");
   // The Milagre MCP host's ports; bots open their Chats through the same Worktree and Chat ones.
   const localMcpHost = require("./local-mcp-host.cjs").createLocalMcpHost({
-    projects: async () => withoutHomes(await projectRegistry().list()),
+    projects: async () => [...withoutHomes(await projectRegistry().list()), ...(await chatsHomeEntries())],
     readProject,
     scopeStates,
     chats,
@@ -2553,7 +2592,8 @@ function createRuntime(options) {
     validateDesignChat: async (chatId) => {
       const scope = projectOfKey(chatId);
       if (!isLinkScopeKey(scope)) {
-        if (!(await projectRegistry().list()).some((project) => project.path === scope)) throw Error("Open this Project in Milagre first");
+        if (!chatsHome.isHome(scope) && !(await projectRegistry().list()).some((project) => project.path === scope))
+          throw Error("Open this Project in Milagre first");
         await readProject(scope);
       }
       await existingChat("connecting Designs")(chatId);
@@ -2791,15 +2831,24 @@ function createRuntime(options) {
     },
     // Synchronous capture: the socket serializes this before another event can
     // mutate state, so its event watermark and run sequence describe one instant.
-    snapshot: () => ({
-      links: linkStore.ids().map((linkId) => ({ linkId, state: linkStore.has(linkId) ? linkStore.cached(linkId) : undefined })),
-      projects: states
-        .projects()
-        .filter((projectPath) => !bots.isHome(projectPath))
-        .map((projectPath) => ({ path: projectPath, name: projectName(projectPath), state: states.states.get(projectPath) })),
-      runs: chats.snapshot(),
-      ports: ports.snapshot(),
-    }),
+    // The Chats home stays in: a reconnecting window restores its project-less Chats from it, and live activity reads them.
+    // Its state is kept by its real path, so one look at that path marks it.
+    snapshot: () => {
+      const home = chatsHome.path;
+      return {
+        links: linkStore.ids().map((linkId) => ({ linkId, state: linkStore.has(linkId) ? linkStore.cached(linkId) : undefined })),
+        projects: states
+          .projects()
+          .filter((projectPath) => !bots.isHome(projectPath))
+          .map((projectPath) => {
+            const project = { path: projectPath, name: projectName(projectPath), state: states.states.get(projectPath) };
+            if (projectPath === home) project.kind = "chats";
+            return project;
+          }),
+        runs: chats.snapshot(),
+        ports: ports.snapshot(),
+      };
+    },
     /** The state a Project or Link holds now, without waiting for its queued changes; undefined when it isn't read. */
     stateOf: (scope) => (isLinkScopeKey(scope) ? linkStore.cached(scopeFromKey(scope).linkId) : states.states.get(scope)),
     // A window regains focus over `view` ({ projectPath, chatId }): its Chat is read and its Project's diff stats are

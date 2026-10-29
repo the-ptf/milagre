@@ -18,6 +18,7 @@ test("tasks capture once before execution; steering reuses the checkpoint; resto
   const prompts = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
     environmentReady: Promise.resolve(),
     titleModels: {},
     agentCli: async () => ({ command: "fixture" }),
@@ -109,6 +110,7 @@ test("a checkpoint that can't be captured never blocks the message: the task run
   const prompts = [];
   const runtime = createRuntime({
     dataDir: path.join(dir, "data"),
+    chatsHome: path.join(dir, "chats"),
     environmentReady: Promise.resolve(),
     titleModels: {},
     agentCli: async () => ({ command: "fixture" }),

@@ -12,6 +12,8 @@ import { LinkProjectDialog } from "./components/LinkProjectDialog";
 import { createScopeDrafts } from "./lib/link-scope";
 import type { LinkState, NamedProjectLink, OpenLink } from "@milagre/shared/model";
 import { scopeKey, isLinkScopeKey, scopeFromKey, LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
+import { isChatsHomeProject, type ChatsHome } from "@milagre/shared/chats-home";
+import { projectSurfaces } from "./lib/project-surfaces";
 import { BridgeContext, ScopeContext, bridgeFor, bridgeForKey, forgetBridge, isRemoteKey, onAnyAgentEvent } from "./lib/computer-bridge";
 import type { WorktreeRename } from "@milagre/shared/project-edits";
 import { reconcileState } from "@milagre/shared/reconcile";
@@ -69,7 +71,7 @@ import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
 import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
-import { isMilagreWorktree, worktreeShared } from "./lib/archive";
+import { archivedNotice, isMilagreWorktree, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
@@ -103,7 +105,7 @@ import { StartupSplash } from "./components/StartupSplash";
 import SidebarNav, { knownLink } from "./components/SidebarNav";
 import { cachedProjectCopy, cachedScopeState, rememberProjectCopy, runKeys, seedScopeState, useScopeStates } from "./lib/sidebar-scopes";
 import { activeChatKeys, draftTileKey, gridChats, isDraftTileKey, readChatLayout, saveChatLayout, splitChats, type ChatLayout } from "./lib/chat-grid";
-import { chatOnScreen, keepsRoutinesView, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
+import { chatOnScreen, keepsRoutinesView, readsOnPick, runPaneRestore, type RunPaneReturn } from "./lib/run-pane";
 import { ChatGrid, GridDropOverlay } from "./components/ChatGrid";
 import { dropSide, gridDrop, placeDropped, readGridPins, readSplitChats, saveGridPins, saveSplitChats, type GridDropTarget } from "./lib/grid-drop";
 import { chatRevealPath } from "./lib/reveal";
@@ -114,7 +116,7 @@ import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-re
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
-import { showNotice } from "./lib/notice";
+import { BRIEF_NOTICE_MS, clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { Notice as NoticeCard } from "./components/Notice";
 import { openInEditor } from "./lib/editors";
@@ -286,6 +288,8 @@ function App() {
     resolveModel(MODEL_CATALOG, getSettings().defaultModelId, providerForId(getSettings().defaultModelId)),
   );
   const accountScope = selectedLink ? `milagre-link:${selectedLink.link.id}` : project?.path;
+  // A Chats home's account is shared by every Chat without a Project on its computer; the usage card says so.
+  const accountScopeIsHome = !selectedLink && isChatsHomeProject(project);
   const currentChatKey = draftKey(accountScope ?? "", selectedSessionId);
   const composerPrefs = useComposerPreferences(currentChatKey);
   const effort = composerPrefs.effort;
@@ -493,9 +497,14 @@ function App() {
     };
   }, [commandPaletteOpen]);
   const [pickedIsolation, setIsolation] = useState<Isolation>(() => loadChatPreferences(localStorage, "").isolation);
-  // A Project outside Git has one Worktree, the folder itself: its Chats always work there.
+  // A Project outside Git has one Worktree, the folder itself: its Chats always work there. A Chat without a Project
+  // always gets its own Worktree of the Chats home, a new empty folder.
   const noGit = project?.git === false;
-  const isolation: Isolation = noGit ? "local" : pickedIsolation;
+  const isolation: Isolation = isChatsHomeProject(project) ? "worktree" : noGit ? "local" : pickedIsolation;
+  const surfaces = projectSurfaces(project);
+  // Git controls stay wherever they are today, a plain folder included (the places that need a repository check `noGit`
+  // themselves); only a Chat without a Project, whose repository is internal, loses them.
+  const showGit = surfaces.git || noGit;
   // The open Project's branches, from the last read of them (branchLists); a read that changes them renders again.
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
@@ -545,6 +554,9 @@ function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   // Which Project the Settings page shows; any recent Project can be picked there, the open one by default.
   const [settingsProject, setSettingsProject] = useState<{ path: string; name: string } | null>(null);
+  // The Chats home is no Project to the user: it is never the Settings Project, and a leftover Project section falls back.
+  const shownSettingsProject = settingsProject ?? (surfaces.settings ? (project ?? undefined) : undefined);
+  const shownSettingsSection = settingsSection === "project" && !shownSettingsProject ? "general" : settingsSection;
   const [settingsComputer, setSettingsComputer] = useState<string | null>(null);
   const [addComputerOpen, setAddComputerOpen] = useState(false);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
@@ -553,10 +565,14 @@ function App() {
   const nextChatView = useRef(0);
   const [, setChatView] = useState(0);
   function advanceChatView() {
+    // A confirmation like "Chat archived" belongs to the screen it was said on.
+    clearNoticeOnNavigate();
     chatView.current = ++nextChatView.current;
     setChatView(chatView.current);
   }
   const sendInFlight = useRef(false);
+  // A new Chat's draft is on its way to another Project (moveNewChat): Enter waits for it to get there.
+  const movingDraft = useRef(false);
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
   const failedSendIds = useRef(createResendMemory());
   const [preparingView, setPreparingView] = useState<number | null>(null);
@@ -776,7 +792,7 @@ function App() {
   const { issues: linearIssues, refresh: refreshLinearIssues } = useWorktreeLinearIssues(project?.path ?? "", linear.active);
   const sidePanels = useSidePanels();
   // The PR the open Chat's branch opened: the Changes panel's "PR #n" mode and its diff.
-  const branchPr = selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
+  const branchPr = showGit && selectedWorktree ? (pullRequests[selectedWorktree.path] ?? null) : null;
   const prChatKey = project && selectedSession ? chatKey(project.path, selectedSession.id) : null;
   const [prWanted, setPrWanted] = useState(false);
   // A PR picked in the panel's menu (or opened from a row's PR chip), over the branch's own, while its Chat is open.
@@ -795,7 +811,7 @@ function App() {
     cwd: selectedWorktree?.path,
     base: selectedWorktree?.base,
     chatId: prChatKey,
-    available: view === "chat" && Boolean(selectedSession && selectedWorktree),
+    available: view === "chat" && showGit && Boolean(selectedSession && selectedWorktree),
     pullRequest: prNumber ? { number: prNumber, range: prRange(prReview.pr) } : undefined,
   });
   const prShown = changes.open && changes.mode === "pr";
@@ -804,7 +820,7 @@ function App() {
   const diffComments = useDiffComments(project && selectedSession ? chatKey(project.path, selectedSession.id) : null, changes);
   const diffPrefs = useDiffPreferences();
   const diffPresence = useDiffPresence(changes.diffOpen);
-  const changesAvailable = view === "chat" && Boolean(selectedSession && selectedWorktree);
+  const changesAvailable = view === "chat" && showGit && Boolean(selectedSession && selectedWorktree);
   const changesAvailableRef = useRef(false);
   changesAvailableRef.current = changesAvailable;
   // The open Chat's Terminals; a draft has none until it is sent.
@@ -1148,7 +1164,7 @@ function App() {
   const readPullRequestRefs = useMemo(pullRequestRefsCache, []);
   // The open Chat's PRs, the same list its sidebar row shows, so the composer's action and the row agree.
   const selectedPullRequests =
-    project && selectedSession && selectedWorktree
+    showGit && project && selectedSession && selectedWorktree
       ? chatPullRequests(
           selectedSession.summary
             ? (selectedSession.summary.pullRequests ?? NO_REFS)
@@ -1202,21 +1218,23 @@ function App() {
         ...(backgroundChats.has(session.id) ? { background: backgroundChats.get(session.id) } : {}),
         unread: Boolean(session.unread),
         details: {
-          branch: worktree?.name,
-          path: worktree?.path,
-          diff: worktree?.diff,
-          linearIssue: worktree ? linearIssues[worktree.path] : undefined,
+          branch: showGit ? worktree?.name : undefined,
+          // A Chat without a Project names no folder: its Worktree is the Chats home's, internal to Milagre.
+          path: showGit ? worktree?.path : undefined,
+          diff: showGit ? worktree?.diff : undefined,
+          linearIssue: showGit && worktree ? linearIssues[worktree.path] : undefined,
           // The stored link (Worktree.linearIssue) and whether "Link issue…" applies: the chat's own Worktree,
           // not the main checkout, and not one another chat shares.
-          linearKey: linear.active ? (worktree?.linearIssue ?? undefined) : undefined,
-          linkable: linear.active && !!worktree && worktree.path !== project?.path && !worktreeShared(state, session.id),
-          pullRequests: worktree
-            ? chatPullRequests(
-                session.summary ? (summary.pullRequests ?? NO_REFS) : readPullRequestRefs(chatKey(project?.path ?? "", session.id), sessionMessages),
-                chatPrs[worktree.path] ?? {},
-                pullRequests[worktree.path] ?? undefined,
-              )
-            : [],
+          linearKey: showGit && linear.active ? (worktree?.linearIssue ?? undefined) : undefined,
+          linkable: showGit && linear.active && !!worktree && worktree.path !== project?.path && !worktreeShared(state, session.id),
+          pullRequests:
+            showGit && worktree
+              ? chatPullRequests(
+                  session.summary ? (summary.pullRequests ?? NO_REFS) : readPullRequestRefs(chatKey(project?.path ?? "", session.id), sessionMessages),
+                  chatPrs[worktree.path] ?? {},
+                  pullRequests[worktree.path] ?? undefined,
+                )
+              : [],
           failed: Boolean(failed) || summary.lastOutcome === "failed",
           lastAt: summary.lastAt,
           firstAt: summary.firstAt,
@@ -1244,6 +1262,7 @@ function App() {
     linear.active,
     agentPorts,
     project,
+    showGit,
     archivingChats,
   ]);
   const latest = useRef({ patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat });
@@ -1312,7 +1331,15 @@ function App() {
     if (sessionId !== selectedSessionRef.current) {
       if (projectRef.current) beginChatSwitch(chatKey(projectRef.current.path, sessionId));
       advanceChatView();
-    }
+    } else if (
+      shownProject &&
+      readsOnPick({
+        onScreen: chatOnScreen({ view, runPane: runPaneOpen ? runPane : null, projectPath: shownProject.path, sessionId: selectedSessionRef.current }),
+        picked: chatKey(shownProject.path, sessionId),
+        unread: Boolean(openState()?.sessions[sessionId]?.unread),
+      })
+    )
+      patchChat(sessionId, { unread: false });
     setSelectedSessionId(sessionId);
     setSelectedWorktreeId(openState()?.sessions[sessionId]?.worktree_id ?? null);
     if (!keepsRoutinesView(holdRoutinesView.current, projectRef.current?.path, sessionId)) setView("chat");
@@ -1347,7 +1374,8 @@ function App() {
   // Another Project's chat (a row of the all-Projects sidebar) archives the same way, from the copy its group shows.
   // As on the phone, the row goes and the window leaves the chat at once; the host's work goes on behind, and a chat
   // whose archive fails (or whose worktree stays) comes back with a notice.
-  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path) {
+  // `chatsHome`: the Chat has no Project; once it is gone a notice says so, since nothing lists it any more.
+  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path, chatsHome = false) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
@@ -1387,6 +1415,11 @@ function App() {
       mode,
       plan,
     )
+      .then((outcome) => {
+        const archived = archivedNotice(outcome, { chatsHome });
+        // A confirmation, not a problem: a brief toast over the page, so it neither lingers nor moves the layout.
+        if (archived) showNotice(archived, { ms: BRIEF_NOTICE_MS, leaveOnNavigate: true });
+      })
       // A call that timed out may still have landed: a chat the host shows archived by now needs no notice.
       .catch((error) => {
         if (!archiveState(projectPath)?.sessions[sessionId]?.archived) setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`);
@@ -1973,6 +2006,7 @@ function App() {
     issue?: LinearIssue,
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || sendInFlight.current || imageDraft.loading) return false;
+    if (movingDraft.current) return false;
     if (readOnly) {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return false;
@@ -2484,18 +2518,20 @@ function App() {
             onReveal: (id: string) => latest.current.revealChat(Number(id)),
             onOpenInEditor: (id: string) => latest.current.openChatInEditor(Number(id)),
           }),
-      onCommit: (id) => latest.current.openGitDialog(Number(id)),
+      ...(showGit ? { onCommit: (id: string) => latest.current.openGitDialog(Number(id)) } : { gitless: true }),
       onArchiveCheck: (id) => latest.current.checkArchive(Number(id)),
       // The row shows the progress until this settles.
-      onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan),
+      onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, undefined, isChatsHomeProject(projectRef.current)),
       onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace),
       onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id)),
     }),
-    [remoteProject],
+    [remoteProject, showGit],
   );
   // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
   const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
-  const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
+  const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, chatsHome?: boolean) =>
+    archiveChat(Number(id), mode, plan, scopeKey, chatsHome),
+  );
   const startNewChatFromSidebar = useEvent(() => startNewChatOnThisMac());
   const openProjectFromSidebar = useEvent(() => void openProject());
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
@@ -2526,17 +2562,20 @@ function App() {
   }
   // New chat (⌘N, the sidebar's +, the command palette, a Link's) always opens the same screen on this Mac: the open
   // Project when it is this Mac's, else the one opened here last. Another computer's Project or a Link gets a new Chat
-  // from its own header's +, or the heading's Project dropdown.
+  // from its own header's +, or the heading's Project dropdown. A Chat without a Project on screen goes to that last
+  // real Project instead (only No project in the heading's dropdown starts one), and stays in the Chats home only when
+  // this Mac has no real Project.
   const startNewChatOnThisMac = useEvent(async (draftText: string = "") => {
     const current = projectRef.current?.path;
-    if (!selectedLinkRef.current && current && computerOfKey(current) === LOCAL_COMPUTER) {
+    const currentKind = projectRef.current?.kind;
+    if (!selectedLinkRef.current && current && currentKind !== "chats" && computerOfKey(current) === LOCAL_COMPUTER) {
       startNewChat(draftText);
       return;
     }
     const recent = await window.milagre.listRecentProjects().catch((): RecentProject[] => []);
-    const home = newChatProject({ currentPath: current, recent });
+    const home = newChatProject({ currentPath: current, currentKind, recent });
     if (home) startNewChatIn(home, draftText);
-    // This Mac has no Project: the new Chat stays where it is.
+    // This Mac has no real Project: the new Chat stays where it is, the Chats home included.
     else if (!selectedLinkRef.current) startNewChat(draftText);
   });
   // A new Chat on this Mac whose draft points its agent at a triage playbook; the user writes what went wrong after it.
@@ -2544,24 +2583,64 @@ function App() {
     const { prompt } = await window.milagre.prepareTriage(`Milagre desktop ${await window.milagre.getAppVersion()} on ${navigator.platform}`);
     await startNewChatOnThisMac(prompt);
   });
-  // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far.
-  const moveNewChat = useEvent((key: string) => {
+  // The new-chat heading's Project dropdown: the new Chat moves to that Project with whatever was typed so far. No project
+  // (or the computer chip on its draft) moves it to that computer's Chats home, made first when it isn't there yet;
+  // making it doesn't open it anywhere, the switch below does.
+  const moveNewChat = useEvent(async (key: string, home?: Pick<ChatsHome, "exists">) => {
     const from = projectRef.current?.path;
     if (selectedLinkRef.current || !from || from === key) return;
+    // The prompt keeps the keys while the draft moves (ChatComposer focuses it on the pick): what is typed here until the
+    // new Chat opens there goes along with it, and Enter waits for it to arrive instead of sending here.
+    const typedKey = draftKey(from, selectedSessionRef.current);
+    movingDraft.current = true;
+    try {
+      await moveDraftTo(key, from, typedKey, home);
+    } finally {
+      movingDraft.current = false;
+    }
+  });
+  async function moveDraftTo(key: string, from: string, typedKey: string, home?: Pick<ChatsHome, "exists">) {
+    if (home && !home.exists) {
+      try {
+        await bridgeForKey(key).ensureChatsHome();
+      } catch (error) {
+        // The draft stays where it was typed.
+        if (!selectedLinkRef.current && projectRef.current?.path === from)
+          setNewChatError(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
+        return;
+      }
+      if (selectedLinkRef.current || projectRef.current?.path !== from) return;
+    }
     const carried = draftStore.get();
     // The text leaves this Project's new Chat, so it isn't waiting here too on the way back.
     if (carried) setDraft("");
     const remembered = scopeDrafts.read({ kind: "project", projectPath: key });
-    const start = () => startNewChat(carried || (remembered.sessionId === null ? remembered.text : ""));
+    const start = () => {
+      // Keys typed after the text left, while the switch was on its way, landed in the screen being left: they follow.
+      const late = draftStore.take(typedKey);
+      if (late) scopeDrafts.save({ kind: "project", projectPath: from }, { text: "", sessionId: null });
+      startNewChat(carried + late || (remembered.sessionId === null ? remembered.text : ""));
+    };
     const arrived = () => !selectedLinkRef.current && projectRef.current?.path === key;
     const switched = switchProject(key);
     if (arrived()) start();
-    else
-      void switched.then(() => {
-        if (arrived()) start();
-        // The switch failed: the text comes back where it was typed.
-        else if (carried && !selectedLinkRef.current && projectRef.current?.path === from && !draftStore.get()) setDraft(carried);
-      });
+    else {
+      await switched;
+      if (arrived()) start();
+      // The switch failed: the text comes back where it was typed.
+      else if (carried && !selectedLinkRef.current && projectRef.current?.path === from) setDraft(carried + draftStore.get());
+    }
+  }
+  // The sidebar Chats group's +: a new Chat without a Project on this Mac, in its Chats home, made first when missing.
+  const newChatWithoutProject = useEvent(async () => {
+    leaveBots();
+    const bridge = bridgeFor(LOCAL_COMPUTER);
+    try {
+      const home = await bridge.chatsHome();
+      startNewChatIn(home.exists ? home.path : (await bridge.ensureChatsHome()).path);
+    } catch (error) {
+      setNotice(`Could not start a Chat without a Project: ${ipcErrorMessage(error)}`);
+    }
   });
   const sidebarRunKeys = runKeys(agentRuns.runs);
   const openScopeChat = useEvent((scopeKey: string, id: string) => void openCanvasChat(scopeKey, Number(id)));
@@ -2686,8 +2765,10 @@ function App() {
   }, [routineId, view]);
   const sidebarUsage = useMemo(
     () =>
-      showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? <SidebarUsage usage={usage} scope={accountScope} /> : undefined,
-    [showUsageInSidebar, usage.snapshot, usage.loading, accountScope],
+      showUsageInSidebar && usage.snapshot && visibleProviders(usage.snapshot).length > 0 ? (
+        <SidebarUsage usage={usage} scope={accountScope} chatsHome={accountScopeIsHome} />
+      ) : undefined,
+    [showUsageInSidebar, usage.snapshot, usage.loading, accountScope, accountScopeIsHome],
   );
   const mentionKey = JSON.stringify(state && !isLinkScopeKey(project?.path ?? "") ? chatMentionChoices(state) : []);
   const mentionChats = useMemo(() => JSON.parse(mentionKey) as ReturnType<typeof chatMentionChoices>, [mentionKey]);
@@ -3073,15 +3154,19 @@ function App() {
         keywords: "appearance switch color mode",
         run: toggleTheme,
       },
-      {
-        id: "project-settings",
-        label: "Project settings",
-        group: "Actions",
-        icon: "settings",
-        detail: current.name,
-        keywords: "worktree setup files",
-        run: openProjectSettings,
-      },
+      ...(surfaces.settings
+        ? [
+            {
+              id: "project-settings",
+              label: "Project settings",
+              group: "Actions",
+              icon: "settings" as const,
+              detail: current.name,
+              keywords: "worktree setup files",
+              run: openProjectSettings,
+            },
+          ]
+        : []),
     ];
     if (view === "settings" || view === "routines")
       commands.push({ id: "back-to-chat", label: "Back to chat", group: "Actions", icon: "chat", run: () => setView("chat") });
@@ -3101,15 +3186,20 @@ function App() {
     if (selectedSession && view === "chat") {
       const sessionId = selectedSession.id;
       commands.unshift(
-        {
-          id: "git",
-          label: "Commit and open PR…",
-          group: "Current chat",
-          icon: "git",
-          keywords: "git changes pull request push",
-          run: () => openGitDialog(sessionId),
-        },
-        ...(isRemoteKey(project?.path)
+        ...(showGit
+          ? [
+              {
+                id: "git",
+                label: "Commit and open PR…",
+                group: "Current chat",
+                icon: "git" as const,
+                keywords: "git changes pull request push",
+                run: () => openGitDialog(sessionId),
+              },
+            ]
+          : []),
+        // A Chat without a Project has no folder to the user (as in its row's menu).
+        ...(isRemoteKey(project?.path) || !showGit
           ? []
           : [
               {
@@ -3159,7 +3249,7 @@ function App() {
           run: () => void reloadChat(sessionId),
         },
       );
-      if (selectedWorktree)
+      if (selectedWorktree && showGit)
         commands.splice(3, 0, {
           id: "copy-path",
           label: "Copy worktree path",
@@ -3295,7 +3385,7 @@ function App() {
               <PullRequestOpenContext.Provider value={openRowPullRequest}>
                 <SidebarNav
                   fill
-                  workspaceName={project.name}
+                  workspaceName={surfaces.name}
                   workspaceImage={projectImage(project.path)}
                   onSwitchLink={switchLinkFromSidebar}
                   onLinkProject={linkProjectFromSidebar}
@@ -3325,9 +3415,11 @@ function App() {
                   onOpenCommands={openCommandPalette}
                   hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
                   projectPath={project.path}
+                  projectKind={project.kind}
+                  onNewChatWithoutProject={newChatWithoutProject}
                   onSwitchProject={switchProjectFromSidebar}
                   attentionPaths={attentionPaths}
-                  onOpenProjectSettings={openProjectSettings}
+                  onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}
                   onNewChatInScope={newChatInScope}
                   usage={sidebarUsage}
                   runningKeys={sidebarRunKeys.running}
@@ -3351,9 +3443,9 @@ function App() {
             {view === "settings" && (
               <div className="flex shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3">
                 <SettingsNav
-                  section={settingsSection}
-                  project={settingsProject ?? project}
-                  current={project}
+                  section={shownSettingsSection}
+                  project={shownSettingsProject}
+                  current={surfaces.settings ? project : undefined}
                   onSelect={setSettingsSection}
                   computerId={settingsComputer ?? undefined}
                   onSelectComputer={selectSettingsComputer}
@@ -3388,8 +3480,8 @@ function App() {
                     </NoticeCard>
                   )}
                   <SettingsPanel
-                    section={settingsSection}
-                    project={settingsProject ?? project}
+                    section={shownSettingsSection}
+                    project={shownSettingsProject}
                     computerId={settingsComputer ?? undefined}
                     models={models}
                     update={update}
@@ -3451,7 +3543,7 @@ function App() {
                     <RunChatHeader
                       chatKey={focusedChatKey}
                       title={chatTitle(selectedSession, displayedMessages)}
-                      branch={selectedWorktree?.name}
+                      branch={showGit ? selectedWorktree?.name : undefined}
                       onClose={closeRunPane}
                     />
                   )}
@@ -3498,7 +3590,7 @@ function App() {
                         }
                         onSendDesignMessage={(text) => executeSend(text, permissionMode, [], [], true)}
                         linearActive={linear.active}
-                        onStartFromIssue={noGit ? undefined : startFromIssue}
+                        onStartFromIssue={surfaces.git ? startFromIssue : undefined}
                         onStop={run && selectedSession ? () => void agentRuns.interrupt(chatKey(project.path, selectedSession.id)) : undefined}
                         pullRequestAction={
                           selectedSession && pullRequestBlockerAction && pullRequestActionRequest
@@ -3515,7 +3607,9 @@ function App() {
                                 { label: `Merge #${branchPr.number}`, tone: "green", onRun: changes.showPullRequest }
                               : undefined
                         }
-                        pullRequestReview={selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined}
+                        pullRequestReview={
+                          showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
+                        }
                         isSending={isSending}
                         sendBlocked={preparing || readOnly}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
@@ -3584,7 +3678,7 @@ function App() {
                         permissionMode={permissionMode}
                         onPermissionModeChange={changePermissionMode}
                         onRecommendationSelect={sendRecommendation}
-                        newChatProject={{ key: project.path, name: project.name, onChange: moveNewChat }}
+                        newChatProject={{ key: project.path, name: project.name, kind: project.kind, onChange: moveNewChat }}
                         worktrees={composerWorktrees}
                         selectedWorktreeId={selectedWorktree?.id}
                         onWorktreeChange={(id) => {
@@ -3596,7 +3690,7 @@ function App() {
                         noGit={noGit}
                         starters={
                           firstChat === project.path && displayedMessages.length === 0 && !isSending
-                            ? firstChatStarters(project.name).map((starter) => ({
+                            ? firstChatStarters(surfaces.name).map((starter) => ({
                                 ...starter,
                                 onPick: () => {
                                   setFirstChat(null);

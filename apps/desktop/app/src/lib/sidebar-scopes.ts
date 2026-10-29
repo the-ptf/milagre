@@ -9,6 +9,7 @@ import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
 import { chatMark, chatTitle, isChatListed, orderChats, type ChatOrder } from "./chat-list.ts";
+import type { ProjectKind } from "@milagre/shared/chats-home";
 
 // The last full copy of each Project the sidebar read, so opening one of its chats shows it before the main process answers.
 const projectCopies = new Map<string, OpenProject>();
@@ -75,13 +76,15 @@ export function railLive(rows: readonly SidebarRecent[]): { status: RailStatus; 
 
 /**
  * The chat rows of a Project or Link that isn't open, for the all-Projects sidebar; the marks come from `runKeys`.
- * Each row keeps the PRs, Linear issue and ports it showed while its scope was open (`rememberScopeRows`).
+ * Each row keeps the PRs, Linear issue and ports it showed while its scope was open (`rememberScopeRows`). A `gitless`
+ * scope (a Chats home, whose repository is internal) gives its rows no branch, diff or folder path.
  */
 export function scopeChats(
   key: string,
   state: CoordinatorState | LinkState,
   order: ChatOrder,
   { running, waiting, asking }: { running: Set<string>; waiting: Set<string>; asking: Set<string> },
+  { gitless = false }: { gitless?: boolean } = {},
 ): SidebarRecent[] {
   // Chats carry a summary of their messages; only an older host's state, without one, is read message by message.
   const bySession = new Map<number, CoordinatorState["messages"]>();
@@ -120,8 +123,9 @@ export function scopeChats(
       ...(inBackground ? { background } : {}),
       ...("worktrees" in session ? { worktreeCount: session.worktrees.length } : {}),
       details: {
-        ...rememberedFor(key, String(session.id), worktree?.path),
-        ...(worktree ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
+        // A Chats home's Worktree folder is internal: its rows name no folder (the hover card's line, Finder, the editor).
+        ...rememberedFor(key, String(session.id), gitless ? undefined : worktree?.path),
+        ...(worktree && !gitless ? { branch: worktree.name, path: worktree.path, diff: worktree.diff } : {}),
         failed: chatSummary(session, sessionMessages).lastOutcome === "failed",
         lastAt: chatSummary(session, sessionMessages).lastAt,
         firstAt: chatSummary(session, sessionMessages).firstAt,
@@ -179,6 +183,33 @@ export function mergeScopeChats(scopes: readonly { key: string; rows: readonly S
     }
   }
   return merged;
+}
+
+/** A row of the sidebar's Chats group, with whether its computer is offline (its row stays, dimmed). */
+export type ChatsGroupRow = FlatChat & { offline: boolean };
+
+/**
+ * The Chats group's rows: every computer's Chats without a Project in one list, in the Chat order setting, the way the
+ * one-list sidebar merges Projects. Pinned ones are left to the Pinned section. Empty when no computer has one, which
+ * hides the group.
+ */
+export function chatsSidebarRows(homes: readonly { key: string; offline: boolean; rows: readonly SidebarRecent[] }[], order: ChatOrder): ChatsGroupRow[] {
+  const offline = new Set(homes.filter((home) => home.offline).map((home) => home.key));
+  return mergeScopeChats(
+    homes.map(({ key, rows }) => ({ key, rows: rows.filter((row) => !row.pinned) })),
+    order,
+  ).map(({ scopeKey, row }) => ({ scopeKey, row, offline: offline.has(scopeKey) }));
+}
+
+/**
+ * Whether a sidebar Project scope is in fact a computer's Chats home, which only the Chats group lists. The open one
+ * says so by its kind before any home has been read; the rest by the homes' keys.
+ */
+export function isChatsHomeScope(
+  key: string,
+  { currentKey, currentKind, homeKeys }: { currentKey: string; currentKind?: ProjectKind; homeKeys: ReadonlySet<string> },
+): boolean {
+  return (key === currentKey && currentKind === "chats") || homeKeys.has(key);
 }
 
 /**

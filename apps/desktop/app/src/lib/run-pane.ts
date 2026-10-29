@@ -56,3 +56,12 @@ export function chatOnScreen({
   if (view === "chat") return key;
   return view === "routines" && runPane === key ? key : null;
 }
+
+/**
+ * Whether picking a Chat's row marks it read here. Picking another Chat puts it on screen and the main process reads it
+ * then; the Chat already on screen changes nothing there, so one that went unread while no window had focus (a turn that
+ * ended with the window in the background) is read by the pick itself. A Chat with a Project or without one alike.
+ */
+export function readsOnPick({ onScreen, picked, unread }: { onScreen: string | null; picked: string; unread: boolean }): boolean {
+  return unread && onScreen === picked;
+}

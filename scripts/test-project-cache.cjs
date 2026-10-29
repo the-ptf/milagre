@@ -128,7 +128,7 @@ const stubs = {
   "./app/settings": "export const SettingsView = () => null;",
   "./app/notifications": "export const NotificationsView = () => null;",
   "./usage-section": "export const UsageSection = () => null;",
-  "./project-icon": "export const ProjectIcon = () => null; export const ProjectIcons = () => null;",
+  "./project-icon": "export const ProjectIcon = () => null; export const ChatsHomeIcon = () => null; export const ProjectIcons = () => null;",
   "./project-search": "export const ProjectSearch = () => null;",
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
   "./split-context": "export const useSplit = () => ({ widthClass: 'compact' }); export const useSplitLayout = () => ({ widthClass: 'compact' });",
