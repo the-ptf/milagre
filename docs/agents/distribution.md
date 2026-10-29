@@ -57,7 +57,7 @@ The `release` job of CI cuts a candidate (a tag and a draft release) for every p
 | `beta`   | weekdays 09:00 UTC, or dispatch                            | a `vX.Y.Z-beta.N` prerelease, never latest                                                                                            | macOS                   |
 | `stable` | dispatch (`gh workflow run publish.yml -f channel=stable`) | the draft itself, marked latest, with Homebrew/WinGet metadata and `SHA256SUMS`; then **Deploy Linux package repository** runs for it | every platform it built |
 
-macOS (`build-macos.yml`) and Linux always build. Windows builds only when the `RELEASE_WINDOWS` repository variable is `true`; set it once `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` exist. Windows requires Authenticode signing. A stable Linux build signs the RPM and the APT/RPM indexes and bundles `milagre-linux-repository.tar.gz`; a beta Linux build skips the package repository, which only ever carries stable releases. DMG notarization and RPM signing are followed by feed hash refreshes. **Deploy Linux package repository** can still be dispatched by hand to redeploy a tag.
+macOS (`build-macos.yml`) and Linux always build. Windows builds only when the `RELEASE_WINDOWS` repository variable is `true`; enable it after configuring certificate credentials or Azure Artifact Signing and verifying a signed candidate. Windows requires Authenticode signing. See [Windows signing setup](windows-signing.md) for both options. A stable Linux build signs the RPM and the APT/RPM indexes and bundles `milagre-linux-repository.tar.gz`; a beta Linux build skips the package repository, which only ever carries stable releases. DMG notarization and RPM signing are followed by feed hash refreshes. **Deploy Linux package repository** can still be dispatched by hand to redeploy a tag.
 
 ## Beta channel
 
@@ -69,12 +69,13 @@ If `gh release create` succeeded but the asset upload failed, the next run sees 
 
 Required repository secrets:
 
-| Purpose               | Secrets                                                                                    |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| Apple signing         | `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` |
-| Windows signing       | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`                                                     |
-| Linux signing         | `LINUX_REPOSITORY_PRIVATE_KEY`, `LINUX_REPOSITORY_KEY_FINGERPRINT`                         |
-| Cloudflare deployment | `CLOUDFLARE_PACKAGES_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`                                   |
+| Purpose               | Secrets                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| Apple signing         | `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`             |
+| Windows signing       | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`                                                                 |
+| Windows Azure signing | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (OIDC; replaces the certificate secrets) |
+| Linux signing         | `LINUX_REPOSITORY_PRIVATE_KEY`, `LINUX_REPOSITORY_KEY_FINGERPRINT`                                     |
+| Cloudflare deployment | `CLOUDFLARE_PACKAGES_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`                                               |
 
 Apple and Linux signing secrets and the Cloudflare account ID are configured. Windows signing and the dedicated Cloudflare deployment token still need setup. The existing local Cloudflare token stays in its private environment file; it is not copied into GitHub. Use a dedicated deployment token for the repository workflow.
 
