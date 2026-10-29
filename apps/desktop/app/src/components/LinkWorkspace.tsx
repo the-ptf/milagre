@@ -1,6 +1,5 @@
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
-import { OutboxMessages } from "./OutboxMessages";
-import { OfflineBanner } from "./OfflineBanner";
+import { OfflineTray, useOfflineTray } from "./OfflineTray";
 import { useDisplayNow } from "../lib/display-clock";
 import { computerOfKey } from "@milagre/shared/chat-scopes";
 import { computerNameOf, offlineBanner, useComputers } from "../lib/computers";
@@ -164,6 +163,7 @@ export function LinkWorkspace({
   const [draftId, setDraftId] = useState(0);
   const sendKey = `${owner}#${sessionId ?? `new:${draftId}`}`;
   const session = sessionId == null ? undefined : state.sessions[sessionId];
+  const offlineTray = useOfflineTray(owner, sessionId, offline);
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
@@ -732,8 +732,6 @@ export function LinkWorkspace({
                     </p>
                   )}
 
-                  <OutboxMessages owner={owner} sessionId={sessionId ?? undefined} worktreeId={0} onOpen={pick} />
-                  {offline && computer && <OfflineBanner text={offlineBanner(computer, bannerNow)} empty={false} />}
                   <DiffBar
                     open={changes.diffOpen}
                     onBack={changes.closeDiff}
@@ -790,6 +788,17 @@ export function LinkWorkspace({
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         sendBlocked={preparing}
                         offlineName={offline ? computerNameOf(computerOfKey(owner)) : null}
+                        offlineTray={
+                          offlineTray.shown ? (
+                            <OfflineTray
+                              owner={owner}
+                              sessionId={sessionId}
+                              computerName={computerNameOf(computerOfKey(owner))}
+                              offline={offline}
+                              detail={computer ? offlineBanner(computer, bannerNow) : undefined}
+                            />
+                          ) : undefined
+                        }
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}

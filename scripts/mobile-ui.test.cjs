@@ -137,7 +137,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
-      if (/^\.\.?\/outbox-messages$/.test(id) && !(id in modules)) return { OutboxMessages: "OutboxMessages" };
+      if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
+        return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
       if (/^\.\.?\/outbox$/.test(id) && !(id in modules))
         return {
           hasQueuedChat: () => false,
@@ -16011,7 +16012,8 @@ test("an offline phone send saves text, destination and attachment bytes before 
   assert.equal(host.field().value, "");
   assert.equal(host.session.attachments["/p#new:1"].length, 0);
   assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
-  assert.ok(find(host.render(), (node) => node.type === "OutboxMessages"));
+  // The message waits in this Chat's composer tray, which says the computer is offline.
+  assert.equal(find(host.render(), (node) => node.type === "OfflineTray")?.props.target.offline, true);
 });
 
 test("an offline queue storage failure keeps the phone draft and attachments", async () => {

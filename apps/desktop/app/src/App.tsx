@@ -1,5 +1,5 @@
 import { outbox, outboxAttachments, queueForComputer, hasQueuedChat, startOutbox } from "./lib/outbox";
-import { OutboxMessages } from "./components/OutboxMessages";
+import { OfflineTray, useOfflineTray } from "./components/OfflineTray";
 import { preferenceStorage as localStorage } from "./lib/preference-storage.ts";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
 import { prepareImageUploads, prepareLocalFileUploads } from "./lib/attachment-uploads";
@@ -132,7 +132,7 @@ import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
-import { OfflineBanner } from "./components/OfflineBanner";
+import { OfflineEmpty } from "./components/OfflineEmpty";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
@@ -720,6 +720,8 @@ function App() {
   const worktrees = useMemo(() => (state ? sortedWorktrees(state) : []), [state]);
   const firstWorktree = worktrees[0];
   const selectedSession = state && selectedSessionId !== null ? state.sessions[selectedSessionId] : undefined;
+  // Messages waiting on this Mac for the open Chat (or its New Chat), in the composer's tray while its computer is away.
+  const offlineTray = useOfflineTray(project?.path, selectedSession?.id ?? null, readOnly);
   const subagents = useMemo(
     () => selectedSession?.subagents?.filter((agent) => agent.id !== selectedSession.native_session_id),
     // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads selectedSession.subagents and selectedSession.native_session_id, both listed; the compiler infers the whole selectedSession object from the property access
@@ -2109,7 +2111,6 @@ function App() {
           for (const image of images) imageDraft.remove(image.id);
           for (const file of files) imageDraft.removeFile(file);
         }
-        setNotice(`Message queued on this device for ${openComputer?.name ?? "this computer"}.`);
         void outbox.flush().catch(() => {});
         return true;
       } catch (error) {
@@ -3660,12 +3661,7 @@ function App() {
                       onClose={closeRunPane}
                     />
                   )}
-                  {project && (
-                    <OutboxMessages owner={project.path} sessionId={selectedSession?.id} worktreeId={selectedWorktree?.id} onOpen={(id) => openChat(id)} />
-                  )}
-                  {awayBanner && (
-                    <OfflineBanner text={awayBanner} empty={Boolean(lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0)} />
-                  )}
+                  {awayBanner && lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0 && <OfflineEmpty />}
                   <ChatGrid
                     keys={shownTiles}
                     focused={gridFocusKey}
@@ -3730,6 +3726,18 @@ function App() {
                         isSending={isSending}
                         sendBlocked={preparingHere}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
+                        offlineTray={
+                          offlineTray.shown && project ? (
+                            <OfflineTray
+                              owner={project.path}
+                              sessionId={selectedSession?.id ?? null}
+                              computerName={openComputer?.name ?? "That computer"}
+                              offline={readOnly}
+                              chip={Boolean(selectedSession)}
+                              detail={awayBanner ?? undefined}
+                            />
+                          ) : undefined
+                        }
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}

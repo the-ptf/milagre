@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { createOutbox, type OutboxData, type OutboxAttachment } from "@milagre/shared/outbox";
+import { createOutbox, type OutboxData, type OutboxAttachment, type OutboxItem } from "@milagre/shared/outbox";
 import { deliverOutbox } from "@milagre/shared/outbox-delivery";
 import { computerOfKey, LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { bridgeForKey } from "./computer-bridge";
@@ -65,6 +65,17 @@ export const queueForComputer = (owner: string) =>
   computerOfKey(owner) !== LOCAL_COMPUTER && computersSnapshot().computers.find((computer) => computer.id === computerOfKey(owner))?.state !== "online";
 export const hasQueuedChat = (owner: string, sessionId: number | null) =>
   outbox.getSnapshot().items.some((item) => item.owner === owner && item.request.sessionId === sessionId && item.status !== "sent");
+/** The Chat a message lives in: the one it was written in, or the one its New Chat became; null while that Chat doesn't exist yet. */
+export const outboxChat = (item: OutboxItem) => item.sessionId ?? item.request.sessionId ?? null;
+/** How many messages wait on this Mac for a Chat (its sidebar row's "· 2 waiting"), by chat key. */
+export function useOutboxWaiting(chatId: string): number {
+  return useSyncExternalStore(outbox.subscribe, () =>
+    outbox.getSnapshot().items.reduce((count, item) => {
+      const id = outboxChat(item);
+      return count + (item.status !== "sent" && id !== null && `${item.owner}#${id}` === chatId ? 1 : 0);
+    }, 0),
+  );
+}
 
 /** Copy picked bytes now; a remote Project path is a reference on that computer, never a local path to upload. */
 export async function outboxAttachments(images: ImageAttachment[], files: string[], localFiles: Map<string, File>): Promise<OutboxAttachment[]> {
@@ -105,4 +116,8 @@ export function startOutbox() {
   subscribeComputers(flush);
   setInterval(flush, 15000);
   flush();
+  // Delivered messages are in their transcripts: copies left from an earlier run go.
+  void outbox.ready
+    .then(() => Promise.allSettled(outbox.getSnapshot().items.flatMap((item) => (item.status === "sent" ? [outbox.remove(item.id)] : []))))
+    .catch(() => {});
 }

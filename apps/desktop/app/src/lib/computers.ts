@@ -73,13 +73,13 @@ export const isDimmed = (view: ComputerView | undefined) => view?.state === "off
 export const isReadOnly = (view: ComputerView | undefined) =>
   !view || !(view.state === "online" || view.state === "connecting" || view.state === "reconnecting");
 
-/** The banner over an offline computer's chat (design sidebar-c-sections v3). */
+/** The offline chip's tooltip in the composer's tray (design offline-inline-desktop v7). */
 export function offlineBanner(view: ComputerView, now: number): string {
   const ago = seenAgo(view.lastSeen, now);
-  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. Messages you queue are saved on this device and sent when ${view.name} reconnects while Milagre is open.`;
+  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. What you send waits on this Mac until ${view.name} is back.`;
 }
-/** Appended to the composer's placeholder while its computer is offline. */
-export const offlinePlaceholder = (name: string) => ` (${name} is offline)`;
+/** The composer's placeholder while its computer is offline: what it sends waits on this Mac. */
+export const offlinePlaceholder = (name: string) => `Queue a message for ${name}…`;
 /** Appended while the connection to it comes back: the draft can be written, and sends once it is online. */
 export const reconnectingPlaceholder = (name: string) => ` (reconnecting to ${name}…)`;
 

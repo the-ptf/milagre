@@ -1,5 +1,5 @@
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
-import { OutboxMessages } from "../outbox-messages";
+import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -1074,6 +1074,14 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
+  // Messages waiting on this device for this Chat (or its New Chat) sit in the composer's tray (offline-tray.tsx).
+  const trayTarget = {
+    computerId: client.url,
+    owner: project.path,
+    sessionId: params.id ? Number(params.id) : null,
+    computerName: computerName || "This computer",
+    offline,
+  };
   // The computer chip's rows: every copy of the Project, or the open one alone before the lists have found it.
   const computerCopies: NewChatProject[] = projectCopies.length
     ? projectCopies
@@ -2325,23 +2333,6 @@ function ChatPane({
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
                   >
-                    {offline && (
-                      <View accessibilityRole="summary" style={{ borderRadius: 10, backgroundColor: colors.orangeTint, padding: 12 }}>
-                        <Text style={{ color: colors.orangeInk, fontSize: 13 }}>
-                          {computerName || "This computer"} is offline. Messages you queue are saved on this device and sent when it reconnects while Milagre is
-                          open.
-                        </Text>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Reconnect"
-                          onPress={() => void session.refresh().catch(() => {})}
-                          style={{ minHeight: 44, justifyContent: "center" }}
-                        >
-                          <Text style={{ color: colors.orangeInk, fontSize: 13, fontWeight: "600" }}>Reconnect</Text>
-                        </Pressable>
-                      </View>
-                    )}
-                    <OutboxMessages computerId={client.url} owner={project.path} sessionId={chat?.id} worktreeId={worktreeId} onOpen={adoptChat} />
                     <PersistenceNotice
                       key={`${client.url}|${project.path}`}
                       client={client}
@@ -2440,23 +2431,7 @@ function ChatPane({
                     ) : (
                       (!question || answering) && (
                         // A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece, as on desktop.
-                        <View
-                          style={
-                            startTray
-                              ? {
-                                  backgroundColor: colors.inset,
-                                  borderWidth: 1,
-                                  borderColor: colors.line,
-                                  borderRadius: 28,
-                                  borderCurve: "continuous",
-                                  padding: 5,
-                                  paddingTop: 3,
-                                  gap: 2,
-                                  boxShadow: "0 4px 20px #0000000f",
-                                }
-                              : undefined
-                          }
-                        >
+                        <ComposerTray start={startTray} target={trayTarget}>
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
@@ -2653,12 +2628,13 @@ function ChatPane({
                               </View>
                             )
                           )}
+                          <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
                             style={{
                               backgroundColor: colors.surface,
                               borderWidth: 1,
                               borderColor: colors.lineStrong,
-                              borderRadius: startTray ? 23 : 24,
+                              borderRadius: startTray || offline ? 23 : 24,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
@@ -2766,11 +2742,13 @@ function ChatPane({
                               commands={chat ? UNDO_COMMANDS : undefined}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
-                                run && !providerCapabilities(chat?.provider ?? actualProvider).steer
-                                  ? "Queue a message for the next turn"
-                                  : chatsHomeOpen && !params.id
-                                    ? CHATS_PLACEHOLDER
-                                    : undefined
+                                offline
+                                  ? `Queue a message for ${computerName || "this computer"}`
+                                  : run && !providerCapabilities(chat?.provider ?? actualProvider).steer
+                                    ? "Queue a message for the next turn"
+                                    : chatsHomeOpen && !params.id
+                                      ? CHATS_PLACEHOLDER
+                                      : undefined
                               }
                               // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
                               onSubmit={() => {
@@ -2870,7 +2848,7 @@ function ChatPane({
                               )}
                             </View>
                           </View>
-                        </View>
+                        </ComposerTray>
                       )
                     )}
                   </View>

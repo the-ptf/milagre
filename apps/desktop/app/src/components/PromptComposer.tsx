@@ -880,13 +880,14 @@ export function PromptComposer({
                 maxHeight={100}
                 suggestion={visibleSuggestion}
                 placeholder={
-                  (running
-                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
-                      providerCapabilities(provider).steer
-                      ? "Steer the agent…"
-                      : "Queue a message for the next turn…"
-                    : (placeholder ?? "Prompt or mention a file or Chat with @")) +
-                  (offlineName ? offlinePlaceholder(offlineName) : reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                  offlineName
+                    ? offlinePlaceholder(offlineName)
+                    : (running
+                        ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
+                          providerCapabilities(provider).steer
+                          ? "Steer the agent…"
+                          : "Queue a message for the next turn…"
+                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}

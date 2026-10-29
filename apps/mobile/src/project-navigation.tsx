@@ -78,6 +78,7 @@ import { mergeChatLists } from "./chat-list-order";
 import { groupByOrigin } from "@milagre/shared/project-origin";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
+import { WaitingLabel } from "./offline-tray";
 
 /** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 type Destination = (href: Href, secondary?: boolean | "sheet") => void;
@@ -1684,6 +1685,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                       {detail}
                     </Text>
                     {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
+                    <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
                   </View>
                 </View>
               </View>
@@ -1899,6 +1901,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                     )}
                     {facts}
                     {!!markLabel && <Text style={[s.detail, { color: markColor }]}>{markLabel}</Text>}
+                    <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
                   </View>
                 )}
               </View>
@@ -1916,6 +1919,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                     {markLabel}
                   </Text>
                 )}
+                <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
               </ChatPullRequestChips>
             </View>
           )}

@@ -1,4 +1,3 @@
-import { OutboxMessages } from "../outbox-messages";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, RefreshControl, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
@@ -132,7 +131,6 @@ export default function ComputersScreen() {
           />
         }
       >
-        <OutboxMessages />
         {session.hosts.length > 0 ? (
           <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
             {session.hosts.map((host, index) => (
