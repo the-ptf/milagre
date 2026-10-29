@@ -482,8 +482,9 @@ function useMentionLookups(client: Client, root: string, draft: string, known: K
 }
 
 /** Project files matching `query` (null: no search), kept while the next answer loads so the menu does not flash empty. */
+/** The @ menu's files under `root`: an answer for another root (the draft moved to another Project) is never shown. */
 function useFileSearch(client: Client, root: string, query: string | null) {
-  const [state, setState] = useState({ items: [] as string[], error: "", loading: true });
+  const [state, setState] = useState({ root: "", items: [] as string[], error: "", loading: true });
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (query === null || !root) return;
@@ -491,13 +492,14 @@ function useFileSearch(client: Client, root: string, query: string | null) {
     const timer = setTimeout(() => {
       client
         .call<string[]>("project:files", [root, query])
-        .then((items) => !cancelled && setState({ items: items.slice(0, 40), error: "", loading: false }))
-        .catch((error: Error) => !cancelled && setState({ items: [], error: error.message || "failed", loading: false }));
+        .then((items) => !cancelled && setState({ root, items: items.slice(0, 40), error: "", loading: false }))
+        .catch((error: Error) => !cancelled && setState({ root, items: [], error: error.message || "failed", loading: false }));
     }, 120);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
   }, [client, root, query, revision]);
-  return { ...state, retry: () => setRevision((value) => value + 1) };
+  const retry = () => setRevision((value) => value + 1);
+  return state.root === root ? { items: state.items, error: state.error, loading: state.loading, retry } : { items: [], error: "", loading: true, retry };
 }

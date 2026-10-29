@@ -30,4 +30,10 @@ test("searches tracked and untracked files, excludes ignored files, ranks names,
   now = 11;
   assert.deepEqual(await search(root, "new"), ["new.txt"]);
   assert.equal((await search(root, "", 2)).length, 2);
+  // Milagre's own metadata in a repository that doesn't ignore it is never offered.
+  await fs.mkdir(path.join(root, ".milagre", "runtime.lock"), { recursive: true });
+  await fs.writeFile(path.join(root, ".milagre", "runtime.lock", "owner.json"), "{}");
+  now = 22;
+  assert.deepEqual(await search(root, "owner"), []);
+  assert.ok(!(await search.list(root)).some((file) => file.startsWith(".milagre/")));
 });

@@ -152,6 +152,13 @@ test("the Project list, the Links and a Link's open check nothing with git betwe
   );
 });
 
+test("the @ menu finds nothing in a new Chats home: Milagre's own metadata is never a file to mention", async (t) => {
+  const { runtime, chatsHome } = await fixture(t);
+  const home = (await runtime.invoke("chats:ensure")).path;
+  assert.equal(home, chatsHome);
+  assert.deepEqual(await runtime.invoke("project:files", [home, ""]), []);
+});
+
 test("chats:ensure makes the Chats home without taking the shown Project from the window", async (t) => {
   const { project, runtime, chatsHome } = await fixture(t);
   assert.equal((await runtime.invoke("chats:ensure")).path, chatsHome);
