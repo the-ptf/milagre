@@ -45,8 +45,8 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/actions/**'
   # The quick JavaScript checks (static, supply chain, Linux repository signing) as parallel steps of one job, a log
-  # each. The unit suite has a job per shard: beside these steps it shared the runner's four cores and took 100 s
-  # instead of 60. The `javascript` gate below is the required check that gathers them.
+  # each. Each unit runtime gets its own runner so the quick checks do not compete with it for CPU.
+  # The `javascript` gate below is the required check that gathers them.
   quick-checks:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -102,23 +102,29 @@ jobs:
               gpgconf --kill gpg-agent || true
               rm -rf "$GNUPGHOME"
   unit:
-    # node --test uses every core, so each shard gets a runner of its own: 60 s each, against 100 s beside the quick checks.
-    name: unit (${{ matrix.shard }}/${{ strategy.job-total }})
+    # Each supported runtime gets the whole runner. Two runtime legs retain the 20-job PR concurrency budget.
+    name: unit (Node ${{ matrix.node }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        node: [24, 26]
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+        with:
+          node-version: ${{ matrix.node }}
       - name: Test
-        run: npm test -- --unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npm test -- --unit
+      # Node 26 runs this check in the Electron shards; retain the supported Node 24 CLI here.
+      - name: Test installed headless CLI and native PTY
+        if: matrix.node == 24
+        run: node scripts/test-cli-package.cjs
   javascript:
-    # The required check: green only when the quick checks and every unit shard passed.
+    # The required check: green only when the quick checks and both runtime suites passed.
     if: always()
     needs: [quick-checks, unit]
     runs-on: ubuntu-24.04
@@ -142,7 +148,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
       # The tests load only core and the daemon, so they install just those (150 MB, not 1.7 GB) and cache it.
       - name: Restore core and daemon dependencies
         id: windows-cache
@@ -153,7 +159,7 @@ jobs:
             apps/*/node_modules
             packages/*/node_modules
           # Windows workspace junctions contain absolute paths. A repository rename changes the checkout path.
-          key: node-modules-core-daemon-${{ github.repository }}-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
+          key: node-modules-core-daemon-${{ github.repository }}-${{ runner.os }}-${{ runner.arch }}-node26-${{ hashFiles('package-lock.json') }}
       - name: Install core and daemon dependencies
         if: steps.windows-cache.outputs.cache-hit != 'true'
         run: npm ci --workspace @milagre/core --workspace @milagre/daemon --ignore-scripts --omit=optional --no-audit --no-fund
@@ -285,7 +291,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
       # A beta published after the checkout is the draft's starting point, so its tag is fetched first.
       - name: Rewrite the Next beta draft
         run: |
