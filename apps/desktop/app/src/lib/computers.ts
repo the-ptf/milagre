@@ -67,8 +67,8 @@ export const settingsTooltip = (name: string) => `${name} settings: rename, conn
 /** Its Projects and rows are dimmed (spec "Sidebar"). */
 export const isDimmed = (view: ComputerView | undefined) => view?.state === "offline" || view?.state === "refused";
 /**
- * Nothing can be sent to it: the composer is disabled and sends are refused. Connecting and Reconnecting are not: those
- * blips last a second or two, and a send made meanwhile waits for the computer (computers.cjs invoke).
+ * Cached remote content is read-only. The composer can still save messages to this device's outbox.
+ * Connecting and Reconnecting keep the existing remote read behavior while the transport returns.
  */
 export const isReadOnly = (view: ComputerView | undefined) =>
   !view || !(view.state === "online" || view.state === "connecting" || view.state === "reconnecting");
@@ -76,7 +76,7 @@ export const isReadOnly = (view: ComputerView | undefined) =>
 /** The banner over an offline computer's chat (design sidebar-c-sections v3). */
 export function offlineBanner(view: ComputerView, now: number): string {
   const ago = seenAgo(view.lastSeen, now);
-  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. You can read it until ${view.name} is back.`;
+  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. Messages you queue are saved on this device and sent when ${view.name} reconnects while Milagre is open.`;
 }
 /** Appended to the composer's placeholder while its computer is offline. */
 export const offlinePlaceholder = (name: string) => ` (${name} is offline)`;

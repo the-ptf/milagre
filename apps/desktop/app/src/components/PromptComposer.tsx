@@ -350,7 +350,7 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canStop = running && Boolean(onStop);
+  const canStop = !offlineName && running && Boolean(onStop);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const visibleSuggestion =
     suggestion &&
@@ -876,7 +876,7 @@ export function PromptComposer({
                   setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
-                disabled={Boolean(offlineName)}
+                disabled={false}
                 maxHeight={100}
                 suggestion={visibleSuggestion}
                 placeholder={
@@ -974,7 +974,7 @@ export function PromptComposer({
                   aria-label={DICTATION_LABELS[dictation.phase]}
                   title={DICTATION_LABELS[dictation.phase]}
                   aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                  disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                  disabled={dictation.phase === "preparing" || dictation.phase === "transcribing"}
                   onClick={() => {
                     if (dictation.phase === "recording") return void dictation.stop();
                     void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
@@ -1009,7 +1009,7 @@ export function PromptComposer({
               </span>
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : "Send"}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : "Send"}
                 disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}

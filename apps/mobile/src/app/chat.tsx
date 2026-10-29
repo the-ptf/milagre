@@ -1,3 +1,5 @@
+import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
+import { OutboxMessages } from "../outbox-messages";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -976,6 +978,7 @@ function ChatPane({
   }
   const client = session.client;
   const { project } = session.snapshot;
+  const offline = !!session.error || allComputers.viewOf?.(client.url)?.state === "offline";
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
@@ -1335,6 +1338,62 @@ function ChatPane({
     sendingRef.current.add(sendingKey);
     setSendingKeys((current) => [...current, sendingKey]);
     setError("");
+    // A restored queue must be read before an online send can bypass it.
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (offline || hasQueuedChat(client.url, project.path, params.id ? Number(params.id) : null)) {
+      try {
+        if (!project.link && (newWorktree || issue) && !base) throw new Error("Choose a base branch before queuing this message.");
+        const id = randomUUID();
+        const mentioned =
+          withAttachments && worktree?.path
+            ? mentionAttachments(body, worktree.path, attachments, (path) => knownFiles.current.has(worktree.path, path)).added
+            : [];
+        const picked = withAttachments ? [...attachments, ...mentioned] : [];
+        await outbox.enqueue({
+          id,
+          computerId: client.url,
+          computerName: computerName || "Computer",
+          owner: project.path,
+          conversation: params.id ? `chat:${params.id}` : id,
+          request: {
+            projectPath: project.path,
+            sessionId: params.id ? Number(params.id) : null,
+            worktreeId,
+            body,
+            images: [],
+            files: [],
+            prompt: prAction ? pullRequestActionPrompt(prAction) : body,
+            ...sendOptions(model, preferences),
+            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+          },
+          ...(project.link ? { link: { linkId: project.link.link.id, operationId: id } } : {}),
+          ...(!project.link && (newWorktree || issue)
+            ? {
+                createWorktree: {
+                  projectPath: project.path,
+                  baseBranch: base!,
+                  prompt: body,
+                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                },
+              }
+            : {}),
+          attachments: outboxAttachments(picked),
+        });
+        if (body === draft || issue) composer.setDrafts((current) => clearSentDraft(current, chatId, body, !!issue));
+        const ids = new Set(picked.map((item) => item.id));
+        composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !ids.has(item.id)) }));
+        Keyboard.dismiss();
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setError((error as Error).message);
+        return false;
+      } finally {
+        sendingRef.current.delete(sendingKey);
+        setSendingKeys((current) => current.filter((key) => key !== sendingKey));
+      }
+    }
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
     // against the Project (the one just typed) is asked about now, for up to a second.
     const mentionRoot = worktree?.path;
@@ -1912,8 +1971,7 @@ function ChatPane({
       onActivity={openActivity}
     />
   ) : null;
-  const sendDisabled =
-    busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!session.error || !!chat?.archived || unavailable;
+  const sendDisabled = busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!chat?.archived || (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
@@ -2147,7 +2205,7 @@ function ChatPane({
                     />
                   )}
                   {error ? <ErrorNotice message={error} /> : null}
-                  {session.error ? <ErrorNotice message={session.error} retry={() => router.dismissTo("/")} /> : null}
+                  {session.error && !offline ? <ErrorNotice message={session.error} retry={() => router.dismissTo("/")} /> : null}
                 </KeyboardChatScrollView>
                 {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
@@ -2267,6 +2325,23 @@ function ChatPane({
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
                   >
+                    {offline && (
+                      <View accessibilityRole="summary" style={{ borderRadius: 10, backgroundColor: colors.orangeTint, padding: 12 }}>
+                        <Text style={{ color: colors.orangeInk, fontSize: 13 }}>
+                          {computerName || "This computer"} is offline. Messages you queue are saved on this device and sent when it reconnects while Milagre is
+                          open.
+                        </Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Reconnect"
+                          onPress={() => void session.refresh().catch(() => {})}
+                          style={{ minHeight: 44, justifyContent: "center" }}
+                        >
+                          <Text style={{ color: colors.orangeInk, fontSize: 13, fontWeight: "600" }}>Reconnect</Text>
+                        </Pressable>
+                      </View>
+                    )}
+                    <OutboxMessages computerId={client.url} owner={project.path} sessionId={chat?.id} worktreeId={worktreeId} onOpen={adoptChat} />
                     <PersistenceNotice
                       key={`${client.url}|${project.path}`}
                       client={client}
@@ -2762,7 +2837,7 @@ function ChatPane({
                                   onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
                                 />
                               )}
-                              {run && !draft.trim() && !attachments.length && (
+                              {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton
                                   label="Stop"
                                   icon={StopIcon}
@@ -2772,16 +2847,18 @@ function ChatPane({
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
                               )}
-                              {(!run || !!draft.trim() || !!attachments.length) && (
+                              {(offline || !run || !!draft.trim() || !!attachments.length) && (
                                 <IconButton
                                   label={
                                     busy
                                       ? "Sending..."
-                                      : run
-                                        ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                          ? "Send follow-up"
-                                          : "Queue message"
-                                        : "Send message"
+                                      : offline
+                                        ? "Queue message"
+                                        : run
+                                          ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                            ? "Send follow-up"
+                                            : "Queue message"
+                                          : "Send message"
                                   }
                                   icon={ArrowUp01Icon}
                                   filled

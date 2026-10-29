@@ -71,11 +71,11 @@ test("the gear's tooltip, the banner and the composer say the spec's words", () 
   assert.equal(settingsTooltip("arketa"), "arketa settings: rename, connection, remove");
   assert.equal(
     offlineBanner(view({ state: "offline" }), NOW),
-    "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
+    "studio is offline. This is the last copy it sent, 2h ago. Messages you queue are saved on this device and sent when studio reconnects while Milagre is open.",
   );
   assert.equal(
     offlineBanner(view({ state: "offline", lastSeen: null }), NOW),
-    "studio is offline. This is the last copy it sent. You can read it until studio is back.",
+    "studio is offline. This is the last copy it sent. Messages you queue are saved on this device and sent when studio reconnects while Milagre is open.",
   );
   assert.equal(offlinePlaceholder("studio"), " (studio is offline)");
   assert.equal(reconnectingPlaceholder("studio"), " (reconnecting to studio…)");

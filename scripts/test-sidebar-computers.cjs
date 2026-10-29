@@ -133,7 +133,8 @@ window.milagre = new Proxy({
 updateSettings({ defaultModelId: "claude-opus-5-5", defaultPermissionMode: "ask", otherComputers: true, chatList: "grouped" });
 window.setOther = (otherComputers) => updateSettings({ otherComputers });
 const { default: App } = await import("/src/App");
-createRoot(document.getElementById("root")).render(<App />);
+const { OutboxInbox } = await import("/src/components/OutboxMessages");
+createRoot(document.getElementById("root")).render(<><App /><OutboxInbox /></>);
 `;
 
 async function browserChecks() {
@@ -502,14 +503,14 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-offline-banner]')`);
     assert.equal(
       await evaluate(`document.querySelector('[data-offline-banner]').textContent.trim()`),
-      "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
+      "studio is offline. This is the last copy it sent, 2h ago. Messages you queue are saved on this device and sent when studio reconnects while Milagre is open.",
     );
-    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-disabled')`), "true");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-disabled')`), null);
     assert.match(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-placeholder')`), / \(studio is offline\)$/);
     assert.equal(await evaluate(`!!document.querySelector('[data-offline-empty]')`), false, "a cached chat shows its copy");
     assert.ok(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`));
     await screenshot("offline-chat");
-    console.log("PASS: an offline computer's chat shows the last copy under the banner, with the composer off");
+    console.log("PASS: an offline computer's chat shows the last copy under the banner, with the composer available");
 
     await evaluate(
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/notes"] [data-chat-id] button')].find((b) => b.textContent.includes('Never opened here')).click()`,
@@ -531,15 +532,38 @@ async function browserChecks() {
     );
     await waitFor(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`);
 
+    await evaluate(
+      `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Queued while studio sleeps"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
+    );
+    await waitFor(`!!document.querySelector('[data-outbox-state="queued"]')`);
+    assert.equal(await evaluate(`window.sent.length`), 0, "offline enqueue never sends to the host");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "", "the composer clears after the durable write");
+    await screenshot("offline-queued");
+    await new Promise((resolve) => {
+      window.webContents.once("did-finish-load", resolve);
+      window.webContents.reload();
+    });
+    await waitFor(`!!document.querySelector('[data-outbox-inbox]') && !document.querySelector('.startup-splash-screen')`, 20000);
+    await evaluate(`document.querySelector('[data-outbox-inbox]').click()`);
+    await waitFor(`document.querySelector('dialog[open]')?.textContent.includes('Queued while studio sleeps')`);
+    assert.equal(await evaluate(`window.sent.length`), 0, "restarting while offline keeps the message local");
+    await screenshot("device-inbox-after-restart");
+    await evaluate(`document.querySelector('[aria-label="Close device queue"]').click()`);
+    await evaluate(
+      `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].find((b) => b.textContent.includes('Backup rotation')).click()`,
+    );
+    await waitFor(`!!document.querySelector('[data-offline-banner]') && !!document.querySelector('[data-outbox-state="queued"]')`);
     // The computer comes back: the banner goes and sending works, to that computer.
     await evaluate(
       `window.setComputers(window.computerList.map((c) => c.id === 'c-studio' ? { ...c, state: 'online', route: 'relay', lastSeen: Date.now() } : c))`,
     );
     await waitFor(`!document.querySelector('[data-offline-banner]') && !document.querySelector('[data-prompt-editor]').hasAttribute('aria-disabled')`);
+    await waitFor(`window.sent.length === 1 && !!document.querySelector('[data-outbox-state="sent"]')`);
+    assert.equal(await evaluate(`window.sent[0].body`), "Queued while studio sleeps");
     await evaluate(
       `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Keep 8 dailies"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
-    await waitFor(`window.sent.length === 1`);
+    await waitFor(`window.sent.length === 2`);
     assert.equal(await evaluate(`window.sent[0].projectPath`), "c-studio|/Users/s/homelab", "the send goes to studio's bridge, with the key main strips");
     console.log("PASS: back online, the composer sends to that computer");
 

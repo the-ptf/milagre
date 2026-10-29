@@ -1,6 +1,8 @@
+import { outbox, outboxAttachments, queueForComputer, hasQueuedChat, startOutbox } from "./lib/outbox";
+import { OutboxMessages } from "./components/OutboxMessages";
 import { preferenceStorage as localStorage } from "./lib/preference-storage.ts";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
-import { prepareImageUploads } from "./lib/attachment-uploads";
+import { prepareImageUploads, prepareLocalFileUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
@@ -602,6 +604,7 @@ function App() {
   useApplyTheme();
   useApplyOtherComputers();
   useEffect(() => startOfflineCache(), []);
+  useEffect(() => startOutbox(), []);
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1000));
     idle(() => {
@@ -724,7 +727,7 @@ function App() {
   );
   const selectedWorktree = worktrees.find((worktree) => worktree.id === (selectedSession?.worktree_id ?? selectedWorktreeId)) ?? firstWorktree;
   // Assigning a new Chat its persisted id keeps attachments for the next message; navigating away clears them.
-  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path);
+  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path, !!project && queueForComputer(project.path));
   useEffect(() => {
     if (!restoringSend) return;
     imageDraft.restore(restoringSend.message.images ?? [], restoringSend.message.files ?? []);
@@ -2049,10 +2052,6 @@ function App() {
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || preparingHere || imageDraft.loading) return false;
     if (movingDraft.current) return false;
-    if (readOnly) {
-      setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
-      return false;
-    }
     const view = chatView.current;
     const sendKey = `${project.path}#${selectedSession?.id ?? `new${view}`}`;
     if (sendsInFlight.current.has(sendKey)) return false;
@@ -2063,6 +2062,63 @@ function App() {
     const model = selectedModel;
     const firstMessage = chatCount === 0;
     const submittedDraft = draftStore.get();
+    // Load the saved queue before deciding whether this Chat already has a pending message after restart.
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (queueForComputer(project.path) || hasQueuedChat(project.path, selectedSession?.id ?? null)) {
+      try {
+        const id = crypto.randomUUID();
+        await outbox.enqueue({
+          id,
+          computerId: computerOfKey(project.path),
+          computerName: openComputer?.name ?? "This computer",
+          owner: project.path,
+          conversation: selectedSession ? `chat:${selectedSession.id}` : id,
+          request: {
+            projectPath: project.path,
+            sessionId: selectedSession?.id ?? null,
+            worktreeId: selectedWorktree.id,
+            body,
+            images: [],
+            files: [],
+            prompt: prAction ? pullRequestActionPrompt(prAction) : body,
+            provider: model.provider,
+            model: model.id,
+            permissionMode: mode,
+            effort: effortFor(capabilityFor(model, capabilities), effort),
+            ultracode: capabilityFor(model, capabilities).ultracode && ultracode,
+            fastMode: capabilityFor(model, capabilities).fastMode && fastMode,
+            replies: getSettings().claudeReplies,
+            tldrEnabled: getSettings().tldrEnabled,
+            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
+          },
+          ...(!selectedSession && (isolation !== "local" || issue)
+            ? {
+                createWorktree: {
+                  projectPath: project.path,
+                  baseBranch: effectiveBaseBranch,
+                  prompt: body,
+                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                },
+              }
+            : {}),
+          attachments: await outboxAttachments(images, files, imageDraft.localFiles),
+        });
+        if (!preserveComposer && stillHere()) {
+          if (draftStore.get() === submittedDraft) setDraft("");
+          for (const image of images) imageDraft.remove(image.id);
+          for (const file of files) imageDraft.removeFile(file);
+        }
+        setNotice(`Message queued on this device for ${openComputer?.name ?? "this computer"}.`);
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setNewChatError(ipcErrorMessage(error));
+        return false;
+      } finally {
+        sendsInFlight.current.delete(sendKey);
+      }
+    }
     // A chat bound for a worktree that doesn't exist yet shows no worktree (and none of its PRs) until it does.
     const prepared = preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path ? preparedTarget.current : null;
     const previewWorktreeId = prepared?.worktreeId ?? (selectedSession || (isolation === "local" && !issue) ? selectedWorktree.id : NO_WORKTREE);
@@ -2111,6 +2167,7 @@ function App() {
     let sent = false;
     let uploading = true;
     try {
+      const uploadedFiles = await prepareLocalFileUploads(project.path, files, images, imageDraft.localFiles);
       const uploadedImages = await prepareImageUploads(project.path, images);
       uploading = false;
       target = await resolveSendTarget(body, issue, view);
@@ -2135,9 +2192,9 @@ function App() {
             worktreeId: sendTarget.worktreeId,
             body,
             images: uploadedImages,
-            files,
+            files: uploadedFiles,
             // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
-            prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, files),
+            prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, uploadedFiles),
             ...options,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
             // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
@@ -3603,6 +3660,9 @@ function App() {
                       onClose={closeRunPane}
                     />
                   )}
+                  {project && (
+                    <OutboxMessages owner={project.path} sessionId={selectedSession?.id} worktreeId={selectedWorktree?.id} onOpen={(id) => openChat(id)} />
+                  )}
                   {awayBanner && (
                     <OfflineBanner text={awayBanner} empty={Boolean(lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0)} />
                   )}
@@ -3668,7 +3728,7 @@ function App() {
                           showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
                         }
                         isSending={isSending}
-                        sendBlocked={preparingHere || readOnly}
+                        sendBlocked={preparingHere}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}

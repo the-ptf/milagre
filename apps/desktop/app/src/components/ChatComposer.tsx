@@ -1708,7 +1708,7 @@ export function ChatComposer({
             {review.view !== "closed" && !isNewChat && (
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
-            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+            <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
                 offlineName={offlineName}
                 reconnectingName={reconnectingName}
