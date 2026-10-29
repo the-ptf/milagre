@@ -216,3 +216,26 @@ test("a reference resolves an unloaded Chat without loading its messages", async
   assert.ok(request.prompt.includes('"Storage decision"'));
   assert.equal(inMemory(), false, "resolving a reference reads only the unloaded Chat's summary");
 });
+
+test("a known Project's Chat reads from its chats.db before the Project opens, and the read doesn't open it", async (t) => {
+  const { runtime, project, chat, send, make } = await openChat(t);
+  await send("Read me early");
+  await runtime.flush();
+  await runtime.close();
+  const again = make();
+  const page = await again.invoke("chat:messages", [project, chat.id, { turns: 5 }]);
+  assert.deepEqual(shape(page.messages), [
+    ["user", "Read me early"],
+    ["assistant", "Reply 1 from claude"],
+  ]);
+  await assert.rejects(again.invoke("project:snapshot", [project]), /Open the project before reading its snapshot/, "the Project stays closed");
+  const elsewhere = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-unknown-")));
+  t.after(() => fs.rm(elsewhere, { recursive: true, force: true }));
+  await fs.mkdir(path.join(elsewhere, ".milagre"));
+  await fs.copyFile(path.join(project, ".milagre", "chats.db"), path.join(elsewhere, ".milagre", "chats.db"));
+  await assert.rejects(
+    again.invoke("chat:messages", [elsewhere, chat.id, {}]),
+    /Open the Project before reading its messages/,
+    "an unknown folder is never read",
+  );
+});

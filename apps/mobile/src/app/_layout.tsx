@@ -15,6 +15,8 @@ import { stackScreenOptions } from "../stack-options";
 import { SidePanelsHost, SidePanelsProvider, enterUnderPanel } from "../side-panels";
 import { setConfirmPresenter } from "../confirm-store";
 import { setChoicePresenter } from "../choice-store";
+import { setChatPageDisk } from "../chat-pages";
+import { chatPageDisk } from "../chat-page-disk";
 import { setLinkPresenter } from "../link-chat-store";
 import { SplitProvider } from "../split-context";
 import { HardwareShortcuts, SplitShell } from "../split-layout";
@@ -23,6 +25,7 @@ import { paneScreenLayout } from "../beside-session";
 // Confirmations open as a bottom sheet over whatever is showing, the side panels included.
 setConfirmPresenter(() => router.push("/confirm-sheet"));
 setChoicePresenter(() => router.push("/choice-sheet"));
+setChatPageDisk(chatPageDisk);
 setLinkPresenter(() => router.push("/link-chat"));
 
 export default function Layout() {
