@@ -27,7 +27,7 @@ import type { DiffList } from "./useDiffFiles";
 import { useRefreshSpin } from "./useRefreshSpin";
 import { Tree, type TreeProps } from "./DiffTree";
 import { Counts } from "./DiffIndicators";
-export { Counts, StatusBox } from "./DiffIndicators";
+export { Counts } from "./DiffIndicators";
 import { CommitFiles } from "./CommitFiles";
 import { ScrollArea } from "../primitives/ScrollArea";
 
