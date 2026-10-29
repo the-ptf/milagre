@@ -652,6 +652,18 @@ test("a confined phone reads the Babysit PRs settings but can't change them", as
   await assert.rejects(confine.checkCall("babysit:settings:save", [{ level: 5 }]), { status: 403, message: REFUSED });
 });
 
+// keybindings.json names no folder, but a confined phone has no business rebinding the Mac's keys.
+test("a confined phone reads the keybindings but can't change or reset them", async () => {
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  await confine.checkCall("keybindings:read", []);
+  for (const [method, args] of [
+    ["keybindings:set-command", ["chat.new", [{ key: "mod+u" }]]],
+    ["keybindings:reset-command", ["chat.new"]],
+    ["keybindings:reset", []],
+  ])
+    await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED }, method);
+});
+
 // Routines reach every Chat on the Mac: a confined (demo) phone sees them, and changes nothing.
 test("a confined phone reads Routines but can't switch, create, change, delete or run them, or list the owner's Linear choices", async () => {
   const confine = createConfinement({ allowedRoot: os.tmpdir() });

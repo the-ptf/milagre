@@ -89,6 +89,7 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
@@ -1327,6 +1328,12 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
+  const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
+  commands.handle("keybindings:read", () => keybindings.read());
+  commands.handle("keybindings:set-command", (_event, command, rules) => keybindings.setCommand(command, rules));
+  commands.handle("keybindings:reset-command", (_event, command) => keybindings.resetCommand(command));
+  commands.handle("keybindings:reset", () => keybindings.resetAll());
   // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
   const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
   commands.handle("babysit:settings:read", () => babysitSettings.read());
@@ -2730,6 +2737,7 @@ function createRuntime(options) {
       await Promise.allSettled(active);
       await attachmentTransfers.close();
       accounts.close();
+      keybindings.close();
       keepAwake.quit();
       ports.close();
       diffs.close();

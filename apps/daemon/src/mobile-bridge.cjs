@@ -48,6 +48,10 @@ const METHODS = new Set([
   "limits:auto-switch:save",
   "app-update:auto:read",
   "app-update:auto:save",
+  "keybindings:read",
+  "keybindings:set-command",
+  "keybindings:reset-command",
+  "keybindings:reset",
   "babysit:settings:read",
   "babysit:settings:save",
   "routines:enabled:read",
@@ -652,6 +656,7 @@ async function startMobileBridge({
       if (entry.kinds.has("usage")) types.push("usage");
       if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
+      if (entry.kinds.has("keybindings")) types.push("keybindings");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("routines")) types.push("routines");
       if (entry.kinds.has("project")) types.push("project");
@@ -704,6 +709,8 @@ async function startMobileBridge({
       if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
       if ((channel === "mcp:changed" || channel === "local-mcp:changed") && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
+      // A hand edit of keybindings.json or a change from Settings: the phone reads keybindings:read again.
+      if (channel === "keybindings:changed") signal(entry, "keybindings", 0);
       // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
       // Project-less socket is refused), so the phone's Routines screen reads on focus instead of on this signal.
       if (channel === "routines:changed") signal(entry, "routines", 0);
