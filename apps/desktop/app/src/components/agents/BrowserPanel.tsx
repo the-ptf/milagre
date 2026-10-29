@@ -109,7 +109,7 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
             <div
               key={tab.id}
               data-browser-tab={tab.id}
-              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-[12px] ${selected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover/60"}`}
+              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 ${selected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover/60"}`}
             >
               <button
                 type="button"
@@ -126,7 +126,7 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
                 type="button"
                 aria-label={`Close ${name}`}
                 onClick={() => closeBrowserTab(chatKey, tab.id)}
-                className={`flex size-5 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-ink ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
+                className={`flex size-5 shrink-0 items-center justify-center rounded-inline text-ink-3 hover:bg-hover hover:text-ink ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
               >
                 <HugeiconsIcon icon={Cancel01Icon} size={12} aria-hidden />
               </button>
@@ -151,7 +151,7 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
 function TabIcon({ tab }: { tab: BrowserTab }) {
   const [broken, setBroken] = useState(false);
   if (tab.loading) return <SpinnerRing size={12} />;
-  if (tab.favicon && !broken) return <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-[3px]" onError={() => setBroken(true)} />;
+  if (tab.favicon && !broken) return <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-inline" onError={() => setBroken(true)} />;
   return <HugeiconsIcon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" aria-hidden />;
 }
 
@@ -238,7 +238,7 @@ function BrowserToolbar({ chatKey, tab }: { chatKey: string; tab: BrowserTab }) 
           setText(addressText(tab.url));
           event.currentTarget.blur();
         }}
-        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-[12px] text-ink outline-none placeholder:text-ink-3 focus:border-line-strong focus:bg-surface"
+        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none placeholder:text-ink-3 focus:border-line-strong focus:bg-surface"
       />
       <Tooltip label="Open in your browser" side="bottom" align="end">
         <button type="button" aria-label="Open in your browser" disabled={blank} onClick={() => window.open(tab.url, "_blank")} className={ICON_BUTTON}>
@@ -264,11 +264,11 @@ function BrowserPage({ chatKey, tab, ports }: { chatKey: string; tab: BrowserTab
     <div ref={slot} data-slot="browser-page" className="relative min-h-0 flex-1 bg-surface">
       {tab.error ? (
         <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-          <p className="max-w-[320px] text-[13px] text-ink-2">{tab.error}</p>
+          <p className="max-w-[320px] text-13 text-ink-2">{tab.error}</p>
           <button
             type="button"
             onClick={() => navigateBrowserTab(chatKey, tab.id, tab.url)}
-            className="rounded-control border border-line px-3 py-1.5 text-[12px] text-ink hover:bg-hover"
+            className="rounded-control border border-line px-3 py-1.5 text-12 text-ink hover:bg-hover"
           >
             Try again
           </button>
@@ -288,7 +288,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
       <HugeiconsIcon icon={Globe02Icon} size={28} className="text-ink-3" aria-hidden />
       {servers.length ? (
         <div className="flex w-full max-w-[300px] flex-col gap-1">
-          <p className="mb-1 text-center text-[12px] text-ink-3">This Chat's servers</p>
+          <p className="mb-1 text-center text-12 text-ink-3">This Chat's servers</p>
           {servers.map((port) => {
             const url = portUrl(port)!;
             return (
@@ -297,7 +297,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
                 type="button"
                 data-browser-port={port.port}
                 onClick={() => openBrowserTab(chatKey, url)}
-                className="flex items-center gap-2 rounded-control px-3 py-2 text-left text-[13px] hover:bg-hover"
+                className="flex items-center gap-2 rounded-control px-3 py-2 text-left text-13 hover:bg-hover"
               >
                 <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-3">{port.command}</span>
@@ -306,7 +306,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
           })}
         </div>
       ) : (
-        <p className="max-w-[280px] text-center text-[12px] text-ink-3">Enter an address above. When the agent starts a server, it shows here.</p>
+        <p className="max-w-[280px] text-center text-12 text-ink-3">Enter an address above. When the agent starts a server, it shows here.</p>
       )}
     </div>
   );
