@@ -392,7 +392,8 @@ function browserPageToolDefinitions(chatId, browsers, panel) {
     },
     {
       name: "browser_evaluate",
-      description: "Run a JavaScript expression in the page and return its JSON-serializable result (promises are awaited).",
+      description:
+        "Run JavaScript on the page in the Browser panel to read or check something there, and get the result back. A promise is waited for; the result comes back as JSON.",
       input: { page, expression: z.string().min(1).max(20000) },
       readOnly: false,
       run: async (input) => {

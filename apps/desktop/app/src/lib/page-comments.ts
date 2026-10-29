@@ -6,8 +6,11 @@ import type { PagePin } from "@milagre/shared/page-picker";
 /** A comment left on a page but not sent yet, with the screenshot of its element. */
 export type PendingPageComment = { id: string; url: string; title: string; element: PageElement; text: string; shot: string | null };
 
-type ChatComments = { commenting: boolean; pending: PendingPageComment[]; sent: SavedPageComment[] };
-const EMPTY: ChatComments = { commenting: false, pending: [], sent: [] };
+/** A comment being written: the element picked on a tab's page, and what is typed so far. */
+export type PageCommentDraft = { url: string; element: PageElement; shot: string | null; text: string };
+
+type ChatComments = { commenting: boolean; pending: PendingPageComment[]; sent: SavedPageComment[]; drafts: Readonly<Record<string, PageCommentDraft>> };
+const EMPTY: ChatComments = { commenting: false, pending: [], sent: [], drafts: {} };
 
 // Each Chat's page comments: whether its Browser panel is in comment mode, what it hasn't sent yet, and what the host
 // keeps of what it sent (with the agent's resolutions). Pending comments last until sent, or until the app quits.
@@ -32,8 +35,19 @@ export function usePageComments(chatKey: string | null): ChatComments {
 
 export const pageComments = (chatKey: string): ChatComments => chats.get(chatKey) ?? EMPTY;
 
+// Leaving comment mode drops what wasn't added; switching tab or Chat keeps it for when the page shows again.
 export const setCommenting = (chatKey: string, commenting: boolean) =>
-  update(chatKey, (chat) => (chat.commenting === commenting ? chat : { ...chat, commenting }));
+  update(chatKey, (chat) => (chat.commenting === commenting ? chat : { ...chat, commenting, ...(commenting ? {} : { drafts: {} }) }));
+
+/** Sets (or, with null, drops) the comment being written on a tab's page. */
+export const setPageDraft = (chatKey: string, tabId: string, draft: PageCommentDraft | null) =>
+  update(chatKey, (chat) => {
+    if (!draft && !chat.drafts[tabId]) return chat;
+    const drafts = { ...chat.drafts };
+    if (draft) drafts[tabId] = draft;
+    else delete drafts[tabId];
+    return { ...chat, drafts };
+  });
 
 export const addPendingComment = (chatKey: string, comment: PendingPageComment) =>
   update(chatKey, (chat) => ({ ...chat, pending: [...chat.pending, comment] }));

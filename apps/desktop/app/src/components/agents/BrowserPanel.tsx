@@ -141,8 +141,8 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
           <HugeiconsIcon icon={PlusSignIcon} size={15} aria-hidden />
         </button>
       </Tooltip>
-      <Tooltip label="Hide browser" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
-        <button type="button" aria-label="Hide browser" onClick={onClose} className={ICON_BUTTON}>
+      <Tooltip label="Hide Browser panel" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
+        <button type="button" aria-label="Hide Browser panel" onClick={onClose} className={ICON_BUTTON}>
           <HugeiconsIcon icon={Cancel01Icon} size={15} aria-hidden />
         </button>
       </Tooltip>
@@ -243,8 +243,8 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
         className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none placeholder:text-ink-3 focus:border-line-strong focus:bg-surface"
       />
       <CommentControls chatKey={chatKey} live={!blank && !tab.error} onSend={onSendComments} />
-      <Tooltip label="Open in your browser" side="bottom" align="end">
-        <button type="button" aria-label="Open in your browser" disabled={blank} onClick={() => window.open(tab.url, "_blank")} className={ICON_BUTTON}>
+      <Tooltip label="Open in your default browser" side="bottom" align="end">
+        <button type="button" aria-label="Open in your default browser" disabled={blank} onClick={() => window.open(tab.url, "_blank")} className={ICON_BUTTON}>
           <HugeiconsIcon icon={LinkSquare02Icon} size={15} aria-hidden />
         </button>
       </Tooltip>

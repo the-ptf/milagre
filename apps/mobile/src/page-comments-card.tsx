@@ -74,7 +74,7 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
                 {comment.text}
               </Text>
               <Text numberOfLines={2} style={{ color: note ? colors.green : colors.ink3, fontSize: type.caption1 }}>
-                {note ? `Resolved · ${note}` : `${comment.label} · waiting on the agent`}
+                {note ? `Resolved · ${note}` : `${comment.label} · not resolved yet`}
               </Text>
             </View>
           </View>

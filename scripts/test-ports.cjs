@@ -217,7 +217,7 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-slot=browser-address]")?.value === "http://localhost:5173"');
     assert.deepEqual(opened, [], "A port row opens in the Browser panel, not outside");
     await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state !== "open"');
-    await evaluate("document.querySelector(\"[aria-label='Hide browser']\").click()");
+    await evaluate("document.querySelector(\"[aria-label='Hide Browser panel']\").click()");
     await waitFor('!document.querySelector("[data-slot=browser-dock]")');
     await evaluate(`document.querySelector("${pill}").click()`);
     await waitFor('document.querySelector("[data-slot=port-popover]")?.dataset.state === "open"');

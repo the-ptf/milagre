@@ -300,9 +300,12 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
         const point = item.pin.point;
         const x = point ? r.left + point.x * r.width : r.right - 12;
         const y = point ? r.top + point.y * r.height : r.top - 4;
-        // The pin's point sits on the spot and its body above and right of it, off the text that was clicked.
-        item.node.style.left = Math.min(innerWidth - 24, Math.max(2, x)) + "px";
-        item.node.style.top = Math.min(innerHeight - 24, Math.max(2, y - 22)) + "px";
+        // The pin's point sits on the spot and its body above and right of it, off the text that was clicked. On a short
+        // element (a button, a line of text) the spot moves up to its top edge, so the pin never covers its label.
+        // Pins on the same element sit side by side.
+        const top = r.height <= 48 ? r.top : y;
+        item.node.style.left = Math.min(innerWidth - 24, Math.max(2, x + item.offset * 24)) + "px";
+        item.node.style.top = Math.min(innerHeight - 24, Math.max(2, top - 22)) + "px";
       }
     };
     const schedule = () => { if (!frame && items.length) frame = requestAnimationFrame(place); };
@@ -313,7 +316,10 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
       hidden: false,
       set(next, colors) {
         for (const item of items) item.node.remove();
+        const seen = new Map();
         items = next.map((pin) => {
+          const offset = seen.get(pin.selector) ?? 0;
+          seen.set(pin.selector, offset + 1);
           const node = document.createElement("div");
           node.className = "pin";
           node.style.background = pin.state === "resolved" ? colors.green : colors.accent;
@@ -335,13 +341,13 @@ export function pagePinsScript(pins, { accent = "#007df3", green = "#199a4d" } =
           });
           node.addEventListener("pointerleave", () => { tip.style.display = "none"; });
           root.append(node);
-          return { pin, node };
+          return { pin, node, offset };
         });
         host.style.display = items.length && !this.hidden ? "block" : "none";
         if (items.length && !host.isConnected) (document.body || document.documentElement).append(host);
         place();
       },
-      hide(hidden) { this.hidden = hidden; host.style.display = items.length && !hidden ? "block" : "none"; },
+      hide(hidden) { this.hidden = hidden; tip.style.display = "none"; host.style.display = items.length && !hidden ? "block" : "none"; },
     };
   }
   layer.set(pins, ${JSON.stringify({ accent, green })});

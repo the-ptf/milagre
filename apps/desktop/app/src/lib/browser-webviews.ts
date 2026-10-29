@@ -319,9 +319,10 @@ export async function capturePageElement(tabId: string, box: PageElement["box"])
   const margin = 12;
   const contentsId = page.contentsId;
   try {
-    await call(page, (webview) => webview.executeJavaScript(pagePinsHidden(true)));
-    // A frame for the page to paint without them.
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    // Two of the page's own frames, so its last painted frame has neither the pins nor the picker's label.
+    await call(page, (webview) =>
+      webview.executeJavaScript(`${pagePinsHidden(true)}; new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))`),
+    );
     return await capture(contentsId, { x: box.x - margin, y: box.y - margin, width: box.width + margin * 2, height: box.height + margin * 2 });
   } catch {
     return null;
