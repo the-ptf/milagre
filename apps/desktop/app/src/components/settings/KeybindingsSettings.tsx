@@ -56,11 +56,11 @@ function useComputerKeybindings(computerId: string): { state: KeybindingsState |
     if (isLocal) return;
     const bridge = bridgeFor(computerId);
     let live = true;
-    const off = bridge.onKeybindings?.((state) => live && setRemote({ id: computerId, state, error: null }));
+    const off = bridge.onKeybindings?.((state) => live && setRemote({ id: computerId, state: state?.rules ? state : null, error: null }));
     Promise.resolve()
       .then(() => bridge.readKeybindings())
       .then(
-        (state) => live && setRemote({ id: computerId, state, error: null }),
+        (state) => live && setRemote({ id: computerId, state: state?.rules ? state : null, error: null }),
         (error: unknown) => live && setRemote({ id: computerId, state: null, error: error instanceof Error ? error.message : String(error) }),
       );
     return () => {
@@ -94,6 +94,7 @@ export function KeybindingsSettings() {
       targets.map(async (id) => {
         const bridge = bridgeFor(id);
         const current = id === shownId && state ? state : await bridge.readKeybindings();
+        if (!current?.rules) throw new Error("its Milagre has no keybindings yet; update it first.");
         for (const { command, rules: next } of edit(current.rules)) await bridge.setKeybindingCommand(command, next);
       }),
     );

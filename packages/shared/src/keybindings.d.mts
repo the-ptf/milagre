@@ -86,7 +86,7 @@ export function canonicalKey(value: string, mac: boolean): string | null;
 export function eventKey(event: KeyEventLike): string | null;
 export function isModifierEvent(event: KeyEventLike): boolean;
 export function keyFromEvent(event: KeyEventLike, mac: boolean): string | null;
-export function eventMatches(event: KeyEventLike, shortcut: KeyShortcut, mac: boolean): boolean;
+export function eventMatches(event: KeyEventLike, shortcut: KeyShortcut, mac: boolean, either?: boolean): boolean;
 export function hasCommandModifier(value: string): boolean;
 export function keyLabelFor(value: string, mac: boolean): string | null;
 export function parseWhen(value: unknown): WhenNode | null;

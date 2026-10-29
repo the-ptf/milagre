@@ -213,14 +213,17 @@ export function keyFromEvent(event, mac) {
   });
 }
 
-/** Whether a keyboard event presses the shortcut, with exactly its modifiers. */
-export function eventMatches(event, shortcut, mac) {
+/**
+ * Whether a keyboard event presses the shortcut, with exactly its modifiers. `either` lets `mod` be ⌘ or Ctrl on any
+ * platform, as the window's shortcuts always took them; an explicit `cmd` or `ctrl` still needs that key.
+ */
+export function eventMatches(event, shortcut, mac, either = false) {
   if (eventKey(event) !== shortcut.key) return false;
+  if (Boolean(event.altKey) !== shortcut.alt || Boolean(event.shiftKey) !== shortcut.shift) return false;
+  if (either && shortcut.mod && !shortcut.meta && !shortcut.ctrl) return Boolean(event.metaKey) !== Boolean(event.ctrlKey);
   const meta = shortcut.meta || (mac && shortcut.mod);
   const ctrl = shortcut.ctrl || (!mac && shortcut.mod);
-  return (
-    Boolean(event.metaKey) === meta && Boolean(event.ctrlKey) === ctrl && Boolean(event.altKey) === shortcut.alt && Boolean(event.shiftKey) === shortcut.shift
-  );
+  return Boolean(event.metaKey) === meta && Boolean(event.ctrlKey) === ctrl;
 }
 
 /** Whether a key string has ⌘, Ctrl or ⌥, or is a function key: a bare letter would fire while typing. */
@@ -252,7 +255,7 @@ function keyLabel(key) {
 }
 
 /**
- * How a key string reads, the way the app's hints draw it: `⌘⇧D` on a Mac (⌃⌥⇧⌘ order), `Ctrl+Shift+D` elsewhere.
+ * How a key string reads, the way the app's hints draw it: `⌘⇧D` on a Mac (⌘⌃⌥⇧ order, as the app always drew them), `Ctrl+Shift+D` elsewhere.
  * Null for a string that isn't a key.
  */
 export function keyLabelFor(value, mac) {
@@ -261,7 +264,7 @@ export function keyLabelFor(value, mac) {
   const meta = shortcut.meta || (mac && shortcut.mod);
   const ctrl = shortcut.ctrl || (!mac && shortcut.mod);
   const key = keyLabel(shortcut.key);
-  if (mac) return `${ctrl ? "⌃" : ""}${shortcut.alt ? "⌥" : ""}${shortcut.shift ? "⇧" : ""}${meta ? "⌘" : ""}${key}`;
+  if (mac) return `${meta ? "⌘" : ""}${ctrl ? "⌃" : ""}${shortcut.alt ? "⌥" : ""}${shortcut.shift ? "⇧" : ""}${key}`;
   return [ctrl && "Ctrl", meta && "Meta", shortcut.alt && "Alt", shortcut.shift && "Shift", key].filter(Boolean).join("+");
 }
 
@@ -388,11 +391,22 @@ export function compileRules(rules) {
   });
 }
 
-/** The command a keyboard event runs: the last rule whose key and `when` both match, or null. */
+/**
+ * The command a keyboard event runs: the last rule whose key and `when` both match, or null. A `mod` key answers to ⌘
+ * or Ctrl (see `eventMatches`), but a rule that names the pressed modifier exactly wins over one that only allows it.
+ */
 export function commandForEvent(compiled, event, context, mac) {
+  for (const either of [false, true]) {
+    const command = lastMatch(compiled, event, context, mac, either);
+    if (command) return command;
+  }
+  return null;
+}
+
+function lastMatch(compiled, event, context, mac, either) {
   for (let index = compiled.length - 1; index >= 0; index--) {
     const rule = compiled[index];
-    if (!eventMatches(event, rule.shortcut, mac)) continue;
+    if (!eventMatches(event, rule.shortcut, mac, either)) continue;
     if (rule.whenTree && !evaluateWhen(rule.whenTree, context)) continue;
     return rule.command;
   }

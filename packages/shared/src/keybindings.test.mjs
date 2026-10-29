@@ -52,9 +52,9 @@ test("keyFromEvent reads punctuation and ⌥ letters from the physical key", () 
   assert.equal(keyFromEvent(press("Meta", { metaKey: true }), true), null);
 });
 
-test("keyLabelFor draws Mac glyphs in ⌃⌥⇧⌘ order and words elsewhere", () => {
-  assert.equal(keyLabelFor("mod+shift+d", true), "⇧⌘D");
-  assert.equal(keyLabelFor("mod+alt+arrowleft", true), "⌥⌘←");
+test("keyLabelFor draws Mac glyphs in ⌘⌃⌥⇧ order and words elsewhere", () => {
+  assert.equal(keyLabelFor("mod+shift+d", true), "⌘⇧D");
+  assert.equal(keyLabelFor("mod+alt+arrowleft", true), "⌘⌥←");
   assert.equal(keyLabelFor("mod+shift+d", false), "Ctrl+Shift+D");
   assert.equal(keyLabelFor("bad", true), null);
 });
@@ -99,7 +99,16 @@ test("the last matching rule wins, and when gates it", () => {
   assert.equal(commandForEvent(compiled, event, {}, true), "commandPalette.toggle");
   assert.equal(commandForEvent(compiled, event, { terminalFocus: true }, true), "terminal.new");
   assert.equal(commandForEvent(compiled, press("k", { metaKey: true, shiftKey: true }), {}, true), null);
-  assert.equal(commandForEvent(compiled, press("k", { ctrlKey: true }), {}, true), null);
+  // mod takes either ⌘ or Ctrl, as the window always did, but not both.
+  assert.equal(commandForEvent(compiled, press("k", { ctrlKey: true }), {}, true), "commandPalette.toggle");
+  assert.equal(commandForEvent(compiled, press("k", { metaKey: true, ctrlKey: true }), {}, true), null);
+  // A rule naming the pressed modifier wins over a later mod rule that only allows it.
+  const both = compileRules([
+    { key: "ctrl+k", command: "chat.new" },
+    { key: "mod+k", command: "commandPalette.toggle" },
+  ]);
+  assert.equal(commandForEvent(both, press("k", { ctrlKey: true }), {}, true), "chat.new");
+  assert.equal(commandForEvent(both, press("k", { metaKey: true }), {}, true), "commandPalette.toggle");
 });
 
 test("conflictsFor names the other commands on the same key and when", () => {

@@ -23,7 +23,9 @@ let compiled: CompiledRule[] = compileRules(state.rules);
 let started = false;
 const listeners = new Set<() => void>();
 
-function apply(next: KeybindingsState) {
+/** Takes a host's answer; a host without keybindings answers nothing, and the defaults stay. */
+function apply(next: KeybindingsState | null | undefined) {
+  if (!next || !Array.isArray(next.rules)) return;
   state = next;
   compiled = compileRules(next.rules);
   listeners.forEach((notify) => notify());
