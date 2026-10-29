@@ -7,14 +7,22 @@ import { HIDDEN_REMOTE_SCOPES_KEY, readHiddenRemoteScopes, setRemoteScopeHidden 
 import { RECENT_PROJECTS_CHANGED, type RecentProject } from "./project-list.ts";
 
 /** One Project or Link of a computer, keyed as the window keeps it (`${id}|path`, `milagre-link:${id}|uuid`). */
-export type ComputerScope = { key: string; name: string; initial: string; link: NamedProjectLink | null; computerId: string };
+/** `origin`: a Project's Git remote ("host/owner/repo"), which puts its copies on several computers under one heading. */
+export type ComputerScope = { key: string; name: string; initial: string; link: NamedProjectLink | null; computerId: string; origin?: string };
 
 /** A computer's Projects (those not hidden) then its Links, from its own lists; main has already qualified their keys. */
 export function computerScopes(computerId: string, recent: RecentProject[], links: NamedProjectLink[]): ComputerScope[] {
   return [
     ...recent
       .filter((project) => !project.hidden)
-      .map((project) => ({ key: project.path, name: project.name, initial: project.name.slice(0, 1).toUpperCase(), link: null, computerId })),
+      .map((project) => ({
+        key: project.path,
+        name: project.name,
+        initial: project.name.slice(0, 1).toUpperCase(),
+        link: null,
+        computerId,
+        ...(project.origin ? { origin: project.origin } : {}),
+      })),
     ...links.filter((link) => !link.hidden).map((link) => ({ key: `milagre-link:${link.id}`, name: link.name, initial: "", link, computerId })),
   ];
 }

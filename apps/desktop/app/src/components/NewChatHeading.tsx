@@ -139,7 +139,7 @@ function ProjectPicker({
             selected={current}
             onClick={() => {
               if (current) return onPick(currentKey);
-              const copy = preferredCopy(group);
+              const copy = preferredCopy(group.origin, [group, ...group.copies]);
               rememberProjectComputer(copy);
               onPick(copy.key);
             }}

@@ -34,9 +34,9 @@ export function rememberProjectComputer(copy: Pick<ProjectCopy, "origin" | "comp
 }
 
 /** The copy a picked Project opens: the one on the computer last used for it, else This Mac's, else the first listed. */
-export function preferredCopy(group: ProjectGroup): ProjectCopy {
-  const last = group.origin ? readLastComputers()[group.origin] : undefined;
-  return group.copies.find((copy) => copy.computerId === last) ?? group.copies.find((copy) => copy.computerId === LOCAL_COMPUTER) ?? group;
+export function preferredCopy<T extends { computerId: string }>(origin: string | undefined, copies: [T, ...T[]]): T {
+  const last = origin ? readLastComputers()[origin] : undefined;
+  return copies.find((copy) => copy.computerId === last) ?? copies.find((copy) => copy.computerId === LOCAL_COMPUTER) ?? copies[0];
 }
 
 /** A path on another computer reads from its home folder: "/Users/ana/Code/app" as "~/Code/app". */
