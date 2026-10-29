@@ -177,7 +177,7 @@ function RightDock() {
       >
         {/* The card sits clear of the status bar already: what it holds lays out with no safe area of its own. */}
         <SafeAreaInsetsContext.Provider value={NO_INSETS}>
-          <RightPanel screen={kept} card />
+          <RightPanel screen={kept} card visible={shown} />
         </SafeAreaInsetsContext.Provider>
       </Animated.View>
       <GestureDetector gesture={resize}>
