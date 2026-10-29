@@ -14704,6 +14704,7 @@ function splitShellHost() {
     "./motion": { scaledTiming: (config) => config, useMotionScale: () => 1 },
     "./split-context": { useSplit: () => split, useCardTop: () => ({ top: 24, controls: 0, content: {} }) },
     "./session": { useSession: () => ({ client: { url: "http://mac" }, snapshot: { project: { path: "/p" } } }) },
+    "./keybindings-store": { useHostKeybindings: () => ({ state: null, error: "", store: null }), rulesOf: () => [] },
   });
   const render = () => {
     shell.begin();
