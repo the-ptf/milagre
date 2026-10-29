@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ALL_CHATS_LABEL,
+  CHATS_ACCOUNT_DETAIL,
   CHATS_ACCOUNT_LABEL,
   CHATS_GROUP_KEY,
   CHATS_GROUP_LABEL,
@@ -26,8 +27,8 @@ test("the group key can never be a path and the labels are the ones the screens 
   assert.equal(CHATS_GROUP_KEY, "milagre-chats");
   assert.ok(!CHATS_GROUP_KEY.includes("/"));
   assert.deepEqual(
-    [NO_PROJECT_LABEL, CHATS_GROUP_LABEL, ALL_CHATS_LABEL, CHATS_ACCOUNT_LABEL],
-    ["No project", "Chats", "All chats", "Chats without a Project"],
+    [NO_PROJECT_LABEL, CHATS_GROUP_LABEL, ALL_CHATS_LABEL, CHATS_ACCOUNT_LABEL, CHATS_ACCOUNT_DETAIL],
+    ["No project", "Chats", "All chats", "Chats without a Project", "Every quick chat on this computer"],
   );
 });
 

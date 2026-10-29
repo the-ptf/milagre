@@ -213,6 +213,7 @@ test("account scopes list the Chats home once it exists", async (t) => {
   const entry = await homeScope();
   assert.equal(entry.name, "Chats without a Project");
   assert.equal(entry.kind, "project");
+  assert.equal(entry.chatsHome, true, "the screens key the Chats mark on this, never on the name");
   assert.deepEqual(
     entry.projects.map((project) => project.path),
     [chatsHome],
@@ -236,6 +237,7 @@ test("account scope RPCs enumerate Projects and Links, validate scope, and persi
   for (const project of registry) {
     const entry = scopes.find((scope) => scope.key === project.path);
     assert.equal(entry.kind, "project");
+    assert.equal(entry.chatsHome, undefined);
     assert.deepEqual(
       entry.projects.map((member) => member.id),
       [project.id],

@@ -13,6 +13,8 @@ export const NO_PROJECT_LABEL = "No project";
 export const CHATS_GROUP_LABEL = "Chats";
 export const ALL_CHATS_LABEL = "All chats";
 export const CHATS_ACCOUNT_LABEL = "Chats without a Project";
+/** Under the Chats home's name in Project Accounts, where a Project says "Project". */
+export const CHATS_ACCOUNT_DETAIL = "Every quick chat on this computer";
 
 // A new Chat without a Project, on desktop and phone: its heading, the tray above the composer and the empty composer.
 export const JUST_CHAT_HEADING = "Just chat";

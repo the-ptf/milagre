@@ -2299,13 +2299,15 @@ function createRuntime(options) {
           .filter(Boolean)
           .map(({ id, path, name }) => ({ id, path, name })),
       })),
-      // One choice for every Chat without a Project on this computer. A plain Project scope to the screens, so they need no case of it.
+      // One choice for every Chat without a Project on this computer: a Project scope, marked so the screens show the
+      // Chats mark and not the home repository's picture.
       ...((await chatsHome.exists())
         ? [
             {
               key: chatsHome.path,
               name: CHATS_ACCOUNT_LABEL,
               kind: "project",
+              chatsHome: true,
               projects: [{ id: chatsHome.path, path: chatsHome.path, name: CHATS_ACCOUNT_LABEL }],
             },
           ]

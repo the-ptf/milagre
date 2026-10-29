@@ -9,6 +9,7 @@ export const NO_PROJECT_LABEL: string;
 export const CHATS_GROUP_LABEL: string;
 export const ALL_CHATS_LABEL: string;
 export const CHATS_ACCOUNT_LABEL: string;
+export const CHATS_ACCOUNT_DETAIL: string;
 export const JUST_CHAT_HEADING: string;
 export const CHATS_TRAY_LABEL: string;
 export const CHATS_PLACEHOLDER: string;
