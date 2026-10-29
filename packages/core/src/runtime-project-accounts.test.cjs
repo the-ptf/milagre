@@ -74,6 +74,7 @@ async function fixture(t) {
   });
   const make = (extra = {}) => {
     const runtime = createRuntime({
+      chatsHome: path.join(dir, "chats"),
       ...extra,
       dataDir,
       cwd: projects[0],
@@ -200,6 +201,31 @@ test("a removed explicitly assigned account fails the Chat without starting the 
   assert.match(failure.payload.event.message, /account/i);
 });
 
+test("account scopes list the Chats home once it exists", async (t) => {
+  const { make, projects, ids } = await fixture(t);
+  const chatsHome = path.join(path.dirname(projects[0]), "chats");
+  const runtime = make({ chatsHome });
+  await runtime.openProject(projects[0]);
+  const homeScope = async () => (await runtime.invoke("accounts:scopes")).find((scope) => scope.key === chatsHome);
+  assert.equal(await homeScope(), undefined);
+  await assert.rejects(runtime.invoke("accounts:scope", [chatsHome]));
+  await runtime.invoke("chats:ensure");
+  const entry = await homeScope();
+  assert.equal(entry.name, "Chats without a Project");
+  assert.equal(entry.kind, "project");
+  assert.equal(entry.chatsHome, true, "the screens key the Chats mark on this, never on the name");
+  assert.deepEqual(
+    entry.projects.map((project) => project.path),
+    [chatsHome],
+  );
+  // The home keeps its own choice, apart from every Project's.
+  await runtime.invoke("accounts:scope", [projects[0], true]);
+  await runtime.invoke("accounts:assign", [chatsHome, "claude", ids.shared]);
+  const claude = (snapshot) => snapshot.providers.find((provider) => provider.provider === "claude");
+  assert.equal(claude(await runtime.invoke("accounts:scope", [chatsHome])).accountId, ids.shared);
+  assert.equal(claude(await runtime.invoke("accounts:scope", [projects[0]])).accountId, ids.work);
+});
+
 test("account scope RPCs enumerate Projects and Links, validate scope, and persist independent assignments", async (t) => {
   const { make, projects, ids } = await fixture(t);
   const runtime = make();
@@ -211,6 +237,7 @@ test("account scope RPCs enumerate Projects and Links, validate scope, and persi
   for (const project of registry) {
     const entry = scopes.find((scope) => scope.key === project.path);
     assert.equal(entry.kind, "project");
+    assert.equal(entry.chatsHome, undefined);
     assert.deepEqual(
       entry.projects.map((member) => member.id),
       [project.id],

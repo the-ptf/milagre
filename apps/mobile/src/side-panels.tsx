@@ -20,6 +20,7 @@ import {
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
+import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
 import { GlassIconButton, IconButton, tap } from "./ui";
 import { Icon, type IconData, type Tone } from "./icons";
@@ -655,7 +656,7 @@ export function SidePanelsHost() {
             {/* Wide enough, the right panel docks beside the Chat instead (RightDock in split-layout.tsx). */}
             {mounted.right && !docks && rightTabs(screen, chatTabs).length > 0 && (
               <Animated.View {...hidden("right")} style={[frame("right"), right]}>
-                <RightPanel screen={screen} card={card} />
+                <RightPanel screen={screen} card={card} visible={open === "right"} />
               </Animated.View>
             )}
           </SafeAreaInsetsContext.Provider>
@@ -670,7 +671,7 @@ export function SidePanelsHost() {
  * and on an iPad the Chat's simulators and designs. A file of the Changes opens in place with a Back button; a PR file
  * opens across the whole window on an iPad (wide enough to show it side by side), in the PR sheet on a phone.
  */
-export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) {
+export function RightPanel({ screen, card, visible }: { screen: Screen; card: boolean; visible: boolean }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const session = useSession();
@@ -758,7 +759,10 @@ export function RightPanel({ screen, card }: { screen: Screen; card: boolean }) 
       )}
       {worktreeId !== undefined && (
         <View style={{ flex: 1, display: file || shownTab !== "changes" ? "none" : "flex" }}>
-          <ChangesView key={changesKey} worktreeId={worktreeId} onOpen={setFile} />
+          {/* Hidden, it stops polling the Mac: under the PR tab its reads and re-renders slowed the whole app. */}
+          <ChangesShownContext.Provider value={visible && !file && shownTab === "changes"}>
+            <ChangesView key={changesKey} worktreeId={worktreeId} onOpen={setFile} />
+          </ChangesShownContext.Provider>
         </View>
       )}
       {file && shownTab === "changes" && (

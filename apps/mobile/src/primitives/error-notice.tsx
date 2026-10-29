@@ -20,7 +20,7 @@ export function ErrorNotice({
   const styles = useStyles();
   return (
     <View accessibilityRole="alert" style={styles.error}>
-      <Text selectable style={{ color: colors.red, fontSize: 15, lineHeight: 22 }}>
+      <Text selectable style={{ color: colors.redInk, fontSize: 15, lineHeight: 22 }}>
         {message}
       </Text>
       {retry && <PillButton disabled={disabled} loading={loading} title={retryTitle} secondary onPress={retry} style={{ alignSelf: "flex-start" }} />}

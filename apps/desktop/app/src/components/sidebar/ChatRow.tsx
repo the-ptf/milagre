@@ -77,9 +77,9 @@ function useMinute(on: boolean) {
   return on ? now : 0;
 }
 
-const markToneClass = { accent: "text-accent", orange: "text-orange", red: "text-red", ink3: "text-ink-3" } as const;
+const markToneClass = { accent: "text-accent", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-3" } as const;
 
-const toneClass = { red: "text-red", orange: "text-orange" } as const;
+const toneClass = { red: "text-red-ink", orange: "text-orange-ink" } as const;
 
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -147,6 +147,11 @@ export type ChatRowActions = {
   remote?: boolean;
   /** Opens the chat with its "Commit and open PR" dialog. */
   onCommit?: (id: string) => void;
+  /**
+   * The chat has no Project (a Chats home's), so no Git and no folder to the user: the menu leaves out "Copy path",
+   * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveChoices).
+   */
+  gitless?: boolean;
   /** Looks at the chat's worktree when "Archive" is clicked, to decide what the confirm step offers. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
@@ -297,7 +302,7 @@ const INBOX_STATUS: Record<Exclude<ChatMark, "idle" | "unread">, string> = {
 
 function inboxStatus(item: SidebarRecent): { label: string; tone: string } | null {
   const mark = item.mark ?? "idle";
-  if (mark === "idle") return item.details?.failed ? { label: "Failed", tone: "text-red" } : null;
+  if (mark === "idle") return item.details?.failed ? { label: "Failed", tone: "text-red-ink" } : null;
   if (mark === "unread") return null;
   return { label: INBOX_STATUS[mark], tone: markToneClass[chatMarkTone(mark)] };
 }
@@ -478,7 +483,7 @@ function InboxLine({
       key: "computer",
       shrink: true,
       node: (
-        <span data-chat-computer className={`flex min-w-0 items-center gap-1 ${computer.offline ? "text-orange" : ""}`}>
+        <span data-chat-computer className={`flex min-w-0 items-center gap-1 ${computer.offline ? "text-orange-ink" : ""}`}>
           <HugeiconsIcon
             icon={computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon}
             size={12}
@@ -960,7 +965,7 @@ export const ChatRow = memo(function ChatRow({
 
 /** Merged is purple, a blocked PR takes its first blocker's tone, running CI is orange like GitHub's own dot, other open PRs are green. */
 function prTone(pr: PullRequest) {
-  return { purple: "text-purple-500", red: "text-red", orange: "text-orange", green: "text-green" }[pullRequestPresentation(pr).tone];
+  return { purple: "text-purple-500", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" }[pullRequestPresentation(pr).tone];
 }
 
 function prIcon(pr: PullRequest) {
@@ -1031,8 +1036,8 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
         </span>
         <span className="truncate">#{pr.number}</span>
         {labelled && blocker && <span className={`shrink-0 ${toneClass[BLOCKERS[blocker].tone]}`}>{BLOCKERS[blocker].short}</span>}
-        {labelled && readyToMerge && <span className="shrink-0 text-green">Ready</span>}
-        {labelled && checking && <span className="shrink-0 text-orange">CI running</span>}
+        {labelled && readyToMerge && <span className="shrink-0 text-green-ink">Ready</span>}
+        {labelled && checking && <span className="shrink-0 text-orange-ink">CI running</span>}
       </a>
     </Tooltip>
   );
@@ -1103,7 +1108,7 @@ function ChatHoverCard({
     mark !== "idle"
       ? { label: markLabel(mark, item.background), tone: markToneClass[chatMarkTone(mark)] }
       : details.failed
-        ? { label: "Last turn failed", tone: "text-red" }
+        ? { label: "Last turn failed", tone: "text-red-ink" }
         : null;
   return (
     <div
@@ -1162,8 +1167,8 @@ function ChatHoverCard({
                     {pr.title ? ` · ${pr.title}` : ""}
                   </span>
                   {blocker && <span className={`shrink-0 ${toneClass[BLOCKERS[blocker].tone]}`}>{BLOCKERS[blocker].short}</span>}
-                  {isReadyToMerge(pr) && <span className="shrink-0 text-green">Ready to merge</span>}
-                  {isChecking(pr) && <span className="shrink-0 text-orange">CI running</span>}
+                  {isReadyToMerge(pr) && <span className="shrink-0 text-green-ink">Ready to merge</span>}
+                  {isChecking(pr) && <span className="shrink-0 text-orange-ink">CI running</span>}
                 </a>
               );
             })}
@@ -1391,10 +1396,21 @@ function ChatMenu({
   const { editor } = useEditors();
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
-  const confirm = archiveArmed && plan ? archiveChoices({ plan, running }) : null;
+  // A Chat without a Project says what goes in plain words, and a clean one archives on the first click.
+  const choices = plan ? archiveChoices({ plan, running, chatsHome: actions.gitless }) : null;
+  const confirm = archiveArmed ? choices : null;
+  const archiveAtOnce = choices?.immediate && choices.choices.length === 1 ? choices.choices[0] : undefined;
   const archiveItems: Array<MenuEntry> =
     !confirm || !plan
-      ? [{ key: "archive", label: "Archive", icon: Archive02Icon, onSelect: () => setArchiveArmed(true), disabled: !actions.onArchive || !plan }]
+      ? [
+          {
+            key: "archive",
+            label: archiveAtOnce?.label ?? "Archive",
+            icon: Archive02Icon,
+            onSelect: archiveAtOnce && plan ? run(() => actions.onArchive?.(item.id, archiveAtOnce.mode, plan)) : () => setArchiveArmed(true),
+            disabled: !actions.onArchive || !plan,
+          },
+        ]
       : confirm.choices.map((choice) => ({
           key: `archive-${choice.mode}`,
           label: choice.label,
@@ -1423,8 +1439,12 @@ function ChatMenu({
   }, [confirmEntry]);
 
   const items: Array<MenuEntry | "divider"> = [
-    { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
-    { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
+    ...(actions.gitless
+      ? []
+      : [
+          { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
+          { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
+        ]),
     { key: "rename", label: "Rename chat", icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
     {
       key: "reload",
@@ -1457,28 +1477,33 @@ function ChatMenu({
           onSelect: run(() => actions.onMarkUnread?.(item.id, true)),
           disabled: !actions.onMarkUnread,
         },
-    {
-      key: "reveal",
-      label: IS_MAC ? "Open in Finder" : "Open in file manager",
-      icon: FolderOpenIcon,
-      onSelect: run(() => actions.onReveal?.(item.id)),
-      disabled: !actions.onReveal || !details.path,
-    },
-    {
-      key: "editor",
-      label: editor ? `Open in ${editor.name}` : "No editor found",
-      icon: SourceCodeIcon,
-      onSelect: run(() => actions.onOpenInEditor?.(item.id)),
-      disabled: !editor || !actions.onOpenInEditor || !details.path,
-    },
-    // Every chat's folder came from `git worktree list`, so a chat with a folder is in a repository.
-    {
-      key: "commit",
-      label: "Commit and open PR…",
-      icon: GitPullRequestIcon,
-      onSelect: run(() => actions.onCommit?.(item.id)),
-      disabled: !actions.onCommit || !details.path,
-    },
+    // A Chat without a Project has no folder to the user: no Finder, editor or commit.
+    ...(actions.gitless
+      ? []
+      : [
+          {
+            key: "reveal",
+            label: IS_MAC ? "Open in Finder" : "Open in file manager",
+            icon: FolderOpenIcon,
+            onSelect: run(() => actions.onReveal?.(item.id)),
+            disabled: !actions.onReveal || !details.path,
+          },
+          {
+            key: "editor",
+            label: editor ? `Open in ${editor.name}` : "No editor found",
+            icon: SourceCodeIcon,
+            onSelect: run(() => actions.onOpenInEditor?.(item.id)),
+            disabled: !editor || !actions.onOpenInEditor || !details.path,
+          },
+          // Every chat's folder came from `git worktree list`, so a chat with a folder is in a repository.
+          {
+            key: "commit",
+            label: "Commit and open PR…",
+            icon: GitPullRequestIcon,
+            onSelect: run(() => actions.onCommit?.(item.id)),
+            disabled: !actions.onCommit || !details.path,
+          },
+        ]),
     item.pinned
       ? { key: "unpin", label: "Unpin", icon: PinOffIcon, onSelect: run(() => actions.onPin?.(item.id, null)), disabled: !actions.onPin }
       : { key: "pin", label: "Pin", icon: PinIcon, onSelect: run(() => actions.onPin?.(item.id)), disabled: !actions.onPin },
@@ -1547,9 +1572,9 @@ function ChatMenu({
               title={entry.hint}
               onClick={entry.onSelect}
               {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
-              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red" : "text-ink"}`}
+              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red-ink" : "text-ink"}`}
             >
-              <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red" : "text-ink-2"}`}>
+              <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
                 {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
               </span>
               <span className={`min-w-0 flex-1 text-[13px] ${entry.archiveChoice ? "leading-snug" : "truncate"}`}>{entry.label}</span>

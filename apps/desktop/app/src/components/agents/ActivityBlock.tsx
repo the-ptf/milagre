@@ -117,7 +117,7 @@ export function ActivityBlock({
         </span>
         {waiting && <span className="shrink-0 text-[11.5px] text-ink-3">Waiting for approval</span>}
         {summary.failed > 0 && (
-          <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-red">
+          <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-red-ink">
             <Icon icon={Alert02Icon} size={13} />
             {summary.failed} failed
           </span>

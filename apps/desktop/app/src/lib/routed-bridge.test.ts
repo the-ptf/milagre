@@ -10,6 +10,9 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // goes through bridgeFor / bridgeForKey / useBridge, so it reaches the computer of the Project or chat it is about.
 const ALLOWED: Record<string, string[]> = {
   "lib/offline-cache.ts": ["computers", "onComputersChanged"],
+  // The keys this window runs are this Mac's own keybindings.json; Settings › Keybindings reads other computers' through bridgeFor.
+  "lib/keybindings.ts": ["readKeybindings", "onKeybindings"],
+  "components/settings/KeybindingsSettings.tsx": ["openKeybindingsFile"],
   // A paired computer's chat paints from the copy this Mac keeps of it while the computer answers.
   "lib/chat-messages.ts": ["computers"],
   "App.tsx": [

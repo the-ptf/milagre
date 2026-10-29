@@ -80,5 +80,22 @@ export function contrastRatio(a: string, b: string) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** `color` with its OKLCH lightness moved toward `toward`'s only as far as it takes to reach `ratio` against every
+ * background. Hue and chroma stay, so an orange stays orange instead of going brown. */
+export function readableOn(color: string, toward: string, backgrounds: readonly string[], ratio = 4.5) {
+  const worst = (c: string) => Math.min(...backgrounds.map((bg) => contrastRatio(c, bg)));
+  if (worst(color) >= ratio) return color;
+  const from = hexToOklch(color.slice(0, 7));
+  const target = hexToOklch(toward.slice(0, 7)).l;
+  const at = (t: number) => oklchToHex({ ...from, l: from.l + (target - from.l) * t, alpha: 1 });
+  let [lo, hi] = [0, 1];
+  for (let i = 0; i < 16; i++) {
+    const t = (lo + hi) / 2;
+    if (worst(at(t)) >= ratio) hi = t;
+    else lo = t;
+  }
+  return worst(at(hi)) >= ratio ? at(hi) : toward;
+}
+
 /** The better of white and `page` as text on `background`. */
 export const onColor = (background: string, page: string) => (contrastRatio("#ffffff", background) >= contrastRatio(page, background) ? "#ffffff" : page);

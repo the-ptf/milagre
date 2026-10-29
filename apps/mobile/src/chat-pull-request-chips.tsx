@@ -41,6 +41,7 @@ export function ChatPullRequestChips({
           accessibilityRole="link"
           accessibilityLabel={`Open Linear issue ${linearIssue.key}`}
           accessibilityHint={linearIssue.title}
+          hitSlop={{ top: 10, bottom: 10 }}
           onPress={(event) => {
             event.stopPropagation();
             open(linearIssue.url);
@@ -61,6 +62,7 @@ export function ChatPullRequestChips({
             accessibilityRole={onOpenPullRequest ? "button" : "link"}
             accessibilityLabel={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
             accessibilityHint={pr.title}
+            hitSlop={{ top: 10, bottom: 10 }}
             onPress={(event) => {
               event.stopPropagation();
               openPr(pr);

@@ -51,7 +51,7 @@ function dateAt(value: string): number | null {
 function FieldError({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <p role="alert" data-routine-error className="text-[12px] break-words text-red">
+    <p role="alert" data-routine-error className="text-[12px] break-words text-red-ink">
       {text}
     </p>
   );
@@ -341,7 +341,7 @@ export function HookUrl({ url, form, editing }: { url: string | null; form?: Rou
           <button type="button" className={smallButton} onClick={() => form.setRotating(false)}>
             Cancel
           </button>
-          <button type="button" data-routine-hook-rotate-confirm className={`${smallButton} border-red/30 text-red`} onClick={() => void form.rotate()}>
+          <button type="button" data-routine-hook-rotate-confirm className={`${smallButton} border-red/30 text-red-ink`} onClick={() => void form.rotate()}>
             Rotate
           </button>
         </div>
@@ -526,18 +526,18 @@ export function RoutineEditor({
             <button type="button" data-routine-discard-keep className={smallButton} onClick={discard.onKeep}>
               Keep editing
             </button>
-            <button type="button" data-routine-discard-confirm className={`${smallButton} border-red/30 text-red`} onClick={discard.onDiscard}>
+            <button type="button" data-routine-discard-confirm className={`${smallButton} border-red/30 text-red-ink`} onClick={discard.onDiscard}>
               Discard
             </button>
           </div>
         )}
         {error && (
-          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red">
+          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red-ink">
             {error}
           </p>
         )}
         {form.topError && (
-          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red">
+          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red-ink">
             {form.topError}
           </p>
         )}
@@ -676,7 +676,7 @@ export function RoutineEditor({
                 <button type="button" className={smallButton} onClick={() => setConfirming(false)}>
                   Cancel
                 </button>
-                <button type="button" data-routine-delete-confirm className={`${smallButton} border-red/30 text-red`} onClick={remove}>
+                <button type="button" data-routine-delete-confirm className={`${smallButton} border-red/30 text-red-ink`} onClick={remove}>
                   Delete
                 </button>
               </>
@@ -685,7 +685,7 @@ export function RoutineEditor({
                 type="button"
                 data-routine-delete-start
                 onClick={() => setConfirming(true)}
-                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-red transition-colors hover:bg-red-tint"
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-red-ink transition-colors hover:bg-red-tint"
               >
                 <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.8} color="currentColor" />
                 Delete Routine

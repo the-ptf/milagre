@@ -189,7 +189,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
           </>
         )}
         {error && (
-          <p role="alert" data-add-computer-error className="mt-3 text-[13px] text-red">
+          <p role="alert" data-add-computer-error className="mt-3 text-[13px] text-red-ink">
             {error}
           </p>
         )}

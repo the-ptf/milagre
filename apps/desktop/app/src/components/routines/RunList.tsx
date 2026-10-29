@@ -37,7 +37,7 @@ function runLook(run: RoutineRun, routineName: string): { icon: HugeIconData; sp
   if (run.status === "running") return { icon: Loading03Icon, spin: true, tone: "text-ink-3", text: runTitle(run, routineName) };
   if (run.status === "failed") {
     const error = firstLine(run.error);
-    return { icon: Alert02Icon, tone: "text-red", text: error ? `Failed: ${error}` : "Failed", failed: true };
+    return { icon: Alert02Icon, tone: "text-red-ink", text: error ? `Failed: ${error}` : "Failed", failed: true };
   }
   return { icon: CheckmarkCircle02Icon, tone: "text-ink-3", text: runTitle(run, routineName) };
 }
@@ -90,7 +90,7 @@ function Row({
     <>
       <span className="w-[84px] shrink-0 text-[12.5px] text-ink-3 tabular-nums">{time}</span>
       {icon}
-      <span className={`min-w-0 flex-1 truncate text-[13px] ${red ? "text-red" : muted ? "text-ink-2" : "font-medium text-ink"}`} title={title ?? text}>
+      <span className={`min-w-0 flex-1 truncate text-[13px] ${red ? "text-red-ink" : muted ? "text-ink-2" : "font-medium text-ink"}`} title={title ?? text}>
         {text}
       </span>
       {unread && <span role="img" aria-label="Unread" data-run-unread className="size-2 shrink-0 rounded-full bg-accent" />}

@@ -1,7 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const { forwardAppShortcuts, isAppShortcut, isCloseKey, isSettingsKey } = require("./app-shortcuts.cjs");
+const { forwardAppShortcuts, isAppShortcut, isCloseKey, setForwardedRules } = require("./app-shortcuts.cjs");
+const { defaultKeybindings } = require("@milagre/shared/keybindings");
 
 const key = (key, extra = {}) => ({ type: "keyDown", key, meta: true, control: false, shift: true, alt: false, ...extra });
 
@@ -15,17 +16,17 @@ test("only the app's ⌘⇧ shortcuts are forwarded; other keys reach the focuse
   assert.equal(isAppShortcut(key("E"), "linux"), false, "⌘ is no shortcut off macOS");
 });
 
-test("a forwarded shortcut is kept from the frame and sent to the renderer", () => {
+test("a forwarded shortcut is kept from the frame and sent to the renderer with its modifiers", () => {
   const contents = new EventEmitter();
   const sent = [];
   contents.send = (...args) => sent.push(args);
   forwardAppShortcuts(contents, "darwin", new EventEmitter());
   let prevented = 0;
   const event = { preventDefault: () => prevented++ };
-  contents.emit("before-input-event", event, key("E"));
-  contents.emit("before-input-event", event, key("a"));
+  contents.emit("before-input-event", event, key("E", { code: "KeyE" }));
+  contents.emit("before-input-event", event, key("a", { shift: false }));
   assert.equal(prevented, 1);
-  assert.deepEqual(sent, [["app:shortcut", { key: "e", shift: true }]]);
+  assert.deepEqual(sent, [["app:shortcut", { key: "E", code: "KeyE", meta: true, control: false, alt: false, shift: true }]]);
 });
 
 test("⌘, reaches the renderer from any frame, so Settings opens with a design or HTML reply focused", () => {
@@ -39,9 +40,24 @@ test("⌘, reaches the renderer from any frame, so Settings opens with a design 
   contents.emit("before-input-event", event, key(",", { shift: false, type: "keyUp" }));
   contents.emit("before-input-event", event, key(",", { shift: false, alt: true }));
   assert.equal(prevented, 1);
-  assert.deepEqual(sent, [["app:shortcut", { key: ",", shift: false }]]);
-  assert.equal(isSettingsKey(key(",", { shift: false, meta: false, control: true }), "linux"), true);
-  assert.equal(isSettingsKey(key(","), "darwin"), false, "⌘⇧, is not ⌘,");
+  assert.equal(sent.length, 1);
+  assert.equal(isAppShortcut(key(",", { shift: false, meta: false, control: true }), "linux"), true);
+  assert.equal(isAppShortcut(key(","), "darwin"), false, "⌘⇧, is not ⌘,");
+});
+
+test("the caught keys follow keybindings.json", () => {
+  try {
+    setForwardedRules([
+      ...defaultKeybindings().filter((rule) => rule.command !== "designs.toggle"),
+      { key: "mod+alt+g", command: "designs.toggle" },
+      { key: "mod+shift+g", command: "chat.new" },
+    ]);
+    assert.equal(isAppShortcut(key("E"), "darwin"), false, "⌘⇧E moved away");
+    assert.equal(isAppShortcut(key("©", { code: "KeyG", shift: false, alt: true }), "darwin"), true, "⌥ letters match by physical key");
+    assert.equal(isAppShortcut(key("G"), "darwin"), false, "chat.new isn't caught from frames");
+  } finally {
+    setForwardedRules(defaultKeybindings());
+  }
 });
 
 test("⌘W closes the focused Terminal and is swallowed otherwise", () => {

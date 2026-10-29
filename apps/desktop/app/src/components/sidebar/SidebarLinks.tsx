@@ -512,7 +512,7 @@ function LinkPopover({
             onChange={(event) => setText(event.target.value)}
             rows={3}
             placeholder={`What should it ask “${target.item.label}” to do?`}
-            className="mt-1 block max-h-40 w-full resize-none rounded-[8px] border border-line bg-field px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-line-strong"
+            className="mt-1 block max-h-40 w-full resize-none rounded-[8px] border border-line bg-field px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent"
           />
         </label>
       )}
@@ -611,7 +611,7 @@ function LinkPicker({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search chats"
           aria-label="Search chats"
-          className="mx-1 mb-1 h-8 shrink-0 rounded-[8px] border border-line bg-field px-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-line-strong"
+          className="mx-1 mb-1 h-8 shrink-0 rounded-[8px] border border-line bg-field px-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent"
         />
       )}
       <ScrollArea as="ul" chainScroll className="flex min-h-0 flex-col gap-px">

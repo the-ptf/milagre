@@ -18,7 +18,7 @@ function CommandOutput({ chatKey, taskId, running }: { chatKey: string; taskId: 
   return (
     <div className="flex flex-col gap-2 p-2 text-[12px] text-ink-2">
       {error && (
-        <p role="alert" className="text-red">
+        <p role="alert" className="text-red-ink">
           {error}
         </p>
       )}

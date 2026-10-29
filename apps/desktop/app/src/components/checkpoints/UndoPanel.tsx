@@ -165,7 +165,7 @@ export function UndoPanel({
             </button>
           </header>
           {review.notice && (
-            <p role="status" className="border-b border-line px-3.5 py-2 text-[12px] text-orange">
+            <p role="status" className="border-b border-line px-3.5 py-2 text-[12px] text-orange-ink">
               {review.notice}
             </p>
           )}
@@ -192,11 +192,11 @@ export function UndoPanel({
           )}
           <footer className="flex items-center gap-2 border-t border-line px-3.5 py-2.5">
             {review.error ? (
-              <p role="alert" className="min-w-0 flex-1 text-[12px] text-red">
+              <p role="alert" className="min-w-0 flex-1 text-[12px] text-red-ink">
                 {review.error}
               </p>
             ) : review.conflicts > 0 ? (
-              <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] text-orange">
+              <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] text-orange-ink">
                 <Icon icon={Alert02Icon} size={14} />
                 {review.conflicts === 1 ? "1 file needs a choice" : `${review.conflicts} files need a choice`}
               </p>
@@ -267,7 +267,7 @@ function FileRow({
         {dir && <span className="truncate text-ink-3">{dir}</span>}
       </button>
       {file.conflict && (
-        <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-orange">
+        <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-orange-ink">
           <span className="size-1.5 rounded-full bg-orange" />
           Edited after this task
         </span>

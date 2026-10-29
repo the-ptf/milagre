@@ -488,7 +488,7 @@ export function DesignsSheet({
             {feature.error && <PillButton title="Retry" onPress={() => void feature.refresh()} />}
           </View>
         ) : listError && !summaries ? (
-          <Text accessibilityRole="alert" style={{ color: colors.red, padding: 20 }}>
+          <Text accessibilityRole="alert" style={{ color: colors.redInk, padding: 20 }}>
             {listError}
           </Text>
         ) : (
@@ -594,7 +594,7 @@ function DesignsCanvas({ ref, onMessage }: { ref: React.Ref<DomWebViewRef>; onMe
   );
   if (crashed || !prepared)
     return (
-      <Text accessibilityRole="alert" style={{ color: colors.red, padding: 20 }}>
+      <Text accessibilityRole="alert" style={{ color: colors.redInk, padding: 20 }}>
         Could not prepare the designs.
       </Text>
     );

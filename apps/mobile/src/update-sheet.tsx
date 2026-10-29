@@ -191,7 +191,7 @@ export function UpdateSheet({
         </View>
         {description ? <Text style={{ color: colors.ink2, fontSize: 16, lineHeight: 23 }}>{description}</Text> : null}
         {state.error ? (
-          <Text selectable accessibilityRole="alert" style={{ color: colors.red, fontSize: 15, lineHeight: 22 }}>
+          <Text selectable accessibilityRole="alert" style={{ color: colors.redInk, fontSize: 15, lineHeight: 22 }}>
             {state.error}
           </Text>
         ) : null}

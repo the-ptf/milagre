@@ -1,0 +1,81 @@
+# Publishes an over-the-air update (EAS Update, channel testflight) from main to the phone builds already installed.
+# Each platform runs on its own and refuses to publish when its latest finished build has a different native
+# fingerprint: that update would reach no phone. Run "Mobile release" for that platform first.
+name: Mobile OTA
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to update
+        type: choice
+        options: [ios, android, both]
+        default: ios
+      message:
+        description: What changed (shown in EAS)
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  update:
+    name: OTA ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platform == 'both' && '["ios","android"]' || format('["{0}"]', inputs.platform)) }}
+    concurrency:
+      group: mobile-ota-${{ matrix.platform }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: mobile-ota
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      PLATFORM: ${{ matrix.platform }}
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::OTA updates ship from main only. Pick main under \"Use workflow from\"."
+          exit 1
+      - name: Check EXPO_TOKEN
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then echo "::error::Set EXPO_TOKEN in the mobile-ota environment."; exit 1; fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Check a build can take the update
+        working-directory: apps/mobile
+        run: |
+          fingerprint=$(npx expo-updates fingerprint:generate --platform "$PLATFORM" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).hash')
+          npx eas-cli@latest build:list --platform "$PLATFORM" --status finished --channel testflight --limit 1 --json --non-interactive > "$RUNNER_TEMP/build.json"
+          build=$(node -p 'const [b] = JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/build.json", "utf8")); b ? `${b.runtime?.version} ${b.appBuildVersion}` : ""')
+          read -r runtime number <<< "$build"
+          echo "main fingerprint $fingerprint"
+          echo "latest $PLATFORM build $number, runtime $runtime"
+          if [ -z "$fingerprint" ] || [ "$fingerprint" = undefined ] || [ -z "$runtime" ] || [ "$runtime" = undefined ]; then
+            echo "::error::Could not read the fingerprint of main or of the latest $PLATFORM build."
+            exit 1
+          fi
+          if [ "$fingerprint" != "$runtime" ]; then
+            echo "::error::main's $PLATFORM fingerprint ($fingerprint) differs from build $number ($runtime), so this update would reach no phone. Run Mobile release for $PLATFORM first."
+            exit 1
+          fi
+      - name: Publish
+        working-directory: apps/mobile
+        env:
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          EXPO_PUBLIC_GIT_COMMIT=$(git rev-parse --short HEAD)
+          export EXPO_PUBLIC_GIT_COMMIT
+          npx eas-cli@latest update --channel testflight --environment production --platform "$PLATFORM" --message "$MESSAGE" --non-interactive --json > "$RUNNER_TEMP/update.json"
+          node -e '
+            const [u] = JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/update.json", "utf8"));
+            const line = `${process.env.PLATFORM} OTA group ${u.group}, runtime ${u.runtimeVersion}, main ${process.env.EXPO_PUBLIC_GIT_COMMIT}`;
+            console.log(line);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, line + "\n");
+          '

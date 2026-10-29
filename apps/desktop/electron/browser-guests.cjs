@@ -3,7 +3,7 @@
 // before it attaches: no preload, no Node, sandboxed, one sign-in session for every page, and web pages only. A page
 // that opens a window gets a new panel tab instead; one that leaves the web (mailto:, an app's own scheme) goes through
 // the same external handler as links in replies.
-const { isAppShortcut, isSettingsKey } = require("./app-shortcuts.cjs");
+const { isAppShortcut } = require("./app-shortcuts.cjs");
 
 /** The one persistent session every Browser panel page shares, so signing in once lasts. */
 const BROWSER_PARTITION = "persist:milagre-browser";
@@ -77,14 +77,10 @@ function guardGuest(host, guest, { openExternal, platform }) {
     if (!event.isMainFrame && /^(file|chrome|devtools|milagre[\w-]*):/i.test(event.url)) event.preventDefault();
   });
   guest.on("before-input-event", (event, input) => {
-    if (isSettingsKey(input, platform)) {
-      event.preventDefault();
-      host.send("app:shortcut", { key: ",", shift: false });
-      return;
-    }
+    // The keys the window catches from every frame (keybindings.json's forwarded commands), sent on as the window's own.
     if (isAppShortcut(input, platform)) {
       event.preventDefault();
-      host.send("app:shortcut", { key: input.key.toLowerCase(), shift: true });
+      host.send("app:shortcut", { key: input.key, code: input.code, meta: input.meta, control: input.control, alt: input.alt, shift: input.shift });
       return;
     }
     const command = platform === "darwin" ? input.meta : input.control;

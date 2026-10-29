@@ -453,7 +453,7 @@ export function TerminalSheet({
             <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this computer to open its Terminals.</Text>
           ) : error ? (
             <View style={{ padding: 20, gap: 16 }}>
-              <Text accessibilityRole="alert" style={{ color: colors.red }}>
+              <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
                 {error}
               </Text>
               <PillButton title="Try again" onPress={add} />
@@ -752,7 +752,7 @@ function TerminalView({
   if (failed)
     return (
       <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.red }}>
+        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
           The Terminal view stopped. The Terminal is still running on your computer.
         </Text>
         <PillButton title="Reload" onPress={() => setFailed(false)} />

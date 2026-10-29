@@ -188,7 +188,7 @@ function StopRow({
 function SaveMark({ state }: { state: SaveState }) {
   if (state === "error")
     return (
-      <span role="alert" className="text-[12px] text-red">
+      <span role="alert" className="text-[12px] text-red-ink">
         Not saved
       </span>
     );
@@ -373,7 +373,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
                 className="h-9 w-full rounded-[8px] bg-field px-3 text-[13px] text-ink outline-none placeholder:text-ink-3"
               />
               {ownRule.state === "error" && (
-                <span role="alert" className="text-[12px] text-red">
+                <span role="alert" className="text-[12px] text-red-ink">
                   Not saved
                 </span>
               )}
@@ -426,7 +426,7 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
         </h1>
       </div>
       {error && (
-        <p role="alert" className="mt-3 px-1 text-[12px] text-red">
+        <p role="alert" className="mt-3 px-1 text-[12px] text-red-ink">
           {error}
         </p>
       )}

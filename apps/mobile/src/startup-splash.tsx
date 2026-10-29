@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import { useTheme } from "./theme";
+import { useReducedMotion } from "./motion";
 import { LoadingLogo } from "./loading-logo";
 
 // The native launch screen shows the assembled mark at this size and spot, so the hand-off is seamless.
@@ -15,6 +16,7 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 export function StartupSplash({ ready, onDone }: { ready: boolean; onDone: () => void }) {
   const { colors } = useTheme();
   const page = colors.page;
+  const reduced = useReducedMotion();
   const [[fade, shrink]] = useState<[Animated.Value, Animated.Value]>(() => [new Animated.Value(0), new Animated.Value(0)]);
   const done = useRef(onDone);
   useEffect(() => {
@@ -23,11 +25,11 @@ export function StartupSplash({ ready, onDone }: { ready: boolean; onDone: () =>
   useEffect(() => {
     if (!ready) return;
     // splash-leave and splash-logo-leave run together with their own curves; runs once, so session updates cannot restart it.
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 320, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true }),
-      Animated.timing(shrink, { toValue: 1, duration: 320, easing: Easing.bezier(0.4, 0, 1, 1), useNativeDriver: true }),
-    ]).start(() => done.current());
-  }, [ready, fade, shrink]);
+    // Reduced motion: the splash only fades; the logo doesn't shrink.
+    const leave = Animated.timing(fade, { toValue: 1, duration: 320, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true });
+    const logo = Animated.timing(shrink, { toValue: 1, duration: 320, easing: Easing.bezier(0.4, 0, 1, 1), useNativeDriver: true });
+    Animated.parallel(reduced ? [leave] : [leave, logo]).start(() => done.current());
+  }, [ready, fade, shrink, reduced]);
   return (
     <Animated.View
       onLayout={() => void SplashScreen.hideAsync().catch(() => undefined)}

@@ -199,7 +199,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
           </>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-[13px] text-red">
+          <p role="alert" className="mt-3 text-[13px] text-red-ink">
             {error}
           </p>
         )}

@@ -136,8 +136,8 @@ test("the app's shortcuts and the browser keys pressed in a page reach the rende
   assert.equal(press({ key: "c" }), false);
   assert.equal(press({ key: "a", meta: false }), false);
   assert.deepEqual(host.sent, [
-    ["app:shortcut", { key: "b", shift: true }],
-    ["app:shortcut", { key: ",", shift: false }],
+    ["app:shortcut", { key: "b", code: undefined, meta: true, control: false, alt: false, shift: true }],
+    ["app:shortcut", { key: ",", code: undefined, meta: true, control: false, alt: false, shift: false }],
     ["browser-panel:key", { from: 7, key: "l" }],
     ["browser-panel:key", { from: 7, key: "r" }],
     ["browser-panel:key", { from: 7, key: "w" }],

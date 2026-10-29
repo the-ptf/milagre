@@ -581,7 +581,7 @@ export function InboxPanel({
         <ScrollArea ref={scroller} data-inbox-scroller className="flex-1 px-4 pt-1 pb-3">
           <div ref={content} className="relative">
             {error ? (
-              <div role="alert" className="rounded-control bg-red-tint p-3 text-xs text-red">
+              <div role="alert" className="rounded-control bg-red-tint p-3 text-xs text-red-ink">
                 {error}
                 <button type="button" className="mt-2 block underline" onClick={refresh}>
                   Retry
@@ -777,14 +777,14 @@ function InboxCard({
         </div>
       ) : (
         <>
-          <h2 className={`mt-3 text-[15px] font-medium ${item.status === "failed" ? "text-red" : ""}`}>
+          <h2 className={`mt-3 text-[15px] font-medium ${item.status === "failed" ? "text-red-ink" : ""}`}>
             {item.status === "failed" ? "Turn failed" : item.status === "working" ? item.title : "Ready to review"}
           </h2>
           <p className="mt-2 text-xs leading-5 text-ink-2">{item.preview}</p>
         </>
       )}
       {error && (
-        <p role="alert" className="mt-2 text-xs text-red">
+        <p role="alert" className="mt-2 text-xs text-red-ink">
           {error}
         </p>
       )}
@@ -919,7 +919,9 @@ function InboxQuestion({
                       {option.label.replace(/\s*\(Recommended\)\s*$/i, "")}
                       {option.description && <span className="mt-0.5 block text-[10px] leading-4 text-ink-3">{option.description}</span>}
                     </span>
-                    {recommended && <span className="shrink-0 rounded-full bg-orange/15 px-1.5 py-0.5 text-[10px] font-medium text-orange">Recommended</span>}
+                    {recommended && (
+                      <span className="shrink-0 rounded-full bg-orange/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-ink">Recommended</span>
+                    )}
                   </button>
                 );
               })}

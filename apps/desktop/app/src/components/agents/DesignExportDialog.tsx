@@ -113,7 +113,7 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
         </fieldset>
         <p className="mt-4 break-all text-[11px] text-ink-3">{filename}</p>
         {error && (
-          <p role="alert" className="mt-3 text-[12px] leading-relaxed text-red">
+          <p role="alert" className="mt-3 text-[12px] leading-relaxed text-red-ink">
             {error}
           </p>
         )}

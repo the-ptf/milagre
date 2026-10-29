@@ -145,7 +145,7 @@ export default function ModelSheet() {
         <View style={{ paddingHorizontal: 16 }}>
           {busy && <Text style={[styles.caption, { paddingBottom: 8 }]}>Changes apply to your next message. This turn keeps its settings.</Text>}
           {cli && cli.state !== "ready" && (
-            <Text style={[styles.caption, { color: colors.orange, paddingBottom: 8 }]}>
+            <Text style={[styles.caption, { color: colors.orangeInk, paddingBottom: 8 }]}>
               {cli.message || `${providerName(draft.provider)} is ${cli.state}.`}
             </Text>
           )}

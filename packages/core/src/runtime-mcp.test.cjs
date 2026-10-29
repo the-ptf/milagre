@@ -16,6 +16,7 @@ async function fixture(t) {
   const seen = { checks: [], signIns: [], writes: [] };
   const runtime = createRuntime({
     dataDir,
+    chatsHome: path.join(dir, "chats"),
     cwd: dir,
     environmentReady: Promise.resolve(),
     titleModels: {},

@@ -85,7 +85,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
             />
           </View>
         </View>
-        {current?.error ? <Text style={[styles.muted, { color: colors.orange }]}>{current.error}</Text> : null}
+        {current?.error ? <Text style={[styles.muted, { color: colors.orangeInk }]}>{current.error}</Text> : null}
       </View>
       <FlatList
         data={current?.items ?? []}

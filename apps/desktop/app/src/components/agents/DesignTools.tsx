@@ -81,7 +81,7 @@ export function DesignTools({
           type="button"
           aria-label={`${collapsed.has(node.id) ? "Expand" : "Collapse"} ${node.name ?? node.id}`}
           aria-expanded={!collapsed.has(node.id)}
-          className="flex size-5 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-hover"
+          className="relative flex size-5 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-hover before:absolute before:-inset-0.5"
           onClick={() =>
             setCollapsed((current) => {
               const next = new Set(current);

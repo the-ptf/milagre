@@ -93,7 +93,7 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
             disabled={brief === null}
             onChange={(event) => setBriefDraft(event.target.value)}
             rows={6}
-            className="w-full resize-y rounded-[8px] border border-transparent bg-transparent px-0 py-0.5 text-[13px] leading-[1.5] text-ink outline-none hover:border-line focus:border-line-strong focus:px-2"
+            className="w-full resize-y rounded-[8px] border border-transparent bg-transparent px-0 py-0.5 text-[13px] leading-[1.5] text-ink outline-none hover:border-line focus:border-accent focus:px-2"
           />
           {briefChanged && (
             <div className="mt-1 flex justify-end gap-1">
@@ -159,7 +159,7 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
                   type="button"
                   disabled={busy}
                   onClick={() => void run(() => bridge.revokeBotGrant(grant.id))}
-                  className={`${BUTTON} text-red hover:bg-red-tint`}
+                  className={`${BUTTON} text-red-ink hover:bg-red-tint`}
                 >
                   Revoke
                 </button>
@@ -193,7 +193,7 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
           )}
         </div>
         {error && (
-          <p role="alert" className="mt-3 text-[12px] text-red">
+          <p role="alert" className="mt-3 text-[12px] text-red-ink">
             {error}
           </p>
         )}
@@ -272,10 +272,10 @@ function MemorySheet({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           rows={18}
-          className="mt-3 min-h-0 w-full flex-1 resize-none rounded-control border border-line bg-field px-3 py-2 font-mono text-[12px] leading-[1.5] outline-none focus:border-line-strong"
+          className="mt-3 min-h-0 w-full flex-1 resize-none rounded-control border border-line bg-field px-3 py-2 font-mono text-[12px] leading-[1.5] outline-none focus:border-accent"
         />
         {error && (
-          <p role="alert" data-memory-error className="mt-3 text-[12px] text-red">
+          <p role="alert" data-memory-error className="mt-3 text-[12px] text-red-ink">
             {error}
           </p>
         )}

@@ -9,6 +9,8 @@ export interface RuntimeOptions {
   version: string;
   cwd?: string;
   worktreeRoot?: string;
+  /** The Chats home's folder; ~/.milagre/chats by default. */
+  chatsHome?: string;
   environmentReady?: Promise<unknown>;
   keepAwake?: KeepAwake;
   simulators?: Simulators;

@@ -32,6 +32,7 @@ import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slot
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
+  BubbleChatIcon,
   Comment01Icon,
   Folder01Icon,
   GitBranchIcon,
@@ -108,7 +109,9 @@ import { undoableTasks, type Checkpoint, type CheckpointApi } from "@milagre/sha
 import { UndoPanel, type UndoIntent } from "./checkpoints/UndoPanel";
 import { bridgeForKey } from "../lib/computer-bridge";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
-import { rememberProjectComputer, shortPath, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
+import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
+import { headingLayer, newChatLook } from "../lib/new-chat-look";
+import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
@@ -854,8 +857,12 @@ interface ChatComposerProps {
   approval?: ReactNode;
   /** The cards stay mounted but out of sight, such as a question whose answers are on their way to the agent. */
   approvalHidden?: boolean;
-  /** The Project a new Chat starts in, named in the "Start building in" heading; its dropdown moves the new Chat to another. */
-  newChatProject?: { key: string; name: string; onChange?: (key: string) => void };
+  /**
+   * The Project a new Chat starts in, named in the "Start building in" heading; its dropdown moves the new Chat to another.
+   * `kind: "chats"` is a Chats home draft (No project); `onChange` gets `home` when the move is to a Chats home, saying
+   * whether that computer has made it yet.
+   */
+  newChatProject?: { key: string; name: string; kind?: ProjectKind; onChange?: (key: string, home?: Pick<ChatsHome, "exists">) => void };
   worktrees: Array<{ id: number; name: string; path: string }>;
   selectedWorktreeId?: number;
   onWorktreeChange: (id: number) => void;
@@ -929,6 +936,8 @@ type NewChatHeaderProps = Pick<
   | "onStartFromIssue"
   | "noGit"
 > & {
+  /** A Chats home draft: the tray holds only the computer chip and its label, nothing about Git. */
+  chats?: boolean;
   /** The open Project's copies on every computer with its repository; the computer chip shows once there are two. */
   copies?: ProjectCopy[];
   currentKey?: string;
@@ -949,6 +958,7 @@ function NewChatHeader({
   linearActive = false,
   onStartFromIssue,
   noGit = false,
+  chats = false,
   copies = NO_COPIES,
   currentKey,
   onComputerChange,
@@ -1014,13 +1024,13 @@ function NewChatHeader({
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
     <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
-      {noGit && selected && (
+      {!chats && noGit && selected && (
         <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-[13px] text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
           {selected.name} has no Git, so this Chat works in the folder itself.
         </p>
       )}
-      {!noGit && selected && (
+      {(chats || (!noGit && selected)) && (
         <div data-new-chat-pickers className="relative mb-1 flex items-center gap-1">
           {chooseComputer && (
             <Tooltip label="Choose the computer">
@@ -1032,21 +1042,32 @@ function NewChatHeader({
               />
             </Tooltip>
           )}
-          <Tooltip label="Choose the isolation level">
-            <ChipButton
-              icon={isolationOption.icon}
-              label={isolationOption.name}
-              open={menu === "isolation"}
-              onClick={(trigger) => toggle("isolation", trigger.parentElement ?? trigger)}
-            />
-          </Tooltip>
-          <ChipButton
-            icon={GitBranchIcon}
-            label={isolation === "local" ? selected.name : baseBranch}
-            open={menu === "branch"}
-            onClick={(trigger) => toggle("branch", trigger)}
-          />
-          {linearActive && onStartFromIssue && (
+          {chats ? (
+            <span data-new-chat-label className="flex h-7 items-center gap-1.5 px-1.5 text-[12px] font-medium text-ink-2">
+              <Icon icon={BubbleChatIcon} size={14} />
+              {newChatLook("chats").trayLabel}
+            </span>
+          ) : (
+            selected && (
+              <>
+                <Tooltip label="Choose the isolation level">
+                  <ChipButton
+                    icon={isolationOption.icon}
+                    label={isolationOption.name}
+                    open={menu === "isolation"}
+                    onClick={(trigger) => toggle("isolation", trigger.parentElement ?? trigger)}
+                  />
+                </Tooltip>
+                <ChipButton
+                  icon={GitBranchIcon}
+                  label={isolation === "local" ? selected.name : baseBranch}
+                  open={menu === "branch"}
+                  onClick={(trigger) => toggle("branch", trigger)}
+                />
+              </>
+            )
+          )}
+          {!chats && linearActive && onStartFromIssue && (
             <ChipButton leading={<LinearLogo size={13} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
           )}
           {menu === "computer" && chooseComputer && (
@@ -1056,7 +1077,8 @@ function NewChatHeader({
                   key={item.key}
                   icon={<Icon icon={ComputerIcon} size={14} />}
                   label={item.computerId === LOCAL_COMPUTER ? `${item.computer} · This Mac` : item.computer}
-                  description={shortPath(item.key)}
+                  // A Chats home's folder is Milagre's own, not a place the user picked.
+                  description={chats ? undefined : shortPath(item.key)}
                   trailing={item.online ? undefined : "Offline"}
                   selected={item.key === currentKey}
                   disabled={!item.online}
@@ -1246,11 +1268,25 @@ export function ChatComposer({
   const reviewPill = !isNewChat && !!pullRequestReview && pullRequestReview.count > 0 && pullRequestReview;
   // A Project's new Chat: the heading sits in the upper middle, the setup chips and composer at the bottom. A Link's or a
   // bot's new Chat keeps the composer centred.
+  const [headingOpen, setHeadingOpen] = useState(false);
   const projectNewChat = isNewChat && (scopeKind ?? "project") === "project" && !offlineName;
   const newChatProjectKey = newChatProject?.key ?? projectPath;
   const newChatProjectName = newChatProject?.name ?? projectPath.split("/").findLast(Boolean) ?? projectPath;
-  const projectGroups = useProjectGroups(projectNewChat && !!newChatProject?.onChange, newChatProjectKey, newChatProjectName);
-  const projectCopies = projectGroups.find((group) => group.copies.some((copy) => copy.key === newChatProjectKey))?.copies ?? [];
+  const projectGroups = useProjectGroups(projectNewChat && !!newChatProject?.onChange, newChatProjectKey, newChatProjectName, newChatProject?.kind);
+  const chatsDraft = newChatProject?.kind === "chats";
+  const noProjectGroup = useChatsGroup(projectNewChat && !!newChatProject?.onChange);
+  const projectCopies = chatsDraft
+    ? (noProjectGroup?.copies ?? [])
+    : (projectGroups.find((group) => group.copies.some((copy) => copy.key === newChatProjectKey))?.copies ?? []);
+  const newChatChange = newChatProject?.onChange;
+  // The chip on a Chats home draft moves it to another computer's Chats home.
+  const changeComputer = useMemo(
+    () =>
+      newChatChange && chatsDraft
+        ? (key: string) => newChatChange(key, { exists: noProjectGroup?.copies.find((copy) => copy.key === key)?.exists ?? false })
+        : newChatChange,
+    [newChatChange, chatsDraft, noProjectGroup],
+  );
   const workingModelName = runModelName ?? selectedModel.name;
   // A Link Chat's Worktree being made, or a setup running, is named; the agent's own work shows the mark alone.
   const phase = statusLabel ?? runStatusLabel(streamingSteps);
@@ -1310,6 +1346,12 @@ export function ChatComposer({
   const focusPrompt = useCallback(() => {
     requestAnimationFrame(() => root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus());
   }, []);
+  // The prompt takes the keys at once after a pick, not the heading's button: what is typed while the draft moves to
+  // the picked Project lands in the prompt, and goes along with it (App's moveNewChat).
+  const moveDraft = useEvent((key: string, home?: Pick<ChatsHome, "exists">) => {
+    root.current?.querySelector<HTMLElement>("[data-prompt-editor]")?.focus();
+    newChatChange?.(key, home);
+  });
   useEffect(() => {
     if (highlightId !== null) root.current?.querySelector(`#message-${highlightId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [highlightId]);
@@ -1416,10 +1458,23 @@ export function ChatComposer({
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
-            className="chat-gutter relative z-30 mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6"
+            className={[
+              "chat-gutter relative mx-auto flex w-full max-w-[var(--chat-width)] shrink-0 flex-col items-center px-3 pb-6",
+              headingLayer(headingOpen),
+            ]
+              .filter(Boolean)
+              .join(" ")}
             style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
-            <NewChatHeading projectKey={newChatProjectKey} projectName={newChatProjectName} groups={projectGroups} onProjectChange={newChatProject?.onChange} />
+            <NewChatHeading
+              projectKey={newChatProjectKey}
+              projectName={newChatProjectName}
+              projectKind={newChatProject?.kind}
+              groups={projectGroups}
+              noProject={noProjectGroup}
+              onProjectChange={newChatChange ? moveDraft : undefined}
+              onOpenChange={setHeadingOpen}
+            />
           </div>
         )}
         <TranscriptSlots
@@ -1609,9 +1664,10 @@ export function ChatComposer({
                 linearActive={linearActive}
                 onStartFromIssue={onStartFromIssue}
                 noGit={noGit}
+                chats={chatsDraft}
                 copies={projectCopies}
                 currentKey={newChatProjectKey}
-                onComputerChange={newChatProject?.onChange}
+                onComputerChange={changeComputer}
               />
             )}
             {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
@@ -1655,11 +1711,12 @@ export function ChatComposer({
                 permissionLocked={permissionLocked}
                 alwaysExpanded={isNewChat}
                 contextUsage={contextUsage}
+                placeholder={chatsDraft && isNewChat ? newChatLook("chats").placeholder : undefined}
               />
             </div>
           </div>
           {newChatError && (
-            <p role="alert" className="mt-2 px-1 text-[12px] text-red">
+            <p role="alert" className="mt-2 px-1 text-[12px] text-red-ink">
               {newChatError}
             </p>
           )}

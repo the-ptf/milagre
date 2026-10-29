@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState, Worktree } from "./model.ts";
-import { archiveChoices, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
+import { archiveChoices, archivedNotice, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
 import type { ArchivePlan, WorktreeStatus } from "./archive.mjs";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x", head: "abc", removable: true };
@@ -40,6 +40,77 @@ test("a worktree with unsaved work offers only delete, with what would be lost a
       labels(archiveChoices({ plan: plan({ status }), running: false })).some((label) => /keep/i.test(label)),
       false,
     );
+});
+
+// A project-less Chat works on a worktree at `<worktree root>/chats/<slug>` with its base recorded, as worktree:create
+// makes it in the Chats home (an internal repository). Whether that counts as Milagre's is decided by isMilagreWorktree
+// against the real roots, never assumed, so these tests fail if that layout ever stops being Milagre-made.
+const worktreeRoot = "/tmp/wt";
+const chatsWorktree = { id: 3, project_id: 1, path: `${worktreeRoot}/chats/chat-k95o`, name: "milagre/chat-k95o", base: "main" };
+const chatsPlan = (status: WorktreeStatus) => plan({ milagreOwned: isMilagreWorktree(chatsWorktree, [worktreeRoot]), status });
+
+test("archiveChoices for a clean Chats home worktree offers only remove", () => {
+  assert.equal(chatsPlan(clean).milagreOwned, true);
+  const result = archiveChoices({ plan: chatsPlan(clean), running: false });
+  assert.deepEqual(
+    result.choices.map((choice) => choice.mode),
+    ["remove"],
+  );
+  assert.equal(result.reason, null);
+});
+
+test("archiveChoices for a Chats home worktree with uncommitted files offers only delete, in the danger tone", () => {
+  const files: WorktreeStatus = { uncommitted: 2, unpushed: 0, branch: "milagre/chat-k95o", head: "abc", removable: false };
+  assert.equal(chatsPlan(files).milagreOwned, true);
+  const result = archiveChoices({ plan: chatsPlan(files), running: false });
+  assert.deepEqual(
+    result.choices.map((choice) => [choice.mode, choice.tone]),
+    [["delete", "danger"]],
+  );
+  assert.equal(result.reason, "2 uncommitted files will be lost. Commit them first to keep them.");
+});
+
+test("a clean Chat without a Project archives in one click, labelled Archive", () => {
+  const result = archiveChoices({ plan: chatsPlan(clean), running: false, chatsHome: true });
+  assert.deepEqual(result.choices, [{ mode: "remove", label: "Archive", tone: "plain" }]);
+  assert.equal(result.reason, null);
+  assert.equal(result.immediate, true);
+  assert.deepEqual(labels(archiveChoices({ plan: chatsPlan(clean), running: true, chatsHome: true })), ["Stop and archive"]);
+  // A busy Terminal still gets its line, so the step stays.
+  const busy = archiveChoices({ plan: { ...chatsPlan(clean), terminals: ["npm run dev"] }, running: false, chatsHome: true });
+  assert.equal(busy.immediate, false);
+  assert.equal(busy.reason, "Archiving ends the Terminal running npm run dev.");
+});
+
+test("a Chat without a Project with files offers only Delete chat and its files, with no Git words", () => {
+  const files: WorktreeStatus = { uncommitted: 2, unpushed: 1, branch: "milagre/chat-k95o", head: "abc", removable: false };
+  const result = archiveChoices({ plan: chatsPlan(files), running: false, chatsHome: true });
+  assert.deepEqual(result.choices, [{ mode: "delete", label: "Delete chat and its files", tone: "danger" }]);
+  assert.equal(result.reason, "Its folder has 2 changed files that will be deleted.");
+  assert.equal(result.immediate, false);
+  assert.equal(
+    archiveChoices({ plan: chatsPlan({ ...files, uncommitted: 1 }), running: true, chatsHome: true }).choices[0]?.label,
+    "Stop and delete chat and its files",
+  );
+  assert.equal(
+    archiveChoices({ plan: chatsPlan({ ...files, uncommitted: 1 }), running: false, chatsHome: true }).reason,
+    "Its folder has 1 changed file that will be deleted.",
+  );
+  assert.equal(
+    archiveChoices({ plan: chatsPlan({ ...files, uncommitted: 0 }), running: false, chatsHome: true }).reason,
+    "Its folder has saved work that will be deleted.",
+  );
+  for (const status of [clean, files]) {
+    const { choices, reason } = archiveChoices({ plan: chatsPlan(status), running: false, chatsHome: true });
+    for (const words of [...choices.map((choice) => choice.label), reason ?? ""]) assert.doesNotMatch(words, /worktree|commit|branch|HEAD|push/i);
+  }
+  // Project Chats are never immediate.
+  assert.equal(archiveChoices({ plan: plan(), running: false }).immediate, false);
+});
+
+test("a Chats home worktree is Milagre's only with its base recorded and under a root", () => {
+  assert.equal(isMilagreWorktree({ ...chatsWorktree, base: undefined }, [worktreeRoot]), false);
+  assert.equal(isMilagreWorktree(chatsWorktree, ["/elsewhere"]), false);
 });
 
 test("a check that failed never offers deletion", () => {
@@ -143,4 +214,16 @@ test("archiving names the commands its Terminals would end", () => {
     "2 uncommitted files will be lost. Commit them first to keep them. Archiving ends the Terminal running node.",
   );
   assert.equal(archiveChoices({ plan: plan({ terminals: [] }), running: false }).reason, null);
+});
+
+test("only a Chat without a Project says Chat archived, and only once it is gone", () => {
+  assert.equal(archivedNotice("removed", { chatsHome: true }), "Chat archived");
+  assert.equal(archivedNotice("hidden", { chatsHome: true }), "Chat archived");
+  // Its folder stayed and the Chat came back, with the removal's own notice.
+  assert.equal(archivedNotice("kept", { chatsHome: true }), null);
+  assert.equal(archivedNotice("cancelled", { chatsHome: true }), null);
+  assert.equal(archivedNotice("busy", { chatsHome: true }), null);
+  // Project Chats archive as before, without one.
+  assert.equal(archivedNotice("removed"), null);
+  assert.equal(archivedNotice("hidden", { chatsHome: false }), null);
 });

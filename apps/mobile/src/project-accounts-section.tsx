@@ -4,9 +4,10 @@ import { router } from "expo-router";
 import { ArrowDown01Icon, Tick02Icon, Briefcase01Icon, UserIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import type { ModelProvider, ProjectAccountScope, ProjectAccountsSnapshot } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
+import { CHATS_ACCOUNT_DETAIL } from "@milagre/shared/chats-home";
 import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
-import { ProjectIcon, ProjectIcons } from "./project-icon";
+import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
 import { ListRow, PageScroll, PullDown, useStyles } from "./ui";
 import { useTheme, type Palette } from "./theme";
 
@@ -144,7 +145,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
   if (error)
     return (
       <View style={{ paddingVertical: 8 }}>
-        <Text accessibilityRole="alert" style={[styles.text, { color: colors.red }]}>
+        <Text accessibilityRole="alert" style={[styles.text, { color: colors.redInk }]}>
           {error}
         </Text>
         <ListRow compact title="Retry" onPress={() => setRetry((value) => value + 1)} />
@@ -201,7 +202,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
               <Text style={[styles.text, { fontWeight: "500", fontSize: 15, lineHeight: 20 }]}>{name}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {type ? <Icon icon={typeIcon} tone="ink3" size={13} /> : null}
-                <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontSize: 13, color: missing ? colors.red : colors.ink2 }]}>
+                <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontSize: 13, color: missing ? colors.redInk : colors.ink2 }]}>
                   {missing ? "Unavailable account" : shown?.email || shown?.label || "No computer default"}
                 </Text>
                 {group.accountId === null ? (
@@ -215,7 +216,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
           </View>
         </PullDown>
         {attention ? (
-          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.red, paddingLeft: 32 }]}>
+          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk, paddingLeft: 32 }]}>
             {attention}
           </Text>
         ) : effective?.message ? (
@@ -267,8 +268,11 @@ function ProjectAccountsForComputer() {
     };
   }, [client, retry]);
   const selected = scopes.find((scope) => scope.key === scopeKey);
+  // The Chats home has no repository picture of its own to show: it wears the Chats group's mark.
   const photo = (scope: ProjectAccountScope) =>
-    scope.kind === "link" ? (
+    scope.chatsHome ? (
+      <ChatsHomeIcon />
+    ) : scope.kind === "link" ? (
       <ProjectIcons client={client} projects={scope.projects} />
     ) : (
       <ProjectIcon client={client} path={scope.projects[0]?.path || scope.key} />
@@ -281,7 +285,15 @@ function ProjectAccountsForComputer() {
         <ListRow
           compact
           title={selected?.name || "Choose a Project or Link"}
-          subtitle={selected?.kind === "link" ? "Link · accounts are independent of its Projects" : selected ? "Project" : undefined}
+          subtitle={
+            selected?.kind === "link"
+              ? "Link · accounts are independent of its Projects"
+              : selected?.chatsHome
+                ? CHATS_ACCOUNT_DETAIL
+                : selected
+                  ? "Project"
+                  : undefined
+          }
           leading={selected ? photo(selected) : undefined}
           trailing={<Icon icon={ArrowDown01Icon} tone="ink3" size={18} />}
           onPress={() => setExpanded((value) => !value)}
@@ -313,7 +325,7 @@ function ProjectAccountsForComputer() {
         <View style={dividerFor(colors)}>
           {error ? (
             <View style={{ paddingVertical: 8 }}>
-              <Text accessibilityRole="alert" style={[styles.text, { color: colors.red }]}>
+              <Text accessibilityRole="alert" style={[styles.text, { color: colors.redInk }]}>
                 {error}
               </Text>
               <ListRow compact title="Retry" onPress={() => setRetry((value) => value + 1)} />

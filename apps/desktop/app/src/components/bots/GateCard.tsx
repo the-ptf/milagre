@@ -33,7 +33,7 @@ export function GateCard({
       className={`w-full max-w-xl rounded-[12px] border px-4 py-3 ${open ? "border-orange/30 bg-orange-tint" : "border-line bg-surface"}`}
     >
       <div className="flex items-center gap-1.5 text-[12px]">
-        <span className={`flex items-center gap-1.5 font-medium ${open ? "text-orange" : "text-ink-3"}`}>
+        <span className={`flex items-center gap-1.5 font-medium ${open ? "text-orange-ink" : "text-ink-3"}`}>
           <HugeiconsIcon icon={ShieldAlertIcon} size={14} strokeWidth={1.8} color="currentColor" />
           Needs your sign-off
         </span>
@@ -67,7 +67,7 @@ export function GateCard({
             type="button"
             disabled={answering !== null}
             onClick={() => onAnswer("deny")}
-            className="rounded-[8px] px-3 py-1.5 text-[13px] font-medium text-red transition-colors hover:bg-red-tint disabled:opacity-40"
+            className="rounded-[8px] px-3 py-1.5 text-[13px] font-medium text-red-ink transition-colors hover:bg-red-tint disabled:opacity-40"
           >
             Deny
           </button>

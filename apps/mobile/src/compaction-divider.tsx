@@ -14,7 +14,7 @@ export function CompactionDivider({ context }: { context: CompactionContext }) {
       <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
       <View style={{ flexShrink: 1, flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: 5 }}>
         {context.status === "preparing" ? <SpinnerRing size={12} /> : <Icon icon={ArrowShrink01Icon} tone="ink3" size={13} />}
-        <Text style={{ color: context.status === "failed" ? colors.orange : colors.ink3, fontSize: 12 }}>{label.title}</Text>
+        <Text style={{ color: context.status === "failed" ? colors.orangeInk : colors.ink3, fontSize: 12 }}>{label.title}</Text>
         {label.before && (
           <Text style={{ color: label.after ? colors.ink3 : colors.ink2, fontSize: 11.5, fontFamily: fonts.mono, fontVariant: ["tabular-nums"] }}>
             {label.before}

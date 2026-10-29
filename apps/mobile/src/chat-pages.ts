@@ -15,6 +15,29 @@ const EMPTY: ChatWindow = Object.freeze({ messages: [], hasMore: false, total: 0
 const NONE: ChatWindow = Object.freeze({ messages: [], hasMore: false, total: 0, loading: false }) as ChatWindow;
 const windows = new ChatWindowCache<ChatWindow>({ maxChats: 6, maxBytes: 4 * 1024 * 1024, turns: TURNS });
 const listeners = new Map<string, Set<() => void>>();
+const openings = new Map<string, Promise<unknown>>();
+
+/** A computer that restarted may need its Project reopened before a prefetched page can be read. */
+export function noteChatProjectOpening(client: PageClient, projectPath: string, opened: Promise<unknown>) {
+  const key = `${client.url}|${projectPath}`;
+  openings.set(key, opened);
+  const settled = () => {
+    if (openings.get(key) === opened) openings.delete(key);
+  };
+  void opened.then(settled, settled);
+}
+
+async function readPage(client: PageClient, projectPath: string, chatId: number, turns: number) {
+  // Capture the open before reading: it may finish before a refused page's answer gets back.
+  const opening = openings.get(`${client.url}|${projectPath}`);
+  try {
+    return await client.chatMessages(projectPath, chatId, { turns });
+  } catch (error) {
+    if (!opening || !/Open the Project before reading its messages/.test(error instanceof Error ? error.message : String(error))) throw error;
+    await opening;
+    return client.chatMessages(projectPath, chatId, { turns });
+  }
+}
 
 function set(key: string, next: ChatWindow) {
   windows.set(key, next);
@@ -67,7 +90,7 @@ async function load(key: string, client: PageClient, projectPath: string, chatId
   if (current) set(key, { ...current, loading: true, error: undefined });
   try {
     // The client bounds the read itself (30 s, with retries while the Mac is busy); a shorter cap here would lose its answer.
-    const page = await client.chatMessages(projectPath, chatId, { turns: TURNS });
+    const page = await readPage(client, projectPath, chatId, TURNS);
     set(key, { ...page, loading: false });
   } catch (error) {
     set(key, { ...(windows.get(key) ?? EMPTY), loading: false, error: error instanceof Error ? error.message : String(error) });
@@ -89,7 +112,7 @@ async function refreshTail(key: string, client: PageClient, projectPath: string,
   const current = windows.get(key);
   if (!current || current.loading || current.error) return load(key, client, projectPath, chatId);
   try {
-    const tail = await client.chatMessages(projectPath, chatId, { turns: TAIL });
+    const tail = await readPage(client, projectPath, chatId, TAIL);
     // Earlier messages can arrive while the tail is on its way; merge into the window that holds them now.
     const latest = windows.get(key) ?? current;
     const merged = mergeTail(latest, tail);
@@ -101,6 +124,13 @@ async function refreshTail(key: string, client: PageClient, projectPath: string,
 /** Reads Chat `key`'s window, or its last turns again once it holds one; one read at a time per Chat. */
 export function refreshChatPage(key: string, client: PageClient, projectPath: string, chatId: number) {
   return run(key, () => (windows.has(key) ? refreshTail(key, client, projectPath, chatId) : load(key, client, projectPath, chatId)));
+}
+
+/** Start a cold read during the route handoff; a cached Chat is already ready for its first render. */
+export function prefetchChatPage(client: PageClient, projectPath: string, chatId: number) {
+  const key = `${client.url}|${projectPath}#${chatId}`;
+  if (busy.has(key) || (windows.has(key) && !windows.get(key)?.error)) return;
+  void run(key, () => load(key, client, projectPath, chatId));
 }
 
 /**

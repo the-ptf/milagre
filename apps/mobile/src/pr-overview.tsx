@@ -305,7 +305,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
           <View accessible accessibilityLabel={`${status.title}. ${status.detail}`} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Icon icon={AlertCircleIcon} tone={status.tone === "blocked" ? "red" : "ink3"} size={14} />
             <Text numberOfLines={2} style={{ flex: 1, color: colors.ink2, fontSize: 14 }}>
-              <Text style={{ color: status.tone === "blocked" ? colors.red : colors.ink, fontWeight: "600" }}>{status.title}</Text> · {status.detail}
+              <Text style={{ color: status.tone === "blocked" ? colors.redInk : colors.ink, fontWeight: "600" }}>{status.title}</Text> · {status.detail}
             </Text>
           </View>
         )}
@@ -320,7 +320,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
           >
             <Icon icon={CloudUploadIcon} tone="orange" size={14} />
-            <Text style={{ color: colors.orange, fontSize: 14 }}>{localLine}</Text>
+            <Text style={{ color: colors.orangeInk, fontSize: 14 }}>{localLine}</Text>
             <Icon icon={ArrowRight01Icon} tone="orange" size={12} />
           </Pressable>
         )}
@@ -418,10 +418,10 @@ function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> 
   const tone: Tone = progress.tone === "fail" ? "red" : progress.tone === "pass" ? "green" : "ink2";
   // ponytail: the running part is dim, not pulsing; animate it if it reads as stuck.
   const parts = [
-    { key: "passed", count: progress.passed, color: colors.green, opacity: 1 },
+    { key: "passed", count: progress.passed, color: colors.greenInk, opacity: 1 },
     { key: "skipped", count: progress.skipped, color: colors.lineStrong, opacity: 1 },
-    { key: "failed", count: progress.failed, color: colors.red, opacity: 1 },
-    { key: "running", count: progress.running, color: colors.orange, opacity: 0.4 },
+    { key: "failed", count: progress.failed, color: colors.redInk, opacity: 1 },
+    { key: "running", count: progress.running, color: colors.orangeInk, opacity: 0.4 },
   ].filter((part) => part.count > 0);
   return (
     <View accessible accessibilityLabel={`Checks: ${progress.label}`} style={{ gap: 8, paddingHorizontal: 4 }}>
@@ -581,6 +581,7 @@ function ActionButton({
       accessibilityLabel={title}
       accessibilityState={{ busy, disabled: busy }}
       disabled={busy}
+      hitSlop={4}
       onPress={() => {
         tap();
         onPress();
@@ -592,7 +593,8 @@ function ActionButton({
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        backgroundColor: green ? colors.green : colors.surface,
+        // greenInk, not green: the page-colored label needs 4.5:1 on it in light mode.
+        backgroundColor: green ? colors.greenInk : colors.surface,
         borderWidth: green ? 0 : StyleSheet.hairlineWidth,
         borderColor: colors.lineStrong,
         opacity: pressed ? 0.6 : 1,

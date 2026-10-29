@@ -85,7 +85,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         Connect your local tools to Milagre. Choose which Projects or Designs each app can access when you enable it.
       </p>
       {local.error && (
-        <p role="alert" className="text-[13px] text-red">
+        <p role="alert" className="text-[13px] text-red-ink">
           {local.error}
         </p>
       )}
@@ -101,7 +101,9 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-ink">{client.label}</p>
                 {localMcpClientDetail(client) && (
-                  <p className={`mt-1 break-words text-[12px] leading-relaxed ${client.problem ? "text-red" : "text-ink-2"}`}>{localMcpClientDetail(client)}</p>
+                  <p className={`mt-1 break-words text-[12px] leading-relaxed ${client.problem ? "text-red-ink" : "text-ink-2"}`}>
+                    {localMcpClientDetail(client)}
+                  </p>
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-3">
@@ -199,7 +201,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                   </button>
                 </div>
                 {copyError && (
-                  <p role="alert" className="text-[12px] text-red">
+                  <p role="alert" className="text-[12px] text-red-ink">
                     Could not copy. Try again before closing this configuration.
                   </p>
                 )}

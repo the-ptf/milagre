@@ -259,6 +259,7 @@ function NavButton({ label, icon, disabled, onPress }: { label: string; icon: ty
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
+      hitSlop={2}
       onPress={() => {
         tap();
         onPress();
@@ -396,7 +397,7 @@ function LineComposer({
         placeholderTextColor={colors.ink3}
         style={[styles.input, { minHeight: 72, fontSize: 15, textAlignVertical: "top", borderWidth: 1, borderColor: colors.accent }]}
       />
-      {!!error && <Text style={{ color: colors.red, fontSize: 13 }}>{error}</Text>}
+      {!!error && <Text style={{ color: colors.redInk, fontSize: 13 }}>{error}</Text>}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <SmallButton title="Cancel" tone="ink2" onPress={onCancel} />
         <View style={{ flex: 1 }} />

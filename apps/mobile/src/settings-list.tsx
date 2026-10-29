@@ -70,7 +70,7 @@ export function Row({
       })}
     >
       {leading ?? (icon ? <Icon icon={icon} tone={destructive ? "red" : "ink"} size={22} /> : null)}
-      <Text numberOfLines={1} style={{ flex: 1, color: destructive ? colors.red : colors.ink, fontSize: 17 }}>
+      <Text numberOfLines={1} style={{ flex: 1, color: destructive ? colors.redInk : colors.ink, fontSize: 17 }}>
         {title}
       </Text>
       {trailing ?? (

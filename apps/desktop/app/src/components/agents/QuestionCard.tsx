@@ -200,7 +200,7 @@ export function QuestionCard({
               placeholder={question.options.length ? "Other…" : "Type your answer"}
               aria-label={`Your own answer to: ${question.question}`}
               autoComplete="off"
-              className="w-full rounded-control border border-line bg-field px-2.5 py-2 text-[13px] text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-line-strong"
+              className="w-full rounded-control border border-line bg-field px-2.5 py-2 text-[13px] text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent"
             />
           )}
         </div>
