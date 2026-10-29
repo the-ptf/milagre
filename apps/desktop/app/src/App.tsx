@@ -99,6 +99,7 @@ import { useWorktreeLinearIssues } from "./components/useWorktreeLinearIssues";
 import { issueFirstMessage, LINK_PR_HINT, restoredDraft, type LinearIssue } from "@milagre/shared/linear";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { chatPullRequests, pullRequestRefsCache } from "./lib/chat-pull-requests";
+import { associatedPullRequest } from "@milagre/shared/chats";
 import { usePastedImages } from "./components/usePastedImages";
 import { DotBackground } from "./components/DotBackground";
 import { StartupSplash } from "./components/StartupSplash";
@@ -3668,6 +3669,13 @@ function App() {
                         suggestion={selectedSession?.provider === "claude" ? selectedSession.suggestion?.text : undefined}
                         ports={project && selectedSession ? agentPorts[chatKey(project.path, selectedSession.id)] : undefined}
                         agentChatId={project && selectedSession ? chatKey(project.path, selectedSession.id) : undefined}
+                        onOpenPullRequestLink={(url) => {
+                          const pr = associatedPullRequest(url, selectedPullRequests);
+                          if (!pr || !prChatKey) return false;
+                          setPrPick({ chat: prChatKey, number: pr.number });
+                          changes.showPullRequest();
+                          return true;
+                        }}
                         onOpenDiff={(path) => {
                           if (!changes.open) changes.toggle();
                           changes.openFile(path);

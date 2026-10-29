@@ -26,6 +26,7 @@ import { isLean } from "../lib/state-events";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import type { AgentPorts, LinkState, OpenLink, WorktreeBinding } from "@milagre/shared/model";
 import { chatKeyForScope, scopeKey } from "@milagre/shared/chat-scopes";
+import { associatedPullRequest } from "@milagre/shared/chats";
 import { showNotice } from "../lib/notice";
 import { chatTitle, createPendingChat, withPreview, type PendingChat } from "@milagre/shared/chats";
 import { sendStatusLabel } from "@milagre/shared/tool-activity";
@@ -706,6 +707,16 @@ export function LinkWorkspace({
                         store={draftStore}
                         projectPath={root}
                         messageScope={owner}
+                        onOpenPullRequestLink={(url) => {
+                          const entry = associatedPullRequest(
+                            url,
+                            memberPrs.map((entry) => ({ ...entry, url: entry.pr.url })),
+                          );
+                          if (!entry) return false;
+                          pickPr(entry.member.projectId);
+                          if (!changes.open) changes.toggle();
+                          return true;
+                        }}
                         earlier={earlierMessages}
                         messages={shownMessages}
                         pendingMessageId={pendingHere ? pendingSend.message.id : undefined}

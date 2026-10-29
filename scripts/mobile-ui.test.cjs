@@ -199,6 +199,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       }
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
+      if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
@@ -1696,8 +1697,22 @@ for (const reactCompiler of [false, true])
     }
   });
 
-function markdownHost({ media, basePath, reachable = null, reactCompiler = false, copy = async () => {}, haptic = () => {}, textPx = 15, codeSize = 12 } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
+function markdownHost({
+  media,
+  basePath,
+  reachable = null,
+  openChatLink,
+  reactCompiler = false,
+  copy = async () => {},
+  haptic = () => {},
+  textPx = 15,
+  codeSize = 12,
+} = {}) {
+  const react = {
+    ...hookHost({ effects: true }),
+    memo: (fn) => fn,
+    useContext: (context) => (context === "ReachableHostContext" ? reachable : context === "ChatLinkContext" ? openChatLink : undefined),
+  };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
@@ -1932,6 +1947,32 @@ test("plain URLs in mobile replies render as links and open the exact address", 
       await link.props.onPress();
       assert.deepEqual(screen.links, [url]);
     }
+  }
+});
+
+test("mobile reply links open an associated PR in the Chat and leave unrelated links external", async () => {
+  const { associatedPullRequest } = require("../packages/shared/src/chats.mjs");
+  const prs = [
+    { url: "https://github.com/team/first/pull/12", cwd: "/first" },
+    { url: "https://github.com/team/second/pull/12", cwd: "/second" },
+  ];
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      openChatLink: (url) => {
+        const pr = associatedPullRequest(url, prs);
+        if (pr) opened.push(pr);
+        return !!pr;
+      },
+    });
+    await find(
+      screen.render("[PR](https://github.com/team/second/pull/12/files#diff-123)", streaming),
+      (node) => node.props?.accessibilityRole === "link",
+    ).props.onPress();
+    assert.deepEqual(opened, [prs[1]]);
+    assert.deepEqual(screen.links, []);
+    await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
   }
 });
 
@@ -3107,7 +3148,10 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
   const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
   const member = (projectId) => ({ projectId, projectPath: `/${projectId}`, worktreePath: `/wt/${projectId}`, branch: `milagre/${projectId}`, base: "main" });
   const pr = (number, state) => ({ number, title: `Change ${number}`, url: `https://github.com/o/${number}/pull/${number}`, state, readyToMerge: false });
-  globalThis.branchPullRequests = { "/wt/api": pr(12, "MERGED"), "/wt/web": pr(12, "OPEN") };
+  globalThis.branchPullRequests = {
+    "/wt/api": { ...pr(12, "MERGED"), url: "https://github.com/o/api/pull/12" },
+    "/wt/web": { ...pr(12, "OPEN"), url: "https://github.com/o/web/pull/12" },
+  };
   globalThis.openedPullRequests = [];
   try {
     const chat = chatHost({ effects: true });
@@ -3141,6 +3185,11 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
+    const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
+    assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
+    assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
+    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), false);
+    assert.equal(globalThis.openedPullRequests.length, 2);
   } finally {
     delete globalThis.branchPullRequests;
     delete globalThis.openedPullRequests;
