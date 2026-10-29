@@ -86,20 +86,11 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.calls"), [], "Nothing archives before the check is back");
     assert.equal(await evaluate('!!document.querySelector("[data-archive-choice]")'), false, "A click before the check doesn't arm");
 
-    // Once checked, Archive goes straight to its choice, and Enter confirms it wherever focus is.
+    // Once checked, one click archives without a confirmation or another key press.
     await evaluate("window.releaseCheck()");
     await waitFor(`!document.querySelector('${archiveRow}').disabled`);
     await click(archiveRow);
-    assert.equal(
-      await evaluate('document.querySelector("[data-archive-choice]")?.textContent'),
-      "Archive and remove worktree",
-      "No checking step after the click",
-    );
-    assert.equal(await evaluate('document.body.textContent.includes("Checking worktree")'), false);
-    await shot("armed.png");
-    await evaluate("document.activeElement.blur()");
-    await press("Enter");
-    assert.deepEqual(await evaluate("window.calls"), ["archive:remove"], "Enter confirms the archive");
+    assert.deepEqual(await evaluate("window.calls"), ["archive:remove"]);
     await waitFor('!document.querySelector("[data-chat-menu]")');
 
     assert.ok(await evaluate('document.querySelector("[role=status]")?.textContent.includes("Archiving")'), "Pending archive is visible after the menu closes");
@@ -122,8 +113,7 @@ async function browserChecks() {
     await openMenu();
     await evaluate("window.releaseCheck()");
     await waitFor(`!document.querySelector('${archiveRow}').disabled`);
-    await click(archiveRow);
-    await waitFor('document.querySelector("[data-archive-choice]")');
+    await evaluate(`document.querySelector('${archiveRow}').focus()`);
     await press("Up");
     assert.equal(await evaluate("document.activeElement.textContent"), "Mark as unread");
     await press("Enter");
@@ -135,16 +125,13 @@ async function browserChecks() {
     await delay(5_100);
     await waitFor(`!document.querySelector('${archiveRow}').disabled`);
     await click(archiveRow);
-    assert.equal(await evaluate('document.querySelector("[data-archive-choice]")?.textContent'), "Confirm archive");
-    // A late response cannot change an already displayed confirmation into Worktree deletion.
+    // A late check cannot change an archive that already started into Worktree deletion.
     await evaluate("window.releaseCheck()");
     await delay(50);
-    assert.equal(await evaluate('document.querySelector("[data-archive-choice]")?.textContent'), "Confirm archive");
-    await press("Enter");
     assert.deepEqual(await evaluate("window.calls"), ["archive:hide"]);
     await evaluate("window.finishArchive()");
 
-    console.log("PASS: check runs on open, Archive waits for it with no checking row, Enter confirms wherever focus is, arrowed rows keep Enter");
+    console.log("PASS: check runs on open, Archive waits for it with no checking row, one click archives, arrowed rows keep Enter");
     app.exit(0);
   } catch (error) {
     console.error(error);

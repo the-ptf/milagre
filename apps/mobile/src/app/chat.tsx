@@ -121,7 +121,6 @@ import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
-import { confirmSheet } from "../confirm-store";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
 import { useChatPage } from "../chat-pages";
@@ -1569,11 +1568,14 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
+    else if (id === "done" && chat)
+      void action(() => client.call("chat:patch", [project.path, chat.id, { done: true, unread: false }])).then((ok) => ok && showToast("Moved to Done"));
+    else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
-  // Archive asks first, as desktop does, with what removing the worktree would lose; a running turn is stopped. Once
-  // confirmed the sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
+  // Archive starts immediately, preserves unsaved work, and stops a running turn.
+  // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
   // preserves its scroll and avoids a second screen transition. Completion never moves the phone again.
   async function archive(target: NonNullable<typeof chat>) {
     if (busy || archiveRequest.current) return;
@@ -1608,7 +1610,6 @@ function ChatPane({
       else
         await archiveFromPhone({
           client,
-          alert: confirmSheet,
           projectPath: project.path,
           state: project.state,
           chat: target,

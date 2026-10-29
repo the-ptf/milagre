@@ -1212,6 +1212,7 @@ function App() {
         pending: pending || Boolean(failed),
         pinned: Boolean(session.pinned),
         pinOrder: session.pin_order,
+        ...(session.done_at ? { doneAt: session.done_at } : {}),
         mark: chatMark({
           asking: asking.has(session.id),
           waiting: waiting.has(session.id),
@@ -2552,6 +2553,8 @@ function App() {
       onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }),
       onReload: (id) => void latest.current.reloadChat(Number(id)),
       onPin: (id, order) => latest.current.patchChat(Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order }),
+      onDone: (id) => latest.current.patchChat(Number(id), { done: true, unread: false }),
+      onReopen: (id) => latest.current.patchChat(Number(id), { done: false }),
       ...(remoteProject
         ? { remote: true }
         : {
