@@ -1,4 +1,5 @@
 import { preferenceStorage as localStorage } from "../lib/preference-storage.ts";
+import { shortcutCommand, shortcutLabel, useKeybindings, chatJumpCommand } from "../lib/keybindings";
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
@@ -46,7 +47,7 @@ import Tooltip from "@/components/primitives/Tooltip";
 import { WorkspaceIcon } from "./WorkspaceIcon";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
-import { shortcutModifier, useShortcutHints } from "../lib/shortcut-hints";
+import { useShortcutHints } from "../lib/shortcut-hints";
 import { useEvent } from "../lib/stable";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { projectMenuActions, type ProjectMenuKey } from "@/lib/reveal";
@@ -257,6 +258,19 @@ type ScopeMenuItem = {
   separatorBefore?: boolean;
 };
 
+/** The keys the sidebar's hints show, as this Mac's keybindings have them. */
+function useSidebarKeys() {
+  const { rules } = useKeybindings();
+  return {
+    newChat: shortcutLabel(rules, "chat.new"),
+    sidebar: shortcutLabel(rules, "sidebar.toggle"),
+    search: shortcutLabel(rules, "commandPalette.toggle"),
+    addProject: shortcutLabel(rules, "project.add"),
+    settings: shortcutLabel(rules, "settings.open"),
+    jump: (index: number) => shortcutLabel(rules, chatJumpCommand(index)),
+  };
+}
+
 /** A Project or Link heading in the sidebar: folds its chats. Hovered, the chevron takes the icon's place, as in Paseo; the ⋯ menu and the + sit on the right. */
 function ScopeHeader({
   name,
@@ -282,6 +296,7 @@ function ScopeHeader({
   /** The ⋯ menu's rows; none hides the button. */
   menu: ScopeMenuItem[];
 }) {
+  const keys = useSidebarKeys();
   // Room on the right for what shows there, so the name (and the computer chip) reach the edge: the attention dot, and
   // on hover the ⋯ and + with the dot slid left of them.
   const rightRoom = `${attention ? "pr-6" : "pr-2"} ${
@@ -348,7 +363,7 @@ function ScopeHeader({
       )}
       <div className="absolute right-1 flex items-center gap-0.5">
         {menu.length > 0 && <ScopeMenuButton name={name} items={menu} />}
-        <Tooltip label="New chat" shortcut={current ? "⌘N" : undefined} align="end">
+        <Tooltip label="New chat" shortcut={current ? keys.newChat : undefined} align="end">
           <button
             type="button"
             data-scope-action
@@ -627,6 +642,7 @@ export default memo(function SidebarNav({
   onNewChatInScope,
   onAskChat,
 }: SidebarNavProps) {
+  const keys = useSidebarKeys();
   const { chatOrder, chatRowShow, chatList } = useSettings();
   // Other computers (Settings › Devices): their Projects join the list, and every row says its computer.
   const { thisMac, computers } = useComputers();
@@ -1134,12 +1150,11 @@ export default memo(function SidebarNav({
     return () => query.removeEventListener("change", follow);
   }, []);
 
-  // ⌘B / Ctrl+B toggles the sidebar exactly like its collapse button.
+  // Its key (⌘B by default) toggles the sidebar exactly like its collapse button.
   useEffect(() => {
     function handleToggle(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "b") return;
+      if (shortcutCommand(event) !== "sidebar.toggle") return;
       event.preventDefault();
       toggle();
     }
@@ -1188,7 +1203,7 @@ export default memo(function SidebarNav({
       {groups.length > 0 && (
         <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
           <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
-          <Tooltip label="New chat" shortcut="⌘N" align="end">
+          <Tooltip label="New chat" shortcut={keys.newChat} align="end">
             <button
               type="button"
               aria-label="New chat"
@@ -1342,7 +1357,7 @@ export default memo(function SidebarNav({
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
-          <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut="⌘B" side="bottom">
+          <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} shortcut={keys.sidebar} side="bottom">
             <button
               type="button"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -1400,7 +1415,7 @@ export default memo(function SidebarNav({
               </Tooltip>
             )}
             {onOpenCommands && (
-              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={`${shortcutModifier}K`}>
+              <Tooltip label="Search commands, chats, and projects" side="bottom" shortcut={keys.search}>
                 <button
                   type="button"
                   aria-label="Command palette"
@@ -1564,7 +1579,7 @@ export default memo(function SidebarNav({
                       header={
                         <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
                           <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
-                          <Tooltip label="New chat" shortcut="⌘N" align="end">
+                          <Tooltip label="New chat" shortcut={keys.newChat} align="end">
                             <button
                               type="button"
                               aria-label="New chat"
@@ -1609,7 +1624,7 @@ export default memo(function SidebarNav({
             className={`flex border-t border-line py-1.5 ${usage ? "mt-1.5" : "mt-3"} ${collapsed ? "mx-auto w-8 flex-col-reverse items-center gap-1" : "mx-2 w-[calc(100%-16px)] items-center justify-between"}`}
           >
             <div className={collapsed ? "flex flex-col-reverse items-center gap-1" : "flex items-center gap-1"}>
-              <Tooltip label="Add project" shortcut="⌘O">
+              <Tooltip label="Add project" shortcut={keys.addProject}>
                 <button
                   type="button"
                   aria-label="Add project"
@@ -1640,7 +1655,7 @@ export default memo(function SidebarNav({
                 />
               )}
             </div>
-            <Tooltip label="Settings" shortcut="⌘," align={collapsed ? "start" : "end"}>
+            <Tooltip label="Settings" shortcut={keys.settings} align={collapsed ? "start" : "end"}>
               <button
                 type="button"
                 data-update-settings=""
@@ -1829,6 +1844,7 @@ const NO_BADGE: ScopeBadge = { projectImage: null, projectInitial: "" };
  * under one repository's heading, the rows look like a Project's and name their computer instead.
  */
 function FlatChatList({ chats, scopes, inbox = true }: { chats: FlatChat[]; scopes: Map<string, FlatScope>; inbox?: boolean }) {
+  const keys = useSidebarKeys();
   const listRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1880,7 +1896,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: FlatChat[]; scop
               active={list.isActive(row)}
               collapsed={false}
               actions={actionsOf(scopeKey, scope)}
-              shortcutHint={position >= 0 && position < 9 ? `${shortcutModifier}${position + 1}` : undefined}
+              shortcutHint={position >= 0 && position < 9 ? keys.jump(position) : undefined}
               onPick={list.onPick}
               onHover={list.onHover}
               computer={list.computer}
@@ -1955,6 +1971,7 @@ function ChatList({
   projectInitial?: string;
   linkProjects?: number;
 }) {
+  const keys = useSidebarKeys();
   const listRef = useRef<HTMLDivElement>(null);
   const pinRef = useRef<HTMLDivElement>(null);
   const containers = () => [listRef.current, pinRef.current].filter((node): node is HTMLDivElement => !!node);
@@ -2327,7 +2344,7 @@ function ChatList({
       active={isActive(item)}
       collapsed={collapsed}
       actions={rowActions}
-      shortcutHint={showHints && hintOffset + index < 9 ? `${shortcutModifier}${hintOffset + index + 1}` : undefined}
+      shortcutHint={showHints && hintOffset + index < 9 ? keys.jump(hintOffset + index) : undefined}
       onPick={onPick}
       onHover={onHover}
       // The all-Projects sidebar names the computer in the Project's header; only its pinned rows, away from it, say it.

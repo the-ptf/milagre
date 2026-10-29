@@ -1,10 +1,13 @@
+import type { KeybindingCommandId } from "@milagre/shared/keybindings";
+
 export type Command = {
   id: string;
   label: string;
   group: string;
   detail?: string;
   keywords?: string;
-  shortcut?: string;
+  /** The keybinding command whose key the row shows and runs it with. */
+  keybinding?: KeybindingCommandId;
   /** The matched text inside `label`, bolded in the palette. */
   highlight?: [start: number, end: number];
   icon: "chat" | "add" | "folder" | "settings" | "git" | "editor" | "copy" | "unread" | "search" | "message" | "reload" | "routines" | "newChat" | "triage";

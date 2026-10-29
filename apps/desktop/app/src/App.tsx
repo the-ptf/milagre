@@ -73,7 +73,7 @@ import { isMilagreWorktree, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
-import { isMac } from "./lib/shortcut-hints";
+import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
 import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
 import { AttentionButton, ChangesToggle, DiffBar, LayoutToggle } from "./components/changes/ChangesChrome";
@@ -979,6 +979,8 @@ function App() {
   // Every Project's state the window holds: the sidebar's reads of the ones not open, kept live, then this window's own on top.
   // The grid tiles its active Chats from them, and the Routines dot reads hidden Run Chats from them.
   const gridOn = layout === "grid" && view === "chat";
+  // What a keybinding's `when` can ask about the window.
+  setKeyContext({ chatView: view === "chat", linkOpen: Boolean(selectedLink), gridShown: gridOn });
   const gridStates = useMemo(() => ({ ...scopeStates, ...states }), [scopeStates, states]);
   // The Routines with a hidden Run Chat nobody opened yet: the sidebar's Routines button and their rows show a dot.
   // Settings › Routines can turn these nudges off on this Mac: no dots, so no Mark as read either.
@@ -2319,40 +2321,51 @@ function App() {
     openChat(sessionId);
   }
 
-  // The main process sends on the app's ⌘⇧ shortcuts and ⌘, pressed in any frame, including an embedded one (a design,
-  // an HTML reply, the simulator) the window's listeners never see; replayed here, every handler takes them as if pressed
-  // in the window.
+  // The main process sends on the app's frame-wide keys (Settings, the theme, the canvas, the grid, the side panels) pressed
+  // in any frame, including an embedded one (a design, an HTML reply, the simulator) the window's listeners never see;
+  // replayed here, every handler takes them as if pressed in the window.
   useEffect(
     () =>
-      window.milagre.onAppShortcut?.(({ key, shift }) =>
-        window.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: isMac, ctrlKey: !isMac, shiftKey: shift, bubbles: true, cancelable: true })),
+      window.milagre.onAppShortcut?.(({ key, code, meta, control, alt, shift }) =>
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            code: code ?? "",
+            metaKey: meta,
+            ctrlKey: control,
+            altKey: alt,
+            shiftKey: shift,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
       ),
     [],
   );
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing || isModalOpen()) return;
-      if (!(event.metaKey || event.ctrlKey)) return;
-      // A Link's workspace takes its own Chat shortcuts (⌘⇧D, ⌘N, ⌘K, ⌘T, ⌘F) and has its own canvas and grid; the
-      // window-wide ones, Settings and the theme, still work over it.
+      const command = shortcutCommand(event);
+      if (!command) return;
+      // A Link's workspace takes its own Chat shortcuts (Changes, New Chat, search, New Terminal, Find) and has its own
+      // canvas and grid; the window-wide ones, Settings and the theme, still work over it.
       const inLink = Boolean(selectedLinkRef.current);
-      if (event.key === "," && !event.shiftKey && !event.altKey) {
+      if (command === "settings.open") {
         event.preventDefault();
         setView("settings");
         return;
       }
-      if (event.shiftKey && !event.altKey && event.key.toLowerCase() === "t") {
+      if (command === "theme.toggle") {
         event.preventDefault();
         toggleTheme();
         return;
       }
       if (inLink) return;
-      // ⌘⌥← and ⌘⌥→ move focus to the grid's previous and next tile.
-      if (event.altKey) {
+      if (command === "grid.focusPrevious" || command === "grid.focusNext") {
         const tiles = shownTilesRef.current;
-        const step = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
-        if (!step || tiles.length < 2 || event.shiftKey) return;
+        if (tiles.length < 2) return;
         event.preventDefault();
+        const step = command === "grid.focusPrevious" ? -1 : 1;
         const at = tiles.indexOf(gridFocusKeyRef.current ?? "");
         // A new Chat's draft tile is left, never landed on: it has no Chat to open.
         const others = tiles.filter((key, index) => index === at || !isDraftTileKey(key));
@@ -2361,40 +2374,37 @@ function App() {
         if (next && next !== gridFocusKeyRef.current) openLinkedChat(next);
         return;
       }
-      if (event.shiftKey) {
-        if (event.key.toLowerCase() === "d" && changesAvailableRef.current) {
-          event.preventDefault();
-          changes.toggleDefault();
-        } else if (event.key.toLowerCase() === "l") {
-          event.preventDefault();
+      if (command === "changes.toggle") {
+        if (!changesAvailableRef.current) return;
+        event.preventDefault();
+        changes.toggleDefault();
+      } else if (command === "canvas.open") {
+        event.preventDefault();
+        changes.closeDiff();
+        setView("canvas");
+      } else if (command === "grid.toggle") {
+        event.preventDefault();
+        // Away from the Chat view the grid has nothing to toggle: the shortcut shows it there instead.
+        if (viewRef.current === "chat") toggleLayout();
+        else {
           changes.closeDiff();
-          setView("canvas");
-        } else if (event.key.toLowerCase() === "m") {
-          event.preventDefault();
-          // Away from the Chat view the grid has nothing to toggle: the shortcut shows it there instead.
-          if (viewRef.current === "chat") toggleLayout();
-          else {
-            changes.closeDiff();
-            setView("chat");
-            showGrid();
-          }
+          setView("chat");
+          showGrid();
         }
-        return;
-      }
-      if (event.key.toLowerCase() === "f") {
+      } else if (command === "chat.find") {
         if (!findRef.current.canOpen) return;
         event.preventDefault();
         openFind();
-      } else if (event.key.toLowerCase() === "k") {
+      } else if (command === "commandPalette.toggle") {
         event.preventDefault();
         setCommandPaletteOpen(true);
-      } else if (event.key.toLowerCase() === "n") {
+      } else if (command === "chat.new") {
         event.preventDefault();
         startNewChatOnThisMac();
-      } else if (event.key.toLowerCase() === "o") {
+      } else if (command === "project.add") {
         event.preventDefault();
         void openProject();
-      } else if (event.key.toLowerCase() === "t" && terminalChatRef.current) {
+      } else if (command === "terminal.new" && terminalChatRef.current) {
         event.preventDefault();
         newTerminal(terminalChatRef.current, undefined, setNotice);
       }
@@ -2456,10 +2466,11 @@ function App() {
   useEffect(() => {
     function jumpToChat(event: KeyboardEvent) {
       if (selectedLinkRef.current) return;
-      if (view !== "chat" || event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
-      if (!(event.metaKey || event.ctrlKey) || !/^[1-9]$/.test(event.key)) return;
+      if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
+      const index = chatJumpIndex(shortcutCommand(event));
+      if (index === null) return;
       if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
-      const chat = chats[Number(event.key) - 1];
+      const chat = chats[index];
       if (!chat) return;
       event.preventDefault();
       openChat(Number(chat.id));
@@ -2983,14 +2994,13 @@ function App() {
 
   // Only the open palette reads the list, so it is built then and not on every render.
   function buildCommands(current: OpenProject): Command[] {
-    const modifier = /Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
     const commands: Command[] = [
       {
         id: "new-chat",
         label: "New chat",
         group: "Actions",
         icon: "add",
-        shortcut: `${modifier}N`,
+        keybinding: "chat.new" as const,
         keywords: "create agent session",
         run: () => startNewChatOnThisMac(),
       },
@@ -3001,7 +3011,7 @@ function App() {
               label: "New Terminal",
               group: "Actions",
               icon: "add" as const,
-              shortcut: `${modifier}T`,
+              keybinding: "terminal.new" as const,
               keywords: "shell console command line",
               run: () => newTerminal(terminalChatId, undefined, setNotice),
             },
@@ -3012,7 +3022,7 @@ function App() {
         label: "Add project…",
         group: "Actions",
         icon: "folder",
-        shortcut: `${modifier}O`,
+        keybinding: "project.add" as const,
         keywords: "add repository workspace folder",
         run: () => openProject(),
       },
@@ -3021,7 +3031,7 @@ function App() {
         label: "Projects and Links",
         group: "Actions",
         icon: "git",
-        shortcut: `${modifier}⇧L`,
+        keybinding: "canvas.open" as const,
         keywords: "canvas linked worktrees",
         run: openCanvas,
       },
@@ -3046,7 +3056,7 @@ function App() {
         label: "Settings",
         group: "Actions",
         icon: "settings",
-        shortcut: `${modifier},`,
+        keybinding: "settings.open" as const,
         keywords: "preferences model permissions",
         run: () => {
           setSettingsSection("general");
@@ -3069,7 +3079,7 @@ function App() {
         label: "Toggle theme",
         group: "Actions",
         icon: "settings",
-        shortcut: modifier === "⌘" ? "⌘⇧T" : "Ctrl+Shift+T",
+        keybinding: "theme.toggle" as const,
         keywords: "appearance switch color mode",
         run: toggleTheme,
       },
@@ -3090,7 +3100,7 @@ function App() {
       label: layout === "grid" ? "Show one Chat" : "Show active Chats as a grid",
       group: "Actions",
       icon: "chat",
-      shortcut: `${modifier}⇧M`,
+      keybinding: "grid.toggle" as const,
       keywords: "grid layout split multiple chats tiles",
       run: () => {
         setView("chat");
@@ -3136,7 +3146,7 @@ function App() {
                 label: "Find in chat",
                 group: "Current chat",
                 icon: "search" as const,
-                shortcut: `${modifier}F`,
+                keybinding: "chat.find" as const,
                 keywords: "search text messages",
                 run: openFind,
               },
