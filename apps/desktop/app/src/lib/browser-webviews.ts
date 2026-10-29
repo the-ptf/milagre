@@ -33,7 +33,8 @@ type Page = {
 
 const pages = new Map<string, Page>();
 let layer: HTMLDivElement | null = null;
-let shown: { tabId: string; slot: HTMLElement } | null = null;
+/** The page on screen, the slot it is laid over, and the bottom corners' radius of the panel's card it rounds to. */
+let shown: { tabId: string; slot: HTMLElement; radius: number } | null = null;
 
 function ensureLayer() {
   if (layer?.isConnected) return layer;
@@ -184,11 +185,11 @@ function place() {
   if (style.left !== next.left || style.top !== next.top || style.width !== next.width || style.height !== next.height) Object.assign(style, next);
   style.opacity = "1";
   style.pointerEvents = "auto";
-  // The page is outside the panel's card, so the card's clip misses it: sliding open or closed, it is cut at the dock's
-  // edges, or it would draw over the changes panel beside it.
+  // The page is outside the panel's card, so the card's clip misses it: it is cut at the dock's edges (sliding open or
+  // closed it would draw over the changes panel beside it) and takes the card's bottom corners.
   const dock = shown.slot.closest("[data-slot=browser-dock]")?.getBoundingClientRect();
   const cut = dock ? [Math.max(0, rect.right - dock.right), Math.max(0, dock.left - rect.left)] : [0, 0];
-  const clip = cut[0] || cut[1] ? `inset(0 ${cut[0]}px 0 ${cut[1]}px)` : "";
+  const clip = `inset(0 ${cut[0]}px 0 ${cut[1]}px round 0 0 ${shown.radius}px ${shown.radius}px)`;
   if (style.clipPath !== clip) style.clipPath = clip;
 }
 
@@ -216,7 +217,9 @@ export function showBrowserPage(chatKey: string, tabId: string, slot: HTMLElemen
   if (!page) return () => {};
   page.shownAt = performance.now();
   for (const old of [...pages.values()].toSorted((a, b) => b.shownAt - a.shownAt).slice(LIVE_PAGES)) if (old !== page) destroyPage(old);
-  shown = { tabId, slot };
+  // The slot is the card's last child, so its bottom corners are the card's.
+  const radius = slot.parentElement ? parseFloat(getComputedStyle(slot.parentElement).borderBottomRightRadius) || 0 : 0;
+  shown = { tabId, slot, radius };
   place();
   settle();
   const resize = new ResizeObserver(settle);
