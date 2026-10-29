@@ -31,7 +31,8 @@ export type SendPageComments = (text: string, images: ImageAttachment[]) => Prom
 /** The toolbar's comment toggle and, while comments wait, their Send button (design browser-comment-a). */
 export function CommentControls({ chatKey, live, onSend }: { chatKey: string; live: boolean; onSend?: SendPageComments }) {
   const { commenting, pending } = usePageComments(chatKey);
-  const api = useBridge()?.pageComments;
+  const bridge = useBridge();
+  const api = typeof bridge?.pageComments?.add === "function" ? bridge.pageComments : undefined;
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState(false);
   const send = async () => {
@@ -106,7 +107,8 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
 export function useSentPageComments(chatKey: string) {
   // Read once: a bridge that hands out a new object per read would restart the effect every render.
   const bridge = useBridge();
-  const [api] = useState(() => bridge?.pageComments);
+  // A host from before page comments (or a window without them) has no list: the pins then show only what is pending.
+  const [api] = useState(() => (typeof bridge?.pageComments?.list === "function" ? bridge.pageComments : undefined));
   useEffect(() => {
     if (!api) return;
     let soon: ReturnType<typeof setTimeout> | undefined;
