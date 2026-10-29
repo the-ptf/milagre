@@ -33,9 +33,17 @@ function setup() {
   return { host, session, opened };
 }
 
-function attach(host, params) {
+function attach(host, params, preferences = {}) {
   let prevented = false;
-  const webPreferences = { preload: "/evil/preload.js", nodeIntegration: true, contextIsolation: false, sandbox: false, webSecurity: false, webviewTag: true };
+  const webPreferences = {
+    ...preferences,
+    preload: "/evil/preload.js",
+    nodeIntegration: true,
+    contextIsolation: false,
+    sandbox: false,
+    webSecurity: false,
+    webviewTag: true,
+  };
   host.emit("will-attach-webview", { preventDefault: () => (prevented = true) }, webPreferences, {
     partition: BROWSER_PARTITION,
     src: "http://localhost:5173/",
@@ -71,6 +79,8 @@ test("a webview attaches only in the browser session, on a web page, without a p
   assert.equal(attach(host, { partition: "persist:other" }).prevented, true);
   assert.equal(attach(host, { partition: "" }).prevented, true);
   assert.equal(attach(host, { src: "file:///etc/passwd" }).prevented, true);
+  // A webpreferences attribute naming another session is overruled.
+  assert.equal(attach(host, {}, { partition: "persist:other" }).webPreferences.partition, BROWSER_PARTITION);
 });
 
 test("a page may not ask for devices, location or notifications", () => {

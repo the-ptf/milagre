@@ -910,3 +910,13 @@ test("chats commands are denied in the demo", async () => {
   await assert.rejects(confine.checkCall("chats:ensure", []), { status: 403, message: REFUSED });
   assert.ok(METHODS.has("chats:home") && METHODS.has("chats:ensure"));
 });
+
+test("a confined phone reads page comments of its own Chats but never sends one, which reads a desktop page", async (t) => {
+  const f = await fixture(t);
+  const chatId = `${f.demo}#1`;
+  assert.deepEqual(await f.rpc("browser-comments:send-from-page", [{ chatId, page: "panel-x:y", x: 0.5, y: 0.5, text: "Too big" }]), {
+    status: 403,
+    body: refusedBody,
+  });
+  assert.equal((await f.rpc("browser-comments:list", [{ chatId: `${f.outside}#1` }])).status, 403);
+});

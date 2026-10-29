@@ -128,6 +128,24 @@ function createBrowsers(options = {}) {
     cache = null,
     discovering = null;
 
+  /** Ends an agent's DevTools session, also one still connecting. */
+  function dropSession(key, entry) {
+    devtoolsSessions.delete(key);
+    if (entry.session) entry.session.close();
+    else
+      entry.ready.then(
+        (session) => session.close(),
+        () => {},
+      );
+  }
+
+  /** Ends the agents' sessions on Browser panel pages no desktop shows any more; returns the pages still shown. */
+  function dropGonePanelSessions() {
+    const live = new Set(panelBrowsers().flatMap((browser) => browser.pages.map((page) => `${browser.id}:${page.id}`)));
+    for (const [key, entry] of devtoolsSessions) if (entry.target.id.startsWith("panel-") && !live.has(entry.target.id)) dropSession(key, entry);
+    return live;
+  }
+
   function serial(fn, allowClosed = false) {
     if (closed && !allowClosed) return Promise.reject(new Error("Browser service is closed."));
     if (pending >= 128 && !allowClosed) return Promise.reject(new Error("Browser is busy. Retry after pending commands finish."));
@@ -526,22 +544,29 @@ function createBrowsers(options = {}) {
             ? "That page is not in this Chat. List the pages with browser_list."
             : "This Chat has no browser page. Open one with browser_open, or ask the user to open the Browser panel.",
         );
-      // Sessions on pages that left this Chat, or whose page closed, go.
+      // Sessions whose page closed go, and this Chat's on pages that left it.
       for (const [key, entry] of devtoolsSessions)
-        if (entry.chatId === chatId && (entry.session.closed || !targets.some((item) => item.id === entry.target.id))) {
-          entry.session.close();
-          devtoolsSessions.delete(key);
-        }
+        if (entry.session?.closed || (entry.chatId === chatId && !targets.some((item) => item.id === entry.target.id))) dropSession(key, entry);
       const key = `${chatId}\0${target.id}`;
-      const known = devtoolsSessions.get(key);
-      if (known) return { target, session: known.session, state: known.state };
-      const match = TARGET.exec(target.id);
-      const browser = match && allBrowsers(world).find((item) => item.id === match[1]);
-      if (!browser || typeof adapter.session !== "function") throw new Error("This page can't be driven from here.");
-      const session = await adapter.session(browser, match[2]);
-      const entry = { chatId, target, session, state: {} };
-      devtoolsSessions.set(key, entry);
-      return { target, session, state: entry.state };
+      let entry = devtoolsSessions.get(key);
+      if (!entry) {
+        const match = TARGET.exec(target.id);
+        const browser = match && allBrowsers(world).find((item) => item.id === match[1]);
+        if (!browser || typeof adapter.session !== "function") throw new Error("This page can't be driven from here.");
+        // Kept while it connects, so two tools at once share one session (and one set of refs) instead of each opening
+        // their own.
+        const made = { chatId, target, session: null, state: {}, ready: adapter.session(browser, match[2]) };
+        entry = made;
+        devtoolsSessions.set(key, made);
+        made.ready.then(
+          (session) => {
+            made.session = session;
+            if (devtoolsSessions.get(key) !== made) session.close();
+          },
+          () => devtoolsSessions.get(key) === made && devtoolsSessions.delete(key),
+        );
+      }
+      return { target, session: await entry.ready, state: entry.state };
     },
     async setPanelPages(request, owner) {
       if (typeof owner !== "string" || !owner || owner.length > 1024) throw new Error("A trusted desktop connection is required.");
@@ -562,7 +587,7 @@ function createBrowsers(options = {}) {
           }),
         });
       }
-      const live = new Set(panelBrowsers().flatMap((browser) => browser.pages.map((page) => `${browser.id}:${page.id}`)));
+      const live = dropGonePanelSessions();
       return serial(async () => {
         // A copy: removing a viewer awaits channel cleanup.
         for (const v of Array.from(viewers.values())) if (v.capture.key.startsWith("panel-") && !live.has(v.capture.key)) await remove(v);
@@ -571,6 +596,7 @@ function createBrowsers(options = {}) {
     },
     disconnect(owner) {
       panels.delete(owner);
+      dropGonePanelSessions();
       const state = owners.get(owner);
       if (state) {
         state.dead = true;
@@ -587,8 +613,7 @@ function createBrowsers(options = {}) {
       clearInterval(lineageTimer);
       for (const state of owners.values()) state.dead = true;
       for (const capture of captures.values()) releaseHeld(capture);
-      for (const entry of devtoolsSessions.values()) entry.session.close();
-      devtoolsSessions.clear();
+      for (const [key, entry] of devtoolsSessions) dropSession(key, entry);
       const stopping = Promise.resolve(adapter.stop());
       return serial(async () => {
         for (const v of viewers.values()) await remove(v);

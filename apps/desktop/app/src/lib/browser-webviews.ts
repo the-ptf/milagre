@@ -1,7 +1,7 @@
 import type { WebviewTag } from "electron";
 import { PAGE_PICK_CANCEL, pagePickScript, pagePinsHidden, pagePinsScript, type PagePin } from "@milagre/shared/page-picker";
 import type { PageElement } from "@milagre/shared/page-comments";
-import { chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavigation, type ChatBrowser } from "./browser-panel.ts";
+import { changedThisLaunch, chatBrowser, closeBrowserTab, openBrowserTab, patchBrowserTab, takeNavigation, type ChatBrowser } from "./browser-panel.ts";
 
 /**
  * The Browser panels' pages: one <webview> per tab, made once and never moved. A webview moved in the document, or
@@ -67,6 +67,8 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
     const before = page.contentsId;
     page.contentsId = safe(() => webview.getWebContentsId(), null);
     if (page.contentsId !== before) reportPages();
+    const typed = takeNavigation(tabId);
+    if (typed) void call(page, (webview) => webview.loadURL(typed));
     // A new document starts without pins.
     pinned.delete(page);
     applyPins(page);
@@ -104,6 +106,19 @@ function loadError(code: number, description: string, url: string) {
 
 const hostOf = (url: string) => safe(() => new URL(url).host, url);
 
+/**
+ * Runs a webview method that needs the page attached and ready. A page taken out of the document (its tab closed while
+ * a pick was waiting) throws at once instead of rejecting, which in an effect's cleanup would take the window down.
+ */
+async function call<T>(page: Page, run: (webview: WebviewTag) => Promise<T>): Promise<T | undefined> {
+  try {
+    if (!page.webview.isConnected || !page.contentsId) return undefined;
+    return await run(page.webview);
+  } catch {
+    return undefined;
+  }
+}
+
 function safe<T>(read: () => T, fallback: T): T {
   try {
     return read();
@@ -134,10 +149,13 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
     for (const tab of chat.tabs) {
       wanted.add(tab.id);
       const page = pages.get(tab.id);
-      const url = page && takeNavigation(tab.id);
-      if (page && url) void page.webview.loadURL(url).catch(() => {});
-      // A tab gets its page the first time it shows; a remembered tab of another Chat stays a URL until then.
-      else if (!page && chat.open && chat.active === tab.id && tab.url !== "about:blank" && !tab.error) createPage(chatKey, tab.id, tab.url);
+      // Before its first load a page can't navigate; it takes the address when it is ready.
+      const url = page?.contentsId ? takeNavigation(tab.id) : undefined;
+      if (page && url) void call(page, (webview) => webview.loadURL(url));
+      // A tab gets its page the first time it shows, or when something opens it now (the agent's browser_open, a link)
+      // in a Chat that isn't on screen; a tab remembered from the last launch stays a URL until its panel shows.
+      else if (!page && chat.open && chat.active === tab.id && tab.url !== "about:blank" && !tab.error && changedThisLaunch(chatKey))
+        createPage(chatKey, tab.id, tab.url);
     }
   for (const page of pages.values()) if (!wanted.has(page.tabId)) destroyPage(page);
 }
@@ -232,7 +250,7 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
   const offKey = bridge.onKey(({ from, key }) => {
     const page = pageOfContents(from);
     if (!page) return;
-    if (key === "r") page.webview.reload();
+    if (key === "r") safe(() => page.webview.reload(), undefined);
     else if (key === "w") closeBrowserTab(page.chatKey, page.tabId);
     else onKey(page.chatKey, page.tabId, key);
   });
@@ -265,7 +283,7 @@ function applyPins(page: Page) {
   if (!page.pins.length && !pinned.has(page)) return;
   if (page.pins.length) pinned.add(page);
   else pinned.delete(page);
-  void page.webview.executeJavaScript(pagePinsScript(page.pins, { accent: accent(), green: green() })).catch(() => {});
+  void call(page, (webview) => webview.executeJavaScript(pagePinsScript(page.pins, { accent: accent(), green: green() })));
 }
 
 /** Shows `pins` on a tab's page now and after every load. */
@@ -284,18 +302,13 @@ export async function pickOnPage(tabId: string): Promise<PageElement | null | un
   const page = pages.get(tabId);
   if (!page) return null;
   page.webview.focus();
-  try {
-    return (await page.webview.executeJavaScript(pagePickScript(accent()), true)) as PageElement | null | undefined;
-  } catch {
-    return null;
-  }
+  const picked = await call(page, (webview) => webview.executeJavaScript(pagePickScript(accent()), true).then((value) => ({ value })));
+  return picked ? (picked.value as PageElement | null | undefined) : null;
 }
 
 export function cancelPagePick(tabId: string) {
-  void pages
-    .get(tabId)
-    ?.webview.executeJavaScript(PAGE_PICK_CANCEL)
-    .catch(() => {});
+  const page = pages.get(tabId);
+  if (page) void call(page, (webview) => webview.executeJavaScript(PAGE_PICK_CANCEL));
 }
 
 /** A PNG of an element's box on a tab's page (with a margin, without the pins), or null. */
@@ -304,14 +317,15 @@ export async function capturePageElement(tabId: string, box: PageElement["box"])
   const capture = window.milagreBrowserPanel?.capture;
   if (!page?.contentsId || !capture) return null;
   const margin = 12;
+  const contentsId = page.contentsId;
   try {
-    await page.webview.executeJavaScript(pagePinsHidden(true));
+    await call(page, (webview) => webview.executeJavaScript(pagePinsHidden(true)));
     // A frame for the page to paint without them.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return await capture(page.contentsId, { x: box.x - margin, y: box.y - margin, width: box.width + margin * 2, height: box.height + margin * 2 });
+    return await capture(contentsId, { x: box.x - margin, y: box.y - margin, width: box.width + margin * 2, height: box.height + margin * 2 });
   } catch {
     return null;
   } finally {
-    void page.webview.executeJavaScript(pagePinsHidden(false)).catch(() => {});
+    void call(page, (webview) => webview.executeJavaScript(pagePinsHidden(false)));
   }
 }

@@ -255,19 +255,26 @@ function createRuntime(options) {
     const { element, shot } = await commentAtPoint(page, point[0], point[1]);
     const id = pageCommentId();
     const comment = { id, url: target.url, title: target.title, element, text };
-    const settings = chats.turnSettings(chatId) ?? {};
-    await chats.send({
-      ...settings,
-      provider: session.provider ?? settings.provider ?? "claude",
-      model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(await scopeStates.get(scope), sessionId) || settings.model,
-      permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
-      projectPath: scope,
-      sessionId,
-      body: pageCommentsMessage([comment], { screenshots: !!shot }),
-      images: shot ? [{ id: `page-comment-${id}`, name: `page-comment-${id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
-      files: [],
-    });
+    // Recorded first: a comment the store refuses is never sent, and the agent can resolve every one it reads.
     await pageComments.add({ chatId, comments: [comment] });
+    const settings = chats.turnSettings(chatId) ?? {};
+    // The phone user's own message, so a bot's Chat or a Run Chat treats it like one typed in the composer.
+    try {
+      await sendAsUser({
+        ...settings,
+        provider: session.provider ?? settings.provider ?? "claude",
+        model: chats.runs[chatId]?.model || require("@milagre/shared/agent-runs").lastUserModel(await scopeStates.get(scope), sessionId) || settings.model,
+        permissionMode: agents.permissionMode(chatId, settings.permissionMode ?? session.permissionMode ?? "ask"),
+        projectPath: scope,
+        sessionId,
+        body: pageCommentsMessage([comment], { screenshots: !!shot }),
+        images: shot ? [{ id: `page-comment-${id}`, name: `page-comment-${id}.png`, dataUrl: `data:image/png;base64,${shot}` }] : [],
+        files: [],
+      });
+    } catch (error) {
+      await pageComments.forget({ chatId, ids: [id] }).catch(() => {});
+      throw error;
+    }
     return { id };
   });
   for (const method of ["list", "attach", "detach"])
@@ -1581,7 +1588,9 @@ function createRuntime(options) {
     tell: (chatId, text) => agentNotes.set(chatId, [...(agentNotes.get(chatId) ?? []), text]),
   });
 
-  commands.handle("chat:send", async (_event, request) => {
+  commands.handle("chat:send", (_event, request) => sendAsUser(request));
+  /** A message the user sends to a Chat: from a composer (desktop or phone), a pill, or a comment on a page. */
+  async function sendAsUser(request) {
     if (isLinkScopeKey(request?.projectPath) || !scopeStates.has(request?.projectPath)) throw new Error("Open the project before sending to its chats.");
     // A bot's thread always runs in Bot rules on the bot's agent and model, whatever the composer sent. The user's
     // message in a Chat a bot opened makes it theirs: it runs in the mode they sent and the bot stops steering it. Bot
@@ -1615,7 +1624,7 @@ function createRuntime(options) {
     if (rest.sessionId != null)
       await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
     return { sessionId };
-  });
+  }
   // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
   // starts, with the text the renderer sent as a plain message.
   async function linearIssueMessage(rest, request) {

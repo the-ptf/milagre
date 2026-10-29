@@ -72,8 +72,11 @@ export function pagePins({ pending, sent }: ChatComments, url: string): PagePin[
       .filter((comment) => pageKey(comment.url) === key)
       .map((comment) => ({ ...comment, selector: comment.element.selector, point: comment.element.point, state: "pending" as const, resolved: undefined })),
   ];
-  return onPage.map((comment, index) => ({
-    n: index + 1,
+  // Only the comments still to send are numbered, 1 to n like the Send button and the card they become; a sent one
+  // shows as waiting on the agent, or resolved.
+  let next = 0;
+  return onPage.map((comment) => ({
+    n: comment.state === "pending" ? ++next : 0,
     selector: comment.selector,
     ...(comment.point ? { point: comment.point } : {}),
     text: comment.text,

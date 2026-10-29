@@ -310,7 +310,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
           })}
         </div>
       ) : (
-        <p className="max-w-[280px] text-center text-12 text-ink-3">Enter an address above. When the agent starts a server, it shows here.</p>
+        <p className="max-w-[280px] text-center text-12 text-ink-3">Enter an address above, like localhost:3000. Servers this Chat starts show here too.</p>
       )}
     </div>
   );

@@ -6,6 +6,8 @@ const SCREENSHOTS = "Each comment's screenshot is attached, in order.";
 const HEADING = /^(A comment|\d+ comments) on the page "(.*)" \((https?:\/\/\S+)\):$/;
 const ITEM = /^(\d+)\. \(comment ([a-f0-9]{8})\) (.+)$/;
 const CONTINUED = "     ";
+// The lines under a comment, as pageCommentsMessage writes them. A card shows only a message made of these.
+const DETAIL = /^ {3}(Comment|Selector|Box|Styles|HTML): /;
 
 /** The id of a comment the app sends, made before it is sent so the message can name it. */
 export const pageCommentId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 8);
@@ -26,7 +28,11 @@ const commentText = (text) =>
  */
 export function pageCommentsMessage(comments, { screenshots = true } = {}) {
   const pages = new Map();
-  for (const comment of comments) pages.set(comment.url, [...(pages.get(comment.url) ?? []), comment]);
+  // A page's address on one line without spaces, as the heading names it.
+  for (const comment of comments) {
+    const url = comment.url.replace(/\s/g, encodeURIComponent);
+    pages.set(url, [...(pages.get(url) ?? []), comment]);
+  }
   let number = 0;
   const blocks = [...pages].map(([url, list]) => {
     const title = oneLine(list[0].title, 120) || url;
@@ -43,7 +49,8 @@ export function pageCommentsMessage(comments, { screenshots = true } = {}) {
       if (styles) detail.push(`   Styles: ${oneLine(styles, 600)}`);
       if (element.html) detail.push(`   HTML: ${oneLine(element.html, 1500)}`);
       const source = element.source ? ` (${oneLine(element.source, 200)})` : "";
-      return [`${number}. (comment ${id}) ${oneLine(element.label, 200)}${source}`, ...detail].join("\n");
+      const label = oneLine(element.label ?? "", 200) || oneLine(element.tag ?? "", 40) || "element";
+      return [`${number}. (comment ${id}) ${label}${source}`, ...detail].join("\n");
     });
     return `${list.length === 1 ? "A comment" : `${list.length} comments`} on the page "${title.replace(/"/g, "'")}" (${url}):\n\n${lines.join("\n\n")}`;
   });
@@ -53,7 +60,8 @@ export function pageCommentsMessage(comments, { screenshots = true } = {}) {
 /** The comments a message pageCommentsMessage wrote carries, to show it as a card; null for any other message. */
 export function parsePageComments(body) {
   const lines = body.split("\n");
-  if (!lines.at(-1)?.endsWith(RESOLVE)) return null;
+  const footer = lines.at(-1);
+  if (footer !== RESOLVE && footer !== `${SCREENSHOTS} ${RESOLVE}`) return null;
   const comments = [];
   let page = null;
   let current = null;
@@ -76,8 +84,10 @@ export function parsePageComments(body) {
       current.text = line.slice("   Comment: ".length);
       inText = true;
     } else if (current && inText && line.startsWith(CONTINUED)) current.text += `\n${line.slice(CONTINUED.length)}`;
-    else if (line.startsWith("   ")) inText = false;
+    else if (current && DETAIL.test(line)) inText = false;
+    // Anything else (a line the writer never makes, text before the first page) is a message someone typed.
     else if (line.trim()) return null;
+    else inText = false;
   }
   return comments.length ? comments : null;
 }

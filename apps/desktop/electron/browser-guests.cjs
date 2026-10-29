@@ -40,6 +40,8 @@ function hardenBrowserGuests(host, { session, openExternal, platform = process.p
       event.preventDefault();
       return;
     }
+    // The renderer's webpreferences attribute lands here too: the session is set again, so it can't name another.
+    webPreferences.partition = BROWSER_PARTITION;
     delete webPreferences.preload;
     webPreferences.nodeIntegration = false;
     webPreferences.nodeIntegrationInSubFrames = false;

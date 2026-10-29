@@ -10,7 +10,7 @@ const PANEL_WIDTHS = {
   changes: { min: 280, default: 320, max: 640 },
   bots: { min: 280, default: 320, max: 480 },
   simulator: { min: 320, default: 400, max: 800 },
-  browser: { min: 360, default: 560, max: 1400 },
+  browser: { min: 360, default: 440, max: 1400 },
   designs: { min: 440, default: 560, max: 1400 },
   artifacts: { min: 440, default: 560, max: 1400 },
 } as const;

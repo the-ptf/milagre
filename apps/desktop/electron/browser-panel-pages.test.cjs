@@ -85,6 +85,13 @@ test("the window's own webviews are sent to the host with their Chats; a page th
   f.pages.setPages(f.host, []);
   await f.settle();
   assert.deepEqual(f.published.at(-1), { pages: [] });
+  // A page the renderer stops listing keeps no listener of ours, however often it is listed again.
+  for (let i = 0; i < 3; i++) f.pages.setPages(f.host, [{ contentsId: 7, chatKey: "/p#1" }]);
+  f.pages.setPages(f.host, []);
+  f.pages.setPages(f.host, [{ contentsId: 7, chatKey: "/p#1" }]);
+  assert.equal(f.guests.get(7).listenerCount("did-navigate"), 1);
+  f.pages.setPages(f.host, []);
+  assert.equal(f.guests.get(7).listenerCount("did-navigate") + f.guests.get(7).listenerCount("destroyed"), 0);
 });
 
 test("a DevTools connection to a page attaches its debugger for as long as it is open", async (t) => {

@@ -652,18 +652,20 @@ function ChatSettings() {
   );
 }
 
+const MOD_KEY = /Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl";
+
 function BrowserSettings() {
   const settings = useSettings();
   return (
-    <Group title="Links" footer="⌘-click a link to open it in the other one.">
-      <Row label="Open links in" description="Web links in replies and the Chat's servers in the Ports pill.">
+    <Group title="Links" footer={`Hold ${MOD_KEY} when you click a link to open it in the other browser.`}>
+      <Row label="Open links in" description="Where web links open when you click them: links in the agent's replies and the servers the Chat runs.">
         <Select<OpenLinksIn>
           label="Open links in"
           value={settings.openLinksIn}
           onChange={(openLinksIn) => updateSettings({ openLinksIn })}
           options={[
-            { value: "milagre", label: "Milagre browser" },
-            { value: "external", label: "Your browser" },
+            { value: "milagre", label: "Milagre's Browser panel" },
+            { value: "external", label: "Your default browser" },
           ]}
         />
       </Row>
