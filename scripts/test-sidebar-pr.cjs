@@ -9,17 +9,22 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatRow } from "/src/components/sidebar/ChatRow";
 import { useWorktreePullRequests } from "/src/components/useWorktreePullRequests";
-import { chatKey } from "/src/lib/agent-runs";
 import "/src/styles.css";
 const listeners = new Set();
+const changes = new Set();
 window.pr = { number: 10213, title: "Show pull requests in the chat sidebar", url: "https://github.com/example/project/pull/10213", state: "OPEN" };
 window.picks = 0;
 window.reads = [];
 window.milagre = {
-  readPullRequest: async path => { window.reads.push(path); return window.pr; },
+  readPullRequestSnapshot: async projectPath => {
+    window.reads.push(projectPath);
+    return { worktrees: { "/fixture/worktree": window.pr }, chats: {}, pending: false };
+  },
+  onPullRequestsChanged: listener => { changes.add(listener); return () => changes.delete(listener); },
   onAgentEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); },
 };
-window.refreshPR = () => listeners.forEach(listener => listener({ chatId: chatKey("/fixture", 1), event: { type: "turn-completed" } }));
+// The host's PR poll found a change in the Project's PRs.
+window.refreshPR = () => changes.forEach(listener => listener({ projectPath: "/fixture" }));
 const state = {
   sessions: { 1: { id: 1, worktree_id: 1 }, 2: { id: 2, worktree_id: 1 } },
   worktrees: { 1: { id: 1, path: "/fixture/worktree" } },
@@ -66,7 +71,7 @@ async function browserChecks() {
   try {
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-chat-pr]")');
-    assert.deepEqual(await evaluate("window.reads"), ["/fixture/worktree"], "Chats sharing a worktree use one PR lookup");
+    assert.deepEqual(await evaluate("window.reads"), ["/fixture"], "one snapshot answers every Chat of the Project");
     assert.equal(await evaluate('document.querySelector("[data-chat-pr]").textContent'), "#10213");
     assert.equal(await evaluate('document.querySelectorAll("[data-chat-pr]").length'), 1);
     assert.equal(await evaluate('!!document.querySelector("button a")'), false, "Link is not nested in a button");

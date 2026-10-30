@@ -93,7 +93,7 @@ import type {
 } from "./model";
 
 import type { WorktreeStatus } from "./lib/archive";
-import type { PullRequest } from "./model";
+import type { PullRequest, PullRequestSnapshot } from "./model";
 
 /**
  * What `updateRoutine` may change. `null` drops `maxRuns` or `expiresAt` (a heartbeat keeps at least one), and the provider,
@@ -480,6 +480,13 @@ export type MilagreBridge = {
   readPullRequest: (worktreePath: string) => Promise<PullRequest | null>;
   /** PRs a chat created or merged, by URL or number, looked up from its folder; null where one can't be read. */
   readPullRequests: (worktreePath: string, refs: string[]) => Promise<Array<PullRequest | null>>;
+  /**
+   * Every PR of a Project's Worktrees (by folder) and Chats (by folder, then ref) from the host's last poll, without
+   * waiting on GitHub. `pending` when some were never read: they arrive with `onPullRequestsChanged`.
+   */
+  readPullRequestSnapshot: (projectPath: string) => Promise<PullRequestSnapshot>;
+  /** A Project's PRs changed on the host's poll; read the snapshot again. */
+  onPullRequestsChanged: (callback: (change: { projectPath: string }) => void) => () => void;
   /** Opens a project or worktree folder in the file manager; rejects for any other folder. */
   revealInFolder: (folder: string) => Promise<void>;
   /** Puts a chat image on the clipboard; `file` is its absolute path, or a pasted image's data URL. */

@@ -676,6 +676,7 @@ async function startMobileBridge({
       if (entry.kinds.has("keybindings")) types.push("keybindings");
       if (entry.kinds.has("links")) types.push("links");
       if (entry.kinds.has("routines")) types.push("routines");
+      if (entry.kinds.has("pulls")) types.push("pulls");
       if (entry.kinds.has("project")) types.push("project");
       else if (entry.kinds.has("runs")) types.push("runs");
       entry.kinds.clear();
@@ -731,6 +732,9 @@ async function startMobileBridge({
       // Every socket is told, a confined phone's Project socket included: it is the only one such a phone may open (a
       // Project-less socket is refused), so the phone's Routines screen reads on focus instead of on this signal.
       if (channel === "routines:changed") signal(entry, "routines", 0);
+      // A Project's PRs changed on the host's poll (pull-request-watch.cjs): the phone reads its PR rows again. Every
+      // socket is told, as the Chat list shows rows from several Projects; the signal carries no data.
+      if (channel === "pull-requests:changed") signal(entry, "pulls", LIVE_DELAY.project);
       // A Link made or removed anywhere (canvas, sidebar, another phone): the phone reads canvas:links again. A confined
       // phone is refused canvas:links, so it isn't told.
       if (channel === "canvas:links-changed" && !confine) signal(entry, "links", 0);

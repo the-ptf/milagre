@@ -98,8 +98,12 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
     ].sort(),
   );
 
+  // An older host (a paired computer not updated yet) has no `pull-requests:snapshot`: read each Worktree as before.
+  const [legacyFor, setLegacyFor] = useState<string | null>(null);
+  const legacy = legacyFor === projectPath;
+
   useEffect(() => {
-    if (!projectPath) return;
+    if (!projectPath || !legacy) return;
     const paths: string[] = JSON.parse(pathsKey);
     let disposed = false;
     let lastRefresh = 0;
@@ -149,7 +153,7 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
       stopPolling();
       unsubscribe();
     };
-  }, [projectPath, pathsKey]);
+  }, [projectPath, pathsKey, legacy]);
 
   // PRs the chats created or merged, looked up from each chat's folder (numbers resolve in its repository).
   const chatRefs = useMemo(() => {
@@ -174,7 +178,7 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
   chatSnapshotRef.current = chatSnapshot;
 
   useEffect(() => {
-    if (!projectPath) return;
+    if (!projectPath || !legacy) return;
     const entries: Array<[string, PullRequestRef[]]> = JSON.parse(chatRefsKey);
     if (!entries.length) return;
     let disposed = false;
@@ -226,7 +230,68 @@ export function useWorktreePullRequests(projectPath: string, state: CoordinatorS
       stopPolling();
       unsubscribe();
     };
-  }, [projectPath, chatRefsKey]);
+  }, [projectPath, chatRefsKey, legacy]);
+
+  // The host polls GitHub for every client (pull-request-watch.cjs); this reads what it found, which never waits on
+  // gh, and again whenever it says the Project's PRs changed. Reading while the window is focused keeps the Project
+  // on the host's one-minute cadence.
+  useEffect(() => {
+    if (!projectPath) return;
+    const bridge = bridgeForKey(projectPath);
+    let disposed = false;
+    let lastRead = 0;
+    let reading = false;
+    let again = false;
+    const read = async () => {
+      lastRead = Date.now();
+      if (reading) {
+        again = true;
+        return;
+      }
+      reading = true;
+      try {
+        const found = await bridge.readPullRequestSnapshot(projectPath);
+        if (disposed || !found) return;
+        const chatPrs = Object.values(found.chats).flatMap((byRef) => Object.values(byRef));
+        setDismissedBlockers((current) => [...Object.values(found.worktrees), ...chatPrs].reduce((next, pr) => updateBlockerDismissals(next, pr), current));
+        setSnapshot((current) => {
+          const prs = { ...(current.projectPath === projectPath ? current.prs : (lastPullRequests.get(projectPath) ?? {})), ...found.worktrees };
+          lastPullRequests.set(projectPath, prs);
+          return { projectPath, prs };
+        });
+        setChatSnapshot((current) => {
+          const previous = current.projectPath === projectPath ? current.prs : (lastChatPullRequests.get(projectPath) ?? {});
+          const prs = { ...previous };
+          for (const [path, byRef] of Object.entries(found.chats)) prs[path] = { ...previous[path], ...byRef };
+          lastChatPullRequests.set(projectPath, prs);
+          return { projectPath, prs };
+        });
+      } catch (error) {
+        if (!disposed && error instanceof Error && /Unknown command/i.test(error.message)) setLegacyFor(projectPath);
+      } finally {
+        reading = false;
+        if (again && !disposed) {
+          again = false;
+          void read();
+        }
+      }
+    };
+    if (legacy) return;
+    void read();
+    const stopPolling = pollWhileActive(
+      () => void read(),
+      () => lastRead,
+    );
+    const unsubscribe = bridge.onPullRequestsChanged((change) => {
+      if (change.projectPath === projectPath) void read();
+    });
+    return () => {
+      disposed = true;
+      stopPolling();
+      unsubscribe();
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a Worktree or Chat PR new to the Project is read again: the host polls only what it was asked for
+  }, [projectPath, pathsKey, chatRefsKey, legacy]);
 
   return {
     pullRequests: snapshot.projectPath === projectPath ? snapshot.prs : (lastPullRequests.get(projectPath) ?? NO_PRS),

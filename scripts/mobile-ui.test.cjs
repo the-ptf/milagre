@@ -2437,6 +2437,7 @@ function sessionHost(
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
       "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
+      "./pr-status": { pullRequestsChanged: () => {} },
       "./use-links": { refreshLinks: async () => {} },
       "./use-designs": { useDesigns: () => designsOn },
     },

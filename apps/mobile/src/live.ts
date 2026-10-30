@@ -1,5 +1,5 @@
 /** What the bridge's live socket says: fetch the runs, or the whole Project, again. It never carries state. */
-export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "keybindings";
+export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "keybindings" | "pulls";
 /** Whether a live message names a signal this app knows; a newer bridge may send others, which are ignored. */
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "runs" ||
@@ -10,7 +10,8 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "mcp" ||
   type === "routines" ||
   type === "usage" ||
-  type === "keybindings";
+  type === "keybindings" ||
+  type === "pulls";
 type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
 export type LiveSocket = {
   addEventListener<K extends keyof LiveEvents>(type: K, listener: (event: LiveEvents[K]) => void): void;
@@ -139,6 +140,8 @@ export type SyncOptions = {
   links?: () => void;
   /** A host-wide setting also travels over confined Project sockets. */
   designs?: () => void;
+  /** The Mac's PR poll found a change in a Project's PRs. */
+  pulls?: () => void;
   liveStatus?: (open: boolean) => void;
   onError: (error: Error) => void;
   active: () => boolean;
@@ -160,6 +163,7 @@ export function syncProject({
   accounts,
   links,
   designs,
+  pulls,
   liveStatus,
   onError,
   active,
@@ -225,6 +229,7 @@ export function syncProject({
         if (signal === "accounts") accounts?.();
         else if (signal === "links") links?.();
         else if (signal === "designs") designs?.();
+        else if (signal === "pulls") pulls?.();
         // The Routines screen and the Chat header read Routines on their own socket (use-routines.ts).
         else if (signal === "runs" || signal === "project") void pull(signal);
       },

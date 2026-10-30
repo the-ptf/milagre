@@ -81,6 +81,14 @@ export interface PullRequest {
   checks?: "running" | "failed";
 }
 
+/** A Project's PRs as the host's poll last found them: each Worktree's branch PR, and each Chat-named PR by folder and ref. */
+export interface PullRequestSnapshot {
+  worktrees: Record<string, PullRequest | null>;
+  chats: Record<string, Record<string, PullRequest | null>>;
+  /** Some were never read yet; they come with the next `pull-requests:changed`. */
+  pending: boolean;
+}
+
 export interface Worktree {
   id: number;
   project_id: number;
