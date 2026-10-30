@@ -1,18 +1,52 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComputersSnapshot, ComputerView } from "../electron.d.ts";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import { useSettings } from "./settings.ts";
+import { getSettings, updateSettings, useSettings } from "./settings.ts";
 import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
 import { readHiddenComputers, subscribeHiddenComputers } from "./hidden-projects.ts";
 
-/**
- * Tells main whether to connect the saved computers: at launch, and each time Settings › Devices › Other computers
- * flips. A window without the API (a check's fixture) is left alone.
- */
+/** Read the daemon's saved choice before applying window preferences. Opening a window must not disconnect peers. */
 export function useApplyOtherComputers() {
   const { otherComputers } = useSettings();
+  const initialized = useRef(false);
   useEffect(() => {
-    void Promise.resolve(window.milagre?.computers?.setEnabled?.(otherComputers)).catch(() => {});
+    const sync = () => {
+      const { enabled } = computersSnapshot();
+      if (typeof enabled === "boolean" && getSettings().otherComputers !== enabled) updateSettings({ otherComputers: enabled });
+    };
+    const stop = subscribeComputers(sync);
+    sync();
+    return stop;
+  }, []);
+  useEffect(() => {
+    const api = window.milagre?.computers;
+    if (!api?.list || !api.setEnabled) return;
+    let live = true;
+    const before = computersSnapshot();
+    void api
+      .list()
+      .then(async (next) => {
+        if (!live) return;
+        // A pushed snapshot is newer than the read that was already in flight.
+        if (computersSnapshot() !== before && typeof computersSnapshot().enabled === "boolean") {
+          initialized.current = true;
+          return;
+        }
+        if (!initialized.current) {
+          initialized.current = true;
+          if (typeof next?.enabled === "boolean") {
+            updateSettings({ otherComputers: next.enabled });
+            return;
+          }
+        }
+        // Older hosts have no saved flag. They still take the window's choice.
+        if (next?.enabled !== otherComputers) await api.setEnabled(otherComputers);
+        return;
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [otherComputers]);
 }
 
@@ -67,19 +101,19 @@ export const settingsTooltip = (name: string) => `${name} settings: rename, conn
 /** Its Projects and rows are dimmed (spec "Sidebar"). */
 export const isDimmed = (view: ComputerView | undefined) => view?.state === "offline" || view?.state === "refused";
 /**
- * Nothing can be sent to it: the composer is disabled and sends are refused. Connecting and Reconnecting are not: those
- * blips last a second or two, and a send made meanwhile waits for the computer (computers.cjs invoke).
+ * Cached remote content is read-only. The composer can still save messages to this device's outbox.
+ * Connecting and Reconnecting keep the existing remote read behavior while the transport returns.
  */
 export const isReadOnly = (view: ComputerView | undefined) =>
   !view || !(view.state === "online" || view.state === "connecting" || view.state === "reconnecting");
 
-/** The banner over an offline computer's chat (design sidebar-c-sections v3). */
+/** The offline chip's tooltip in the composer's tray (design offline-inline-desktop v7). */
 export function offlineBanner(view: ComputerView, now: number): string {
   const ago = seenAgo(view.lastSeen, now);
-  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. You can read it until ${view.name} is back.`;
+  return `${view.name} is offline. This is the last copy it sent${ago ? `, ${ago}` : ""}. What you send waits on this Mac until ${view.name} is back.`;
 }
-/** Appended to the composer's placeholder while its computer is offline. */
-export const offlinePlaceholder = (name: string) => ` (${name} is offline)`;
+/** The composer's placeholder while its computer is offline: what it sends waits on this Mac. */
+export const offlinePlaceholder = (name: string) => `Queue a message for ${name}…`;
 /** Appended while the connection to it comes back: the draft can be written, and sends once it is online. */
 export const reconnectingPlaceholder = (name: string) => ` (reconnecting to ${name}…)`;
 

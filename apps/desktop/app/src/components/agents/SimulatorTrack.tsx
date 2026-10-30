@@ -23,6 +23,7 @@ import { ResizableDockSlide } from "./DockSlide";
 import { usePanelWidth } from "./panel-width";
 import { onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
+import { thisComputer } from "../../lib/shortcut-hints";
 
 /** The host owns persistent associations; discovery never attaches a device. */
 export function SimulatorTrack({ chatId }: { chatId: string }) {
@@ -77,7 +78,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
       const started = revision.current;
       try {
         const result = await api.list({ chatId });
-        if (result.chatId !== chatId) throw new Error("Update Milagre on this Mac to attach simulators to Chats.");
+        if (result.chatId !== chatId) throw new Error(`Update Milagre on ${thisComputer} to attach simulators to Chats.`);
         if (!disposed && started === revision.current) {
           setList(result);
           if (!result.attached?.length) close();
@@ -177,7 +178,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
           )}
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px]">{attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}</div>
-            {!selected && <div className="text-[11px] text-ink-3">{attaching ? "Other devices on this Mac" : "This Chat"}</div>}
+            {!selected && <div className="text-[11px] text-ink-3">{attaching ? `Other devices on ${thisComputer}` : "This Chat"}</div>}
           </div>
           <Tooltip label="Close simulator">
             <button type="button" aria-label="Close simulator" onClick={close} className="rounded p-1 text-ink-2 hover:bg-hover">
@@ -231,7 +232,9 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             </p>
           )}
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
-            <p className="p-3 text-[13px] text-ink-2">{attaching ? "No other devices are running on this Mac." : "No simulators attached to this Chat."}</p>
+            <p className="p-3 text-[13px] text-ink-2">
+              {attaching ? `No other devices are running on ${thisComputer}.` : "No simulators attached to this Chat."}
+            </p>
           )}
           {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
             const running = attaching || list.devices.some((d) => d.id === device.id);

@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React, { useState } from "react";
@@ -26,12 +27,41 @@ window.renames = [];
 window.removed = [];
 window.autoSaves = [];
 const fallback = { get(target, key) { return target[key] ?? (String(key).startsWith("on") ? () => () => {} : async () => null); } };
-// A paired computer's own calls: only Auto update answers; the rest stay as an older computer that has nothing.
+// A paired computer's own calls: only Auto update and its memory and disk answer; the rest stay as an older computer that has nothing.
+const GB = 1024 ** 3;
 const remote = (id) => ({
+  readComputerResources: async () => ({
+    memory: {
+      total: 32 * GB,
+      available: 20 * GB,
+      milagre: 2 * GB,
+      parts: [
+        { kind: "claude", bytes: 1.5 * GB, count: 2 },
+        { kind: "app", bytes: 0.5 * GB, count: 0 },
+      ],
+    },
+    disk: {
+      total: 2e12,
+      available: 1.5e12,
+      milagre: 80e9,
+      parts: [
+        { kind: "worktrees", bytes: 75e9, count: 12 },
+        { kind: "data", bytes: 5e9, count: 0 },
+      ],
+      measuredAt: Date.now(),
+      measuring: false,
+    },
+  }),
   readAutoUpdate: async () => ({ autoUpdate: false }),
   saveAutoUpdate: async (value) => (window.autoSaves.push([id, value]), { autoUpdate: value }),
   onAutoUpdate: () => () => {},
+  // Its desktop app has downloaded a newer Milagre; installing restarts it there.
+  readHostUpdate: async () => window.hostUpdate,
+  checkHostUpdate: async () => window.hostUpdate,
+  installHostUpdate: async () => (window.installs.push(id), (window.hostUpdate = { ...window.hostUpdate, status: "installing" })),
 });
+window.installs = [];
+window.hostUpdate = { status: "downloaded", version: "0.122.0", progress: 100, current: "0.121.0" };
 window.milagre = new Proxy({
   on: remote,
   listRecentProjects: async () => [],
@@ -111,15 +141,44 @@ async function browserChecks() {
     assert.equal(await text('[data-connection="relay"] [data-connection-state]'), "Ready");
     await waitFor(`document.querySelector('[data-computer-projects]')?.textContent.includes('2 Projects')`);
     assert.match(await text("[data-computer-projects]"), /arketa-web, infra\. Accounts and simulators stay on arketa\./);
+    // Its memory and disk come from that computer; Milagre's amount lives in the bar's hover, and the computer's own page
+    // opens with what Milagre uses there.
+    await waitFor(`!!document.querySelector('[data-computer-settings] [data-resource-meter=disk]')`);
+    assert.equal(await text("[data-computer-settings] [data-resource-meter=memory]"), "20 GBfree of 32 GB");
+    assert.equal(await text("[data-computer-settings] [data-resource-meter=disk]"), "1.5 TBfree of 2 TB");
+    assert.match(
+      await evaluate(`document.querySelector('[data-computer-settings] [data-resource-bar=memory]').getAttribute('aria-label')`),
+      /Milagre 2 GB · Other apps 10 GB/,
+    );
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-computer-settings] [data-resource-parts] li')].map((item) => item.textContent)`), [
+      "Claude · 2 agents1.5 GB",
+      "Milagre app512 MB",
+      "Worktrees · 1275 GB",
+      "App data5 GB",
+    ]);
     // Auto update flips on that computer, through its own calls.
-    await waitFor(`document.querySelector('[data-computer-auto-update] [role=switch]')?.getAttribute('aria-checked') === 'false'`);
-    await evaluate(`document.querySelector('[data-computer-auto-update] [role=switch]').click()`);
+    await waitFor(`document.querySelector('[data-computer-auto-update] [role=checkbox]')?.getAttribute('aria-checked') === 'false'`);
+    await evaluate(`document.querySelector('[data-computer-auto-update] [role=checkbox]').click()`);
     await waitFor(
-      `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=switch]').getAttribute('aria-checked') === 'true'`,
+      `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=checkbox]').getAttribute('aria-checked') === 'true'`,
     );
     assert.deepEqual(await evaluate("window.autoSaves"), [["c-arketa", true]]);
+    // Its desktop app's update: Install & restart asks first, since it restarts Milagre over there.
+    await waitFor(`document.querySelector('[data-computer-update]')?.dataset.computerUpdate === 'downloaded'`);
+    assert.match(await text("[data-computer-update]"), /^Update available: v0\.122\.0arketa runs Milagre 0\.121\.0\. Milagre 0\.122\.0 is ready to install\./);
+    await evaluate(`document.querySelector('[data-computer-update-install]').click()`);
+    await waitFor(`!!document.querySelector('[data-computer-update-confirm]')`);
+    assert.match(
+      await text("[data-computer-update]"),
+      /Restart Milagre on arketa to install v0\.122\.0\? Running Chats are saved and resume after the restart\./,
+    );
+    assert.deepEqual(await evaluate("window.installs"), [], "nothing restarts before the answer");
+    await screenshot("computer-update-confirm");
+    await evaluate(`document.querySelector('[data-computer-update-confirm]').click()`);
+    await waitFor(`window.installs.length === 1 && document.querySelector('[data-computer-update]')?.dataset.computerUpdate === 'installing'`);
+    assert.match(await text("[data-computer-update]"), /Restarting…$/);
     await screenshot("computer-settings");
-    console.log("PASS: a computer's settings show its connection routes, which is in use, and what lives there");
+    console.log("PASS: a computer's settings show its connection routes, which is in use, what lives there, its memory and disk and its app update");
 
     window.webContents.focus();
     await evaluate(`(() => {
@@ -142,7 +201,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-computer-remove-confirm]')`);
     assert.match(
       await text("[data-computer-settings]"),
-      /Its chats leave this sidebar and this Mac forgets its keys\. Nothing changes on studio; pair again with a new link\./,
+      new RegExp(`Its chats leave this sidebar and ${thisComputer} forgets its keys\\. Nothing changes on studio; pair again with a new link\\.`),
     );
     await screenshot("computer-settings-remove");
     await evaluate(`document.querySelector('[data-computer-remove-confirm]').click()`);

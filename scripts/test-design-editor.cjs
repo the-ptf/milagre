@@ -125,6 +125,7 @@ async function browserChecks() {
     deadline(window.webContents.executeJavaScript(source), source.slice(0, 200)).catch((error) => {
       throw new Error(`${error.message}\n  in: ${source.slice(0, 400)}`);
     });
+  const { evaluatePanel } = require("./panel-menu-test.cjs").panelMenuHelpers(evaluate);
   async function waitFor(source) {
     for (let i = 0; i < 300; i++) {
       if (await evaluate(source)) return;
@@ -138,6 +139,7 @@ async function browserChecks() {
       await evaluate('document.querySelector("[data-slot=design-layers-toggle]").click()');
   };
   const click = async (selector) => {
+    if (selector.startsWith("[data-panel-toggle=")) return evaluatePanel(`document.querySelector(${JSON.stringify(selector)}).click()`);
     if (selector.startsWith("[data-node-id=")) await ensureLayers();
     await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
     if (selector === "[data-slot=artifact-edit]") await ensureLayers();
@@ -342,7 +344,7 @@ async function browserChecks() {
     await screenshot("designs-off");
     await window.loadURL(process.argv[2]);
     await waitFor('!!document.querySelector("[data-slot=design-feedback-text]")');
-    assert.equal(await evaluate('!!document.querySelector("[data-slot=artifact-card], [data-panel-toggle=designs]")'), false, "reopening stays off");
+    assert.equal(await evaluatePanel('!!document.querySelector("[data-slot=artifact-card], [data-panel-toggle=designs]")'), false, "reopening stays off");
     setLocal(true);
     await waitFor('!!document.querySelector("[data-slot=artifact-card] iframe") && !!document.querySelector("[data-slot=design-feedback]")');
     assert.equal(

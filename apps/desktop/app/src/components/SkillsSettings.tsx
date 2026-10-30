@@ -19,6 +19,7 @@ import { showNotice } from "../lib/notice";
 import { Select } from "./primitives/Select";
 import { Markdown } from "./markdown/Markdown";
 import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { fileManager } from "../lib/shortcut-hints";
 
 const button = "rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover disabled:opacity-40";
 const badge = "shrink-0 rounded-full bg-field px-2 py-px text-[11px] font-medium text-ink-2";
@@ -226,7 +227,7 @@ function SkillDetail({
           )}
           {skill.path && !isRemoteKey(projectPath) && (
             <button type="button" className={button} onClick={reveal}>
-              Show in Finder
+              Show in {fileManager}
             </button>
           )}
           <button type="button" className={button} onClick={copy}>

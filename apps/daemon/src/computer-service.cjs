@@ -62,7 +62,7 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     computers,
     cache,
     thisMac: computerName,
-    send: emit,
+    send: (channel, payload) => emit(channel, channel === "computers:changed" ? { ...payload, enabled } : payload),
     onForget: (id) => emit("computers:forgotten", { computerId: id }),
   });
   const ready = (async () => {

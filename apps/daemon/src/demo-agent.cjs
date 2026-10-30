@@ -1,8 +1,9 @@
+const { computerNoun } = require("@milagre/shared/host-computer");
 // A scripted agent for demos (`npm run mobile:demo`, `npm run review:demo`). Never selected by the real daemon CLI:
 // a host passes `demoRuntimeOptions()` to startDaemon explicitly. It reads, runs and changes nothing.
 
 const DEFAULT_COPY = {
-  ack: "Demo agent: your message reached the daemon on your Mac. ",
+  ack: `Demo agent: your message reached the daemon on your ${computerNoun}. `,
   reply: "The reply made it back to your simulator. Your Chat is saved locally.",
 };
 

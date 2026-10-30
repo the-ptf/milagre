@@ -1,3 +1,4 @@
+import { outbox, useOutbox } from "../lib/outbox";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useBots } from "../lib/bots-store";
@@ -8,7 +9,7 @@ import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccounts
 import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 import { LocalMcpSettings } from "./LocalMcpSettings";
 import { MilagreMark } from "./MilagreMark";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -56,6 +57,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers, useHiddenComputers } from "../lib/computers";
 import type {
+  ComputerView,
   FilesToCopy as FilesToCopyResult,
   MilagreBridge,
   PairedDevice,
@@ -81,6 +83,9 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
+import { useDoneSettings } from "../lib/done-settings";
+import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
+import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
@@ -102,8 +107,9 @@ import {
 import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
-import { ChatListChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
+import { ChatListChoice, DictationActionChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
 import { KeybindingsSettings } from "./settings/KeybindingsSettings";
+import { HostUpdateRow } from "./settings/HostUpdateRow";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -113,8 +119,10 @@ import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/pro
 import type { RecentProject } from "../lib/project-list";
 import { setProjectImage, useProjectImages } from "../lib/project-images";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
+import { updateDescription } from "@milagre/shared/app-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
+import { computerNoun, thisComputer } from "../lib/shortcut-hints";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -327,6 +335,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       live = false;
     };
   }, [id, computer?.state]);
+  const waiting = useOutbox().items.filter((item) => item.computerId === id && item.status !== "sent");
   if (!computer) return <p className="mt-6 text-[13px] text-ink-3">This computer was removed.</p>;
 
   const paired = computer.addedAt ? `paired ${new Date(computer.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : null;
@@ -353,6 +362,8 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
     setBusy(true);
     try {
       await window.milagre.computers.remove(computer.id);
+      // Nothing can deliver them now; the confirmation said they go.
+      await Promise.allSettled(waiting.map((item) => outbox.remove(item.id)));
       // A computer paired again comes back shown.
       setComputerHidden(computer.id, false);
       onRemoved();
@@ -368,7 +379,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         {status}
       </p>
       <Group title="General">
-        <Row label="Name" description="Shown on its chats in the sidebar. Only on this Mac.">
+        <Row label="Name" description={`Shown on its chats in the sidebar. Only on ${thisComputer}.`}>
           <input
             aria-label="Name"
             value={name}
@@ -381,8 +392,8 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
           />
         </Row>
         <div data-computer-show-in-sidebar>
-          <Row label="Show in sidebar" description={`${computer.name}'s Projects in the sidebar on this Mac. It stays connected while hidden.`}>
-            <Switch label="Show in sidebar" checked={!hiddenComputers.has(computer.id)} onChange={(show) => setComputerHidden(computer.id, !show)} />
+          <Row label="Show in sidebar" description={`${computer.name}'s Projects in the sidebar on ${thisComputer}. It stays connected while hidden.`}>
+            <SettingCheckbox label="Show in sidebar" checked={!hiddenComputers.has(computer.id)} onChange={(show) => setComputerHidden(computer.id, !show)} />
           </Row>
         </div>
       </Group>
@@ -421,6 +432,8 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             </Row>
           )}
         </div>
+        <ComputerResourceList computers={[resourceComputer(computer, now)]} initiallyOpen={computer.id} />
+        {computer.state === "online" && <HostUpdateRow key={`update-${id}`} bridge={bridgeFor(id)} name={computer.name} />}
         {computer.state === "online" && (
           <div data-computer-auto-update>
             <AutoUpdateRow key={id} bridge={bridgeFor(id)} />
@@ -442,7 +455,9 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
-          description={`Its chats leave this sidebar and this Mac forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.`}
+          description={`Its chats leave this sidebar and ${thisComputer} forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
+            waiting.length ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on ${thisComputer} for it will be discarded.` : ""
+          }`}
         >
           {confirming ? (
             <span className="flex gap-2">
@@ -571,7 +586,7 @@ function RemoteDelegationSettings() {
         label="Delegate to other computers"
         description="A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices."
       >
-        <Switch
+        <SettingCheckbox
           label="Delegate to other computers"
           checked={setting.enabled}
           disabled={!setting.ready || setting.saving}
@@ -592,7 +607,7 @@ function BotsSettings() {
   return (
     <div data-slot="bots-setting">
       <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
-        <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
+        <SettingCheckbox label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
       </Row>
       {bots.error && (
         <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
@@ -603,6 +618,24 @@ function BotsSettings() {
   );
 }
 
+/** How long a Chat waits in the sidebar's Done list before this Mac archives it. */
+function DoneRetentionSetting() {
+  const { settings, save } = useDoneSettings();
+  return (
+    <Group title="Done">
+      <Row label="Archive Done chats after">
+        <Select
+          label="Archive Done chats after"
+          width={140}
+          value={String(settings.retentionHours)}
+          options={DONE_RETENTION_OPTIONS.map((hours) => ({ value: String(hours), label: retentionLabel(hours) }))}
+          onChange={(value) => void save({ retentionHours: Number(value) }).catch(() => {})}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 function ChatSettings() {
   const settings = useSettings();
   return (
@@ -610,6 +643,7 @@ function ChatSettings() {
       <ChoiceGroup title="Chat list">
         <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
       </ChoiceGroup>
+      <DoneRetentionSetting />
       <ChoiceGroup title="Reasoning">
         <ReasoningChoice expanded={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
       </ChoiceGroup>
@@ -621,7 +655,7 @@ function ChatSettings() {
           label="TLDR writing"
           description="Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes."
         >
-          <Switch label="TLDR writing" checked={settings.tldrEnabled} onChange={(tldrEnabled) => updateSettings({ tldrEnabled })} />
+          <SettingCheckbox label="TLDR writing" checked={settings.tldrEnabled} onChange={(tldrEnabled) => updateSettings({ tldrEnabled })} />
         </Row>
         <Row label="Claude replies">
           <Select<ClaudeReplies>
@@ -635,19 +669,23 @@ function ChatSettings() {
           />
         </Row>
       </Group>
-      <Group title="Dictation">
-        <Row
-          label="Language"
-          description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
-        >
-          <Select
-            label="Dictation language"
-            value={settings.dictationLanguage}
-            onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
-            options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
-          />
-        </Row>
-      </Group>
+      <ChoiceGroup title="Dictation">
+        <p className="mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
+        <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
+        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+          <Row
+            label="Language"
+            description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
+          >
+            <Select
+              label="Dictation language"
+              value={settings.dictationLanguage}
+              onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
+              options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
+            />
+          </Row>
+        </div>
+      </ChoiceGroup>
     </>
   );
 }
@@ -689,7 +727,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."
         >
-          <Switch label="Floating inbox" checked={settings.floatingInbox} onChange={(floatingInbox) => updateSettings({ floatingInbox })} />
+          <SettingCheckbox label="Floating inbox" checked={settings.floatingInbox} onChange={(floatingInbox) => updateSettings({ floatingInbox })} />
         </Row>
         {settings.floatingInbox && (
           <div className="ml-4 border-l border-line pl-4">
@@ -697,7 +735,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
               label="Show chat activity"
               description="Include working chats with a progress summary and finished updates. Off: only questions and permission requests."
             >
-              <Switch
+              <SettingCheckbox
                 label="Show chat activity"
                 checked={settings.floatingInboxActivity}
                 onChange={(floatingInboxActivity) => updateSettings({ floatingInboxActivity })}
@@ -709,7 +747,11 @@ function ExperimentalSettings({ title }: { title?: string }) {
           label="Ultracode Fatality"
           description="Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud."
         >
-          <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
+          <SettingCheckbox
+            label="Ultracode Fatality"
+            checked={settings.ultracodeFatality}
+            onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })}
+          />
         </Row>
         <BotsSettings />
         <RemoteDelegationSettings />
@@ -801,10 +843,10 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
       </Group>
       <Group title="System">
         <Row
-          label="Keep the Mac awake"
+          label={`Keep the ${computerNoun} awake`}
           description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it."
         >
-          <Switch label="Keep the Mac awake" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
+          <SettingCheckbox label={`Keep the ${computerNoun} awake`} checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
         </Row>
       </Group>
       <Group title="Plan usage">
@@ -820,7 +862,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
           />
         </Row>
         <Row label="Show in sidebar" description="Hover a provider for its limits and reset times">
-          <Switch
+          <SettingCheckbox
             label="Show usage in sidebar"
             checked={settings.showUsageInSidebar}
             onChange={(showUsageInSidebar) => updateSettings({ showUsageInSidebar })}
@@ -837,20 +879,28 @@ function NotificationsSettings() {
     <>
       <Group title="Alerts">
         <Row label="Notify when finished" description="When a turn finishes or fails while you are outside the chat">
-          <Switch
+          <SettingCheckbox
             label="Notify when finished"
             checked={settings.notifyOnCompletion}
             onChange={(notifyOnCompletion) => updateSettings({ notifyOnCompletion })}
           />
         </Row>
         <Row label="Dock badge" description="Count chats with unread replies or waiting for your input">
-          <Switch label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
+          <SettingCheckbox label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
         </Row>
         <Row label="Notify when waiting" description="When a chat needs an approval or an answer and Milagre is in the background">
-          <Switch label="Notify when waiting" checked={settings.notifyWhenWaiting} onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })} />
+          <SettingCheckbox
+            label="Notify when waiting"
+            checked={settings.notifyWhenWaiting}
+            onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })}
+          />
         </Row>
         <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
-          <Switch label="Attention button" checked={settings.showAttentionButton} onChange={(showAttentionButton) => updateSettings({ showAttentionButton })} />
+          <SettingCheckbox
+            label="Attention button"
+            checked={settings.showAttentionButton}
+            onChange={(showAttentionButton) => updateSettings({ showAttentionButton })}
+          />
         </Row>
       </Group>
       <Group title="Schedule">
@@ -869,7 +919,7 @@ function RoutinesSettings() {
   return (
     <Group title="Nudges">
       <Row label="Unread Runs dot" description="On the Routines button and each Routine's row, while a Run's Chat has a result you haven't opened">
-        <Switch label="Unread Runs dot" checked={settings.routineNudges} onChange={(routineNudges) => updateSettings({ routineNudges })} />
+        <SettingCheckbox label="Unread Runs dot" checked={settings.routineNudges} onChange={(routineNudges) => updateSettings({ routineNudges })} />
       </Row>
     </Group>
   );
@@ -970,7 +1020,7 @@ function AppearanceSettings() {
       </section>
       <Group title="Custom theme">
         <Row label="Custom theme" description={'Build a theme from a few colors. It shows up as "Custom" with the Milagre themes.'}>
-          <Switch
+          <SettingCheckbox
             label="Custom theme"
             checked={settings.customThemeEnabled}
             onChange={(customThemeEnabled) => {
@@ -1127,17 +1177,53 @@ function AppearanceSettings() {
   );
 }
 
+/** Settings › Devices: memory and disk on this Mac and on every computer it drives, Milagre's share marked. */
+/** A paired computer as a memory and disk row: its route while it answers, else when it was last seen. */
+function resourceComputer(computer: ComputerView, now: number): ResourceComputer {
+  const online = computer.state === "online";
+  const seen = seenAgo(computer.lastSeen, now);
+  return {
+    id: computer.id,
+    name: computer.name,
+    detail: online ? routeLine(computer, now) : "Offline",
+    bridge: bridgeFor(computer.id),
+    online,
+    seen: seen ? `Seen ${seen}` : null,
+  };
+}
+
+/** Settings › Devices: memory and disk on this Mac and on every computer it drives. */
+function DeviceResources() {
+  const { otherComputers } = useSettings();
+  const { thisMac, computers } = useComputers();
+  // "Seen 2h ago" keeps counting while the page stays open.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const rows: ResourceComputer[] = [
+    { id: "this-mac", name: thisMac, detail: "This Mac", bridge: window.milagre, online: true },
+    ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
+  ];
+  return (
+    <Group>
+      <ComputerResourceList computers={rows} />
+    </Group>
+  );
+}
+
 function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }) {
   const { otherComputers } = useSettings();
   return (
-    <Group title="Other computers">
-      <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
-        <Switch label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
+    <Group>
+      <Row label="Drive other computers" description="Drive the chats of other computers running Milagre from this window. Their Projects join the sidebar.">
+        <SettingCheckbox label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
       {otherComputers && onAddComputer && (
         <Row
           label="Add computer"
-          description="Pair with another Mac using the link from its Settings › Devices. The laptop button in the sidebar adds one too."
+          description="Pair with another computer using the link from its Settings › Devices. The laptop button in the sidebar adds one too."
         >
           <button type="button" data-settings-add-computer onClick={onAddComputer} className={SECONDARY_BUTTON}>
             Add computer…
@@ -1235,7 +1321,6 @@ const DANGER_BUTTON =
   "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
 
 function DeviceGroup({
-  title,
   devices,
   fresh,
   now,
@@ -1245,7 +1330,6 @@ function DeviceGroup({
   footer,
   onRemove,
 }: {
-  title: string;
   devices: PairedDevice[];
   /** Keys marked New. */
   fresh: ReadonlySet<string>;
@@ -1258,7 +1342,7 @@ function DeviceGroup({
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   return (
-    <Group title={title}>
+    <Group>
       {error ? (
         <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red-ink">
           {error}
@@ -1413,10 +1497,11 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { computers, phones } = devicesByKind(paired.list ?? []);
   return (
     <>
-      <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
-      <Group title="Access">
+      <p className="mt-1 text-[13px] text-ink-2">Phones and other computers that can see and drive {thisComputer}'s chats.</p>
+      <DeviceResources />
+      <Group>
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
-          <Switch
+          <SettingCheckbox
             label="Allow devices to connect"
             checked={status?.enabled === true}
             onChange={(enabled) => {
@@ -1426,7 +1511,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         </Row>
         {status?.enabled && status.lan && (
           <Row label="Allow on local network" description={phoneLanLine(status) ?? ""}>
-            <Switch
+            <SettingCheckbox
               label="Allow on local network"
               checked={status.lan.enabled}
               onChange={(enabled) => {
@@ -1437,7 +1522,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         )}
         {status?.state === "on" && status.remote === "none" && (
           <p data-phone-local-only className="px-4 py-3 text-[12px] text-ink-3">
-            Only a phone simulator on this Mac can connect. Set up a Cloudflare tunnel with npm run mobile:cloudflare to reach this Mac from any network.
+            Only a phone simulator on {thisComputer} can connect. Set up a Cloudflare tunnel with npm run mobile:cloudflare to reach {thisComputer} from any
+            network.
           </p>
         )}
         {status?.state === "error" && status.error && (
@@ -1452,7 +1538,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         )}
       </Group>
       {on && (
-        <Group title="Pair a device">
+        <Group>
           {(status.pairingOptions?.length ?? 0) > 1 && (
             <Row
               label="Connect through"
@@ -1524,9 +1610,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         </Group>
       )}
       <OtherComputersSetting onAddComputer={onAddComputer} />
-      {computers.length > 0 && <DeviceGroup title="Computers" devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
+      {computers.length > 0 && <DeviceGroup devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
       <DeviceGroup
-        title="Phones"
         devices={phones}
         fresh={paired.fresh}
         now={paired.now}
@@ -1537,7 +1622,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         onRemove={removeDevice}
       />
       {status?.enabled && (
-        <Group title="Reset">
+        <Group>
           <Row
             label="Reset access"
             description={
@@ -1576,27 +1661,6 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   );
 }
 
-function updateDescription(update: UpdateState | null): string {
-  switch (update?.status) {
-    case "checking":
-      return "Checking for updates…";
-    case "up-to-date":
-      return "Milagre is up to date.";
-    case "downloading":
-      return `Downloading ${update.version ? `Milagre ${update.version}` : "update"}… ${Math.round(update.progress)}%`;
-    case "downloaded":
-      return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install.${update.auto ? " Auto update installs it once nothing is running." : ""}`;
-    case "installing":
-      return "Saving your work and restarting Milagre.";
-    case "error":
-      return update.error ?? "Couldn't check for updates. Try again.";
-    case "unavailable":
-      return "Update checks are available in the installed app.";
-    default:
-      return "Check for the latest Milagre release.";
-  }
-}
-
 /**
  * Auto update, kept by the host it reaches: this Mac's (Settings › About, then the update state carries it too) or a
  * paired computer's (its Computer page). Hidden until the host answers; an older one never does.
@@ -1630,7 +1694,7 @@ function AutoUpdateRow({ bridge }: { bridge: Pick<MilagreBridge, "readAutoUpdate
   };
   return (
     <Row label={AUTO_UPDATE_TITLE} description={error || AUTO_UPDATE_HINT}>
-      <Switch label={AUTO_UPDATE_TITLE} checked={autoUpdate} onChange={(next) => void change(next)} />
+      <SettingCheckbox label={AUTO_UPDATE_TITLE} checked={autoUpdate} onChange={(next) => void change(next)} />
     </Row>
   );
 }
@@ -2049,8 +2113,8 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
   }
   return (
     <div data-show-in-sidebar>
-      <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
-        <Switch label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
+      <Row label="Show in sidebar" description={`In the sidebar on ${thisComputer}. Filters › Projects chooses them all at once.`}>
+        <SettingCheckbox label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
@@ -2083,7 +2147,7 @@ export function MainSyncDefaultSetting() {
   return (
     <div data-main-sync-default>
       <Row label={MAIN_SYNC_TITLE} description={MAIN_SYNC_HINT}>
-        <Switch label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
+        <SettingCheckbox label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
@@ -2156,7 +2220,7 @@ function LimitAutoSwitchSetting() {
           "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue." + (error ? ` Could not save: ${error}` : "")
         }
       >
-        <Switch label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
+        <SettingCheckbox label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
       </Row>
       {resumeAtReset !== null && (
         <Row
@@ -2166,7 +2230,12 @@ function LimitAutoSwitchSetting() {
             (resumeError ? ` Could not save: ${resumeError}` : "")
           }
         >
-          <Switch label="Continue when the limit resets" checked={resumeAtReset} disabled={savingResume} onChange={(next) => void changeResume(next)} />
+          <SettingCheckbox
+            label="Continue when the limit resets"
+            checked={resumeAtReset}
+            disabled={savingResume}
+            onChange={(next) => void changeResume(next)}
+          />
         </Row>
       )}
     </Group>
@@ -2267,7 +2336,7 @@ function LinearSettings() {
   return (
     <div data-linear-settings data-linear-connected={status?.connected ? "true" : "false"} className="divide-y divide-line">
       <Row label={LINEAR_TITLE} description={LINEAR_HINT}>
-        <Switch label={LINEAR_TITLE} checked={enabled === true} onChange={(next) => void changeEnabled(next)} />
+        <SettingCheckbox label={LINEAR_TITLE} checked={enabled === true} onChange={(next) => void changeEnabled(next)} />
       </Row>
       {enabled &&
         linearWorkspaces(status).map((workspace) => (
@@ -2283,7 +2352,7 @@ function LinearSettings() {
         ))}
       {enabled && status?.connected && moveToStarted !== null && (
         <Row label={LINEAR_MOVE_TO_STARTED_TITLE} description={LINEAR_MOVE_TO_STARTED_HINT}>
-          <Switch label={LINEAR_MOVE_TO_STARTED_TITLE} checked={moveToStarted} onChange={(next) => void changeMoveToStarted(next)} />
+          <SettingCheckbox label={LINEAR_MOVE_TO_STARTED_TITLE} checked={moveToStarted} onChange={(next) => void changeMoveToStarted(next)} />
         </Row>
       )}
       {enabled && status && (

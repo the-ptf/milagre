@@ -56,6 +56,7 @@ function milagreInstructions(tldrEnabled = true, workspaceInstructions = "", { s
     "Milagre folds your thinking away and the user rarely opens it. Anything they need to read (an answer, findings, the reason behind a question) goes in your reply text, written before you ask a question or end the turn. Never leave a summary or a conclusion meant for the user only in your thinking: if you catch yourself drafting one there, write it as reply text before the next tool call.",
     "When you need the user to choose between options, ask with your question tool if you have one (AskUserQuestion or request_user_input); otherwise ask in your reply as a short numbered list.",
     "The milagre tools named below work only when they are in your tool list. If one is missing, skip the instructions that need it and tell the user what you would have done with it.",
+    "Secrets: use milagre request_secret. Read its file only inside commands; never print it.",
     "Tasks: for work with several steps, write the plan with milagre tasks_set (nested up to 3 levels), mark each subtask in_progress then completed with task_update as you go, and call phase_set when the work moves to a new phase (start, plan, build, test, review, merge, release, done). The user follows these in the Chat's Tasks pill. Keep one list: use your own todo or plan tool only when the milagre task tools are missing, and the pill shows that list instead.",
     linksInstructions(sharedLink),
     "Linear: when you have the milagre linear_issue, linear_search and linear_file tools, Milagre is already signed in to the user's Linear workspaces. Read issues, comments and uploaded images with them, not with a Linear MCP, connector or the Linear CLI. If one says a workspace isn't connected, tell the user to add it in Milagre's Settings › Connections › Linear.",
@@ -76,7 +77,7 @@ const MILAGRE_INSTRUCTIONS = milagreInstructions();
 function hostNetworkInstructions({ name, addresses = [] } = {}) {
   if (!addresses.length) return "";
   const [first] = addresses;
-  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another Mac through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, instead of a localhost one: that link opens on this computer too. Milagre points localhost links in your replies at this computer for a user on another device.`;
+  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another computer through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, instead of a localhost one: that link opens on this computer too. Milagre points localhost links in your replies at this computer for a user on another device.`;
 }
 
 // The system prompt of an analysis-only advisor (advisors.cjs). It has only the read tools it is given, so it gets none
@@ -114,7 +115,10 @@ const RESUME_FAILED_MESSAGE =
 // What a turn fails with when an agent's CLI can't run it. Each names the fix; the next message checks again.
 // Claude and Codex are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
 // instructions point at Settings, not at a shell command.
-const INSTALL_COMMANDS = { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "npm install -g @openai/codex" };
+const INSTALL_COMMANDS =
+  process.platform === "win32"
+    ? { claude: "irm https://claude.ai/install.ps1 | iex", codex: "irm https://chatgpt.com/codex/install.ps1 | iex" }
+    : { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" };
 const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update" };
 const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login" };
 const SETTINGS_ACCOUNTS = "Milagre Settings \u2192 Accounts";

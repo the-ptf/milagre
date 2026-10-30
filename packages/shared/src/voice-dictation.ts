@@ -3,6 +3,17 @@
 export const RECORDING_LIMIT_SECONDS = 300;
 export const METERING_INTERVAL_MS = 80;
 
+export type DictationActionPreference = "paste" | "send";
+export const DICTATION_ACTION_OPTIONS: { value: DictationActionPreference; label: string; description: string }[] = [
+  { value: "paste", label: "Paste text", description: "Edit, then send." },
+  { value: "send", label: "Send now", description: "No review step." },
+];
+
+/** Existing users and unreadable preferences keep the transcript in the composer. */
+export function parseDictationAction(value: unknown): DictationActionPreference {
+  return value === "send" ? "send" : "paste";
+}
+
 export type Selection = { start: number; end: number };
 
 export type DictationPhase = "idle" | "preparing" | "recording" | "transcribing";

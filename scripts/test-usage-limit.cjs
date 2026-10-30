@@ -251,22 +251,25 @@ async function browserChecks(base) {
     await open("reset");
     assert.equal(await evaluate('document.querySelector("[data-limit-reset-divider]").textContent'), "Continued after the usage limit reset");
 
-    // Accounts > Usage limits: the Mac-owned switch reads off, saves through the bridge.
+    // Accounts > Usage limits: the Mac-owned checkbox reads off, saves through the bridge.
     await window.loadURL(`${base}?scenario=settings`);
     const toggle =
-      'document.querySelector(\'[role="switch"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
+      'document.querySelector(\'[role="checkbox"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
     await waitFor(`!!${toggle}`);
     assert.match(await evaluate("document.body.textContent"), /move its Project to the next signed-in account and continue/);
     await evaluate(`${toggle}.click()`);
     await waitFor("JSON.stringify(window.autoSaves) === '[true]'");
     await waitFor(`${toggle}.getAttribute("aria-checked") === "true"`);
     await screenshot("setting-on");
-    const resumeToggle = 'document.querySelector(\'[role="switch"][aria-label="Continue when the limit resets"]\')';
+    const resumeToggle = 'document.querySelector(\'[role="checkbox"][aria-label="Continue when the limit resets"]\')';
     await waitFor(`!!${resumeToggle}`);
     assert.equal(await evaluate(`${resumeToggle}.getAttribute("aria-checked")`), "true");
     await evaluate(`${resumeToggle}.click()`);
     await waitFor("JSON.stringify(window.resumeSaves) === '[false]'");
     await waitFor(`${resumeToggle}.getAttribute("aria-checked") === "false"`);
+    await evaluate(`${resumeToggle}.click()`);
+    await waitFor("JSON.stringify(window.resumeSaves) === '[false,true]'");
+    await waitFor(`${resumeToggle}.getAttribute("aria-checked") === "true"`);
 
     assert.deepEqual(errors, []);
     console.log(

@@ -16,6 +16,7 @@ import { useApplyTheme } from '/src/lib/settings';
 import { useApplyOtherComputers } from '/src/lib/computers';
 import '/src/styles.css';
 window.enabledCalls = [];
+window.computersEnabled = false;
 // Chimes record what would play instead of making noise.
 window.played = [];
 HTMLMediaElement.prototype.play = function () { window.played.push(this.src.split('/').pop().split('?')[0]); return Promise.resolve(); };
@@ -35,6 +36,7 @@ window.milagre = {
   listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   onPhoneStatus: () => () => {},
+  readComputerResources: async () => ({ memory: { total: 16 * 1024 ** 3, available: 8 * 1024 ** 3, milagre: 1024 ** 3 }, disk: null }),
   listDevices: async () => [],
   acknowledgeDevices: async () => {},
   listRecentProjects: async () => [],
@@ -56,7 +58,10 @@ window.milagre = {
     revokeSavedPageShare: async ({ id }) => { window.shareCalls.push(["revoke", id]); window.savedShare = { ...window.savedShare, revoked: true }; },
     pageShares: async () => { throw new Error("No Chat exists"); },
   },
-  computers: { setEnabled: async (on) => void window.enabledCalls.push(on) },
+  computers: {
+    list: async () => ({ thisMac: "test-computer", computers: [], enabled: window.computersEnabled }),
+    setEnabled: async (on) => { window.enabledCalls.push(on); window.computersEnabled = on; },
+  },
 };
 function Fixture() {
   const [section, setSection] = useState('appearance');
@@ -103,7 +108,7 @@ async function browserChecks() {
     await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(label)}).click()`);
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === ${JSON.stringify(label)}`);
   };
-  const switches = () => evaluate(`[...document.querySelectorAll('main [role="switch"]')].map((s) => s.getAttribute("aria-label"))`);
+  const switches = () => evaluate(`[...document.querySelectorAll('main [data-setting-checkbox]')].map((s) => s.getAttribute("aria-label"))`);
   try {
     await window.loadURL(process.argv[2]);
     // Appearance: every control is a menu; picking a size saves it and the preview follows; fonts draw in their own face.
@@ -256,7 +261,7 @@ async function browserChecks() {
     await pick("Expanded");
     await waitFor(`${region("usage")}.dataset.previewUsage === "expanded"`);
     await openSection("Experimental");
-    await waitFor(`!!document.querySelector('main [role="switch"][aria-label="Bots"]')`);
+    await waitFor(`!!document.querySelector('main [role="checkbox"][aria-label="Bots"]')`);
     // Routines have no switch: every computer runs them.
     await delay(300);
     assert.deepEqual(
@@ -280,7 +285,7 @@ async function browserChecks() {
       true,
     );
     await evaluate(`${babysitRow}.click()`);
-    await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=switch]")`);
+    await waitFor(`!!document.querySelector("main [data-babysit-prs-page] [role=checkbox]")`);
     assert.equal(await evaluate(`document.querySelectorAll("main h1").length`), 1, "the page's title replaces Experimental's");
     assert.equal(await evaluate(`document.querySelector("main h1").textContent`), "ExperimentalBabysit PRs");
     assert.deepEqual(await switches(), ["Babysit new PRs", "Resolve threads it answered"]);
@@ -310,8 +315,8 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('main [data-babysit-level="3"]').textContent.includes("Default")`), true);
     assert.equal(await evaluate(`document.querySelector('main [role="radio"][aria-checked="true"]').value`), "3");
     // Switches, chips, levels and stop rules save at once; a number rule sends its whole object.
-    await evaluate(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').click()`);
-    await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "true"`);
+    await evaluate(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').click()`);
+    await waitFor(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "true"`);
     await evaluate(`[...document.querySelectorAll('main [aria-pressed]')].find((b) => b.textContent === "Branch behind base").click()`);
     await evaluate(`document.querySelector('main [data-babysit-level="4"]').click()`);
     await waitFor(`document.querySelector('main [role="radio"][aria-checked="true"]')?.value === "4"`);
@@ -343,7 +348,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.babysitSaves[6]"), { ownRuleText: "The PR gets the do-not-merge label" });
     await screenshot("babysit-prs");
     // A save the host refuses goes back and says why; typed text stays and shows Not saved.
-    const resolveSwitch = `document.querySelector('main [role="switch"][aria-label="Resolve threads it answered"]')`;
+    const resolveSwitch = `document.querySelector('main [role="checkbox"][aria-label="Resolve threads it answered"]')`;
     const pageText = `document.querySelector("main [data-babysit-prs-page]").textContent`;
     await evaluate(`window.failBabysitSave = true; ${resolveSwitch}.click()`);
     await waitFor(`${pageText}.includes("Daemon is not running")`);
@@ -362,7 +367,7 @@ async function browserChecks() {
     await typeInto('main textarea[aria-label="Your instructions"]', "Half typed");
     const savesBeforeReset = await evaluate("window.babysitSaves.length");
     await evaluate(`document.querySelector("main [data-babysit-reset]").click()`);
-    await waitFor(`document.querySelector('main [role="switch"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
+    await waitFor(`document.querySelector('main [role="checkbox"][aria-label="Babysit new PRs"]').getAttribute("aria-checked") === "false"`);
     await waitFor(`document.querySelector('main textarea[aria-label="Your instructions"]').value === ""`);
     await delay(700);
     assert.equal(await evaluate(`document.querySelector('main textarea[aria-label="Your instructions"]').value`), "", "the reset text stays");
@@ -388,7 +393,7 @@ async function browserChecks() {
     // Designs are always on now: Settings › Milagre has no switch, only Published pages, above the Milagre MCP.
     await openSection("Milagre");
     await waitFor(`!!document.querySelector("main [data-slot=published-pages-setting]")`);
-    assert.equal(await evaluate(`!!document.querySelector('main [role="switch"][aria-label="Designs"]')`), false, "Designs can't be turned off");
+    assert.equal(await evaluate(`!!document.querySelector('main [role="checkbox"][aria-label="Designs"]')`), false, "Designs can't be turned off");
     await screenshot("milagre");
     assert.equal(
       await evaluate(`[...document.querySelectorAll("main h2")].map((h) => h.textContent).join("|")`).then((t) =>
@@ -411,7 +416,7 @@ async function browserChecks() {
     await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
     await waitFor(`!${shareDialog}`);
     await openSection("Experimental");
-    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';
+    const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=checkbox][aria-label=Bots]")';
     await waitFor(`${botsSwitch} && !${botsSwitch}.disabled`);
     assert.equal(await evaluate(`${botsSwitch}.getAttribute("aria-checked")`), "false", "Bots is off by default");
     assert.equal(
@@ -434,17 +439,17 @@ async function browserChecks() {
       );
     }
     await openSection("Devices");
-    const other = `document.querySelector('main [role="switch"][aria-label="Drive other computers"]')`;
+    const other = `document.querySelector('main [role="checkbox"][aria-label="Drive other computers"]')`;
     await waitFor(`!!${other}`);
     assert.equal(await evaluate(`${other}.getAttribute("aria-checked")`), "false", "Drive other computers is off by default");
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false]'`);
+    assert.deepEqual(await evaluate("window.enabledCalls"), [], "opening Settings preserves the host's saved choice");
     await screenshot("devices-other-computers");
     await evaluate(`${other}.click()`);
     await waitFor(`${other}.getAttribute("aria-checked") === "true"`);
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true]'`);
+    await waitFor(`JSON.stringify(window.enabledCalls) === '[true]'`);
     await screenshot("other-computers-on");
     await evaluate(`${other}.click()`);
-    await waitFor(`JSON.stringify(window.enabledCalls) === '[false,true,false]'`);
+    await waitFor(`JSON.stringify(window.enabledCalls) === '[true,false]'`);
     await openSection("Notifications");
     assert.deepEqual(
       await switches(),

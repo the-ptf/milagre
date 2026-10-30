@@ -192,6 +192,30 @@ test("a persisted usage-limit continuation resumes its unopened Project once on 
   await assert.rejects(restored.invoke("chat:limit-resume:cancel", [opened.path, -1, pending.sendId]), /Open this Chat/);
 });
 
+test("Stop cancels a pending usage-limit continuation and it stays cancelled after restart", async (t) => {
+  const { make, projects, created, events, send } = await fixture(t);
+  let clock = Date.now();
+  const limits = { now: () => clock, timers: { setInterval: () => ({ unref() {} }), clearInterval() {} } };
+  const runtime = make({ limitResume: limits });
+  const opened = await runtime.openProject(projects[0]);
+  const sessionId = Object.values(opened.state.sessions)[0].id;
+  await send(runtime, opened.path, sessionId);
+  await until(() => created[0]?.turnActive);
+  created[0].limit(new Date(clock + 120_000).toISOString());
+  await until(() => events.some((event) => event.channel === "project:state" && event.payload.state.sessions[sessionId]?.limitResume));
+  await runtime.invoke("agent:interrupt", [`${opened.path}#${sessionId}`]);
+  await runtime.flush();
+  assert.equal((await runtime.invoke("project:snapshot", [opened.path])).state.sessions[sessionId].limitResume, undefined);
+  await runtime.close();
+  clock += 180_000;
+  const count = created.length;
+  const restored = make({ limitResume: limits });
+  const state = (await restored.openProject(opened.path)).state;
+  assert.equal(state.sessions[sessionId].limitResume, undefined);
+  assert.equal(created.length, count, "the cancelled schedule must not start a provider after its deadline");
+  assert.equal(state.messages.filter((message) => message.context?.kind === "limit-reset").length, 0);
+});
+
 test("a named Link has its own account, independent of members and viewed Project", async (t) => {
   const { make, projects, saved, save, ids, profile, created } = await fixture(t);
   const first = make();

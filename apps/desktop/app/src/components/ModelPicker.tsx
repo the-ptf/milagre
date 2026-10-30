@@ -249,7 +249,7 @@ function SettingRow({
   return (
     <button
       type="button"
-      role="switch"
+      role="checkbox"
       aria-label={label}
       aria-checked={on}
       onClick={() => onChange(!on)}

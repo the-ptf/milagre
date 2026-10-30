@@ -5,6 +5,7 @@ import { keepComputers, replaceComputerEntries } from "./agent-runs";
 import { bridgeFor } from "./computer-bridge";
 import { listensBeyondLoopback, reachableUrl } from "@milagre/shared/loopback-url";
 import { computerAddressOf, computerNameOf, useComputers } from "./computers";
+import { thisComputer } from "./shortcut-hints.ts";
 
 /**
  * Where a port opens in the browser. This Mac's at localhost (a server bound only to IPv6 loopback needs its address);
@@ -22,7 +23,7 @@ export const LoopbackPortsContext = createContext<ReadonlySet<number>>(new Set()
 
 /** Why another computer's port has no link here, for its title. */
 export function unreachablePortReason(port: AgentPort, computer: string): string {
-  if (!computerAddressOf(port.computerId)) return `Listening on ${computer}, which this Mac reaches through the relay only`;
+  if (!computerAddressOf(port.computerId)) return `Listening on ${computer}, which ${thisComputer} reaches through the relay only`;
   return `Listening on ${computer}'s localhost only. Start it on 0.0.0.0 to open it from here`;
 }
 

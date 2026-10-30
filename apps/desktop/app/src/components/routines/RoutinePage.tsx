@@ -26,7 +26,7 @@ import {
 } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import Tooltip from "../primitives/Tooltip";
 import { routineProblem } from "./RoutineRow";
 import { Chip, Segmented } from "./RoutineChips";
@@ -36,6 +36,7 @@ import { routineIcon } from "./routine-icon";
 import { computerOfRoutine, refreshRoutines, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { localZone } from "./use-routine-form";
+import { thisComputer } from "../../lib/shortcut-hints";
 
 const toolButton =
   "flex size-[26px] shrink-0 items-center justify-center rounded-[7px] text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent";
@@ -159,7 +160,7 @@ export function RoutinePage({
             <RoutineStatusPill on={routine.enabled} />
           </div>
           <div data-routine-toolbar className="flex h-[34px] shrink-0 items-center gap-1 rounded-[10px] border border-line bg-surface pr-1 pl-2">
-            <Switch
+            <SettingCheckbox
               label={`${routine.name} on`}
               checked={routine.enabled}
               onChange={(on) => act(() => bridgeForKey(routine.id).updateRoutine(routine.id, { enabled: on }))}
@@ -222,7 +223,7 @@ export function RoutinePage({
           <div data-routine-created className="mt-4 space-y-2 rounded-xl border border-line px-4 py-3">
             <div className="flex items-start gap-2">
               <p className="min-w-0 flex-1 text-[12.5px] text-ink-2">
-                Routine created. Send POST requests to this URL. While this Mac is away, the relay holds them for up to 24 hours.
+                Routine created. Send POST requests to this URL. While {thisComputer} is away, the relay holds them for up to 24 hours.
               </p>
               <button
                 type="button"

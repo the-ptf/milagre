@@ -28,6 +28,7 @@ const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
+const { dbFile: chatDbFile, readChatRows } = require("./chat-db.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
 const { ClaudeSession } = require("./agents/claude-provider.cjs");
@@ -75,7 +76,7 @@ const { isIssueKey } = require("./linear/links.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { archiveFinishedSubagents, archiveSubagent, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
+const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
@@ -83,7 +84,7 @@ const { saveProjectState, readProjectState, compactProjectState, stateFile } = r
 const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
 const { agentFolders } = require("./agent-folders.cjs");
 const { createOnboardingProjects } = require("./onboarding-projects.cjs");
-const { activeWorktrees, inspectProject, mainCheckoutWorktrees, resolveProject } = require("./project-identity.cjs");
+const { activeWorktrees, inspectProject, mainCheckoutWorktrees, outsideGit, resolveProject } = require("./project-identity.cjs");
 const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
@@ -91,8 +92,12 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createComputerResources } = require("./computer-resources.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
+const { createDoneSettings } = require("./done-settings.cjs");
+const { createDoneSweep } = require("./done-sweep.cjs");
+const { doneDue } = require("@milagre/shared/done");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
@@ -106,6 +111,7 @@ const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
 const { createChatsHome } = require("./chats-home.cjs");
+const { isFolderChatsHome, createFolderChat } = require("./chats-home-folders.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
 
@@ -169,7 +175,7 @@ function createRuntime(options) {
     try {
       common = await git.commonDir(real);
     } catch (error) {
-      if (error.code !== 128 || !/not a git repository/i.test(error.stderr ?? "")) throw error;
+      if (!(error.code === 128 && /not a git repository/i.test(error.stderr ?? "")) && !(error.missing && (await outsideGit(real)))) throw error;
     }
     // Another open of this path may have finished while git was running.
     if (projectOwners.has(real)) {
@@ -246,7 +252,7 @@ function createRuntime(options) {
     const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
     const point = [request?.x, request?.y];
     if (!chatId || !text) throw new Error("Write the comment first.");
-    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap an element of the page.");
+    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap the page to place a comment pin.");
     const scope = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
@@ -301,6 +307,10 @@ function createRuntime(options) {
   commands.handle("browser:list", (_context, request) => browsers.list(request));
   commands.handle("browser:attach", (_context, request) => browsers.attach(request));
   commands.handle("browser:detach", (_context, request) => browsers.detach(request));
+  commands.handle("browser:open-page", (context, request) => {
+    if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
+    return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
+  });
   // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
   commands.handle("browser:panel-pages", (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
@@ -576,7 +586,11 @@ function createRuntime(options) {
     let state = await updateProject(
       projectPath,
       async (current) => {
-        if (!git && Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath))
+        if (
+          !git &&
+          !(chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) &&
+          Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath)
+        )
           throw new Error(`${projectName(projectPath)} is no longer a Git repository, so its Worktree Chats can't open. Restore its .git folder.`);
         const next = reconcileState(current, projectName(projectPath), discovered, owned);
         return migrateImages(projectPath, markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live))));
@@ -938,6 +952,14 @@ function createRuntime(options) {
     await ownProject(projectPath);
     await environmentReady;
     // A Chat started from a Linear issue reads the issue again, never the renderer's copy. A missing issue creates nothing.
+    if (chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) {
+      if (issueKey) throw new Error("A Chat without a Project cannot be linked to a Linear issue.");
+      event?.localMcp?.assertActive();
+      const folder = await createFolderChat(projectPath);
+      const project = await readProject(projectPath);
+      const worktree = Object.values(project.state.worktrees).find((item) => item.path === folder);
+      return { project, worktreeId: worktree.id };
+    }
     const issue = typeof issueKey === "string" ? await readLinearIssue(issueKey, issueWorkspace) : null;
     const suffix = newSuffix();
     const branch = issue ? await issueBranch({ projectPath, issue, suffix }) : undefined;
@@ -1090,6 +1112,7 @@ function createRuntime(options) {
   let routines = null;
   // Opens a Babysit Heartbeat for a PR a Chat creates; set up with the Babysit settings below.
   let babysitWatch = null;
+  let chatSecrets = null;
   function publishAgentEvent(chatId, event, state, seq) {
     if (state) limitResume?.trackState(projectOfKey(chatId), state);
     if (event.limitResumeAborted) {
@@ -1104,6 +1127,7 @@ function createRuntime(options) {
     babysitWatch?.observe(chatId, event);
     if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type))
       void track(() => checkpoints.finish(chatId), background).catch((error) => console.warn("Checkpoint end capture failed:", error.message));
+    if (["turn-completed", "turn-failed", "turn-cancelled"].includes(event.type)) chatSecrets?.cancel(chatId);
     options.observeAgentEvent?.(chatId, event);
     // A turn the plan's usage limit stopped marks its account, and may move the Chat to another (auto-switch).
     if (event.type === "turn-failed" && event.limit && limitSwitch) {
@@ -1416,6 +1440,8 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  const computerResources = createComputerResources({ dataDir, worktreeRoot: worktreeRoot() });
+  commands.handle("computer:resources:read", () => computerResources.read());
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());
@@ -1427,6 +1453,10 @@ function createRuntime(options) {
   commands.handle("babysit:settings:read", () => babysitSettings.read());
   commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
   babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
+  // Done: how long a Chat stays in the Done list before the sweep below archives it.
+  const doneSettings = createDoneSettings({ file: path.join(dataDir, "done.json"), emit });
+  commands.handle("done:settings:read", () => doneSettings.read());
+  commands.handle("done:settings:save", (_event, patch) => doneSettings.save(patch));
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),
@@ -1646,8 +1676,10 @@ function createRuntime(options) {
     // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
     // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
     // directly and never keep one.
-    if (rest.sessionId != null)
+    if (rest.sessionId != null) {
       await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
+      await reopenDoneChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't reopen a Done Chat:", error.message));
+    }
     return { sessionId };
   }
   // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
@@ -1723,10 +1755,46 @@ function createRuntime(options) {
     if (!keepable((await scopeStates.get(projectPath)).sessions[sessionId])) return;
     await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
   }
-  async function patchChat(projectPath, sessionId, patch) {
+  // `done` marks a Chat Done with this host's clock, so the countdown and the sweep agree whichever client asked; a phone's
+  // clock may be off. Reopening it, or bringing it back from the archive, takes it out of the Done list.
+  function sessionPatch(patch) {
+    if (!patch || typeof patch !== "object") return {};
+    const { done, done_at: _clientClock, ...rest } = patch;
+    if (done === true) return { ...rest, done_at: Date.now() };
+    if (done === false || rest.archived === false) return { ...rest, done_at: undefined };
+    return rest;
+  }
+  async function patchChat(projectPath, sessionId, raw) {
     if (!scopeStates.has(projectPath)) return;
-    if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
+    const patch = sessionPatch(raw);
+    if (patch.archived) return archiveChat(projectPath, sessionId, patch);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
+  // Writing to a Done Chat takes it back to the list: the work it was Done with goes on. Only a Done one is written.
+  async function reopenDoneChat(projectPath, sessionId) {
+    if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.done_at) return;
+    await editProject(projectPath, (state) => patchSession(state, sessionId, { done_at: undefined }), { chats: [] });
+  }
+  // The sweep's archive of one Done Chat: read again and archived only while it is still due, then its worktree goes the
+  // way the archive menu's does (archive.mjs archiveMode): only one Milagre made, no other Chat uses and git says holds
+  // nothing unsaved, never forced. Anything else keeps its worktree, as an archive with unsaved work does.
+  async function archiveDoneChat(scope, sessionId, retentionHours) {
+    if (!scopeStates.has(scope)) return false;
+    const session = (await scopeStates.get(scope)).sessions[sessionId];
+    if (!doneDue(session, retentionHours)) return false;
+    await archiveChat(scope, sessionId, { archived: true, unread: false });
+    if (isLinkScopeKey(scope) || !states.has(scope)) return true;
+    const state = await states.get(scope);
+    const worktree = state.worktrees[session.worktree_id];
+    if (!worktree?.base || worktree.path === scope) return true;
+    if (Object.values(state.sessions).some((other) => other.worktree_id === worktree.id && !other.archived && other.id !== session.id)) return true;
+    await environmentReady;
+    const status = await worktreeStatus(worktree.path, worktree.base).catch(() => null);
+    if (!status?.removable) return true;
+    await handlers
+      .get("worktree:remove")({}, worktree.path, { projectPath: scope, chatId: `${scope}#${sessionId}`, seen: status })
+      .catch((error) => console.warn("Milagre kept a Done Chat's worktree:", error.message));
+    return true;
   }
   // Pinning, naming or restoring a Chat from the archive is the user taking a Run Chat over (a restored one would be
   // hidden, out of every list, and archived again by the next sweep). An agent's chat_update calls patchChat itself and
@@ -1735,6 +1803,16 @@ function createRuntime(options) {
     await patchChat(projectPath, sessionId, patch);
     if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
+  });
+  commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
+    const chatId = `${projectPath}#${sessionId}`;
+    await existingChat("deleting it")(chatId);
+    await stopChatWork(chatId);
+    await worktreeSetups.cancel(chatId);
+    await agents.closeChat(chatId);
+    await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
+    await artifacts.removeChat(chatId).catch(() => {});
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>
@@ -1794,6 +1872,8 @@ function createRuntime(options) {
   commands.handle("agent:cli-status", async (_event, scope) => agentCliStatus(await validateAccountScope(scope, true)));
   commands.handle("agent:update-cli", async (_event, provider, targetVersion) => {
     if (!PROVIDERS.includes(provider)) throw new Error("Unknown provider.");
+    // Optional array arguments arrive as null after the daemon's JSON transport.
+    targetVersion ??= undefined;
     if (targetVersion !== undefined && !releaseVersion(targetVersion)) throw new Error("Invalid provider version.");
     if (cliUpdates.has(provider)) return cliUpdates.get(provider);
     const pending = (async () => {
@@ -1876,6 +1956,7 @@ function createRuntime(options) {
   });
 
   async function stopChat(chatId) {
+    chatSecrets?.cancel(chatId);
     const cancellingResume = chats.cancelLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
     void track(() => cancellingResume, background).catch((error) => console.warn("Milagre couldn't save a cancelled continuation:", error.message));
     // Stop the report before advisor cancellation can make an idle parent look complete. Provider teardown can be slow.
@@ -1899,6 +1980,8 @@ function createRuntime(options) {
   // The message is queued before the answers go out, so the agent's next reply lands below it, but the agent doesn't wait
   // for it: the Project's queue holds every Chat's changes, and a busy one kept the card up for seconds.
   commands.handle("agent:answer-question", async (_event, { chatId, requestId, answers, summary } = {}) => {
+    // Route even stale secret ids here: a late/replayed value must never reach chat persistence.
+    if (require("./chat-secrets.cjs").isSecretRequest(requestId)) return chatSecrets.answer(chatId, requestId, answers);
     const recorded =
       answers && typeof summary === "string" && summary && typeof chatId === "string" && scopeStates.has(projectOfKey(chatId))
         ? chats.recordAnswers(chatId, summary, { requestId, answers }).catch((error) => {
@@ -2008,6 +2091,11 @@ function createRuntime(options) {
     read: (chatId) => chats.plan(chatId),
     update: (chatId, change) => chats.updatePlan(chatId, change),
   });
+  chatSecrets = require("./chat-secrets.cjs").createChatSecrets({
+    directory: path.join(dataDir, "chat-secrets"),
+    send: (chatId, event) => chats.receive(chatId, event),
+    active: (chatId) => Boolean(chats.runs[chatId]) && !closing,
+  });
   // Delegations to another paired computer's Projects (Settings > Experimental, spec 2026-10-23). The daemon supplies its
   // computers (`remoteComputers`): list() -> [{ id, name, online }], invoke(id, method, args), thisMac(), and
   // onEvent(listener) / onOnline(listener) / onRemoved(listener) for their events, their coming back and their removal.
@@ -2070,6 +2158,7 @@ function createRuntime(options) {
       (await advisorStore.read(chatId)).some((record) => record.completions?.some((result) => ["pending", "sending"].includes(result.delivery))),
     extraTools: (chatId) => [
       ...planTools.definitions(chatId),
+      ...chatSecrets.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
@@ -2352,7 +2441,9 @@ function createRuntime(options) {
 
   commands.handle("project:current", async () => {
     const target = await launchProject(recentProjects(), cwd);
-    return target ? openProject(target) : null;
+    if (target) return openProject(target);
+    // Onboarding skipped to a Chat without a Project: that Chat opens again, instead of onboarding.
+    return (await chatsHome.exists()) ? openProject(chatsHome.path, { remember: false, register: false }) : null;
   });
 
   // Chats a quit stopped continue on launch in every recent project, not only the one on screen.
@@ -2675,8 +2766,20 @@ function createRuntime(options) {
     const read = { withState: options?.withState === true };
     return options?.marks === true ? scopeStates.messageMarks(scope, read) : scopeStates.allMessages(scope, read);
   });
-  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too.
+  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too. A Chat of a
+  // Project this host knows but hasn't opened (another computer's window or the phone opening it, a background copy) is
+  // read from its chats.db as it is: opening the Project would hold the read behind Git and resume its stopped turns, and
+  // nothing of an unopened Project is held in memory to miss.
   commands.handle("chat:messages", async (_event, scope, chatId, options) => {
+    if (typeof scope === "string" && !isLinkScopeKey(scope) && !states.has(scope) && Number.isSafeInteger(chatId) && existsSync(chatDbFile(scope))) {
+      const known = chatsHome.isHome(scope) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === scope);
+      if (known && !states.has(scope))
+        return chatPage(
+          readChatRows(scope, [chatId]).map((row) => row.message),
+          chatId,
+          options ?? {},
+        );
+    }
     checkReadable(scope);
     return chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, options ?? {});
   });
@@ -2917,9 +3020,20 @@ function createRuntime(options) {
   const uploadSweepTimer = setInterval(sweepUploads, 24 * 60 * 60 * 1000);
   uploadSweepTimer.unref();
   void sweepUploads();
+  // Done Chats past their retention are archived once a minute, in every open Project and Link (bots' homes have none).
+  const doneSweep = createDoneSweep({
+    settings: doneSettings,
+    scopes: () => scopeStates.projects().filter((key) => !bots.isHome(key)),
+    heldState,
+    archive: (scope, sessionId, retentionHours) => track(() => archiveDoneChat(scope, sessionId, retentionHours), background),
+    isClosing: () => closing,
+  });
+  doneSweep.start();
 
   function close() {
     clearInterval(uploadSweepTimer);
+    chatSecrets?.close();
+    void doneSweep.stop();
     closing = true;
     for (const chatId of chats.limitResumeFlights.keys()) chats.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId), "shutdown");
     // A comment already on its way goes back to its queue before the rest closes.
@@ -2943,6 +3057,7 @@ function createRuntime(options) {
       accounts.close();
       keybindings.close();
       keepAwake.quit();
+      computerResources.close();
       ports.close();
       diffs.close();
       if (!states.closed) {
@@ -2982,6 +3097,8 @@ function createRuntime(options) {
       });
     },
     disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
+    /** Runs the Done sweep now instead of at its next minute (tests); resolves with the Chats it archived. */
+    sweepDone: () => doneSweep.sweep(),
     /** A bot's thread, or a Chat a bot opened and still runs: its completion tells no one but the bot. */
     isQuietChat: (chatId) => isQuietChat(bots.snapshot(), chatId),
     openProject: (projectPath, options) => accept(() => openProject(projectPath, options)),

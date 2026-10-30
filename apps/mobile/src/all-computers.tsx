@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } fro
 import { AppState } from "react-native";
 import { createAllComputersStore, type HostView, type ViewPolicy } from "./all-computers-store";
 import { listArchivedChats } from "./chat-list-archived";
+import { warmChatPages } from "./chat-pages";
 import { createClient } from "./client";
 import { savedChatDefaults, savedFoldedProjects, savedHiddenProjects, savedProjectOrder } from "./hosts-native";
 import type { SavedHost } from "./hosts-store";
@@ -21,6 +22,8 @@ export const allComputers = createAllComputersStore({
   random: Math.random,
   setTimer: (run, ms) => setTimeout(run, ms),
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  warm: (client, chats, limit) =>
+    client.chatMessages ? warmChatPages({ url: client.url, chatMessages: client.chatMessages }, chats, limit) : Promise.resolve(),
 });
 AppState.addEventListener("change", (state) => allComputers.setForeground(state === "active"));
 
