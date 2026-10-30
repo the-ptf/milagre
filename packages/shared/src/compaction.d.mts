@@ -12,3 +12,5 @@ export function compactionMessage(usage?: ContextUsage | null): {
   files: string[];
   context: CompactionContext;
 };
+
+export function compactionContext(message: { context?: unknown } | undefined): CompactionContext | null;

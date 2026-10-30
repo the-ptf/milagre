@@ -13,13 +13,15 @@ export interface RangeSliderProps extends SliderOptions {
   /** A tick dot at each step. */
   showTicks?: boolean;
   /** A slim position track for paging through a long list. */
-  variant?: "default" | "position";
+  variant?: "default" | "position" | "context";
+  secondary?: SliderOptions;
   className?: string;
 }
 
 /** After beUI's Range Slider: tick dots and a vertical-bar handle that bounces as it lands on each
  * step. Drag anywhere on the track or use the arrow keys; reduced motion drops the springs. */
-export function RangeSlider({ showTicks = true, variant = "default", className = "", ...options }: RangeSliderProps) {
+export function RangeSlider({ showTicks = true, variant = "default", className = "", secondary, ...options }: RangeSliderProps) {
+  const second = useSlider(secondary ?? options);
   const reduce = useReducedMotion();
   const { percent, dragging, min, max, step, trackProps, handleProps } = useSlider(options);
   const [trackWidth, setTrackWidth] = useState(176);
@@ -50,6 +52,22 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   // Floor, so a range the step does not divide stops its dots at the last whole step.
   const steps = Math.floor(Number(((max - min) / step).toFixed(6)));
   const ticks = showTicks && steps > 0 && steps <= 50 ? Array.from({ length: steps + 1 }, (_, i) => Number((min + i * step).toFixed(6))) : [];
+
+  if (variant === "context") {
+    return (
+      <div className={`relative h-12 ${className}`}>
+        {[{ trackProps, handleProps, percent }, ...(secondary ? [second] : [])].map((slider, index) => (
+          <div key={index} {...slider.trackProps} className="pointer-events-none absolute inset-0 touch-none">
+            <div
+              {...slider.handleProps}
+              className="pointer-events-auto absolute top-[21px] size-5 -translate-x-1/2 cursor-grab rounded-full border-[3px] bg-surface outline-none focus-visible:ring-4 focus-visible:ring-ink/20"
+              style={{ left: `${slider.percent}%`, borderColor: index ? "var(--ink)" : "var(--orange)" }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (variant === "position") {
     return (

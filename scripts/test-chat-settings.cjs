@@ -13,7 +13,10 @@ import { createRoot } from 'react-dom/client';
 import { SettingsNav, SettingsPanel } from '/src/components/Settings';
 import { ActivityBlock } from '/src/components/agents/ActivityBlock';
 import '/src/styles.css';
+let contextSettings = {buttonThreshold: 70, autoThreshold: 85, autoCompact: false};
 window.milagre = {
+  readContextSettings: async () => contextSettings,
+  saveContextSettings: async (patch) => (contextSettings = {...contextSettings, ...patch}),
   listEditors: async () => [],
   listRecentProjects: async () => [],
   listProjects: async () => [],
@@ -97,6 +100,24 @@ async function browserChecks() {
     assert.equal((await saved()).dictationAction, "paste");
     await evaluate(`${card("When dictation finishes", "Paste text")}.scrollIntoView({ block: "center" })`);
     await screenshot("chat-settings-default");
+    const contextSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show context size"]\')';
+    assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "true");
+    await evaluate(`${contextSwitch}.click()`);
+    assert.equal((await saved()).showContextSize, false, "context size visibility is saved");
+    const belowSwitch = 'document.querySelector(\'[role="checkbox"][aria-label="Show Compact below threshold"]\')';
+    assert.equal(await evaluate(`${belowSwitch}.getAttribute("aria-checked")`), "false");
+    await evaluate(`${belowSwitch}.click()`);
+    assert.equal((await saved()).compactButtonDisplay, "always", "below-threshold visibility is saved");
+    await waitFor(`document.querySelector('[aria-label="Auto compact quietly"]').disabled === false`);
+    await evaluate(`document.querySelector('[aria-label="Auto compact quietly"]').click()`);
+    await waitFor(`document.querySelector('[aria-label="Auto compact quietly"]').getAttribute("aria-checked") === "true"`);
+    await evaluate(`document.querySelector('[aria-label="Increase automatic threshold"]').click()`);
+    await waitFor(`document.querySelector('[aria-label="Auto compact threshold percentage"]').value === "86"`);
+    await screenshot("chat-settings-context");
+    await window.reload();
+    await openChat();
+    assert.equal(await evaluate(`${contextSwitch}.getAttribute("aria-checked")`), "false", "context visibility survives reload");
+    assert.equal(await evaluate(`${belowSwitch}.getAttribute("aria-checked")`), "true");
     // The arrow keys move the choice between a group's cards, as in any radio group.
     // A card takes the choice when focus lands on it, which needs the page focused.
     window.webContents.focus();

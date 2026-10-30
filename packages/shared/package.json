@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "files": [
+    "src/after-paint.ts",
     "src/chat-window-cache.ts",
     "src/display-clock.ts",
     "src/chat-history.ts",
@@ -56,10 +57,12 @@
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
     "src/genui-renderer.tsx",
+    "src/use-compaction-feedback.ts",
     "src/outbox-delivery.ts"
   ],
   "type": "module",
   "exports": {
+    "./after-paint": "./src/after-paint.ts",
     "./tool-activity": {
       "types": "./src/tool-activity.d.mts",
       "default": "./src/tool-activity.mjs"
@@ -421,6 +424,11 @@
       "types": "./src/page-picker.d.mts",
       "default": "./src/page-picker.mjs"
     },
+    "./context-settings": {
+      "types": "./src/context-settings.d.mts",
+      "default": "./src/context-settings.mjs"
+    },
+    "./use-compaction-feedback": "./src/use-compaction-feedback.ts",
     "./outbox": {
       "types": "./src/outbox.d.mts",
       "default": "./src/outbox.mjs"

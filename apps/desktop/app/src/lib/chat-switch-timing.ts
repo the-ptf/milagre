@@ -1,4 +1,5 @@
 import { preferenceStorage as localStorage } from "./preference-storage.ts";
+import { afterPaint } from "@milagre/shared/after-paint";
 // Opt-in timing of a Chat switch, from the click to the frame its transcript is on screen. Nothing about the Chat is
 // recorded. Turn it on with `localStorage.setItem("milagre.measureNavigation", "1")`, then read
 // `performance.getEntriesByName("milagre:chat-switch")`: each entry's duration is the switch, and its detail's
@@ -10,7 +11,7 @@ const EXPIRE_MS = 10_000;
 const enabled = () => typeof localStorage !== "undefined" && localStorage.getItem("milagre.measureNavigation") === "1";
 
 let pending: { key: string; start: number } | undefined;
-let frame = 0;
+let cancelPaint: (() => void) | undefined;
 // The Chat whose transcript committed last: asking for it again is no switch, and no commit would end the measure.
 let shown: string | null = null;
 
@@ -18,7 +19,7 @@ let shown: string | null = null;
 export function beginChatSwitch(key: string) {
   if (!enabled() || key === shown) return;
   pending = { key, start: performance.now() };
-  cancelAnimationFrame(frame);
+  cancelPaint?.();
 }
 
 /** The transcript on screen changed: a Chat's key, or null while none is (a new Chat, one still loading, none mounted). */
@@ -36,12 +37,11 @@ export function commitChatSwitch(key: string) {
     pending = undefined;
     return;
   }
-  frame = requestAnimationFrame(() => {
-    frame = requestAnimationFrame(() => {
-      if (pending !== sample) return;
-      pending = undefined;
-      if (performance.getEntriesByName(NAME).length >= 100) performance.clearMeasures(NAME);
-      performance.measure(NAME, { start: sample.start, end: performance.now(), detail: { commitMs: commit - sample.start } });
-    });
+  cancelPaint?.();
+  cancelPaint = afterPaint(() => {
+    if (pending !== sample) return;
+    pending = undefined;
+    if (performance.getEntriesByName(NAME).length >= 100) performance.clearMeasures(NAME);
+    performance.measure(NAME, { start: sample.start, end: performance.now(), detail: { commitMs: commit - sample.start } });
   });
 }

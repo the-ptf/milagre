@@ -1,3 +1,7 @@
+import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { useContextSettings } from "../context-settings";
+import { compactionContext } from "@milagre/shared/compaction";
+import { ShrinkIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
 import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
@@ -30,6 +34,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
+import { compactButtonState } from "@milagre/shared/chat-display";
+import { useCompactButtonDisplay, useShowContextSize } from "../chat-display-setting";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
@@ -327,6 +333,9 @@ function ChatPane({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const [showContextSize] = useShowContextSize();
+  const { settings: contextSettings } = useContextSettings();
+  const [compactButtonDisplay] = useCompactButtonDisplay();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
   // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
   const [internalBrowser] = useInternalBrowser();
@@ -610,6 +619,10 @@ function ChatPane({
   // A summary can acknowledge a send before its message page arrives. Keep what is already on screen during that read.
   const [transcript, setTranscript] = useState({ key: scrollKey, messages: loadedMessages });
   const messages = lean && historyPage.loading && !loadedMessages.length && transcript.key === scrollKey ? transcript.messages : loadedMessages;
+  const compactionFeedback = useCompactionFeedback(
+    messages.findLast((item) => compactionContext(item)),
+    scrollKey,
+  );
   if (transcript.key !== scrollKey || transcript.messages !== messages) setTranscript({ key: scrollKey, messages });
   // A saved Chat whose page is still on its way shows nothing yet, not the new-chat welcome.
   const pageLoading = lean && Boolean(params.id) && historyPage.loading && !messages.length;
@@ -1069,6 +1082,40 @@ function ChatPane({
   const branchDisabled = targetDisabled || (newWorktree && !branches?.items.length);
   const branchName = newWorktree ? base || "Choose branch" : worktree?.name || "Choose branch";
   const unavailable = session.cliStatus?.[actualProvider]?.state !== undefined && session.cliStatus[actualProvider].state !== "ready";
+  const supportsCompact = Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact;
+  const quietContext = supportsCompact && contextSettings.autoCompact;
+  const compactState = compactButtonState(compactButtonDisplay, contextUsage, supportsCompact, contextSettings.buttonThreshold, quietContext);
+  const compactQueued = chat?.queued?.find((item) => compactionContext(item));
+  const compacting = compactionContext(messages.findLast((item) => compactionContext(item)))?.status === "preparing";
+  const compactBlocked = compacting || busy || Boolean(session.error) || Boolean(chat?.archived) || unavailable;
+  const compactButton =
+    !quietContext && (compactState.visible || compactQueued || compacting) ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={compactQueued ? "Cancel queued compaction" : "Compact context"}
+        accessibilityHint={run ? "Compact after the current turn." : "Summarize this Chat to free up context."}
+        accessibilityState={{ disabled: compactBlocked }}
+        disabled={compactBlocked}
+        onPress={() =>
+          compactQueued ? void action(() => client.call("chat:queue-remove", [chatId, compactQueued.id]), true) : composer.requestCompact(chatId)
+        }
+        style={({ pressed }) => ({
+          minHeight: 44,
+          minWidth: 44,
+          flexDirection: "row",
+          gap: 4,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 8,
+          opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
+        })}
+      >
+        <Icon icon={compactQueued ? Cancel01Icon : ShrinkIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={14} />
+        <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
+          {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
+        </Text>
+      </Pressable>
+    ) : null;
   const title = chat ? chatTitle(chat, messages) : pending?.preview.session.title || "New Chat";
   // A new Chat before its first message: "Start building in <Computer / Project>" in the middle of the screen picks its Project.
   const startingChat = !params.id && !pending && !messages.length;
@@ -2425,7 +2472,7 @@ function ChatPane({
                     )}
                     {chat?.queued?.length ? (
                       <QueuedMessages
-                        items={chat.queued}
+                        items={chat.queued.filter((item) => !compactionContext(item) || chat.queueHeld)}
                         held={Boolean(chat.queueHeld)}
                         running={Boolean(run)}
                         disabled={actionBusy}
@@ -2828,6 +2875,7 @@ function ChatPane({
                                 </View>
                               </PullDown>
                               <AgentControls
+                                compact={Boolean(compactButton)}
                                 model={model}
                                 effort={preferences.effort}
                                 fastMode={preferences.fastMode}
@@ -2850,12 +2898,37 @@ function ChatPane({
                                 onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                               />
                               <View style={{ flex: 1 }} />
-                              {contextUsage && contextUsage.size > 0 && params.id && (
-                                <ContextRing
-                                  {...contextUsage}
-                                  canCompact={Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact}
-                                  onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
-                                />
+                              {!quietContext && compactionFeedback ? (
+                                <Text
+                                  accessibilityRole="text"
+                                  accessibilityLiveRegion="polite"
+                                  style={{ fontSize: 12, color: colors.greenInk, paddingHorizontal: 8 }}
+                                >
+                                  ✓ {compactionFeedback.percent}% · {compactionFeedback.freed} freed
+                                </Text>
+                              ) : (
+                                !quietContext &&
+                                (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                                  <View
+                                    style={{
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      borderRadius: 999,
+                                      backgroundColor: compactState.warning ? colors.orangeTint : "transparent",
+                                    }}
+                                  >
+                                    {compactButton}
+                                    {contextUsage && contextUsage.size > 0 && params.id && (
+                                      <ContextRing
+                                        {...contextUsage}
+                                        canCompact={supportsCompact}
+                                        threshold={contextSettings.buttonThreshold}
+                                        showSize={showContextSize}
+                                        onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
+                                      />
+                                    )}
+                                  </View>
+                                )
                               )}
                               {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton
