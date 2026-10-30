@@ -10880,12 +10880,13 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { router: { push: (path) => pushed.push(path) }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "./session": { useSession: () => ({ client }) },
+    "./session": { useSession: () => ({ client, hosts: [] }) },
     "./icons": { Icon: "Icon" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
   const render = () => {
     react.begin();
@@ -10938,12 +10939,13 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "./session": { useSession: () => ({ client }) },
+    "./session": { useSession: () => ({ client, hosts: [] }) },
     "./icons": { Icon: "Icon" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
   const render = () => {
     react.begin();
@@ -10989,12 +10991,13 @@ test("mobile General lists the Mac's Done retention, saves a pick there and hide
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
     "@hugeicons/core-free-icons": {},
-    "./session": { useSession: () => ({ client }) },
+    "./session": { useSession: () => ({ client, hosts: [] }) },
     "./icons": { Icon: "Icon" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
     "./settings-list": { Row: "Row" },
     "@milagre/shared/done": require("@milagre/shared/done"),
     "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": { useMacUpdate: () => ({ update: undefined, restarting: false }), MacUpdateRows: "MacUpdateRows" },
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   // The list is its own component inside General: render it as React would.
@@ -11030,6 +11033,116 @@ test("mobile General lists the Mac's Done retention, saves a pick there and hide
   for (const fn of focused.splice(0)) fn();
   await settle();
   assert.equal(rows().length, 0, "an older Mac has no Done retention to show");
+});
+
+test("mobile General shows the Mac's Milagre update, checks, installs after asking, and hides on an older Mac", async (t) => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  const asked = [];
+  let answer = true;
+  // What the Mac answers: its desktop app's update (app-update:state), null with no desktop app open, or an older Mac's 403.
+  let state = { status: "downloaded", version: "0.233.0", progress: 100, current: "0.232.0" };
+  let older = false;
+  const client = {
+    url: "https://santo",
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (method.startsWith("app-update:") && method !== "app-update:auto:read" && older)
+        throw Object.assign(new Error("Command is not available from mobile"), { status: 403 });
+      if (method === "app-update:state") return state;
+      if (method === "app-update:check") return (state = { ...state, status: "checking" });
+      if (method === "app-update:install") return (state = { ...state, status: "installing" });
+      if (method === "app-update:auto:read") return { autoUpdate: false };
+      throw new Error("Unknown method");
+    },
+  };
+  const ui = { Button: "Button", ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", useStyles: () => fakeStyles };
+  const modules = {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "@milagre/shared/app-update": require("@milagre/shared/app-update"),
+    "./confirm-store": { confirm: async (...question) => (asked.push(question), answer) },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./ui": ui,
+    "./theme": themeHooks,
+  };
+  const { GeneralSection } = load("general-section.tsx", {
+    ...modules,
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ client, hosts: [{ id: "https://santo", name: "Santo" }] }) },
+    "./icons": { Icon: "Icon" },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+    "./mac-update": load("mac-update.tsx", modules),
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // The update's rows are their own component inside General: render them as React would.
+  const rows = () => {
+    react.begin();
+    const element = find(GeneralSection(), (node) => typeof node.type === "function" && node.type.name === "MacUpdateRows");
+    return element?.type(element.props) ?? null;
+  };
+  const texts = () => allNodes(rows(), (node) => node.type === "Text").map((node) => [node.props.children].flat().join(""));
+  const button = (title) => find(rows(), (node) => node.type === "Button" && node.props.title === title);
+  // One visit to the screen: the last visit's effects (and the update's follow timer) end first.
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const focus = async () => {
+    for (const cleanup of cleanups.splice(0)) cleanup?.();
+    focused.length = 0;
+    rows();
+    for (const fn of focused.splice(0)) cleanups.push(fn());
+    await settle();
+  };
+  assert.equal(rows(), null, "nothing shows before the Mac answers");
+  await focus();
+  assert.deepEqual(texts(), ["Milagre on Santo", "0.232.0", "Update available: v0.233.0", "Milagre 0.233.0 is ready to install."]);
+  // Installing asks first: it restarts Milagre on the Mac. Cancel starts nothing.
+  answer = false;
+  await button("Install & restart").props.onPress();
+  await settle();
+  assert.deepEqual(asked, [["Restart Milagre on Santo to install v0.233.0?", "Running Chats are saved and resume after the restart.", "Install & restart"]]);
+  assert.equal(
+    calls.some(([method]) => method === "app-update:install"),
+    false,
+  );
+  answer = true;
+  button("Install & restart").props.onPress();
+  await settle();
+  assert.deepEqual(calls.at(-1), ["app-update:install"]);
+  assert.equal(button("Install & restart"), undefined);
+  assert.equal(button("Restarting…").props.disabled, true);
+  assert.ok(texts().includes("Saving your work and restarting Milagre."));
+  // Back after the restart, on the new version: Check for updates again.
+  state = { status: "up-to-date", version: null, progress: 0, current: "0.233.0" };
+  await focus();
+  assert.deepEqual(texts(), ["Milagre on Santo", "0.233.0", "Milagre is up to date."]);
+  button("Check for updates").props.onPress();
+  await settle();
+  assert.deepEqual(calls.at(-1), ["app-update:check"]);
+  assert.equal(button("Restarting…"), undefined);
+  assert.equal(button("Check for updates").props.disabled, true, "a check under way waits");
+  // A download shows its progress.
+  state = { status: "downloading", version: "0.234.0", progress: 42, current: "0.233.0" };
+  await focus();
+  assert.ok(texts().includes("Downloading Milagre 0.234.0… 42%"));
+  assert.equal(find(rows(), (node) => node.props?.accessibilityRole === "progressbar").props.accessibilityValue.now, 42);
+  // No desktop app open on the Mac: one line saying where to open it.
+  state = null;
+  await focus();
+  assert.deepEqual(texts(), ["Open Milagre on Santo to check for updates."]);
+  // An older Mac has none of this; its Auto update still shows.
+  older = true;
+  await focus();
+  assert.equal(rows(), null);
+  react.begin();
+  assert.ok(find(GeneralSection(), (node) => node.props?.title === "Auto update"));
 });
 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.

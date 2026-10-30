@@ -147,6 +147,11 @@ const PATHS = Object.freeze({
   // Memory and disk totals name no folder.
   "computer:resources:read": none,
   "app-update:auto:save": denied,
+  // The desktop app's update names no folder. A confined phone sees it; a check or an install restarts the whole Mac's
+  // Milagre, so it starts neither.
+  "app-update:state": none,
+  "app-update:check": denied,
+  "app-update:install": denied,
   // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
   "keybindings:read": none,
   "keybindings:set-command": denied,

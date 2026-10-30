@@ -54,7 +54,13 @@ const remote = (id) => ({
   readAutoUpdate: async () => ({ autoUpdate: false }),
   saveAutoUpdate: async (value) => (window.autoSaves.push([id, value]), { autoUpdate: value }),
   onAutoUpdate: () => () => {},
+  // Its desktop app has downloaded a newer Milagre; installing restarts it there.
+  readHostUpdate: async () => window.hostUpdate,
+  checkHostUpdate: async () => window.hostUpdate,
+  installHostUpdate: async () => (window.installs.push(id), (window.hostUpdate = { ...window.hostUpdate, status: "installing" })),
 });
+window.installs = [];
+window.hostUpdate = { status: "downloaded", version: "0.122.0", progress: 100, current: "0.121.0" };
 window.milagre = new Proxy({
   on: remote,
   listRecentProjects: async () => [],
@@ -156,8 +162,22 @@ async function browserChecks() {
       `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=checkbox]').getAttribute('aria-checked') === 'true'`,
     );
     assert.deepEqual(await evaluate("window.autoSaves"), [["c-arketa", true]]);
+    // Its desktop app's update: Install & restart asks first, since it restarts Milagre over there.
+    await waitFor(`document.querySelector('[data-computer-update]')?.dataset.computerUpdate === 'downloaded'`);
+    assert.match(await text("[data-computer-update]"), /^Update available: v0\.122\.0arketa runs Milagre 0\.121\.0\. Milagre 0\.122\.0 is ready to install\./);
+    await evaluate(`document.querySelector('[data-computer-update-install]').click()`);
+    await waitFor(`!!document.querySelector('[data-computer-update-confirm]')`);
+    assert.match(
+      await text("[data-computer-update]"),
+      /Restart Milagre on arketa to install v0\.122\.0\? Running Chats are saved and resume after the restart\./,
+    );
+    assert.deepEqual(await evaluate("window.installs"), [], "nothing restarts before the answer");
+    await screenshot("computer-update-confirm");
+    await evaluate(`document.querySelector('[data-computer-update-confirm]').click()`);
+    await waitFor(`window.installs.length === 1 && document.querySelector('[data-computer-update]')?.dataset.computerUpdate === 'installing'`);
+    assert.match(await text("[data-computer-update]"), /Restarting…$/);
     await screenshot("computer-settings");
-    console.log("PASS: a computer's settings show its connection routes, which is in use, what lives there and its memory and disk");
+    console.log("PASS: a computer's settings show its connection routes, which is in use, what lives there, its memory and disk and its app update");
 
     window.webContents.focus();
     await evaluate(`(() => {
