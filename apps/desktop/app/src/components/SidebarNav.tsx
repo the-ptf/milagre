@@ -215,7 +215,7 @@ type SidebarNavProps = {
   /** Archive for another Project's rows (by its path): what the confirm step offers, then the archive itself. */
   onScopeArchiveCheck?: (scopeKey: string, id: string) => Promise<ArchivePlan>;
   /** `chatsHome`: the row is a Chat without a Project (the Chats group's). */
-  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, chatsHome?: boolean) => Promise<unknown>;
+  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown>;
   /** Chats with an archive under way, by `projectPath#id`: their rows are gone at once, before the host answers. */
   archivingChats?: ReadonlySet<string>;
   /** The pointer rests on a chat's row: its page can be read before the click. */
@@ -916,7 +916,7 @@ export default memo(function SidebarNav({
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
-              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan, gitless),
+              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan),
             }
           : {}),
       };
@@ -1876,7 +1876,7 @@ const sameTarget = (a: DropTarget | null, b: DropTarget | null) => a?.id === b?.
 type RowActionsNow = { recents: SidebarRecent[]; actions: ChatRowActions; sidebarLinks: ReturnType<typeof useSidebarLinks> };
 
 /**
- * A scope's row actions: pinning that can be undone from a toast, and the Link items that open the shared "Link with…"
+ * A scope's row actions: pinning, Done and deletion that can be undone from a toast, and the Link items that open the shared "Link with…"
  * and "Remove Link with…" lists. `now` reads the latest state, so one object serves every render.
  */
 function chatRowActions(
@@ -1884,7 +1884,7 @@ function chatRowActions(
   linkProjectId: string | null,
   scopeKey: string,
   now: () => RowActionsNow,
-  showToast: (text: string, undo?: () => void) => void,
+  showToast: (text: string, undo?: () => void, kind?: "deleted" | "done") => void,
 ): ChatRowActions {
   return {
     ...actions,
@@ -1906,7 +1906,15 @@ function chatRowActions(
         const latest = now().actions;
         if (!latest.onDone) return;
         latest.onDone(id);
-        showToast("Moved to Done", () => now().actions.onReopen?.(id));
+        showToast("Moved to Done", () => now().actions.onReopen?.(id), "done");
+      }),
+    onArchive:
+      actions.onArchive &&
+      ((id, mode, plan) => {
+        const latest = now().actions;
+        const work = latest.onArchive?.(id, mode, plan);
+        showToast("Chat deleted", latest.onUndoArchive && (() => now().actions.onUndoArchive?.(id)), "deleted");
+        return work;
       }),
     ...(linkProjectId
       ? {
@@ -2026,9 +2034,9 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
   const sidebarLinks = useSidebarLinks();
   const botMarks = useBotMarks();
   // Both read the latest render's scopes and Links when an action runs, so one set of actions serves every render.
-  const showToast = useEvent((text: string, undo?: () => void) => {
+  const showToast = useEvent((text: string, undo?: () => void, kind?: "deleted" | "done") => {
     const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-    sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+    sidebarLinks.toast(text, { undo, kind, left: (aside?.right ?? 0) + 12 });
   });
   const readScope = useEvent((scopeKey: string): RowActionsNow => {
     const scope = scopes.get(scopeKey);
@@ -2185,9 +2193,9 @@ function ChatList({
   }, [scopeKey, linkProjectId]);
 
   const showToast = useCallback(
-    (text: string, undo?: () => void) => {
+    (text: string, undo?: () => void, kind?: "deleted" | "done") => {
       const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-      live.current.sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+      live.current.sidebarLinks.toast(text, { undo, kind, left: (aside?.right ?? 0) + 12 });
     },
     [live],
   );

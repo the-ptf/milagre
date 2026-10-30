@@ -114,6 +114,9 @@ const stubs = {
   "./theme":
     "export const useTheme = () => ({ colors: new Proxy({}, { get: (_, key) => String(key) }), scheme: 'light', settings: {}, set() {} }); export const fonts = { mono: 'monospace' }; export const createStylesHook = () => () => new Proxy({}, { get: () => ({}) });",
   "./primitives/tap": "export const tap = () => {};",
+  // The toast pill draws the phone's icons and theme, native-only: here it is its text and Undo.
+  "./primitives/toast":
+    'export const ToastPill = ({ text, onUndo }) => <div role="status">{text}{onUndo ? <button aria-label="Undo" onClick={onUndo} /> : null}</div>;',
   "@sbaiahmed1/react-native-blur": "export const LiquidGlassView = ({ children }) => <div>{children}</div>;",
   "expo-router": "import { useEffect } from 'react'; export const useFocusEffect = effect => useEffect(effect, [effect]);",
   "expo-linking": "export const openURL = async () => {};",

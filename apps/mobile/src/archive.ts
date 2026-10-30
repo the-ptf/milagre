@@ -1,7 +1,16 @@
 import { readWithTimeout } from "@milagre/shared/read-timeout";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { TerminalList } from "@milagre/shared/terminal";
-import { archiveChat, archiveChoices, archivedNotice, isMilagreWorktree, worktreeShared, type ArchivePlan, type WorktreeStatus } from "@milagre/shared/archive";
+import {
+  archiveChat,
+  archiveChoices,
+  deleteUndoWindow,
+  isMilagreWorktree,
+  undoDelete,
+  worktreeShared,
+  type ArchivePlan,
+  type WorktreeStatus,
+} from "@milagre/shared/archive";
 
 /** What archiving needs from the connection to the Mac. */
 export type ArchiveClient = {
@@ -68,9 +77,16 @@ export type ArchiveRequest = {
   onConfirm?: () => void;
   notify: (message: string) => void;
   refresh: () => Promise<unknown>;
+  /** How long the toast's Undo can call the deletion off; DELETE_UNDO_MS unless a test says otherwise. */
+  undoMs?: number;
+  /** The Computer the Chat is on (its client URL): two Computers can hold the same `projectPath#id`. */
+  hostId?: string;
 };
 
-// Chats with an archive under way, from the tap to the end: another tap on one asks nothing and does nothing.
+/** A deletion's owner, as the list's rows and the toast's Undo name it: the Computer and the Chat. */
+export const deletionKey = (hostId: string | undefined, chatId: string) => (hostId ? `${hostId}|${chatId}` : chatId);
+
+// Chats with an archive under way, by deletionKey, from the tap to the end: another tap on one asks nothing and does nothing.
 const archiving = new Set<string>();
 
 /**
@@ -78,10 +94,12 @@ const archiving = new Set<string>();
  * archive outlives the screen it started on, so the Chat list reads both here: the Chat's row shows the progress
  * wherever it is listed, and the notice shows once the phone has moved on.
  */
-/** `done`: a short confirmation that the archive went ("Chat archived" for a Chat without a Project), gone after a while. */
-export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string; done: string };
-let activity: ArchiveActivity = { chats: new Set(), notice: "", done: "" };
-let doneTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * `hidden`: Chats deleted from the phone, by deletionKey, out of the list until the deletion ends (back if it is undone
+ * or fails). `deleted`: the last one still in its Undo time, whose "Chat deleted" toast offers the Undo.
+ */
+export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string; hidden: ReadonlySet<string>; deleted: string };
+let activity: ArchiveActivity = { chats: new Set(), notice: "", hidden: new Set(), deleted: "" };
 const listeners = new Set<() => void>();
 function setActivity(next: Partial<ArchiveActivity>) {
   activity = { ...activity, ...next };
@@ -98,7 +116,7 @@ export function subscribeArchiveActivity(listener: () => void) {
 }
 /** Marks a Chat as deleting; the returned function marks it done. A new archive clears an old notice. */
 export function startArchiving(chatId: string) {
-  setActivity({ chats: new Set(activity.chats).add(chatId), notice: "", done: "" });
+  setActivity({ chats: new Set(activity.chats).add(chatId), notice: "" });
   return () => {
     const chats = new Set(activity.chats);
     chats.delete(chatId);
@@ -111,29 +129,41 @@ export function showArchiveNotice(notice: string) {
 export function clearArchiveNotice() {
   if (activity.notice) setActivity({ notice: "" });
 }
-/** Says the archive went, as the Chat screen's toast does, for a few seconds. */
-function showArchiveDone(done: string, ms = 3000) {
-  if (doneTimer) clearTimeout(doneTimer);
-  setActivity({ done });
-  doneTimer = setTimeout(() => {
-    doneTimer = null;
-    setActivity({ done: "" });
-  }, ms);
-  // Node (the tests) needn't stay up for it; React Native's timers have no unref.
-  (doneTimer as { unref?: () => void }).unref?.();
+/**
+ * Takes the Chat out of the list and opens its Undo: the toast shows until the time is up or Undo is tapped. The returned
+ * function puts the Chat back in the list, once the deletion has ended.
+ */
+function openUndo(owner: string, ms?: number) {
+  setActivity({ hidden: new Set(activity.hidden).add(owner), deleted: owner });
+  const window = deleteUndoWindow(owner, ms).finally(() => {
+    if (activity.deleted === owner) setActivity({ deleted: "" });
+  });
+  const show = () => {
+    // A deletion that failed before its time was up has nothing left to undo: its toast goes too.
+    undoDelete(owner);
+    const hidden = new Set(activity.hidden);
+    hidden.delete(owner);
+    setActivity({ hidden, deleted: activity.deleted === owner ? "" : activity.deleted });
+  };
+  return { window, show };
 }
 
 /**
  * Delete from the phone immediately, using desktop's checked cleanup steps:
- * stop the turn if one runs now, hide the Chat, remove the worktree when the choice asks (the daemon closes the agent
+ * stop the turn if one runs now, hide the Chat, wait out the toast's Undo (an Undo brings the Chat back), remove the worktree when the choice asks (the daemon closes the agent
  * and checks again), bring the Chat back with a notice when it stays, and read the Project again. A removed worktree's
  * Chats leave the Project's state on the Mac, so the refresh drops them here too.
  */
-export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" | "hidden" | "removed" | "kept"> {
+export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" | "hidden" | "removed" | "kept" | "undone"> {
   const { client, projectPath, chat } = request;
   const chatId = `${projectPath}#${chat.id}`;
-  if (archiving.has(chatId)) return "busy";
-  archiving.add(chatId);
+  const owner = deletionKey(request.hostId, chatId);
+  if (archiving.has(owner)) return "busy";
+  archiving.add(owner);
+  // The Undo opens with the tap: the checks below can take seconds on a busy Mac.
+  const { window, show } = openUndo(owner, request.undoMs);
+  let undone = false;
+  const undo = window.then((value) => (undone = value));
   let done = () => {};
   try {
     done = startArchiving(chatId);
@@ -145,6 +175,8 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
     const now = await client.snapshot(projectPath).catch(() => null);
     const latest = now?.project.state ?? request.state;
     const running = now ? Boolean(now.runs.runs[chatId]) : request.running;
+    // Undone before anything was touched: nothing to stop, hide or bring back.
+    if (undone) return "undone";
     try {
       const outcome = await archiveChat(
         {
@@ -152,6 +184,7 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
           chatId,
           getState: () => latest,
           currentProjectPath: () => projectPath,
+          undoWindow: () => undo,
           stop: () => (running ? client.call("agent:interrupt", [chatId]).catch(() => {}) : undefined),
           hide: () => client.call("chat:patch", [projectPath, chat.id, { archived: true, unread: false }]),
           destroy: () => client.call("chat:delete", [projectPath, chat.id]),
@@ -166,16 +199,14 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
         mode,
         plan,
       );
-      // A Chat without a Project leaves no list behind it (its folder went too): the phone says it is gone.
-      const archived = archivedNotice(outcome, { chatsHome: request.chatsHome });
-      if (archived) showArchiveDone(archived);
       return outcome;
     } finally {
       await request.refresh().catch(() => {});
     }
   } finally {
-    archiving.delete(chatId);
+    archiving.delete(owner);
     done();
+    show();
   }
 }
 

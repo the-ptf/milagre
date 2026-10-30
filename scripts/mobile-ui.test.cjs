@@ -179,6 +179,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // pages had at app/, so these resolve to the same fake.
       if (file.startsWith("app/(settings)/") && id.startsWith("../../")) id = id.slice(3);
       // A pure helper (the draft clear after a send): tests get the real one.
+      // The toast pill (primitives/toast.tsx) draws its icon as a named element, under the screen's own fake when it has one.
+      if (file.startsWith("primitives/") && id === "../icons" && !(id in modules)) return modules["./icons"] ?? { Icon: "Icon" };
+      if (id === "react-native-safe-area-context" && !(id in modules)) return { useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) };
       // Motion helpers at Normal speed with the system's reduced motion off; a test's own fake wins.
       if (/^\.\.?\/motion$/.test(id) && !(id in modules))
         return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
@@ -3575,7 +3578,11 @@ function allComputersFake(session, computers, storeCalls) {
     useFoldedProjects: (ids) => new Map(ids.map((id) => [id, new Set()])),
     allComputers: {
       viewOf: (hostId) => views().find((view) => view.hostId === hostId),
-      clientFor: (hostId) => (hostId === session.client.url ? session.client : { url: hostId, call: async () => {} }),
+      // A computer of the test's may bring its own client (`computer.client`), to see what reached it.
+      clientFor: (hostId) =>
+        hostId === session.client.url
+          ? session.client
+          : (computers?.find((computer) => computer.hostId === hostId)?.client ?? { url: hostId, call: async () => {} }),
       hostFor: (hostId) => ({ id: hostId, name: views().find((view) => view.hostId === hostId)?.name ?? "Mac", address: hostId, token: "token", lastUsed: 0 }),
       refreshProject: async (hostId, path) => {
         storeCalls.push(["refreshProject", hostId, path]);
@@ -5058,6 +5065,13 @@ async function settleAll() {
   for (let i = 0; i < 10; i++) await settle();
 }
 
+/** Lets a deletion's Undo time pass (the test's setTimeout is mocked), then the steps after it. */
+async function passUndo(t) {
+  await settleAll();
+  t.mock.timers.tick(require("@milagre/shared/archive").DELETE_UNDO_MS);
+  await settleAll();
+}
+
 test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
   const react = hookHost();
   const calls = [];
@@ -5144,7 +5158,8 @@ test("an older Mac's rows offer no Done, and their left swipe archives as before
   }
 });
 
-test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -5166,6 +5181,13 @@ test("a sidebar Chat deletes immediately and stops the turn while preserving uns
   more.props.onSelect("archive");
   await settleAll();
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
+  assert.equal(listsChat(nav), false, "the row leaves the list at once");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete"),
+    false,
+    "the conversation stays while the toast's Undo can bring it back",
+  );
+  await passUndo(t);
   assert.deepEqual(
     project.calls.map(([method]) => method),
     ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
@@ -5176,7 +5198,8 @@ test("a sidebar Chat deletes immediately and stops the turn while preserving uns
   );
 });
 
-test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async () => {
+test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const screen = chatHost({
@@ -5192,7 +5215,7 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.render();
   const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   archive.props.onPress();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
@@ -9842,13 +9865,23 @@ test("mobile picker exposes other devices only in Attach and detach updates this
   h.cleanup();
 });
 
+/** The toast pill (primitives/toast.tsx) saying `text`; the trees here don't draw a component's own children. */
+function toastPill(tree, text) {
+  return find(tree, (node) => node.type?.name === "ToastPill" && node.props.text === text);
+}
+
+/** Whether the list has a Chat row. */
+function listsChat(nav) {
+  return nav.rows().props.data.some((item) => item.kind === "chat");
+}
+
 // The progress drawn over an archiving Chat's row.
 function archiveIndicator(tree) {
   const component = find(tree, (node) => node.type === archiveProgress.ArchivingOverlay);
   return component && find(component.type(component.props), (node) => node.props.accessibilityRole === "progressbar");
 }
 
-test("sidebar archive shows progress over the Chat's row and clears it on failure", async () => {
+test("a sidebar deletion takes the Chat's row out of the list and brings it back on failure", async () => {
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9863,31 +9896,125 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.equal(
-    find(nav.render(), (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Archiving Chat"),
-    undefined,
-  );
-  const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Deleting Fix", "archive feedback sits on the row and survives closing the action sheet");
-  assert.ok(
-    find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
-    "the row's pill spins desktop's ring",
-  );
-  assert.equal(nav.more(row), undefined, "an archiving row offers no menu");
-  assert.equal(row.props.children.props.pointerEvents, "none");
-  // Hidden on the Mac while the worktree is still going: the row stays, under the progress.
-  project.snapshot.project.state.sessions[5].archived = true;
-  assert.ok(archiveIndicator(nav.row("chat")));
-  project.snapshot.project.state.sessions[5].archived = false;
+  assert.equal(listsChat(nav), false, "the row goes at once, with the toast's Undo");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
   patch.reject(new Error("disk full"));
   await settleAll();
+  assert.ok(nav.row("chat"), "a failed deletion brings the row back");
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
+  assert.equal(archiveStore.archiveActivity().deleted, "", "and its toast goes");
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
   assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
-test("archiving the open Chat from the sidebar stays in place through archive and completion", async () => {
+/** Two Computers, each with Chat /p#5 ("Fix"); `fail` makes one Computer's hide fail. */
+function twoComputerArchive({ fail } = {}) {
+  const mac = archiveProject();
+  const studio = archiveProject();
+  const studioCall = (method, args) => (fail === "studio" && method === "chat:patch" ? Promise.reject(new Error("disk full")) : studio.call(method, args));
+  // A deleted Chat leaves its Computer's Project, as the Mac's state does.
+  const macCall = (method, args) => {
+    if (method === "chat:delete") delete mac.snapshot.project.state.sessions[args[1]];
+    return mac.call(method, args);
+  };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: {
+      client: { ...mac.client, call: macCall, url: "mac" },
+      recent: [{ path: "/p" }],
+      snapshot: mac.snapshot,
+      expectActivity() {},
+      refresh: async () => {},
+    },
+    computers: [
+      { hostId: "mac", name: "MacBook", state: "online", projects: [{ path: "/p" }], copies: { "/p": mac.snapshot } },
+      {
+        hostId: "studio",
+        name: "Studio",
+        state: "online",
+        projects: [{ path: "/p" }],
+        copies: { "/p": studio.snapshot },
+        client: { url: "studio", call: studioCall, snapshot: studio.client.snapshot },
+      },
+    ],
+  });
+  const hosts = () =>
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.hostId);
+  const remove = (hostId) => {
+    const at = hosts().indexOf(hostId);
+    nav.more(nav.row("chat", at)).props.onSelect("archive");
+  };
+  return { nav, mac, studio, hosts, remove };
+}
+
+test("deleting a Chat hides and undoes only its own Computer's row when another Computer has the same path and id", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive();
+  same(hosts().sort(), ["mac", "studio"]);
+  remove("mac");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's Chat stays listed while the Mac's is deleted");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
+  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  await settleAll();
+  same(hosts().sort(), ["mac", "studio"]);
+  assert.equal(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  assert.equal(studio.calls.length, 0, "nothing reached Studio");
+});
+
+test("deletions of the same Chat on two Computers run apart, and one's failure brings back only its own row", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive({ fail: "studio" });
+  remove("mac");
+  await settleAll();
+  remove("studio");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's failed deletion brings back only Studio's row");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
+  archiveStore.clearArchiveNotice();
+  assert.equal(archiveStore.archiveActivity().hidden.has("mac|/p#5"), true, "the Mac's deletion is still waiting out its Undo");
+  await passUndo(t);
+  assert.ok(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    "the Mac's Chat is deleted after its Undo time",
+  );
+  assert.equal(
+    studio.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  same(hosts(), ["studio"]);
+});
+
+test("an Undo on the list's toast brings the deleted Chat back without deleting it", async () => {
+  const project = archiveProject();
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: { client: { ...project.client, url: "mac" }, recent: [{ path: "/p" }], snapshot: project.snapshot, expectActivity() {}, refresh: async () => {} },
+  });
+  nav.more(nav.row("chat")).props.onSelect("archive");
+  await settleAll();
+  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  await settleAll();
+  assert.ok(nav.row("chat"), "the row is back");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete" || method === "worktree:remove"),
+    false,
+  );
+  assert.deepEqual(
+    project.calls.filter(([method]) => method === "chat:patch").map((call) => call[3]),
+    [{ archived: true, unread: false }, { archived: false }],
+  );
+});
+
+test("deleting the open Chat from the sidebar stays in place through the deletion", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9903,14 +10030,15 @@ test("archiving the open Chat from the sidebar stays in place through archive an
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(nav.routes, [], "confirming an archive must not close or replace the sidebar");
-  assert.ok(archiveIndicator(nav.row("chat")), "progress stays on the same sidebar row");
+  assert.deepEqual(nav.routes, [], "deleting must not close or replace the sidebar");
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(nav.routes, []);
+  assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
 });
 
-test("the Chat screen opens its sidebar once on archive without replacing the screen", async () => {
+test("the Chat screen opens its sidebar once on archive without replacing the screen", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const screen = chatHost({ alert: pressDanger([]), call: (method, args) => (method === "chat:patch" ? patch.promise : project.call(method, args)) });
@@ -9928,7 +10056,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   // The phone moves on to another Chat while the archive runs.
   screen.router.replaced = "/chat?id=9";
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.equal(screen.router.replaced, "/chat?id=9", "the end of the archive does not pull the phone back to the list");
   assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
   assert.deepEqual(screen.panels.shown, ["left"], "completion must not reopen the sidebar");
@@ -12425,10 +12553,7 @@ test("picking a Linear issue links it to the Chat's Worktree and toasts the PR h
   assert.equal(screen.calls.at(-1).method, "worktree:link-issue");
   // The stored result toasts the PR hint, which names the key the branch doesn't; no alert to dismiss.
   assert.equal(shown.length, 0, "no alert");
-  assert.ok(
-    find(screen.render(), (n) => n.type === "Text" && n.props.children === `Issue linked. ${LINK_PR_HINT("ENG-12")}`),
-    "the toast shows the hint",
-  );
+  assert.ok(toastPill(screen.render(), `Issue linked. ${LINK_PR_HINT("ENG-12")}`), "the toast shows the hint");
 });
 
 test("a stored Linear issue is hidden everywhere while Linear is off", () => {
@@ -13380,7 +13505,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
-  assert.ok(text(tree, "Published. Link copied."), "a toast says what happened");
+  assert.ok(toastPill(tree, "Published. Link copied."), "a toast says what happened");
   assert.equal(
     find(tree, (n) => n.props?.title === "Publish"),
     undefined,
@@ -13399,7 +13524,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
   assert.equal(state.shares.length, 1, "the update keeps one link");
-  assert.ok(text(tree, "Snapshot updated. Link copied."));
+  assert.ok(toastPill(tree, "Snapshot updated. Link copied."));
   assert.ok(text(tree, "Updated "));
   find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
   tree = render("chat");
@@ -13416,7 +13541,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
     undefined,
   );
-  assert.ok(text(tree, "Link revoked."));
+  assert.ok(toastPill(tree, "Link revoked. Copies may remain online."));
   tree = render(undefined);
   assert.equal(
     find(tree, (n) => n.props?.title === "Publish"),

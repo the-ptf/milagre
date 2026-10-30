@@ -73,7 +73,7 @@ import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
 import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
-import { archivedNotice, isMilagreWorktree, worktreeShared } from "./lib/archive";
+import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
@@ -119,7 +119,7 @@ import { READ_RETRY_BUDGET, retryKind, retrySend } from "@milagre/shared/send-re
 import { getSettings, toggleTheme, updateSettings, useApplyTheme, useSettings } from "./lib/settings";
 import { EditorLinks, Notice } from "./components/editor-links";
 // Notice above is editor-links' toast; this is the dismissable notice card.
-import { BRIEF_NOTICE_MS, clearNoticeOnNavigate, showNotice } from "./lib/notice";
+import { clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { Notice as NoticeCard } from "./components/Notice";
 import { openInEditor } from "./lib/editors";
@@ -1397,8 +1397,8 @@ function App() {
   // Another Project's chat (a row of the all-Projects sidebar) archives the same way, from the copy its group shows.
   // As on the phone, the row goes and the window leaves the chat at once; the host's work goes on behind, and a chat
   // whose archive fails (or whose worktree stays) comes back with a notice.
-  // `chatsHome`: the Chat has no Project; once it is gone a notice says so, since nothing lists it any more.
-  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path, chatsHome = false) {
+  // The permanent steps wait out the sidebar toast's Undo (deleteUndoWindow); an Undo brings the Chat back as a kept one does.
+  function archiveChat(sessionId: number, mode: ArchiveMode, plan: ArchivePlan | null, projectPath = project?.path) {
     if (!projectPath) return Promise.resolve();
     const open = projectPath === project?.path;
     const key = chatKey(projectPath, sessionId);
@@ -1412,9 +1412,11 @@ function App() {
         getState: () => archiveState(projectPath) ?? null,
         currentProjectPath: () => projectRef.current?.path,
         stop: () => (agentRuns.runs[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
+        undoWindow: () => deleteUndoWindow(key),
         hide: () => bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false }),
         destroy: () => bridgeForKey(projectPath).deleteChat(projectPath, sessionId),
-        // The worktree stays, so the chat comes back with it; it is reopened only if it was open and nothing else has been since.
+        // The worktree stays (or the deletion was undone), so the chat comes back with it; it is reopened only if it was
+        // open and nothing else has been since.
         restore: async () => {
           await bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: false });
           if (wasOpen && selectedSessionRef.current === null) openChat(sessionId);
@@ -1438,11 +1440,6 @@ function App() {
       mode,
       plan,
     )
-      .then((outcome) => {
-        const archived = archivedNotice(outcome, { chatsHome });
-        // A confirmation, not a problem: a brief toast over the page, so it neither lingers nor moves the layout.
-        if (archived) showNotice(archived, { ms: BRIEF_NOTICE_MS, leaveOnNavigate: true });
-      })
       // A call that timed out may still have landed: only a conversation that is still saved needs an error.
       .catch((error) => {
         if (archiveState(projectPath)?.sessions[sessionId]) setNotice(`Could not delete Chat: ${ipcErrorMessage(error)}`);
@@ -2632,7 +2629,8 @@ function App() {
     onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, path),
     onReload: (id) => void latest.current.reloadChat(Number(id), path),
     onArchiveCheck: (id) => latest.current.checkArchive(Number(id), path),
-    onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, path, gitless),
+    onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, path),
+    onUndoArchive: (id) => undoDelete(chatKey(path, Number(id))),
     ...(isRemoteKey(path)
       ? { remote: true }
       : {
@@ -2660,7 +2658,8 @@ function App() {
       ...(showGit ? { onCommit: (id: string) => latest.current.openGitDialog(Number(id)) } : { gitless: true }),
       onArchiveCheck: (id) => latest.current.checkArchive(Number(id)),
       // The row shows the progress until this settles.
-      onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, undefined, isChatsHomeProject(projectRef.current)),
+      onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan),
+      onUndoArchive: (id) => void (projectRef.current && undoDelete(chatKey(projectRef.current.path, Number(id)))),
       onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace),
       onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id)),
     }),
@@ -2668,9 +2667,7 @@ function App() {
   );
   // Another Project's rows in the all-Projects sidebar archive through the same steps, against that Project.
   const checkScopeArchive = useEvent((scopeKey: string, id: string) => checkArchive(Number(id), scopeKey));
-  const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, chatsHome?: boolean) =>
-    archiveChat(Number(id), mode, plan, scopeKey, chatsHome),
-  );
+  const archiveScopeChat = useEvent((scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => archiveChat(Number(id), mode, plan, scopeKey));
   const startNewChatFromSidebar = useEvent(() => startNewChatOnThisMac());
   const openProjectFromSidebar = useEvent(() => void openProject());
   const switchProjectFromSidebar = useEvent((path: string) => void switchProject(path));
