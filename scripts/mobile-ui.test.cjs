@@ -302,6 +302,18 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
       // The PR sheet's bridge to the Chat is pure; opening the sheet is recorded on globalThis.openedPullRequests.
       if (base === "pr-chat" && !(id in modules)) return (globalThis.prChat = load("pr-chat.ts", modules, "", cache));
+      // A PR badge's glyph by state (pr-look.ts): each icon by its name.
+      if (base === "pr-look" && !(id in modules))
+        return {
+          PR_ICONS: {
+            merged: "GitMergeIcon",
+            closed: "GitPullRequestClosedIcon",
+            draft: "GitPullRequestDraftIcon",
+            ready: "Tick02Icon",
+            checking: "CircleDotIcon",
+            open: "GitPullRequestIcon",
+          },
+        };
       if (base === "pr-nav" && !(id in modules))
         return {
           openPullRequest: (route) => (globalThis.openedPullRequests ??= []).push(route),
@@ -924,6 +936,7 @@ function planPanelHost(initial) {
   const focused = [];
   const backs = [];
   const keyboard = { height: 0, listeners: [] };
+  const window = { width: 402, height: 874 };
   const { usePlanPanel, PlanPill, PlanPanel } = load("plan-pill.tsx", {
     react: { ...react, memo: (component) => component },
     "react/jsx-runtime": { jsx, jsxs: jsx },
@@ -950,7 +963,7 @@ function planPanelHost(initial) {
         },
       },
       AccessibilityInfo: { sendAccessibilityEvent: (node, kind) => focused.push([node, kind]) },
-      useWindowDimensions: () => ({ width: 402, height: 874 }),
+      useWindowDimensions: () => window,
     },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 62, bottom: 34, left: 0, right: 0 }) },
     "react-native-gesture-handler": { GestureDetector: "GestureDetector", usePanGesture: (config) => config },
@@ -980,18 +993,32 @@ function planPanelHost(initial) {
     "./plan-label": require("../apps/mobile/src/plan-label.ts"),
     "./plan-panel-frame": require("../apps/mobile/src/plan-panel-frame.ts"),
     "./plan-view": { PlanTree: "PlanTree", PlanPhaseGraph: "PlanPhaseGraph" },
+    "./status-pill": { StatusPill: "StatusPill", StatusPillFace: "StatusPillFace", STATUS_PILL: { height: 24, paddingHorizontal: 8, gap: 6 } },
     "./ui": { IconButton: "IconButton", PageScroll: "PageScroll" },
   });
-  // The pill sits in the composer row at `pill` (a test moves it as the keyboard would); the overlay covers the window.
-  const host = { plan: initial, finishes, focused, backs, keyboard, pill: { x: 250, y: 790, width: 54, height: 34 }, heading: { heading: true } };
+  // The pill sits in the status row above the composer at `pill` (a test moves it as the keyboard would). The overlay
+  // covers the window unless `overlay` moves it; `column`, when set, is the composer's column the Chat attaches.
+  const host = {
+    plan: initial,
+    finishes,
+    focused,
+    backs,
+    keyboard,
+    window,
+    pill: { x: 250, y: 790, width: 54, height: 24 },
+    overlay: { x: 0, y: 0, width: 402, height: 874 },
+    column: null,
+    heading: { heading: true },
+  };
   host.render = () => {
     react.begin();
     const panel = usePlanPanel(host.plan, "c1");
+    if (host.column) panel.attachRoom({ measureInWindow: (done) => done(host.column.x, 700, host.column.width, 174) });
     const tree = { pill: PlanPill({ panel }), overlay: PlanPanel({ panel }) };
-    const chip = find(tree.pill, (node) => node.props?.accessibilityRole === "button");
-    if (chip) chip.props.ref({ measureInWindow: (done) => done(host.pill.x, host.pill.y, host.pill.width, host.pill.height) });
+    const chip = find(tree.pill, (node) => node.type === "StatusPill");
+    if (chip) chip.props.chipRef({ measureInWindow: (done) => done(host.pill.x, host.pill.y, host.pill.width, host.pill.height) });
     const root = tree.overlay;
-    if (root) root.props.ref({ measureInWindow: (done) => done(0, 0, 402, 874) });
+    if (root) root.props.ref({ measureInWindow: (done) => done(host.overlay.x, host.overlay.y, host.overlay.width, host.overlay.height) });
     const label = find(root, (node) => node.props?.textRef);
     if (label) label.props.textRef.current = host.heading;
     const surface = find(root, (node) => node.props?.testID === "plan-surface");
@@ -1018,7 +1045,8 @@ test("the Tasks pill grows into its panel over the Chat and folds back into the 
   const host = planPanelHost(plan);
   let screen = host.render();
   assert.equal(screen.chip.props.accessibilityLabel, "Tasks, 1 of 2 done");
-  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 1);
+  assert.deepEqual([screen.chip.props.count, screen.chip.props.total], [1, 2], "the pill reads done/total, as desktop's does");
+  assert.equal(screen.chip.props.hidden, false);
   assert.equal(screen.root.props.pointerEvents, "none", "closed, the overlay lets every touch through");
   assert.equal(screen.face.props.pointerEvents, "none");
   assert.equal(screen.face.props.accessibilityElementsHidden, true, "the closed panel face is hidden from VoiceOver");
@@ -1026,8 +1054,8 @@ test("the Tasks pill grows into its panel over the Chat and folds back into the 
   screen.chip.props.onPress();
   host.render();
   screen = host.render();
-  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 0, "the composer's pill hands over to the surface");
-  assert.equal(screen.chip.props.accessibilityElementsHidden, true);
+  assert.equal(screen.chip.props.hidden, true, "the row's pill hands over to the surface, hidden from VoiceOver too");
+  assert.equal(screen.chip.props.expanded, true);
   assert.equal(screen.root.props.pointerEvents, "box-none");
   assert.notEqual(screen.face.props.pointerEvents, "none");
   assert.ok(!screen.face.props.accessibilityElementsHidden);
@@ -1044,16 +1072,16 @@ test("the Tasks pill grows into its panel over the Chat and folds back into the 
   const surface = find(screen.root, (node) => node.props?.testID === "plan-surface");
   const box = Object.assign({}, ...[surface.props.style].flat(Infinity).filter(Boolean));
   assert.equal(box.left + box.width, 402 - 12, "the panel spans the Chat to its right padding");
-  assert.equal(box.top + box.height, 790 + 34, "and keeps the pill's bottom edge");
+  assert.equal(box.top + box.height, 790 + 24, "and keeps the pill's bottom edge");
   assert.equal(host.backs.length, 1, "Android back closes the panel while it is open");
 
   find(screen.root, (node) => node.props?.testID === "plan-backdrop").props.onPress();
   screen = host.render();
   assert.equal(screen.face.props.pointerEvents, "none", "a closing panel is inert at once");
-  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 0, "the pill comes back when the surface lands");
+  assert.equal(screen.chip.props.hidden, true, "the pill comes back when the surface lands");
   host.finishes.pop()(true);
   screen = host.render();
-  assert.equal(screen.chip.props.style({ pressed: false }).opacity, 1);
+  assert.equal(screen.chip.props.hidden, false);
   assert.equal(screen.root.props.pointerEvents, "none");
   assert.deepEqual(host.focused.at(-1)?.[1], "focus", "focus returns to the pill");
   assert.equal(host.backs.length, 0);
@@ -1102,36 +1130,59 @@ test("the open Tasks panel follows the pill when the keyboard or the row moves i
   assert.deepEqual(host.focused.at(-1), [host.heading, "focus"], "opening moves focus onto the panel's heading");
   assert.ok(find(screen.root, (node) => node.props?.testID === "plan-backdrop").props.accessibilityLabel, "Close tasks stays reachable");
   assert.equal(find(screen.face, (node) => node.type === "PageScroll").props.keyboardDismissMode, "none", "scrolling the panel keeps the keyboard");
-  assert.equal(screen.box.top + screen.box.height, 824);
+  assert.equal(screen.box.top + screen.box.height, 814);
 
   // The keyboard comes up: the composer rides it and the card's bottom goes with the pill.
   host.pill = { ...host.pill, y: 454 };
   host.keyboard.height = 336;
   host.emit("keyboardDidShow");
   screen = host.render();
-  assert.equal(screen.box.top + screen.box.height, 454 + 34, "the card sits on the pill above the keyboard");
+  assert.equal(screen.box.top + screen.box.height, 454 + 24, "the card sits on the pill above the keyboard");
   // iOS reports a frame change (another keyboard height) once it lands.
   host.pill = { ...host.pill, y: 420 };
   host.emit("keyboardDidChangeFrame");
   screen = host.render();
-  assert.equal(screen.box.top + screen.box.height, 420 + 34);
+  assert.equal(screen.box.top + screen.box.height, 420 + 24);
   host.pill = { ...host.pill, y: 790 };
   host.keyboard.height = 0;
   host.emit("keyboardDidHide");
   screen = host.render();
-  assert.equal(screen.box.top + screen.box.height, 824, "and comes back down with it");
+  assert.equal(screen.box.top + screen.box.height, 814, "and comes back down with it");
 
   // A new label widens the pill; the face it folds back into is drawn at the new frame.
   host.pill = { ...host.pill, x: 240, width: 64 };
   screen.chip.props.onLayout();
   screen = host.render();
-  const pillFace = find(screen.root, (node) => node.type?.name === "PillFace" || node.props?.children?.type?.name === "PillFace");
+  const pillFace = find(screen.root, (node) => node.props?.children?.type === "StatusPillFace");
   const pillBox = Object.assign({}, ...[pillFace.props.style].flat(Infinity).filter(Boolean));
   assert.deepEqual([pillBox.left, pillBox.width], [240, 64]);
 
   find(screen.face, (node) => node.type === "IconButton" && node.props.label === "Collapse tasks").props.onPress();
   host.render();
   assert.equal(host.keyboard.listeners.length, 0, "closing stops following the keyboard");
+});
+
+test("beside an iPad's sidebar the Tasks panel keeps to the composer's column", () => {
+  const plan = { source: "milagre", tasks: [{ id: "1", title: "Wire it", status: "pending" }], phases: [], updatedAt: 0 };
+  const host = planPanelHost(plan);
+  // A 1210 pt landscape window: the pinned sidebar takes 332 pt, the Chat the rest, its column centred at 760 pt.
+  Object.assign(host.window, { width: 1210, height: 834 });
+  host.overlay = { x: 332, y: 0, width: 878, height: 834 };
+  host.column = { x: 391, width: 760 };
+  host.pill = { x: 1080, y: 680, width: 54, height: 24 };
+  let screen = host.render();
+  screen.chip.props.onPress();
+  host.render();
+  screen = host.render();
+  assert.equal(screen.box.left, 391 + 12 - 332, "the panel starts inside the column, not under the sidebar");
+  assert.equal(screen.box.width, 760 - 2 * 12, "and is as wide as the composer");
+  // The sidebar sliding away moves the pill; the row's relayout measures the column again.
+  host.overlay = { x: 0, y: 0, width: 1210, height: 834 };
+  host.column = { x: 225, width: 760 };
+  host.pill = { x: 914, y: 680, width: 54, height: 24 };
+  screen.chip.props.onLayout();
+  screen = host.render();
+  assert.deepEqual([screen.box.left, screen.box.width], [225 + 12, 736]);
 });
 
 test("inbox single-choice questions require Send and typed answers replace the choice", () => {
@@ -2437,6 +2488,7 @@ function sessionHost(
       "@milagre/shared/model": {},
       "./link-operations": require("../apps/mobile/src/link-operations.ts"),
       "./chat-pages": { prefetchChatPage: () => {}, noteChatProjectOpening: () => {} },
+      "./pr-status": { pullRequestsChanged: () => {} },
       "./use-links": { refreshLinks: async () => {} },
       "./use-designs": { useDesigns: () => designsOn },
     },

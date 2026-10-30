@@ -233,6 +233,10 @@ test("remote usage is readable while every account mutation remains local", () =
   assert.deepEqual(qualifyEvent(ID, "usage:changed", { scopeKey: "/p" }), { scopeKey: `${ID}|/p` });
 });
 
+test("a remote Project's PR change names that computer's Project", () => {
+  assert.deepEqual(qualifyEvent(ID, "pull-requests:changed", { projectPath: "/p" }), { projectPath: `${ID}|/p` });
+});
+
 test("chats:ensure result path is rewritten for a remote computer", () => {
   const home = "/Users/a/.milagre/chats";
   assert.deepEqual(qualifyResult(ID, "chats:ensure", { path: home, name: "chats", kind: "chats", state: {} }), {

@@ -113,6 +113,7 @@ const EVENTS = {
   "worktree:renamed": (id, payload) => field(id, payload, "projectPath", key),
   "agent:ports": keyed,
   "main-sync:status": (id, payload) => field(id, payload, "projectPath", key),
+  "pull-requests:changed": (id, payload) => field(id, payload, "projectPath", key),
   "runtime:snapshot": (id, snapshot) =>
     isObject(snapshot)
       ? {

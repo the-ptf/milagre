@@ -1,8 +1,9 @@
 import { Pressable, Text, View } from "react-native";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
-import { BubbleChatIcon, CircleDotIcon, GitMergeIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, GitMergeIcon, GitPullRequestIcon, ShieldAlertIcon, Alert02Icon } from "@hugeicons/core-free-icons";
 import type { PullRequest, Subagent } from "@milagre/shared/model";
 import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@milagre/shared/pr-blockers";
+import { PR_ICONS } from "./pr-look";
 import { chatMarkTone } from "@milagre/shared/chats";
 import { agentCounts, MARK_LABEL, type ChatMark } from "./indicators";
 import { Icon, SpinnerRing } from "./icons";
@@ -110,16 +111,14 @@ export function PullRequestReview({ count, onOpen }: { count: number; onOpen: ()
   );
 }
 
-const PR_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
-
 /** The Chat header's PR: its state and number, under the title; a tap opens the PR. */
 export function HeaderPullRequestChip({ pr, onPress }: { pr: PullRequest; onPress: () => void }) {
   const { colors } = useTheme();
-  const { tone, icon, label } = pullRequestPresentation(pr);
+  const { tone, icon, spoken } = pullRequestPresentation(pr);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
+      accessibilityLabel={spoken.charAt(0).toUpperCase() + spoken.slice(1)}
       hitSlop={8}
       onPress={onPress}
       style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 2, opacity: pressed ? 0.55 : 1 })}

@@ -1999,3 +1999,15 @@ test("phone uploads above 5 MiB fit the HTTP and daemon carriers and sends use i
   ]);
   assert.equal(sent.status, 200, await sent.text());
 });
+
+test("the host's PR poll finding a change tells live phones to read their PR rows again", async (t) => {
+  const { project, bridge, rpc, token } = await fixture(t);
+  execFileSync("git", ["-C", project, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "Initial"], {
+    stdio: "ignore",
+  });
+  assert.equal((await rpc("project:open", [project])).status, 200);
+  const phone = await openLive(bridge, project, { authorization: `Bearer ${token}` });
+  // No GitHub remote here: the first read settles as "no PR", which is still news to a phone showing the row.
+  assert.equal((await rpc("worktree:pull-request", [project])).status, 200);
+  await until(() => phone.messages.includes("pulls"));
+});

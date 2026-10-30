@@ -73,7 +73,10 @@ export interface PullRequest {
   number: number;
   title: string;
   url: string;
-  state: "OPEN" | "MERGED";
+  /** CLOSED: closed without merging. Hosts before it came with OPEN and MERGED only. */
+  state: "OPEN" | "MERGED" | "CLOSED";
+  /** An open draft; absent from hosts that predate it. */
+  isDraft?: boolean;
   readyToMerge: boolean;
   hasConflicts: boolean;
   conflictStatusKnown?: boolean;
@@ -83,6 +86,14 @@ export interface PullRequest {
   changesRequested?: boolean;
   /** CI on the open PR: still running, or failed. Unset once every check passed or when it has none. */
   checks?: "running" | "failed";
+}
+
+/** A Project's PRs as the host's poll last found them: each Worktree's branch PR, and each Chat-named PR by folder and ref. */
+export interface PullRequestSnapshot {
+  worktrees: Record<string, PullRequest | null>;
+  chats: Record<string, Record<string, PullRequest | null>>;
+  /** Some were never read yet; they come with the next `pull-requests:changed`. */
+  pending: boolean;
 }
 
 export interface Worktree {

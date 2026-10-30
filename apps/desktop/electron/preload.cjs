@@ -242,6 +242,8 @@ function makeBridge(invoke, listen, send) {
     refreshDiffs: (projectPath, worktreeIds) => invoke("worktree:refresh-diffs", projectPath, worktreeIds),
     readPullRequest: (worktreePath) => invoke("worktree:pull-request", worktreePath),
     readPullRequests: (worktreePath, refs) => invoke("worktree:pull-requests", worktreePath, refs),
+    readPullRequestSnapshot: (projectPath) => invoke("pull-requests:snapshot", projectPath),
+    onPullRequestsChanged: (callback) => listen("pull-requests:changed", callback),
     revealInFolder: (folder) => invoke("project:reveal", folder),
     copyImage: (file) => invoke("image:copy", file),
     saveImage: (file, name) => invoke("image:save", file, name),

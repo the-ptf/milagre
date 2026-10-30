@@ -124,6 +124,8 @@ window.milagre = new Proxy({}, {get(_, name) {
     return {number,title,url:'https://github.com/the-ptf/milagre-ade/pull/'+number,state:'OPEN',checks:index===0?'running':'passed',readyToMerge:index===5};
   };
   if (name === 'readPullRequests') return async (_, paths) => paths.map(() => null);
+  // As an older host: the sidebar reads each Worktree's PR from readPullRequest above.
+  if (name === 'readPullRequestSnapshot') return async () => { throw new Error('Unknown command: pull-requests:snapshot'); };
   return async () => name in replies ? replies[name] : null;
 }});
 localStorage.setItem('milagre-settings', JSON.stringify({theme:'light',defaultPermissionMode:'auto',notifyWhenWaiting:false,notifyOnCompletion:false,showDockBadge:false,showUsageInSidebar:false}));

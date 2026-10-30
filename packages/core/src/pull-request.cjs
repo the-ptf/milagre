@@ -1,7 +1,9 @@
 const { createGit, callbackExec } = require("./git/client.cjs");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { scheduled } = require("./process-lanes.cjs");
 
+// createGit owns Git scheduling. Keep its executor raw; schedule only gh at the call sites below.
 const execFileAsync = promisify(execFile);
 
 const FIELDS = "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
@@ -28,7 +30,7 @@ async function readPullRequestState(cwd, exec = execFileAsync) {
     const { stdout: branchOutput } = await git.checked(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
     const branch = branchOutput.trim();
     if (!branch) return { known: false, pr: null };
-    const { stdout } = await exec("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
+    const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
     return { known: true, pr: JSON.parse(stdout)[0] ?? null };
   } catch {
     // No PR, offline, or gh unavailable: this optional metadata never blocks a chat.
@@ -43,7 +45,7 @@ async function readPullRequest(cwd, exec = execFileAsync) {
 
 // `pr view` can infer the wrong head repository for a fork or a branch tracking main.
 async function readBranchPullRequest(cwd, branch, exec) {
-  const { stdout } = await exec("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
+  const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
   return toPullRequest(JSON.parse(stdout)[0]);
 }
 
@@ -68,11 +70,13 @@ function createPullRequestReader({ exec = execFileAsync, now = Date.now, ttlMs =
     const hit = batches.get(repo);
     if (hit && now() - hit.at < ttlMs) return hit.read;
     const list = (state, fields) =>
-      exec("gh", ["pr", "list", "--state", state, "--limit", String(BATCH_LIMIT), "--json", `${fields},headRefName`], batchOptions(cwd)).then(({ stdout }) => {
-        const parsed = JSON.parse(stdout);
-        if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
-        return parsed;
-      });
+      scheduled(exec)("gh", ["pr", "list", "--state", state, "--limit", String(BATCH_LIMIT), "--json", `${fields},headRefName`], batchOptions(cwd)).then(
+        ({ stdout }) => {
+          const parsed = JSON.parse(stdout);
+          if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
+          return parsed;
+        },
+      );
     const read = Promise.all([list("all", BATCH_FIELDS), list("open", FIELDS)]).then(([all, open]) => {
       const checks = new Map(open.map((pr) => [pr?.number, pr?.statusCheckRollup]));
       // Newest first, so the first PR seen for a branch is its latest, as `--head <branch> --limit 1` returns.
@@ -121,7 +125,7 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
     refs.slice(0, MAX_REFS).map(async (ref) => {
       if (typeof ref !== "string" || !PR_REF.test(ref)) return null;
       try {
-        const { stdout } = await exec("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
+        const { stdout } = await scheduled(exec)("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
         return toPullRequest(JSON.parse(stdout));
       } catch {
         return null;
@@ -131,7 +135,7 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
 }
 
 function toPullRequest(pr) {
-  if (!pr || !["OPEN", "MERGED"].includes(pr.state) || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
+  if (!pr || !["OPEN", "MERGED", "CLOSED"].includes(pr.state) || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
   const url = new URL(pr.url);
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   // CLEAN means GitHub reports the PR mergeable with passing commit status. Unknown or blocked
@@ -148,6 +152,7 @@ function toPullRequest(pr) {
     url: url.href,
     state: pr.state,
     title: typeof pr.title === "string" ? pr.title : "",
+    isDraft: pr.state === "OPEN" && pr.isDraft === true,
     readyToMerge,
     hasConflicts,
     conflictStatusKnown,
@@ -160,6 +165,16 @@ function toPullRequest(pr) {
 // GitHub counts these check-run conclusions and commit-status states against the PR, as its merge box does.
 const FAILED_CONCLUSIONS = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
 const RUNNING_STATES = new Set(["PENDING", "EXPECTED"]);
+const ROLLUP_FAILED = new Set(["FAILURE", "ERROR"]);
+
+/** A PR node from GraphQL (the fields of `PULL_REQUEST_FIELDS`) as `toPullRequest` reads it, checks rolled up. */
+function fromGraphql(node) {
+  if (!node || typeof node !== "object") return null;
+  const rollup = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state;
+  return toPullRequest({ ...node, statusCheckRollup: typeof rollup === "string" ? rollup : null });
+}
+// What `fromGraphql` reads: the fields of `FIELDS`, with one rolled-up checks state instead of every check.
+const PULL_REQUEST_FIELDS = "number url state title isDraft reviewDecision mergeStateStatus commits(last:1){nodes{commit{statusCheckRollup{state}}}}";
 
 /**
  * "failed" when any check or commit status failed, "running" when none failed but some are still
@@ -167,6 +182,8 @@ const RUNNING_STATES = new Set(["PENDING", "EXPECTED"]);
  * since the branch needs a fix either way.
  */
 function checksState(rollup) {
+  // GraphQL's rolled-up state (`statusCheckRollup { state }`), which ranks a failure over pending checks the same way.
+  if (typeof rollup === "string") return ROLLUP_FAILED.has(rollup) ? "failed" : RUNNING_STATES.has(rollup) ? "running" : undefined;
   if (!Array.isArray(rollup)) return undefined;
   let running = false;
   for (const check of rollup) {
@@ -180,4 +197,14 @@ function checksState(rollup) {
   return running ? "running" : undefined;
 }
 
-module.exports = { readPullRequest, readPullRequestState, readPullRequests, createPullRequestReader };
+module.exports = {
+  readPullRequest,
+  readPullRequestState,
+  readPullRequests,
+  createPullRequestReader,
+  toPullRequest,
+  fromGraphql,
+  PULL_REQUEST_FIELDS,
+  PR_REF,
+  MAX_REFS,
+};

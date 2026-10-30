@@ -1737,6 +1737,17 @@
         }
       ]
     },
+    "pull-requests:snapshot": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "project:reveal": {
       "parameters": [
         {
@@ -7256,11 +7267,11 @@
           "$ref": "#/$defs/T177",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2284": {
+        "__@toStringTag@2289": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2284"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2289"],
       "additionalProperties": false
     },
     "T174": {
