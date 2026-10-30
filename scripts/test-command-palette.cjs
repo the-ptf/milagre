@@ -3,12 +3,13 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { panelMenuHelpers } = require("./panel-menu-test.cjs");
 // Match the real desktop shortcuts: Command on macOS, Control on Linux and Windows.
 const mac = process.platform === "darwin";
 const modifierKey = mac ? "Meta" : "Control";
 const modifier = mac ? { metaKey: true } : { ctrlKey: true };
-const changesHint = mac ? "Command + Shift + D" : "Shift + D";
-const changesShortcut = mac ? "Command + Shift + D" : "Control + Shift + D";
+const layoutHint = mac ? "Command + Shift + M" : "Shift + M";
+const layoutShortcut = mac ? "Command + Shift + M" : "Control + Shift + M";
 
 const fixture = `
 import React from 'react';
@@ -75,6 +76,7 @@ async function browserChecks() {
     window.webContents.executeJavaScript(source).catch((error) => {
       throw new Error(`${error.message}\nExpression: ${source}`);
     });
+  const { evaluatePanel } = panelMenuHelpers(evaluate);
   async function waitFor(source) {
     for (let n = 0; n < 200; n++) {
       if (await evaluate(source)) return;
@@ -129,9 +131,9 @@ async function browserChecks() {
       "Shortcut hints use the app font instead of the browser monospace default",
     );
     assert.equal(
-      await evaluate(`document.querySelector(${JSON.stringify(`kbd[aria-label="${changesHint}"]`)}).querySelectorAll("svg").length`),
+      await evaluate(`document.querySelector(${JSON.stringify(`kbd[aria-label="${layoutHint}"]`)}).querySelectorAll("svg").length`),
       mac ? 2 : 1,
-      "The Changes badge draws the native modifier and Shift icons",
+      "The Layout badge draws the native modifier and Shift icons",
     );
     assert.ok(
       await evaluate(
@@ -139,16 +141,16 @@ async function browserChecks() {
       ),
       "Floating badges stay inside the viewport",
     );
-    await evaluate('document.querySelector("[data-changes-toggle]").dispatchEvent(new PointerEvent("pointerover", { bubbles: true }))');
+    await evaluate('document.querySelector("[data-layout-toggle]").dispatchEvent(new PointerEvent("pointerover", { bubbles: true }))');
     await waitFor('!!document.querySelector("[role=tooltip] kbd")');
     assert.equal(
       await evaluate('document.querySelector("[role=tooltip] kbd").getAttribute("aria-label")'),
-      changesShortcut,
+      layoutShortcut,
       "Hover tooltips name the modifier icons for assistive technology",
     );
     await screenshot("tooltip-dark.png");
     await evaluate(
-      'document.querySelector("[data-changes-toggle]").dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }))',
+      'document.querySelector("[data-layout-toggle]").dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }))',
     );
     assert.ok(
       await evaluate('[...document.querySelectorAll("[data-shortcut-hint]")].some(el => el.textContent.includes("1"))'),
@@ -156,6 +158,15 @@ async function browserChecks() {
     );
     await evaluate(`window.dispatchEvent(new KeyboardEvent("keyup", { key: ${JSON.stringify(modifierKey)}, bubbles: true }))`);
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length === 0');
+    assert.equal(
+      await evaluatePanel('document.querySelector("[data-panel-toggle=changes]").textContent.trim()'),
+      mac ? "View changes⌘⇧D" : "View changesCtrl+Shift+D",
+      "Changes keeps its shortcut in the overflow menu",
+    );
+    await key("d", { ...modifier, shiftKey: true });
+    await waitFor('!!document.querySelector("[data-changes-panel]")');
+    await evaluatePanel('document.querySelector("[data-panel-toggle=changes]").click()');
+    await waitFor('!document.querySelector("[data-changes-panel]")');
     await key(modifierKey, modifier);
     await waitFor('document.querySelectorAll("[data-shortcut-hint]").length > 0');
     await evaluate("window.dispatchEvent(new Event('blur'))");

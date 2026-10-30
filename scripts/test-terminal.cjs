@@ -137,6 +137,7 @@ async function electronChecks() {
       throw new Error(`${source}: ${error.message}`, { cause: error });
     }
   };
+  const { evaluatePanel, waitForPanel } = require("./panel-menu-test.cjs").panelMenuHelpers(evaluate);
   const screenshotDir = process.env.MILAGRE_SCREENSHOT_DIR;
   async function screenshot(name) {
     if (!screenshotDir) return;
@@ -178,7 +179,7 @@ async function electronChecks() {
   try {
     await window.loadURL(process.argv[2]);
     if (screenshotDir) window.showInactive();
-    await waitFor('!!document.querySelector("[data-panel-toggle=terminal]")', "the Terminals corner button");
+    await waitForPanel('!!document.querySelector("[data-panel-toggle=terminal]")', "the Terminals corner button");
     assert.equal(await evaluate('!!document.querySelector("[data-terminal-panel]")'), false, "The panel starts hidden");
     window.webContents.focus();
 
@@ -201,7 +202,7 @@ async function electronChecks() {
       await type("echo shell-name:$0\r");
       await waitFor(`/shell-name:[^\\s]*zsh/.test(${shown})`, "the selected shell is running zsh");
     }
-    assert.equal(await evaluate('document.querySelector("[data-panel-toggle=terminal]").getAttribute("aria-pressed")'), "true");
+    assert.equal(await evaluatePanel('document.querySelector("[data-panel-toggle=terminal]").getAttribute("aria-checked")'), "true");
     await type("printf '\\033[32mgreen\\033[0m \\033[1;34mblue\\033[0m\\n'\r");
     await waitFor(`${shown}.includes("green blue")`);
     await screenshot("terminal-dark");

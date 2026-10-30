@@ -152,6 +152,8 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:scope",
     "babysit:settings:read",
     "babysit:settings:save",
+    "done:settings:read",
+    "done:settings:save",
     "keybindings:read",
     "keybindings:set-command",
     "keybindings:reset-command",
@@ -160,6 +162,10 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "routines:enabled:save",
     "routines:create",
     "routines:hook",
+    // A paired computer's desktop app update, on its Computer page; this Mac's own stays update:*.
+    "app-update:state",
+    "app-update:check",
+    "app-update:install",
   ])
     assert.equal(isLocalOnly(channel), false, channel);
   assert.equal(ALIASES["project:open-at"], "project:open");

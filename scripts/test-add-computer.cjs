@@ -185,7 +185,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-open]').click()`);
     await type("Pairing link", LINK);
     await waitFor(`!!document.querySelector('[data-add-computer-found]')`);
-    await evaluate(`document.querySelector('[role="switch"][aria-label="LAN or Tailscale only"]').click()`);
+    await evaluate(`document.querySelector('[role="checkbox"][aria-label="LAN or Tailscale only"]').click()`);
     await waitFor(`document.querySelector('[data-add-computer-found]')?.textContent.includes('192.168.1.20')`);
     await screenshot("add-computer-private");
     const privateCalls = await evaluate(`window.addCalls.length`);

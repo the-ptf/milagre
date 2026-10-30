@@ -135,6 +135,7 @@ import { CodeBlock } from "./markdown/CodeBlock";
 import { useDismiss } from "../lib/use-dismiss";
 import { useSettings } from "../lib/settings";
 import { ThisComputer } from "../lib/shortcut-hints";
+import { LoadingMark } from "./StartupSplash";
 
 const NO_WAITING_STEPS: string[] = [];
 
@@ -761,12 +762,18 @@ interface ChatComposerProps {
   offlineName?: string | null;
   /** The connection to the chat's computer is coming back: the draft stays writable, and Send waits for it. */
   reconnectingName?: string | null;
+  /** Above the prompt, inside a tray like a new Chat's: messages waiting on this Mac and the offline computer's chip. */
+  offlineTray?: ReactNode;
+  /** The Chat is mounted but not on screen (Settings, the canvas, Routines): its Browser panel and button go away. */
+  offScreen?: boolean;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
   /** Sends the Browser panel's page comments, with their screenshots. */
   onSendPageComments?: (text: string, images: ImageAttachment[]) => Promise<boolean>;
   /** Opens a file's diff in the Changes panel, from the undo preview. */
   onOpenDiff?: (path: string, worktree: string) => void;
+  /** Opens an associated PR in this Chat's Git panel; false leaves normal link handling in place. */
+  onOpenPullRequestLink?: (url: string) => boolean;
   /** A Link's or a bot's Chat starts without the new-chat header. */
   scopeKind?: "project" | "link" | "bot";
   /** The find bar over the message list; the parent owns it so ⌘F and the command palette can open it. */
@@ -926,11 +933,11 @@ function ChipButton({
       type="button"
       aria-expanded={open}
       onClick={(event) => onClick(event.currentTarget)}
-      className={`flex h-7 items-center gap-1.5 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
+      className={`flex h-7 min-w-0 items-center gap-1.5 rounded-[8px] px-1.5 text-[12px] font-medium whitespace-nowrap transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
     >
-      {leading ?? (icon && <Icon icon={icon} size={14} />)}
-      {label}
-      <span className="text-ink-3">
+      <span className="flex shrink-0">{leading ?? (icon && <Icon icon={icon} size={14} />)}</span>
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="shrink-0 text-ink-3">
         <Icon icon={ArrowDown01Icon} size={12} />
       </span>
     </button>
@@ -980,7 +987,8 @@ function NewChatHeader({
 }: NewChatHeaderProps) {
   const [menu, setMenu] = useState<"computer" | "isolation" | "branch" | "issue" | null>(null);
   const copy = copies.find((item) => item.key === currentKey);
-  const chooseComputer = copies.length > 1 && copy && onComputerChange;
+  // Shown for every Project, on one computer or several, so the heading never has to name the computer.
+  const chooseComputer = copy && onComputerChange;
   const [query, setQuery] = useState("");
   const [popover, setPopover] = useState({ left: 0, maxHeight: 480, up: true });
   const selected = worktrees.find((worktree) => worktree.id === selectedWorktreeId) ?? worktrees[0];
@@ -1046,9 +1054,10 @@ function NewChatHeader({
         </p>
       )}
       {(chats || (!noGit && selected)) && (
-        <div data-new-chat-pickers className="relative mb-1 flex items-center gap-1">
+        // One row, never wrapped: a narrow composer truncates the chips' names instead.
+        <div data-new-chat-pickers className="relative mb-1 flex min-w-0 items-center gap-1">
           {chooseComputer && (
-            <Tooltip label="Choose the computer">
+            <Tooltip label="Choose the computer" className="min-w-0">
               <ChipButton
                 icon={ComputerIcon}
                 label={copy.computer}
@@ -1065,7 +1074,7 @@ function NewChatHeader({
           ) : (
             selected && (
               <>
-                <Tooltip label="Choose the isolation level">
+                <Tooltip label="Choose the isolation level" className="min-w-0">
                   <ChipButton
                     icon={isolationOption.icon}
                     label={isolationOption.name}
@@ -1182,6 +1191,8 @@ export function ChatComposer({
   mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
   reconnectingName,
+  offlineTray,
+  offScreen = false,
   scopeKind,
   imageDraft,
   projectPath,
@@ -1273,6 +1284,7 @@ export function ChatComposer({
   onSendDesignMessage,
   onSendPageComments,
   onOpenDiff,
+  onOpenPullRequestLink,
 }: ChatComposerProps) {
   const loopbackPorts = useMemo(() => loopbackOnlyPorts(ports), [ports]);
   const chatWidth = useSettings().appearance.chatWidth;
@@ -1313,8 +1325,10 @@ export function ChatComposer({
   // A draft's transcript takes its view's key until the Chat is saved; its slot then becomes the Chat's.
   const draftKey = scrollKey === undefined ? null : `view:${scrollKey}`;
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
-  // The Browser panel opens pages on this Mac, so it is offered for this Mac's Chats only.
-  const browserChat = !isNewChat && runtimeChat && !isRemoteKey(runtimeChat) ? runtimeChat : null;
+  // Pages open on the viewing Mac, including pages linked from a Chat on another computer.
+  const browserChat = !isNewChat ? runtimeChat : null;
+  // The panel docks outside the chat pane, so the pane hiding doesn't hide it.
+  const browserShown = browserChat && !offScreen ? browserChat : null;
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
@@ -1451,6 +1465,15 @@ export function ChatComposer({
     >
       <div
         ref={root}
+        onClickCapture={(event) => {
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+          const href = anchor?.getAttribute("href");
+          if (href && onOpenPullRequestLink?.(href)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
         className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
@@ -1498,13 +1521,15 @@ export function ChatComposer({
           view={scrollKey}
           messageCount={messages.length}
           element={
-            isNewChat ? null : messages.length === 0 ? (
-              <div
-                className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2"
-                role={loadError ? "alert" : "status"}
-              >
-                <p>{loadError ? `Could not load this Chat: ${loadError}` : "Loading Chat..."}</p>
-                {loadError && onRetryLoad && (
+            isNewChat ? null : messages.length === 0 && !loadError ? (
+              // The splash mark, as on the phone; it waits a beat so a transcript that is already near doesn't flash it.
+              <div className="chat-loading relative flex min-h-0 flex-1 items-center justify-center" role="status" aria-label="Loading Chat">
+                <LoadingMark size={48} />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2" role="alert">
+                <p>Could not load this Chat: {loadError}</p>
+                {onRetryLoad && (
                   <button type="button" onClick={onRetryLoad} className="rounded-control border border-line px-3 py-1.5 hover:bg-hover">
                     Try again
                   </button>
@@ -1639,9 +1664,11 @@ export function ChatComposer({
               onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
             />
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
+            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} offScreen={offScreen} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
-            {browserChat && <BrowserPanel key={`browser-panel-${browserChat}`} chatKey={browserChat} ports={ports ?? []} onSendComments={onSendPageComments} />}
+            {browserShown && (
+              <BrowserPanel key={`browser-panel-${browserShown}`} chatKey={browserShown} ports={ports ?? []} onSendComments={onSendPageComments} />
+            )}
             <SubagentTrack
               key={chatId}
               chatKey={runtimeChat}
@@ -1666,7 +1693,13 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
-          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[28px] border border-line bg-inset p-1.5 pt-1" : ""}>
+          <div
+            data-composer-tray={projectNewChat || undefined}
+            data-offline-composer={(!projectNewChat && offlineTray) || undefined}
+            className={
+              projectNewChat || offlineTray ? `rounded-[28px] border bg-inset p-1.5 pt-1 ${projectNewChat ? "border-line" : "border-line-strong"}` : ""
+            }
+          >
             {projectNewChat && (
               <NewChatHeader
                 worktrees={worktrees}
@@ -1686,13 +1719,14 @@ export function ChatComposer({
                 onComputerChange={changeComputer}
               />
             )}
+            {offlineTray}
             {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
             {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
             {review.view !== "closed" && !isNewChat && (
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
-            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+            <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
                 offlineName={offlineName}
                 reconnectingName={reconnectingName}

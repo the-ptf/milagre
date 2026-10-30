@@ -1,5 +1,23 @@
 const PR_URL = /^https?:\/\/[^\s/]+\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 const REPO = /^[\w.-]+\/[\w.-]+$/;
+
+/** The same repository and PR, including links to its files, checks or comments. */
+function pullRequestIdentity(value) {
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.port) return null;
+    const match = /^\/([\w.-]+)\/([\w.-]+)\/pull\/([1-9]\d*)(?:\/|$)/.exec(url.pathname);
+    return match ? `${url.hostname.toLowerCase()}/${match[1].toLowerCase()}/${match[2].toLowerCase()}/${match[3]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Finds a link's PR only among the Chat's known PRs, preserving its Worktree when supplied by the caller. */
+export function associatedPullRequest(url, choices) {
+  const identity = pullRequestIdentity(url);
+  return identity ? choices.find((choice) => pullRequestIdentity(choice.url) === identity) : undefined;
+}
 // `gh pr merge` flags followed by a value, so the value isn't read as the PR.
 const MERGE_VALUE_FLAGS = new Set(["-t", "--subject", "-b", "--body", "-F", "--body-file", "-A", "--author-email", "--match-head-commit", "-R", "--repo"]);
 /** The PRs a chat's commands created (`gh pr create`) or merged (`gh pr merge <pr>`), in the order they ran. */

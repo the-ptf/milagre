@@ -104,7 +104,7 @@ test("a tap on the phone names the element at that point, with its screenshot ta
   assert.deepEqual(sent[2][1].clip, { x: 0, y: 88, width: 144, height: 64, scale: 1 });
   assert.deepEqual(sent[3], ["Runtime.evaluate", "window.__milagrePins?.hide(false)"]);
   const empty = { send: async () => ({ result: { value: null } }) };
-  await assert.rejects(commentAtPoint(empty, 0.5, 0.5), /nothing to comment on there/);
+  await assert.rejects(commentAtPoint(empty, 0.5, 0.5), /Could not place a comment pin/);
 });
 
 test("what the page says about the tapped element is kept to its shape: a page's scripts can answer anything", async () => {

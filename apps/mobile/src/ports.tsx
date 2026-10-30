@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { AppState, Linking, Pressable, Text, View } from "react-native";
+import { Linking, AppState, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -13,6 +13,9 @@ import { Icon } from "./icons";
 import { CircleButton, ErrorNotice, PageScroll, PillButton, useStyles } from "./ui";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
+import { useInternalBrowser } from "./browser-setting";
+import { openBrowserLink } from "./browser-link";
+import { useChatPanelTabs } from "./side-panels";
 
 /** The host returns only this Chat's proven processes. A Worktree is never an owner. */
 export function useChatPorts(client: Client | null, chatId?: string) {
@@ -80,6 +83,8 @@ export function PortsChip({ chatId, ports }: { chatId: string; ports: AgentPort[
 }
 
 export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: string }) {
+  const openTab = useChatPanelTabs(hostId, chatId);
+  const [internalBrowser] = useInternalBrowser();
   const { colors } = useTheme();
   const styles = useStyles();
   const { client } = useSession();
@@ -157,15 +162,20 @@ export function PortsSheet({ hostId, chatId }: { hostId?: string; chatId?: strin
                 <View key={port.port} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Pressable
                     style={{ flex: 1 }}
-                    disabled={!linkOf(port)}
-                    accessibilityRole={linkOf(port) ? "link" : undefined}
-                    accessibilityLabel={linkOf(port) ? `Open ${linkOf(port)}` : undefined}
+                    accessibilityRole="link"
+                    accessibilityLabel={`Open http://localhost:${port.port}`}
                     onPress={() => {
-                      const link = linkOf(port);
-                      if (link) void Linking.openURL(link).catch(() => setActionError("Could not open the address."));
+                      if (!internalBrowser) {
+                        const url = linkOf(port);
+                        if (!url) setActionError("This server is only reachable in Milagre's Browser. Enable Open links in Milagre in Settings > Browser.");
+                        else void Linking.openURL(url).catch(() => setActionError("Could not open the address."));
+                      } else if (source && chatId) {
+                        if (openTab) router.back();
+                        openBrowserLink(source.url, chatId, `http://localhost:${port.port}`, openTab);
+                      }
                     }}
                   >
-                    <Text style={{ fontSize: 17, color: linkOf(port) ? colors.accent : colors.ink, fontVariant: ["tabular-nums"] }}>:{port.port}</Text>
+                    <Text style={{ fontSize: 17, color: colors.accent, fontVariant: ["tabular-nums"] }}>:{port.port}</Text>
                     <Text style={styles.muted}>
                       {port.command}
                       {/* Bound to the computer's loopback: only the computer itself opens it. */}

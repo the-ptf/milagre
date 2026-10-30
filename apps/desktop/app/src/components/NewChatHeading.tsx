@@ -15,7 +15,8 @@ import { projectInitial } from "../lib/project-list";
 /**
  * "Start building in [Computer / Project ▾]" over a new Chat. The Project is a dropdown listing every Project this window
  * can start a Chat in, the sidebar's other computers included, one row per repository; picking one moves the new Chat
- * there. A Project on several computers leaves the computer to the composer's computer chip, so the heading drops it.
+ * there. The composer's computer chip names the computer, so the heading drops it; only a Project not yet found in the
+ * lists (no chip yet) keeps "Computer /" here.
  * No project, first in the list, moves it to a Chats home: "Just chat [No project ▾]", the computer left to the chip too.
  */
 export function NewChatHeading({
@@ -47,8 +48,8 @@ export function NewChatHeading({
   const { thisMac, computers } = useComputers();
   const chats = projectKind === "chats";
   const computerId = computerOfKey(projectKey);
-  const onSeveral = (groups.find((group) => group.copies.some((copy) => copy.key === projectKey))?.copies.length ?? 0) > 1;
-  const computer = chats || onSeveral ? "" : computerId === LOCAL_COMPUTER ? thisMac : (computers.find((item) => item.id === computerId)?.name ?? "Computer");
+  const chipped = groups.some((group) => group.copies.some((copy) => copy.key === projectKey));
+  const computer = chats || chipped ? "" : computerId === LOCAL_COMPUTER ? thisMac : (computers.find((item) => item.id === computerId)?.name ?? "Computer");
   const name = chats ? NO_PROJECT_LABEL : projectName;
   const place = (
     <>

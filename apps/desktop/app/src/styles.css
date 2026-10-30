@@ -1560,6 +1560,10 @@ code.step-running.step-sweep {
 .startup-splash-mark {
   fill: #0a0a0a;
 }
+/* A Chat's transcript on its way: the splash mark appears only once the wait is long enough to notice. */
+.chat-loading {
+  animation: fade-in 240ms ease-out 300ms both;
+}
 .dark .startup-splash-mark {
   fill: #ffffff;
 }

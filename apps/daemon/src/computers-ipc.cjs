@@ -1,7 +1,7 @@
 const { ALIASES, NOT_REMOTE, isLocalOnly, qualifyEvent, qualifyResult, stripComputer } = require("./computer-routing.cjs");
 
 // Kept as they pass (main sees whole lists and the states a Project opens with); the window forwards the rest.
-const KEPT_LISTS = { "project:recent": "recent", "link:list": "links", "project:registry": "registry" };
+const KEPT_LISTS = { "project:recent": "recent", "project:known": "known", "link:list": "links", "project:registry": "registry" };
 // Routines' reads, kept whole: a computer away shows its last list. Writes and webhook URLs (secrets) are never kept.
 const KEPT_OBJECTS = {
   "routines:enabled:read": "routines-enabled",

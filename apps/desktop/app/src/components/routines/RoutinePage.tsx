@@ -26,7 +26,7 @@ import {
 } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import Tooltip from "../primitives/Tooltip";
 import { routineProblem } from "./RoutineRow";
 import { Chip, Segmented } from "./RoutineChips";
@@ -160,7 +160,7 @@ export function RoutinePage({
             <RoutineStatusPill on={routine.enabled} />
           </div>
           <div data-routine-toolbar className="flex h-[34px] shrink-0 items-center gap-1 rounded-[10px] border border-line bg-surface pr-1 pl-2">
-            <Switch
+            <SettingCheckbox
               label={`${routine.name} on`}
               checked={routine.enabled}
               onChange={(on) => act(() => bridgeForKey(routine.id).updateRoutine(routine.id, { enabled: on }))}

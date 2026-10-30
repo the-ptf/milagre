@@ -9,12 +9,13 @@ import Tooltip from "../primitives/Tooltip";
 import { PillMorph } from "../motion/PillMorph";
 import { viewerTheme } from "./viewerTheme";
 import { isRemoteKey, onAnyAgentEvent, useBridge } from "../../lib/computer-bridge";
+import { useSidePanel } from "./PanelToggles";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 
 const POLL_MS = 15_000;
 
 /** Pages of browsers this Chat's agent started, or that were attached to this Chat. Never inferred from a URL. Hidden until the Chat has a page. */
-export function BrowserTrack({ chatId }: { chatId?: string }) {
+export function BrowserTrack({ chatId, offScreen = false }: { chatId?: string; offScreen?: boolean }) {
   // Read once: the bridge never changes while mounted, and a fresh reference each render would restart polling.
   const bridge = useBridge();
   const [api] = useState(() => bridge?.browsers);
@@ -38,6 +39,9 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     setSelected(null);
     setPage(null);
   }, []);
+  useEffect(() => {
+    if (offScreen) close();
+  }, [offScreen, close]);
   const refresh = useCallback(async () => {
     if (!api || !chatId || document.hidden) return;
     try {
@@ -109,6 +113,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     setOpened(true);
     void refresh();
   };
+  useSidePanel("agentBrowser", visible && !offScreen ? { open: opened, toggle: () => (opened ? close() : open()) } : null);
   const attach = async (browserId: string) => {
     if (!api || !chatId) return;
     setAttaching(browserId);

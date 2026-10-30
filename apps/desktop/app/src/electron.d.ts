@@ -1,4 +1,6 @@
+import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
+import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
@@ -22,6 +24,7 @@ import type {
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
 import type { ChatsHome } from "@milagre/shared/chats-home";
+import type { ComputerResources } from "@milagre/shared/computer-resources";
 import type { BotRecord, BotsSnapshot, GateRecord } from "@milagre/shared/bots";
 import type { StatePatch } from "@milagre/shared/state-patch";
 export type FloatingDragOverlay = {
@@ -139,14 +142,7 @@ export type WorktreeSetupSource = "repo" | "setting" | "none";
 export type WorktreeSetupSettings = { setupCommand: string; source: WorktreeSetupSource; command: string | null; note?: string };
 
 export type ReleaseChannel = "stable" | "beta";
-export type UpdateState = {
-  status: "idle" | "checking" | "up-to-date" | "downloading" | "downloaded" | "installing" | "error" | "unavailable";
-  version: string | null;
-  progress: number;
-  error?: string;
-  /** Auto update is on: a downloaded update installs by itself once nothing runs (Settings › About). */
-  auto?: boolean;
-};
+export type UpdateState = AppUpdateState;
 
 /** The Phone setting as the host runs it. The link and QR (an SVG) are there only while it is on; both carry the access token. */
 export type PhoneStatus = {
@@ -400,6 +396,17 @@ export type MilagreBridge = {
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
   /** The switch changed, here or from another device. */
   onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
+  /**
+   * A paired computer's Computer page (and the phone): the update of the desktop app open on that computer and the
+   * version it runs, through its host; null while no desktop app is open there. This Mac's own window uses getUpdateState.
+   */
+  readHostUpdate: () => Promise<HostUpdate>;
+  /** Starts a check there and answers at once with the check begun; readHostUpdate follows it. */
+  checkHostUpdate: () => Promise<HostUpdate>;
+  /** Restarts Milagre there to install a downloaded update; rejects when none is ready. Running Chats resume after the restart. */
+  installHostUpdate: () => Promise<HostUpdate>;
+  /** Settings › Devices: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
+  readComputerResources: () => Promise<ComputerResources>;
   /** Settings › Keybindings: the rules of keybindings.json on this computer (a paired computer's bridge reads that computer's). A missing file is created with the defaults. */
   readKeybindings: () => Promise<KeybindingsState>;
   /** Replaces one command's rules (none unbinds it). Rejects an unknown command, a key or `when` Milagre can't read, or a file with errors. */
@@ -417,6 +424,12 @@ export type MilagreBridge = {
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
+  /** Settings › Chats: how long a Chat stays in the Done list before the host archives it. Kept by the host. */
+  readDoneSettings: () => Promise<DoneSettings>;
+  /** Merges the patch over the stored settings and returns the normalized result. */
+  saveDoneSettings: (patch: Partial<DoneSettings>) => Promise<DoneSettings>;
+  /** The settings changed, here or from another device. */
+  onDoneSettings: (callback: (value: DoneSettings) => void) => () => void;
   /** Whether this Mac runs Routines: always `true` now; an older paired computer may still say `false`. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
@@ -550,6 +563,8 @@ export type MilagreBridge = {
   readMedia: (request: { scope: string; path: string }) => Promise<MediaBytes>;
   /** Projects opened lately, most recent first; folders that are gone are left out. */
   listRecentProjects: () => Promise<RecentProject[]>;
+  /** Every Project the computer knows, newest opened first, for the new-chat picker. Rejects on a computer that predates it. */
+  listKnownProjects: () => Promise<RecentProject[]>;
   /** Onboarding: folders Claude Code and Codex sessions on this Mac worked in, newest first. */
   listAgentFolders: () => Promise<import("@milagre/shared/model").AgentFolder[]>;
   /** Onboarding: a new folder in ~/Code with Git, opened as a Project. */
@@ -622,6 +637,7 @@ export type MilagreBridge = {
   onProjectState: (callback: (update: { path: string; state?: CoordinatorState } & StateNumbering) => void) => () => void;
   /** Saves a message in its chat (a new one when `sessionId` is null), then starts or steers the chat's turn. */
   checkpoints: CheckpointApi;
+  sendStatus: (owner: string, id: string) => Promise<{ sessionId: number } | null>;
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
   /** Continues a chat a quit stopped mid-turn, on its saved options. Resolves false when it has nothing to continue. */
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;
@@ -639,6 +655,7 @@ export type MilagreBridge = {
     accountId: string,
   ) => Promise<{ continued: boolean; label: string }>;
   patchChat: (projectPath: string, sessionId: number, patch: SessionPatch) => Promise<void>;
+  deleteChat: (projectPath: string, sessionId: number) => Promise<void>;
   /** Archives one of a chat's subagents, or brings it back; the provider carries on either way. */
   archiveSubagent: (projectPath: string, sessionId: number, id: string, archived: boolean) => Promise<void>;
   archiveFinishedSubagents: (projectPath: string, sessionId: number) => Promise<void>;

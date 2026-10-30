@@ -88,6 +88,27 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
   await assert.rejects(runtime.invoke("artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]), /not in this computer/);
 });
 
+test("Done is stamped with the host's clock, reopened, and cleared by a restore, and its retention is a host setting", async (t) => {
+  const { make, project } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const sessionOf = async () => (await runtime.invoke("project:current")).state.sessions[session.id];
+  const before = Date.now();
+  await runtime.invoke("chat:patch", [project, session.id, { done: true, unread: false, done_at: 1 }]);
+  const done = await sessionOf();
+  assert.ok(done.done_at >= before && done.done_at <= Date.now(), "the client's own clock is ignored");
+  await runtime.invoke("chat:patch", [project, session.id, { done: false }]);
+  assert.equal((await sessionOf()).done_at, undefined);
+  await runtime.invoke("chat:patch", [project, session.id, { done: true }]);
+  await runtime.invoke("chat:patch", [project, session.id, { archived: true }]);
+  await runtime.invoke("chat:patch", [project, session.id, { archived: false }]);
+  assert.equal((await sessionOf()).done_at, undefined, "a Chat back from the archive is back in the list");
+  assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 24 });
+  assert.deepEqual(await runtime.invoke("done:settings:save", [{ retentionHours: 8 }]), { retentionHours: 8 });
+  assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 8 });
+});
+
 test("Node runtime preserves stored Chats and provider IDs across a restart", async (t) => {
   const { project, events, make } = await fixture(t);
   const first = make();
@@ -718,6 +739,31 @@ test("project:recent names each Project's Git origin, so other computers can sho
   await runtime.openProject(project);
   const [entry] = await runtime.invoke("project:recent");
   assert.equal(entry.origin, "github.com/the-ptf/milagre-ade");
+});
+
+test("project:known offers every Project the Mac knows, past the recent list's ten, newest first with its origin", async (t) => {
+  const { project, make } = await fixture(t);
+  execFileSync("git", ["-C", project, "remote", "add", "origin", "git@github.com:The-PTF/milagre-ade.git"], { stdio: "ignore" });
+  const runtime = make();
+  await runtime.openProject(project);
+  const others = [];
+  for (let index = 0; index < 10; index++) {
+    const folder = path.join(path.dirname(project), `other-${index}`);
+    await fs.mkdir(folder);
+    execFileSync("git", ["init", "-q", folder], { stdio: "ignore" });
+    await runtime.openProject(folder);
+    others.push(folder);
+  }
+  const recent = await runtime.invoke("project:recent");
+  assert.equal(recent.length, 10);
+  assert.ok(!recent.some((item) => item.path === project), "the first Project fell off the recent list");
+  const known = await runtime.invoke("project:known");
+  assert.deepEqual(
+    known.map((item) => item.path),
+    [...others.toReversed(), project],
+  );
+  assert.equal(known.at(-1).origin, "github.com/the-ptf/milagre-ade");
+  assert.equal(known.at(-1).name, path.basename(project));
 });
 
 test("linked Worktrees resolve to one registered Project without losing saved Chats", async (t) => {
@@ -1757,4 +1803,42 @@ test("worktree:remove of a Chats home worktree holding files needs delete, and d
   const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
   assert.equal(state.worktrees[worktree.id], undefined);
   assert.equal(state.sessions[sessionId], undefined);
+});
+
+test("secret submissions bypass provider answers, summaries, persistence and replay", async (t) => {
+  const { project, make, events, dataDir } = await fixture(t);
+  const fake = reloadAgents();
+  fake.running();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: fake.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "Connect service", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !fake.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = fake.sessions[0];
+  session.answerQuestion = () => {
+    throw new Error("Secret reached provider answers");
+  };
+  const tool = session.options.linked.tools.find((item) => item.name === "request_secret");
+  assert.ok(tool);
+  const result = tool.run({ title: "Service token", description: "Connect the service." });
+  let question;
+  for (let i = 0; i < 200 && !question; i++) {
+    question = events.find((item) => item.payload?.event?.secretRequest)?.payload.event;
+    if (!question) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(question);
+  const sentinel = "SECRET_SENTINEL_never_in_history";
+  const args = { chatId, requestId: question.requestId, answers: { secret: [sentinel] }, summary: sentinel };
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), true);
+  const saved = JSON.parse(await result);
+  assert.equal(await fs.readFile(saved.path, "utf8"), sentinel);
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
+  await runtime.invoke("agent:interrupt", [chatId]);
+  const snapshot = await runtime.invoke("project:snapshot", [project]);
+  assert.ok(!JSON.stringify(snapshot).includes(sentinel));
+  assert.ok(!JSON.stringify(events).includes(sentinel));
+  await runtime.close();
+  assert.ok(!JSON.stringify(await readSavedState(project)).includes(sentinel));
+  assert.equal((await fs.readdir(path.join(dataDir, "chat-secrets"))).length, 1);
 });

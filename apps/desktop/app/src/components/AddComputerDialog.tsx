@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { privatePairingLink } from "@milagre/shared/pairing-link";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
 import { thisComputer } from "../lib/shortcut-hints";
 
@@ -150,7 +150,7 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         </div>
         <div className="mt-3 flex items-center justify-between gap-3 text-[13px]">
           <span>LAN or Tailscale only</span>
-          <Switch
+          <SettingCheckbox
             label="LAN or Tailscale only"
             checked={privateOnly}
             disabled={adding}

@@ -60,6 +60,7 @@ const PATHS = Object.freeze({
   "browser:list": denied,
   "browser:attach": denied,
   "browser:open": denied,
+  "browser:open-page": denied,
   "browser:frame": denied,
   "browser:status": denied,
   "browser:control": denied,
@@ -101,6 +102,7 @@ const PATHS = Object.freeze({
   "push:focus": ([value]) => (value?.chatId === null || value?.chatId === undefined ? [] : [chatProject(value.chatId)]),
   "daemon:status": none,
   "project:recent": none,
+  "project:known": none,
   // Named Links span Projects. The single-folder demo must never expose them.
   "project:registry": denied,
   // Canvas Links reach other Projects too, so the demo has none.
@@ -142,7 +144,14 @@ const PATHS = Object.freeze({
   "limits:auto-switch:save": denied,
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
+  // Memory and disk totals name no folder.
+  "computer:resources:read": none,
   "app-update:auto:save": denied,
+  // The desktop app's update names no folder. A confined phone sees it; a check or an install restarts the whole Mac's
+  // Milagre, so it starts neither.
+  "app-update:state": none,
+  "app-update:check": denied,
+  "app-update:install": denied,
   // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
   "keybindings:read": none,
   "keybindings:set-command": denied,
@@ -152,6 +161,9 @@ const PATHS = Object.freeze({
   // on the Mac: a confined phone only reads them.
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
+  // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
+  "done:settings:read": none,
+  "done:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,
@@ -226,6 +238,7 @@ const PATHS = Object.freeze({
   "agent:cli-status": (args) => (args[0] == null ? [] : [args[0]]),
   "scope:retry-save": ([scope]) => [scope],
   "chat:patch": ([projectPath]) => [projectPath],
+  "chat:delete": ([projectPath]) => [projectPath],
   "chat:archive-subagent": ([projectPath]) => [projectPath],
   "chat:archive-finished-subagents": ([projectPath]) => [projectPath],
   "chat:subagent": ([projectPath]) => [projectPath],
@@ -349,7 +362,7 @@ function createConfinement({ allowedRoot, uploadsDir }) {
       const kept = await Promise.all(result.map((root) => allows(root)));
       return result.filter((_root, index) => kept[index]);
     }
-    if ((method === "project:recent" || method === "project:find") && Array.isArray(result)) {
+    if ((method === "project:recent" || method === "project:known" || method === "project:find") && Array.isArray(result)) {
       const kept = await Promise.all(result.map((entry) => allows(entry?.path)));
       return result.filter((_entry, index) => kept[index]);
     }
