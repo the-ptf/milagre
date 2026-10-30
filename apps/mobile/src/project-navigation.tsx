@@ -134,8 +134,8 @@ type Row = { key: string; path: string } & (
   | { kind: "offline"; hostIds: string[] }
   /** The Done section's header at the bottom of the list: a tap folds it. */
   | { kind: "doneHeader"; count: number; expanded: boolean }
-  /** A Done Chat: a tap opens it, a swipe right reopens it, and it counts down to its Mac's archive. */
-  | ({ kind: "done"; chat: AgentSession; title: string; home?: boolean } & HostTag)
+  /** A Done Chat: a tap opens it, a swipe right reopens it, and it counts down to its Mac's archive. `many`: name its computer. */
+  | ({ kind: "done"; chat: AgentSession; title: string; many: boolean; home?: boolean } & HostTag)
 );
 type ChatRow = Extract<Row, { kind: "chat" }>;
 /** One Project's Chats as the search reads them: its messages, or null when its computer searches them. */
@@ -181,9 +181,20 @@ type BuildContext = {
   archiving: (projectPath: string, chatId: number) => boolean;
   /** Deleted from the phone and not back (an Undo or a failure brings it back): out of the list. */
   hidden: (projectPath: string, chatId: number) => boolean;
+  /** Marked Done (a time) or reopened (null) from here, before its computer has answered: the row moves at once. */
+  doneMark: (projectPath: string, chatId: number) => DoneMark | undefined;
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
 };
+
+/** A Done or Reopen asked from this list, shown until its computer answers (`doneAt` null: reopened). */
+type DoneMark = { doneAt: number | null };
+
+/** A Chat as a pending Done or Reopen shows it. */
+function withDoneMark(chat: AgentSession, mark: DoneMark | undefined): AgentSession {
+  if (!mark || Boolean(mark.doneAt) === Boolean(chat.done_at)) return chat;
+  return mark.doneAt ? { ...chat, done_at: mark.doneAt, unread: false } : { ...chat, done_at: undefined };
+}
 
 /** The Filters menu's Show choices: which Chats the list keeps. */
 type Show = "all" | "needs" | "running" | "archived";
@@ -246,7 +257,8 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
     list.push(message);
     byChat.set(message.session_id, list);
   }
-  const entries = Object.values(copy?.project.state.sessions || {}).map((chat) => {
+  const entries = Object.values(copy?.project.state.sessions || {}).map((saved) => {
+    const chat = withDoneMark(saved, ctx.doneMark(project.path, saved.id));
     const run = copy?.runs.runs[`${copy.project.path}#${chat.id}`];
     const pending = pendingById.get(chat.id);
     const messages = byChat.get(chat.id);
@@ -406,6 +418,8 @@ const NavigationBody = memo(function NavigationBody({
   const now = useActivityClock(rowShow.lastActivity || doneOpen || views.some((view) => view.home?.exists));
   // The Chats group folds for as long as the app runs; it isn't one computer's, so the per-computer folds don't hold it.
   const [chatsFolded, setChatsFolded] = useState(false);
+  // Done and Reopen asked from this list, by `<computer>|<project>#<chat>`: the row moves before its computer answers.
+  const [doneMarks, setDoneMarks] = useState<ReadonlyMap<string, DoneMark>>(() => new Map());
   // The last Chat marked Done from this list, for the toast's Undo.
   const [doneToast, setDoneToast] = useState<{ row: { hostId: string; path: string; chat: AgentSession }; at: number } | null>(null);
   const [page, setPage] = useState<"add" | null>(null);
@@ -458,7 +472,18 @@ const NavigationBody = memo(function NavigationBody({
       archives.chats.has(`${projectPath}#${chatId}`) && (hostId === currentHostId || archiveRequests.has(`${hostId}|${projectPath}#${chatId}`));
     const next = views.map((view) => {
       const current = view.hostId === currentHostId;
-      const deps = [view, needle, show, pendingChats, archives.chats, archives.hidden, current ? snapshot : null, current ? cachedProject : null, current];
+      const deps = [
+        view,
+        needle,
+        show,
+        pendingChats,
+        archives.chats,
+        archives.hidden,
+        doneMarks,
+        current ? snapshot : null,
+        current ? cachedProject : null,
+        current,
+      ];
       const held = cache.get(view.hostId);
       if (held && sameDeps(held.deps, deps)) return held.build;
       const build = buildHost(view, {
@@ -468,6 +493,7 @@ const NavigationBody = memo(function NavigationBody({
         pendingChats,
         archiving: archiving(view.hostId),
         hidden: (projectPath, chatId) => archives.hidden.has(deletionKey(view.hostId, `${projectPath}#${chatId}`)),
+        doneMark: (projectPath, chatId) => (doneMarks.size ? doneMarks.get(`${view.hostId}|${projectPath}#${chatId}`) : undefined),
         fallback: cachedProject,
         show,
       });
@@ -476,7 +502,7 @@ const NavigationBody = memo(function NavigationBody({
     });
     for (const id of cache.keys()) if (!views.some((view) => view.hostId === id)) cache.delete(id);
     return next;
-  }, [views, needle, show, pendingChats, archives.chats, archives.hidden, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
+  }, [views, needle, show, pendingChats, archives.chats, archives.hidden, doneMarks, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
 
   const manyHosts = builds.length > 1;
   const { rows, searchable, projectHits } = useMemo(() => {
@@ -722,6 +748,7 @@ const NavigationBody = memo(function NavigationBody({
               reach: build.reach,
               chat: entry.chat,
               title: entry.title,
+              many: manyHosts,
               ...(project === build.home ? { home: true } : {}),
             })),
           ),
@@ -936,6 +963,22 @@ const NavigationBody = memo(function NavigationBody({
     }
     const archiveKey = `${hostId}|${projectPath}#${chat.id}`;
     if (archiveRequests.has(archiveKey)) return;
+    // Done and Reopen move the row now; the computer saves it meanwhile, and its copy takes over once read again.
+    const doneMark: DoneMark | undefined = action === "done" ? { doneAt: Date.now() } : action === "reopen" ? { doneAt: null } : undefined;
+    const settleDone = () =>
+      doneMark &&
+      alive.current &&
+      setDoneMarks((marks) => {
+        if (marks.get(archiveKey) !== doneMark) return marks;
+        const next = new Map(marks);
+        next.delete(archiveKey);
+        return next;
+      });
+    if (doneMark) {
+      setDoneMarks((marks) => new Map(marks).set(archiveKey, doneMark));
+      if (action === "done") setDoneToast({ row, at: Date.now() });
+      else setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
+    }
     if (action === "archive") archiveRequests.add(archiveKey);
     let confirmed = false;
     setError("");
@@ -962,13 +1005,13 @@ const NavigationBody = memo(function NavigationBody({
         expectActivity: session.expectActivity,
         notify: showArchiveNotice,
       });
-      if (action === "done" && alive.current) setDoneToast({ row, at: Date.now() });
-      if (action === "reopen" && alive.current) setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
     } catch (e) {
+      if (action === "done" && alive.current) setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
       if (confirmed) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else if (alive.current) setError((e as Error).message);
     } finally {
       archiveRequests.delete(archiveKey);
+      settleDone();
     }
   }
   /** A Chat as the Link picker names it, or undefined when it can't join a Link (no Worktree, not a local Project). */
@@ -1576,7 +1619,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         <View style={{ flexDirection: "row", alignItems: "center", opacity: offline ? 0.55 : 1 }}>
           {/* A long press or the ⋯ button offers Reopen, so leaving Done needn't be found by swiping. */}
           <PullDown
-            label={`${item.title}, Done${countdown ? `, archived in ${countdown}` : ""}`}
+            label={`${item.title}, Done${item.many ? `, on ${item.hostName}` : ""}${countdown ? `, archived in ${countdown}` : ""}`}
             title={item.title}
             sections={offline ? [] : DONE_MENU}
             onSelect={(action) => void act(item, action)}
@@ -1585,9 +1628,13 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           >
             <View style={[s.doneRow, { paddingRight: 0 }]}>
               <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
-              <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, color: colors.ink3 }}>
-                {item.title}
-              </Text>
+              {/* With two or more computers, the one the Chat lives on goes under its title, so both stay readable. */}
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Text numberOfLines={1} style={{ fontSize: 16, color: colors.ink3 }}>
+                  {item.title}
+                </Text>
+                {item.many && <ComputerTag name={item.hostName} offline={offline} />}
+              </View>
               {countdown && (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Icon icon={HourglassIcon} tone="ink3" size={13} />
