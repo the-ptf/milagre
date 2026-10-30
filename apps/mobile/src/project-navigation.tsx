@@ -1253,10 +1253,12 @@ const NavigationBody = memo(function NavigationBody({
       clientOf,
       worktreeForLinks,
       doneHours,
+      background,
       actions,
     }),
     [
       doneHours,
+      background,
       currentHostId,
       currentPath,
       activeChatId,
@@ -1478,8 +1480,10 @@ type RowView = {
   copyOf: (hostId: string, projectPath: string) => ProjectCopy | undefined;
   clientOf: (hostId: string) => Client | null;
   worktreeForLinks: (projectPath: string, worktreePath?: string) => { project_id: string; worktree_path: string } | undefined;
-  /** Each computer's Done retention in hours (done-retention.ts). */
+  /** Each computer's Done retention in hours (done-retention.ts); a computer missing from it can't keep Done. */
   doneHours: Record<string, number>;
+  /** The list's own color, under every row. */
+  background: string;
   actions: RowActions;
 };
 /** One row of the list; memoized, so only a row whose item or view changed renders again. */
@@ -1506,6 +1510,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     clientOf,
     worktreeForLinks,
     doneHours,
+    background,
     actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, foldDone, load },
   } = view;
   if (item.kind === "section")
@@ -1562,7 +1567,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     const offline = item.reach === "offline";
     const countdown = doneCountdown(item.chat, retentionOf(doneHours, item.hostId), now);
     return (
-      <ChatSwipeRow done unread={false} disabled={offline || !copyOf(item.hostId, item.path)} onAction={(action) => act(item, action)}>
+      <ChatSwipeRow done unread={false} disabled={offline || !copyOf(item.hostId, item.path)} background={background} onAction={(action) => act(item, action)}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${item.title}, Done${countdown ? `, archived in ${countdown}` : ""}`}
@@ -1772,6 +1777,8 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           void enter(item.hostId, item.path, item.chat.id);
         }
       : undefined;
+  // A Mac that keeps Done answers its retention (done-retention.ts); an older one ignores Done, so its rows archive instead.
+  const doneable = doneHours[item.hostId] !== undefined;
   const menu = chatMenu(
     item.chat,
     copy?.project.link ? { path: copy.project.state.worktrees[item.chat.worktree_id]?.path } : copy?.project.state.worktrees[item.chat.worktree_id],
@@ -1780,6 +1787,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       : null,
     offerBeside,
     !item.home,
+    doneable,
   );
   // While it archives, the row stays put under the progress and takes no taps.
   const archiving =
@@ -1792,6 +1800,8 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       <ChatSwipeRow
         unread={!!item.chat.unread}
         disabled={offline || !!item.pending || archiving || !!item.chat.archived || !copy}
+        doneable={doneable}
+        background={background}
         onAction={(action) => act(item, action)}
       >
         <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
@@ -1932,6 +1942,8 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       <ChatSwipeRow
         unread={!!item.chat.unread}
         disabled={offline || !!item.pending || archiving || !!item.chat.archived || !copy}
+        doneable={doneable}
+        background={background}
         onAction={(action) => act(item, action)}
       >
         <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
@@ -2012,6 +2024,8 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     <ChatSwipeRow
       unread={!!item.chat.unread}
       disabled={offline || !!item.pending || archiving || !!item.chat.archived || !copy}
+      doneable={doneable}
+      background={background}
       onAction={(action) => act(item, action)}
     >
       <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
