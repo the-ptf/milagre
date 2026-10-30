@@ -1,7 +1,7 @@
 // @ts-check
 // The Browser panel's pages as the host's browser service sees them: a loopback DevTools endpoint over each page's
 // webContents.debugger (@milagre/core/cdp-proxy), and the list of pages with the Chat whose panel shows each, sent to
-// the host ("browser:panel-pages"). The Browser pill and the phone then view and control them like any other Chat
+// the host ("browser:panel-pages"). Another computer's Browser panel and the phone then view and control them like any other Chat
 // browser, and the agent's tools reach them the same way.
 const { randomBytes } = require("node:crypto");
 const { createCdpProxy } = require("@milagre/core/cdp-proxy");

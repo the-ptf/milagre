@@ -3,7 +3,6 @@ import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
 import { UpdatePillSlot } from "./UpdateNotice";
-import { BrowserTrack } from "./agents/BrowserTrack";
 import { BrowserPanel } from "./agents/BrowserPanel";
 import { isPageCommentImage, PageCommentsCard } from "./agents/BrowserComments";
 import { parsePageComments } from "@milagre/shared/page-comments";
@@ -1670,10 +1669,15 @@ export function ChatComposer({
               onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
             />
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} offScreen={offScreen} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
             {browserShown && (
-              <BrowserPanel key={`browser-panel-${browserShown}`} chatKey={browserShown} ports={ports ?? []} onSendComments={onSendPageComments} />
+              <BrowserPanel
+                key={`browser-panel-${browserShown}`}
+                chatKey={browserShown}
+                viewerChatId={agentChatId}
+                ports={ports ?? []}
+                onSendComments={onSendPageComments}
+              />
             )}
             <SubagentTrack
               key={chatId}
