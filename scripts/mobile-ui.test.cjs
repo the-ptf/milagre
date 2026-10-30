@@ -2674,6 +2674,7 @@ function chatHost({
   effects = false,
   alert = () => {},
   linear = { active: false },
+  browserShortcut = null,
   routines = [],
   routinesOn = true,
   localOutbox,
@@ -2850,7 +2851,7 @@ function chatHost({
     "../context-ring": { ContextRing: "ContextRing" },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
-    "../browser": { BrowserChip: "BrowserChip" },
+    "../browser": { useBrowserShortcut: (options) => (typeof browserShortcut === "function" ? browserShortcut(options) : browserShortcut) },
     "../ports": { PortsChip: "PortsChip", useChatPorts: () => noPorts },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
     react,
@@ -5379,10 +5380,10 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
     );
     find(tree, (node) => node.type === "PullRequestMerge").props.onOpen();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "1", number: "90", chat: key }]));
-    // The header chip and ⋯ › Pull request #90 open it in the app too, not on GitHub.
+    // The header chip and PR shortcut open it in the app too, not on GitHub.
     const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
-    find(tree, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Pull request #90").props.onPress();
+    find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Pull request #90").props.onPress();
     assert.equal(globalThis.openedPullRequests.length, 3);
     assert.equal(screen.external?.length ?? 0, 0);
     screen.render();
@@ -8039,7 +8040,7 @@ test("mobile browser link selects the requested page among several and retries w
   assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([method]) => method === "browser:open-page")[1])), [{ chatId: "/p#1", url: "http://localhost:5173" }]);
 });
 
-test("mobile browser pill lists only this Chat and hides until the Chat has a page", async (t) => {
+test("mobile browser shortcut lists only this Chat and hides until the Chat has a page", async (t) => {
   for (const [list, visible] of [
     [{ supported: true, targets: [], others: [] }, false],
     [{ supported: true, targets: [BROWSER_PAGE], others: [] }, true],
@@ -8055,13 +8056,13 @@ test("mobile browser pill lists only this Chat and hides until the Chat has a pa
       },
     });
     t.after(() => h.cleanup());
-    h.render("BrowserChip", { chatId: "/p#1" });
+    h.render("useBrowserShortcut", { chatId: "/p#1" });
     await settle();
-    const tree = h.render("BrowserChip", { chatId: "/p#1" });
+    const tree = h.render("useBrowserShortcut", { chatId: "/p#1" });
     assert.equal(!!tree, visible);
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["browser:list", [{ chatId: "/p#1" }]]]);
     if (visible) {
-      tree.props.onPress();
+      tree.onPress();
       assert.deepEqual(JSON.parse(JSON.stringify(h.pushed[0])), { pathname: "/browser-sheet", params: { hostId: "mac", chatId: "/p#1" } });
     }
     h.cleanup();
@@ -8072,8 +8073,23 @@ test("mobile browser pill lists only this Chat and hides until the Chat has a pa
       throw new Error("unexpected");
     },
   });
-  assert.equal(h.render("BrowserChip", {}), null, "a new Chat has no agent yet");
+  assert.equal(h.render("useBrowserShortcut", {}), null, "a new Chat has no agent yet");
   h.cleanup();
+});
+
+test("mobile browser shortcut opens in the Chat's iPad panel when available", async (t) => {
+  const tabs = [];
+  const h = browserHost({
+    url: "mac",
+    call: async () => ({ supported: true, targets: [BROWSER_PAGE], others: [] }),
+  });
+  t.after(() => h.cleanup());
+  const props = { chatId: "/p#1", openInPanel: (tab) => tabs.push(tab) };
+  h.render("useBrowserShortcut", props);
+  await settle();
+  h.render("useBrowserShortcut", props).onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(tabs)), [{ kind: "browser", target: { hostId: "mac", chatId: "/p#1" } }]);
+  assert.deepEqual(h.pushed, [], "a docked Browser does not also open a phone sheet");
 });
 
 test("mobile browser sheet opens a sole page directly, lists several, and attaches explicitly", async (t) => {
@@ -14964,7 +14980,7 @@ test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button a
   chat.params.id = "7";
   chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
   const tree = chat.render();
-  const button = find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat");
+  const button = find(tree, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Heartbeat");
   assert.ok(button, "the header shows the Heartbeat button");
   assert.equal(button.props.icon, "waveform.path.ecg");
   button.props.onPress();
@@ -14976,7 +14992,7 @@ test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button a
   paused.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
   const off = paused.render();
   assert.equal(
-    find(off, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat"),
+    find(off, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Heartbeat"),
     undefined,
   );
   assert.ok(!allNodes(off, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check")));
@@ -14988,7 +15004,7 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
     const chat = chatHost({ routines: [trigger, heartbeatFor("/p#8")] });
     chat.params.id = "9";
     chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden } };
-    const button = find(chat.render(), (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Routine");
+    const button = find(chat.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Routine");
     assert.ok(button, "a paused Routine's Run Chat still names it");
     assert.equal(button.props.icon, "repeat");
     button.props.onPress();
@@ -15000,22 +15016,22 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
   gone.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden: true } };
   const tree = gone.render();
   assert.equal(
-    find(tree, (node) => node.type === "ToolbarButton" && ["Routine", "Heartbeat"].includes(node.props.accessibilityLabel)),
+    find(tree, (node) => node.type === "ToolbarMenuAction" && ["Routine", "Heartbeat"].includes(node.props.children)),
     undefined,
   );
 });
 
-test("the phone Chat header keeps its title on one line with an ellipsis, clear of the toolbar group, whether or not the Routine button shows", () => {
+test("the phone Chat header keeps its title on one line with an ellipsis, clear of the toolbar group, as Browser and PR shortcuts appear", () => {
   const title = "Rotate staging API key before Friday";
-  const header = (screenWidth, { routines = [], routine } = {}) => {
-    const chat = chatHost({ routines, screenWidth });
+  const header = (screenWidth, { routines = [], routine, browserShortcut = null } = {}) => {
+    const chat = chatHost({ routines, screenWidth, browserShortcut });
     chat.params.id = "9";
     chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, title, ...(routine ? { routine } : {}) };
     const tree = chat.render();
     const screen = find(tree, (node) => node.type === "Screen");
     const element = screen.props.options.headerTitle();
     // The box reads whether the sidebar is pinned itself, so the Chat doesn't render again as it shows or hides.
-    const titleBox = find(element, (node) => typeof node.type === "function" && "routineButton" in node.props);
+    const titleBox = find(element, (node) => typeof node.type === "function" && "actionCount" in node.props);
     const box = titleBox.type(titleBox.props);
     const text = find(element, (node) => node.type === "Text" && textOf(node) === title);
     assert.ok(text, "the title is in the header");
@@ -15026,16 +15042,26 @@ test("the phone Chat header keeps its title on one line with an ellipsis, clear 
   };
   const runChat = { routines: [{ ...routineFixtures()[1], enabled: false }], routine: { routineId: "tr", runId: "r1", hidden: true } };
   const heartbeat = { routines: [heartbeatFor("/p#9")] };
-  // 402 pt: 72 pt to the sidebar button's side, and 16 + the Routine and ⋯ pill (104) + 12 to the other.
-  assert.equal(header(402, runChat), 198, "a Run Chat has the Routine button beside ⋯");
-  assert.equal(header(402, heartbeat), 198, "so does a Heartbeat Chat");
+  // Routine actions stay inside the menu and do not take title space.
+  assert.equal(header(402, runChat), 230, "a Run Chat keeps Routine inside ⋯");
+  assert.equal(header(402, heartbeat), 230, "a Heartbeat Chat also keeps its title room");
   assert.equal(header(402), 230, "a normal Chat keeps its room: only ⋯ on the right");
   // Narrower screens narrow the title; every case ends 12 pt clear of the pill.
-  assert.equal(header(375, runChat), 171);
+  assert.equal(header(375, runChat), 230);
   assert.equal(header(375), 230);
   assert.equal(header(340), 196);
+  const browserShortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress() {} };
+  assert.equal(header(402, { browserShortcut }), 198);
+  globalThis.chatPullRequest = { number: 90, state: "OPEN", url: "https://github.com/o/r/pull/90" };
+  try {
+    assert.equal(header(402), 198, "PR alone reserves one extra button");
+    assert.equal(header(402, { browserShortcut }), 138, "both shortcuts leave room for the title");
+    assert.equal(header(320, { browserShortcut }), 56, "narrow phone title stays clear of all three controls");
+  } finally {
+    delete globalThis.chatPullRequest;
+  }
   for (const width of [320, 375, 402, 430]) {
-    for (const own of [runChat, heartbeat]) assert.ok(header(width, own) + 72 + 132 <= width, `${width} pt`);
+    for (const own of [runChat, heartbeat]) assert.ok(header(width, own) + 72 + 72 <= width, `${width} pt`);
   }
 });
 
@@ -15317,7 +15343,7 @@ test("a phone Chat shows no Heartbeat button or Next check while the Mac's Routi
     if (run) chat.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
     return chat.render();
   };
-  const button = (tree) => find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Heartbeat");
+  const button = (tree) => find(tree, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Heartbeat");
   const nextCheck = (tree) => allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check"));
   const off = setUp({ routinesOn: false });
   assert.equal(button(off), undefined, "switch off: no button");
@@ -16312,6 +16338,44 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+test("Chat header promotes only Browser and PR, with working actions and no duplicate overflow entries", () => {
+  let opened = 0;
+  let shortcutOptions;
+  const shortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress: () => opened++ };
+  const screen = chatHost({
+    browserShortcut: (options) => {
+      shortcutOptions = options;
+      return shortcut;
+    },
+    routines: [heartbeatFor("/p#7")],
+  });
+  screen.panels.openInPanel = () => {};
+  screen.params.id = "7";
+  screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
+  globalThis.chatPullRequest = { number: 90, state: "OPEN", url: "https://github.com/o/r/pull/90" };
+  globalThis.openedPullRequests = [];
+  try {
+    const tree = screen.render();
+    assert.equal(shortcutOptions.openInPanel, screen.panels.openInPanel, "the header passes its own panel opener, outside the child context provider");
+    const buttons = allNodes(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel !== "Show sidebar");
+    assert.deepEqual(
+      buttons.map((node) => node.props.accessibilityLabel).filter((label) => label !== "Hide sidebar"),
+      [shortcut.accessibilityLabel, "Pull request #90"],
+    );
+    buttons.find((node) => node.props.accessibilityLabel === shortcut.accessibilityLabel).props.onPress();
+    buttons.find((node) => node.props.accessibilityLabel === "Pull request #90").props.onPress();
+    assert.equal(opened, 1);
+    assert.equal(globalThis.openedPullRequests.length, 1);
+    const menu = new Set(allNodes(tree, (node) => node.type === "ToolbarMenuAction").map((node) => node.props.children));
+    assert.ok(menu.has("Heartbeat"));
+    assert.ok(menu.has("View changes"));
+    assert.ok(!menu.has("Pull request #90"));
+  } finally {
+    delete globalThis.chatPullRequest;
+    delete globalThis.openedPullRequests;
+  }
 });
 
 test("an offline phone send saves text, destination and attachment bytes before clearing the composer", async () => {

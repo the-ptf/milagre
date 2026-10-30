@@ -11,10 +11,9 @@ import type { Client } from "./client";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 import { radius, type } from "./design-tokens";
-import { usePanelTabs } from "./panel-tabs";
+import type { ChatTab } from "./panel-tabs";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
 function useBrowsers(client: Client | null, chatId: string | undefined, visible = true) {
@@ -60,26 +59,19 @@ function useBrowsers(client: Client | null, chatId: string | undefined, visible 
   return { list, setList, refresh: () => refresh.current() };
 }
 
-/** Hidden until this Chat has a page. */
-export function BrowserChip({ chatId }: { chatId?: string }) {
+/** The header offers Browser only while this Chat owns a page. */
+export function useBrowserShortcut({ chatId, openInPanel }: { chatId?: string; openInPanel?: ((tab: ChatTab) => void) | null }) {
   const { client } = useSession();
-  const openTab = usePanelTabs();
   const { list } = useBrowsers(client, chatId);
   if (!client || !chatId || !list?.supported || !list.targets.length) return null;
   const count = list.targets.length;
-  return (
-    <StatusPill
-      label="Browser"
-      count={count}
-      icon={BrowserIcon}
-      accessibilityLabel={`Browser, ${count} ${count === 1 ? "page" : "pages"} in this Chat`}
-      onPress={() =>
-        openTab
-          ? openTab({ kind: "browser", target: { hostId: client.url, chatId } })
-          : router.push({ pathname: "/browser-sheet", params: { hostId: client.url, chatId } })
-      }
-    />
-  );
+  return {
+    accessibilityLabel: `Browser, ${count} ${count === 1 ? "page" : "pages"} in this Chat`,
+    onPress: () =>
+      openInPanel
+        ? openInPanel({ kind: "browser", target: { hostId: client.url, chatId } })
+        : router.push({ pathname: "/browser-sheet", params: { hostId: client.url, chatId } }),
+  };
 }
 
 const goBack = () => router.back();
