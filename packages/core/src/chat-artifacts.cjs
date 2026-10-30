@@ -40,6 +40,48 @@ function sharedHtml(html) {
   const page = artifactDocument(html, { page: true, diagrams: diagramScript() });
   return page.length <= MAX_HTML ? page : html;
 }
+const MAX_TABS = 20;
+const escapeHtml = (text) => text.replace(/[&<>"]/g, (character) => `&#${character.charCodeAt(0)};`);
+/**
+ * A page split into tabs, published as one page: a tab bar over a sandboxed frame that shows the chosen tab. The
+ * public page has no Milagre chrome around the frame to draw the tabs, so the page draws its own.
+ */
+function tabbedPage(tabs) {
+  const pages = JSON.stringify(tabs.map((tab) => tab.html)).replace(/</g, "\\u003c");
+  const buttons = tabs.map((tab) => `<button type="button" role="tab">${escapeHtml(tab.title)}</button>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%}body{display:flex;flex-direction:column;font:13px/1 system-ui,sans-serif;background:#fff}nav{display:flex;flex-shrink:0;gap:2px;overflow-x:auto;padding:6px 8px;border-bottom:1px solid #e6e6e6;background:#fafafa}button{flex-shrink:0;border:0;border-radius:6px;padding:7px 12px;background:none;color:#555;font:inherit;white-space:nowrap;cursor:pointer}button:hover{color:#111}button[aria-selected=true]{background:#ececec;color:#111;font-weight:600}button:focus-visible{outline:2px solid #007df3;outline-offset:-2px}iframe{flex:1;min-height:0;width:100%;border:0}</style></head><body><nav role="tablist" aria-label="Tabs">${buttons}</nav><iframe sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><script type="application/json" id="pages">${pages}</script><script>(()=>{const pages=JSON.parse(document.getElementById('pages').textContent),frame=document.querySelector('iframe'),tabs=[...document.querySelectorAll('[role=tab]')];const show=(index)=>{tabs.forEach((tab,at)=>{tab.setAttribute('aria-selected',String(at===index));tab.tabIndex=at===index?0:-1});frame.title=tabs[index].textContent;frame.srcdoc=pages[index]};tabs.forEach((tab,index)=>{tab.onclick=()=>show(index)});document.querySelector('nav').onkeydown=(event)=>{const at=tabs.indexOf(document.activeElement),step=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;if(!step||at<0)return;event.preventDefault();const next=(at+step+tabs.length)%tabs.length;tabs[next].focus();show(next)};show(0)})();</script></body></html>`;
+}
+/** The published page of an Artifact: its HTML, or its tabs drawn as one page, within the page limit. */
+function sharedPage(current) {
+  if (!current.tabs) return sharedHtml(current.html);
+  const page = tabbedPage(current.tabs.map((tab) => ({ title: tab.title, html: sharedHtml(tab.html) })));
+  if (page.length <= MAX_HTML) return page;
+  // ponytail: without diagrams first, then give up; splitting a too-large page across links waits for a page that needs it.
+  const plain = tabbedPage(current.tabs);
+  if (plain.length <= MAX_HTML) return plain;
+  throw Error(`This page's tabs are over ${MAX_HTML} characters together, too large to publish.`);
+}
+/**
+ * The tabs artifact_show was sent, checked: each names its id and title, and one without HTML keeps the HTML of the
+ * page's tab with that id. Null when the page has no tabs.
+ */
+function checkTabs(tabs, current) {
+  if (tabs === undefined) return null;
+  if (!Array.isArray(tabs) || !tabs.length || tabs.length > MAX_TABS) throw Error(`A page has between 1 and ${MAX_TABS} tabs.`);
+  const seen = new Set();
+  const checked = tabs.map((tab) => {
+    if (typeof tab?.id !== "string" || !ID.test(tab.id)) throw Error("Tab ids are lowercase letters, digits and dashes.");
+    if (seen.has(tab.id)) throw Error(`Two tabs have the id ${tab.id}.`);
+    seen.add(tab.id);
+    if (typeof tab.title !== "string" || !tab.title.trim()) throw Error(`The tab ${tab.id} needs a title.`);
+    const html = tab.html ?? current?.find((item) => item.id === tab.id)?.html;
+    if (typeof html !== "string" || !html.trim())
+      throw Error(`The tab ${tab.id} needs its HTML: only a tab the page already has keeps its HTML when you leave it out.`);
+    return { id: tab.id, title: tab.title.trim().slice(0, 60), html };
+  });
+  if (checked.reduce((sum, tab) => sum + tab.html.length, 0) > MAX_HTML) throw Error(`A page's tabs are limited to ${MAX_HTML} characters together.`);
+  return checked;
+}
 const size = (value, fallback) => (Number.isInteger(value) && value >= 240 && value <= 3840 ? value : fallback);
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 // The comments the user sent on a Chat's designs, one file beside the designs; no .json extension, so the design list
@@ -109,6 +151,7 @@ function createChatArtifacts({ directory, validateChat }) {
   const designFolder = (folder, id) => path.join(folder, checkId(id));
   const htmlFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.html`);
   const documentFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.design.json`);
+  const tabsFile = (folder, id, version) => path.join(designFolder(folder, id), `v${version}.tabs.json`);
   async function atomicWrite(file, content, assertActive) {
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
@@ -154,13 +197,15 @@ function createChatArtifacts({ directory, validateChat }) {
   function editable(artifact, format = "design") {
     if (artifact && formatOf(artifact.versions.at(-1)) !== format) throw Error(FORMAT_MISMATCH);
   }
-  async function writeVersion(folder, id, previous, entry, html, document, assertActive) {
+  // A page split into tabs keeps its first tab as its HTML, for the viewers from before tabs, and every tab beside it.
+  async function writeVersion(folder, id, previous, entry, html, document, assertActive, tabs = null) {
     const artifact = { id, versions: [...previous, entry].slice(formatOf(entry) === "html" ? -1 : -MAX_VERSIONS) };
-    const files = [htmlFile(folder, id, entry.version), ...(document ? [documentFile(folder, id, entry.version)] : [])];
+    const extra = document ? documentFile(folder, id, entry.version) : tabs ? tabsFile(folder, id, entry.version) : null;
+    const files = [htmlFile(folder, id, entry.version), ...(extra ? [extra] : [])];
     await fs.mkdir(designFolder(folder, id), { recursive: true, mode: 0o700 });
     try {
       await atomicWrite(files[0], html);
-      if (document) await atomicWrite(files[1], JSON.stringify(document));
+      if (extra) await atomicWrite(extra, JSON.stringify(document ?? tabs));
       // Publishing metadata is the commit: readers cannot observe a partial document/preview pair.
       await writeMeta(folder, artifact, assertActive);
     } catch (error) {
@@ -173,6 +218,7 @@ function createChatArtifacts({ directory, validateChat }) {
       if (kept.has(item.version) || (formatOf(item) === "html" && !item.livePage)) continue;
       expired.push(htmlFile(folder, id, item.version));
       if (formatOf(item) === "design") expired.push(documentFile(folder, id, item.version));
+      else if (item.tabs) expired.push(tabsFile(folder, id, item.version));
     }
     await Promise.all(expired.map((file) => fs.rm(file, { force: true }).catch(() => {})));
     return artifact;
@@ -182,7 +228,8 @@ function createChatArtifacts({ directory, validateChat }) {
     if (!entry) throw Error(`Version ${version} of this design is no longer kept.`);
     const html = await readVersionFile(htmlFile(folder, artifact.id, entry.version));
     const document = formatOf(entry) === "design" ? JSON.parse(await readVersionFile(documentFile(folder, artifact.id, entry.version))) : undefined;
-    return { ...summary(artifact, entry), latest: artifact.versions.at(-1).version, html, ...(document ? { document } : {}) };
+    const tabs = formatOf(entry) === "html" && entry.tabs ? JSON.parse(await readVersionFile(tabsFile(folder, artifact.id, entry.version))) : undefined;
+    return { ...summary(artifact, entry), latest: artifact.versions.at(-1).version, html, ...(document ? { document } : {}), ...(tabs ? { tabs } : {}) };
   }
   async function activeArtifacts(folder, format) {
     const names = await fs.readdir(folder).catch((error) => (error.code === "ENOENT" ? [] : Promise.reject(error)));
@@ -211,7 +258,7 @@ function createChatArtifacts({ directory, validateChat }) {
           const artifacts = [];
           for (const entry of entries) {
             const current = await readVersion(folder, entry);
-            artifacts.push({ title: current.title, html: sharedHtml(current.html), width: current.width, height: current.height });
+            artifacts.push({ title: current.title, html: sharedPage(current), width: current.width, height: current.height });
           }
           return { schemaVersion: 1, kind: "artifacts", title: request.title, artifacts };
         }
@@ -229,8 +276,9 @@ function createChatArtifacts({ directory, validateChat }) {
         await assertActive?.();
         const folder = await chat(request?.chatId);
         if (typeof request?.title !== "string" || !request.title.trim()) throw Error("An artifact needs a title.");
-        if (typeof request.html !== "string" || !request.html.trim()) throw Error("An artifact needs its HTML.");
-        if (request.html.length > MAX_HTML) throw Error(`Artifact HTML is limited to ${MAX_HTML} characters.`);
+        if (request.tabs !== undefined && request.html !== undefined) throw Error("Send the page as html or as tabs, not both.");
+        if (request.tabs === undefined && (typeof request.html !== "string" || !request.html.trim())) throw Error("An artifact needs its HTML.");
+        if (request.html?.length > MAX_HTML) throw Error(`Artifact HTML is limited to ${MAX_HTML} characters.`);
         if (request.id) {
           const named = await load(folder, request.id);
           editable(named, "html");
@@ -242,6 +290,9 @@ function createChatArtifacts({ directory, validateChat }) {
         editable(existing, "html");
         checkVersion(request, existing);
         const previous = existing?.versions ?? [];
+        // A tab sent without its HTML keeps the HTML it has on the page now.
+        const keeping = request.tabs?.some((tab) => tab?.html === undefined) && previous.at(-1)?.tabs;
+        const tabs = checkTabs(request.tabs, keeping ? (await readVersion(folder, existing)).tabs : null);
         const entry = {
           version: (previous.at(-1)?.version ?? 0) + 1,
           title: request.title.trim().slice(0, 120),
@@ -249,9 +300,10 @@ function createChatArtifacts({ directory, validateChat }) {
           height: size(request.height, previous.at(-1)?.height ?? VIEWPORT.height),
           format: "html",
           livePage: true,
+          ...(tabs ? { tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title })) } : {}),
           createdAt: Date.now(),
         };
-        const artifact = await writeVersion(folder, id, previous, entry, request.html, undefined, assertActive);
+        const artifact = await writeVersion(folder, id, previous, entry, tabs ? tabs[0].html : request.html, undefined, assertActive, tabs);
         return summary(artifact, entry);
       }),
     showDesign: (request, { assertActive } = {}) =>
@@ -383,6 +435,16 @@ function createChatArtifacts({ directory, validateChat }) {
                   .slice(0, 120)
               : "";
           const anchor = typeof comment.anchor === "string" && PAGE_ANCHOR.test(comment.anchor) ? comment.anchor : "";
+          const tab =
+            typeof comment.tab?.id === "string" && ID.test(comment.tab.id)
+              ? {
+                  id: comment.tab.id,
+                  title:
+                    String(comment.tab.title ?? comment.tab.id)
+                      .trim()
+                      .slice(0, 60) || comment.tab.id,
+                }
+              : null;
           const at = (value) => (typeof value === "number" && value >= 0 && value <= 1 ? value : undefined);
           return {
             // The app names the comment in the message it sends first, and records it once that went; one it names
@@ -393,6 +455,7 @@ function createChatArtifacts({ directory, validateChat }) {
             ...(at(comment.x) === undefined || at(comment.y) === undefined ? {} : { x: at(comment.x), y: at(comment.y) }),
             ...(near ? { near } : {}),
             ...(anchor ? { anchor } : {}),
+            ...(tab ? { tab } : {}),
             text,
             createdAt: Date.now(),
           };
@@ -656,10 +719,27 @@ function htmlArtifactToolDefinitions(chatId, api, authorization) {
     {
       name: "artifact_show",
       description:
-        'Create or replace this Chat\'s one live HTML artifact page explaining a topic, report or interactive page. Edits update that same page in place; there are no variants or browsable versions. Use design_show for UI screens, mockups and visual design work. HTML artifacts stay available when Designs is off. For a diagram, put Mermaid text in <pre class="mermaid">: Milagre draws it, no script needed.',
+        'Create or replace this Chat\'s one live HTML artifact page explaining a topic, report or interactive page. Edits update that same page in place; there are no variants or browsable versions. Use design_show for UI screens, mockups and visual design work. HTML artifacts stay available when Designs is off. For a diagram, put Mermaid text in <pre class="mermaid">: Milagre draws it, no script needed. Send html for one page, or tabs to split it into tabs Milagre draws above it; a tab sent without html keeps the HTML it has, so you can change one tab and resend only that one.',
       input: {
         title: z.string().min(1).max(120),
-        html: z.string().min(1).max(MAX_HTML),
+        html: z.string().min(1).max(MAX_HTML).optional().describe("The page, one self-contained HTML document. Leave it out when you send tabs."),
+        tabs: z
+          .array(
+            z.object({
+              id: z.string().regex(ID),
+              title: z.string().min(1).max(60),
+              html: z
+                .string()
+                .min(1)
+                .max(MAX_HTML)
+                .optional()
+                .describe("This tab's self-contained HTML document. Leave it out to keep the tab's current HTML."),
+            }),
+          )
+          .min(1)
+          .max(MAX_TABS)
+          .optional()
+          .describe("The page's tabs, in order, each its own self-contained HTML document. Leave it out for a page without tabs."),
         id: z.string().regex(ID).optional(),
         width: z.number().int().min(240).max(3840).optional(),
         height: z.number().int().min(240).max(3840).optional(),
@@ -670,10 +750,24 @@ function htmlArtifactToolDefinitions(chatId, api, authorization) {
     },
     {
       name: "artifact_read",
-      description: "Read this Chat's current HTML artifact page. Old artifact references open the current page. Use design_read for a structured design.",
-      input: { id: z.string().regex(ID), version: z.number().int().positive().optional() },
+      description:
+        "Read this Chat's current HTML artifact page, or one of its tabs. Old artifact references open the current page. Use design_read for a structured design.",
+      input: {
+        id: z.string().regex(ID),
+        version: z.number().int().positive().optional(),
+        tab: z.string().regex(ID).optional().describe("On a page with tabs, the id of the one tab to read; the others come back as their ids and titles."),
+      },
       readOnly: true,
-      run: async (args) => JSON.stringify(await api.get({ chatId, ...args, format: "html" })),
+      run: async ({ tab, ...args }) => {
+        const page = await api.get({ chatId, ...args, format: "html" });
+        if (!page.tabs) return JSON.stringify(page);
+        // The page's HTML is its first tab again; it is left out.
+        const { html: _html, tabs, ...rest } = page;
+        if (tab === undefined) return JSON.stringify({ ...rest, tabs });
+        const one = tabs.find((item) => item.id === tab);
+        if (!one) throw Error(`This page has no tab ${tab}. Its tabs: ${tabs.map((item) => item.id).join(", ")}.`);
+        return JSON.stringify({ ...rest, tabs: tabs.map(({ id, title }) => ({ id, title })), tab: one });
+      },
     },
     {
       name: "artifact_list",

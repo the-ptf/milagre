@@ -839,6 +839,9 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               hostId={designs.hostId}
               chatId={designs.chatId}
               id={designs.id}
+              tab={designs.tab}
+              comment={designs.comment}
+              requestId={designs.requestId}
               onClose={() => closeTab("designs")}
             />
           ) : (
