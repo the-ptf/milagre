@@ -932,7 +932,9 @@ function App() {
       setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
       return;
     }
-    void agentRuns.answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers).catch(() => {});
+    void agentRuns
+      .answerQuestion(chatKey(project.path, selectedSession.id), pendingQuestion.requestId, answers)
+      .catch((error) => setNotice(ipcErrorMessage(error)));
   }
 
   // The model a chat's picker shows, by chat key: as for the open Project chat.

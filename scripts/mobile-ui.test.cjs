@@ -156,6 +156,17 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (relative === "secret-question")
+        return load(
+          "secret-question.tsx",
+          {
+            "./display-clock": { useDisplayNow: () => Date.now(), useScreenActive: () => true },
+            "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+            ...modules,
+          },
+          "",
+          cache,
+        );
       if (relative?.startsWith("primitives/") || relative === "persistence-notice") {
         const target = [relative, `${relative}.tsx`, `${relative}.ts`].find((candidate) =>
           fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)),
@@ -16224,4 +16235,65 @@ test("a send after restart waits for the saved queue before choosing direct deli
     ["older message", "first message"],
   );
   assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+});
+
+test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {
+  const react = hookHost({ effects: true });
+  let now = Date.now();
+  const deadline = now + 300000;
+  const { SecretQuestion } = load("secret-question.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "./display-clock": { useDisplayNow: () => now, useScreenActive: () => true },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "./icons": { Icon: "Icon" },
+    "./ui": { PillButton: "PillButton" },
+  });
+  const sent = [];
+  const render = (busy = false) => {
+    react.begin();
+    return SecretQuestion({
+      request: { requestId: "secret", questions: [{ question: "Token" }], secretRequest: { description: "For deployment", expiresAt: deadline } },
+      busy,
+      submit: (...args) => sent.push(args),
+    });
+  };
+  let tree = render();
+  let input = find(tree, (n) => n.type === "TextInput");
+  assert.equal(input.props.secureTextEntry, true);
+  assert.equal(find(tree, (n) => n.type === "Text" && String(n.props.children).includes("to enter")).props.children, "5:00 left to enter");
+  find(tree, (n) => n.props?.accessibilityLabel === "Show secret").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.secureTextEntry, false);
+  find(tree, (n) => n.props?.accessibilityLabel === "Hide secret").props.onPress();
+  tree = render();
+  assert.equal(input.props.autoCorrect, false);
+  assert.equal(input.props.autoCapitalize, "none");
+  assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
+  input.props.onChangeText("  test-token  ");
+  tree = render();
+  find(tree, (n) => n.props?.title === "Save securely").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [[{ secret: ["  test-token  "] }, ""]]);
+  tree = render(true);
+  input = find(tree, (n) => n.type === "TextInput");
+  assert.equal(input.props.value, "");
+  assert.equal(input.props.editable, false);
+  tree = render();
+  find(tree, (n) => n.props?.title === "Decline").props.onPress();
+  assert.deepEqual(sent.at(-1), [null, ""]);
+  find(render(), (n) => n.type === "TextInput").props.onChangeText("unsent-draft");
+  // The last minute switches the countdown to the attention tone.
+  now = deadline - 30000;
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "timer").props.children, "0:30 left to enter");
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "timer").props.style.color, fakePalette.orangeInk);
+  now = deadline;
+  tree = render();
+  tree = render();
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.value, "");
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.editable, false);
+  assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Request expired"));
 });

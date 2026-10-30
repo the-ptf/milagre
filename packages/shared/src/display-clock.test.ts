@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDisplayClock, formatElapsed } from "./display-clock.ts";
+import { createDisplayClock, formatElapsed, formatCountdown } from "./display-clock.ts";
 
 test("hidden display clocks stop scheduling, catch up immediately on return and detach when unused", () => {
   let visible = true,
@@ -81,4 +81,13 @@ test("live elapsed labels floor seconds, clamp negatives and pad smaller units",
     [7_985_000, "2h 13m 05s"],
   ] as const)
     assert.equal(formatElapsed(ms), label, `${ms} ms`);
+});
+
+test("countdown rounds up at second boundaries and stops at zero", () => {
+  assert.equal(formatCountdown(300000), "5:00");
+  assert.equal(formatCountdown(299999), "5:00");
+  assert.equal(formatCountdown(299000), "4:59");
+  assert.equal(formatCountdown(1), "0:01");
+  assert.equal(formatCountdown(0), "0:00");
+  assert.equal(formatCountdown(-1000), "0:00");
 });
