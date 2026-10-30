@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { ARTIFACT_ESCAPE, artifactTab, onArtifactTab, type ArtifactPageMessage, type HtmlArtifact, type PagePin } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import { THEME_EVENT } from "../../lib/theme-sheet";
-import { ArtifactFrame, tellPage, type DesignPin, type PageState, type PinControls } from "./ArtifactCanvas";
+import { ArtifactFrame, pageFiles, tellPage, type DesignPin, type PageState, type PinControls } from "./ArtifactCanvas";
 import { CommentPin, commentCursor } from "./CommentPin";
 
 /** What the dock's zoom bar asks of the page. */
@@ -49,6 +49,8 @@ function usePinColors() {
 export const ArtifactPage = forwardRef<
   PageHandle,
   {
+    /** The page's Chat, whose computer its files load from. */
+    chatId: string;
     page: HtmlArtifact;
     /** The tab shown, as the dock's title menu chose it; the first when null or gone. */
     tabId: string | null;
@@ -63,7 +65,7 @@ export const ArtifactPage = forwardRef<
     onToggleComment: () => void;
     onEscape: () => void;
   }
->(function ArtifactPage({ page, tabId, onTab, commenting, comments, numbers, reveal, onScale, onToggleComment, onEscape }, handle) {
+>(function ArtifactPage({ chatId, page, tabId, onTab, commenting, comments, numbers, reveal, onScale, onToggleComment, onEscape }, handle) {
   const box = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const [room, setRoom] = useState({ width: 0, height: 0 });
@@ -232,7 +234,15 @@ export const ArtifactPage = forwardRef<
         className="absolute top-0 left-0 origin-top-left"
         style={room.width ? { width: room.width / scale, height: room.height / scale, transform: `scale(${scale})` } : { width: "100%", height: "100%" }}
       >
-        <ArtifactFrame html={tab.html} title={tabs ? `${page.title}: ${tab.title}` : page.title} format="html" page={state} onPage={onPage} frameRef={frame} />
+        <ArtifactFrame
+          html={tab.html}
+          title={tabs ? `${page.title}: ${tab.title}` : page.title}
+          format="html"
+          page={state}
+          onPage={onPage}
+          frameRef={frame}
+          files={pageFiles(chatId, page)}
+        />
       </div>
       {openPin && at && (
         // The bubble over the page; around it the page keeps the mouse.

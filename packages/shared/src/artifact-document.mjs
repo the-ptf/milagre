@@ -16,15 +16,25 @@ export const ARTIFACT_CSP = [
 ].join("; ");
 
 /**
+ * The policy with `assets` (a source, such as the desktop's preview scheme or the phone's file:) also allowed for
+ * images, media and fonts: where the viewer keeps the page's files.
+ */
+export function artifactCsp(assets = "") {
+  if (!assets) return ARTIFACT_CSP;
+  return ARTIFACT_CSP.replace(/(^|; )(img-src|media-src|font-src) ([^;]*)/g, `$1$2 $3 ${assets}`);
+}
+
+/**
  * The design's HTML with the policy as the first thing the parser meets after the doctype, before anything the design
  * wrote: searching for its <head> could land inside a comment or a script string and leave the design without one. A
  * <meta> ahead of <html> still goes into the head, and applies to everything after it.
  *
  * An Artifact page (`page`) also gets ARTIFACT_PAGE_SCRIPT, which its viewer drives for pins, comments and zoom; with
  * `diagrams` (Pele's browser build, pele/global) a page that has Mermaid blocks gets it too, and they render in place.
+ * `assets` is the source its files load from (artifactCsp).
  */
-export function artifactDocument(html, { page = false, diagrams = "" } = {}) {
-  const policy = `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">`;
+export function artifactDocument(html, { page = false, diagrams = "", assets = "" } = {}) {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets)}">`;
   // Leading comments and whitespace, then the doctype; without one the design gets standards mode.
   const doctype = /^(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/i.exec(html);
   const at = doctype ? doctype[0].length : 0;
@@ -160,8 +170,8 @@ window.milagreArtifact={run:function(c){if(!frame||!c||typeof c!=="object")retur
  * the files beside the page, whatever the web view lets the page itself read. The page's one script is
  * ARTIFACT_SHELL_SCRIPT, which passes plain messages between the app and the Artifact page's helper.
  */
-export function artifactShell(html, { diagrams = "" } = {}) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}; frame-src 'none'"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(artifactDocument(html, { page: true, diagrams }))}"></iframe><script>${ARTIFACT_SHELL_SCRIPT}</script></body></html>`;
+export function artifactShell(html, { diagrams = "", assets = "" } = {}) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${artifactCsp(assets)}; frame-src 'none'"><style>html,body{margin:0;height:100%;background:#fff}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(artifactDocument(html, { page: true, diagrams, assets }))}"></iframe><script>${ARTIFACT_SHELL_SCRIPT}</script></body></html>`;
 }
 
 /**

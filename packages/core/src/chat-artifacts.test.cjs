@@ -840,3 +840,87 @@ test("a page split into tabs keeps each tab, changes one tab at a time and is pu
   assert.equal((await api.get({ chatId: CHAT, id: first.id })).tabs, undefined);
   assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v3.html"]);
 });
+
+test("a page shows files the agent attaches from the Chat's Worktree, keeps them while its HTML uses them, and reads them in chunks", async (t) => {
+  const { api, directory } = await fixture(t);
+  const worktree = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-worktree-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "artifact-outside-"));
+  t.after(() => Promise.all([fs.rm(worktree, { recursive: true, force: true }), fs.rm(outside, { recursive: true, force: true })]));
+  const video = Buffer.alloc(600 * 1024, 7);
+  await fs.writeFile(path.join(worktree, "demo.mp4"), video);
+  await fs.writeFile(path.join(worktree, "chart.png"), "png");
+  await fs.writeFile(path.join(outside, "secret.txt"), "secret");
+  await fs.symlink(path.join(outside, "secret.txt"), path.join(worktree, "link.txt"));
+  const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api, undefined, { roots: async () => [worktree] }).map((tool) => [tool.name, tool]));
+  const show = (args) => tools.artifact_show.run({ title: "Demo", ...args }).then(JSON.parse);
+
+  const first = await show({
+    html: '<video src="assets/demo.mp4"></video><img src="./assets/chart.png">',
+    assets: [
+      { name: "demo.mp4", path: path.join(worktree, "demo.mp4") },
+      { name: "chart.png", path: path.join(worktree, "chart.png") },
+    ],
+  });
+  const page = await api.get({ chatId: CHAT, id: first.id });
+  const hash = require("node:crypto").createHash("sha256").update(video).digest("hex");
+  assert.deepEqual(page.assets, [
+    { name: "demo.mp4", hash, size: video.length, type: "video/mp4" },
+    { name: "chart.png", hash: require("node:crypto").createHash("sha256").update("png").digest("hex"), size: 3, type: "image/png" },
+  ]);
+  assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).assets.length, 2);
+
+  // Read back in chunks, the way the phone and the desktop's preview do.
+  const chunk = await api.asset({ chatId: CHAT, name: "demo.mp4", offset: 0 });
+  assert.equal(chunk.size, video.length);
+  assert.equal(Buffer.from(chunk.base64, "base64").length, 256 * 1024);
+  const tail = await api.asset({ chatId: CHAT, name: "demo.mp4", offset: 512 * 1024, length: 10 });
+  assert.equal(Buffer.from(tail.base64, "base64").length, 10);
+  await assert.rejects(api.asset({ chatId: CHAT, name: "demo.mp4", offset: video.length + 1 }), /offset/);
+  await assert.rejects(api.asset({ chatId: CHAT, name: "missing.png" }), /no longer on the page/);
+  const shared = (await api.pageSnapshot({ chatId: CHAT, title: "Demo", kind: "artifacts" })).artifacts[0];
+  assert.deepEqual(shared.assets, page.assets);
+  assert.equal(
+    await api.assetPath({ chatId: CHAT, hash }),
+    path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets", hash),
+  );
+
+  // Only regular files inside the Worktree, named without folders, used by the HTML.
+  await assert.rejects(
+    show({ html: '<img src="assets/s.txt">', assets: [{ name: "s.txt", path: path.join(outside, "secret.txt") }] }),
+    /isn't a file in this Chat's Worktree/,
+  );
+  await assert.rejects(
+    show({ html: '<img src="assets/l.txt">', assets: [{ name: "l.txt", path: path.join(worktree, "link.txt") }] }),
+    /isn't a file in this Chat's Worktree/,
+  );
+  await assert.rejects(
+    api.show(
+      { chatId: CHAT, title: "Demo", html: '<img src="assets/a/b.png">', assets: [{ name: "a/b.png", path: path.join(worktree, "chart.png") }] },
+      { roots: [worktree] },
+    ),
+    /no folders/,
+  );
+  await assert.rejects(
+    show({ html: "<p>No media</p>", assets: [{ name: "chart.png", path: path.join(worktree, "chart.png") }] }),
+    /doesn't use assets\/chart\.png/,
+  );
+  await assert.rejects(
+    api.show({ chatId: CHAT, title: "Demo", html: '<img src="assets/chart.png">', assets: [{ name: "chart.png", path: path.join(worktree, "chart.png") }] }),
+    /isn't a file in this Chat's Worktree/,
+    "without roots, nothing can be attached",
+  );
+
+  // A page that stops mentioning a file drops it, and its bytes go once no version needs them.
+  await show({ html: '<img src="assets/chart.png">' });
+  const kept = await api.get({ chatId: CHAT, id: first.id });
+  assert.deepEqual(
+    kept.assets.map((asset) => asset.name),
+    ["chart.png"],
+  );
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id, "assets");
+  assert.deepEqual(await fs.readdir(folder), [kept.assets[0].hash]);
+  assert.deepEqual(await fs.readdir(path.join(directory, ".incoming")), [], "nothing is left on its way in");
+  await show({ html: "<p>Text only</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: first.id })).assets, undefined);
+  assert.deepEqual(await fs.readdir(folder), []);
+});

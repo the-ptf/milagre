@@ -114,6 +114,7 @@ const METHODS = new Set([
   "terminal:resize",
   "terminal:close",
   "artifact:get",
+  "artifact:asset",
   "artifact:apply",
   "artifact:delete",
   "artifact:list",

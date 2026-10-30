@@ -238,6 +238,7 @@ function createRuntime(options) {
   commands.handle("designs:enabled:read", () => ({ enabled: true }));
   commands.handle("designs:enabled:save", () => ({ enabled: true }));
   commands.handle("artifact:get", (_context, request) => artifacts.get(request));
+  commands.handle("artifact:asset", (_context, request) => artifacts.asset(request));
   commands.handle("artifact:list", (_context, request) => artifacts.list(request));
   commands.handle("artifact:apply", (_context, request) => artifacts.apply(request));
   commands.handle("artifact:delete", (_context, request) => artifacts.deleteDesign(request));
@@ -2148,7 +2149,14 @@ function createRuntime(options) {
         ? []
         : artifactToolDefinitions(chatId, artifacts).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name))),
       ...localMcp.agentTools(chatId).filter((tool) => !["artifact_comments", "artifact_resolve_comment"].includes(tool.name)),
-      ...htmlArtifactToolDefinitions(chatId, artifacts),
+      // Files an Artifact page shows come from the Chat's own Worktrees, as a chat_start attachment does.
+      ...htmlArtifactToolDefinitions(chatId, artifacts, undefined, {
+        roots: () =>
+          chatWorktrees(chatId).then(
+            (worktrees) => worktrees.map((worktree) => worktree.path),
+            () => [],
+          ),
+      }),
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),

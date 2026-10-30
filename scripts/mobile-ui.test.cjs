@@ -9917,15 +9917,42 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
     files = new Map(),
     share = load("share-availability.ts", {});
   const appListeners = new Set();
-  class File {
+  // The cache, as expo-file-system's File and Directory see it: a file is its bytes (or the text written to it).
+  class Directory {
     constructor(_cache, name) {
       this.uri = "file:///cache/" + name;
+    }
+    get exists() {
+      return true;
+    }
+    create() {}
+  }
+  class File {
+    constructor(parent, name) {
+      this.uri = (parent instanceof Directory ? parent.uri + "/" : "file:///cache/") + name;
     }
     writeSync(value) {
       files.set(this.uri, value);
     }
     get exists() {
       return files.has(this.uri);
+    }
+    get size() {
+      return files.get(this.uri)?.length ?? 0;
+    }
+    create() {
+      files.set(this.uri, new Uint8Array());
+    }
+    open() {
+      return {
+        writeBytes: (bytes) => files.set(this.uri, new Uint8Array([...files.get(this.uri), ...bytes])),
+        close() {},
+      };
+    }
+    move(target) {
+      if (files.has(target.uri)) throw new Error("exists");
+      files.set(target.uri, files.get(this.uri));
+      files.delete(this.uri);
     }
     delete() {
       files.delete(this.uri);
@@ -9958,6 +9985,13 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
       "./design-page-share": { DesignPageShareSheet: "DesignPageShareSheet" },
       "./panel-tabs": { usePanelTabs: () => openTab },
+      // A page's files come into the cache (artifact-files.ts); a page without files shows at once.
+      "./artifact-files": load("artifact-files.ts", {
+        react,
+        "expo-file-system": { Directory, File, FileMode: {}, Paths: { cache: "/cache" } },
+        "@milagre/shared/attachment-download": require("../packages/shared/src/attachment-download.mjs"),
+        "@milagre/shared/artifact-assets": require("../packages/shared/src/artifact-assets.mjs"),
+      }),
       "./session": { useSession: () => ({ client, designs: feature }) },
       "./use-design-catalog": load("use-design-catalog.ts", {
         react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
@@ -13475,6 +13509,44 @@ test("local MCP shared state refreshes a failed revoke and ignores an older stat
   await oldRefresh;
   assert.equal(render().status.clients[0].enabled, false);
   assert.match(render().error, /Could not confirm access was revoked/);
+});
+
+test("an Artifact page's files download into the phone's cache once, and the page shows them from there", async () => {
+  const bytes = Buffer.alloc(300 * 1024, 5);
+  const hash = require("node:crypto").createHash("sha256").update(bytes).digest("hex");
+  const asset = { name: "clip.mp4", hash, size: bytes.length, type: "video/mp4" };
+  const page = { id: "current", format: "html", title: "Demo", version: 1, latest: 1, html: '<video src="assets/clip.mp4"></video>', assets: [asset] };
+  const reads = [];
+  const client = {
+    url: "artifact-host",
+    call: async (method, args) => {
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      if (method === "artifact:asset") {
+        reads.push(args[0]);
+        const offset = args[0].offset;
+        return { ...asset, offset, base64: bytes.subarray(offset, offset + 256 * 1024).toString("base64") };
+      }
+      return page;
+    },
+  };
+  const h = artifactHost(client);
+  const tree = await h.open({ hostId: client.url, chatId: "/p#7", id: "current" });
+  const view = find(tree, (node) => node.type?.name === "ArtifactWebView");
+  assert.equal(view.props.html, `<video src="file:///cache/artifact-files/${hash}"></video>`);
+  assert.equal(view.props.files, true, "the page's policy lets it load files from the cache");
+  assert.deepEqual(
+    reads.map((read) => read.offset),
+    [0, 256 * 1024],
+  );
+  assert.deepEqual(Buffer.from(h.files.get(`file:///cache/artifact-files/${hash}`)), bytes);
+  // Opened again, the phone has the file already.
+  h.cleanup();
+  const again = artifactHost(client);
+  for (const [key, value] of h.files) again.files.set(key, value);
+  await again.open({ hostId: client.url, chatId: "/p#7", id: "current" });
+  assert.equal(reads.length, 2, "nothing downloads twice");
+  again.cleanup();
 });
 
 test("HTML artifact opens the current single page with Designs off, without versions or Choose", async () => {

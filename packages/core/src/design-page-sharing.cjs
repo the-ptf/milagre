@@ -1,4 +1,5 @@
 const fs = require("node:fs/promises");
+const { openAsBlob } = require("node:fs");
 const path = require("node:path");
 const { createHash, randomBytes, randomUUID } = require("node:crypto");
 const { validateDesignPageSnapshot } = require("@milagre/shared/design-page");
@@ -191,6 +192,36 @@ function createDesignPageSharing({
     if (reply?.id !== entry.id || reply?.path !== `/s/${entry.id}`)
       throw Error("The sharing service did not confirm publication. Check the saved link before retrying.");
   };
+  // One file of an Artifact page, uploaded under its hash before the snapshot that names it; the service keeps a
+  // file it already has. A file is streamed from the store on disk, never read whole into memory.
+  const sendFile = async (entry, chatId, asset) => {
+    const body = await openAsBlob(await artifacts.assetPath({ chatId, hash: asset.hash }), { type: asset.type });
+    if (body.size !== asset.size) throw Error("A file of this page changed while it was publishing. Share again.");
+    let response;
+    try {
+      response = await fetcher(`${entry.origin}/api/pages/${entry.id}/files/${asset.hash}`, {
+        method: "PUT",
+        redirect: "error",
+        signal: AbortSignal.timeout(uploadTimeout(asset.size)),
+        headers: { authorization: `Bearer ${entry.secret}`, "content-type": asset.type },
+        body,
+      });
+    } catch {
+      throw Error("The sharing service could not be reached. Try again when it is available.");
+    }
+    await response.body?.cancel();
+    if (response.status === 200 || response.status === 201) return;
+    throw Object.assign(
+      Error(
+        response.status === 429
+          ? "The page sharing limit has been reached. Try again later."
+          : response.status === 413
+            ? "A file on this page is too large to publish."
+            : `The sharing service refused a file of this page (${response.status}). Try again later.`,
+      ),
+      { status: response.status },
+    );
+  };
   return {
     status,
     listAll: async () => {
@@ -268,6 +299,8 @@ function createDesignPageSharing({
           });
           await check(chatId, kind);
           try {
+            for (const asset of new Map((snapshot.artifacts?.[0]?.assets ?? []).map((item) => [item.hash, item])).values())
+              await sendFile(entry, chatId, asset);
             await send(entry, "PUT", payload);
           } catch (error) {
             if (error.status !== 410 || attempt > 0) throw error;
