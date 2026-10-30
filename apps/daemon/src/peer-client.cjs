@@ -111,7 +111,7 @@ async function connectPeer({
     /** @type {(beforeClose?: () => void) => void} */
     closeWhenIdle: () => {},
     keepOpen: () => {},
-    /** @type {(host: string, port: number) => Promise<import("node:stream").Duplex>} */
+    /** @type {(target: string, port: number) => Promise<import("node:stream").Duplex>} */
     openStream: async () => {
       throw new Error("Not connected");
     },
@@ -356,14 +356,14 @@ async function connectPeer({
       else start(request);
     });
   client.close = () => end(new PeerError("lost"));
-  /** A TCP stream to `host:port` as the computer sees them (its localhost is its own), carried on this channel. */
-  client.openStream = (host, port) => {
+  /** A TCP stream to `target:port` as the computer sees them (its localhost is its own), carried on this channel. */
+  client.openStream = (target, port) => {
     if (client.closed || !channel) return Promise.reject(new Error("Daemon connection closed"));
     if (!client.status?.capabilities?.includes(PEER_TCP))
       return Promise.reject(
         Object.assign(new Error("This computer's Milagre is too old to open its pages here. Update it, then try again."), { code: "outdated" }),
       );
-    return streams.open(host, port);
+    return streams.open(target, port);
   };
   /** Closes once no call waits for its answer (`beforeClose` runs just before), or now when none does. */
   client.closeWhenIdle = (beforeClose = () => {}) => {
