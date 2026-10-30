@@ -7,7 +7,7 @@ import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
-  ShrinkIcon,
+  CleanIcon,
   Cancel01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
@@ -1015,7 +1015,7 @@ export function PromptComposer({
                         onClick={compactQueued ? onCancelCompact : onCompact}
                         className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
                       >
-                        <Icon icon={compactQueued ? Cancel01Icon : ShrinkIcon} size={14} />
+                        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} size={14} />
                         <span className="@max-[700px]:hidden">{compactLabel}</span>
                       </button>
                     )}
