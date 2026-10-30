@@ -499,11 +499,11 @@ async function browserChecks() {
     const notificationsNav = `[...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Notifications")`;
     await waitFor(`!!${notificationsNav}`);
     await evaluate(`${notificationsNav}.click()`);
-    await waitFor(String.raw`!!document.querySelector('[role=switch][aria-label="Notify when finished"]')`);
+    await waitFor(String.raw`!!document.querySelector('[role=checkbox][aria-label="Notify when finished"]')`);
     await screenshot("notification-settings");
-    await click('[role=switch][aria-label="Notify when finished"]');
+    await click('[role=checkbox][aria-label="Notify when finished"]');
     await waitFor("window.synced.at(-1)?.notifyOnCompletion === false");
-    await click('[role=switch][aria-label="Dock badge"]');
+    await click('[role=checkbox][aria-label="Dock badge"]');
     await waitFor("window.synced.at(-1)?.showDockBadge === false");
     assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).showDockBadge'), false, "Notification preferences persist");
     await evaluate('window.openNotification("/other#10")');

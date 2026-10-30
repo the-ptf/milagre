@@ -137,9 +137,26 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
+        return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
+      if (/^\.\.?\/outbox$/.test(id) && !(id in modules))
+        return {
+          hasQueuedChat: () => false,
+          outbox: {
+            ready: Promise.resolve(),
+            getSnapshot: () => ({ loaded: true }),
+            enqueue: async () => {
+              throw new Error("Unexpected offline enqueue");
+            },
+            flush: async () => {},
+          },
+          outboxAttachments: (items) => items,
+          useOutbox: () => ({ loaded: true, items: [], error: "" }),
+        };
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",
@@ -211,6 +228,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
       if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
+      if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
@@ -240,6 +258,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "expo-font" && !(id in modules)) return { isLoaded: () => false, loadAsync: async () => {} };
       if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
       // Dictation is not available in a test: no microphone, no on-device transcriber.
+      if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
@@ -255,7 +274,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           useNewChatProjects: () => [],
           useNoProjectChoice: () => undefined,
           chatsHomePath: async (_client, _hostId, home) => home.path,
-          allComputers: { clientFor: () => null, hostFor: () => undefined },
+          allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
         };
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
@@ -273,6 +292,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "panel-width" && !(id in modules)) return { usePanelWidth: () => 420, setPanelWidth() {} };
       // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
       if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
+      if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
+      if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -1961,7 +1982,7 @@ test("plain URLs in mobile replies render as links and open the exact address", 
   }
 });
 
-test("mobile reply links open an associated PR in the Chat and leave unrelated links external", async () => {
+test("mobile reply links honor the Chat destination and retain an external fallback without one", async () => {
   const { associatedPullRequest } = require("../packages/shared/src/chats.mjs");
   const prs = [
     { url: "https://github.com/team/first/pull/12", cwd: "/first" },
@@ -1984,6 +2005,22 @@ test("mobile reply links open an associated PR in the Chat and leave unrelated l
     assert.deepEqual(screen.links, []);
     await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
     assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
+  }
+});
+
+test("mobile reply links preserve localhost for the internal Browser instead of rewriting it to the phone's LAN route", async () => {
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      reachable: { host: "100.69.206.111", loopbackOnly: new Set() },
+      openChatLink: (url) => {
+        opened.push(url);
+        return true;
+      },
+    });
+    find(screen.render("[App](http://localhost:5173/path?q=1)", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(opened, ["http://localhost:5173/path?q=1"]);
+    assert.deepEqual(screen.links, []);
   }
 });
 
@@ -2639,6 +2676,7 @@ function chatHost({
   linear = { active: false },
   routines = [],
   routinesOn = true,
+  localOutbox,
   computers,
   screenWidth = 402,
   now = new Date(2026, 9, 17, 10, 30).getTime(),
@@ -2768,6 +2806,20 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    ...(localOutbox
+      ? {
+          "../outbox": {
+            outbox: localOutbox,
+            hasQueuedChat: (computerId, owner, sessionId) =>
+              localOutbox
+                .getSnapshot()
+                .items?.some(
+                  (item) => item.computerId === computerId && item.owner === owner && item.request.sessionId === sessionId && item.status !== "sent",
+                ) ?? false,
+            outboxAttachments: require("../apps/mobile/src/attachments.ts").outboxAttachments,
+          },
+        }
+      : {}),
     ...(computers ? { "../all-computers": computers } : {}),
     "react-native-reanimated": { default: { View: "AnimatedView" }, useAnimatedStyle: (style) => style() },
     "../hosts-native": { savedChatDefaults: chatDefaults },
@@ -2930,7 +2982,8 @@ function chatHost({
     const props = find(render(), (node) => node.type === "PromptField").props;
     return { ...props, value: props.draft };
   };
-  const send = () => find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up"].includes(node.props.label)).props.onPress();
+  const send = () =>
+    find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up", "Queue message"].includes(node.props.label)).props.onPress();
   return { session, sending, params, field, send, render, router, calls, choices, panels, undo };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -3199,7 +3252,9 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
     assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
     assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
-    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), false);
+    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), true);
+    assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
+    assert.equal(chat.router.pushed.at(-1).params.url, "https://github.com/o/unrelated/pull/12");
     assert.equal(globalThis.openedPullRequests.length, 2);
   } finally {
     delete globalThis.branchPullRequests;
@@ -4996,7 +5051,7 @@ test("an older Mac's rows offer no Done, and their left swipe archives as before
   }
 });
 
-test("a sidebar Chat archives immediately and stops the turn while preserving unsaved work", async () => {
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -5013,14 +5068,14 @@ test("a sidebar Chat archives immediately and stops the turn while preserving un
   });
   const more = nav.more(nav.row("chat"));
   const archiveItem = more.props.sections.at(-1).items.find((item) => item.id === "archive");
-  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Archive");
+  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Delete");
   assert.equal(archiveItem.disabled, undefined, "a running Chat can be archived: it is stopped first");
   more.props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(alerts, []);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     project.calls.map(([method]) => method),
-    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "refresh"],
+    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
   );
   assert.equal(
     project.calls.some(([method]) => method === "worktree:remove"),
@@ -5042,13 +5097,13 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.params.id = "5";
   delete screen.params.worktreeId;
   screen.render();
-  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   archive.props.onPress();
   await settleAll();
-  assert.deepEqual(alerts, []);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
-    ["worktree:roots", "chat:patch"],
+    ["worktree:roots", "chat:patch", "chat:delete"],
   );
   assert.deepEqual(screen.calls[1].args, ["/p", 5, { archived: true, unread: false }]);
   assert.equal(screen.panels.open, "left");
@@ -6088,6 +6143,7 @@ test("late Chat rename cannot pop another screen after its form loses focus", as
   };
   const { default: Form } = load("app/chat-details.tsx", {
     "../archive-progress": archiveProgress,
+    "../chat-actions": { runChatAction: async () => {} },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Text: "Text" },
@@ -7955,6 +8011,34 @@ function browserHost(client) {
 }
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
+test("mobile browser link selects the requested page among several and retries without leaving the app", async (t) => {
+  const requested = { ...BROWSER_PAGE, id: "requested-page", source: "panel", url: "http://localhost:5173/" };
+  const calls = [];
+  let attempt = 0;
+  const h = browserHost({
+    url: "mac",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      if (method === "browser:open-page") {
+        if (++attempt === 1) throw new Error("Open Milagre on your computer and retry.");
+        return requested;
+      }
+      return { supported: true, targets: [BROWSER_PAGE, requested], others: [] };
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1", url: "http://localhost:5173" });
+  assert.match(JSON.stringify(render()), /Opening page/);
+  await settle();
+  assert.match(JSON.stringify(render()), /Open Milagre on your computer/);
+  find(render(), (node) => node.props.title === "Retry").props.onPress();
+  render();
+  await settle();
+  assert.equal(find(render(), (node) => node.props.targetId === requested.id).props.targetId, requested.id);
+  assert.equal(calls.filter(([method]) => method === "browser:open-page").length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([method]) => method === "browser:open-page")[1])), [{ chatId: "/p#1", url: "http://localhost:5173" }]);
+});
+
 test("mobile browser pill lists only this Chat and hides until the Chat has a page", async (t) => {
   for (const [list, visible] of [
     [{ supported: true, targets: [], others: [] }, false],
@@ -9601,7 +9685,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
     undefined,
   );
   const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Archiving Fix", "archive feedback sits on the row and survives closing the action sheet");
+  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Deleting Fix", "archive feedback sits on the row and survives closing the action sheet");
   assert.ok(
     find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
     "the row's pill spins desktop's ring",
@@ -9616,7 +9700,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   await settleAll();
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
-  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not archive Chat: disk full");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
@@ -9651,7 +9735,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   screen.session.client.snapshot = async () => project.snapshot;
   screen.params.id = "5";
   delete screen.params.worktreeId;
-  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   menuAction().props.onPress();
   await settleAll();
   assert.equal(screen.panels.open, "left", "shows the sidebar before the archive ends");
@@ -9728,7 +9812,7 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   assert.deepEqual(calls, []);
 });
 
-test("mobile Ports sheet opens and copies a server at the computer's LAN address, and says when it listens on localhost only", async (t) => {
+test("mobile Ports sheet opens both LAN and loopback servers internally and copies a reachable address", async (t) => {
   const opened = [],
     copied = [];
   const ports = [
@@ -9739,6 +9823,7 @@ test("mobile Ports sheet opens and copies a server at the computer's LAN address
   const h = simulatorHost(client, "ports.tsx", {
     native: { Linking: { openURL: async (url) => opened.push(url) } },
     modules: {
+      "./browser-link": { openBrowserLink: (...args) => opened.push(args) },
       "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
       "./routes-native": { useReachableHost: (id) => (id === "mac" ? "100.69.206.111" : null) },
     },
@@ -9747,13 +9832,12 @@ test("mobile Ports sheet opens and copies a server at the computer's LAN address
   const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
   render();
   await settle();
-  find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:5173").props.onPress();
-  assert.deepEqual(opened, ["http://100.69.206.111:5173"]);
-  assert.equal(
-    find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:3000"),
-    undefined,
-    "a server on the computer's loopback isn't reachable from the phone",
-  );
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://localhost:5173").props.onPress();
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://localhost:3000").props.onPress();
+  assert.deepEqual(opened, [
+    ["mac", "/p#7", "http://localhost:5173", null],
+    ["mac", "/p#7", "http://localhost:3000", null],
+  ]);
   assert.match(JSON.stringify(render()), /localhost only/);
   await find(render(), (n) => n.props.accessibilityLabel === "Copy address for port 5173").props.onPress();
   assert.deepEqual(copied, ["http://100.69.206.111:5173"]);
@@ -11125,14 +11209,14 @@ function settingsGroups(tree) {
   return groups;
 }
 
-test("mobile Settings splits this iPhone from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
+test("mobile Settings splits this device from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
   const state = {};
   const { SettingsView } = loadSettings(state);
   // No Mac: the phone's own settings and About only; Routines waits for a computer and Computers says none is paired.
   const alone = SettingsView({ onOpen() {} });
   assert.deepEqual(
     settingsGroups(alone).map((group) => group.title),
-    ["This iPhone", "About"],
+    ["This device", "About"],
   );
   const tile = (tree, title) => find(tree, (n) => typeof n.type === "function" && n.type.name === "Tile" && n.props.title === title);
   assert.equal(tile(alone, "Computers").props.value, "None paired");
@@ -11162,10 +11246,11 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     groups.map(({ title, rows }) => [title, rows]),
     [
       [
-        "This iPhone",
+        "This device",
         [
           ["Notifications", "On"],
           ["Appearance", "System"],
+          ["Browser", "Milagre"],
           ["Chat", "One list"],
           ["Archived Chats", ""],
           ["Experimental", ""],
@@ -11198,6 +11283,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
   assert.deepEqual(opened, [
     "notifications",
     "appearance",
+    "browser-settings",
     "chat-display",
     "archived",
     "experimental",
@@ -14133,7 +14219,7 @@ function routinesHost({
     "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
     "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "../icons": { Icon: "Icon" },
-    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name])),
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name])),
   });
   const render = () => {
     react.begin();
@@ -14164,7 +14250,7 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.match(textOf(heartbeat), /Babysit PR #473/);
   assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
   assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
-  assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
+  assert.equal(find(trigger, (node) => node.type === "RowCheckbox").props.selected, false);
   const menu = find(trigger, (node) => node.type === "PullDown");
   // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
   // Copy VM-owned arrays into this realm for deepStrictEqual.
@@ -14235,12 +14321,12 @@ test("flipping a Routine's switch on the phone writes routines:update with the n
   await host.settle();
   const [heartbeat] = host.rows(host.render());
   host.calls.length = 0;
-  find(heartbeat, (node) => node.type === "RowSwitch").props.onPress();
-  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false, "the switch moves at once");
+  find(heartbeat, (node) => node.type === "RowCheckbox").props.onPress();
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false, "the switch moves at once");
   await host.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(host.calls[0])), ["routines:update", ["hb", { enabled: false }]]);
   assert.ok(host.calls.some(([method]) => method === "routines:list"));
-  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false);
 });
 
 test("an older Mac that says its Routines are off still lists them, with nothing to allow", async () => {
@@ -14316,7 +14402,7 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, ena
     "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
     "../run-list": { RunList },
     "../icons": { Icon: "Icon" },
-    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "RowSwitch", "Segmented"].map((name) => [name, name])),
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "RowCheckbox", "Segmented"].map((name) => [name, name])),
   });
   const render = () => {
     react.begin();
@@ -14412,7 +14498,7 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   });
   const tree = host.render();
   assert.equal(find(tree, (node) => typeof node.type === "function" && node.type.name === "StatusPill").props.on, true);
-  assert.equal(find(tree, (node) => node.type === "RowSwitch").props.selected, true);
+  assert.equal(find(tree, (node) => node.type === "RowCheckbox").props.selected, true);
   const chips = find(tree, (node) => node.type === "ScrollView" && node.props.horizontal);
   assert.deepEqual(
     allNodes(chips, (node) => typeof node.type === "function" && node.type.name === "Chip").map((node) => node.props.text),
@@ -14636,7 +14722,7 @@ function routineFormHost({ params = {}, routines = [], answers = {}, created } =
     "../confirm-store": { confirm: async () => true },
     "../icons": { Icon: "Icon" },
     "../ui": Object.fromEntries(
-      ["Button", "CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name]),
+      ["Button", "CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name]),
     ),
   });
   const render = () => {
@@ -14818,7 +14904,7 @@ test("two quick flips of one Routine on the phone keep the second value until it
   const host = routinesHost({ slowUpdates: true });
   host.render();
   await host.settle();
-  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowSwitch");
+  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox");
   switchOf().props.onPress();
   assert.equal(switchOf().props.selected, false);
   switchOf().props.onPress();
@@ -15942,7 +16028,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
       Field: "Field",
       PageScroll: "PageScroll",
       PillButton: "PillButton",
-      RowSwitch: "RowSwitch",
+      RowCheckbox: "RowCheckbox",
       useStyles: () => ({}),
     },
   });
@@ -16226,6 +16312,298 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+test("an offline phone send saves text, destination and attachment bytes before clearing the composer", async () => {
+  const { createOutbox } = require("@milagre/shared/outbox");
+  let saved;
+  const box = createOutbox({
+    storage: {
+      read: async () => null,
+      write: async (data) => {
+        saved = structuredClone(data);
+      },
+    },
+    available: () => false,
+    deliver: async () => assert.fail("offline delivery"),
+  });
+  const host = chatHost({ localOutbox: box });
+  host.session.error = "Computer disconnected";
+  host.session.attachments["/p#new:1"] = [
+    { id: "photo", name: "Photo.jpg", uri: "temporary.jpg", image: { id: "photo", name: "Photo.jpg", dataUrl: "data:image/jpeg;base64,aW1n" } },
+  ];
+  host.render();
+  host.send();
+  await settle();
+  await settle();
+  assert.equal(saved.items.length, 1);
+  assert.equal(saved.items[0].computerId, host.session.client.url);
+  assert.equal(saved.items[0].owner, "/p");
+  assert.equal(saved.items[0].request.body, "first message");
+  assert.equal(saved.items[0].attachments[0].base64, "aW1n");
+  assert.equal(host.field().value, "");
+  assert.equal(host.session.attachments["/p#new:1"].length, 0);
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+  // The message waits in this Chat's composer tray, which says the computer is offline.
+  assert.equal(find(host.render(), (node) => node.type === "OfflineTray")?.props.target.offline, true);
+});
+
+test("an offline queue storage failure keeps the phone draft and attachments", async () => {
+  const box = {
+    getSnapshot: () => ({ loaded: true }),
+    enqueue: async () => {
+      throw new Error("Disk full");
+    },
+    flush: async () => {},
+  };
+  const host = chatHost({ localOutbox: box });
+  host.session.error = "Computer disconnected";
+  host.session.attachments["/p#new:1"] = [{ id: "file", name: "notes.txt", uri: "temp", base64: "YWJj" }];
+  host.render();
+  host.send();
+  await settle();
+  assert.equal(host.field().value, "first message");
+  assert.equal(host.session.attachments["/p#new:1"].length, 1);
+  assert.match(JSON.stringify(host.render()), /Disk full/);
+});
+
+test("a send after restart waits for the saved queue before choosing direct delivery", async () => {
+  const { createOutbox } = require("@milagre/shared/outbox");
+  const disk = deferred();
+  const box = createOutbox({ storage: { read: () => disk.promise, write: async () => {} }, available: () => false, deliver: async () => assert.fail() });
+  const host = chatHost({ localOutbox: box });
+  host.render();
+  host.send();
+  await settle();
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+  disk.resolve({
+    version: 1,
+    revision: 1,
+    items: [
+      {
+        id: "older",
+        computerId: host.session.client.url,
+        computerName: "Computer",
+        owner: "/p",
+        conversation: "older",
+        request: { projectPath: "/p", sessionId: null, worktreeId: 1, body: "older message", images: [], files: [] },
+        attachments: [],
+        status: "queued",
+        phase: "ready",
+        createdAt: 1,
+        error: "",
+      },
+    ],
+  });
+  await settle();
+  await settle();
+  assert.deepEqual(
+    box.getSnapshot().items.map((item) => item.request.body),
+    ["older message", "first message"],
+  );
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+});
+
+test("browser preference defaults on, persists changes, ignores a late read and reports failed saves", async () => {
+  let read;
+  const saves = [];
+  let fail = false;
+  const { useInternalBrowser } = load("browser-setting.ts", {
+    react: { useSyncExternalStore: (_subscribe, get) => get() },
+    "./hosts-native": {
+      readInternalBrowser: () =>
+        new Promise((resolve) => {
+          read = resolve;
+        }),
+      saveInternalBrowser: async (on) => {
+        saves.push(on);
+        if (fail) throw new Error("storage failed");
+      },
+    },
+  });
+  assert.equal(useInternalBrowser()[0], true);
+  await useInternalBrowser()[1](false);
+  read(true);
+  await settle();
+  assert.equal(useInternalBrowser()[0], false, "a slow initial read cannot undo the user's choice");
+  fail = true;
+  await assert.rejects(useInternalBrowser()[1](true), /storage failed/);
+  assert.equal(useInternalBrowser()[0], false);
+  fail = false;
+  await useInternalBrowser()[1](true);
+  assert.equal(useInternalBrowser()[0], true);
+  assert.deepEqual(saves, [false, true, true]);
+});
+
+test("Chat web links use the iPad panel or phone sheet, and respect this device's external preference", () => {
+  for (const docked of [false, true]) {
+    const chat = chatHost({ screenWidth: docked ? 1194 : 402 });
+    const tabs = [];
+    chat.panels.openInPanel = docked ? (tab) => tabs.push(tab) : null;
+    chat.params.id = "2";
+    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.openLink;
+    try {
+      assert.equal(link()("http://localhost:5173"), true);
+      if (docked) {
+        assert.equal(tabs[0].kind, "browser");
+        assert.equal(tabs[0].target.url, "http://localhost:5173");
+        assert.equal((chat.router.pushed ?? []).length, 0);
+      } else assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
+      globalThis.internalBrowser = false;
+      const before = (chat.router.pushed ?? []).length + tabs.length;
+      assert.equal(link()("https://example.com"), false, "Markdown delegates to Linking when the Chat declines the link");
+      assert.equal((chat.router.pushed ?? []).length + tabs.length, before);
+    } finally {
+      delete globalThis.internalBrowser;
+    }
+  }
+});
+
+test("mobile Ports obey the external preference and explain a loopback-only server", async (t) => {
+  const urls = [];
+  const ports = [
+    { port: 5173, pid: 22, command: "node", address: "*" },
+    { port: 3000, pid: 23, command: "node", address: "127.0.0.1" },
+  ];
+  const h = simulatorHost({ url: "mac", call: async () => ({ chatId: "/p#7", ports }) }, "ports.tsx", {
+    native: {
+      Linking: {
+        openURL: async (url) => {
+          urls.push(url);
+        },
+      },
+    },
+    modules: {
+      "./browser-setting": { useInternalBrowser: () => [false] },
+      "./routes-native": { useReachableHost: () => "192.168.1.2" },
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (node) => node.props.accessibilityLabel === "Open http://localhost:5173").props.onPress();
+  assert.deepEqual(urls, ["http://192.168.1.2:5173"]);
+  find(render(), (node) => node.props.accessibilityLabel === "Open http://localhost:3000").props.onPress();
+  assert.equal(urls.length, 1);
+  assert.match(JSON.stringify(render()), /Enable Open links in Milagre in Settings > Browser/);
+});
+
+test("phone dictation pastes by default, sends the completed draft once, and preserves blocked drafts", () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  let draft = "fix";
+  let action = "paste";
+  let deliver;
+  let blocked = false;
+  const sent = [];
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./chat-display-setting": { useDictationAction: () => [action] },
+    "./voice-dictation-hook": {
+      useVoiceDictation: (callback) => {
+        deliver = callback;
+        return { available: false, error: null, dismiss() {} };
+      },
+    },
+  });
+  const render = () => {
+    react.begin();
+    const renderedDraft = draft;
+    PromptField({
+      client: { call: async () => [] },
+      projectPath: "/project",
+      draft,
+      onChangeText: (value) => {
+        draft = value;
+      },
+      onSubmit: () => {
+        if (blocked) return;
+        sent.push(renderedDraft);
+        draft = "";
+      },
+    });
+    react.flush();
+  };
+  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } });
+  render();
+  hear("this");
+  render();
+  assert.equal(draft, "fix this");
+  assert.deepEqual(sent, []);
+  action = "send";
+  render();
+  hear("please");
+  assert.deepEqual(sent, [], "wait for the updated parent render");
+  render();
+  render();
+  assert.deepEqual(sent, ["fix this please"]);
+  assert.equal(draft, "");
+  hear("  ");
+  render();
+  assert.equal(sent.length, 1);
+  blocked = true;
+  hear("keep this");
+  render();
+  assert.equal(draft, "keep this");
+  assert.equal(sent.length, 1);
+  blocked = false;
+  render();
+  assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+  react.cleanup();
+});
+
+test("phone checkboxes expose their state and let the entire labeled row toggle", () => {
+  let toggles = 0;
+  const { Checkbox } = load("primitives/checkbox.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "../icons": { Icon: "Icon" },
+  });
+  const tree = Checkbox({ label: "Keep awake", selected: true, onPress: () => toggles++ });
+  assert.equal(tree.props.accessibilityRole, "checkbox");
+  assert.equal(tree.props.accessibilityState.checked, true);
+  assert.equal(tree.props.style({ pressed: false }).minHeight, 44);
+  tree.props.onPress();
+  assert.equal(toggles, 1);
+  const disabled = Checkbox({ label: "Keep awake", selected: false, disabled: true, onPress() {} });
+  assert.equal(disabled.props.disabled, true);
+  assert.equal(disabled.props.accessibilityState.disabled, true);
+});
+
+test("phone dictation language opens a checked list and saves the chosen language", () => {
+  let language = "auto";
+  const { default: Screen } = load("app/(settings)/dictation-language.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text" },
+    "expo-router": { Stack: { Screen: "Screen" } },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "../chat-display-setting": {
+      useDictationLanguage: () => [
+        language,
+        (next) => {
+          language = next;
+        },
+      ],
+    },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "../icons": { Icon: "Icon" },
+    "../ui": { PageScroll: "PageScroll" },
+  });
+  const row = (name) => find(Screen(), (node) => node.props.title === name);
+  assert.equal(row("Phone language").props.selected, true);
+  row("Portuguese").props.onPress();
+  assert.equal(language, "pt");
+  assert.equal(row("Portuguese").props.selected, true);
+  assert.equal(row("Phone language").props.selected, false);
 });
 
 test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {

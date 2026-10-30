@@ -5,6 +5,8 @@ import {
   AiBrain01Icon,
   ArrowDown01Icon,
   ArrowRight01Icon,
+  ArrowUp01Icon,
+  Mic01Icon,
   CommandLineIcon,
   File01Icon,
   Search01Icon,
@@ -12,6 +14,7 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { TOOL_CALL_DISPLAYS, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { DICTATION_ACTION_OPTIONS, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 
 type Choice<T extends string> = { id: T; label: string; description: string; preview: ReactNode };
 
@@ -19,7 +22,19 @@ type Choice<T extends string> = { id: T; label: string; description: string; pre
  * Two side-by-side cards for one setting, each a small picture of what it does, its name and one line. A radio group:
  * arrow keys move between the cards, and the chosen one carries the accent ring and a filled check.
  */
-function ChoiceCards<T extends string>({ label, value, onChange, choices }: { label: string; value: T; onChange: (value: T) => void; choices: Choice<T>[] }) {
+function ChoiceCards<T extends string>({
+  label,
+  value,
+  onChange,
+  choices,
+  compact = false,
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  choices: Choice<T>[];
+  compact?: boolean;
+}) {
   return (
     <RadioGroupPrimitive.Root
       aria-label={label}
@@ -38,7 +53,7 @@ function ChoiceCards<T extends string>({ label, value, onChange, choices }: { la
             data-choice-card={choice.id}
             className={`flex flex-col gap-2.5 rounded-[12px] bg-surface p-3 text-left shadow-card outline-none transition-[box-shadow,background-color] hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 ${selected ? "ring-2 ring-accent" : ""}`}
           >
-            <span aria-hidden className="flex h-[112px] w-full flex-col gap-2 overflow-hidden rounded-[8px] bg-inset p-3">
+            <span aria-hidden className={`flex w-full flex-col overflow-hidden rounded-control bg-inset ${compact ? "h-16 gap-1 p-2" : "h-[112px] gap-2 p-3"}`}>
               {choice.preview}
             </span>
             <span className="flex items-center gap-2">
@@ -56,6 +71,45 @@ function ChoiceCards<T extends string>({ label, value, onChange, choices }: { la
         );
       })}
     </RadioGroupPrimitive.Root>
+  );
+}
+
+function DictationPreview({ sent }: { sent: boolean }) {
+  return (
+    <span className="mx-auto flex h-full w-full max-w-48 flex-col justify-center gap-1">
+      <span className="h-2.5 w-3/5 shrink-0 self-end rounded-chip bg-line" />
+      {sent && <span className="h-2.5 w-[72%] shrink-0 self-end rounded-chip bg-ink-4" />}
+      <span className={`flex shrink-0 items-center gap-1 rounded-full border border-line-strong bg-surface px-1.5 ${sent ? "h-[18px]" : "h-[26px]"}`}>
+        {sent ? (
+          <HugeiconsIcon icon={Mic01Icon} size={12} className="ml-auto text-ink-3" />
+        ) : (
+          <>
+            <span className="h-1 flex-1 rounded-full bg-ink-4" />
+            <span className="h-3.5 w-0.5 bg-accent" />
+            <span className="ml-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-ink text-surface">
+              <HugeiconsIcon icon={ArrowUp01Icon} size={12} />
+            </span>
+          </>
+        )}
+      </span>
+    </span>
+  );
+}
+
+export function DictationActionChoice({ value, onChange }: { value: DictationActionPreference; onChange: (value: DictationActionPreference) => void }) {
+  return (
+    <ChoiceCards
+      compact
+      label="When dictation finishes"
+      value={value}
+      onChange={onChange}
+      choices={DICTATION_ACTION_OPTIONS.map((option) => ({
+        id: option.value,
+        label: option.label,
+        description: option.description,
+        preview: <DictationPreview sent={option.value === "send"} />,
+      }))}
+    />
   );
 }
 

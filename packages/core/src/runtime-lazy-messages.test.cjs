@@ -98,6 +98,26 @@ async function openChat(t) {
 
 const shape = (messages) => messages.map((message) => [message.role, message.body]);
 
+test("deleting an unloaded Chat removes its saved conversation and survives restart while its files stay", async (t) => {
+  const { project, chat, send, unload, runtime, make } = await openChat(t);
+  await send("delete only this conversation");
+  await runtime.invoke("chat:patch", [project, chat.id, { title: "Delete me" }]);
+  const keptFile = path.join(project, "keep.txt");
+  await fs.writeFile(keptFile, "keep my work");
+  await unload();
+  await runtime.invoke("chat:delete", [project, chat.id]);
+  const saved = await readProjectState(project);
+  assert.equal(saved.sessions[chat.id], undefined);
+  assert.ok(!saved.messages.some((message) => message.session_id === chat.id));
+  assert.equal(await fs.readFile(keptFile, "utf8"), "keep my work");
+  assert.ok(Object.values(saved.worktrees).some((worktree) => worktree.path === project));
+  await runtime.close();
+  const restarted = make();
+  const opened = await restarted.openProject(project);
+  assert.equal(opened.state.sessions[chat.id], undefined);
+  assert.ok(!(await restarted.invoke("chat:all-messages", [project])).some((message) => message.session_id === chat.id));
+});
+
 test("inbox outcome previews survive idle unloading without reloading transcripts", async (t) => {
   const { project, chat, send, unload, inMemory, runtime } = await openChat(t);
   await send("first");

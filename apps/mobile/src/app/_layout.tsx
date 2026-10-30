@@ -1,3 +1,4 @@
+import { OutboxService } from "../outbox";
 import { ProviderUpdateNotice } from "../provider-update-notice";
 import { useState } from "react";
 import { Stack, router } from "expo-router";
@@ -46,6 +47,7 @@ export default function Layout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
         <SessionProvider>
+          <OutboxService />
           <PushProvider>
             <ActivityProvider>
               <SidePanelsProvider>

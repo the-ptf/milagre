@@ -55,7 +55,8 @@
     "src/advisor-result.ts",
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
-    "src/genui-renderer.tsx"
+    "src/genui-renderer.tsx",
+    "src/outbox-delivery.ts"
   ],
   "type": "module",
   "exports": {
@@ -415,7 +416,12 @@
     "./page-picker": {
       "types": "./src/page-picker.d.mts",
       "default": "./src/page-picker.mjs"
-    }
+    },
+    "./outbox": {
+      "types": "./src/outbox.d.mts",
+      "default": "./src/outbox.mjs"
+    },
+    "./outbox-delivery": "./src/outbox-delivery.ts"
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

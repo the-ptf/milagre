@@ -1,3 +1,5 @@
+import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
+import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
 import { GenerativeUIProvider } from "../genui/GenerativeUI";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -68,6 +70,8 @@ import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
+import { useInternalBrowser } from "../browser-setting";
+import { openBrowserLink } from "../browser-link";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
@@ -324,6 +328,7 @@ function ChatPane({
   const styles = useStyles();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
   // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
+  const [internalBrowser] = useInternalBrowser();
   const [arriving, setArriving] = useState<ChatParams | null>(null);
   const params = arriving ?? routeParams;
   useEffect(() => {
@@ -975,6 +980,7 @@ function ChatPane({
   }
   const client = session.client;
   const { project } = session.snapshot;
+  const offline = !!session.error || allComputers.viewOf?.(client.url)?.state === "offline";
   const chat = params.id ? project.state.sessions[Number(params.id)] : null;
   const chatId = `${project.path}#${params.id ?? `new:${params.worktreeId}`}`;
   const draft = composer.drafts[chatId] || "";
@@ -1029,7 +1035,8 @@ function ChatPane({
   }
   function openChatLink(url: string) {
     const entry = associatedPullRequest(url, rowPrs);
-    return entry ? openPr(entry.number, undefined, placeOf(entry)?.cwd) : false;
+    if (entry && openPr(entry.number, undefined, placeOf(entry)?.cwd)) return true;
+    return internalBrowser && openBrowserLink(client.url, chatId, url, panels.openInPanel);
   }
   prChat.current = {
     send: (body) => send(body, false),
@@ -1070,6 +1077,14 @@ function ChatPane({
   const onSeveralComputers = projectCopies.length > 1;
   const hostName = onSeveralComputers ? "" : (newChatProjects.find((item) => item.hostId === client.url)?.hostName ?? session.hostName);
   const computerName = projectCopies.find(isOpenCopy)?.hostName ?? session.hostName;
+  // Messages waiting on this device for this Chat (or its New Chat) sit in the composer's tray (offline-tray.tsx).
+  const trayTarget = {
+    computerId: client.url,
+    owner: project.path,
+    sessionId: params.id ? Number(params.id) : null,
+    computerName: computerName || "This computer",
+    offline,
+  };
   // The computer chip's rows: every copy of the Project, or the open one alone before the lists have found it.
   const computerCopies: NewChatProject[] = projectCopies.length
     ? projectCopies
@@ -1334,6 +1349,62 @@ function ChatPane({
     sendingRef.current.add(sendingKey);
     setSendingKeys((current) => [...current, sendingKey]);
     setError("");
+    // A restored queue must be read before an online send can bypass it.
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (offline || hasQueuedChat(client.url, project.path, params.id ? Number(params.id) : null)) {
+      try {
+        if (!project.link && (newWorktree || issue) && !base) throw new Error("Choose a base branch before queuing this message.");
+        const id = randomUUID();
+        const mentioned =
+          withAttachments && worktree?.path
+            ? mentionAttachments(body, worktree.path, attachments, (path) => knownFiles.current.has(worktree.path, path)).added
+            : [];
+        const picked = withAttachments ? [...attachments, ...mentioned] : [];
+        await outbox.enqueue({
+          id,
+          computerId: client.url,
+          computerName: computerName || "Computer",
+          owner: project.path,
+          conversation: params.id ? `chat:${params.id}` : id,
+          request: {
+            projectPath: project.path,
+            sessionId: params.id ? Number(params.id) : null,
+            worktreeId,
+            body,
+            images: [],
+            files: [],
+            prompt: prAction ? pullRequestActionPrompt(prAction) : body,
+            ...sendOptions(model, preferences),
+            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),
+          },
+          ...(project.link ? { link: { linkId: project.link.link.id, operationId: id } } : {}),
+          ...(!project.link && (newWorktree || issue)
+            ? {
+                createWorktree: {
+                  projectPath: project.path,
+                  baseBranch: base!,
+                  prompt: body,
+                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                },
+              }
+            : {}),
+          attachments: outboxAttachments(picked),
+        });
+        if (body === draft || issue) composer.setDrafts((current) => clearSentDraft(current, chatId, body, !!issue));
+        const ids = new Set(picked.map((item) => item.id));
+        composer.setAttachments((current) => ({ ...current, [chatId]: (current[chatId] || []).filter((item) => !ids.has(item.id)) }));
+        Keyboard.dismiss();
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setError((error as Error).message);
+        return false;
+      } finally {
+        sendingRef.current.delete(sendingKey);
+        setSendingKeys((current) => current.filter((key) => key !== sendingKey));
+      }
+    }
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
     // against the Project (the one just typed) is asked about now, for up to a second.
     const mentionRoot = worktree?.path;
@@ -1625,7 +1696,7 @@ function ChatPane({
           refresh,
         });
     } catch (e) {
-      if (left) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (left) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else setError((e as Error).message);
     } finally {
       archiveRequest.current = false;
@@ -1807,8 +1878,8 @@ function ChatPane({
                   Link issue…
                 </Stack.Toolbar.MenuAction>
               ))}
-            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "archivebox"} disabled={busy} onPress={() => headerAction("archive")}>
-              {chat.archived ? "Restore" : "Archive"}
+            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "trash"} disabled={busy} onPress={() => headerAction("archive")}>
+              {chat.archived ? "Restore" : "Delete"}
             </Stack.Toolbar.MenuAction>
           </Stack.Toolbar.Menu>
         )}
@@ -1849,8 +1920,9 @@ function ChatPane({
                 : []),
               {
                 id: "archive",
-                title: chat.archived ? "Restore" : "Archive",
-                systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox",
+                title: chat.archived ? "Restore" : "Delete",
+                systemImage: chat.archived ? "tray.and.arrow.up" : "trash",
+                destructive: !chat.archived,
                 disabled: busy,
               },
             ],
@@ -1913,8 +1985,7 @@ function ChatPane({
       onActivity={openActivity}
     />
   ) : null;
-  const sendDisabled =
-    busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!session.error || !!chat?.archived || unavailable;
+  const sendDisabled = busy || picking || (newWorktree && !base) || (!draft.trim() && !attachments.length) || !!chat?.archived || (!offline && unavailable);
   // On an iPad the routed Chat's Terminals dock below it instead of opening full screen.
   const terminalDocks = !secondary && split.widthClass !== "compact";
   const terminalShown = terminalDocks && terminalFor === chatId && !!chat && !chat.archived;
@@ -2148,7 +2219,7 @@ function ChatPane({
                     />
                   )}
                   {error ? <ErrorNotice message={error} /> : null}
-                  {session.error ? <ErrorNotice message={session.error} retry={() => router.dismissTo("/")} /> : null}
+                  {session.error && !offline ? <ErrorNotice message={session.error} retry={() => router.dismissTo("/")} /> : null}
                 </KeyboardChatScrollView>
                 {/* The transcript blurs and fades under the transparent header, as under the composer. iOS's own soft edge can't
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
@@ -2366,23 +2437,7 @@ function ChatPane({
                     ) : (
                       (!question || answering) && (
                         // A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece, as on desktop.
-                        <View
-                          style={
-                            startTray
-                              ? {
-                                  backgroundColor: colors.inset,
-                                  borderWidth: 1,
-                                  borderColor: colors.line,
-                                  borderRadius: 28,
-                                  borderCurve: "continuous",
-                                  padding: 5,
-                                  paddingTop: 3,
-                                  gap: 2,
-                                  boxShadow: "0 4px 20px #0000000f",
-                                }
-                              : undefined
-                          }
-                        >
+                        <ComposerTray start={startTray} target={trayTarget}>
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
@@ -2579,12 +2634,13 @@ function ChatPane({
                               </View>
                             )
                           )}
+                          <OfflineTray target={trayTarget} chip={!startTray} />
                           <View
                             style={{
                               backgroundColor: colors.surface,
                               borderWidth: 1,
                               borderColor: colors.lineStrong,
-                              borderRadius: startTray ? 23 : 24,
+                              borderRadius: startTray || offline ? 23 : 24,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
@@ -2692,11 +2748,13 @@ function ChatPane({
                               commands={chat ? UNDO_COMMANDS : undefined}
                               // A provider that can't steer mid-turn takes the message at the start of the next turn (desktop says the same).
                               placeholder={
-                                run && !providerCapabilities(chat?.provider ?? actualProvider).steer
-                                  ? "Queue a message for the next turn"
-                                  : chatsHomeOpen && !params.id
-                                    ? CHATS_PLACEHOLDER
-                                    : undefined
+                                offline
+                                  ? `Queue a message for ${computerName || "this computer"}`
+                                  : run && !providerCapabilities(chat?.provider ?? actualProvider).steer
+                                    ? "Queue a message for the next turn"
+                                    : chatsHomeOpen && !params.id
+                                      ? CHATS_PLACEHOLDER
+                                      : undefined
                               }
                               // Return on an iPad's keyboard sends, as Enter does on desktop; nothing happens while Send is unavailable.
                               onSubmit={() => {
@@ -2763,7 +2821,7 @@ function ChatPane({
                                   onPress={() => router.push({ pathname: "/context-sheet", params: { id: params.id } })}
                                 />
                               )}
-                              {run && !draft.trim() && !attachments.length && (
+                              {run && !offline && !draft.trim() && !attachments.length && (
                                 <IconButton
                                   label="Stop"
                                   icon={StopIcon}
@@ -2773,16 +2831,18 @@ function ChatPane({
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
                               )}
-                              {(!run || !!draft.trim() || !!attachments.length) && (
+                              {(offline || !run || !!draft.trim() || !!attachments.length) && (
                                 <IconButton
                                   label={
                                     busy
                                       ? "Sending..."
-                                      : run
-                                        ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                          ? "Send follow-up"
-                                          : "Queue message"
-                                        : "Send message"
+                                      : offline
+                                        ? "Queue message"
+                                        : run
+                                          ? providerCapabilities(chat?.provider ?? actualProvider).steer
+                                            ? "Send follow-up"
+                                            : "Queue message"
+                                          : "Send message"
                                   }
                                   icon={ArrowUp01Icon}
                                   filled
@@ -2794,7 +2854,7 @@ function ChatPane({
                               )}
                             </View>
                           </View>
-                        </View>
+                        </ComposerTray>
                       )
                     )}
                   </View>

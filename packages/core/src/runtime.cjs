@@ -75,7 +75,7 @@ const { isIssueKey } = require("./linear/links.cjs");
 const { ProjectStates } = require("./project-states.cjs");
 const { DiffRefresher } = require("./diff-refresh.cjs");
 const { chatKey, projectOfKey, sessionIdFromKey } = require("@milagre/shared/agent-runs");
-const { archiveFinishedSubagents, archiveSubagent, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
+const { archiveFinishedSubagents, archiveSubagent, deleteSession, patchSession, renameWorktree } = require("@milagre/shared/project-edits");
 const { attentionContext, attentionNotice } = require("@milagre/shared/attention");
 const { resolveProjectImage } = require("./project-image.cjs");
 const { createProjectFinder } = require("./project-finder.cjs");
@@ -250,7 +250,7 @@ function createRuntime(options) {
     const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
     const point = [request?.x, request?.y];
     if (!chatId || !text) throw new Error("Write the comment first.");
-    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap an element of the page.");
+    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap the page to place a comment pin.");
     const scope = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
@@ -305,6 +305,10 @@ function createRuntime(options) {
   commands.handle("browser:list", (_context, request) => browsers.list(request));
   commands.handle("browser:attach", (_context, request) => browsers.attach(request));
   commands.handle("browser:detach", (_context, request) => browsers.detach(request));
+  commands.handle("browser:open-page", (context, request) => {
+    if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
+    return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
+  });
   // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
   commands.handle("browser:panel-pages", (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
@@ -1760,6 +1764,16 @@ function createRuntime(options) {
     await patchChat(projectPath, sessionId, patch);
     if (patch?.pinned === true || patch?.archived === false || (typeof patch?.title === "string" && patch.title.trim() !== ""))
       await keepRunChat(projectPath, sessionId);
+  });
+  commands.handle("chat:delete", async (_event, projectPath, sessionId) => {
+    if (!Number.isSafeInteger(sessionId) || sessionId < 1) throw new Error("Choose an existing Chat to delete.");
+    const chatId = `${projectPath}#${sessionId}`;
+    await existingChat("deleting it")(chatId);
+    await stopChatWork(chatId);
+    await worktreeSetups.cancel(chatId);
+    await agents.closeChat(chatId);
+    await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
+    await artifacts.removeChat(chatId).catch(() => {});
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.
   commands.handle("chat:archive-subagent", (_event, projectPath, sessionId, id, archived) =>

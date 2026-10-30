@@ -84,6 +84,7 @@ import { mergeChatLists } from "./chat-list-order";
 import { groupByOrigin } from "@milagre/shared/project-origin";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
+import { WaitingLabel } from "./offline-tray";
 
 /** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 type Destination = (href: Href, secondary?: boolean | "sheet") => void;
@@ -923,7 +924,7 @@ const NavigationBody = memo(function NavigationBody({
     }
     const archiveKey = `${hostId}|${projectPath}#${chat.id}`;
     if (archiveRequests.has(archiveKey)) return;
-    if (action === "archive" && !chat.archived) archiveRequests.add(archiveKey);
+    if (action === "archive") archiveRequests.add(archiveKey);
     let confirmed = false;
     setError("");
     clearArchiveNotice();
@@ -951,7 +952,7 @@ const NavigationBody = memo(function NavigationBody({
       if (action === "done" && alive.current) setDoneToast({ row, at: Date.now() });
       if (action === "reopen" && alive.current) setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
     } catch (e) {
-      if (confirmed) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (confirmed) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else if (alive.current) setError((e as Error).message);
     } finally {
       archiveRequests.delete(archiveKey);
@@ -1841,6 +1842,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                         {detail}
                       </Text>
                       {!!markWord && <Text style={[s.detail, { color: markColor }]}>{markWord}</Text>}
+                      <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
                     </View>
                   </View>
                 </View>
@@ -2072,6 +2074,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                       )}
                       {facts}
                       {!!markWord && <Text style={[s.detail, { color: markColor }]}>{markWord}</Text>}
+                      <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
                     </View>
                   )}
                 </View>
@@ -2089,6 +2092,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                       {markWord}
                     </Text>
                   )}
+                  <WaitingLabel computerId={item.hostId} owner={item.path} sessionId={item.chat.id} style={s.detail} />
                 </ChatPullRequestChips>
               </View>
             )}

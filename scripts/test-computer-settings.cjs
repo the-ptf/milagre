@@ -156,10 +156,10 @@ async function browserChecks() {
       "App data5 GB",
     ]);
     // Auto update flips on that computer, through its own calls.
-    await waitFor(`document.querySelector('[data-computer-auto-update] [role=switch]')?.getAttribute('aria-checked') === 'false'`);
-    await evaluate(`document.querySelector('[data-computer-auto-update] [role=switch]').click()`);
+    await waitFor(`document.querySelector('[data-computer-auto-update] [role=checkbox]')?.getAttribute('aria-checked') === 'false'`);
+    await evaluate(`document.querySelector('[data-computer-auto-update] [role=checkbox]').click()`);
     await waitFor(
-      `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=switch]').getAttribute('aria-checked') === 'true'`,
+      `window.autoSaves.length === 1 && document.querySelector('[data-computer-auto-update] [role=checkbox]').getAttribute('aria-checked') === 'true'`,
     );
     assert.deepEqual(await evaluate("window.autoSaves"), [["c-arketa", true]]);
     // Its desktop app's update: Install & restart asks first, since it restarts Milagre over there.

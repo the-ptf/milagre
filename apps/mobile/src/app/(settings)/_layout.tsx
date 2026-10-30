@@ -29,10 +29,12 @@ export default function SettingsLayout() {
       <Stack.Screen name="computer-usage" options={{ title: "What Milagre uses" }} />
       <Stack.Screen name="project-accounts" options={{ title: "Project Accounts" }} />
       <Stack.Screen name="accounts" options={{ title: "Accounts" }} />
+      <Stack.Screen name="browser-settings" options={{ title: "Browser" }} />
       <Stack.Screen name="general" options={{ title: "General" }} />
       <Stack.Screen name="connections" options={{ title: "Connections" }} />
       <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
       <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
+      <Stack.Screen name="dictation-language" options={{ title: "Dictation language" }} />
       <Stack.Screen name="keybindings" options={{ title: "Keybindings" }} />
       <Stack.Screen name="archived" options={{ title: "Archived Chats" }} />
       <Stack.Screen name="notifications" options={{ title: "Notifications" }} />

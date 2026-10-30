@@ -9,6 +9,7 @@ export type SessionPatch = Partial<Pick<AgentSession, "title" | "unread" | "arch
 export type WorktreeRename = { projectPath: string; path: string; from: string; name: string };
 
 export function patchSession(state: CoordinatorState, sessionId: number, patch: SessionPatch & Pick<AgentSession, "done_at">): CoordinatorState;
+export function deleteSession(state: CoordinatorState, sessionId: number): CoordinatorState;
 export function withDiffStats(state: CoordinatorState, stats: Record<number, DiffStat | null>): CoordinatorState;
 export function renameWorktree(state: CoordinatorState, rename: Pick<WorktreeRename, "path" | "from" | "name">): CoordinatorState;
 export function subagentFinished(agent: Subagent): boolean;

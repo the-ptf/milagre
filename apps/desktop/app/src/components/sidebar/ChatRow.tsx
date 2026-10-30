@@ -21,7 +21,7 @@ import {
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Archive02Icon,
+  Delete02Icon,
   BubbleChatIcon,
   EthernetPortIcon,
   CircleDotIcon,
@@ -71,6 +71,7 @@ import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
 import { WorkspaceIcon } from "../WorkspaceIcon";
+import { useOutboxWaiting } from "../../lib/outbox";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -159,7 +160,7 @@ export type ChatRowActions = {
    * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveMode).
    */
   gitless?: boolean;
-  /** Looks at the chat's worktree when "Archive" is clicked, to decide what the confirm step offers. */
+  /** Checks the Chat's Worktree to choose its deletion cleanup mode. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
   /** Links the chat's Worktree to a Linear issue by key. */
@@ -180,7 +181,7 @@ const NO_LINKS: LinkedEnd[] = [];
  */
 export const PullRequestOpenContext = createContext<((item: SidebarRecent, pr: PullRequest) => boolean) | null>(null);
 
-/** What the confirm step offers when nothing is known about the worktree: only hide the chat. */
+/** A pending Worktree check keeps files when the conversation is deleted. */
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
 
 const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
@@ -439,6 +440,7 @@ function InboxLine({
   diff,
   computer,
   archiving,
+  waiting = 0,
 }: {
   item: SidebarRecent;
   project: string;
@@ -449,6 +451,8 @@ function InboxLine({
   diff?: DiffStat;
   computer?: RowComputer;
   archiving: boolean;
+  /** Messages waiting on this Mac for the chat's offline computer. */
+  waiting?: number;
 }) {
   const shown = pullRequests.slice(0, ROW_PR_LIMIT);
   const hidden = pullRequests.length - shown.length;
@@ -515,6 +519,15 @@ function InboxLine({
         </span>
       ),
     });
+  if (waiting > 0)
+    parts.push({
+      key: "waiting",
+      node: (
+        <span data-chat-waiting className="shrink-0 text-orange-ink">
+          {waiting} waiting
+        </span>
+      ),
+    });
   return (
     <div
       data-chat-prs
@@ -574,6 +587,7 @@ export const ChatRow = memo(function ChatRow({
   projectImage,
   projectInitial,
   linkProjects,
+  chatKey,
 }: {
   item: SidebarRecent;
   active: boolean;
@@ -604,6 +618,8 @@ export const ChatRow = memo(function ChatRow({
   projectInitial?: string;
   /** A shared Link Chat's Projects: "3 Projects" stands in for the Project's name. */
   linkProjects?: number;
+  /** The row's chat key (scope#id): messages waiting on this Mac for it show as "· 2 waiting". */
+  chatKey?: string;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -620,6 +636,7 @@ export const ChatRow = memo(function ChatRow({
   const diff = show.diff && item.details?.diff && (item.details.diff.added > 0 || item.details.diff.removed > 0) ? item.details.diff : undefined;
   const lastAt = show.lastActivity ? item.details?.lastAt : undefined;
   const now = useMinute(lastAt !== undefined);
+  const waiting = useOutboxWaiting(chatKey ?? "");
   // Each shown fact, in order, joined by dots; the chips follow.
   const facts: ReactNode[] = [];
   if (bot && !collapsed)
@@ -634,6 +651,12 @@ export const ChatRow = memo(function ChatRow({
       <span key="computer" data-chat-computer className="flex min-w-0 shrink items-center gap-1 truncate">
         <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
         {rowComputer.offline ? `${rowComputer.name}, offline` : rowComputer.name}
+      </span>,
+    );
+  if (waiting > 0 && !collapsed)
+    facts.push(
+      <span key="waiting" data-chat-waiting className="shrink-0 text-orange-ink">
+        {waiting} waiting
       </span>,
     );
   const projectName = collapsed ? undefined : project;
@@ -815,7 +838,7 @@ export const ChatRow = memo(function ChatRow({
             }}
             disabled={archiving}
             aria-busy={archiving || undefined}
-            aria-label={archiving ? `Archiving ${item.label}` : undefined}
+            aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
             className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-[8px] px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
               active ? "bg-hover-2" : "hover:bg-hover-2"
@@ -838,7 +861,7 @@ export const ChatRow = memo(function ChatRow({
             onClick={() => onPick(item)}
             disabled={archiving}
             aria-busy={archiving || undefined}
-            aria-label={archiving ? `Archiving ${item.label}` : undefined}
+            aria-label={archiving ? `Deleting ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
             className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-[46px] items-start pt-1.5" : "h-8 items-center"} rounded-[8px] px-2 text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
               active ? "bg-hover-2" : "hover:bg-hover-2"
@@ -909,6 +932,7 @@ export const ChatRow = memo(function ChatRow({
             diff={diff}
             computer={rowComputer && (!rowComputer.local || rowComputer.offline) ? rowComputer : undefined}
             archiving={archiving}
+            waiting={waiting}
           />
         )}
 
@@ -982,7 +1006,7 @@ export const ChatRow = memo(function ChatRow({
           <div role="status" className="absolute inset-y-0 left-2 right-2 z-40 flex items-center justify-center">
             <span className="flex h-6 items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink shadow-card">
               <SpinnerRing size={12} />
-              {!collapsed && "Archiving..."}
+              {!collapsed && "Deleting..."}
             </span>
           </div>
         )}
@@ -1390,8 +1414,7 @@ function CardLine({ icon, children }: { icon: ReactNode; children: ReactNode }) 
 
 /* ─────────────────────────────────────────────────────────
  * ACTIONS MENU
- * From the row's ⋮ button or a right-click. Archive hides the
- * chat immediately, preserving any work that cannot be safely removed.
+ * From the row's ⋮ button or a right-click. Delete acts on the first click.
  * ───────────────────────────────────────────────────────── */
 /** The issue list over the menu's place, for "Link issue…". Picking an issue hands its key up and closes. */
 function LinkIssuePopover({ position, onPick, onClose }: { position: { x: number; y: number }; onPick: (issue: LinearIssue) => void; onClose: () => void }) {
@@ -1442,7 +1465,7 @@ function ChatMenu({
   actions: ChatRowActions;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
-  // Removal is available only after the worktree has been checked.
+  // A pending check never blocks deleting the conversation.
   const [plan, setPlan] = useState<ArchivePlan | null>(actions.onArchiveCheck ? null : HIDE_ONLY);
   const [top, setTop] = useState(position.y);
   const { details = {} } = item;
@@ -1451,17 +1474,16 @@ function ChatMenu({
     menuRef.current?.querySelector<HTMLElement>("[data-menu-row]")?.focus();
   }, []);
 
-  // Keep the menu inside the window.
+  // Keep the menu within the window.
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
     // Opens upwards when there isn't room below.
     const height = menu.getBoundingClientRect().height;
     setTop(position.y + height > window.innerHeight - 8 ? Math.max(8, position.y - height - 8) : position.y);
-  }, [position.y]);
+  }, [position.y, plan]);
 
-  // Check while the menu opens so Archive can run immediately after the click.
-  // Archive stays disabled until the check is back.
+  // Prefetch cleanup status without holding up Delete.
   useEffect(() => {
     if (!actions.onArchiveCheck || !actions.onArchive) return;
     let live = true;
@@ -1486,7 +1508,8 @@ function ChatMenu({
   const { editor } = useEditors();
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
-  const archiveItems: Array<MenuEntry> = [
+  const deletionPlan = plan ?? HIDE_ONLY;
+  const archiveItems: MenuEntry[] = [
     ...(actions.onDone && !item.doneAt
       ? [{ key: "done", label: "Mark Done", icon: Tick02Icon, onSelect: run(() => actions.onDone?.(item.id)) }]
       : actions.onReopen && item.doneAt
@@ -1494,12 +1517,11 @@ function ChatMenu({
         : []),
     {
       key: "archive",
-      label: "Archive",
-      icon: Archive02Icon,
-      onSelect: run(() => {
-        if (plan) actions.onArchive?.(item.id, archiveMode(plan), plan);
-      }),
-      disabled: !actions.onArchive || !plan,
+      label: "Delete",
+      icon: Delete02Icon,
+      danger: true,
+      onSelect: run(() => actions.onArchive?.(item.id, archiveMode(deletionPlan), deletionPlan)),
+      disabled: !actions.onArchive,
     },
   ];
 
@@ -1620,32 +1642,34 @@ function ChatMenu({
       aria-label={`Actions for ${item.label}`}
       data-chat-menu
       onKeyDown={moveFocus}
-      className="fixed z-[70] rounded-[12px] bg-surface p-1.5 shadow-overlay"
+      className="fixed z-[70] flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-[12px] bg-surface p-1.5 shadow-overlay"
       style={{ top, left: position.x, width: MENU_WIDTH, animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
     >
-      <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
-        {items.map((entry, index) =>
-          entry === "divider" ? (
-            <div key={`divider-${index}`} className="my-1 h-px bg-line" />
-          ) : (
-            <button
-              key={entry.key}
-              data-menu-row
-              role="menuitem"
-              type="button"
-              disabled={entry.disabled}
-              title={entry.hint}
-              onClick={entry.onSelect}
-              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 h-8 ${entry.danger ? "text-red-ink" : "text-ink"}`}
-            >
-              <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-                {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[13px]">{entry.label}</span>
-            </button>
-          ),
-        )}
-      </GlideMenu>
+      <ScrollArea className="min-h-0">
+        <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
+          {items.map((entry, index) =>
+            entry === "divider" ? (
+              <div key={`divider-${index}`} className="my-1 h-px bg-line" />
+            ) : (
+              <button
+                key={entry.key}
+                data-menu-row
+                role="menuitem"
+                type="button"
+                disabled={entry.disabled}
+                title={entry.hint}
+                onClick={entry.onSelect}
+                className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 h-8 ${entry.danger ? "text-red-ink" : "text-ink"}`}
+              >
+                <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
+                  {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px]">{entry.label}</span>
+              </button>
+            ),
+          )}
+        </GlideMenu>
+      </ScrollArea>
     </div>,
     document.body,
   );
