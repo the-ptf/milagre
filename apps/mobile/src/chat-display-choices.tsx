@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, View, type DimensionValue } from "react-na
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
+  ArrowUp01Icon,
+  Mic01Icon,
   BrainIcon,
   File01Icon,
   GitPullRequestIcon,
@@ -16,6 +18,7 @@ import { Icon } from "./icons";
 import { tap } from "./primitives/tap";
 import { createStylesHook, fonts, type Palette } from "./theme";
 import { useTheme } from "./theme";
+import { radius, type } from "./design-tokens";
 
 /** One choice of a setting shown as a card: a small sketch of what it looks like, its name and a line about it. */
 export type VisualChoice<T extends string> = { value: T; title: string; description: string; preview: ReactNode };
@@ -26,16 +29,18 @@ export function ChoiceCards<T extends string>({
   value,
   options,
   onChange,
+  compact = false,
 }: {
   label: string;
   value: T;
   options: VisualChoice<T>[];
   onChange: (value: T) => void;
+  compact?: boolean;
 }) {
   const s = useS();
   const { colors } = useTheme();
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={s.cards}>
+    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={[s.cards, compact && { gap: 8 }]}>
       {options.map((option) => {
         const selected = option.value === value;
         return (
@@ -49,9 +54,20 @@ export function ChoiceCards<T extends string>({
               tap();
               onChange(option.value);
             }}
-            style={({ pressed }) => [s.card, selected ? { borderColor: colors.accent, borderWidth: 2 } : null, { opacity: pressed ? 0.7 : 1 }]}
+            style={({ pressed }) => [
+              s.card,
+              compact && { padding: 8, gap: 8, borderRadius: radius.card, borderWidth: 2, minWidth: 0 },
+              selected ? { borderColor: colors.accent, borderWidth: 2 } : null,
+              { opacity: pressed ? 0.7 : 1 },
+            ]}
           >
-            <View style={s.preview}>{option.preview}</View>
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[s.preview, compact && { minHeight: 64, height: 64, padding: 8, borderRadius: radius.chip }]}
+            >
+              {option.preview}
+            </View>
             <View style={s.name}>
               {selected ? (
                 <View style={[s.mark, { backgroundColor: colors.accent }]}>
@@ -60,14 +76,68 @@ export function ChoiceCards<T extends string>({
               ) : (
                 <View style={[s.mark, { borderWidth: 1.5, borderColor: colors.ink3 }]} />
               )}
-              <Text numberOfLines={1} style={s.title}>
+              <Text numberOfLines={compact ? undefined : 1} style={s.title}>
                 {option.title}
               </Text>
             </View>
-            <Text style={s.description}>{option.description}</Text>
+            <Text style={[s.description, compact && { fontSize: type.footnote }]}>{option.description}</Text>
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/** A transcript waiting at the caret, or already sent with an empty composer below it. */
+export function DictationPreview({ sent = false }: { sent?: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flex: 1, justifyContent: "center", gap: 4 }}>
+      <View style={{ alignSelf: "flex-end", width: "60%", height: 10, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.line }} />
+      {sent && (
+        <View style={{ alignSelf: "flex-end", width: "72%", height: 10, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.ink4 }} />
+      )}
+      <View
+        style={{
+          height: sent ? 18 : 26,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          paddingHorizontal: 6,
+          borderRadius: radius.full,
+          borderCurve: "continuous",
+          borderWidth: 1,
+          borderColor: colors.lineStrong,
+          backgroundColor: colors.surface,
+        }}
+      >
+        {!sent && (
+          <>
+            <View style={{ flex: 1, height: 4, backgroundColor: colors.ink4, borderRadius: radius.full, borderCurve: "continuous" }} />
+            <View style={{ width: 2, height: 14, backgroundColor: colors.accent }} />
+          </>
+        )}
+        {sent ? (
+          <View style={{ marginLeft: "auto" }}>
+            <Icon icon={Mic01Icon} size={12} tone="ink3" />
+          </View>
+        ) : (
+          <View
+            style={{
+              marginLeft: 4,
+              width: 20,
+              height: 20,
+              borderRadius: radius.full,
+              borderCurve: "continuous",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.ink,
+            }}
+          >
+            <Icon icon={ArrowUp01Icon} size={12} tone="onInk" />
+          </View>
+        )}
+      </View>
     </View>
   );
 }

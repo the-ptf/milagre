@@ -41,6 +41,7 @@ _Avoid_: ticket, task (Linear's own word is issue)
 **Chat**:
 One conversation with one agent. A Project Chat is bound to exactly one **Worktree**; a named Link's shared Chat owns one isolated **Worktree** in each member **Project**. An ordinary **Worktree** can have many **Chats**; a shared Chat's owned Worktree does not receive an independent editable Project Chat.
 A **Chat** started with No project is a **Chat** in the **Chats home**, on its own **Worktree**; it has no Git controls.
+Chats can be marked **Done**, reopened, or archived automatically after their Done retention period. **Delete** immediately removes the conversation. Starting another Chat leaves existing Chats and their menu actions available. See ADR-0012.
 An archived **Chat** stays readable from a linked side but is never chosen to receive a **Delegation**.
 _Avoid_: session, thread (the providers' names for the agent process behind a **Chat**)
 

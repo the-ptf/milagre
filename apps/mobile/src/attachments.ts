@@ -1,3 +1,4 @@
+import type { OutboxAttachment } from "@milagre/shared/outbox";
 import type { ImageAttachment } from "@milagre/shared/model";
 import { formatImageMention, promptParts } from "@milagre/shared/prompt-parts";
 import type { Client } from "./client";
@@ -78,4 +79,16 @@ export function mentionAttachments(body: string, root: string, attached: Attachm
     next = result.next;
   }
   return { added: next.slice(attached.length) };
+}
+
+export function outboxAttachments(items: Attachment[]): OutboxAttachment[] {
+  return items.map((item) => {
+    const base64 = item.image?.dataUrl?.split(",")[1] ?? item.base64;
+    if (base64 === undefined && !item.path && !item.image?.path) throw new Error(`Attachment data is missing for ${item.name}. Attach it again.`);
+    return {
+      name: item.name,
+      ...(item.image ? { imageId: item.image.id } : {}),
+      ...(base64 !== undefined ? { base64 } : { path: item.path ?? item.image?.path }),
+    };
+  });
 }

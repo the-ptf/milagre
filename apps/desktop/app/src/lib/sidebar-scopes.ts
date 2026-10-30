@@ -5,6 +5,7 @@ import { clock, triggerText } from "@milagre/shared/routines";
 import type { AgentRuns } from "@milagre/shared/agent-runs";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
 import { seedHeldState, stateEvents } from "./state-events.ts";
+import { warmRecentChats } from "./chat-messages.ts";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import type { SidebarRecent } from "../components/sidebar/ChatRow";
@@ -112,6 +113,7 @@ export function scopeChats(
       label: chatTitle(session, sessionMessages),
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
+      ...(session.done_at ? { doneAt: session.done_at } : {}),
       unread: Boolean(session.unread),
       mark: chatMark({
         asking: asking.has(chatKey),
@@ -266,6 +268,8 @@ export function useScopeStates(enabled: boolean, keys: string[]) {
       // kept, the open one's too, so it is current when a switch puts it back among the others.
       if (!state?.sessions) return;
       scopeStateCache[key] = state;
+      // Another computer's Project: its most recent Chats are copied to this Mac (chat-messages.ts).
+      if (!isLinkScopeKey(key)) warmRecentChats(key, state as CoordinatorState);
       setStates((previous) => ({ ...previous, [key]: state }));
       setFailed((previous) => {
         if (!previous.has(key)) return previous;

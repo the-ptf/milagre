@@ -220,7 +220,7 @@ function harness(call) {
       },
     };
   };
-  for (const id of ["config", "stage", "frame", "message", "live", "keys", "back", "forward", "reload", "keyboard", "control", "retry"])
+  for (const id of ["config", "stage", "frame", "comment-pin", "message", "live", "keys", "back", "forward", "reload", "keyboard", "control", "retry"])
     elements[id] = element(id);
   const document = {
     documentElement: { style: { setProperty() {} } },
@@ -442,5 +442,19 @@ test("a timed out open is cancelled and its late viewer is closed", async () => 
   gate.resolve({ viewerId: "orphan" });
   await h.flush();
   assert.ok(calls.some(([method, args]) => method === "close" && args.viewerId === "orphan"));
+  h.bridge.dispose();
+});
+
+test("a comment pin follows the displayed frame and disappears when cancelled", async () => {
+  const h = harness(host([]));
+  await h.flush();
+  h.window.browserCommentPoint({ x: 0.25, y: 0.75 });
+  assert.equal(h.elements["comment-pin"].hidden, false);
+  assert.equal(h.elements["comment-pin"].style.left, "100px");
+  assert.equal(h.elements["comment-pin"].style.top, "300px");
+  h.window.browserCommentPoint(null);
+  assert.equal(h.elements["comment-pin"].hidden, true);
+  h.window.browserCommentPoint({ x: -1, y: 1 });
+  assert.equal(h.elements["comment-pin"].hidden, true);
   h.bridge.dispose();
 });

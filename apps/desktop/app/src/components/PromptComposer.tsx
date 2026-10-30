@@ -194,7 +194,7 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance } = useSettings();
+  const { ultracodeFatality, appearance, dictationAction } = useSettings();
   const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
@@ -350,7 +350,7 @@ export function PromptComposer({
   const providerNotice = cliNotice(cliStatus?.[provider]);
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
-  const canStop = running && Boolean(onStop);
+  const canStop = !offlineName && running && Boolean(onStop);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const visibleSuggestion =
     suggestion &&
@@ -474,11 +474,21 @@ export function PromptComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
+  const dictatedSend = useRef<{ value: string; scope: string } | null>(null);
+  // Wait for the parent's updated draft and attachments before using its ordinary send action.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.scope !== imageDraft.scope || pending.value !== draft || dictationAction !== "send") return;
+    if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
+  });
 
   // The words land where the caret was when the mic was clicked, in the draft as it is when they arrive.
   const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
     const edit = insertDictation(draftLatest.current, anchor.selection, text);
     if (!edit) return;
+    if (dictationAction === "send") dictatedSend.current = { value: edit.value, scope: imageDraft.scope };
     setCaret(edit.caret);
     onDraftChange(edit.value);
     inputRef.current?.setSelection(edit.caret);
@@ -876,17 +886,18 @@ export function PromptComposer({
                   setPlusOpen(false);
                 }}
                 onKeyDown={handleKeyDown}
-                disabled={Boolean(offlineName)}
+                disabled={false}
                 maxHeight={100}
                 suggestion={visibleSuggestion}
                 placeholder={
-                  (running
-                    ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
-                      providerCapabilities(provider).steer
-                      ? "Steer the agent…"
-                      : "Queue a message for the next turn…"
-                    : (placeholder ?? "Prompt or mention a file or Chat with @")) +
-                  (offlineName ? offlinePlaceholder(offlineName) : reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
+                  offlineName
+                    ? offlinePlaceholder(offlineName)
+                    : (running
+                        ? // A provider that can't steer mid-turn takes the message at the start of the next turn.
+                          providerCapabilities(provider).steer
+                          ? "Steer the agent…"
+                          : "Queue a message for the next turn…"
+                        : (placeholder ?? "Prompt or mention a file or Chat with @")) + (reconnectingName ? reconnectingPlaceholder(reconnectingName) : "")
                 }
                 className={inputTextClass}
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
@@ -974,7 +985,7 @@ export function PromptComposer({
                   aria-label={DICTATION_LABELS[dictation.phase]}
                   title={DICTATION_LABELS[dictation.phase]}
                   aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                  disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                  disabled={dictation.phase === "preparing" || dictation.phase === "transcribing"}
                   onClick={() => {
                     if (dictation.phase === "recording") return void dictation.stop();
                     void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
@@ -1009,7 +1020,7 @@ export function PromptComposer({
               </span>
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : "Send"}
+                aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : "Send"}
                 disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}

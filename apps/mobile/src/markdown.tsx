@@ -24,6 +24,7 @@ import { localFileLink } from "@milagre/shared/file-link";
 import { reachableUrl } from "@milagre/shared/loopback-url";
 import { splitStreamingBlocks } from "@milagre/shared/streaming-blocks";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
+import { ChatLinkContext } from "./chat-link-context";
 import { cachedMarkdownTokens, markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
 import { PageScroll, useStyles, type Styles } from "./ui";
 import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
@@ -45,6 +46,7 @@ type MarkdownTheme = {
   textPx: number;
   codeSize: number;
   reachable?: ReachableHost | null;
+  openChatLink?: ((url: string) => boolean) | null;
   /** False where a long press on the message offers Select text instead (chat replies on iOS). */
   selectable: boolean;
   /** Opens the message's Copy / Select text actions; set, it is also the VoiceOver action on each text block. */
@@ -241,7 +243,11 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
     // A link to a file on the computer opens the file preview; the phone's browser can't reach it.
     const file = href && !url ? localFileLink(href, t.basePath) : null;
     const onPress = url
-      ? () => void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."))
+      ? () => {
+          // The internal Browser runs on the computer, so preserve its original localhost address.
+          if (!t.openChatLink?.(safeLink(written) ?? url))
+            void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."));
+        }
       : file
         ? () => router.push({ pathname: "/file-preview", params: { path: file.path } })
         : undefined;
@@ -445,11 +451,12 @@ const Chunk = memo(function Chunk({
   const { colors, textPx, codeSize } = useTheme();
   const styles = useStyles();
   const reachable = useContext(ReachableHostContext);
+  const openChatLink = useContext(ChatLinkContext);
   const nodes = useMemo(() => tree(streaming ? markdownTokens(text, true) : cachedMarkdownTokens(text)), [text, streaming]);
   const images = useMemo(() => ({ media, basePath, remote }), [media, basePath, remote]);
   const theme = useMemo(
-    () => ({ colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction }),
-    [colors, styles, basePath, textPx, codeSize, reachable, selectable, onMessageAction],
+    () => ({ colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction }),
+    [colors, styles, basePath, textPx, codeSize, reachable, openChatLink, selectable, onMessageAction],
   );
   return <MarkdownStreamingContext value={streaming}>{blocks(nodes, images, theme)}</MarkdownStreamingContext>;
 });
