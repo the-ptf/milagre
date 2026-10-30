@@ -22,6 +22,8 @@ export function chatMenu(
   links?: MenuSection | null,
   beside = false,
   project = true,
+  /** The Chat's Mac keeps Done; an older one gets no Mark Done or Reopen. */
+  doneable = true,
 ): MenuSection[] {
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
@@ -54,7 +56,7 @@ export function chatMenu(
     ...(links ? [links] : []),
     {
       items: [
-        ...(chat.archived
+        ...(chat.archived || !doneable
           ? []
           : chat.done_at
             ? [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }]

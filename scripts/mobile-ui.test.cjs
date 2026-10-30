@@ -3544,7 +3544,8 @@ function navigationHost(
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/chats": chats,
     "./chat-swipe-row": { ChatSwipeRow: "ChatSwipeRow" },
-    "./done-retention": { useDoneRetention: () => ({}), retentionOf: () => 24 },
+    // Every Mac keeps Done unless a test plays an older one (globalThis.olderMac): it answers no retention.
+    "./done-retention": { useDoneRetention: () => (globalThis.olderMac ? {} : new Proxy({}, { get: () => 24 })), retentionOf: () => 24 },
     "@milagre/shared/done": require("@milagre/shared/done"),
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
     "./chat-list-filter": load("chat-list-filter.ts", { "@milagre/shared/chats": chats }),
@@ -4913,11 +4914,13 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
     "./icons": { Icon: "Icon" },
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
   });
-  const render = (unread, disabled = false, done = false) => {
+  const render = (unread, disabled = false, done = false, doneable = true) => {
     react.begin();
     return ChatSwipeRow({
       unread,
       done,
+      doneable,
+      background: "page",
       disabled,
       children: "Chat",
       onAction: (action) => {
@@ -4955,7 +4958,31 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   row.props.onSwipeableOpen("right");
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done", "reopen"]);
+  // A Mac too old to keep Done archives on the left swipe, as before Done.
+  row = render(false, false, false, false);
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"]);
+  // The row draws on the list's own color, with no corners of its own, and keeps its gesture callbacks across renders.
+  assert.equal(row.props.childrenContainerStyle.backgroundColor, "page");
+  assert.equal(row.props.containerStyle, undefined);
+  assert.equal(render(false, false, false, false).props.onSwipeableOpen, row.props.onSwipeableOpen);
   assert.ok(closes >= 3, "rows close after the action");
+});
+
+test("an older Mac's rows offer no Done, and their left swipe archives as before", () => {
+  globalThis.olderMac = true;
+  try {
+    const nav = navigationHost(deferred().promise);
+    const row = nav.row("chat");
+    const swipe = find(row, (node) => node.type === "ChatSwipeRow");
+    assert.equal(swipe.props.doneable, false, "the left swipe archives");
+    const items = new Set(nav.more(row).props.sections.flatMap((section) => section.items.map((item) => item.id)));
+    assert.equal(items.has("done"), false);
+    assert.equal(items.has("archive"), true);
+  } finally {
+    delete globalThis.olderMac;
+  }
 });
 
 test("a sidebar Chat archives immediately and stops the turn while preserving unsaved work", async () => {
