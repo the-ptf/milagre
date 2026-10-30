@@ -212,10 +212,23 @@ function createRuntime(options) {
     if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope) || !(await scopeStates.get(scope)).sessions[id])
       throw new Error(`Open an existing Chat before ${action}.`);
   };
+  // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
+  const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
+  const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
+  const simlock = createSimlockHost({
+    settings: simlockSettings,
+    directory: path.join(dataDir, "simlock"),
+    log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
+  });
   const simulators = createChatSimulators({
-    simulators: options.simulators ?? require("./simulators.cjs").createSimulators(),
+    simulators:
+      options.simulators ??
+      require("./simulators.cjs").createSimulators({
+        adapter: require("./simlock-channel.cjs").withSimlock(require("./simulators-helper.cjs").createSimulatorAdapter(), simlock),
+      }),
     file: path.join(dataDir, "simulator-attachments.json"),
     validateChat: existingChat("attaching a simulator"),
+    ended: (device) => simlock.isDevice(device.id),
   });
   const { createChatArtifacts, artifactToolDefinitions, htmlArtifactToolDefinitions, artifactCommentToolDefinitions } = require("./chat-artifacts.cjs");
   const artifacts = createChatArtifacts({
@@ -296,8 +309,11 @@ function createRuntime(options) {
     return { id };
   });
   for (const method of ["list", "attach", "detach"])
-    commands.handle(`simulator:${method}`, (context, request) => {
+    commands.handle(`simulator:${method}`, async (context, request) => {
       if (!context?.clientId) throw new Error("Simulator access requires an authenticated connection");
+      // Detaching a Chat's own Simlock lease returns it, so a phone or older desktop doesn't keep it until its maximum age.
+      const lease = method === "detach" ? simlock.get(request?.deviceId) : null;
+      if (lease && lease.chatId === request?.chatId) await simlock.release(lease.deviceId).catch(() => {});
       return simulators[method](request);
     });
   for (const method of ["open", "offer", "frame", "status", "control", "input", "repair", "close"]) {
@@ -306,6 +322,42 @@ function createRuntime(options) {
       return simulators[method === "close" ? "closeViewer" : method](request, context.clientId);
     });
   }
+  /** Leases a Simlock device for a Chat and attaches it there; installs are accepted from the Chat's folder. */
+  async function leaseSimlock(request) {
+    const chatId = request?.chatId;
+    await existingChat("leasing a Simlock device")(chatId);
+    const leased = await simlock.lease({
+      platform: request?.platform,
+      model: request?.model || undefined,
+      chatId,
+      installDirectory: projectOfKey(chatId),
+    });
+    try {
+      await simulators.attach({ chatId, deviceId: leased.deviceId });
+    } catch (error) {
+      await simlock.release(leased.deviceId).catch(() => {});
+      throw error;
+    }
+    return leased;
+  }
+  async function releaseSimlock(request) {
+    const lease = simlock.get(request?.deviceId);
+    const released = await simlock.release(request?.deviceId);
+    if (lease?.chatId) await simulators.detach({ chatId: lease.chatId, deviceId: lease.deviceId }).catch(() => {});
+    return released;
+  }
+  commands.handle("simlock:settings:read", () => simlockSettings.read());
+  commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
+  commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
+  commands.handle("simlock:models", async () => ({ models: await simlock.models(), leases: simlock.leases() }));
+  commands.handle("simlock:lease", (context, request) => {
+    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
+    return leaseSimlock(request);
+  });
+  commands.handle("simlock:release", (context, request) => {
+    if (!context?.clientId) throw new Error("Simlock access requires an authenticated connection");
+    return releaseSimlock(request);
+  });
   // `agents` is created below; ownership roots are read only once the service polls.
   function agentProcesses() {
     const roots = agents.processes();
@@ -2206,6 +2258,14 @@ function createRuntime(options) {
       ...planTools.definitions(chatId),
       ...chatSecrets.definitions(chatId),
       ...simulatorToolDefinitions(chatId, simulators),
+      ...(simlockSettings.read().enabled
+        ? require("./chat-simulators.cjs").simlockToolDefinitions(chatId, {
+            models: () => simlock.models(),
+            lease: (request) => leaseSimlock({ ...request, chatId }),
+            release: (request) => releaseSimlock(request),
+            get: (deviceId) => simlock.get(deviceId),
+          })
+        : []),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
       // Driving the Chat's browser pages; browser_open asks the desktop to open a Browser panel tab (browser-panel:open).

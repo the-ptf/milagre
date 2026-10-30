@@ -87,6 +87,7 @@
     ],
     "asarUnpack": [
       "node_modules/@milagre/core/src/bundled-skills/**/*",
+      "node_modules/agent-device/**/*",
       "node_modules/expo-device-hub/**/*",
       "node_modules/node-datachannel/**/*",
       "node_modules/node-pty/**/*",
