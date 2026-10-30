@@ -29,7 +29,16 @@ import {
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
-import { chatPullRequests, chatTitle, createPendingChat, createResendMemory, pendingChatSessionId, pullRequestRefs, withPreview } from "@milagre/shared/chats";
+import {
+  associatedPullRequest,
+  chatPullRequests,
+  chatTitle,
+  createPendingChat,
+  createResendMemory,
+  pendingChatSessionId,
+  pullRequestRefs,
+  withPreview,
+} from "@milagre/shared/chats";
 import { runStatusLabel, sendStatusLabel } from "@milagre/shared/tool-activity";
 import { messageSender } from "@milagre/shared/advisor-result";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
@@ -41,7 +50,7 @@ import { pullRequestAction, pullRequestBlockers, pullRequestPresentation, rowPul
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
-import { ReachableHostContext } from "../reachable-host";
+import { ChatLinkProvider } from "../chat-link-context";
 import { useReachableHost } from "../routes-native";
 import { sameSession, useComposer, useMainSession, usePendingChats, useRun, useSession } from "../session";
 import { pendingOnScreen, pendingOrigin } from "../pending-chats";
@@ -349,7 +358,8 @@ function ChatPane({
   const [actionBusy, setBusy] = useState(false);
   // Answers just sent: the card leaves and the answers show at once, until the host's copy arrives.
   const [sentAnswers, setSentAnswers] = useState<{ requestId: string; message: ChatMessage | null; count: number } | null>(null);
-  const sendingRef = useRef(false);
+  const sendingRef = useRef(new Set<string>());
+  const [sendingKeys, setSendingKeys] = useState<string[]>([]);
   /** Which typed @mentions name a Project file: those are tinted and attached at send. */
   const knownFiles = useRef(createKnownFiles());
   // The id of a send that failed before the host answered: it may have been saved, so the same text resent reuses it.
@@ -521,7 +531,8 @@ function ChatPane({
   // A send the computer took no longer holds the composer while its saved copy is on the way: a stale snapshot would
   // otherwise keep the button spinning until the turn ends.
   const unsent = !!pending && !pending.accepted;
-  const busy = actionBusy || unsent;
+  const sendingKey = `${connected?.url}|${originChatId}`;
+  const busy = actionBusy || unsent || sendingKeys.includes(sendingKey);
   const focused = useRef<object | null>(null);
   useFocusEffect(
     useCallback(() => {
@@ -1004,16 +1015,21 @@ function ChatPane({
   const worktreeId = chat?.worktree_id ?? Number(params.worktreeId);
   const worktree = project.state.worktrees[worktreeId];
   /** The Chat's PR: in the right panel on an iPad, in the PR sheet on a phone. */
-  function openPr(number = pr?.number, page?: "threads") {
-    if (!number || !params.id || !worktree) return;
+  function openPr(number = pr?.number, page?: "threads", memberCwd?: string) {
+    if (!number || !params.id || !worktree) return false;
     // A Link Chat's PR is read in the Project it came from.
-    const cwd = project.link ? prChoices.find((choice) => choice.number === number)?.cwd : undefined;
-    if (project.link && !cwd) return;
+    const cwd = project.link ? (memberCwd ?? prChoices.find((choice) => choice.number === number)?.cwd) : undefined;
+    if (project.link && !cwd) return false;
     const route = { worktreeId: String(worktreeId), number: String(number), chat: chatId, ...(cwd ? { cwd } : {}) };
     // The right panel shows the routed Chat's PR; the Chat beside it opens the PR sheet.
     if (widthClass(window.width) !== "compact" && !secondary) panels.showPullRequest(prChoiceKey({ number, cwd }));
     else if (page) openPrPage(page, route);
     else openPullRequest(route);
+    return true;
+  }
+  function openChatLink(url: string) {
+    const entry = associatedPullRequest(url, rowPrs);
+    return entry ? openPr(entry.number, undefined, placeOf(entry)?.cwd) : false;
   }
   prChat.current = {
     send: (body) => send(body, false),
@@ -1314,9 +1330,9 @@ function ChatPane({
     // A turn running now takes this message as a steer, on the provider it already runs.
     const steered = Boolean(run);
     if (!body && !(withAttachments && attachments.length)) return false;
-    if (busy || sendingRef.current || picking) return "busy";
-    sendingRef.current = true;
-    setBusy(true);
+    if (busy || sendingRef.current.has(sendingKey) || picking) return "busy";
+    sendingRef.current.add(sendingKey);
+    setSendingKeys((current) => [...current, sendingKey]);
     setError("");
     // Mentioned files attach when the message goes (a removed tile does not unmention the file). A mention not yet checked
     // against the Project (the one just typed) is asked about now, for up to a second.
@@ -1499,7 +1515,7 @@ function ChatPane({
         if (!params.id) adoptChat(result.sessionId);
       }
       // The message went; a busy Mac that can't answer this read yet is caught up by the live connection.
-      await session.refresh().catch(() => {});
+      void session.refresh().catch(() => {});
       return true;
     } catch (e) {
       if (!accepted) {
@@ -1519,8 +1535,8 @@ function ChatPane({
       if (current()) setError((e as Error).message);
       return accepted;
     } finally {
-      sendingRef.current = false;
-      setBusy(false);
+      sendingRef.current.delete(sendingKey);
+      setSendingKeys((current) => current.filter((key) => key !== sendingKey));
     }
   }
   function headerAction(id: string) {
@@ -1554,10 +1570,14 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
+    else if (id === "done" && chat)
+      void action(() => client.call("chat:patch", [project.path, chat.id, { done: true, unread: false }])).then((ok) => ok && showToast("Moved to Done"));
+    else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
+    else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
   }
-  // Archive asks first, as desktop does, with what removing the worktree would lose; a running turn is stopped. Once
-  // confirmed the sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
+  // Archive starts immediately, preserves unsaved work, and stops a running turn.
+  // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
   // preserves its scroll and avoids a second screen transition. Completion never moves the phone again.
   async function archive(target: NonNullable<typeof chat>) {
     if (busy || archiveRequest.current) return;
@@ -1787,8 +1807,8 @@ function ChatPane({
                   Link issue…
                 </Stack.Toolbar.MenuAction>
               ))}
-            <Stack.Toolbar.MenuAction icon="trash" disabled={busy} onPress={() => headerAction("archive")}>
-              Delete
+            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "trash"} disabled={busy} onPress={() => headerAction("archive")}>
+              {chat.archived ? "Restore" : "Delete"}
             </Stack.Toolbar.MenuAction>
           </Stack.Toolbar.Menu>
         )}
@@ -1829,9 +1849,9 @@ function ChatPane({
                 : []),
               {
                 id: "archive",
-                title: "Delete",
-                systemImage: "trash",
-                destructive: true,
+                title: chat.archived ? "Restore" : "Delete",
+                systemImage: chat.archived ? "tray.and.arrow.up" : "trash",
+                destructive: !chat.archived,
                 disabled: busy,
               },
             ],
@@ -1909,7 +1929,7 @@ function ChatPane({
   const lift = dockPadding - 8 + (terminalShown ? Math.min(terminalHeight, restingKeyboard) : 0);
   return (
     <GenerativeUIProvider send={genuiSend}>
-      <ReachableHostContext value={reachable}>
+      <ChatLinkProvider reachable={reachable} openLink={openChatLink}>
         <PanelTabsContext value={panels.openInPanel}>
           <View style={[styles.screen, dots]}>
             {/* A new Chat has no title until it has a name. With a Chat beside it, each draws its own header instead. */}
@@ -2805,7 +2825,7 @@ function ChatPane({
             <PlanPanel panel={planPanel} />
           </View>
         </PanelTabsContext>
-      </ReachableHostContext>
+      </ChatLinkProvider>
     </GenerativeUIProvider>
   );
 }

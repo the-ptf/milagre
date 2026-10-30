@@ -152,6 +152,8 @@ test("this Mac's own actions are local-only, and the preload refuses the same on
     "accounts:scope",
     "babysit:settings:read",
     "babysit:settings:save",
+    "done:settings:read",
+    "done:settings:save",
     "keybindings:read",
     "keybindings:set-command",
     "keybindings:reset-command",

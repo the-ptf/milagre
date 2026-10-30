@@ -216,6 +216,76 @@ export function prefetchChatMessages(scope: string, chatId: number) {
   void load(scope, chatId);
 }
 
+// Each paired computer's most recent Chats are copied to this Mac in the background, so even the first open of one paints
+// from its copy (recallRemote) instead of waiting on the other Mac. Only into the offline copy: the windows held in memory
+// stay the Chats this window showed.
+const WARM_PER_COMPUTER = 5;
+const WARM_DELAY_MS = 2_000;
+type WarmCandidate = { scope: string; chatId: number; lastAt: number; lastId: number };
+const warmCandidates = new Map<string, Map<string, WarmCandidate>>();
+const WARM_RETRY_MS = 30_000;
+const WARM_TRIES = 3;
+// Chats copied, or found current, since the window opened; and the failed tries of the rest.
+const warmed = new Set<string>();
+const warmFailures = new Map<string, number>();
+let warmTimer: ReturnType<typeof setTimeout> | undefined;
+let warming: Promise<void> | null = null;
+
+/** A paired computer's Project state reached the window: its most recent Chats are copied to this Mac a moment later, one at a time. */
+export function warmRecentChats(
+  scope: string,
+  state: { messagesInChats?: boolean; sessions?: Record<string, { id: number; archived?: boolean; summary?: { lastAt?: number; lastId?: number } }> },
+  delayMs = WARM_DELAY_MS,
+) {
+  if (!isRemoteKey(scope) || state.messagesInChats !== true || !window.milagre.computers?.recall) return;
+  const computer = computerOfKey(scope);
+  let candidates = warmCandidates.get(computer);
+  if (!candidates) warmCandidates.set(computer, (candidates = new Map()));
+  for (const session of Object.values(state.sessions ?? {})) {
+    const { lastAt, lastId } = session.summary ?? {};
+    if (session.archived || !(session.id > 0) || !lastAt || !lastId) continue;
+    candidates.set(keyOf(scope, session.id), { scope, chatId: session.id, lastAt, lastId });
+  }
+  // Not pushed back by later states: a streaming turn sends one many times a second.
+  warmTimer ??= setTimeout(() => {
+    warmTimer = undefined;
+    void warmNext();
+  }, delayMs);
+}
+
+function warmNext(): Promise<void> {
+  // A read already going finishes first; then the latest candidates are walked again.
+  if (warming) return warming.then(warmNext);
+  warming = (async () => {
+    for (const [computer, candidates] of warmCandidates) {
+      const recent = [...candidates.entries()].sort(([, a], [, b]) => b.lastAt - a.lastAt).slice(0, WARM_PER_COMPUTER);
+      for (const [key, { scope, chatId, lastId }] of recent) {
+        if (warmed.has(key) || windows.has(key) || loads.has(key) || (warmFailures.get(key) ?? 0) >= WARM_TRIES) continue;
+        warmed.add(key);
+        try {
+          // A copy that ends on the Chat's last message is current already.
+          const kept = await window.milagre.computers?.recall?.(computer, { kind: "chat", scope, chatId });
+          if ((kept?.messages.at(-1) as { id?: number } | undefined)?.id === lastId) continue;
+          const page = await readWithTimeout(() => bridgeForKey(scope).readChatMessages(scope, chatId, { turns: TURNS }));
+          // Opened meanwhile: its window keeps the copy itself.
+          if (!windows.has(key)) rememberChat(scope, chatId, page);
+        } catch {
+          // The computer isn't reachable yet (a window opening before its route is up) or went away: tried again a
+          // while later, a few times. The Chat reads on open as before meanwhile.
+          warmed.delete(key);
+          const failures = (warmFailures.get(key) ?? 0) + 1;
+          warmFailures.set(key, failures);
+          if (failures < WARM_TRIES) warmTimer ??= setTimeout(() => ((warmTimer = undefined), void warmNext()), WARM_RETRY_MS);
+          break;
+        }
+      }
+    }
+  })().finally(() => {
+    warming = null;
+  });
+  return warming;
+}
+
 /** Chat `chatId`'s window as held now, without reading it. Exported for its tests. */
 export const peekChatWindow = (scope: string, chatId: number): ChatWindow | undefined => windows.get(keyOf(scope, chatId));
 

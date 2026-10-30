@@ -49,6 +49,8 @@ export function archiveChoices(options: { plan: ArchivePlan; running: boolean; c
   reason: string | null;
   immediate: boolean;
 };
+/** Archive without confirmation, preserving work that cannot be safely removed. */
+export function archiveMode(plan: ArchivePlan | null): "hide" | "remove";
 export function terminalNote(busy: string[]): string | null;
 export const CHAT_ARCHIVED_NOTICE: string;
 export function archivedNotice(outcome: "hidden" | "removed" | "kept" | "cancelled" | "busy", options?: { chatsHome?: boolean }): string | null;

@@ -22,6 +22,8 @@ export function chatMenu(
   links?: MenuSection | null,
   beside = false,
   project = true,
+  /** The Chat's Mac keeps Done; an older one gets no Mark Done or Reopen. */
+  doneable = true,
 ): MenuSection[] {
   return [
     ...(beside ? [{ items: [{ id: "open-beside", title: "Open beside", systemImage: "rectangle.split.2x1" }] }] : []),
@@ -53,7 +55,16 @@ export function chatMenu(
     },
     ...(links ? [links] : []),
     {
-      items: [{ id: "archive", title: "Delete", systemImage: "trash", destructive: true }],
+      items: [
+        ...(chat.archived || !doneable
+          ? []
+          : chat.done_at
+            ? [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }]
+            : [{ id: "done", title: "Mark Done", systemImage: "checkmark.circle" }]),
+        chat.archived
+          ? { id: "archive", title: "Restore", systemImage: "tray.and.arrow.up" }
+          : { id: "archive", title: "Delete", systemImage: "trash", destructive: true },
+      ],
     },
   ];
 }
@@ -90,7 +101,7 @@ export async function runChatAction({
   expectActivity: () => void;
   notify: (message: string) => void;
 }) {
-  if (action === "archive") {
+  if (action === "archive" && !chat.archived) {
     if (link) {
       const done = startArchiving(`${projectPath}#${chat.id}`);
       try {
@@ -124,11 +135,15 @@ export async function runChatAction({
       },
     });
   }
+  if (action === "archive") await client.call("chat:patch", [projectPath, chat.id, { archived: false }]);
   if (action === "pin" || action === "unpin" || action === "pin-up" || action === "pin-down") {
     const patch = pinPatch(action, chat, Object.values(state.sessions));
     if (patch) await client.call("chat:patch", [projectPath, chat.id, patch]);
   }
   if (action === "read" || action === "unread") await client.call("chat:patch", [projectPath, chat.id, { unread: action === "unread" }]);
+  // The Mac stamps when it went Done, so the countdown follows its clock, not the phone's.
+  if (action === "done") await client.call("chat:patch", [projectPath, chat.id, { done: true, unread: false }]);
+  if (action === "reopen") await client.call("chat:patch", [projectPath, chat.id, { done: false }]);
   const worktree = state.worktrees[chat.worktree_id];
   if (action === "copy-path" && worktree) await Clipboard.setStringAsync(worktree.path);
   if (action === "copy-branch" && worktree) await Clipboard.setStringAsync(worktree.name);

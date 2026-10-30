@@ -143,6 +143,8 @@ const PATHS = Object.freeze({
   "limits:auto-switch:save": denied,
   // Auto update restarts the whole Mac's Milagre: a confined phone only reads the switch.
   "app-update:auto:read": none,
+  // Memory and disk totals name no folder.
+  "computer:resources:read": none,
   "app-update:auto:save": denied,
   // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
   "keybindings:read": none,
@@ -153,6 +155,9 @@ const PATHS = Object.freeze({
   // on the Mac: a confined phone only reads them.
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
+  // How long Done Chats wait before archiving applies to every Project on the Mac: a confined phone only reads it.
+  "done:settings:read": none,
+  "done:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,
   // and changes nothing.
   "routines:enabled:read": none,

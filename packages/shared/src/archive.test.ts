@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState, Worktree } from "./model.ts";
-import { archiveChoices, archivedNotice, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
+import { archiveChoices, archiveMode, archivedNotice, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
 import type { ArchivePlan, WorktreeStatus } from "./archive.mjs";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x", head: "abc", removable: true };
@@ -10,7 +10,7 @@ const plan = (patch: Partial<ArchivePlan> = {}): ArchivePlan => ({ milagreOwned:
 test("Delete acts immediately without a confirmation or explanatory text for every cleanup mode", () => {
   const cases: [Partial<ArchivePlan>, string][] = [
     [{}, "remove"],
-    [{ status: dirty }, "delete"],
+    [{ status: dirty }, "hide"],
     [{ shared: true }, "hide"],
     [{ milagreOwned: false }, "hide"],
     [{ status: null }, "hide"],
@@ -21,6 +21,16 @@ test("Delete acts immediately without a confirmation or explanatory text for eve
         const result = archiveChoices({ plan: plan({ ...patch, terminals: ["npm"] }), running, chatsHome });
         assert.deepEqual(result, { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true });
       }
+});
+
+test("archive removes only a clean, unshared Milagre worktree", () => {
+  assert.equal(archiveMode(plan()), "remove");
+  for (const patch of [{ status: dirty }, { status: null }, { shared: true }, { milagreOwned: false }, { terminals: ["npm"], status: dirty }]) {
+    assert.equal(archiveMode(plan(patch)), "hide");
+  }
+  assert.equal(archiveMode(null), "hide");
+  assert.equal(archiveMode(plan({ status: { ...dirty, branch: null } })), "hide");
+  assert.equal(archiveMode(plan({ terminals: ["npm"] })), "remove");
 });
 
 test("lossReason names only what is lost, in singular or plural", () => {

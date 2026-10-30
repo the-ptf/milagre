@@ -140,6 +140,17 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (relative === "secret-question")
+        return load(
+          "secret-question.tsx",
+          {
+            "./display-clock": { useDisplayNow: () => Date.now(), useScreenActive: () => true },
+            "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+            ...modules,
+          },
+          "",
+          cache,
+        );
       if (relative?.startsWith("primitives/") || relative === "persistence-notice") {
         const target = [relative, `${relative}.tsx`, `${relative}.ts`].find((candidate) =>
           fs.existsSync(path.join(__dirname, "../apps/mobile/src", candidate)),
@@ -199,6 +210,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       }
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
+      if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
@@ -1696,8 +1708,22 @@ for (const reactCompiler of [false, true])
     }
   });
 
-function markdownHost({ media, basePath, reachable = null, reactCompiler = false, copy = async () => {}, haptic = () => {}, textPx = 15, codeSize = 12 } = {}) {
-  const react = { ...hookHost({ effects: true }), memo: (fn) => fn, useContext: (context) => (context === "ReachableHostContext" ? reachable : undefined) };
+function markdownHost({
+  media,
+  basePath,
+  reachable = null,
+  openChatLink,
+  reactCompiler = false,
+  copy = async () => {},
+  haptic = () => {},
+  textPx = 15,
+  codeSize = 12,
+} = {}) {
+  const react = {
+    ...hookHost({ effects: true }),
+    memo: (fn) => fn,
+    useContext: (context) => (context === "ReachableHostContext" ? reachable : context === "ChatLinkContext" ? openChatLink : undefined),
+  };
   const viewer = require("../apps/mobile/src/viewer-store.ts");
   const routes = [],
     links = [];
@@ -1932,6 +1958,32 @@ test("plain URLs in mobile replies render as links and open the exact address", 
       await link.props.onPress();
       assert.deepEqual(screen.links, [url]);
     }
+  }
+});
+
+test("mobile reply links open an associated PR in the Chat and leave unrelated links external", async () => {
+  const { associatedPullRequest } = require("../packages/shared/src/chats.mjs");
+  const prs = [
+    { url: "https://github.com/team/first/pull/12", cwd: "/first" },
+    { url: "https://github.com/team/second/pull/12", cwd: "/second" },
+  ];
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      openChatLink: (url) => {
+        const pr = associatedPullRequest(url, prs);
+        if (pr) opened.push(pr);
+        return !!pr;
+      },
+    });
+    await find(
+      screen.render("[PR](https://github.com/team/second/pull/12/files#diff-123)", streaming),
+      (node) => node.props?.accessibilityRole === "link",
+    ).props.onPress();
+    assert.deepEqual(opened, [prs[1]]);
+    assert.deepEqual(screen.links, []);
+    await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
   }
 });
 
@@ -3107,7 +3159,10 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
   const id = "40996067-6cc2-4427-bc1e-9007c5f51875";
   const member = (projectId) => ({ projectId, projectPath: `/${projectId}`, worktreePath: `/wt/${projectId}`, branch: `milagre/${projectId}`, base: "main" });
   const pr = (number, state) => ({ number, title: `Change ${number}`, url: `https://github.com/o/${number}/pull/${number}`, state, readyToMerge: false });
-  globalThis.branchPullRequests = { "/wt/api": pr(12, "MERGED"), "/wt/web": pr(12, "OPEN") };
+  globalThis.branchPullRequests = {
+    "/wt/api": { ...pr(12, "MERGED"), url: "https://github.com/o/api/pull/12" },
+    "/wt/web": { ...pr(12, "OPEN"), url: "https://github.com/o/web/pull/12" },
+  };
   globalThis.openedPullRequests = [];
   try {
     const chat = chatHost({ effects: true });
@@ -3141,6 +3196,11 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
     assert.equal(JSON.stringify(globalThis.openedPullRequests), JSON.stringify([{ worktreeId: "42", number: "12", chat: key, cwd: "/wt/web" }]));
+    const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
+    assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
+    assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
+    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), false);
+    assert.equal(globalThis.openedPullRequests.length, 2);
   } finally {
     delete globalThis.branchPullRequests;
     delete globalThis.openedPullRequests;
@@ -3494,6 +3554,11 @@ function navigationHost(
     "@hugeicons/core-free-icons": {},
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
     "@milagre/shared/chats": chats,
+    "./chat-swipe-row": { ChatSwipeRow: "ChatSwipeRow" },
+    // Every Mac keeps Done unless a test plays an older one (globalThis.olderMac): it answers no retention.
+    "./done-retention": { useDoneRetention: () => (globalThis.olderMac ? {} : new Proxy({}, { get: () => 24 })), retentionOf: () => 24 },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
     "./chat-list-filter": load("chat-list-filter.ts", { "@milagre/shared/chats": chats }),
     "@milagre/shared/routines": require("@milagre/shared/routines"),
     "@milagre/shared/chat-summary": require("@milagre/shared/chat-summary"),
@@ -3671,7 +3736,7 @@ test("One list shows Chats from every computer in one list, each row naming its 
     "the open computer goes unnamed",
   );
   const offline = nav.rows().props.renderItem({ item: data[1] });
-  assert.equal(offline.props.style.opacity, 0.55, "an offline computer's rows are dimmed");
+  assert.equal(offline.props.children.props.style.opacity, 0.55, "an offline computer's rows are dimmed");
   // Another computer is named on line 2, offline here.
   same(find(offline, (node) => node.type?.name === "ComputerTag").props, { name: "Studio", offline: true, large: true });
   // No ⋯ button: the long-press menu covers the whole row.
@@ -3767,8 +3832,15 @@ test("mobile chat status labels use the same tone as their status icons", () => 
   const nav = navigationHost(Promise.resolve());
   const list = nav.rows();
   const item = list.props.data.find((row) => row.kind === "chat");
+  for (const mark of ["running", "background"]) {
+    const row = list.props.renderItem({ item: { ...item, mark } });
+    assert.equal(
+      find(row, (node) => node.type === "Text" && /^(Running|In the background)$/.test(node.props.children)),
+      undefined,
+      `a ${mark} row shows no status word`,
+    );
+  }
   for (const [mark, label, color] of [
-    ["running", "Running", "accentInk"],
     ["question", "Needs reply", "accentInk"],
     ["waiting", "Needs approval", "orange"],
     ["interrupted", "Interrupted", "orange"],
@@ -3835,7 +3907,7 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
     state: "OPEN",
   }));
   const multi = list.props.renderItem({
-    item: { ...item, pullRequests: prs, mark: "running" },
+    item: { ...item, pullRequests: prs, mark: "waiting" },
   });
   const component = find(multi, (node) => typeof node.type === "function" && node.props.pullRequests);
   const chips = component.type(component.props);
@@ -3851,8 +3923,15 @@ test("mobile chat rows show clickable PR numbers with desktop status colors", as
   await Promise.resolve();
   assert.equal(nav.routes.length, routesBefore + 1, "a PR from the menu opens in its Chat too");
   assert.ok(
-    find(chips, (node) => node.type === "Text" && node.props.children === "Running"),
-    "PR rows keep the Chat status on their second line",
+    find(chips, (node) => node.type === "Text" && node.props.children === "Needs approval"),
+    "PR rows keep what the Chat waits on, on their second line",
+  );
+  const working = list.props.renderItem({ item: { ...item, pullRequests: prs, mark: "running" } });
+  const workingChips = find(working, (node) => typeof node.type === "function" && node.props.pullRequests);
+  assert.equal(
+    find(workingChips.type(workingChips.props), (node) => node.type === "Text" && node.props.children === "Running"),
+    undefined,
+    "a working Chat says so with its spinner alone, as on desktop",
   );
 });
 
@@ -4082,7 +4161,7 @@ test("a linked Chat shows the Link icon, and its ⋯ menu links with another Cha
     find(nav.row("chat", 0), (node) => node.props?.accessibilityLabel?.startsWith?.("Linked to")),
     undefined,
   );
-  same(ids(login), [["copy-path", "copy-branch"], ["rename", "unread"], ["pin"], ["link-with", "link-remove"], ["archive"]]);
+  same(ids(login), [["copy-path", "copy-branch"], ["rename", "unread"], ["pin"], ["link-with", "link-remove"], ["done", "archive"]]);
   same(ids(nav.row("chat", 0))[3], ["link-with"]);
   nav.more(login).props.onSelect("link-with");
   const [action, request] = nav.linkRequests[0];
@@ -4831,7 +4910,93 @@ async function settleAll() {
   for (let i = 0; i < 10; i++) await settle();
 }
 
-test("a sidebar Chat Archive asks with the worktree choice, then stops, hides and deletes the worktree", async () => {
+test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
+  const react = hookHost();
+  const calls = [];
+  let closes = 0;
+  const pending = deferred();
+  const { ChatSwipeRow } = load("chat-swipe-row.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "react-native-gesture-handler/ReanimatedSwipeable": { default: "Swipeable" },
+    "react-native-reanimated": { ReduceMotion: { Always: "always", System: "system" } },
+    "@hugeicons/core-free-icons": {},
+    "./icons": { Icon: "Icon" },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+  });
+  const render = (unread, disabled = false, done = false, doneable = true) => {
+    react.begin();
+    return ChatSwipeRow({
+      unread,
+      done,
+      doneable,
+      background: "page",
+      disabled,
+      children: "Chat",
+      onAction: (action) => {
+        calls.push(action);
+        return pending.promise;
+      },
+    });
+  };
+  let row = render(true);
+  row.props.ref.current = {
+    close: () => {
+      closes++;
+    },
+  };
+  row.props.onSwipeableOpen("right");
+  row.props.onSwipeableOpen("left");
+  assert.deepEqual(calls, ["read"], "another swipe cannot mark Done while a read is pending");
+  assert.equal(render(true).props.enabled, false);
+  pending.resolve();
+  await settle();
+  row = render(false);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  row = render(true);
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done"]);
+  row = render(false, true);
+  assert.equal(row.props.enabled, false);
+  row.props.onSwipeableOpen("left");
+  assert.deepEqual(calls, ["read", "unread", "done"]);
+  // A Done row reopens with a swipe right and has nothing to swipe left to.
+  row = render(false, false, true);
+  assert.equal(row.props.renderRightActions, undefined);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen"]);
+  // A Mac too old to keep Done archives on the left swipe, as before Done.
+  row = render(false, false, false, false);
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"]);
+  // The row draws on the list's own color, with no corners of its own, and keeps its gesture callbacks across renders.
+  assert.equal(row.props.childrenContainerStyle.backgroundColor, "page");
+  assert.equal(row.props.containerStyle, undefined);
+  assert.equal(render(false, false, false, false).props.onSwipeableOpen, row.props.onSwipeableOpen);
+  assert.ok(closes >= 3, "rows close after the action");
+});
+
+test("an older Mac's rows offer no Done, and their left swipe archives as before", () => {
+  globalThis.olderMac = true;
+  try {
+    const nav = navigationHost(deferred().promise);
+    const row = nav.row("chat");
+    const swipe = find(row, (node) => node.type === "ChatSwipeRow");
+    assert.equal(swipe.props.doneable, false, "the left swipe archives");
+    const items = new Set(nav.more(row).props.sections.flatMap((section) => section.items.map((item) => item.id)));
+    assert.equal(items.has("done"), false);
+    assert.equal(items.has("archive"), true);
+  } finally {
+    delete globalThis.olderMac;
+  }
+});
+
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -4847,26 +5012,20 @@ test("a sidebar Chat Archive asks with the worktree choice, then stops, hides an
     },
   });
   const more = nav.more(nav.row("chat"));
-  const archiveItem = more.props.sections.at(-1).items[0];
-  assert.equal(archiveItem.id, "archive");
+  const archiveItem = more.props.sections.at(-1).items.find((item) => item.id === "archive");
+  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Delete");
   assert.equal(archiveItem.disabled, undefined, "a running Chat can be archived: it is stopped first");
   more.props.onSelect("archive");
   await settleAll();
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     project.calls.map(([method]) => method),
-    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "worktree:remove", "refresh"],
+    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
   );
-  assert.deepEqual(project.calls.find(([method]) => method === "worktree:remove").slice(1), [
-    "/wt/p/fix",
-    {
-      force: true,
-      base: "main",
-      projectPath: "/p",
-      chatId: "/p#5",
-      seen: { uncommitted: 1, unpushed: 0, branch: "milagre/fix", head: "h1", removable: false },
-    },
-  ]);
+  assert.equal(
+    project.calls.some(([method]) => method === "worktree:remove"),
+    false,
+  );
 });
 
 test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async () => {
@@ -5346,6 +5505,58 @@ test("a New Chat opened while another one is still sending starts empty and send
   assert.equal(first.params.id, "42");
   assert.equal(second.params.id, undefined);
   assert.equal(transcriptMessages(second)[0]?.body, "second message");
+});
+
+test("an accepted mobile send releases the composer before a slow refresh finishes", async () => {
+  const screen = chatHost();
+  const refresh = deferred();
+  screen.session.refresh = () => refresh.promise;
+  screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "Send this";
+  screen.send();
+  await settle();
+  screen.sending.resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next message");
+  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
+  refresh.resolve();
+});
+
+test("switching the mounted mobile composer between computers isolates concurrent sends", async () => {
+  const sends = [deferred(), deferred()];
+  let count = 0;
+  const screen = chatHost({ call: (method) => (method === "chat:send" ? sends[count++].promise : Promise.resolve([])) });
+  const state = screen.session.snapshot.project.state;
+  state.sessions[7] = { id: 7, worktree_id: 1, provider: "codex" };
+  screen.params.id = "7";
+  screen.session.drafts["/p#7"] = "First computer";
+  screen.send();
+  await settle();
+  // The routed pane stays mounted, including when the other computer uses the same path and Chat id.
+  screen.session.client.url = "other-mac";
+  screen.field().onChangeText("Second computer");
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false, "the first computer's send does not lock the second");
+  screen.send();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(Object.keys(screen.session.pendingChats).length, 2);
+  // The first completion must not release the second computer's duplicate-send guard.
+  sends[0].resolve({ sessionId: 7 });
+  await settle();
+  screen.field().onChangeText("Next draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Sending...");
+  button.props.onPress();
+  await settle();
+  assert.equal(count, 2);
+  assert.equal(button.props.disabled, true);
+  sends[1].reject(new Error("Second computer refused the send"));
+  await settle();
+  assert.equal(screen.field().value, "Second computer\n\nNext draft");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  assert.equal(button.props.disabled, false);
 });
 
 test("the drawer reopens a New Chat that is still sending", async () => {
@@ -9397,7 +9608,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
     "the row's pill spins desktop's ring",
   );
   assert.equal(nav.more(row), undefined, "an archiving row offers no menu");
-  assert.equal(row.props.pointerEvents, "none");
+  assert.equal(row.props.children.props.pointerEvents, "none");
   // Hidden on the Mac while the worktree is still going: the row stays, under the progress.
   project.snapshot.project.state.sessions[5].archived = true;
   assert.ok(archiveIndicator(nav.row("chat")));
@@ -9410,7 +9621,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   archiveStore.clearArchiveNotice();
 });
 
-test("archiving the open Chat from the sidebar stays in place through confirmation and completion", async () => {
+test("archiving the open Chat from the sidebar stays in place through archive and completion", async () => {
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9433,7 +9644,7 @@ test("archiving the open Chat from the sidebar stays in place through confirmati
   assert.deepEqual(nav.routes, []);
 });
 
-test("the Chat screen opens its sidebar once on confirm without replacing the screen", async () => {
+test("the Chat screen opens its sidebar once on archive without replacing the screen", async () => {
   const project = archiveProject();
   const patch = deferred();
   const screen = chatHost({ alert: pressDanger([]), call: (method, args) => (method === "chat:patch" ? patch.promise : project.call(method, args)) });
@@ -10589,6 +10800,9 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     "./session": { useSession: () => ({ client }) },
     "./icons": { Icon: "Icon" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
   });
   const render = () => {
     react.begin();
@@ -10644,6 +10858,9 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
     "./session": { useSession: () => ({ client }) },
     "./icons": { Icon: "Icon" },
     "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
   });
   const render = () => {
     react.begin();
@@ -10664,6 +10881,72 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
   for (const fn of focused.splice(0)) fn();
   await settle();
   assert.equal(toggle(), undefined, "an older Mac has no Auto update to show");
+});
+
+test("mobile General lists the Mac's Done retention, saves a pick there and hides for an older Mac", async () => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  let older = false;
+  let hours = 24;
+  const client = {
+    async call(method, args) {
+      calls.push([method, ...args]);
+      if (older) throw new Error("Command is not available from mobile");
+      if (method === "done:settings:read") return { retentionHours: hours };
+      if (method === "done:settings:save") return { retentionHours: (hours = args[0].retentionHours) };
+      throw new Error("Unknown method");
+    },
+  };
+  const { GeneralSection } = load("general-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/main-sync": require("@milagre/shared/main-sync"),
+    "@milagre/shared/auto-update": require("@milagre/shared/auto-update"),
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { router: { push() {} }, useFocusEffect: (fn) => focused.push(fn) },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => ({ client }) },
+    "./icons": { Icon: "Icon" },
+    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./settings-list": { Row: "Row" },
+    "@milagre/shared/done": require("@milagre/shared/done"),
+    "./done-retention": require("../apps/mobile/src/done-retention.ts"),
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // The list is its own component inside General: render it as React would.
+  const section = () => {
+    react.begin();
+    const element = find(GeneralSection(), (node) => typeof node.type === "function" && node.type.name === "DoneRetention");
+    return element.type(element.props);
+  };
+  const rows = () => {
+    const tree = section();
+    return tree ? allNodes(tree, (node) => node.type === "Row") : [];
+  };
+  assert.equal(rows().length, 0, "nothing shows before the Mac answers");
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  same(
+    rows().map((row) => [row.props.title, row.props.selected]),
+    [
+      ["1 hour", false],
+      ["8 hours", false],
+      ["24 hours", true],
+      ["3 days", false],
+      ["1 week", false],
+      ["Never", false],
+    ],
+  );
+  rows()[0].props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["done:settings:save", { retentionHours: 1 }]));
+  assert.equal(rows()[0].props.selected, true);
+  older = true;
+  section();
+  for (const fn of focused.splice(0)) fn();
+  await settle();
+  assert.equal(rows().length, 0, "an older Mac has no Done retention to show");
 });
 
 // Settings with every import faked; `state` is read on each render, so a test can change the Mac or the Linear answer.
@@ -15831,4 +16114,65 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {
+  const react = hookHost({ effects: true });
+  let now = Date.now();
+  const deadline = now + 300000;
+  const { SecretQuestion } = load("secret-question.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", TextInput: "TextInput", Pressable: "Pressable" },
+    "./display-clock": { useDisplayNow: () => now, useScreenActive: () => true },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, key) => key }),
+    "./icons": { Icon: "Icon" },
+    "./ui": { PillButton: "PillButton" },
+  });
+  const sent = [];
+  const render = (busy = false) => {
+    react.begin();
+    return SecretQuestion({
+      request: { requestId: "secret", questions: [{ question: "Token" }], secretRequest: { description: "For deployment", expiresAt: deadline } },
+      busy,
+      submit: (...args) => sent.push(args),
+    });
+  };
+  let tree = render();
+  let input = find(tree, (n) => n.type === "TextInput");
+  assert.equal(input.props.secureTextEntry, true);
+  assert.equal(find(tree, (n) => n.type === "Text" && String(n.props.children).includes("to enter")).props.children, "5:00 left to enter");
+  find(tree, (n) => n.props?.accessibilityLabel === "Show secret").props.onPress();
+  tree = render();
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.secureTextEntry, false);
+  find(tree, (n) => n.props?.accessibilityLabel === "Hide secret").props.onPress();
+  tree = render();
+  assert.equal(input.props.autoCorrect, false);
+  assert.equal(input.props.autoCapitalize, "none");
+  assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
+  input.props.onChangeText("  test-token  ");
+  tree = render();
+  find(tree, (n) => n.props?.title === "Save securely").props.onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [[{ secret: ["  test-token  "] }, ""]]);
+  tree = render(true);
+  input = find(tree, (n) => n.type === "TextInput");
+  assert.equal(input.props.value, "");
+  assert.equal(input.props.editable, false);
+  tree = render();
+  find(tree, (n) => n.props?.title === "Decline").props.onPress();
+  assert.deepEqual(sent.at(-1), [null, ""]);
+  find(render(), (n) => n.type === "TextInput").props.onChangeText("unsent-draft");
+  // The last minute switches the countdown to the attention tone.
+  now = deadline - 30000;
+  tree = render();
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "timer").props.children, "0:30 left to enter");
+  assert.equal(find(tree, (n) => n.props?.accessibilityRole === "timer").props.style.color, fakePalette.orangeInk);
+  now = deadline;
+  tree = render();
+  tree = render();
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.value, "");
+  assert.equal(find(tree, (n) => n.type === "TextInput").props.editable, false);
+  assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
+  assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Request expired"));
 });

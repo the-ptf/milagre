@@ -51,6 +51,12 @@ async function browserChecks() {
     win.webContents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
     await delay(60);
   }
+  async function press(keyCode) {
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode });
+    if (keyCode === "Enter") win.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode });
+    await delay(60);
+  }
   const shot = async (name) => {
     if (!shots) return;
     // Let the menu finish its pop-in and paint before reading the frame.
@@ -100,7 +106,16 @@ async function browserChecks() {
     await evaluate("window.finishArchive()");
     await waitFor('!document.querySelector("[role=status]")');
 
-    console.log("PASS: Delete acts on one click without confirmation or explanatory callouts");
+    // Keyboard navigation still runs the focused action rather than Delete.
+    await evaluate("window.calls = []");
+    await openMenu();
+    await evaluate(`document.querySelector('${archiveRow}').focus()`);
+    await press("Up");
+    assert.equal(await evaluate("document.activeElement.textContent"), "Mark as unread");
+    await press("Enter");
+    assert.deepEqual(await evaluate("window.calls"), ["unread:true"]);
+
+    console.log("PASS: Delete acts on one click without confirmation or explanatory callouts; arrowed rows keep Enter");
     app.exit(0);
   } catch (error) {
     console.error(error);

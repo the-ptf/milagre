@@ -139,13 +139,12 @@ test("a running Chat is stopped, hidden, its worktree removed, then the Project 
 
 test("a refused removal brings the Chat back with the desktop notice", async () => {
   const { client, calls } = fakeClient({
-    "worktree:status": () => dirty,
+    "worktree:status": () => clean,
     "worktree:remove": () => Promise.reject(new Error("WORKTREE_CHANGED: /wt/shop/x-1 changed after it was checked.")),
   });
   const notices: string[] = [];
   const result = await archiveFromPhone({
     client,
-
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -161,7 +160,7 @@ test("a refused removal brings the Chat back with the desktop notice", async () 
     calls.filter((call) => call.method === "chat:patch").map((call) => call.args[2]),
     [{ archived: true, unread: false }, { archived: false }],
   );
-  assert.equal((calls.find((call) => call.method === "worktree:remove")!.args[1] as { force: boolean }).force, true);
+  assert.equal((calls.find((call) => call.method === "worktree:remove")!.args[1] as { force: boolean }).force, false);
   assert.equal(
     calls.some((call) => call.method === "agent:interrupt"),
     false,
@@ -175,7 +174,6 @@ test("a worktree another Chat took up after the check is only hidden from", asyn
   const { client, calls } = fakeClient({}, now);
   const result = await archiveFromPhone({
     client,
-
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -190,34 +188,39 @@ test("a worktree another Chat took up after the check is only hidden from", asyn
   );
 });
 
-test("a Chat without a Project deletes immediately, including its own folder", async () => {
-  for (const status of [clean, dirty]) {
-    const { client, calls } = fakeClient({ "worktree:status": () => status });
-    assert.equal(
-      await archiveFromPhone({
+test("Chats delete immediately while preserving unsaved files in Project and project-less Chats", async () => {
+  for (const chatsHome of [false, true]) {
+    for (const status of [clean, dirty]) {
+      const { client, calls } = fakeClient({ "worktree:status": () => status });
+      const result = await archiveFromPhone({
         client,
         projectPath: "/work/shop",
         state: state(),
         chat: session(2, 2),
         running: false,
-        chatsHome: true,
+        chatsHome,
         notify: () => {},
         refresh: async () => {},
-      }),
-      "removed",
-    );
-    const removal = calls.find((call) => call.method === "worktree:remove");
-    assert.ok(removal);
-    assert.equal((removal.args[1] as { force: boolean }).force, !status.removable);
+      });
+      assert.equal(result, status.removable ? "removed" : "hidden");
+      assert.deepEqual(calls.find((call) => call.method === "chat:patch")?.args[2], { archived: true, unread: false });
+      const removal = calls.find((call) => call.method === "worktree:remove");
+      if (status.removable) {
+        assert.ok(removal);
+        assert.equal((removal.args[1] as { force: boolean }).force, false);
+      } else {
+        assert.equal(removal, undefined, "Unsaved files and unpushed commits stay on disk");
+        assert.deepEqual(calls.find((call) => call.method === "chat:delete")?.args, ["/work/shop", 2]);
+      }
+      if (chatsHome) assert.equal(archiveActivity().done, "Chat deleted");
+    }
   }
-  assert.equal(archiveActivity().done, "Chat deleted");
 });
 
 test("a Project Chat's archive says nothing when it goes", async () => {
   const { client } = fakeClient({ "worktree:remove": () => ({ removed: true }) });
   const result = await archiveFromPhone({
     client,
-
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -235,7 +238,6 @@ test("whether to stop is read when the archive runs, not when Archive was tapped
   const started = fakeClient({}, state(), { "/work/shop#2": {} });
   await archiveFromPhone({
     client: started.client,
-
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -251,7 +253,6 @@ test("whether to stop is read when the archive runs, not when Archive was tapped
   const finished = fakeClient();
   await archiveFromPhone({
     client: finished.client,
-
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -298,7 +299,6 @@ test("a dropped connection during the removal: a worktree that is gone counts as
   const notices: string[] = [];
   const result = await archiveFromPhone({
     client: finished.client,
-
     projectPath: "/work/shop",
     state: state(),
     chat: session(2, 2),
@@ -320,7 +320,6 @@ test("a dropped connection during the removal: a worktree that is gone counts as
   assert.equal(
     await archiveFromPhone({
       client: kept.client,
-
       projectPath: "/work/shop",
       state: state(),
       chat: session(2, 2),

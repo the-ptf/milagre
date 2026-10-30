@@ -60,10 +60,9 @@ export type ArchiveRequest = {
   projectPath: string;
   state: CoordinatorState;
   chat: AgentSession;
-  /** Whether a turn was running when Archive was tapped: the choices say "Stop and …". Whether to stop is read again
-   * from the Mac once the archive goes ahead. */
+  /** Whether a turn was running when Archive was tapped, checked again before archiving. */
   running: boolean;
-  /** The Chat has no Project (its Project is a Chats home): plain words, and a clean one archives without asking. */
+  /** The Chat has no Project (its Project is a Chats home). */
   chatsHome?: boolean;
   /** Called as soon as deletion begins (the Chat screen leaves or marks itself busy). */
   onConfirm?: () => void;
@@ -130,7 +129,7 @@ function showArchiveDone(done: string, ms = 3000) {
  * and checks again), bring the Chat back with a notice when it stays, and read the Project again. A removed worktree's
  * Chats leave the Project's state on the Mac, so the refresh drops them here too.
  */
-export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" | "cancelled" | "hidden" | "removed" | "kept"> {
+export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" | "hidden" | "removed" | "kept"> {
   const { client, projectPath, chat } = request;
   const chatId = `${projectPath}#${chat.id}`;
   if (archiving.has(chatId)) return "busy";

@@ -60,10 +60,14 @@ export function homeLossReason(status) {
   return "Its folder has saved work that will be deleted.";
 }
 
+/** Archive immediately. Only remove a worktree checked as safe; keep unsaved work for restoration. */
+export function archiveMode(plan) {
+  return plan?.milagreOwned && !plan.shared && plan.status?.removable ? "remove" : "hide";
+}
+
 /** The immediate deletion mode; shared, external and unchecked Worktrees stay. */
 export function archiveChoices({ plan }) {
-  const { milagreOwned, shared, status } = plan;
-  const mode = !milagreOwned || shared || !status ? "hide" : status.removable ? "remove" : "delete";
+  const mode = archiveMode(plan);
   return { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true };
 }
 
