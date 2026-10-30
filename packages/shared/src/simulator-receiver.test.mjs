@@ -293,7 +293,7 @@ test("bundled script stays identical to tested source and every device uses the 
 });
 
 /** Exercise the exact bundled browser script, with only browser/WebRTC boundaries replaced. */
-function browserHarness(call, { playVideo = true, device } = {}) {
+function browserHarness(call, { playVideo = true, device, webCodecs } = {}) {
   const listeners = {},
     elements = {},
     timers = new Map(),
@@ -310,6 +310,7 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     "waiting",
     "video",
     "image",
+    "canvas",
     "failure",
     "message",
     "retry",
@@ -354,6 +355,8 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     if (playVideo) elements.video.emit("playing");
   };
   elements.image.removeAttribute = () => {};
+  const drawn = [];
+  elements.canvas.getContext = () => ({ drawImage: (picture, ...rest) => drawn.push([picture.id, ...rest]) });
   Object.defineProperty(elements.image, "src", {
     set(value) {
       this.source = value;
@@ -415,6 +418,8 @@ function browserHarness(call, { playVideo = true, device } = {}) {
   const context = {
     window,
     document,
+    atob,
+    ...webCodecs,
     RTCPeerConnection: Peer,
     ResizeObserver: class {
       observe() {}
@@ -442,6 +447,7 @@ function browserHarness(call, { playVideo = true, device } = {}) {
     bridge,
     intervals,
     states,
+    drawn,
     timeout(delay) {
       for (const [id, value] of timers)
         if (value.delay === delay) {
@@ -1201,4 +1207,100 @@ test("taking and losing control of a quiet relayed display never waits for a rep
   h.window.simulatorDispose();
   quiet.resolve(null);
   await h.flush();
+});
+
+const envelope = (tag, bytes = []) => [0, 0, 0, bytes.length + 1, tag, ...bytes];
+const avccBatch = (...envelopes) => Buffer.from(envelopes.flat()).toString("base64");
+function fakeWebCodecs(log) {
+  class VideoDecoder {
+    static async isConfigSupported(config) {
+      log.push(["supported", config.codec]);
+      return { supported: config.codec.startsWith("avc1.") };
+    }
+    constructor({ output, error }) {
+      this.output = output;
+      this.error = error;
+      this.state = "unconfigured";
+    }
+    configure(config) {
+      log.push(["configure", config.codec, config.optimizeForLatency]);
+      this.state = "configured";
+    }
+    decode(chunk) {
+      log.push(["decode", chunk.type, [...chunk.data]]);
+      this.output({ id: `${chunk.type}-${chunk.data[0]}`, displayWidth: 330, displayHeight: 720, close() {} });
+    }
+    close() {
+      this.state = "closed";
+      log.push(["close"]);
+    }
+  }
+  function EncodedVideoChunk({ type, timestamp, data }) {
+    Object.assign(this, { type, timestamp, data });
+  }
+  return { VideoDecoder, EncodedVideoChunk };
+}
+test("Simlock video decodes with WebCodecs onto the canvas, skipping deltas until a keyframe", async () => {
+  const calls = [],
+    log = [];
+  const host = fakeHost(calls);
+  const batches = [
+    // A delta before any keyframe is never decoded.
+    { sequence: 2, reset: true, data: avccBatch(envelope(1, [1, 0x64, 0, 0x1f, 0xff, 0xe0]), envelope(3, [9]), envelope(2, [7]), envelope(3, [8])) },
+    { sequence: 3, data: avccBatch(envelope(3, [5])) },
+  ];
+  const h = browserHarness(
+    async (method, args) => {
+      if (method === "open") {
+        calls.push([method, args]);
+        return { viewerId: "lease-viewer", transport: "frames" };
+      }
+      if (method === "frame") {
+        calls.push([method, args]);
+        const batch = batches.shift();
+        return batch ? { ...batch, mimeType: "video/avcc", status: readyStatus } : null;
+      }
+      return host(method, args);
+    },
+    { webCodecs: fakeWebCodecs(log) },
+  );
+  await h.flush();
+  await h.flush();
+  h.timeout(0);
+  await h.flush();
+  assert.deepEqual(log.slice(0, 2), [
+    ["supported", "avc1.64001f"],
+    ["configure", "avc1.64001f", true],
+  ]);
+  assert.deepEqual(
+    log.filter((entry) => entry[0] === "decode"),
+    [
+      ["decode", "key", [7]],
+      ["decode", "delta", [8]],
+      ["decode", "delta", [5]],
+    ],
+  );
+  assert.deepEqual(h.drawn.at(-1), ["delta-5", 0, 0, 330, 720]);
+  assert.equal(h.elements.canvas.hidden, false);
+  assert.equal(h.elements.image.hidden, true);
+  assert.equal(h.elements.canvas.width, 330);
+  assert.deepEqual(
+    calls.filter(([method]) => method === "frame").map(([, args]) => args.after),
+    [0, 2],
+  );
+  assert.equal(h.states.at(-1), "live");
+  h.window.simulatorDispose();
+  assert.deepEqual(log.at(-1), ["close"]);
+});
+test("a viewer without WebCodecs explains that it cannot show Simlock video", async () => {
+  const calls = [];
+  const host = fakeHost(calls);
+  const h = browserHarness(async (method, args) => {
+    if (method === "open") return { viewerId: "lease-viewer", transport: "frames" };
+    if (method === "frame") return { sequence: 1, reset: true, mimeType: "video/avcc", data: avccBatch(envelope(2, [1])), status: readyStatus };
+    return host(method, args);
+  });
+  await h.flush();
+  await h.flush();
+  assert.match(h.elements.failure.textContent, /cannot decode simulator video/);
 });
