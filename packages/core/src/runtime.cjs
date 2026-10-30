@@ -1267,6 +1267,7 @@ function createRuntime(options) {
   }
 
   const chats = new ChatHost({
+    contextSettings: () => contextSettings.read(),
     // Undo is a convenience: a Worktree it can't capture still runs the task, with no checkpoint.
     beforeTask: (request) => checkpoints.begin(request).catch((error) => console.warn("Checkpoint start capture failed:", error.message)),
     beforeSend: async (request) => {
@@ -1432,6 +1433,10 @@ function createRuntime(options) {
   commands.handle("keybindings:reset-command", (_event, command) => keybindings.resetCommand(command));
   commands.handle("keybindings:reset", () => keybindings.resetAll());
   // Babysit PRs: the one global configuration, read and edited from the desktop's Settings and the phone.
+  const contextSettings = require("./context-settings.cjs").createContextSettings({ file: path.join(dataDir, "context-settings.json"), emit });
+  commands.handle("context:settings:read", () => contextSettings.read());
+  commands.handle("context:settings:save", (_event, patch) => contextSettings.save(patch));
+
   const babysitSettings = createBabysitSettings({ file: path.join(dataDir, "babysit.json"), emit });
   commands.handle("babysit:settings:read", () => babysitSettings.read());
   commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));

@@ -1,4 +1,32 @@
-// Settings › Chat: how much of a reply's work the Chat shows. Each device keeps its own choice.
+import type { ContextUsage } from "./model";
+import { CONTEXT_WARN_PERCENT } from "./usage.ts";
+
+// Settings › Chat: each device keeps its own choices.
+export type CompactButtonDisplay = "always" | "threshold";
+export const SHOW_CONTEXT_SIZE_TITLE = "Show context size";
+export const SHOW_CONTEXT_SIZE_HINT = "Show the current context size beside Send.";
+export const COMPACT_BUTTON_TITLE = "Compact button";
+export const COMPACT_BUTTON_HINT = "Compact manually in supported Chats. The button turns orange at the threshold.";
+export const COMPACT_BUTTON_OPTIONS: { value: CompactButtonDisplay; label: string }[] = [
+  { value: "always", label: "Always" },
+  { value: "threshold", label: `At ${CONTEXT_WARN_PERCENT}% context` },
+];
+
+export function parseCompactButtonDisplay(value: unknown): CompactButtonDisplay {
+  return value === "always" ? "always" : "threshold";
+}
+
+/** Both platforms show the same action, independently of the context size preference. */
+export function compactButtonState(
+  display: CompactButtonDisplay,
+  usage: ContextUsage | undefined,
+  supported: boolean,
+  threshold = CONTEXT_WARN_PERCENT,
+  quiet = false,
+) {
+  const warning = Boolean(usage && usage.size > 0 && (usage.used / usage.size) * 100 >= threshold);
+  return { visible: supported && !quiet && (display === "always" || warning), warning };
+}
 
 /** Compact folds a reply's tool calls into one line; Full detail shows each one, with the notes between them. */
 export type ToolCallDisplay = "compact" | "full";

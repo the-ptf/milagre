@@ -330,6 +330,14 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     case "context-compacting":
       return pendingCompaction(state, sessionId) ? { state, runs, changed: false } : addCompaction(state, runs, projectPath, chatId, "preparing");
     case "context-compacted": {
+      // The boundary may be the last usage event of a /compact turn. Keep the gauge accurate even without a later API request.
+      const size = run?.contextUsage?.size ?? session.contextUsage?.size;
+      if (Number.isFinite(event.after) && event.after >= 0 && size > 0) {
+        const contextUsage = { used: event.after, size };
+        session = { ...session, contextUsage };
+        state = { ...state, sessions: { ...state.sessions, [sessionId]: session } };
+        if (run) runs = { ...runs, [chatId]: { ...run, contextUsage } };
+      }
       const request = pendingCompaction(state, sessionId);
       if (!request) return addCompaction(state, runs, projectPath, chatId, "done", event);
       const before = request.role === "user" ? (request.context.before ?? event.before) : (event.before ?? request.context.before);

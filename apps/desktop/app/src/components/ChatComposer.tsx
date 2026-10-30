@@ -1,3 +1,5 @@
+import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
+import { compactionContext } from "@milagre/shared/compaction";
 import { providerName } from "@milagre/shared/providers";
 import { SubagentTrack } from "./agents/SubagentTrack";
 import { UpdatePillSlot } from "./UpdateNotice";
@@ -1434,6 +1436,10 @@ export function ChatComposer({
   });
   // Designs are read through the Chat's key; a shared Link Chat uses its Link-scoped key too.
   const artifactChat = runtimeChat;
+  const compactionFeedback = useCompactionFeedback(
+    messages.findLast((item) => compactionContext(item)),
+    runtimeChat,
+  );
   const history = chatHistory(messages);
   const artifactSteps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
   const { userMessages, promptHistory } = history;
@@ -1720,7 +1726,9 @@ export function ChatComposer({
               />
             )}
             {offlineTray}
-            {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
+            {queue && !isNewChat && (
+              <QueuedMessages {...queue} items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))} disabled={sendBlocked} />
+            )}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
             {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
             {review.view !== "closed" && !isNewChat && (
@@ -1739,6 +1747,13 @@ export function ChatComposer({
                 canUndo={Boolean(runtimeChat)}
                 onStop={onStop}
                 onCompact={onCompact}
+                compactionFeedback={compactionFeedback}
+                compacting={Boolean(compactionContext(messages.findLast((message) => compactionContext(message)))?.status === "preparing")}
+                compactQueued={Boolean(queue?.items.some((item) => Boolean(compactionContext(item))))}
+                onCancelCompact={() => {
+                  const item = queue?.items.find((item) => Boolean(compactionContext(item)));
+                  if (item) queue?.onRemove(item.id);
+                }}
                 sendBlocked={sendBlocked}
                 running={isSending}
                 suggestion={!approval && !asking && (!activity || activity.activity === "idle") ? suggestion : undefined}

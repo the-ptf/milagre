@@ -6,7 +6,14 @@ import { DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, resolveThemeSetting
 import type { CustomTheme, ThemeChoice } from "@milagre/shared/themes";
 import type { ChatOrder } from "./chat-list";
 import { DESKTOP_CHAT_ROW_SHOW, parseChatRowShow, type ChatRowShow } from "@milagre/shared/chat-row";
-import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import {
+  parseChatList,
+  parseCompactButtonDisplay,
+  parseToolCallDisplay,
+  type ChatList,
+  type CompactButtonDisplay,
+  type ToolCallDisplay,
+} from "@milagre/shared/chat-display";
 import { DEFAULT_NOTIFICATION_CHIME, parseNotificationChime, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { applyPalette } from "./theme-sheet.ts";
 import { applyAppearance } from "./appearance.ts";
@@ -65,6 +72,8 @@ export interface AppSettings {
   toolCallDisplay: ToolCallDisplay;
   /** Settings › Chat: thinking rows start open. */
   expandReasoning: boolean;
+  showContextSize: boolean;
+  compactButtonDisplay: CompactButtonDisplay;
   /** Settings › Devices: drive the chats of other Macs running Milagre from this window (Add computer, the computers popover). */
   otherComputers: boolean;
   /** Experimental: turning Ultracode on plays the Mortal Kombat Fatality overlay and the announcer's voice. */
@@ -112,6 +121,8 @@ const DEFAULTS: AppSettings = {
   chatRowShow: DESKTOP_CHAT_ROW_SHOW,
   toolCallDisplay: "compact",
   expandReasoning: false,
+  showContextSize: true,
+  compactButtonDisplay: "threshold",
   otherComputers: false,
   ultracodeFatality: false,
   notificationChime: DEFAULT_NOTIFICATION_CHIME,
@@ -157,6 +168,8 @@ function load(): AppSettings {
       chatRowShow: parseChatRowShow(saved.chatRowShow, DEFAULTS.chatRowShow),
       toolCallDisplay: parseToolCallDisplay(saved.toolCallDisplay, saved.muriloMode),
       expandReasoning: typeof saved.expandReasoning === "boolean" ? saved.expandReasoning : DEFAULTS.expandReasoning,
+      showContextSize: typeof saved.showContextSize === "boolean" ? saved.showContextSize : DEFAULTS.showContextSize,
+      compactButtonDisplay: parseCompactButtonDisplay(saved.compactButtonDisplay),
       otherComputers: typeof saved.otherComputers === "boolean" ? saved.otherComputers : DEFAULTS.otherComputers,
       ultracodeFatality: typeof saved.ultracodeFatality === "boolean" ? saved.ultracodeFatality : DEFAULTS.ultracodeFatality,
       notificationChime: parseNotificationChime(saved.notificationChime),
