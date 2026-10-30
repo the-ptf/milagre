@@ -333,6 +333,9 @@ class Held<T> {
  * showed: the session's changes (a Project read, a turn's runs, a keystroke in the composer) reach it once it shows again,
  * which is when it wakes after sliding in (side-panels.tsx), so no render lands on the slide's frames.
  */
+/** A Done row's menu: it only leaves Done. */
+const DONE_MENU = [{ items: [{ id: "reopen", title: "Reopen", systemImage: "arrow.uturn.backward" }] }];
+
 export function ProjectNavigation(props: NavigationProps) {
   const session = useSession();
   // Only what the rows show of the turns: a streaming turn doesn't re-render the list, its start, question or end does.
@@ -1569,25 +1572,37 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     const countdown = doneCountdown(item.chat, retentionOf(doneHours, item.hostId), now);
     return (
       <ChatSwipeRow done unread={false} disabled={offline || !copyOf(item.hostId, item.path)} background={background} onAction={(action) => act(item, action)}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${item.title}, Done${countdown ? `, archived in ${countdown}` : ""}`}
-          accessibilityActions={[{ name: "reopen", label: "Reopen" }]}
-          onAccessibilityAction={() => void act(item, "reopen")}
-          onPress={() => void enter(item.hostId, item.path, item.chat.id)}
-          style={({ pressed }) => [s.doneRow, { opacity: offline ? 0.55 : 1, backgroundColor: pressed ? colors.hover : "transparent" }]}
-        >
-          <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
-          <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, color: colors.ink3 }}>
-            {item.title}
-          </Text>
-          {countdown && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <Icon icon={HourglassIcon} tone="ink3" size={13} />
-              <Text style={[s.detail, { fontWeight: "500", fontVariant: ["tabular-nums"] }]}>{countdown}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", opacity: offline ? 0.55 : 1 }}>
+          {/* A long press or the ⋯ button offers Reopen, so leaving Done needn't be found by swiping. */}
+          <PullDown
+            label={`${item.title}, Done${countdown ? `, archived in ${countdown}` : ""}`}
+            title={item.title}
+            sections={offline ? [] : DONE_MENU}
+            onSelect={(action) => void act(item, action)}
+            onPress={() => void enter(item.hostId, item.path, item.chat.id)}
+            style={{ flex: 1 }}
+          >
+            <View style={[s.doneRow, { paddingRight: 0 }]}>
+              <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, color: colors.ink3 }}>
+                {item.title}
+              </Text>
+              {countdown && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Icon icon={HourglassIcon} tone="ink3" size={13} />
+                  <Text style={[s.detail, { fontWeight: "500", fontVariant: ["tabular-nums"] }]}>{countdown}</Text>
+                </View>
+              )}
             </View>
+          </PullDown>
+          {!offline && (
+            <PullDown label={`Actions for ${item.title}`} title={item.title} sections={DONE_MENU} onSelect={(action) => void act(item, action)}>
+              <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+                <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
+              </View>
+            </PullDown>
           )}
-        </Pressable>
+        </View>
       </ChatSwipeRow>
     );
   }
