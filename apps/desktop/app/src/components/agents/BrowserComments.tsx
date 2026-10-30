@@ -149,8 +149,14 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
   const draft = kept && kept.url === tab.url ? kept : null;
   // Pins follow the Chat's comments and the page's address.
   useEffect(() => {
-    if (live) setPagePins(tab.id, pagePins(comments, tab.url));
-  }, [comments, tab.id, tab.url, live]);
+    if (live)
+      setPagePins(tab.id, [
+        ...pagePins(comments, tab.url),
+        ...(draft
+          ? [{ n: comments.pending.length + 1, selector: draft.element.selector, point: draft.element.point, text: draft.text, state: "pending" as const }]
+          : []),
+      ]);
+  }, [comments, draft, tab.id, tab.url, live]);
   // Comment mode: pick an element, write its comment, pick the next, until Escape or the toggle ends it.
   const picking = comments.commenting && live && !draft;
   useEffect(() => {
@@ -185,7 +191,7 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
             data-slot="browser-comment-hint"
             className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
           >
-            Click an element to comment on it · Esc to stop
+            Click anywhere to place a comment pin · Esc to stop
           </div>,
           overlay,
         )
@@ -233,9 +239,11 @@ function CommentBox({
   const field = useRef<HTMLTextAreaElement>(null);
   useEffect(() => field.current?.focus(), []);
   const { box, viewport } = element;
-  const below = box.y + box.height + 8 + 120 <= viewport.height;
-  const left = Math.max(8, Math.min(box.x + Math.min(box.width, 24), viewport.width - BOX_WIDTH - 8));
-  const top = below ? box.y + box.height + 8 : Math.max(8, box.y - 8 - 120);
+  const x = box.x + (element.point?.x ?? 0.5) * box.width;
+  const y = box.y + (element.point?.y ?? 0.5) * box.height;
+  const below = y + 8 + 120 <= viewport.height;
+  const left = Math.max(8, Math.min(x + 24, viewport.width - BOX_WIDTH - 8));
+  const top = below ? y + 8 : Math.max(8, y - 8 - 120);
   const add = () => {
     if (text.trim()) onAdd(text.trim());
   };
@@ -244,7 +252,7 @@ function CommentBox({
     <div
       data-slot="browser-comment-box"
       role="dialog"
-      aria-label="Comment on this element"
+      aria-label="Comment at this pin"
       style={{ left, top, width: BOX_WIDTH, borderRadius: below ? "3px 10px 10px 10px" : "10px 10px 10px 3px" }}
       className="pointer-events-auto absolute flex flex-col gap-2 border border-line-strong bg-surface p-3 text-ink shadow-raised"
     >

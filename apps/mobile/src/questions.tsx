@@ -1,3 +1,4 @@
+import { SecretQuestion } from "./secret-question";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { ArrowLeft01Icon, ArrowRight01Icon, ArrowUp01Icon, PencilEdit02Icon, ShieldAlertIcon, Tick02Icon } from "@hugeicons/core-free-icons";
@@ -68,6 +69,7 @@ export function Questions({
   const inline = variant === "inline";
   const questions = request.questions;
   const question = questions[Math.max(0, Math.min(page, questions.length - 1))];
+  if (request.secretRequest) return <SecretQuestion key={request.requestId} variant={variant} request={request} busy={busy} submit={submit} />;
   if (!question) return null;
   const answerOf = (q: AgentQuestion) => {
     const answer = typed[q.id]?.trim();

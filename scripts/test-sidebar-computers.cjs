@@ -196,7 +196,7 @@ async function browserChecks() {
 
     await evaluate(`document.querySelector('[data-computer-row="c-atlas"] [data-computer-gear]').click()`);
     await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
-    const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="switch"]')`;
+    const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="checkbox"]')`;
     assert.equal(await evaluate(`${sidebarSwitch}.getAttribute('aria-checked')`), "true");
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'false'`);
@@ -499,17 +499,15 @@ async function browserChecks() {
     await evaluate(
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].find((b) => b.textContent.includes('Backup rotation')).click()`,
     );
-    await waitFor(`!!document.querySelector('[data-offline-banner]')`);
-    assert.equal(
-      await evaluate(`document.querySelector('[data-offline-banner]').textContent.trim()`),
-      "studio is offline. This is the last copy it sent, 2h ago. You can read it until studio is back.",
-    );
-    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-disabled')`), "true");
-    assert.match(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-placeholder')`), / \(studio is offline\)$/);
+    await waitFor(`!!document.querySelector('[data-offline-chip]')`);
+    assert.equal(await evaluate(`document.querySelector('[data-offline-chip]').textContent.trim()`), "studiooffline");
+    assert.equal(await evaluate(`!!document.querySelector('[data-offline-composer] [data-offline-tray]')`), true, "the chip sits in the composer's tray");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-disabled')`), null);
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').getAttribute('aria-placeholder')`), "Queue a message for studio…");
     assert.equal(await evaluate(`!!document.querySelector('[data-offline-empty]')`), false, "a cached chat shows its copy");
     assert.ok(await evaluate(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`));
     await screenshot("offline-chat");
-    console.log("PASS: an offline computer's chat shows the last copy under the banner, with the composer off");
+    console.log("PASS: an offline computer's chat shows the last copy, with the composer in a tray naming the computer offline");
 
     await evaluate(
       `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/notes"] [data-chat-id] button')].find((b) => b.textContent.includes('Never opened here')).click()`,
@@ -531,21 +529,51 @@ async function browserChecks() {
     );
     await waitFor(`document.querySelector('[data-chat-pane]').textContent.includes('Rotate the nightly backups.')`);
 
-    // The computer comes back: the banner goes and sending works, to that computer.
+    await evaluate(
+      `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Queued while studio sleeps"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
+    );
+    await waitFor(`!!document.querySelector('[data-offline-tray] [data-outbox-state="queued"]')`);
+    // The clock says it waits; the row shows only the message.
+    assert.equal(await evaluate(`document.querySelector('[data-offline-message]').textContent`), "Queued while studio sleeps");
+    await waitFor(`[...document.querySelectorAll('[data-chat-waiting]')].some((node) => node.textContent === "1 waiting")`);
+    assert.equal(await evaluate(`window.sent.length`), 0, "offline enqueue never sends to the host");
+    assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "", "the composer clears after the durable write");
+    await screenshot("offline-queued");
+    await new Promise((resolve) => {
+      window.webContents.once("did-finish-load", resolve);
+      window.webContents.reload();
+    });
+    await waitFor(
+      `!document.querySelector('.startup-splash-screen') && [...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].some((b) => b.textContent.includes('Backup rotation'))`,
+      20000,
+    );
+    // The sidebar row still says what waits for studio after a restart.
+    await waitFor(`[...document.querySelectorAll('[data-chat-waiting]')].some((node) => node.textContent === "1 waiting")`);
+    await evaluate(
+      `[...document.querySelectorAll('[data-sidebar-scope="c-studio|/Users/s/homelab"] [data-chat-id] button')].find((b) => b.textContent.includes('Backup rotation')).click()`,
+    );
+    await waitFor(
+      `!!document.querySelector('[data-offline-chip]') && document.querySelector('[data-offline-tray]')?.textContent.includes('Queued while studio sleeps')`,
+    );
+    assert.equal(await evaluate(`window.sent.length`), 0, "restarting while offline keeps the message local, in its Chat");
+    await screenshot("offline-queued-after-restart");
+    // The computer comes back: the chip goes, the message goes out and leaves the tray, and sending works, to that computer.
     await evaluate(
       `window.setComputers(window.computerList.map((c) => c.id === 'c-studio' ? { ...c, state: 'online', route: 'relay', lastSeen: Date.now() } : c))`,
     );
-    await waitFor(`!document.querySelector('[data-offline-banner]') && !document.querySelector('[data-prompt-editor]').hasAttribute('aria-disabled')`);
+    await waitFor(`!document.querySelector('[data-offline-chip]') && !document.querySelector('[data-prompt-editor]').hasAttribute('aria-disabled')`);
+    await waitFor(`window.sent.length === 1 && !document.querySelector('[data-outbox-state]') && !document.querySelector('[data-offline-composer]')`);
+    assert.equal(await evaluate(`window.sent[0].body`), "Queued while studio sleeps");
     await evaluate(
       `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Keep 8 dailies"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
-    await waitFor(`window.sent.length === 1`);
+    await waitFor(`window.sent.length === 2`);
     assert.equal(await evaluate(`window.sent[0].projectPath`), "c-studio|/Users/s/homelab", "the send goes to studio's bridge, with the key main strips");
     console.log("PASS: back online, the composer sends to that computer");
 
     // Removing the computer whose chat is open brings this Mac's Project back.
     await evaluate(`window.setComputers(window.computerList.filter((c) => c.id !== 'c-studio'))`);
-    await waitFor(`!document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]') && !document.querySelector('[data-offline-banner]')`);
+    await waitFor(`!document.querySelector('[data-sidebar-scope="c-studio|/Users/s/homelab"]') && !document.querySelector('[data-offline-chip]')`);
     await waitFor(`document.querySelector('[data-sidebar-scope][data-current]')?.dataset.sidebarScope === '/work/milagre-ade'`);
     console.log("PASS: removing the open chat's computer goes back to this Mac's Project");
 

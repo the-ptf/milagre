@@ -8,6 +8,7 @@ import {
   type ToolCallDisplay,
 } from "@milagre/shared/chat-display";
 import { dictationLanguage } from "@milagre/shared/dictation";
+import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
 import { createNavigationStore } from "./navigation-store";
@@ -210,6 +211,21 @@ export async function savePanelWidth(width: number) {
   }
 }
 const dictationLanguageKey = "milagre.dictation-language.v1";
+const dictationActionKey = "milagre.dictation-action.v1";
+export async function readDictationAction(): Promise<DictationActionPreference> {
+  try {
+    return parseDictationAction(await SecureStore.getItemAsync(dictationActionKey));
+  } catch {
+    return "paste";
+  }
+}
+export async function saveDictationAction(action: DictationActionPreference) {
+  try {
+    await SecureStore.setItemAsync(dictationActionKey, action);
+  } catch {
+    /* best effort */
+  }
+}
 /** Settings › Chat › Dictation: a language code, or "auto" (the phone's language on iPhone, detected each take on Android). */
 export async function readDictationLanguage(): Promise<string> {
   try {
@@ -263,4 +279,19 @@ export async function savePermission(mode: string) {
   } catch {
     /* best effort */
   }
+}
+
+const internalBrowserKey = "milagre.internal-browser.v1";
+/** Device-local link preference, matching desktop's default. */
+export async function readInternalBrowser(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(internalBrowserKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveInternalBrowser(on: boolean) {
+  await SecureStore.setItemAsync(internalBrowserKey, on ? "on" : "off", {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
 }

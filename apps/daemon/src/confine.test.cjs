@@ -126,6 +126,7 @@ const callsAt = (target, demo) => [
   ],
   ["chat:resume", [target, 1]],
   ["chat:patch", [target, 1, { title: "Renamed" }]],
+  ["chat:delete", [target, 1]],
   ["chat:archive-subagent", [target, 1, "child", true]],
   ["chat:archive-finished-subagents", [target, 1]],
   ["agent:interrupt", [`${target}#1`]],
@@ -650,6 +651,8 @@ test("a confined phone reads the Babysit PRs settings but can't change them", as
   const confine = createConfinement({ allowedRoot: os.tmpdir() });
   await confine.checkCall("babysit:settings:read", []);
   await assert.rejects(confine.checkCall("babysit:settings:save", [{ level: 5 }]), { status: 403, message: REFUSED });
+  await confine.checkCall("done:settings:read", []);
+  await assert.rejects(confine.checkCall("done:settings:save", [{ retentionHours: 1 }]), { status: 403, message: REFUSED });
 });
 
 // keybindings.json names no folder, but a confined phone has no business rebinding the Mac's keys.
@@ -728,6 +731,17 @@ test("phones link chats with canvas Links, but a confined demo phone sees and ch
     assert.ok(METHODS.has(method), method);
     await assert.rejects(confine.checkCall(method, args), { status: 403, message: REFUSED });
   }
+});
+
+test("a phone reads the Mac's desktop app update, and a confined one never checks or installs it", async (t) => {
+  for (const method of ["app-update:state", "app-update:check", "app-update:install"]) assert.ok(METHODS.has(method), method);
+  const confine = createConfinement({ allowedRoot: os.tmpdir() });
+  assert.deepEqual((await confine.checkCall("app-update:state", [])).args, []);
+  for (const method of ["app-update:check", "app-update:install"]) await assert.rejects(confine.checkCall(method, []), { status: 403, message: REFUSED });
+  // Through the bridge, on a Mac with no desktop app open: the state reads null, and the confined phone starts nothing.
+  const f = await fixture(t);
+  assert.deepEqual(await f.rpc("app-update:state"), { status: 200, body: { v: 1, result: null } });
+  for (const method of ["app-update:check", "app-update:install"]) assert.deepEqual(await f.rpc(method), { status: 403, body: refusedBody });
 });
 
 test("phones can't connect or disconnect Linear", () => {

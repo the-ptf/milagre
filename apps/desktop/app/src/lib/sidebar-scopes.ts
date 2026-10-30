@@ -113,6 +113,7 @@ export function scopeChats(
       label: chatTitle(session, sessionMessages),
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
+      ...(session.done_at ? { doneAt: session.done_at } : {}),
       unread: Boolean(session.unread),
       mark: chatMark({
         asking: asking.has(chatKey),

@@ -763,6 +763,10 @@ interface ChatComposerProps {
   offlineName?: string | null;
   /** The connection to the chat's computer is coming back: the draft stays writable, and Send waits for it. */
   reconnectingName?: string | null;
+  /** Above the prompt, inside a tray like a new Chat's: messages waiting on this Mac and the offline computer's chip. */
+  offlineTray?: ReactNode;
+  /** The Chat is mounted but not on screen (Settings, the canvas, Routines): its Browser panel and button go away. */
+  offScreen?: boolean;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
   /** Sends the Browser panel's page comments, with their screenshots. */
@@ -1188,6 +1192,8 @@ export function ChatComposer({
   mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
   reconnectingName,
+  offlineTray,
+  offScreen = false,
   scopeKind,
   imageDraft,
   projectPath,
@@ -1322,6 +1328,8 @@ export function ChatComposer({
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
   // Pages open on the viewing Mac, including pages linked from a Chat on another computer.
   const browserChat = !isNewChat ? runtimeChat : null;
+  // The panel docks outside the chat pane, so the pane hiding doesn't hide it.
+  const browserShown = browserChat && !offScreen ? browserChat : null;
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
@@ -1661,9 +1669,11 @@ export function ChatComposer({
               onOpen={browserChat ? (url) => openBrowserTab(browserChat, url) : undefined}
             />
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
-            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
+            <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} offScreen={offScreen} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
-            {browserChat && <BrowserPanel key={`browser-panel-${browserChat}`} chatKey={browserChat} ports={ports ?? []} onSendComments={onSendPageComments} />}
+            {browserShown && (
+              <BrowserPanel key={`browser-panel-${browserShown}`} chatKey={browserShown} ports={ports ?? []} onSendComments={onSendPageComments} />
+            )}
             <SubagentTrack
               key={chatId}
               chatKey={runtimeChat}
@@ -1688,7 +1698,13 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
-          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[28px] border border-line bg-inset p-1.5 pt-1" : ""}>
+          <div
+            data-composer-tray={projectNewChat || undefined}
+            data-offline-composer={(!projectNewChat && offlineTray) || undefined}
+            className={
+              projectNewChat || offlineTray ? `rounded-[28px] border bg-inset p-1.5 pt-1 ${projectNewChat ? "border-line" : "border-line-strong"}` : ""
+            }
+          >
             {projectNewChat && (
               <NewChatHeader
                 worktrees={worktrees}
@@ -1708,6 +1724,7 @@ export function ChatComposer({
                 onComputerChange={changeComputer}
               />
             )}
+            {offlineTray}
             {queue && !isNewChat && (
               <QueuedMessages {...queue} items={queue.held ? queue.items : queue.items.filter((item) => !compactionContext(item))} disabled={sendBlocked} />
             )}
@@ -1716,7 +1733,7 @@ export function ChatComposer({
             {review.view !== "closed" && !isNewChat && (
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
-            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+            <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
                 offlineName={offlineName}
                 reconnectingName={reconnectingName}

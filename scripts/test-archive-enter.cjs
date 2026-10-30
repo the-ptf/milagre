@@ -75,76 +75,47 @@ async function browserChecks() {
     await waitFor('document.querySelector("[aria-label=\\"Chat actions\\"]")');
     win.focus();
 
-    // The worktree is checked as the menu opens; until then Archive is disabled and there is no checking row.
+    // A pending Worktree check cannot hold Delete up or add a second step.
     await openMenu();
-    assert.equal(await evaluate("window.checks"), 1, "Opening the menu starts the check");
-    assert.equal(await evaluate(`document.querySelector('${archiveRow}').textContent`), "Archive");
-    assert.ok(await evaluate(`document.querySelector('${archiveRow}').disabled`), "Archive waits for the check");
-    await shot("pending.png");
+    assert.equal(await evaluate("window.checks"), 1);
+    assert.equal(await evaluate(`document.querySelector('${archiveRow}').textContent`), "Delete");
+    assert.equal(await evaluate(`document.querySelector('${archiveRow}').disabled`), false);
+    await shot("delete.png");
     await click(archiveRow);
-    await press("Enter");
-    assert.deepEqual(await evaluate("window.calls"), [], "Nothing archives before the check is back");
-    assert.equal(await evaluate('!!document.querySelector("[data-archive-choice]")'), false, "A click before the check doesn't arm");
-
-    // Once checked, Archive goes straight to its choice, and Enter confirms it wherever focus is.
-    await evaluate("window.releaseCheck()");
-    await waitFor(`!document.querySelector('${archiveRow}').disabled`);
-    await click(archiveRow);
-    assert.equal(
-      await evaluate('document.querySelector("[data-archive-choice]")?.textContent'),
-      "Archive and remove worktree",
-      "No checking step after the click",
-    );
-    assert.equal(await evaluate('document.body.textContent.includes("Checking worktree")'), false);
-    await shot("armed.png");
-    await evaluate("document.activeElement.blur()");
-    await press("Enter");
-    assert.deepEqual(await evaluate("window.calls"), ["archive:remove"], "Enter confirms the archive");
+    assert.deepEqual(await evaluate("window.calls"), ["archive:hide"], "One click immediately deletes the conversation");
     await waitFor('!document.querySelector("[data-chat-menu]")');
-
-    assert.ok(await evaluate('document.querySelector("[role=status]")?.textContent.includes("Archiving")'), "Pending archive is visible after the menu closes");
-    assert.ok(
-      await evaluate(`(() => {
-        const row = document.querySelector("[data-row]").getBoundingClientRect();
-        const box = document.querySelector("[role=status]").getBoundingClientRect();
-        return document.querySelector("[data-row]").disabled && box.top <= row.top && box.bottom >= row.bottom && box.width >= row.width;
-      })()`),
-      "The progress covers the whole row, which takes no clicks",
-    );
-    await shot("archiving.png");
-    await click('[aria-label="Chat actions"]');
-    assert.equal(await evaluate('!!document.querySelector("[data-chat-menu]")'), false, "Pending archive cannot be repeated");
+    assert.equal(await evaluate('!!document.querySelector("[data-archive-choice], [data-archive-reason]")'), false);
+    await evaluate("window.releaseCheck()");
+    await delay(50);
+    assert.deepEqual(await evaluate("window.calls"), ["archive:hide"], "A late check cannot add file deletion");
     await evaluate("window.finishArchive()");
     await waitFor('!document.querySelector("[role=status]")');
 
-    // A row reached with the arrow keys keeps Enter for itself.
+    // A checked Worktree uses its cleanup mode on the same single click.
     await evaluate("window.calls = []");
     await openMenu();
     await evaluate("window.releaseCheck()");
-    await waitFor(`!document.querySelector('${archiveRow}').disabled`);
+    await delay(50);
     await click(archiveRow);
-    await waitFor('document.querySelector("[data-archive-choice]")');
+    assert.deepEqual(await evaluate("window.calls"), ["archive:remove"]);
+    await waitFor('!document.querySelector("[data-chat-menu]")');
+    assert.ok(await evaluate('document.querySelector("[role=status]")?.textContent.includes("Deleting")'));
+    await shot("deleting.png");
+    await click('[aria-label="Chat actions"]');
+    assert.equal(await evaluate('!!document.querySelector("[data-chat-menu]")'), false, "An in-flight deletion cannot be repeated");
+    await evaluate("window.finishArchive()");
+    await waitFor('!document.querySelector("[role=status]")');
+
+    // Keyboard navigation still runs the focused action rather than Delete.
+    await evaluate("window.calls = []");
+    await openMenu();
+    await evaluate(`document.querySelector('${archiveRow}').focus()`);
     await press("Up");
     assert.equal(await evaluate("document.activeElement.textContent"), "Mark as unread");
     await press("Enter");
-    assert.deepEqual(await evaluate("window.calls"), ["unread:true"], "Enter on another row runs that row only");
+    assert.deepEqual(await evaluate("window.calls"), ["unread:true"]);
 
-    // A check that never answers must not leave Archive disabled forever.
-    await evaluate("window.calls = []");
-    await openMenu();
-    await delay(5_100);
-    await waitFor(`!document.querySelector('${archiveRow}').disabled`);
-    await click(archiveRow);
-    assert.equal(await evaluate('document.querySelector("[data-archive-choice]")?.textContent'), "Confirm archive");
-    // A late response cannot change an already displayed confirmation into Worktree deletion.
-    await evaluate("window.releaseCheck()");
-    await delay(50);
-    assert.equal(await evaluate('document.querySelector("[data-archive-choice]")?.textContent'), "Confirm archive");
-    await press("Enter");
-    assert.deepEqual(await evaluate("window.calls"), ["archive:hide"]);
-    await evaluate("window.finishArchive()");
-
-    console.log("PASS: check runs on open, Archive waits for it with no checking row, Enter confirms wherever focus is, arrowed rows keep Enter");
+    console.log("PASS: Delete acts on one click without confirmation or explanatory callouts; arrowed rows keep Enter");
     app.exit(0);
   } catch (error) {
     console.error(error);

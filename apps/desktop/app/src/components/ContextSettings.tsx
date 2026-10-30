@@ -5,7 +5,7 @@ import { CONTEXT_DEFAULTS, normalizeContextSettings, type ContextSettings as Val
 import { useContextSettings } from "../lib/context-settings";
 import { useSettings, updateSettings } from "../lib/settings";
 import { ContextBar } from "./ContextBar";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 import { RangeSlider } from "./primitives/RangeSlider";
 export function ContextSettings() {
   const local = useSettings();
@@ -61,14 +61,14 @@ export function ContextSettings() {
           <p>Context size beside Send</p>
           <p className="mt-1 text-12 text-ink-3">Click it for usage and Compact now.</p>
         </div>
-        <Switch label="Show context size" checked={local.showContextSize} onChange={(showContextSize) => updateSettings({ showContextSize })} />
+        <SettingCheckbox label="Show context size" checked={local.showContextSize} onChange={(showContextSize) => updateSettings({ showContextSize })} />
       </div>
       <div className="flex items-center justify-between gap-6 border-t border-line p-4">
         <div>
           <p>Auto compact quietly</p>
           <p className="mt-1 text-12 text-ink-3">Compacts at your limit without context controls or notifications.</p>
         </div>
-        <Switch label="Auto compact quietly" disabled={disabled} checked={value.autoCompact} onChange={(autoCompact) => save({ autoCompact })} />
+        <SettingCheckbox label="Auto compact quietly" disabled={disabled} checked={value.autoCompact} onChange={(autoCompact) => save({ autoCompact })} />
       </div>
       <div className="border-t border-line p-4">
         <p>Thresholds on this computer</p>
@@ -168,7 +168,7 @@ export function ContextSettings() {
           <p>Show Compact below threshold</p>
           <p className="mt-1 text-12 text-ink-3">Off by default. The button appears only at your threshold.</p>
         </div>
-        <Switch
+        <SettingCheckbox
           label="Show Compact below threshold"
           checked={local.compactButtonDisplay === "always"}
           onChange={(on) => updateSettings({ compactButtonDisplay: on ? "always" : "threshold" })}

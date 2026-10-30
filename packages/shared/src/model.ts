@@ -162,6 +162,8 @@ export interface AgentSession {
   pinned?: boolean;
   /** Where a pinned chat sits among the pinned ones, lowest first. Kept when unpinned; only read while pinned. */
   pin_order?: number;
+  /** When the user marked the chat Done (host clock, ms): it sits in the Done list until the host archives it (done.mjs). */
+  done_at?: number;
   /** Legacy (before in-place handoff): the chat this one was handed over to, on the other provider. Read, never written. */
   handedOverTo?: number;
   /** Legacy (before in-place handoff): the chat this one was handed over from. Read, never written. */
@@ -757,6 +759,8 @@ export interface AgentQuestion {
 /** Questions a turn waits on, asked together. */
 export interface QuestionRequest {
   requestId: string;
+  /** Host-owned request: values go to a private file, never a provider question response. */
+  secretRequest?: { description: string; expiresAt?: number };
   questions: AgentQuestion[];
 }
 

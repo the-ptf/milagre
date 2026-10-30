@@ -21,6 +21,7 @@ import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/s
 
 import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
 import { dictationLanguage } from "@milagre/shared/dictation";
+import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 
 export type ThemePreference = "system" | "light" | "dark";
 /** Whether plan usage reads as the share used or the share left. */
@@ -86,6 +87,7 @@ export interface AppSettings {
   appearance: Appearance;
   /** Settings › Chat: the language dictation listens for, a Whisper code, or "auto" to detect it each take. */
   dictationLanguage: string;
+  dictationAction: DictationActionPreference;
 }
 
 const STORAGE_KEY = "milagre-settings";
@@ -128,6 +130,7 @@ const DEFAULTS: AppSettings = {
   routineNudges: true,
   appearance: DEFAULT_APPEARANCE,
   dictationLanguage: "auto",
+  dictationAction: "paste",
 };
 
 function load(): AppSettings {
@@ -180,6 +183,7 @@ function load(): AppSettings {
       routineNudges: typeof saved.routineNudges === "boolean" ? saved.routineNudges : DEFAULTS.routineNudges,
       appearance: parseAppearance(saved.appearance),
       dictationLanguage: dictationLanguage(saved.dictationLanguage),
+      dictationAction: parseDictationAction(saved.dictationAction),
     };
   } catch {
     return DEFAULTS;
