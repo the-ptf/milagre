@@ -31,7 +31,21 @@ export function ToastPill({ text, icon, onUndo }: { text: string; icon?: IconDat
       {icon ? <Icon icon={icon} color={colors.onInk} size={18} /> : null}
       <Text style={{ flexShrink: 1, color: colors.onInk, fontSize: type.subheadline, fontWeight: "500" }}>{text}</Text>
       {onUndo ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Undo" hitSlop={12} onPress={onUndo} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Undo"
+          hitSlop={12}
+          onPress={onUndo}
+          // A thumb-sized target: a missed Undo leaves the Chat deleted or Done.
+          style={({ pressed }) => ({
+            minWidth: 44,
+            minHeight: 44,
+            marginVertical: -10,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
           <Text style={{ color: colors.onInk, fontSize: type.subheadline, fontWeight: "600" }}>Undo</Text>
         </Pressable>
       ) : null}

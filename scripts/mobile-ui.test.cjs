@@ -5080,9 +5080,9 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   const { ChatSwipeRow } = load("chat-swipe-row.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
     "react-native-gesture-handler/ReanimatedSwipeable": { default: "Swipeable" },
-    "react-native-reanimated": { ReduceMotion: { Always: "always", System: "system" } },
+    "react-native-reanimated": { ReduceMotion: { Always: "always", System: "system" }, useDerivedValue: (read) => ({ get: read }) },
     "@hugeicons/core-free-icons": {},
     "./icons": { Icon: "Icon" },
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
@@ -5111,7 +5111,7 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   row.props.onSwipeableOpen("right");
   row.props.onSwipeableOpen("left");
   assert.deepEqual(calls, ["read"], "another swipe cannot mark Done while a read is pending");
-  assert.equal(render(true).props.enabled, false);
+  assert.equal(render(true).props.enabled.get(), false);
   pending.resolve();
   await settle();
   row = render(false);
@@ -5122,7 +5122,7 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done"]);
   row = render(false, true);
-  assert.equal(row.props.enabled, false);
+  assert.equal(row.props.enabled.get(), false);
   row.props.onSwipeableOpen("left");
   assert.deepEqual(calls, ["read", "unread", "done"]);
   // A Done row reopens with a swipe right and has nothing to swipe left to.
@@ -5141,6 +5141,30 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   assert.equal(row.props.containerStyle, undefined);
   assert.equal(render(false, false, false, false).props.onSwipeableOpen, row.props.onSwipeableOpen);
   assert.ok(closes >= 3, "rows close after the action");
+  assert.equal(row.props.hitSlop, undefined, "outside the sidebar a row swipes across its whole width");
+
+  // In the slide-over sidebar a left swipe only reveals Done, which a tap commits; the row leaves its right edge to the
+  // sidebar's close, and takes no swipe while the sidebar slides.
+  let open = true;
+  react.useContext = () => ({ get: () => open });
+  row = render(true);
+  assert.equal(row.props.hitSlop.right, -32);
+  assert.equal(row.props.enabled.get(), true);
+  assert.equal(render(true).props.hitSlop, row.props.hitSlop, "the edge keeps its identity across renders");
+  open = false;
+  assert.equal(row.props.enabled.get(), false, "a sliding sidebar's rows take no swipe");
+  open = true;
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"], "a revealed Done waits for its tap");
+  const done = row.props.renderRightActions();
+  assert.equal(done.type, "Pressable");
+  done.props.onPress();
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive", "done"]);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  assert.deepEqual(calls.at(-1), "read", "a right swipe still commits on release");
 });
 
 test("an older Mac's rows offer no Done, and their left swipe archives as before", () => {
@@ -17222,6 +17246,7 @@ function panelHandoffHost() {
     "./motion": { springTo: (value) => value, scaledTiming: (value) => value },
     "./theme": { getMotionScale: () => 1 },
     "./panel-motion": {},
+    "./chat-swipe-row": { ClosesLeftContext: { Provider: "ClosesLeftProvider" }, hideRevealed() {} },
     "./simulator": {},
     "./designs-sheet": {},
     "./artifact": {},
