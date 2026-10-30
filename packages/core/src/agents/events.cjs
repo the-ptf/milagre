@@ -77,7 +77,7 @@ const MILAGRE_INSTRUCTIONS = milagreInstructions();
 function hostNetworkInstructions({ name, addresses = [] } = {}) {
   if (!addresses.length) return "";
   const [first] = addresses;
-  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another Mac through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, instead of a localhost one: that link opens on this computer too. Milagre points localhost links in your replies at this computer for a user on another device.`;
+  return `Network: this Chat runs on ${name ? `the computer "${name}"` : "this computer"}, at ${addresses.join(", ")}. The user may be reading from another device (their phone, or another computer through Milagre), where localhost is that device, not this one. When you start a server for the user to open, bind it to all interfaces (0.0.0.0: \`vite --host\`, \`next dev -H 0.0.0.0\`, \`python -m http.server --bind 0.0.0.0\`) and give its link with this computer's address, such as http://${first}:5173, instead of a localhost one: that link opens on this computer too. Milagre points localhost links in your replies at this computer for a user on another device.`;
 }
 
 // The system prompt of an analysis-only advisor (advisors.cjs). It has only the read tools it is given, so it gets none
@@ -115,7 +115,10 @@ const RESUME_FAILED_MESSAGE =
 // What a turn fails with when an agent's CLI can't run it. Each names the fix; the next message checks again.
 // Claude and Codex are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
 // instructions point at Settings, not at a shell command.
-const INSTALL_COMMANDS = { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "npm install -g @openai/codex" };
+const INSTALL_COMMANDS =
+  process.platform === "win32"
+    ? { claude: "irm https://claude.ai/install.ps1 | iex", codex: "irm https://chatgpt.com/codex/install.ps1 | iex" }
+    : { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" };
 const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update" };
 const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login" };
 const SETTINGS_ACCOUNTS = "Milagre Settings \u2192 Accounts";

@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { ThisComputer } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React, { useState } from "react";
@@ -81,7 +82,7 @@ async function browserChecks() {
     await waitFor(`document.querySelector('dialog[data-add-project]')?.open && !!${on("c-studio")}`);
     assert.equal(await evaluate(`${on("c-studio")}.disabled`), true, "an offline computer can't be chosen");
     assert.match(await text('[data-add-project-on="c-arketa"]'), /arketa\s*Same network/);
-    assert.match(await text('[data-add-project-on="this-mac"]'), /victor-mbp\s*This Mac/);
+    assert.match(await text('[data-add-project-on="this-mac"]'), new RegExp(`victor-mbp\\s*${ThisComputer}`));
     await evaluate(`${on("this-mac")}.click()`);
     await evaluate(`[...document.querySelectorAll('dialog button')].find((b) => b.textContent.trim() === 'Choose folder…').click()`);
     await waitFor(`window.localDialogs === 1`);

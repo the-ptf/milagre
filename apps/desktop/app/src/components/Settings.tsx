@@ -122,6 +122,7 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update
 import { updateDescription } from "@milagre/shared/app-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
+import { computerNoun, thisComputer } from "../lib/shortcut-hints";
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -378,7 +379,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         {status}
       </p>
       <Group title="General">
-        <Row label="Name" description="Shown on its chats in the sidebar. Only on this Mac.">
+        <Row label="Name" description={`Shown on its chats in the sidebar. Only on ${thisComputer}.`}>
           <input
             aria-label="Name"
             value={name}
@@ -391,7 +392,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
           />
         </Row>
         <div data-computer-show-in-sidebar>
-          <Row label="Show in sidebar" description={`${computer.name}'s Projects in the sidebar on this Mac. It stays connected while hidden.`}>
+          <Row label="Show in sidebar" description={`${computer.name}'s Projects in the sidebar on ${thisComputer}. It stays connected while hidden.`}>
             <SettingCheckbox label="Show in sidebar" checked={!hiddenComputers.has(computer.id)} onChange={(show) => setComputerHidden(computer.id, !show)} />
           </Row>
         </div>
@@ -454,8 +455,8 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
-          description={`Its chats leave this sidebar and this Mac forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
-            waiting.length ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on this Mac for it will be discarded.` : ""
+          description={`Its chats leave this sidebar and ${thisComputer} forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
+            waiting.length ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on ${thisComputer} for it will be discarded.` : ""
           }`}
         >
           {confirming ? (
@@ -842,10 +843,10 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
       </Group>
       <Group title="System">
         <Row
-          label="Keep the Mac awake"
+          label={`Keep the ${computerNoun} awake`}
           description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it."
         >
-          <SettingCheckbox label="Keep the Mac awake" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
+          <SettingCheckbox label={`Keep the ${computerNoun} awake`} checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
         </Row>
       </Group>
       <Group title="Plan usage">
@@ -1216,13 +1217,13 @@ function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }
   const { otherComputers } = useSettings();
   return (
     <Group>
-      <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
+      <Row label="Drive other computers" description="Drive the chats of other computers running Milagre from this window. Their Projects join the sidebar.">
         <SettingCheckbox label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
       {otherComputers && onAddComputer && (
         <Row
           label="Add computer"
-          description="Pair with another Mac using the link from its Settings › Devices. The laptop button in the sidebar adds one too."
+          description="Pair with another computer using the link from its Settings › Devices. The laptop button in the sidebar adds one too."
         >
           <button type="button" data-settings-add-computer onClick={onAddComputer} className={SECONDARY_BUTTON}>
             Add computer…
@@ -1496,7 +1497,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { computers, phones } = devicesByKind(paired.list ?? []);
   return (
     <>
-      <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
+      <p className="mt-1 text-[13px] text-ink-2">Phones and other computers that can see and drive {thisComputer}'s chats.</p>
       <DeviceResources />
       <Group>
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
@@ -1521,7 +1522,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         )}
         {status?.state === "on" && status.remote === "none" && (
           <p data-phone-local-only className="px-4 py-3 text-[12px] text-ink-3">
-            Only a phone simulator on this Mac can connect. Set up a Cloudflare tunnel with npm run mobile:cloudflare to reach this Mac from any network.
+            Only a phone simulator on {thisComputer} can connect. Set up a Cloudflare tunnel with npm run mobile:cloudflare to reach {thisComputer} from any
+            network.
           </p>
         )}
         {status?.state === "error" && status.error && (
@@ -2111,7 +2113,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
   }
   return (
     <div data-show-in-sidebar>
-      <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
+      <Row label="Show in sidebar" description={`In the sidebar on ${thisComputer}. Filters › Projects chooses them all at once.`}>
         <SettingCheckbox label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}

@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { Delegations } = require("./delegations.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 // Delegations between computers (spec 2026-10-23), with every runtime part faked: `studio` is the paired computer that
 // runs the turn (its Delegations take `hosted` records), `desk` the Mac whose Chat delegates. Calls between them go
@@ -238,7 +239,7 @@ test("removing the computer cancels its open Delegations here, with a notice in 
   const [note] = fake.deskNotes;
   assert.equal(note.key, "/api#1");
   assert.equal(note.context.status, "cancelled");
-  assert.match(note.body, /^studio was removed from this Mac's computers, so this Delegation was cancelled here/);
+  assert.match(note.body, new RegExp(`^studio was removed from ${thisComputer}'s computers, so this Delegation was cancelled here`));
   assert.match((await fake.desk.reportsForTurn("/api#1")).text, /studio was removed/);
   // A report that still arrives settles nothing more.
   await fake.finish("/web#9");

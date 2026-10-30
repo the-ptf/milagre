@@ -71,6 +71,7 @@ import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
 import { WorkspaceIcon } from "../WorkspaceIcon";
+import { fileManager } from "@/lib/shortcut-hints";
 import { useOutboxWaiting } from "../../lib/outbox";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
@@ -227,8 +228,6 @@ type MenuEntry = {
   disabled?: boolean;
   danger?: boolean;
 };
-
-const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 
 /* ─────────────────────────────────────────────────────────
  * CHAT MARK
@@ -930,7 +929,7 @@ export const ChatRow = memo(function ChatRow({
             pullRequests={pullRequests}
             linearIssue={linearIssue}
             diff={diff}
-            computer={rowComputer && (!rowComputer.local || rowComputer.offline) ? rowComputer : undefined}
+            computer={rowComputer}
             archiving={archiving}
             waiting={waiting}
           />
@@ -1570,7 +1569,7 @@ function ChatMenu({
       : [
           {
             key: "reveal",
-            label: IS_MAC ? "Open in Finder" : "Open in file manager",
+            label: `Open in ${fileManager}`,
             icon: FolderOpenIcon,
             onSelect: run(() => actions.onReveal?.(item.id)),
             disabled: !actions.onReveal || !details.path,

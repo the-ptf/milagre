@@ -1,6 +1,7 @@
 const { isLinkScopeKey, scopeKey } = require("@milagre/shared/chat-scopes");
 const { ensureDaemon, compatibleClient, HOST_GONE } = require("./bootstrap.cjs");
 const { projectOfKey } = require("@milagre/shared/agent-runs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 // A host from before result pages still works; it only fails on very large Projects, as it always did. The window
 // offers to restart it (see restartHost).
@@ -388,7 +389,7 @@ async function connectDesktopRuntime(options) {
     },
     /** Replaces a running host with this desktop's own (an older one can't load large Projects). The window reconnects to it. */
     async restartHost() {
-      if (remote) throw new Error("Only this Mac's own host restarts from here.");
+      if (remote) throw new Error(`Only ${thisComputer}'s own host restarts from here.`);
       if (closed || restarting) return;
       if (!client || recovering) throw new Error("Reconnect to the host before restarting it.");
       const connection = client;
@@ -412,7 +413,7 @@ async function connectDesktopRuntime(options) {
     },
     async close({ stopHost: stop = false } = {}) {
       if (closed) return;
-      if (stop && remote) throw new Error("Only this Mac's own host stops from here.");
+      if (stop && remote) throw new Error(`Only ${thisComputer}'s own host stops from here.`);
       if (stop) {
         if (!client || recovering) throw new Error("Reconnect to the host before installing an update.");
         const connection = client;

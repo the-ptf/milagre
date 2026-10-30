@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 
 const fixture = `
 import React, { useState } from "react";
@@ -200,7 +201,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-computer-remove-confirm]')`);
     assert.match(
       await text("[data-computer-settings]"),
-      /Its chats leave this sidebar and this Mac forgets its keys\. Nothing changes on studio; pair again with a new link\./,
+      new RegExp(`Its chats leave this sidebar and ${thisComputer} forgets its keys\\. Nothing changes on studio; pair again with a new link\\.`),
     );
     await screenshot("computer-settings-remove");
     await evaluate(`document.querySelector('[data-computer-remove-confirm]').click()`);

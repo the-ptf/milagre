@@ -155,6 +155,7 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         "agent history folder",
       );
       assert.equal(await evaluate("document.querySelectorAll('[data-onboarding-tile]').length"), 3);
+      assert.ok(await evaluate("!!document.querySelector('[data-onboarding-skip]')"), "the project step can be skipped");
       await shot("onboarding-project.png");
       await click(`[data-folder=${JSON.stringify(path.basename(onboarding.plainFolder))}] button`);
       await waitFor(() => evaluate("!!document.querySelector('[data-no-git]')"), "No Git explanation");

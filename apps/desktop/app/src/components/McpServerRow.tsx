@@ -54,7 +54,7 @@ export function McpSignInRow({
         <span className="truncate text-[12px] text-ink-3">{signingIn ? "Finish in your browser, then come back." : mcpTransportLine(row)}</span>
       </div>
       {remote ? (
-        <span className="text-[12px] text-ink-3">On the Mac</span>
+        <span className="text-[12px] text-ink-3">On the computer</span>
       ) : signingIn ? (
         <button type="button" data-mcp-cancel={row.name} className={outlineButton} onClick={onCancel}>
           Cancel

@@ -3786,11 +3786,7 @@ test("One list shows Chats from every computer in one list, each row naming its 
     find(first, (node) => node.type === "ProjectIcon" && node.props.size === 32),
     "the Project's icon leads the row",
   );
-  assert.equal(
-    find(first, (node) => node.type?.name === "ComputerTag"),
-    undefined,
-    "the open computer goes unnamed",
-  );
+  assert.equal(find(first, (node) => node.type?.name === "ComputerTag").props.name, "MacBook", "each computer is named when the list spans multiple computers");
   const offline = nav.rows().props.renderItem({ item: data[1] });
   assert.equal(offline.props.children.props.style.opacity, 0.55, "an offline computer's rows are dimmed");
   // Another computer is named on line 2, offline here.

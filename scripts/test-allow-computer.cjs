@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { thisComputer } = require("@milagre/shared/host-computer");
 const { openRenderer } = require("./renderer-ready.cjs");
 
 const fixture = `
@@ -98,7 +99,7 @@ async function browserChecks() {
     throw Error(`Timed out: ${source}`);
   }
   const prompt = `document.querySelector('dialog[data-computer-allow]')`;
-  const asking = (name) => `!!${prompt}?.open && ${prompt}.textContent.includes(${JSON.stringify(`${name} wants to drive this Mac's chats`)})`;
+  const asking = (name) => `!!${prompt}?.open && ${prompt}.textContent.includes(${JSON.stringify(`${name} wants to drive ${thisComputer}'s chats`)})`;
   async function press(text) {
     const button = `[...${prompt}.querySelectorAll('button')].find((el) => el.textContent.trim() === ${JSON.stringify(text)})`;
     await waitFor(`!!(${button}) && !(${button}).disabled`);
