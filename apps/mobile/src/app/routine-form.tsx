@@ -320,21 +320,17 @@ export default function RoutineFormSheet() {
             </Text>
           ) : null}
           {routines.enabled === false ? <Text style={styles.caption}>{"This Mac can't run Routines yet. Saving this one allows it."}</Text> : null}
-          <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 0 }]}>
-            <Icon icon={PencilEdit02Icon} tone="ink3" size={20} />
-            <View style={{ flex: 1 }}>
-              <Field
-                bare
-                label="Name"
-                hideLabel
-                placeholder="Name this Routine"
-                autoCapitalize="sentences"
-                value={form.name}
-                onChangeText={(name) => change({ name })}
-                style={{ paddingHorizontal: 0, fontSize: type.callout, fontWeight: "500" }}
-              />
-            </View>
-          </View>
+          {/* The pencil sits inside the Field's edge, so focus outlines icon and text together. */}
+          <Field
+            label="Name"
+            hideLabel
+            leading={<Icon icon={PencilEdit02Icon} tone="ink3" size={20} />}
+            placeholder="Name this Routine"
+            autoCapitalize="sentences"
+            value={form.name}
+            onChangeText={(name) => change({ name })}
+            style={{ fontSize: type.callout, fontWeight: "500" }}
+          />
           <Problem text={problemFor("name")} />
 
           {editing ? null : <SectionLabel flush>Starts</SectionLabel>}

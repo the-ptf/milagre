@@ -38,7 +38,8 @@ export function Input({
 
 /**
  * A text input with an icon, prefix, suffix or button inside it. The wrapper is the field: it draws the box and turns
- * accent on focus-within, so focus outlines the adornments too, never the text alone.
+ * accent while its input has focus, so focus outlines the adornments too, never the text alone; a focused trailing
+ * button keeps only its own ring.
  */
 export function FieldGroup({
   size = 36,
@@ -56,7 +57,7 @@ export function FieldGroup({
   ref?: Ref<HTMLInputElement>;
 }) {
   return (
-    <label className={`${fieldClass({ size })} flex items-center gap-2 focus-within:border-accent has-[input:disabled]:opacity-40 ${className}`}>
+    <label className={`${fieldClass({ size })} flex items-center gap-2 has-[input:focus]:border-accent has-[input:disabled]:opacity-40 ${className}`}>
       {leading}
       <input ref={ref} {...props} className={`${FIELD_INNER} ${inputClassName}`} />
       {trailing}
