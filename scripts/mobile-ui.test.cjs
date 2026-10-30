@@ -4998,7 +4998,7 @@ test("an older Mac's rows offer no Done, and their left swipe archives as before
   }
 });
 
-test("a sidebar Chat archives immediately and stops the turn while preserving unsaved work", async () => {
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -5015,14 +5015,14 @@ test("a sidebar Chat archives immediately and stops the turn while preserving un
   });
   const more = nav.more(nav.row("chat"));
   const archiveItem = more.props.sections.at(-1).items.find((item) => item.id === "archive");
-  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Archive");
+  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Delete");
   assert.equal(archiveItem.disabled, undefined, "a running Chat can be archived: it is stopped first");
   more.props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(alerts, []);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     project.calls.map(([method]) => method),
-    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "refresh"],
+    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
   );
   assert.equal(
     project.calls.some(([method]) => method === "worktree:remove"),
@@ -5044,13 +5044,13 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.params.id = "5";
   delete screen.params.worktreeId;
   screen.render();
-  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   archive.props.onPress();
   await settleAll();
-  assert.deepEqual(alerts, []);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
-    ["worktree:roots", "chat:patch"],
+    ["worktree:roots", "chat:patch", "chat:delete"],
   );
   assert.deepEqual(screen.calls[1].args, ["/p", 5, { archived: true, unread: false }]);
   assert.equal(screen.panels.open, "left");
@@ -6090,6 +6090,7 @@ test("late Chat rename cannot pop another screen after its form loses focus", as
   };
   const { default: Form } = load("app/chat-details.tsx", {
     "../archive-progress": archiveProgress,
+    "../chat-actions": { runChatAction: async () => {} },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Text: "Text" },
@@ -9603,7 +9604,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
     undefined,
   );
   const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Archiving Fix", "archive feedback sits on the row and survives closing the action sheet");
+  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Deleting Fix", "archive feedback sits on the row and survives closing the action sheet");
   assert.ok(
     find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
     "the row's pill spins desktop's ring",
@@ -9618,7 +9619,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   await settleAll();
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
-  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not archive Chat: disk full");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
@@ -9653,7 +9654,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   screen.session.client.snapshot = async () => project.snapshot;
   screen.params.id = "5";
   delete screen.params.worktreeId;
-  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   menuAction().props.onPress();
   await settleAll();
   assert.equal(screen.panels.open, "left", "shows the sidebar before the archive ends");

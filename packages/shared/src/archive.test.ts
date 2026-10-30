@@ -1,12 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSession, ChatMessage, CoordinatorState, Worktree } from "./model.ts";
-import { archiveMode, archivedNotice, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
+import { archiveChoices, archiveMode, archivedNotice, isInsideRoots, isMilagreWorktree, lossReason, removeFailureNotice, worktreeShared } from "./archive.mjs";
 import type { ArchivePlan, WorktreeStatus } from "./archive.mjs";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x", head: "abc", removable: true };
 const dirty: WorktreeStatus = { uncommitted: 3, unpushed: 2, branch: "milagre/x", head: "abc", removable: false };
 const plan = (patch: Partial<ArchivePlan> = {}): ArchivePlan => ({ milagreOwned: true, shared: false, status: clean, ...patch });
+test("Delete acts immediately without a confirmation or explanatory text for every cleanup mode", () => {
+  const cases: [Partial<ArchivePlan>, string][] = [
+    [{}, "remove"],
+    [{ status: dirty }, "hide"],
+    [{ shared: true }, "hide"],
+    [{ milagreOwned: false }, "hide"],
+    [{ status: null }, "hide"],
+  ];
+  for (const [patch, mode] of cases)
+    for (const running of [false, true])
+      for (const chatsHome of [false, true]) {
+        const result = archiveChoices({ plan: plan({ ...patch, terminals: ["npm"] }), running, chatsHome });
+        assert.deepEqual(result, { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true });
+      }
+});
+
 test("archive removes only a clean, unshared Milagre worktree", () => {
   assert.equal(archiveMode(plan()), "remove");
   for (const patch of [{ status: dirty }, { status: null }, { shared: true }, { milagreOwned: false }, { terminals: ["npm"], status: dirty }]) {
@@ -88,9 +104,9 @@ test("removeFailureNotice names git's message, says the chat stays, and has no p
   );
 });
 
-test("only a Chat without a Project says Chat archived, and only once it is gone", () => {
-  assert.equal(archivedNotice("removed", { chatsHome: true }), "Chat archived");
-  assert.equal(archivedNotice("hidden", { chatsHome: true }), "Chat archived");
+test("only a Chat without a Project says Chat deleted, and only once it is gone", () => {
+  assert.equal(archivedNotice("removed", { chatsHome: true }), "Chat deleted");
+  assert.equal(archivedNotice("hidden", { chatsHome: true }), "Chat deleted");
   // Its folder stayed and the Chat came back, with the removal's own notice.
   assert.equal(archivedNotice("kept", { chatsHome: true }), null);
   assert.equal(archivedNotice("cancelled", { chatsHome: true }), null);

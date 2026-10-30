@@ -63,14 +63,14 @@ export function chatMenu(
             : [{ id: "done", title: "Mark Done", systemImage: "checkmark.circle" }]),
         chat.archived
           ? { id: "archive", title: "Restore", systemImage: "tray.and.arrow.up" }
-          : { id: "archive", title: "Archive", systemImage: "archivebox", destructive: true },
+          : { id: "archive", title: "Delete", systemImage: "trash", destructive: true },
       ],
     },
   ];
 }
 
 /**
- * Runs a choice from `chatMenu` against the Chat's Project. Archive runs immediately, preserves unsaved work, and stops a running Chat. `onConfirm` runs once the archive goes ahead: a screen showing
+ * Runs a choice from `chatMenu` against the Chat's Project. Delete acts immediately and stops a running Chat. `onConfirm` runs once the archive goes ahead: a screen showing
  * the Chat leaves then, not when the archive ends, by which time the phone may be somewhere else.
  */
 export async function runChatAction({
@@ -94,7 +94,7 @@ export async function runChatAction({
   projectPath: string;
   state: ArchiveRequest["state"];
   link?: OpenLink;
-  /** The Chat has no Project: archive uses the same immediate action. */
+  /** The Chat has no Project. */
   chatsHome?: boolean;
   onConfirm?: () => void;
   refresh: () => Promise<unknown>;
@@ -110,7 +110,7 @@ export async function runChatAction({
         await archiveLinkChat({
           running,
           stop: () => client.call("agent:interrupt", [`${projectPath}#${chat.id}`]),
-          hide: () => client.call("chat:patch", [projectPath, chat.id, { archived: true, unread: false }]),
+          hide: () => client.call("chat:delete", [projectPath, chat.id]),
         });
         await refresh();
       } finally {
