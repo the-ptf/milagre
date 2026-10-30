@@ -1,4 +1,4 @@
-import { ChatSwipeRow } from "./chat-swipe-row";
+import { ChatSwipeRow, hideRevealed } from "./chat-swipe-row";
 import { retentionOf, useDoneRetention } from "./done-retention";
 import { radius } from "./design-tokens";
 import { doneCountdown } from "@milagre/shared/done";
@@ -1212,7 +1212,8 @@ const NavigationBody = memo(function NavigationBody({
   });
   useEffect(() => {
     if (!doneToast) return;
-    const timer = setTimeout(() => setDoneToast((toast) => (toast?.at === doneToast.at ? null : toast)), 6000);
+    // Long enough to read it and reach Undo with a thumb.
+    const timer = setTimeout(() => setDoneToast((toast) => (toast?.at === doneToast.at ? null : toast)), 10000);
     return () => clearTimeout(timer);
   }, [doneToast]);
   const doneHours = useDoneRetention(
@@ -1374,6 +1375,7 @@ const NavigationBody = memo(function NavigationBody({
         keyExtractor={(row) => row.key}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        onScrollBeginDrag={hideRevealed}
         onScroll={controls.onScroll}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: bottomInset }}
@@ -1413,10 +1415,12 @@ const NavigationBody = memo(function NavigationBody({
               accessibilityRole="button"
               accessibilityLabel="Undo"
               hitSlop={10}
+              style={{ minWidth: 44, minHeight: 44, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }}
               onPress={() => {
                 const { row } = doneToast;
                 setDoneToast(null);
-                void act(row, "reopen");
+                // Done also marked it read; Undo puts back the unread it had.
+                void act(row, "reopen").then(() => (row.chat.unread ? act(row, "unread") : undefined));
               }}
             >
               <Text style={{ color: colors.accent, fontSize: 15, fontWeight: "600" }}>Undo</Text>

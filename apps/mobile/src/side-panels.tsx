@@ -3,7 +3,16 @@ import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, u
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import {
   ArrowLeft01Icon,
@@ -20,7 +29,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
-import { ClosesLeftContext } from "./chat-swipe-row";
+import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
@@ -606,16 +615,18 @@ export function SidePanelsHost() {
       if (now !== null && now !== before) scheduleOnRN(setLeftAwake, now);
     },
   );
+  // The navigation's rows swipe only once it is all the way open.
+  const leftOpen = useDerivedValue(() => progress.get() >= 0.99);
+  // Closed, the navigation forgets a row left showing Done.
+  useEffect(() => {
+    if (!leftAwake) hideRevealed();
+  }, [leftAwake]);
   // Made once per change of what it shows, so opening or closing the panel doesn't render the list again on the slide's
   // first frame.
   const activeChatId = screen?.chatId;
   const closePanel = useCallback(() => show(null), [show]);
   const navigation = useMemo(
-    () => (
-      <ClosesLeftContext.Provider value>
-        <ProjectNavigation visible={leftAwake} activeChatId={activeChatId} surface={card} onClose={closePanel} onNavigate={navigate} />
-      </ClosesLeftContext.Provider>
-    ),
+    () => <ProjectNavigation visible={leftAwake} activeChatId={activeChatId} surface={card} onClose={closePanel} onNavigate={navigate} />,
     [leftAwake, activeChatId, card, closePanel, navigate],
   );
   // Open, only a drag back toward the screen closes it.
@@ -665,7 +676,9 @@ export function SidePanelsHost() {
           <SafeAreaInsetsContext.Provider value={card ? NO_INSETS : insets}>
             {mounted.left && (
               <Animated.View {...hidden("left")} style={[frame("left"), left]}>
-                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>{navigation}</SafeAreaInsetsContext.Provider>
+                <SafeAreaInsetsContext.Provider value={card ? cardTop.content : insets}>
+                  <ClosesLeftContext.Provider value={leftOpen}>{navigation}</ClosesLeftContext.Provider>
+                </SafeAreaInsetsContext.Provider>
               </Animated.View>
             )}
             {/* Wide enough, the right panel docks beside the Chat instead (RightDock in split-layout.tsx). */}
