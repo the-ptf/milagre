@@ -29,7 +29,7 @@ import Tooltip from "../primitives/Tooltip";
 import { Switch } from "../primitives/Switch";
 import { Button, IconButton } from "../primitives/Button";
 import { EmptyState } from "../primitives/EmptyState";
-import { FIELD_AREA, fieldClass } from "../primitives/Field";
+import { FieldGroup, fieldClass } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { Group, Row } from "./SettingsGroup";
@@ -226,17 +226,15 @@ export function KeybindingsSettings() {
       </p>
 
       <div className="mt-5 flex items-center gap-2">
-        <label className={`flex h-9 min-w-0 flex-1 items-center gap-2 ${FIELD_AREA}`}>
-          <Icon icon={Search01Icon} size={14} className="text-ink-3" />
-          <input
-            data-keybindings-search
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search keybindings"
-            aria-label="Search keybindings"
-            className="min-w-0 flex-1 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
-          />
-        </label>
+        <FieldGroup
+          className="min-w-0 flex-1"
+          leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+          data-keybindings-search
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search keybindings"
+          aria-label="Search keybindings"
+        />
         {shownId === LOCAL_COMPUTER && window.milagre.openKeybindingsFile && (
           <IconButton
             label="Open keybindings.json"

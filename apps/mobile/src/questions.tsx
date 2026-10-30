@@ -62,6 +62,8 @@ export function Questions({
     else setLocalDraft((previous) => ({ ...previous, ...patch }));
   };
   const [direction, setDirection] = useState(1);
+  // The typed-answer row is the field, so its edge (not the text alone) turns accent while focused.
+  const [typing, setTyping] = useState(false);
   const setPage = (next: number) => {
     setDirection(next > page ? 1 : -1);
     change({ page: next });
@@ -235,7 +237,7 @@ export function Questions({
               borderRadius: radius.card,
               borderCurve: "continuous",
               borderWidth: typed[question.id] ? 1.5 : 1,
-              borderColor: typed[question.id] ? colors.ink : colors.line,
+              borderColor: typing ? colors.accent : typed[question.id] ? colors.ink : colors.line,
               backgroundColor: typed[question.id] ? colors.surface : colors.page,
             }}
           >
@@ -258,6 +260,8 @@ export function Questions({
                 });
               }}
               onSubmitEditing={sendTyped}
+              onFocus={() => setTyping(true)}
+              onBlur={() => setTyping(false)}
               returnKeyType="send"
               editable={!busy}
               style={{ flex: 1, minHeight: 44, color: colors.ink, fontSize: type.subheadline, paddingVertical: 12 }}

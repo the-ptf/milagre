@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Text, TextInput, View, type TextInputInstance } from "react-native";
+import { Text, View, type TextInputInstance } from "react-native";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import type { ArtifactComment } from "@milagre/shared/artifact";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
-import { PillButton, useStyles } from "./ui";
+import { Field, PillButton } from "./ui";
 
 // The full-screen viewers' comment box, the Designs canvas's and the Artifact page's, that opens from a pin. Their header
 // buttons are CircleButtons (Send is `filled badge={count}`).
@@ -34,7 +34,6 @@ export function CommentBox({
   onDone: () => void;
 }) {
   const { colors } = useTheme();
-  const styles = useStyles();
   const [text, setText] = useState(note?.text ?? "");
   // A web page the comment was held on can keep the keyboard focus past autoFocus (WebKit's text interaction takes it
   // as the hold ends): the field asks again once the hold is over.
@@ -88,10 +87,13 @@ export function CommentBox({
         </>
       ) : (
         <>
-          <TextInput
+          <Field
             ref={input}
             // Uncontrolled to the parent: each keystroke updates the comment without writing the value back.
-            accessibilityLabel={`Comment ${number}`}
+            label={`Comment ${number}`}
+            hideLabel
+            autoCapitalize="sentences"
+            autoCorrect
             autoFocus
             multiline
             defaultValue={note?.text ?? ""}
@@ -100,9 +102,7 @@ export function CommentBox({
               onChange(value);
             }}
             placeholder="What should change here?"
-            placeholderTextColor={colors.ink3}
-            selectionColor={colors.accent}
-            style={[styles.input, { maxHeight: 120 }]}
+            style={{ maxHeight: 120 }}
           />
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
             {kind === "new" ? (

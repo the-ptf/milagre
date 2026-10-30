@@ -19,7 +19,6 @@ const shortPath = (value: string) => value.replace(/^\/Users\/[^/]+(?=\/|$)/, "~
  * opens directly, for a folder outside the home or a Mac whose Milagre can't search yet.
  */
 export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
-  const s = useS();
   const styles = useStyles();
   const session = useSession();
   const client = session.client;
@@ -61,31 +60,25 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   return (
     <View style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 12 }}>
-        <View style={s.search}>
-          <Icon icon={Search01Icon} tone="ink3" size={18} />
-          <View style={{ flex: 1 }}>
-            <Field
-              label="Search Projects on your computer"
-              hideLabel
-              bare
-              placeholder="Search Projects on your computer"
-              value={query}
-              onChangeText={setQuery}
-              autoFocus
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-              autoComplete="off"
-              clearButtonMode="while-editing"
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                if (path) onOpen(path);
-                else if (current?.items[0]) onOpen(current.items[0].path);
-              }}
-              style={{ paddingHorizontal: 0, paddingVertical: 8 }}
-            />
-          </View>
-        </View>
+        <Field
+          label="Search Projects on your computer"
+          hideLabel
+          leading={<Icon icon={Search01Icon} tone="ink3" size={18} />}
+          placeholder="Search Projects on your computer"
+          value={query}
+          onChangeText={setQuery}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete="off"
+          clearButtonMode="while-editing"
+          returnKeyType="go"
+          onSubmitEditing={() => {
+            if (path) onOpen(path);
+            else if (current?.items[0]) onOpen(current.items[0].path);
+          }}
+        />
         <InlineError warning message={current?.error} />
       </View>
       <FlatList
@@ -144,17 +137,8 @@ function Row({ icon, title, detail, onPress }: { icon?: React.ReactNode; title: 
   );
 }
 
-const makeS = (colors: Palette) =>
+const makeS = (_colors: Palette) =>
   StyleSheet.create({
-    search: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 12,
-      borderRadius: radius.control,
-      borderCurve: "continuous",
-      backgroundColor: colors.field,
-    },
     row: {
       flexDirection: "row",
       alignItems: "center",

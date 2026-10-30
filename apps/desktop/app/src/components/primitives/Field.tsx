@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, Ref } from "react";
+import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 
 const BOX =
   "w-full rounded-control border border-line-strong bg-field text-ink transition-colors placeholder:text-ink-3 focus:border-accent aria-invalid:not-focus:border-red disabled:opacity-40";
@@ -18,6 +18,11 @@ export function fieldClass({ size = 36 }: { size?: FieldSize } = {}) {
 export const FIELD = fieldClass();
 /** The same box for a textarea (set its rows) or a wrapper around an input and its icons, which takes focus-within. */
 export const FIELD_AREA = `${BOX} px-2.5 py-2 text-13 focus-within:border-accent`;
+/**
+ * The input inside a box that draws the field (FieldGroup, a bordered row or card): no fill, edge or outline of its
+ * own, so the wrapper's focus-within edge is the only focus mark.
+ */
+export const FIELD_INNER = "h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-ink outline-none placeholder:text-ink-3";
 /** A field's label or a fieldset's legend: 12 medium ink-2, 4px above the field (`grid gap-1` or `mb-1`). */
 export const FIELD_LABEL = "text-12 font-medium text-ink-2";
 
@@ -29,4 +34,32 @@ export function Input({
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: FieldSize; ref?: Ref<HTMLInputElement> }) {
   return <input ref={ref} {...props} className={`${fieldClass({ size })} ${className}`} />;
+}
+
+/**
+ * A text input with an icon, prefix, suffix or button inside it. The wrapper is the field: it draws the box and turns
+ * accent on focus-within, so focus outlines the adornments too, never the text alone.
+ */
+export function FieldGroup({
+  size = 36,
+  leading,
+  trailing,
+  className = "",
+  inputClassName = "",
+  ref,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
+  size?: FieldSize;
+  leading?: ReactNode;
+  trailing?: ReactNode;
+  inputClassName?: string;
+  ref?: Ref<HTMLInputElement>;
+}) {
+  return (
+    <label className={`${fieldClass({ size })} flex items-center gap-2 focus-within:border-accent has-[input:disabled]:opacity-40 ${className}`}>
+      {leading}
+      <input ref={ref} {...props} className={`${FIELD_INNER} ${inputClassName}`} />
+      {trailing}
+    </label>
+  );
 }

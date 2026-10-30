@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
+import { Pressable, Text, View, type TextInputInstance } from "react-native";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { useFocusEffect } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, File01Icon, Message01Icon, Tick02Icon, Upload01Icon, UserCheck01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
@@ -9,7 +9,7 @@ import { Icon, type IconData } from "./icons";
 import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
-import { Chip, DISABLED_OPACITY, ErrorNotice, InlineError, pressStyle, Segmented, Tag, Toggle, useStyles } from "./ui";
+import { Chip, DISABLED_OPACITY, ErrorNotice, Field, InlineError, pressStyle, Segmented, Tag, Toggle, useStyles } from "./ui";
 
 type Save = (change: BabysitChange) => Promise<void>;
 
@@ -295,17 +295,17 @@ export function BabysitSection() {
           {caption("The agent checks it each time it wakes and ends the Heartbeat when it holds.")}
           {settings.ownRule ? (
             <View style={{ gap: 4, paddingTop: 6 }}>
-              <TextInput
+              <Field
                 ref={ownRuleInput}
-                accessibilityLabel="Your own rule"
+                label="Your own rule"
+                hideLabel
+                autoCapitalize="sentences"
+                autoCorrect
                 maxLength={300}
                 value={ownRule.value}
                 onChangeText={ownRule.onChangeText}
                 onFocus={ownRule.onFocus}
                 onBlur={ownRule.onBlur}
-                placeholderTextColor={colors.ink3}
-                selectionColor={colors.accent}
-                style={styles.input}
               />
               {ownRule.state === "error" ? saveMark("error") : null}
             </View>
@@ -314,17 +314,19 @@ export function BabysitSection() {
       </Group>
       <Group title="Your instructions" inset={0}>
         <View style={{ gap: 6, paddingVertical: 12 }}>
-          <TextInput
+          <Field
             ref={instructionsInput}
-            accessibilityLabel="Your instructions"
+            label="Your instructions"
+            hideLabel
+            autoCapitalize="sentences"
+            autoCorrect
             multiline
             maxLength={4000}
             value={instructions.value}
             onChangeText={instructions.onChangeText}
             onFocus={instructions.onFocus}
             onBlur={instructions.onBlur}
-            selectionColor={colors.accent}
-            style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
+            style={{ minHeight: 120, textAlignVertical: "top" }}
           />
           <View style={{ minHeight: 16, alignItems: "flex-end" }}>{saveMark(instructions.state)}</View>
         </View>

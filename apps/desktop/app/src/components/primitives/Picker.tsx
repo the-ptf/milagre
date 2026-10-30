@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { Search01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { FieldGroup } from "./Field";
 import { Icon } from "./Icon";
 import { menuRowClass } from "./Popover";
 import { ScrollArea } from "./ScrollArea";
@@ -62,16 +63,14 @@ export function PickerPanel({
   }
 
   const search = onQueryChange && (
-    <label className="my-2 flex h-9 shrink-0 items-center gap-2 rounded-control border border-line-strong bg-field px-3 text-ink-3 transition-colors focus-within:border-accent">
-      <Icon icon={Search01Icon} size={14} />
-      <input
-        className="w-full border-0 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
-        value={query}
-        onChange={(event) => onQueryChange(event.target.value)}
-        placeholder={placeholder}
-        autoFocus
-      />
-    </label>
+    <FieldGroup
+      className="my-2 shrink-0"
+      leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+      value={query}
+      onChange={(event) => onQueryChange(event.target.value)}
+      placeholder={placeholder}
+      autoFocus
+    />
   );
 
   return (

@@ -58,7 +58,14 @@ export function PlaceholderField({
         </View>
       ) : null}
       <View
-        style={{ backgroundColor: colors.surface, borderRadius: radius.sheet, borderCurve: "continuous", borderWidth: 1, borderColor: colors.line, padding: 6 }}
+        style={{
+          backgroundColor: colors.surface,
+          borderRadius: radius.sheet,
+          borderCurve: "continuous",
+          borderWidth: 1,
+          borderColor: focused ? colors.accent : colors.line,
+          padding: 6,
+        }}
       >
         <Field
           bare

@@ -21,7 +21,7 @@ import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
-import { Input } from "./primitives/Field";
+import { FIELD_INNER } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
 import { Skeleton } from "./primitives/Skeleton";
@@ -247,14 +247,14 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
       {form && (
         <form
           data-onboarding-form={form.kind}
-          className="-mt-2 flex items-center gap-2 rounded-card border border-line bg-surface p-2"
+          // The card is the field: its edge turns accent while the input inside is focused, suffix and buttons included.
+          className="-mt-2 flex items-center gap-2 rounded-card border border-line bg-surface p-2 pl-3 transition-colors focus-within:border-accent"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
           }}
         >
-          <Input
-            size={32}
+          <input
             autoFocus
             aria-label={form.kind === "clone" ? "Repository address" : "Project name"}
             placeholder={form.kind === "clone" ? "https://github.com/owner/repository" : "my-project"}
@@ -262,7 +262,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             disabled={busy}
             onChange={(event) => setForm({ ...form, value: event.target.value })}
             onKeyDown={(event) => event.key === "Escape" && setForm(null)}
-            className="min-w-0 flex-1"
+            className={`${FIELD_INNER} h-8 text-13 disabled:opacity-40`}
           />
           {form.kind === "create" && form.value.trim() && <span className="shrink-0 text-12 text-ink-3">~/Code/{form.value.trim()}</span>}
           <Button type="submit" disabled={busy || !form.value.trim()}>

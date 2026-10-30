@@ -11411,7 +11411,7 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
     "./icons": { Icon: "Icon" },
     "./session": { useSession: () => ({ client }) },
     "./settings-list": { Group: "Group", Row: "Row" },
-    "./ui": { Chip: "Chip", ErrorNotice: "ErrorNotice", Segmented: "Segmented", Toggle: "Toggle" },
+    "./ui": { Chip: "Chip", ErrorNotice: "ErrorNotice", Field: "Field", Segmented: "Segmented", Toggle: "Toggle" },
   });
   const render = () => {
     react.begin();
@@ -11465,7 +11465,7 @@ test("mobile Babysit PRs page shows the four groups and saves each change to the
   await settle();
   assert.deepEqual(saves.at(-1), { intervalMinutes: 5 });
   // Instructions save when the field loses focus, with only a Saved mark under it.
-  const field = () => node((n) => n.type === "TextInput" && n.props.accessibilityLabel === "Your instructions");
+  const field = () => node((n) => n.type === "Field" && n.props.label === "Your instructions");
   assert.equal(
     node((n) => n.type === "Text" && n.props.children === "Saved"),
     undefined,

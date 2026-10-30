@@ -11,6 +11,7 @@ import { EmptyState } from "./primitives/EmptyState";
 import { PickerRow } from "./primitives/Picker";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
+import { FieldGroup } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { SectionLabel } from "./primitives/SectionLabel";
 import Tooltip from "./primitives/Tooltip";
@@ -132,16 +133,14 @@ export function ModelPicker({
           </span>
         </div>
         {/* PickerPanel's search field. */}
-        <label className="mr-2 mb-1 flex h-9 shrink-0 items-center gap-2 rounded-control border border-line-strong bg-field px-3 text-ink-3 transition-colors focus-within:border-accent">
-          <Icon icon={Search01Icon} size={14} />
-          <input
-            className="w-full border-0 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search models…"
-            autoFocus
-          />
-        </label>
+        <FieldGroup
+          className="mr-2 mb-1 shrink-0"
+          leading={<Icon icon={Search01Icon} size={14} className="shrink-0 text-ink-3" />}
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search models…"
+          autoFocus
+        />
         {notice}
         <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-px pr-2 pb-2">
           {models.map((model) => (

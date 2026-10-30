@@ -5,7 +5,7 @@ import { privatePairingLink } from "@milagre/shared/pairing-link";
 import { Switch } from "./primitives/Switch";
 import { Button } from "./primitives/Button";
 import { Dialog } from "./primitives/Dialog";
-import { FIELD, FIELD_LABEL } from "./primitives/Field";
+import { FIELD, FIELD_LABEL, FieldGroup } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
@@ -133,22 +133,23 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
       <label className={`mt-4 block ${FIELD_LABEL}`} htmlFor="add-computer-link">
         Pairing link
       </label>
-      <div className="mt-1.5 flex items-center gap-2">
-        <input
-          id="add-computer-link"
-          aria-label="Pairing link"
-          value={link}
-          disabled={adding}
-          spellCheck={false}
-          autoFocus
-          placeholder="milagre://pair?…"
-          onChange={(event) => setLink(event.target.value)}
-          className={`${FIELD} font-mono`}
-        />
-        <Button variant="secondary" disabled={adding} onClick={() => void paste()}>
-          Paste
-        </Button>
-      </div>
+      <FieldGroup
+        className="mt-1.5 pr-1"
+        inputClassName="font-mono"
+        id="add-computer-link"
+        aria-label="Pairing link"
+        value={link}
+        disabled={adding}
+        spellCheck={false}
+        autoFocus
+        placeholder="milagre://pair?…"
+        onChange={(event) => setLink(event.target.value)}
+        trailing={
+          <Button variant="secondary" size={28} disabled={adding} onClick={() => void paste()}>
+            Paste
+          </Button>
+        }
+      />
       <div className="mt-3 flex items-center justify-between gap-3 text-13">
         <span>LAN or Tailscale only</span>
         <Switch
