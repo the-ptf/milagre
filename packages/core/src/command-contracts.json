@@ -1104,6 +1104,20 @@
         }
       ]
     },
+    "limits:resume-at-reset:read": {
+      "parameters": []
+    },
+    "limits:resume-at-reset:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
     "app-update:auto:read": {
       "parameters": []
     },
@@ -2558,6 +2572,56 @@
         },
         {
           "name": "accountId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "chat:limit-resume": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "sourceMessageId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "chat:limit-resume:cancel": {
+      "parameters": [
+        {
+          "name": "projectPath",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "optional": false,
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "sendId",
           "optional": false,
           "schema": {
             "type": "string"
@@ -7135,11 +7199,11 @@
           "$ref": "#/$defs/T172",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2246": {
+        "__@toStringTag@2269": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2246"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2269"],
       "additionalProperties": false
     },
     "T169": {

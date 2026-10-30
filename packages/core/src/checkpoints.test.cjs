@@ -24,6 +24,16 @@ async function fixture(t) {
   return { root, store, options, git, write, read, chatId: root + "#1" };
 }
 const decisions = (preview, choice = "restore") => Object.fromEntries(preview.files.map((file) => [file.key, choice]));
+test("discard removes only a cancelled continuation's checkpoint, before or after its terminal event", async (t) => {
+  const f = await fixture(t);
+  for (const finished of [false, true]) {
+    await f.store.begin({ chatId: f.chatId, roots: [f.root], messageId: 4 });
+    assert.equal(await f.store.discard(f.chatId, 5), false);
+    if (finished) await f.store.finish(f.chatId);
+    assert.equal(await f.store.discard(f.chatId, 4), true);
+    assert.deepEqual(await f.store.list(f.chatId), []);
+  }
+});
 test("checkpoint capture and restore resolve Git's Windows path spelling through the filesystem", async (t) => {
   const f = await fixture(t);
   const reportedRoot = "C:/Projects/account-settings";

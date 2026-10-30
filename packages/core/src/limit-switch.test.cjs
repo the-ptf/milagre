@@ -99,3 +99,14 @@ test("failures that aren't the usage limit are ignored", async () => {
   assert.equal(await limits.observe(`${PROJECT}#3`, { type: "turn-completed" }), null);
   assert.ok(limits.decorate(snapshot()).providers[0].accounts.every((account) => !account.limitedUntil));
 });
+
+test("continue-at-reset defaults on and saving either setting preserves the other", () => {
+  const { limits } = setup();
+  assert.equal(limits.resumeAtReset(), true);
+  assert.equal(limits.autoSwitch(), false);
+  limits.setResumeAtReset(false);
+  limits.setAutoSwitch(true);
+  assert.equal(limits.resumeAtReset(), false);
+  limits.setResumeAtReset(true);
+  assert.equal(limits.autoSwitch(), true);
+});

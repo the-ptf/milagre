@@ -159,6 +159,63 @@ test("concurrent Projects route by their own scope and reuse accounts after swit
   assert.equal(created.length, 2, "Changing the viewed Project must not replace provider sessions");
 });
 
+test("a persisted usage-limit continuation resumes its unopened Project once on its own account after restart", async (t) => {
+  const { make, projects, ids, profile, created, events, send } = await fixture(t);
+  let clock = Date.now();
+  const limits = { now: () => clock, timers: { setInterval: () => ({ unref() {} }), clearInterval() {} } };
+  const first = make({ limitResume: limits });
+  const opened = await first.openProject(projects[0]);
+  const sessionId = Object.values(opened.state.sessions)[0].id;
+  await send(first, opened.path, sessionId);
+  await until(() => created[0]?.turnActive);
+  created[0].limit(new Date(clock + 120_000).toISOString());
+  const scheduled = () =>
+    events.findLast((event) => event.channel === "project:state" && event.payload.path === opened.path && event.payload.state.sessions[sessionId]?.limitResume);
+  await until(() => scheduled());
+  const pending = scheduled().payload.state.sessions[sessionId].limitResume;
+  assert.equal(pending.accountId, ids.work);
+  assert.equal(pending.mode, "automatic");
+  await first.flush();
+  await first.close();
+  clock += 180_000;
+  const before = created.length;
+  const restored = make({ limitResume: limits });
+  await until(() => created.length > before && created.at(-1).turns.length === 1);
+  assert.equal(created.at(-1).context.env.CLAUDE_CONFIG_DIR, profile(ids.work));
+  assert.match(created.at(-1).turns[0].prompt, /limit has reset/);
+  created.at(-1).finish();
+  await restored.flush();
+  const state = (await restored.openProject(opened.path)).state;
+  assert.equal(state.sessions[sessionId].limitResume, undefined);
+  assert.equal(state.messages.filter((message) => message.context?.kind === "limit-reset").length, 1);
+  await assert.rejects(restored.invoke("chat:limit-resume", [path.join(projects[0], "unknown"), sessionId, pending.sourceMessageId]), /Open this Chat/);
+  await assert.rejects(restored.invoke("chat:limit-resume:cancel", [opened.path, -1, pending.sendId]), /Open this Chat/);
+});
+
+test("Stop cancels a pending usage-limit continuation and it stays cancelled after restart", async (t) => {
+  const { make, projects, created, events, send } = await fixture(t);
+  let clock = Date.now();
+  const limits = { now: () => clock, timers: { setInterval: () => ({ unref() {} }), clearInterval() {} } };
+  const runtime = make({ limitResume: limits });
+  const opened = await runtime.openProject(projects[0]);
+  const sessionId = Object.values(opened.state.sessions)[0].id;
+  await send(runtime, opened.path, sessionId);
+  await until(() => created[0]?.turnActive);
+  created[0].limit(new Date(clock + 120_000).toISOString());
+  await until(() => events.some((event) => event.channel === "project:state" && event.payload.state.sessions[sessionId]?.limitResume));
+  await runtime.invoke("agent:interrupt", [`${opened.path}#${sessionId}`]);
+  await runtime.flush();
+  assert.equal((await runtime.invoke("project:snapshot", [opened.path])).state.sessions[sessionId].limitResume, undefined);
+  await runtime.close();
+  clock += 180_000;
+  const count = created.length;
+  const restored = make({ limitResume: limits });
+  const state = (await restored.openProject(opened.path)).state;
+  assert.equal(state.sessions[sessionId].limitResume, undefined);
+  assert.equal(created.length, count, "the cancelled schedule must not start a provider after its deadline");
+  assert.equal(state.messages.filter((message) => message.context?.kind === "limit-reset").length, 0);
+});
+
 test("a named Link has its own account, independent of members and viewed Project", async (t) => {
   const { make, projects, saved, save, ids, profile, created } = await fixture(t);
   const first = make();
@@ -184,6 +241,39 @@ test("a named Link has its own account, independent of members and viewed Projec
   await runtime.invoke("link:send", [{ ...request, sessionId: sent.sessionId, operationId: randomUUID(), body: "Continue both" }]);
   await until(() => created[0].turns.length === 2);
   assert.equal(created.length, 1);
+});
+
+test("a limited named Link resumes after restart without opening it or its member Projects", async (t) => {
+  const { make, projects, saved, save, ids, profile, created, events } = await fixture(t);
+  let clock = Date.now();
+  const limits = { now: () => clock, timers: { setInterval: () => ({ unref() {} }), clearInterval() {} } };
+  const initial = make({ limitResume: limits });
+  for (const project of projects) await initial.openProject(project);
+  const registry = await initial.invoke("project:registry");
+  const link = await initial.invoke("link:create", [{ name: "API and Web", projectIds: registry.map((project) => project.id) }]);
+  await initial.close();
+  const owner = `milagre-link:${link.id}`;
+  saved.scopes[owner] = { claude: ids.shared };
+  await save();
+  const first = make({ limitResume: limits });
+  await first.invoke("link:open", [link.id]);
+  const sent = await first.invoke("link:send", [
+    { linkId: link.id, operationId: randomUUID(), sessionId: null, body: "Edit both", provider: "claude", model: "test", permissionMode: "auto" },
+  ]);
+  await until(() => created[0]?.turnActive);
+  created[0].limit(new Date(clock + 120_000).toISOString());
+  await until(() =>
+    events.some((event) => event.channel === "link:state" && event.payload.linkId === link.id && event.payload.state.sessions[sent.sessionId]?.limitResume),
+  );
+  await first.flush();
+  await first.close();
+  clock += 180_000;
+  const count = created.length;
+  make({ limitResume: limits });
+  await until(() => created.length > count && created.at(-1).turns.length === 1);
+  assert.equal(created.at(-1).context.env.CLAUDE_CONFIG_DIR, profile(ids.shared));
+  assert.match(created.at(-1).turns[0].prompt, /limit has reset/);
+  created.at(-1).finish();
 });
 
 test("a removed explicitly assigned account fails the Chat without starting the computer default", async (t) => {

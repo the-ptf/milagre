@@ -51,9 +51,15 @@ class SessionManager {
   }
 
   async startTurn(request) {
-    const start = (entry) => {
+    const cancelled = () => request.canStart && !request.canStart();
+    if (cancelled()) return { turnId: null, steered: false, cancelled: true };
+    const start = async (entry) => {
+      if (cancelled()) {
+        this.scheduleIdleClose(request.chatId);
+        return { turnId: null, steered: false, cancelled: true };
+      }
       clearTimeout(entry.idleTimer);
-      return entry.session.startTurn({
+      const result = await entry.session.startTurn({
         prompt: request.prompt,
         images: request.images,
         model: request.model,
@@ -62,8 +68,13 @@ class SessionManager {
         ultracode: request.ultracode,
         fastMode: request.fastMode,
         replies: request.replies,
+        ...(request.canStart
+          ? { canStart: () => request.canStart() && (request.expectedAccountId === undefined || entry.accountId === request.expectedAccountId) }
+          : {}),
         ...(request.guard ? { guard: request.guard } : {}),
       });
+      if (result?.cancelled && !entry.session.turnActive) this.scheduleIdleClose(request.chatId);
+      return result;
     };
     const entry = await this.serial(request.chatId, () => this.currentEntry(request));
     try {

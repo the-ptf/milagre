@@ -197,6 +197,21 @@ function createCheckpoints({ directory, budget = 100 * 1024 * 1024, assertIdle =
         running.set(request.chatId, { id: item.id, roots });
         return summary(item);
       }),
+    discard: (chatId, messageId) =>
+      serial(async () => {
+        const names = await fs.readdir(directory).catch((error) => {
+          if (error.code === "ENOENT") return [];
+          throw error;
+        });
+        for (const id of names.filter((name) => /^[0-9a-f-]{36}$/.test(name))) {
+          const item = JSON.parse(await fs.readFile(manifestPath(id), "utf8"));
+          if (item.chatId !== chatId || item.messageId !== messageId) continue;
+          await fs.rm(path.dirname(manifestPath(id)), { recursive: true, force: true });
+          if (running.get(chatId)?.id === id) running.delete(chatId);
+          return true;
+        }
+        return false;
+      }),
     finish: (chatId) =>
       serial(async () => {
         const task = running.get(chatId);
