@@ -202,7 +202,8 @@ async function browserChecks() {
     const phoneKey = "p".repeat(43);
     const computerKey = "c".repeat(43);
     const hostDevices = () => relays.findLast((options) => !options.retired).phones;
-    const computersShown = `[...document.querySelectorAll('h2')].some((h) => h.textContent === 'Computers')`;
+    // The Devices page has no section headings; the Computers list shows as its rows.
+    const computersShown = `!!document.querySelector('[data-device-row="computer"]')`;
     await waitFor(`document.querySelector('[data-devices-empty]')?.textContent === 'No phones yet'`);
     assert.equal(await evaluate(computersShown), false);
     // The Cloudflare note is for a Cloudflare tunnel only (unit-tested in phone.test.ts); this host reaches phones through the relay.

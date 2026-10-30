@@ -56,6 +56,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { DOT_COLOR, computerTone, routeLine, seenAgo, useComputers, useHiddenComputers } from "../lib/computers";
 import type {
+  ComputerView,
   FilesToCopy as FilesToCopyResult,
   MilagreBridge,
   PairedDevice,
@@ -81,6 +82,9 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
+import { useDoneSettings } from "../lib/done-settings";
+import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
+import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
@@ -421,6 +425,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             </Row>
           )}
         </div>
+        <ComputerResourceList computers={[resourceComputer(computer, now)]} initiallyOpen={computer.id} />
         {computer.state === "online" && (
           <div data-computer-auto-update>
             <AutoUpdateRow key={id} bridge={bridgeFor(id)} />
@@ -603,6 +608,24 @@ function BotsSettings() {
   );
 }
 
+/** How long a Chat waits in the sidebar's Done list before this Mac archives it. */
+function DoneRetentionSetting() {
+  const { settings, save } = useDoneSettings();
+  return (
+    <Group title="Done">
+      <Row label="Archive Done chats after">
+        <Select
+          label="Archive Done chats after"
+          width={140}
+          value={String(settings.retentionHours)}
+          options={DONE_RETENTION_OPTIONS.map((hours) => ({ value: String(hours), label: retentionLabel(hours) }))}
+          onChange={(value) => void save({ retentionHours: Number(value) }).catch(() => {})}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 function ChatSettings() {
   const settings = useSettings();
   return (
@@ -610,6 +633,7 @@ function ChatSettings() {
       <ChoiceGroup title="Chat list">
         <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
       </ChoiceGroup>
+      <DoneRetentionSetting />
       <ChoiceGroup title="Reasoning">
         <ReasoningChoice expanded={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
       </ChoiceGroup>
@@ -1143,10 +1167,46 @@ function AppearanceSettings() {
   );
 }
 
+/** Settings › Devices: memory and disk on this Mac and on every computer it drives, Milagre's share marked. */
+/** A paired computer as a memory and disk row: its route while it answers, else when it was last seen. */
+function resourceComputer(computer: ComputerView, now: number): ResourceComputer {
+  const online = computer.state === "online";
+  const seen = seenAgo(computer.lastSeen, now);
+  return {
+    id: computer.id,
+    name: computer.name,
+    detail: online ? routeLine(computer, now) : "Offline",
+    bridge: bridgeFor(computer.id),
+    online,
+    seen: seen ? `Seen ${seen}` : null,
+  };
+}
+
+/** Settings › Devices: memory and disk on this Mac and on every computer it drives. */
+function DeviceResources() {
+  const { otherComputers } = useSettings();
+  const { thisMac, computers } = useComputers();
+  // "Seen 2h ago" keeps counting while the page stays open.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const rows: ResourceComputer[] = [
+    { id: "this-mac", name: thisMac, detail: "This Mac", bridge: window.milagre, online: true },
+    ...(otherComputers ? computers.map((computer) => resourceComputer(computer, now)) : []),
+  ];
+  return (
+    <Group>
+      <ComputerResourceList computers={rows} />
+    </Group>
+  );
+}
+
 function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }) {
   const { otherComputers } = useSettings();
   return (
-    <Group title="Other computers">
+    <Group>
       <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
         <SettingCheckbox label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
@@ -1251,7 +1311,6 @@ const DANGER_BUTTON =
   "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
 
 function DeviceGroup({
-  title,
   devices,
   fresh,
   now,
@@ -1261,7 +1320,6 @@ function DeviceGroup({
   footer,
   onRemove,
 }: {
-  title: string;
   devices: PairedDevice[];
   /** Keys marked New. */
   fresh: ReadonlySet<string>;
@@ -1274,7 +1332,7 @@ function DeviceGroup({
 }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   return (
-    <Group title={title}>
+    <Group>
       {error ? (
         <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red-ink">
           {error}
@@ -1430,7 +1488,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   return (
     <>
       <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
-      <Group title="Access">
+      <DeviceResources />
+      <Group>
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
           <SettingCheckbox
             label="Allow devices to connect"
@@ -1468,7 +1527,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         )}
       </Group>
       {on && (
-        <Group title="Pair a device">
+        <Group>
           {(status.pairingOptions?.length ?? 0) > 1 && (
             <Row
               label="Connect through"
@@ -1540,9 +1599,8 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         </Group>
       )}
       <OtherComputersSetting onAddComputer={onAddComputer} />
-      {computers.length > 0 && <DeviceGroup title="Computers" devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
+      {computers.length > 0 && <DeviceGroup devices={computers} fresh={paired.fresh} now={paired.now} busy={busy} onRemove={removeDevice} />}
       <DeviceGroup
-        title="Phones"
         devices={phones}
         fresh={paired.fresh}
         now={paired.now}
@@ -1553,7 +1611,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         onRemove={removeDevice}
       />
       {status?.enabled && (
-        <Group title="Reset">
+        <Group>
           <Row
             label="Reset access"
             description={

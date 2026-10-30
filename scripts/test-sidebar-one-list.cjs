@@ -29,6 +29,7 @@ const states = {
     session(7, "Older shop chat", 180),
     session(8, "Shop chat", 5),
     session(9, "Pinned shop chat", 400, { pinned: true, pin_order: 1 }),
+    session(6, "Done shop chat", 90, { done_at: minutes(60) }),
   ]),
   "/work/api": state([session(4, "API chat", 30, { unread: true })]),
 };
@@ -45,7 +46,9 @@ window.milagre = {
   readProject: async (path) => ({ path, name: path, state: states[path] }),
   onProjectState: () => () => {},
   onLinkState: () => () => {},
-  patchChat: async () => {},
+  patchChat: async (...args) => {
+    (window.patches ??= []).push(args);
+  },
 };
 localStorage.removeItem("milagre.sidebarClosedScopes");
 localStorage.removeItem("milagre-settings");
@@ -180,11 +183,25 @@ async function browserChecks() {
       inbox.every((row) => !row.mono),
       "No monospace on the second line",
     );
-    // Running: a spinner where the time goes, "Running" in the accent on the second line.
+    // Running: a spinner where the time goes, and no word for it on the second line.
     assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-time] [data-mark]")?.dataset.mark`), "running");
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-ago]")`), false, "A running row shows its spinner, not its time");
-    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-status]")?.textContent`), "Running");
-    assert.equal(await evaluate(`${row(1)}.querySelector("[data-chat-status]").className.includes("text-accent")`), true);
+    assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-status]")`), false, "The second line says no state");
+    // Done: out of the list, in the folded Done section at the bottom, which opens to a countdown and Reopen.
+    assert.equal(await evaluate(`!!${row(6)}`), false, "A Done Chat leaves the list");
+    assert.equal(await evaluate(`document.querySelector("[data-done-count]")?.textContent`), "1");
+    assert.equal(await evaluate(`!!document.querySelector('[data-done-row="6"]')`), false, "The Done section starts folded");
+    await evaluate(`document.querySelector("[data-done-toggle]").click()`);
+    await waitFor(`!!document.querySelector('[data-done-row="6"]')`);
+    await screenshot("one-list-done-open");
+    assert.match(await evaluate(`document.querySelector('[data-done-row="6"] [data-done-countdown]').textContent`), /^2[23]:\d\d$/);
+    await evaluate(`document.querySelector('[data-done-row="6"] [data-done-reopen]').click()`);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 6, { done: false }]);
+    // The hover Done button marks a Chat Done at once, with an Undo toast.
+    assert.equal(await evaluate(`!!${row(7)}.querySelector("[data-chat-done]")`), true);
+    await evaluate(`${row(7)}.querySelector("[data-chat-done]").click()`);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
+    await waitFor(`[...document.querySelectorAll("[role=status], [data-chat-toast]")].some((node) => node.textContent.includes("Moved to Done"))`);
     // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
     assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");

@@ -26,6 +26,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
       <Stack.Screen name="computers" options={{ title: "Computers" }} />
       <Stack.Screen name="computer" options={{ title: "" }} />
+      <Stack.Screen name="computer-usage" options={{ title: "What Milagre uses" }} />
       <Stack.Screen name="project-accounts" options={{ title: "Project Accounts" }} />
       <Stack.Screen name="accounts" options={{ title: "Accounts" }} />
       <Stack.Screen name="general" options={{ title: "General" }} />

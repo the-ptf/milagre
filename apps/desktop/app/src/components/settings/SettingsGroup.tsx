@@ -4,13 +4,15 @@ import type { ReactNode } from "react";
  * A titled card of Settings rows. `action` sits at the right of the title (Babysit PRs' Reset all to defaults); `footer`
  * is a note under the card.
  */
-export function Group({ title, action, footer, children }: { title: string; action?: ReactNode; footer?: string; children: ReactNode }) {
+export function Group({ title, action, footer, children }: { title?: string; action?: ReactNode; footer?: string; children: ReactNode }) {
   return (
     <section className="mt-6">
-      <div className="mb-2 flex items-baseline justify-between gap-4 px-1">
-        <h2 className="text-[12px] font-medium text-ink-3">{title}</h2>
-        {action}
-      </div>
+      {(title || action) && (
+        <div className="mb-2 flex items-baseline justify-between gap-4 px-1">
+          {title && <h2 className="text-[12px] font-medium text-ink-3">{title}</h2>}
+          {action}
+        </div>
+      )}
       <div className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">{children}</div>
       {footer && <p className="mt-2 px-1 text-[12px] text-ink-3">{footer}</p>}
     </section>

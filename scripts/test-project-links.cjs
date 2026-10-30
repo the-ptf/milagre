@@ -582,9 +582,8 @@ async function main() {
         () => evaluate(`!![...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent === 'Archive' && !button.disabled)`),
         "Archive checked",
       );
+      // Archive asks nothing: the click archives.
       await evaluate(`[...document.querySelectorAll('[data-menu-row]')].find(button => button.textContent === 'Archive').click()`);
-      await waitFor(() => evaluate(`!!document.querySelector('[data-archive-choice]')`), "archive choice");
-      await evaluate(`document.querySelector('[data-archive-choice]').click()`);
     };
     // A slow host: hold the window's next chat:patch in the main process, then send it on or fail it.
     main = await cdp(output.match(/Debugger listening on (ws:\/\/\S+)/)[1]);
