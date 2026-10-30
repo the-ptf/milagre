@@ -189,6 +189,18 @@ async function runPrompt(id, sessionId) {
       text(sessionId, `picked:${picked(result)}`);
       return end();
     }
+    case "kiro-commands": {
+      // Classify and answer only: these command strings are never executed.
+      const results = [];
+      const options = process.env.FAKE_ALWAYS_ONLY ? OPTIONS.filter((option) => option.kind !== "allow_once") : OPTIONS;
+      for (const [index, command] of JSON.parse(process.env.FAKE_COMMANDS).entries()) {
+        const toolCallId = `run-${index}`;
+        update(sessionId, { sessionUpdate: "tool_call", toolCallId, kind: "execute", status: "pending", rawInput: { command, cwd: process.cwd() } });
+        results.push(picked(await ask({ sessionId, toolCall: { toolCallId, title: "Run Command" }, options })));
+      }
+      text(sessionId, `picked:${results.join(",")}`);
+      return end();
+    }
     case "kiro-tools": {
       // A tool call reports its command first; the permission request that follows names only its title.
       const edit = { type: "diff", path: `${process.cwd()}/notes.txt`, oldText: null, newText: "hello\n" };

@@ -15,6 +15,11 @@ const base = (word) => path.basename(word).replace(/\.exe$/i, "");
 
 // Words that only change how a command runs, ahead of the command itself.
 const PREFIXES = new Set(["command", "builtin", "exec", "nohup", "time", "nice", "env", "xargs", "timeout", "caffeinate"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "fish"]);
+const INTERPRETERS = new Set(["node", "nodejs", "python", "python3", "ruby", "perl", "php"]);
+const DIRECTORY_CHANGES = new Set(["cd", "pushd", "popd"]);
+const SHELL_CONTROL = new Set(["if", "then", "elif", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "function", "eval", "!", "{", "}"]);
+const SYSTEM_BINS = new Set(["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/opt/homebrew/bin"]);
 
 const ADMIN = new Set(["sudo", "su", "doas", "pkexec"]);
 const SYSTEM = new Set([
@@ -129,7 +134,14 @@ const inside = (roots, file) =>
 // The words after the command and its prefixes (`sudo` is a risk of its own, so it isn't skipped here).
 function strip(words) {
   let index = 0;
-  while (index < words.length && (PREFIXES.has(base(words[index])) || /^\w+=/.test(words[index]))) index += 1;
+  // Only transparent prefixes without options can be skipped. Options, durations and xargs' input change what
+  // actually executes; leaving the wrapper in place makes simpleRisk ask instead of mistaking an option for a tool.
+  while (index < words.length) {
+    const name = base(words[index]);
+    if (/^\w+=/.test(words[index])) index += 1;
+    else if (PREFIXES.has(name) && !["xargs", "timeout"].includes(name) && words[index + 1] && !words[index + 1].startsWith("-")) index += 1;
+    else break;
+  }
   return words.slice(index);
 }
 
@@ -137,10 +149,10 @@ function strip(words) {
 function redirections(words) {
   const targets = [];
   words.forEach((word, index) => {
-    const match = /^(?:\d|&)?>>?(.*)$/.exec(word);
+    const match = /(?:^|[^>])>>?(.*)$/.exec(word);
     if (!match || match[1].startsWith("&")) return;
     const target = match[1] || words[index + 1];
-    if (target && target !== "/dev/null" && !target.startsWith("/dev/std")) targets.push(target);
+    if (target && !["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"].includes(target)) targets.push(target);
   });
   return targets;
 }
@@ -177,10 +189,25 @@ function packageRisk(name, args) {
 }
 
 function curlRisk(name, args) {
-  if (name === "curl" && args.some((word) => /^-(?:d|F|T)$|^--(?:data|data-\w+|form|upload-file|json)(?:=|$)/.test(word))) return "sends data over the network";
+  // Short options can be clustered and their value can be attached: -sTfile, -d@file, -Ffield=@file.
+  if (name === "curl") {
+    for (const [index, word] of args.entries()) {
+      if (/^--(?:data|data-\w+|form|form-string|upload-file|json)(?:=|$)/.test(word)) return "sends data over the network";
+      if (/^--config(?:=|$)/.test(word)) return "loads curl options from a file";
+      if (!/^-[^-]/.test(word)) continue;
+      for (let offset = 1; offset < word.length; offset += 1) {
+        const option = word[offset];
+        if ("dFT".includes(option)) return "sends data over the network";
+        if (option === "K") return "loads curl options from a file";
+        if (option === "X" && !/^(?:GET|HEAD|OPTIONS)$/i.test(word.slice(offset + 1) || args[index + 1] || "")) return "sends data over the network";
+        // The rest of a value-taking option is data, not flags (e.g. -oREADME.md).
+        if ("oAuHbcexwEmyYrCtUzDX".includes(option)) break;
+      }
+    }
+  }
   if (name === "curl" && args.some((word, index) => /^-X|^--request/.test(word) && /POST|PUT|PATCH|DELETE/i.test(word + (args[index + 1] ?? ""))))
     return "sends data over the network";
-  if (name === "wget" && args.some((word) => /^--(?:post-data|post-file|method)/.test(word))) return "sends data over the network";
+  if (name === "wget" && args.some((word) => /^--(?:post-data|post-file|body-data|body-file|method)/.test(word))) return "sends data over the network";
   return null;
 }
 
@@ -190,9 +217,26 @@ function simpleRisk(words, { cwd, roots }) {
   if (!all.length) return null;
   const name = base(all[0]);
   const args = all.slice(1);
+  // commandsOf extracts words, not execution order or shell state. Do not reuse the original cwd after a cd,
+  // or guess which command a wrapper/control structure will execute.
+  if (DIRECTORY_CHANGES.has(name)) return "changes the command's working directory";
+  if (PREFIXES.has(name) || SHELL_CONTROL.has(name)) return "cannot determine the command's effects";
+  // Check redirects before dispatch: even read-only git/package/cloud commands can write outside the worktree.
+  const outside = redirections(all)
+    .map((word) => pathOf(word, cwd))
+    .find((file) => file && !inside(roots, file));
+  if (outside) return "writes outside the worktree";
+  if (SHELLS.has(name) || INTERPRETERS.has(name) || name === "source" || name === ".") {
+    // Shell -c strings are inspected recursively by commandsOf. Other interpreters' inline programs are opaque.
+    if (SHELLS.has(name) && args.some((word) => /^-[a-z]*c$/.test(word))) return null;
+    if (args.some((word) => word.startsWith("-")) || !args.length) return "runs code whose effects cannot be determined";
+    const script = pathOf(args[0], cwd);
+    if (!script || !inside(roots, script)) return "runs a script outside the worktree";
+  }
+  if (all[0].includes("/") && !SYSTEM_BINS.has(path.dirname(all[0])) && !inside(roots, pathOf(all[0], cwd))) return "runs a script outside the worktree";
   if (ADMIN.has(name)) return "runs as an administrator";
   if (SYSTEM.has(name)) return name === "kill" || name === "pkill" || name === "killall" ? "stops processes" : "changes this computer's settings or system";
-  if (REMOTE_SHELLS.has(name)) return name === "rsync" && !args.some((word) => /^[\w.-]+@?[\w.-]*:/.test(word)) ? null : "connects to another machine";
+  if (REMOTE_SHELLS.has(name) && (name !== "rsync" || args.some((word) => /^[\w.-]+@?[\w.-]*:/.test(word)))) return "connects to another machine";
   if (name === "git") return gitRisk(args);
   if (name === "gh") {
     // `gh api` writes are found for the whole line (babysitDenial); these are the subcommands that change GitHub.
@@ -214,12 +258,19 @@ function simpleRisk(words, { cwd, roots }) {
   const network = curlRisk(name, args);
   if (network) return network;
   if (name === "find" && args.some((word) => word === "-delete" || word === "-exec" || word === "-execdir")) {
-    const start = pathOf(args.find((word) => !word.startsWith("-")) ?? ".", cwd);
-    if (!inside(roots, start) && !roots.includes(start)) return "deletes or runs commands on files outside the worktree";
+    if (args.some((word) => word === "-exec" || word === "-execdir")) return "runs commands selected by find";
+    if (args.includes("-L")) return "follows symlinks while deleting files";
+    if (args.some((word) => word === "-f" || word.startsWith("-files0-from"))) return "cannot determine find's starting paths";
+    // All starting paths matter, not just the first. Leading find options are not path operands.
+    const paths = args.slice(args.findIndex((word) => !["-H", "-L", "-P"].includes(word)));
+    const end = paths.findIndex((word) => word.startsWith("-") || word === "(" || word === "!");
+    const starts = (end < 0 ? paths : paths.slice(0, end)).map((word) => pathOf(word, cwd));
+    if (starts.some((start) => !start || (!inside(roots, start) && !roots.includes(start)))) return "deletes or runs commands on files outside the worktree";
   }
   const secret = args.find((word) => SECRETS.test(pathOf(word, cwd) ?? ""));
   if (secret) return "touches saved credentials";
   if (WRITERS.has(name)) {
+    if (args.some((word) => /[*?[\]{}]/.test(word))) return "cannot determine expanded command targets";
     const targets = args.map((word) => pathOf(word, cwd)).filter(Boolean);
     if (DELETERS.has(name) && targets.some((file) => roots.includes(file) || file === real(os.homedir()) || file === "/"))
       return "deletes the whole worktree or more";
@@ -227,10 +278,6 @@ function simpleRisk(words, { cwd, roots }) {
     const written = name === "cp" || name === "rsync" || name === "install" ? targets.slice(-1) : targets;
     if (written.some((file) => !inside(roots, file))) return DELETERS.has(name) ? "deletes files outside the worktree" : "writes outside the worktree";
   }
-  const outside = redirections(all)
-    .map((word) => pathOf(word, cwd))
-    .find((file) => file && !inside(roots, file));
-  if (outside) return "writes outside the worktree";
   return null;
 }
 
@@ -239,7 +286,8 @@ function simpleRisk(words, { cwd, roots }) {
  * and `roots` the folders the Chat owns (its own folder, and a Link's other worktrees).
  */
 function commandRisk(command, { cwd, roots = [] } = {}) {
-  const text = String(command ?? "");
+  // A shell removes escaped newlines before reading command names and options.
+  const text = String(command ?? "").replace(/\\\r?\n/g, "");
   const owned = [...new Set(roots.filter(Boolean).map((root) => real(path.resolve(root))))];
   if (!owned.length) return "runs outside a worktree";
   const folder = real(path.resolve(cwd ?? owned[0]));
@@ -257,6 +305,9 @@ function commandRisk(command, { cwd, roots = [] } = {}) {
     const risk = simpleRisk(words, { cwd: folder, roots: owned });
     if (risk) return risk;
   }
+  // Expansion is not evaluation: commandsOf deliberately leaves variables/substitutions and glob patterns as
+  // words. Treating those words as literal in-worktree paths would grant approval for an unknown target.
+  if (!commands.length || commands.some((words) => words.some((word) => /[$`]/.test(word)))) return "cannot determine expanded command targets";
   return null;
 }
 

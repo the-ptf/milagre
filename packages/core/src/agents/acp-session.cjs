@@ -548,11 +548,13 @@ class AcpSession {
     // Auto's risk filter (Kiro): a command that stays inside the worktree runs; a risky one gets a card that says why.
     if (this.config.riskFilter && this.permissions.mode === "auto" && request.kind === "command") {
       const risk = commandRisk(request.command, { cwd: request.cwd ?? this.cwd, roots });
-      if (!risk) {
-        this.reply(id, outcome(pickOption(options, "allow", once)));
+      // A safe command is not a grant for later commands. If the agent only offers a standing grant, ask the user.
+      const allowOnce = pickOption(options, "allow", { once: true });
+      if (!risk && allowOnce) {
+        this.reply(id, outcome(allowOnce));
         return;
       }
-      request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
+      if (risk) request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
     }
     this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace });
   }
