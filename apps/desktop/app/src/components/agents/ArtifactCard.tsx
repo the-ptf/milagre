@@ -33,7 +33,17 @@ import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./do
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
 import { MIN_CHAT_WIDTH, usePanelWidth } from "./panel-width";
-import { ArtifactCanvas, ArtifactFrame, useArtifact, type CanvasHandle, type CanvasView, type DesignPin, type PinControls } from "./ArtifactCanvas";
+import {
+  ArtifactCanvas,
+  ArtifactFrame,
+  pageFiles,
+  useArtifact,
+  type CanvasHandle,
+  type CanvasView,
+  type DesignPin,
+  type PageFiles,
+  type PinControls,
+} from "./ArtifactCanvas";
 import { ArtifactPage, type PageHandle } from "./ArtifactPage";
 import { Select } from "../primitives/Select";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
@@ -170,10 +180,13 @@ function ScaledPreview({
   height = 800,
   pin,
   format,
+  files,
 }: {
   html: string;
   title: string;
   format?: "design" | "html";
+  /** An Artifact page's files, which its preview loads. */
+  files?: PageFiles;
   width?: number;
   height?: number;
   /** A comment's spot on the design, as fractions of its screen, marked over the preview. On an Artifact page the
@@ -216,6 +229,7 @@ function ScaledPreview({
             title={title}
             preview
             format={format}
+            files={files}
             page={
               format === "html" && pin
                 ? {
@@ -272,7 +286,14 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
     <div data-slot="artifact-card" data-artifact={id} className="my-2 max-w-xl overflow-hidden rounded-[10px] border border-line bg-surface">
       <div className="relative h-56 overflow-hidden border-b border-line bg-white">
         {artifact ? (
-          <ScaledPreview html={artifact.html} format={artifact.format} title={`Preview of ${title}`} width={artifact.width} height={artifact.height} />
+          <ScaledPreview
+            html={artifact.html}
+            format={artifact.format}
+            title={`Preview of ${title}`}
+            width={artifact.width}
+            height={artifact.height}
+            files={pageFiles(chatId, artifact)}
+          />
         ) : (
           <div className="grid size-full place-items-center px-6 text-center text-[12px] text-ink-3">
             {error ?? (chatId ? "Loading design…" : "Open this Chat in its Project to see the design.")}
@@ -380,6 +401,7 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
       <span className="relative block h-16 w-24 shrink-0 overflow-hidden rounded-[6px] border border-line">
         {artifact && (
           <ScaledPreview
+            files={pageFiles(chatId, artifact)}
             html={artifact.html}
             format={artifact.format}
             title={`Preview of ${comment.design.title}`}
@@ -473,7 +495,14 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
     >
       <span className="relative block h-28 w-full overflow-hidden rounded-[6px] border border-line">
         {artifact ? (
-          <ScaledPreview html={artifact.html} format={artifact.format} title={`Preview of ${design.title}`} width={artifact.width} height={artifact.height} />
+          <ScaledPreview
+            html={artifact.html}
+            format={artifact.format}
+            title={`Preview of ${design.title}`}
+            width={artifact.width}
+            height={artifact.height}
+            files={pageFiles(chatId, artifact)}
+          />
         ) : (
           <span className="grid size-full place-items-center px-2 text-center text-[11px] text-ink-3">{error ?? "Loading…"}</span>
         )}
@@ -1162,6 +1191,7 @@ function ArtifactDock({
           {page?.format === "html" ? (
             <ArtifactPage
               ref={pageView}
+              chatId={chatId}
               page={page}
               tabId={pageTab}
               onTab={setPageTab}

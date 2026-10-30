@@ -118,7 +118,7 @@ function makeBridge(invoke, listen, send) {
     readBotBrief: (id) => invoke("bots:brief:read", id),
     readBotMemory: (id) => invoke("bots:memory:read", id),
     saveBotMemory: (id, text, base) => (base === undefined ? invoke("bots:memory:save", id, text) : invoke("bots:memory:save", id, text, base)),
-    createArtifactPreview: (html) => invoke("artifact-preview:register", html),
+    createArtifactPreview: (html, source) => invoke("artifact-preview:register", html, source),
     releaseArtifactPreview: (url) => invoke("artifact-preview:release", url),
     artifacts: {
       sharingStatus: (request) => invoke("artifact:sharing-status", request),
@@ -128,6 +128,7 @@ function makeBridge(invoke, listen, send) {
       sharePage: (request) => invoke("artifact:share-page", request),
       revokePageShare: (request) => invoke("artifact:revoke-page-share", request),
       get: (request) => invoke("artifact:get", request),
+      asset: (request) => invoke("artifact:asset", request),
       list: (request) => invoke("artifact:list", request),
       apply: (request) => invoke("artifact:apply", request),
       delete: (request) => invoke("artifact:delete", request),

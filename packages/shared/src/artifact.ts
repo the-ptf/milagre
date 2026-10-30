@@ -1,5 +1,8 @@
 import type { ArtifactRef } from "./model.ts";
 import type { DesignDocument, DesignOperation } from "./design.mjs";
+import type { ArtifactAsset } from "./artifact-assets.mjs";
+
+export type { ArtifactAsset };
 
 /** A design as `artifact:list` returns it: its newest version, and the screen it is laid out on. */
 export type ArtifactSummary = ArtifactRef & { versions: number; width: number; height: number; format: "design" | "html" };
@@ -8,8 +11,17 @@ export type ArtifactSummary = ArtifactRef & { versions: number; width: number; h
 export type DesignArtifact = ArtifactSummary & { format: "design"; latest: number; html: string; document: DesignDocument };
 /** One tab of an Artifact page: a page of its own, under a title in the page's tab bar. */
 export type ArtifactTab = { id: string; title: string; html: string };
-/** `html` is the page, or its first tab when the agent split it into `tabs`. */
-export type HtmlArtifact = ArtifactSummary & { format: "html"; latest: number; html: string; tabs?: ArtifactTab[]; document?: never };
+/** `html` is the page, or its first tab when the agent split it into `tabs`. `assets` are the files its HTML shows as `assets/<name>`. */
+export type HtmlArtifact = ArtifactSummary & {
+  format: "html";
+  latest: number;
+  html: string;
+  tabs?: ArtifactTab[];
+  assets?: ArtifactAsset[];
+  document?: never;
+};
+/** Part of a file of the Chat's Artifact page, as `artifact:asset` returns it: up to 256 KB from `offset`, in base64. */
+export type ArtifactAssetChunk = ArtifactAsset & { offset: number; base64: string };
 export type Artifact = DesignArtifact | HtmlArtifact;
 export type ArtifactPageKind = "designs" | "artifacts";
 
@@ -42,6 +54,8 @@ export interface ArtifactApi {
   sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
   revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
   get(request: { chatId: string; id: string; version?: number }): Promise<Artifact>;
+  /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
+  asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;
   /** Saves an atomic batch against the version the editor loaded. A stale version leaves the design unchanged. */
   apply(request: { chatId: string; id: string; expectedVersion: number; operations: DesignOperation[] }): Promise<DesignArtifact>;
@@ -248,6 +262,7 @@ export {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
   ARTIFACT_SEND,
+  artifactCsp,
   ARTIFACT_ESCAPE_SCRIPT,
   ARTIFACT_PAGE,
   ARTIFACT_PAGE_SCRIPT,

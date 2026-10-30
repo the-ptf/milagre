@@ -5,10 +5,12 @@ import {
   ARTIFACT_CSP,
   ARTIFACT_ESCAPE,
   ARTIFACT_PAGE,
+  artifactCsp,
   artifactDocument,
   designGroups,
   readPageMessage,
   type Artifact,
+  type ArtifactAsset,
   type ArtifactPageMessage,
   type DesignArtifact,
   type PagePin,
@@ -166,6 +168,14 @@ export type PageState = {
   reveal?: { key: string; nonce: number };
 };
 
+/** An Artifact page's files, which its preview loads from the computer `chatId` is on (artifact:asset). */
+export type PageFiles = { chatId: string; assets: ArtifactAsset[] };
+/** The files an artifact shows, when it is an HTML page that has any. */
+export const pageFiles = (chatId: string | null | undefined, artifact: Artifact | null | undefined): PageFiles | undefined =>
+  chatId && artifact?.format === "html" && artifact.assets?.length ? { chatId, assets: artifact.assets } : undefined;
+// The policy an isolated preview runs under (artifact-preview.cjs): its files load from the preview scheme.
+const PREVIEW_CSP = artifactCsp("milagre-artifact:");
+
 /** Sends a command to an Artifact page's helper. */
 export function tellPage(frame: HTMLIFrameElement | null, command: Record<string, unknown> & { t: string }) {
   frame?.contentWindow?.postMessage({ ...command, milagre: ARTIFACT_PAGE }, "*");
@@ -184,11 +194,14 @@ export function ArtifactFrame({
   page,
   onPage,
   frameRef,
+  files,
 }: {
   html: string;
   title: string;
   preview?: boolean;
   format?: "design" | "html";
+  /** An Artifact page's files, which its `assets/<name>` references load. */
+  files?: PageFiles;
   page?: PageState;
   onPage?: (message: ArtifactPageMessage) => void;
   frameRef?: React.RefObject<HTMLIFrameElement | null>;
@@ -243,18 +256,22 @@ export function ArtifactFrame({
     },
     [frameRef],
   );
-  const [registered, setRegistered] = useState<{ html: string; url: string } | null>(null);
+  const [registered, setRegistered] = useState<{ html: string; files: string; url: string } | null>(null);
   const [previewError, setPreviewError] = useState("");
+  // The same files keep the same preview; a file the page swaps registers it again.
+  const filesKey = files ? `${files.chatId}\n${files.assets.map((asset) => `${asset.name}:${asset.hash}`).join("\n")}` : "";
+  const filesRef = useRef(files);
+  filesRef.current = files;
   useEffect(() => {
     if (format !== "html" || !window.milagre?.createArtifactPreview) return;
     let live = true;
     let url: string | undefined;
     setPreviewError("");
     void window.milagre
-      .createArtifactPreview(html)
+      .createArtifactPreview(html, filesRef.current)
       .then((value) => {
         url = value;
-        if (live) setRegistered({ html, url });
+        if (live) setRegistered({ html, files: filesKey, url });
         else void window.milagre.releaseArtifactPreview(url);
       })
       .catch((cause) => {
@@ -264,9 +281,9 @@ export function ArtifactFrame({
       live = false;
       if (url) void window.milagre.releaseArtifactPreview(url);
     };
-  }, [html, format]);
+  }, [html, format, filesKey]);
   const isolated = format === "html" && !!window.milagre?.createArtifactPreview;
-  const url = registered?.html === html ? registered.url : undefined;
+  const url = registered?.html === html && registered.files === filesKey ? registered.url : undefined;
   if (isolated && !url)
     return (
       <div role={previewError ? "alert" : "status"} className="grid size-full place-items-center text-[12px] text-ink-3">
@@ -281,7 +298,7 @@ export function ArtifactFrame({
       src={isolated ? url : undefined}
       sandbox="allow-scripts"
       // The policy a second time, as the embedder's (Chromium holds the document to it), beside the <meta> inside.
-      {...{ csp: ARTIFACT_CSP }}
+      {...{ csp: isolated ? PREVIEW_CSP : ARTIFACT_CSP }}
       referrerPolicy="no-referrer"
       tabIndex={preview ? -1 : undefined}
       className={`block size-full border-0 bg-white ${preview ? "pointer-events-none" : ""}`}
@@ -861,7 +878,7 @@ const DesignFrame = memo(function DesignFrame({
           className={`size-full overflow-hidden rounded-[12px] border-2 bg-white shadow-raised ${isChosen || active ? "border-accent" : "border-line"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
         >
           {artifact ? (
-            <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} />
+            <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} files={pageFiles(chatId, artifact)} />
           ) : (
             <div className="grid size-full place-items-center text-ink-3" style={{ fontSize: 24 }}>
               {error ?? "Loading…"}

@@ -39,7 +39,8 @@ const { createDeviceNotices } = require("./device-notices.cjs");
 const { createMediaHandler } = require("./media.cjs");
 const { createComputersLane } = require("./computers-lane.cjs");
 protocol.registerSchemesAsPrivileged([
-  { scheme: "milagre-artifact", privileges: { standard: true, secure: true } },
+  // stream: an Artifact page's videos and audio play from its preview's address.
+  { scheme: "milagre-artifact", privileges: { standard: true, secure: true, stream: true } },
   { scheme: "milagre-media", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 async function startDesktop() {
@@ -139,9 +140,19 @@ async function startDesktop() {
     floating.close();
     openFromNotification("notification:open-experimental");
   });
-  const previews = require("./artifact-preview.cjs").createArtifactPreviews();
+  // An Artifact page's files come from the computer its Chat is on: this Mac's host, or a paired one's.
+  const { computerOfKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
+  const previews = require("./artifact-preview.cjs").createArtifactPreviews({
+    readAsset: (chatId, name, offset, length) => {
+      const request = { chatId, name, offset, length };
+      const computer = computerOfKey(chatId);
+      if (computer === LOCAL_COMPUTER) return runtime.invoke("artifact:asset", [request]);
+      if (!computersLane) throw new Error("This computer is not reachable.");
+      return computersLane.invoke("computers:invoke", [computer, "artifact:asset", [request]]);
+    },
+  });
   const previewOwners = new Set();
-  ipcMain.handle("artifact-preview:register", (event, html) => {
+  ipcMain.handle("artifact-preview:register", (event, html, source) => {
     if (event.senderFrame !== event.sender.mainFrame) throw new Error("Only the app can create a preview.");
     const owner = event.sender.id;
     if (!previewOwners.has(owner)) {
@@ -154,7 +165,7 @@ async function startDesktop() {
         if (mainFrame) previews.clear(owner);
       });
     }
-    return previews.register(owner, html);
+    return previews.register(owner, html, source);
   });
   ipcMain.handle("artifact-preview:release", (event, url) => {
     if (event.senderFrame === event.sender.mainFrame) previews.release(event.sender.id, url);

@@ -39,6 +39,7 @@ import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
 import { useTheme } from "./theme";
 import { PELE_SCRIPT } from "./pele-script";
 import { onShareAvailability } from "./share-availability";
+import { pageWithFiles, usePageFiles } from "./artifact-files";
 import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
 
 let feedbackRequestId = 0;
@@ -493,6 +494,8 @@ export function ArtifactSheet({
   const artifact = source && state.artifact?.format === "html" ? state.artifact : null;
   const [tabId, setTabId] = useState<string | null>(targetTab ?? null);
   const tab = artifact ? artifactTab(artifact, tabId) : null;
+  // The page's photos and videos, downloaded once into the cache; the page shows once they are there.
+  const files = usePageFiles(source, chatId, artifact?.assets);
   const tabs = artifact?.tabs && artifact.tabs.length > 1 ? artifact.tabs : null;
 
   const feedbackKey = hostId && chatId ? `${hostId}|${chatId}|artifacts` : null;
@@ -746,8 +749,25 @@ export function ArtifactSheet({
             </Text>
             <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
           </View>
+        ) : artifact && tab && files.error ? (
+          <View style={{ padding: 20, gap: 16 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
+              {files.error}
+            </Text>
+            <PillButton title="Retry" onPress={() => setRevision((value) => value + 1)} />
+          </View>
+        ) : artifact && tab && files.uris ? (
+          <ArtifactWebView
+            key={`${artifact.id}:${artifact.version}:${tab.id}`}
+            ref={page}
+            html={artifact.assets ? pageWithFiles(tab.html, artifact.assets, files.uris) : tab.html}
+            files={!!artifact.assets}
+            onMessage={onMessage}
+          />
         ) : artifact && tab ? (
-          <ArtifactWebView key={`${artifact.id}:${artifact.version}:${tab.id}`} ref={page} html={tab.html} onMessage={onMessage} />
+          <Text accessibilityRole="progressbar" style={[styles.muted, { padding: 20 }]}>
+            {`Loading the page's files… ${files.total ? Math.floor((files.received / files.total) * 100) : 0}%`}
+          </Text>
         ) : (
           <Text style={[styles.muted, { padding: 20 }]}>Loading page...</Text>
         )}
@@ -787,14 +807,25 @@ const BOX_WIDTH = 272;
  * messages through, which `onMessage` reads by their shape; the Expo modules bridge stays off. Mermaid blocks draw
  * with Pele, which the shell's page carries.
  */
-function ArtifactWebView({ ref, html, onMessage }: { ref?: React.Ref<DomWebViewRef>; html: string; onMessage?: (data: string) => void }) {
+/** `files`: the page shows files from the phone's cache (artifact-files.ts), which its policy lets it load. */
+function ArtifactWebView({
+  ref,
+  html,
+  files = false,
+  onMessage,
+}: {
+  ref?: React.Ref<DomWebViewRef>;
+  html: string;
+  files?: boolean;
+  onMessage?: (data: string) => void;
+}) {
   const { colors } = useTheme();
   const [crashed, setCrashed] = useState(false);
   // Written while rendering, so the page is there on the first frame; each page gets a file of its own, removed when
   // the page changes or goes. Named for this view and the page's content: two views never share a file.
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const prepared = useMemo(() => {
-    const page = artifactShell(html, { diagrams: PELE_SCRIPT });
+    const page = artifactShell(html, { diagrams: PELE_SCRIPT, ...(files ? { assets: "file:" } : {}) });
     let hash = 5381;
     for (let index = 0; index < html.length; index++) hash = (hash * 33) ^ html.charCodeAt(index);
     const file = new File(Paths.cache, `artifact-${id}-${(hash >>> 0).toString(36)}.html`);
@@ -804,7 +835,7 @@ function ArtifactWebView({ ref, html, onMessage }: { ref?: React.Ref<DomWebViewR
     } catch {
       return null;
     }
-  }, [html, id]);
+  }, [html, id, files]);
   useEffect(
     () => () => {
       try {

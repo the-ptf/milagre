@@ -77,6 +77,7 @@ const PATHS = Object.freeze({
   "terminal:close": denied,
   // A design is read through its Chat, which must be in the folder.
   "artifact:get": ([value]) => [chatProject(value?.chatId)],
+  "artifact:asset": ([value]) => [chatProject(value?.chatId)],
   "artifact:apply": denied,
   "artifact:delete": denied,
   "artifact:list": ([value]) => [chatProject(value?.chatId)],

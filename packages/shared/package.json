@@ -320,6 +320,10 @@
     "./skill-catalog": "./src/skill-catalog.ts",
     "./simulator": "./src/simulator.ts",
     "./artifact": "./src/artifact.ts",
+    "./artifact-assets": {
+      "types": "./src/artifact-assets.d.mts",
+      "default": "./src/artifact-assets.mjs"
+    },
     "./artifact-document": {
       "types": "./src/artifact-document.d.mts",
       "default": "./src/artifact-document.mjs"
