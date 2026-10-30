@@ -19,7 +19,7 @@
     ],
     "no-console": "off",
     "unicorn/prefer-node-protocol": "error",
-    "unicorn/consistent-function-scoping": "warn",
+    "unicorn/consistent-function-scoping": "off",
     "promise/always-return": "warn",
     "unicorn/no-array-sort": "warn",
     "unicorn/prefer-add-event-listener": "error",
