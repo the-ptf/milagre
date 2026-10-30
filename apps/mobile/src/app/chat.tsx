@@ -1,7 +1,7 @@
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
-import { ShrinkIcon } from "@hugeicons/core-free-icons";
+import { CleanIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
 import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
@@ -1111,7 +1111,7 @@ function ChatPane({
           opacity: compactBlocked ? 0.4 : pressed ? 0.6 : 1,
         })}
       >
-        <Icon icon={compactQueued ? Cancel01Icon : ShrinkIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={14} />
+        <Icon icon={compactQueued ? Cancel01Icon : CleanIcon} tone={compactState.warning ? "orangeInk" : "ink2"} size={14} />
         <Text style={{ fontSize: 12, fontWeight: "600", color: compactState.warning ? colors.orangeInk : colors.ink2 }}>
           {compacting ? "Compacting…" : compactQueued ? "Queued" : run ? "After turn" : "Compact"}
         </Text>
@@ -2917,14 +2917,23 @@ function ChatPane({
                               ) : (
                                 !quietContext &&
                                 (compactButton || (showContextSize && contextUsage && contextUsage.size > 0)) && (
-                                  <View
-                                    style={{
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      borderRadius: 999,
-                                      backgroundColor: compactState.warning ? colors.orangeTint : "transparent",
-                                    }}
-                                  >
+                                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                    {/* The tint is the send button's 34pt height; the buttons keep their 44pt touch targets. */}
+                                    {compactState.warning && (
+                                      <View
+                                        pointerEvents="none"
+                                        style={{
+                                          position: "absolute",
+                                          left: 0,
+                                          right: 0,
+                                          top: "50%",
+                                          height: 34,
+                                          marginTop: -17,
+                                          borderRadius: 17,
+                                          backgroundColor: colors.orangeTint,
+                                        }}
+                                      />
+                                    )}
                                     {compactButton}
                                     {contextUsage && contextUsage.size > 0 && params.id && (
                                       <ContextRing

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUp01Icon, ArrowDown01Icon, ShrinkIcon } from "@hugeicons/core-free-icons";
+import { ArrowUp01Icon, ArrowDown01Icon, CleanIcon } from "@hugeicons/core-free-icons";
 import { useState } from "react";
 import { CONTEXT_DEFAULTS, normalizeContextSettings, type ContextSettings as Values } from "@milagre/shared/context-settings";
 import { useContextSettings } from "../lib/context-settings";
@@ -44,7 +44,7 @@ export function ContextSettings() {
             >
               {previewCompact && (
                 <span className="flex items-center gap-1">
-                  <HugeiconsIcon icon={ShrinkIcon} size={14} />
+                  <HugeiconsIcon icon={CleanIcon} size={14} />
                   {preview === "running" ? "After turn" : "Compact"}
                 </span>
               )}
