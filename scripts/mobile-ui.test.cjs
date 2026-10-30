@@ -3578,7 +3578,11 @@ function allComputersFake(session, computers, storeCalls) {
     useFoldedProjects: (ids) => new Map(ids.map((id) => [id, new Set()])),
     allComputers: {
       viewOf: (hostId) => views().find((view) => view.hostId === hostId),
-      clientFor: (hostId) => (hostId === session.client.url ? session.client : { url: hostId, call: async () => {} }),
+      // A computer of the test's may bring its own client (`computer.client`), to see what reached it.
+      clientFor: (hostId) =>
+        hostId === session.client.url
+          ? session.client
+          : (computers?.find((computer) => computer.hostId === hostId)?.client ?? { url: hostId, call: async () => {} }),
       hostFor: (hostId) => ({ id: hostId, name: views().find((view) => view.hostId === hostId)?.name ?? "Mac", address: hostId, token: "token", lastUsed: 0 }),
       refreshProject: async (hostId, path) => {
         storeCalls.push(["refreshProject", hostId, path]);
@@ -9893,7 +9897,7 @@ test("a sidebar deletion takes the Chat's row out of the list and brings it back
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
   assert.equal(listsChat(nav), false, "the row goes at once, with the toast's Undo");
-  assert.equal(archiveStore.archiveActivity().deleted, "/p#5");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
   patch.reject(new Error("disk full"));
   await settleAll();
   assert.ok(nav.row("chat"), "a failed deletion brings the row back");
@@ -9902,6 +9906,90 @@ test("a sidebar deletion takes the Chat's row out of the list and brings it back
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
   assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
+});
+
+/** Two Computers, each with Chat /p#5 ("Fix"); `fail` makes one Computer's hide fail. */
+function twoComputerArchive({ fail } = {}) {
+  const mac = archiveProject();
+  const studio = archiveProject();
+  const studioCall = (method, args) => (fail === "studio" && method === "chat:patch" ? Promise.reject(new Error("disk full")) : studio.call(method, args));
+  // A deleted Chat leaves its Computer's Project, as the Mac's state does.
+  const macCall = (method, args) => {
+    if (method === "chat:delete") delete mac.snapshot.project.state.sessions[args[1]];
+    return mac.call(method, args);
+  };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: {
+      client: { ...mac.client, call: macCall, url: "mac" },
+      recent: [{ path: "/p" }],
+      snapshot: mac.snapshot,
+      expectActivity() {},
+      refresh: async () => {},
+    },
+    computers: [
+      { hostId: "mac", name: "MacBook", state: "online", projects: [{ path: "/p" }], copies: { "/p": mac.snapshot } },
+      {
+        hostId: "studio",
+        name: "Studio",
+        state: "online",
+        projects: [{ path: "/p" }],
+        copies: { "/p": studio.snapshot },
+        client: { url: "studio", call: studioCall, snapshot: studio.client.snapshot },
+      },
+    ],
+  });
+  const hosts = () =>
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.hostId);
+  const remove = (hostId) => {
+    const at = hosts().indexOf(hostId);
+    nav.more(nav.row("chat", at)).props.onSelect("archive");
+  };
+  return { nav, mac, studio, hosts, remove };
+}
+
+test("deleting a Chat hides and undoes only its own Computer's row when another Computer has the same path and id", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive();
+  same(hosts().sort(), ["mac", "studio"]);
+  remove("mac");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's Chat stays listed while the Mac's is deleted");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
+  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  await settleAll();
+  same(hosts().sort(), ["mac", "studio"]);
+  assert.equal(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  assert.equal(studio.calls.length, 0, "nothing reached Studio");
+});
+
+test("deletions of the same Chat on two Computers run apart, and one's failure brings back only its own row", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive({ fail: "studio" });
+  remove("mac");
+  await settleAll();
+  remove("studio");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's failed deletion brings back only Studio's row");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
+  archiveStore.clearArchiveNotice();
+  assert.equal(archiveStore.archiveActivity().hidden.has("mac|/p#5"), true, "the Mac's deletion is still waiting out its Undo");
+  await passUndo(t);
+  assert.ok(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    "the Mac's Chat is deleted after its Undo time",
+  );
+  assert.equal(
+    studio.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  same(hosts(), ["studio"]);
 });
 
 test("an Undo on the list's toast brings the deleted Chat back without deleting it", async () => {

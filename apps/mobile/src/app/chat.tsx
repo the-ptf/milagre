@@ -1744,6 +1744,7 @@ function ChatPane({
           chat: target,
           running: !!run,
           chatsHome: chatsHomeOpen,
+          hostId: params.hostId || session.client?.url,
           onConfirm: () => {
             session.expectActivity();
             leave();

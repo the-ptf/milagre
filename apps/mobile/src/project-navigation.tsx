@@ -67,7 +67,7 @@ import { canOpenBeside, openBeside, useBesideChat } from "./split-chats";
 import { confirm } from "./confirm-store";
 import { showChoiceSheet } from "./choice-store";
 import { ArchivingOverlay, useArchiveActivity } from "./archive-progress";
-import { clearArchiveNotice, showArchiveNotice } from "./archive";
+import { clearArchiveNotice, deletionKey, showArchiveNotice } from "./archive";
 import { ToastPill } from "./primitives/toast";
 import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
@@ -464,7 +464,7 @@ const NavigationBody = memo(function NavigationBody({
         snapshot,
         pendingChats,
         archiving: archiving(view.hostId),
-        hidden: (projectPath, chatId) => archives.hidden.has(`${projectPath}#${chatId}`),
+        hidden: (projectPath, chatId) => archives.hidden.has(deletionKey(view.hostId, `${projectPath}#${chatId}`)),
         fallback: cachedProject,
         show,
       });
@@ -947,6 +947,7 @@ const NavigationBody = memo(function NavigationBody({
         state: copy.project.state,
         link: copy.project.link,
         chatsHome: row.home,
+        hostId,
         onConfirm: () => {
           confirmed = true;
         },

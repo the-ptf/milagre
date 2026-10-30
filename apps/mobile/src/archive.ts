@@ -79,9 +79,14 @@ export type ArchiveRequest = {
   refresh: () => Promise<unknown>;
   /** How long the toast's Undo can call the deletion off; DELETE_UNDO_MS unless a test says otherwise. */
   undoMs?: number;
+  /** The Computer the Chat is on (its client URL): two Computers can hold the same `projectPath#id`. */
+  hostId?: string;
 };
 
-// Chats with an archive under way, from the tap to the end: another tap on one asks nothing and does nothing.
+/** A deletion's owner, as the list's rows and the toast's Undo name it: the Computer and the Chat. */
+export const deletionKey = (hostId: string | undefined, chatId: string) => (hostId ? `${hostId}|${chatId}` : chatId);
+
+// Chats with an archive under way, by deletionKey, from the tap to the end: another tap on one asks nothing and does nothing.
 const archiving = new Set<string>();
 
 /**
@@ -90,8 +95,8 @@ const archiving = new Set<string>();
  * wherever it is listed, and the notice shows once the phone has moved on.
  */
 /**
- * `hidden`: Chats deleted from the phone, out of the list until the deletion ends (back if it is undone or fails).
- * `deleted`: the last one still in its Undo time, whose "Chat deleted" toast offers the Undo.
+ * `hidden`: Chats deleted from the phone, by deletionKey, out of the list until the deletion ends (back if it is undone
+ * or fails). `deleted`: the last one still in its Undo time, whose "Chat deleted" toast offers the Undo.
  */
 export type ArchiveActivity = { chats: ReadonlySet<string>; notice: string; hidden: ReadonlySet<string>; deleted: string };
 let activity: ArchiveActivity = { chats: new Set(), notice: "", hidden: new Set(), deleted: "" };
@@ -128,17 +133,17 @@ export function clearArchiveNotice() {
  * Takes the Chat out of the list and opens its Undo: the toast shows until the time is up or Undo is tapped. The returned
  * function puts the Chat back in the list, once the deletion has ended.
  */
-function openUndo(chatId: string, ms?: number) {
-  setActivity({ hidden: new Set(activity.hidden).add(chatId), deleted: chatId });
-  const window = deleteUndoWindow(chatId, ms).finally(() => {
-    if (activity.deleted === chatId) setActivity({ deleted: "" });
+function openUndo(owner: string, ms?: number) {
+  setActivity({ hidden: new Set(activity.hidden).add(owner), deleted: owner });
+  const window = deleteUndoWindow(owner, ms).finally(() => {
+    if (activity.deleted === owner) setActivity({ deleted: "" });
   });
   const show = () => {
     // A deletion that failed before its time was up has nothing left to undo: its toast goes too.
-    undoDelete(chatId);
+    undoDelete(owner);
     const hidden = new Set(activity.hidden);
-    hidden.delete(chatId);
-    setActivity({ hidden, deleted: activity.deleted === chatId ? "" : activity.deleted });
+    hidden.delete(owner);
+    setActivity({ hidden, deleted: activity.deleted === owner ? "" : activity.deleted });
   };
   return { window, show };
 }
@@ -152,10 +157,11 @@ function openUndo(chatId: string, ms?: number) {
 export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" | "hidden" | "removed" | "kept" | "undone"> {
   const { client, projectPath, chat } = request;
   const chatId = `${projectPath}#${chat.id}`;
-  if (archiving.has(chatId)) return "busy";
-  archiving.add(chatId);
+  const owner = deletionKey(request.hostId, chatId);
+  if (archiving.has(owner)) return "busy";
+  archiving.add(owner);
   // The Undo opens with the tap: the checks below can take seconds on a busy Mac.
-  const { window, show } = openUndo(chatId, request.undoMs);
+  const { window, show } = openUndo(owner, request.undoMs);
   let undone = false;
   const undo = window.then((value) => (undone = value));
   let done = () => {};
@@ -198,7 +204,7 @@ export async function archiveFromPhone(request: ArchiveRequest): Promise<"busy" 
       await request.refresh().catch(() => {});
     }
   } finally {
-    archiving.delete(chatId);
+    archiving.delete(owner);
     done();
     show();
   }
