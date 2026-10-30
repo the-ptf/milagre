@@ -634,6 +634,7 @@ export type MilagreBridge = {
   onProjectState: (callback: (update: { path: string; state?: CoordinatorState } & StateNumbering) => void) => () => void;
   /** Saves a message in its chat (a new one when `sessionId` is null), then starts or steers the chat's turn. */
   checkpoints: CheckpointApi;
+  sendStatus: (owner: string, id: string) => Promise<{ sessionId: number } | null>;
   sendMessage: (request: ChatSendRequest) => Promise<{ sessionId: number }>;
   /** Continues a chat a quit stopped mid-turn, on its saved options. Resolves false when it has nothing to continue. */
   resumeChat: (projectPath: string, sessionId: number) => Promise<boolean>;

@@ -1,6 +1,11 @@
+import { outbox, outboxAttachments, queueForComputer, hasQueuedChat } from "../lib/outbox";
+import { OfflineTray, useOfflineTray } from "./OfflineTray";
+import { useDisplayNow } from "../lib/display-clock";
+import { computerOfKey } from "@milagre/shared/chat-scopes";
+import { computerNameOf, offlineBanner, useComputers } from "../lib/computers";
 import { archiveLinkChat } from "../lib/archive-flow";
 import { shortcutCommand } from "../lib/keybindings";
-import { prepareImageUploads } from "../lib/attachment-uploads";
+import { prepareImageUploads, prepareLocalFileUploads } from "../lib/attachment-uploads";
 import { PersistenceNotices, type UnsavedScope } from "./PersistenceNotice";
 import { CommandPalette } from "./CommandPalette";
 import { chatActivity } from "@milagre/shared/chat-activity";
@@ -148,6 +153,9 @@ export function LinkWorkspace({
   const scope = { kind: "link" as const, linkId: opened.link.id },
     owner = scopeKey(scope);
   const bridge = bridgeForKey(owner);
+  const computer = useComputers().computers.find((item) => item.id === computerOfKey(owner));
+  const offline = queueForComputer(owner);
+  const bannerNow = useDisplayNow(60_000, offline);
   // oxlint-disable-next-line react/use-memo -- one store per Link, made when the Link changes
   const draftStore = useMemo(createDraftStore, [owner]);
   const saved = drafts.read(scope);
@@ -157,6 +165,7 @@ export function LinkWorkspace({
   const [draftId, setDraftId] = useState(0);
   const sendKey = `${owner}#${sessionId ?? `new:${draftId}`}`;
   const session = sessionId == null ? undefined : state.sessions[sessionId];
+  const offlineTray = useOfflineTray(owner, sessionId, offline);
   const chatId = session ? chatKeyForScope(scope, session.id) : null;
   // A shared Chat's Terminals start in one of its Worktrees, chosen when it has several.
   const terminalPlaces: TerminalPlace[] | undefined = session?.worktrees.map((member) => ({
@@ -225,7 +234,7 @@ export function LinkWorkspace({
   );
   const chatMessagesOf = (id: number) => (lean ? (id === sessionId ? messages : []) : state.messages.filter((message) => message.session_id === id));
   const composerPrefs = useComposerPreferences(`${owner}#${sessionId ?? "new"}`);
-  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner);
+  const imageDraft = usePastedImages(`${owner}:${sessionId ?? "new"}`, owner, queueForComputer(owner));
   const [error, setError] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findSignal, setFindSignal] = useState(0);
@@ -431,6 +440,50 @@ export function LinkWorkspace({
     setError(null);
     // The picker decides the provider: a chat on another one hands off to it.
     const model = preferences.selectedModel;
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (queueForComputer(owner) || hasQueuedChat(owner, sessionId)) {
+      try {
+        const id = crypto.randomUUID();
+        await outbox.enqueue({
+          id,
+          computerId: computerOfKey(owner),
+          computerName: computerNameOf(computerOfKey(owner)),
+          owner,
+          conversation: sessionId == null ? id : `chat:${sessionId}`,
+          link: { linkId: opened.link.id, operationId: operation },
+          request: {
+            projectPath: owner,
+            sessionId,
+            worktreeId: 0,
+            body,
+            images: [],
+            files: [],
+            prompt: body,
+            provider: model.provider,
+            model: model.id,
+            permissionMode: composerPrefs.permissionMode,
+            effort: preferences.capability ? effortFor(preferences.capability, composerPrefs.effort) : composerPrefs.effort,
+            ultracode: composerPrefs.ultracode,
+            fastMode: composerPrefs.fastMode,
+            replies: getSettings().claudeReplies,
+            tldrEnabled: getSettings().tldrEnabled,
+          },
+          attachments: await outboxAttachments(images, files, imageDraft.localFiles),
+        });
+        if (!preserve && latest.current.active && latest.current.selection === selection) {
+          if (draftStore.get().trim() === body) draftStore.set("");
+          for (const image of images) imageDraft.remove(image.id);
+          for (const file of files) imageDraft.removeFile(file);
+        }
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setError(ipcErrorMessage(error));
+        return false;
+      } finally {
+        sendsInFlight.current.delete(sendKey);
+      }
+    }
     // A Link's state has no Worktrees (its Chats own theirs); the preview reads only its sessions and messages.
     const preview = createPendingChat({
       state: state as unknown as CoordinatorState,
@@ -451,15 +504,16 @@ export function LinkWorkspace({
       imageDraft.clear();
     }
     try {
+      const uploadedFiles = await prepareLocalFileUploads(owner, files, images, imageDraft.localFiles);
       const request = {
         linkId: opened.link.id,
         sessionId,
         operationId: operation,
         clientMessageId: previewId,
         body,
-        prompt: attachmentPrompt(body, files),
+        prompt: attachmentPrompt(body, uploadedFiles),
         images: await prepareImageUploads(owner, images),
-        files,
+        files: uploadedFiles,
         provider: model.provider,
         model: model.id,
         permissionMode: composerPrefs.permissionMode,
@@ -736,6 +790,18 @@ export function LinkWorkspace({
                         onStop={chatId && run ? () => void agents.interrupt(chatId) : undefined}
                         isSending={Boolean(run && !approval && !question) || (pendingHere && !run)}
                         sendBlocked={preparing}
+                        offlineName={offline ? computerNameOf(computerOfKey(owner)) : null}
+                        offlineTray={
+                          offlineTray.shown ? (
+                            <OfflineTray
+                              owner={owner}
+                              sessionId={sessionId}
+                              computerName={computerNameOf(computerOfKey(owner))}
+                              offline={offline}
+                              detail={computer ? offlineBanner(computer, bannerNow) : undefined}
+                            />
+                          ) : undefined
+                        }
                         streamingText={run?.text}
                         streamingSteps={run?.steps}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend.startedAt : undefined)}

@@ -2072,6 +2072,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               dimOffline
               linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
               bot={botMarks.get(key)}
+              chatKey={key}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
               {...(inbox ? scope.badge : {})}
@@ -2522,6 +2523,7 @@ function ChatList({
       dragging={drag?.id === item.id}
       linked={linkProjectId ? sidebarLinks.endsFor(scopeKey, item) : undefined}
       bot={botMarks.get(`${scopeKey}#${item.id}`)}
+      chatKey={`${scopeKey}#${item.id}`}
       project={projectName}
       projectImage={projectImage}
       projectInitial={projectInitial}

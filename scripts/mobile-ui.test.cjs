@@ -137,6 +137,22 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
   vm.runInNewContext(compiled, {
     exports,
     require: (id) => {
+      if (/^\.\.?\/offline-tray$/.test(id) && !(id in modules))
+        return { ComposerTray: ({ children }) => children, OfflineTray: "OfflineTray", WaitingLabel: () => null };
+      if (/^\.\.?\/outbox$/.test(id) && !(id in modules))
+        return {
+          hasQueuedChat: () => false,
+          outbox: {
+            ready: Promise.resolve(),
+            getSnapshot: () => ({ loaded: true }),
+            enqueue: async () => {
+              throw new Error("Unexpected offline enqueue");
+            },
+            flush: async () => {},
+          },
+          outboxAttachments: (items) => items,
+          useOutbox: () => ({ loaded: true, items: [], error: "" }),
+        };
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
@@ -258,7 +274,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           useNewChatProjects: () => [],
           useNoProjectChoice: () => undefined,
           chatsHomePath: async (_client, _hostId, home) => home.path,
-          allComputers: { clientFor: () => null, hostFor: () => undefined },
+          allComputers: { clientFor: () => null, hostFor: () => undefined, viewOf: () => undefined },
         };
       // One row per repository in New Chat's Project picker (new-chat-project.ts) is pure.
       if (base === "new-chat-project" && !(id in modules)) return require("../apps/mobile/src/new-chat-project.ts");
@@ -2660,6 +2676,7 @@ function chatHost({
   linear = { active: false },
   routines = [],
   routinesOn = true,
+  localOutbox,
   computers,
   screenWidth = 402,
   now = new Date(2026, 9, 17, 10, 30).getTime(),
@@ -2789,6 +2806,20 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    ...(localOutbox
+      ? {
+          "../outbox": {
+            outbox: localOutbox,
+            hasQueuedChat: (computerId, owner, sessionId) =>
+              localOutbox
+                .getSnapshot()
+                .items?.some(
+                  (item) => item.computerId === computerId && item.owner === owner && item.request.sessionId === sessionId && item.status !== "sent",
+                ) ?? false,
+            outboxAttachments: require("../apps/mobile/src/attachments.ts").outboxAttachments,
+          },
+        }
+      : {}),
     ...(computers ? { "../all-computers": computers } : {}),
     "react-native-reanimated": { default: { View: "AnimatedView" }, useAnimatedStyle: (style) => style() },
     "../hosts-native": { savedChatDefaults: chatDefaults },
@@ -2951,7 +2982,8 @@ function chatHost({
     const props = find(render(), (node) => node.type === "PromptField").props;
     return { ...props, value: props.draft };
   };
-  const send = () => find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up"].includes(node.props.label)).props.onPress();
+  const send = () =>
+    find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up", "Queue message"].includes(node.props.label)).props.onPress();
   return { session, sending, params, field, send, render, router, calls, choices, panels, undo };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -16167,6 +16199,96 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+test("an offline phone send saves text, destination and attachment bytes before clearing the composer", async () => {
+  const { createOutbox } = require("@milagre/shared/outbox");
+  let saved;
+  const box = createOutbox({
+    storage: {
+      read: async () => null,
+      write: async (data) => {
+        saved = structuredClone(data);
+      },
+    },
+    available: () => false,
+    deliver: async () => assert.fail("offline delivery"),
+  });
+  const host = chatHost({ localOutbox: box });
+  host.session.error = "Computer disconnected";
+  host.session.attachments["/p#new:1"] = [
+    { id: "photo", name: "Photo.jpg", uri: "temporary.jpg", image: { id: "photo", name: "Photo.jpg", dataUrl: "data:image/jpeg;base64,aW1n" } },
+  ];
+  host.render();
+  host.send();
+  await settle();
+  await settle();
+  assert.equal(saved.items.length, 1);
+  assert.equal(saved.items[0].computerId, host.session.client.url);
+  assert.equal(saved.items[0].owner, "/p");
+  assert.equal(saved.items[0].request.body, "first message");
+  assert.equal(saved.items[0].attachments[0].base64, "aW1n");
+  assert.equal(host.field().value, "");
+  assert.equal(host.session.attachments["/p#new:1"].length, 0);
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+  // The message waits in this Chat's composer tray, which says the computer is offline.
+  assert.equal(find(host.render(), (node) => node.type === "OfflineTray")?.props.target.offline, true);
+});
+
+test("an offline queue storage failure keeps the phone draft and attachments", async () => {
+  const box = {
+    getSnapshot: () => ({ loaded: true }),
+    enqueue: async () => {
+      throw new Error("Disk full");
+    },
+    flush: async () => {},
+  };
+  const host = chatHost({ localOutbox: box });
+  host.session.error = "Computer disconnected";
+  host.session.attachments["/p#new:1"] = [{ id: "file", name: "notes.txt", uri: "temp", base64: "YWJj" }];
+  host.render();
+  host.send();
+  await settle();
+  assert.equal(host.field().value, "first message");
+  assert.equal(host.session.attachments["/p#new:1"].length, 1);
+  assert.match(JSON.stringify(host.render()), /Disk full/);
+});
+
+test("a send after restart waits for the saved queue before choosing direct delivery", async () => {
+  const { createOutbox } = require("@milagre/shared/outbox");
+  const disk = deferred();
+  const box = createOutbox({ storage: { read: () => disk.promise, write: async () => {} }, available: () => false, deliver: async () => assert.fail() });
+  const host = chatHost({ localOutbox: box });
+  host.render();
+  host.send();
+  await settle();
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+  disk.resolve({
+    version: 1,
+    revision: 1,
+    items: [
+      {
+        id: "older",
+        computerId: host.session.client.url,
+        computerName: "Computer",
+        owner: "/p",
+        conversation: "older",
+        request: { projectPath: "/p", sessionId: null, worktreeId: 1, body: "older message", images: [], files: [] },
+        attachments: [],
+        status: "queued",
+        phase: "ready",
+        createdAt: 1,
+        error: "",
+      },
+    ],
+  });
+  await settle();
+  await settle();
+  assert.deepEqual(
+    box.getSnapshot().items.map((item) => item.request.body),
+    ["older message", "first message"],
+  );
+  assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
 });
 
 test("browser preference defaults on, persists changes, ignores a late read and reports failed saves", async () => {
