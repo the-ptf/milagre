@@ -583,9 +583,11 @@ body {
   background-attachment: fixed;
   color: var(--ink);
   font-feature-settings: "cv11", "ss01";
-  font-size: 14px;
+  /* The 13/18 body step: text with no size class follows the type scale. Unitless, so text that sets only a size
+     (sidebar and chat sizes) keeps a proportional line. */
+  font-size: 13px;
   letter-spacing: 0;
-  line-height: 1.5;
+  line-height: calc(18 / 13);
 }
 
 ::selection {

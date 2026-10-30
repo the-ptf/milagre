@@ -169,8 +169,6 @@ Victor picked these on 2026-10-28; each lands in its own PR, desktop and phone t
 - Two-row composer: prompt on top, attach bottom-left, model · effort · send bottom-right, no collapsed state.
   Needs its own design pass first.
 - Diagonal stripes at about 4% under the transcript column, and every uppercase label in sentence case.
-- Desktop body text 13/18 (today `body` is 14 / 1.5, so unsized text renders at 14): its own commit, after a screenshot
-  sweep (decision 7, deferred).
 
 ## Desktop primitives
 
@@ -209,7 +207,11 @@ rather than inventing values.
 4. Menu highlight is `bg-hover-2` plus the inset ring on keyboard focus; checked rows show a 14px tick, no fill.
 5. Group headings are `SectionLabel` (12 medium, phone 13); 15 semibold only inside cards.
 6. `ink-2` = `mix(ink, page, 0.25)`; section labels and group footers are ink-3 on both.
-7. Desktop body text 13/18: deferred to round 3, its own commit with a screenshot sweep.
+7. Desktop body text 13/18: done. `body` is 13px on a unitless `18 / 13` line (18px at 13, proportional under text
+   that sets only a size), so unsized text follows the 13 body step. A sweep (body at a marker size across every
+   Electron check, plus a scan for unsized `p`/`li`/`label`) found no app text relying on the old 14 fallback: reading
+   text already sets its size (chat via `--chat-size`; release notes, skill bodies and the Handover brief 13/20; PR
+   bodies and comments 13 or 12). New prose sets `text-13 leading-5`.
 8. 10px is the horizontal inset of 28px controls and bordered fields, nowhere else.
 9. Press scale on filled buttons, pills and icon buttons only.
 10. Toasts are an ink capsule on both platforms.
