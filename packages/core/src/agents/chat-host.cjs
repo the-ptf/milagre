@@ -667,6 +667,7 @@ class ChatHost {
                   accountId: event.limit.accountId,
                   at: event.limit.resetsAt,
                   sourceMessageId: source.id,
+                  inputMessageId: next.messages.findLast((message) => message.session_id === sessionId && message.role === "user")?.id,
                   stoppedAt: this.now(),
                   automatic: true,
                   turn: { ...options, ...(session.native_session_id ? {} : { prompt }) },
@@ -1585,6 +1586,23 @@ class ChatHost {
     const flight = { sendId };
     this.limitResumeFlights.set(key, flight);
     try {
+      // Native conversations already own their inputs. A first turn instead needs its durable
+      // user message, including attachments, even after the daemon and upload buffers are gone.
+      // Older retries omitted attachments from reset dividers, so find the original user message.
+      const input = session.native_session_id
+        ? null
+        : state.messages.findLast(
+            (message) =>
+              message.session_id === sessionId &&
+              message.role === "user" &&
+              (pending.inputMessageId == null
+                ? message.id < pending.sourceMessageId && message.context?.kind !== "limit-reset"
+                : message.id === pending.inputMessageId),
+          );
+      if (!session.native_session_id && !input) throw new Error("Cannot continue after the usage limit: the original message is unavailable.");
+      const images = await queuedImages(input?.images);
+      if (images.length !== (input?.images?.length ?? 0))
+        throw new Error("Cannot continue after the usage limit: an original image is unavailable. Restore it or send the request again.");
       const sent = await this.send({
         ...pending.turn,
         projectPath,
@@ -1593,8 +1611,8 @@ class ChatHost {
         context: { kind: "limit-reset" },
         permissionMode: session.permissionMode ?? pending.turn.permissionMode,
         prompt: session.native_session_id ? RESET_PROMPT : (pending.turn.prompt ?? RESET_PROMPT),
-        images: [],
-        files: [],
+        images,
+        files: input?.files ?? [],
         clientMessageId: pending.sendId,
         limitResumeId: pending.sendId,
         expectedAccountId: pending.accountId,

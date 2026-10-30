@@ -84,6 +84,104 @@ test("manual scheduling after restart retains the stopped turn even when automat
   assert.equal(await restored.host.scheduleLimitResume(ALPHA, sessionId, { mode: "manual", accountId: "default" }), true);
 });
 
+for (const provider of ["claude", "codex", "antigravity"]) {
+  for (const native of [false, true]) {
+    test(`${provider} reset retry restores first-turn attachments after restart (native session: ${native})`, async (t) => {
+      const fs = require("node:fs/promises");
+      const path = require("node:path");
+      const os = require("node:os");
+      const { saveProjectState, readProjectState } = require("../project-store.cjs");
+      const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-limit-images-")));
+      t.after(() => fs.rm(root, { recursive: true, force: true }));
+      let clock = NOW;
+      const h = harness({ now: () => clock, save: saveProjectState });
+      const image = {
+        id: "screen",
+        name: "screen.png",
+        dataUrl: "data:image/png;base64," + (await fs.readFile(path.join(__dirname, "../../../../scripts/fixtures/photo.png"))).toString("base64"),
+      };
+      const file = path.join(root, "requirements.txt");
+      await fs.writeFile(file, "Keep the attached layout.");
+      const prompt = `Implement [Image #1] using ${file}`;
+      const sent = await h.host.send(
+        message(root, "Implement the attached screen", {
+          provider,
+          prompt,
+          images: [image],
+          files: [file],
+          effort: "high",
+          guard: { level: "review" },
+        }),
+      );
+      await sent.started;
+      assert.deepEqual(h.created[0].turns[0].images, [image]);
+      const chatId = `${root}#${sent.sessionId}`;
+      if (native) await h.host.receive(chatId, { type: "session-started", nativeId: "native-1" });
+      await h.host.receive(chatId, {
+        type: "turn-failed",
+        message: "usage limited",
+        limit: { provider, accountId: "default", resetsAt: new Date(clock + 120_000).toISOString() },
+      });
+      await h.host.scheduleLimitResume(root, sent.sessionId, { mode: "automatic", accountId: "default" });
+      await h.states.close();
+      await h.manager.closeAll();
+      const saved = await readProjectState(root);
+      assert.equal(saved.messages.find((m) => m.role === "user").images[0].dataUrl, undefined);
+      const restored = harness({ now: () => clock, read: readProjectState, save: saveProjectState });
+      t.after(() => Promise.all([restored.states.close(), restored.manager.closeAll()]));
+      clock += 180_000;
+      const sendId = saved.sessions[sent.sessionId].limitResume.sendId;
+      const results = await Promise.all([1, 2].map(() => restored.host.runLimitResume(root, sent.sessionId, { accountId: "default", sendId })));
+      assert.equal(results.filter(Boolean).length, 1);
+      await waitUntil(() => restored.created[0]?.turns.length === 1);
+      const retry = restored.created[0].turns[0];
+      assert.deepEqual(retry.images, native ? [] : [image]);
+      assert.equal(retry.prompt, native ? require("../limit-resume.cjs").RESET_PROMPT : prompt);
+      assert.equal(retry.effort, "high");
+      assert.deepEqual(retry.guard, { level: "review" });
+      const resumed = await restored.states.get(root);
+      const divider = resumed.messages.find((m) => m.context?.kind === "limit-reset");
+      assert.deepEqual(divider.files ?? [], native ? [] : [file]);
+      assert.equal(resumed.sessions[sent.sessionId].limitResume, undefined);
+      if (!native) {
+        await t.test("a repeated legacy retry waits for a missing image without consuming its schedule", async () => {
+          await restored.host.receive(chatId, {
+            type: "turn-failed",
+            message: "usage limited again",
+            limit: { provider, accountId: "default", resetsAt: new Date(clock + 120_000).toISOString() },
+          });
+          await restored.host.scheduleLimitResume(root, sent.sessionId, { mode: "manual", accountId: "default" });
+          const pending = (await restored.states.get(root)).sessions[sent.sessionId].limitResume;
+          assert.equal(pending.inputMessageId, divider.id);
+          // The preceding version neither named its input nor copied attachments to reset dividers.
+          await restored.states.update(root, (state) => {
+            const { inputMessageId: _input, ...legacy } = state.sessions[sent.sessionId].limitResume;
+            return {
+              ...state,
+              messages: state.messages.map((m) => (m.id === divider.id ? { ...m, images: [], files: [] } : m)),
+              sessions: { ...state.sessions, [sent.sessionId]: { ...state.sessions[sent.sessionId], limitResume: legacy } },
+            };
+          });
+          const stored = divider.images[0].path;
+          const bytes = await fs.readFile(stored);
+          await fs.unlink(stored);
+          clock += 180_000;
+          const resume = () => restored.host.runLimitResume(root, sent.sessionId, { accountId: "default", sendId: pending.sendId });
+          await assert.rejects(resume, /original image is unavailable/);
+          assert.equal(restored.created[0].turns.length, 1);
+          assert.equal((await restored.states.get(root)).sessions[sent.sessionId].limitResume.sendId, pending.sendId);
+          assert.equal(restored.host.limitResumeFlights.size, 0);
+          await fs.writeFile(stored, bytes);
+          assert.equal(await resume(), true);
+          await waitUntil(() => restored.created[0].turns.length === 2);
+          assert.deepEqual(restored.created[0].turns[1].images, [image]);
+          assert.equal(restored.created[0].turns[1].prompt, prompt);
+        });
+      }
+    });
+  }
+}
+
 test("Cancel fences delayed automatic scheduling but allows a new manual schedule", async (t) => {
   const h = harness();
   t.after(() => Promise.all([h.states.close(), h.manager.closeAll()]));
@@ -324,6 +422,7 @@ function harness({
   failStart = null,
   focused = true,
   read = async (projectPath) => projectState(projectPath),
+  save,
   now = () => NOW,
   handoverTools = {
     writeTranscript: async ({ sessionId }) => `/tmp/handovers/${sessionId}.md`,
@@ -337,7 +436,7 @@ function harness({
   const created = [];
   const states = new ProjectStates({
     read,
-    save: async (projectPath, state) => void saved.set(projectPath, state),
+    save: save ?? (async (projectPath, state) => void saved.set(projectPath, state)),
   });
   const manager = new SessionManager({
     createSession: (provider, options) => {
