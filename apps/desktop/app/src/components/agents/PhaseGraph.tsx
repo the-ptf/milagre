@@ -67,7 +67,7 @@ export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; no
                 key={phase}
                 {...(current ? { "data-current-phase": "" } : {})}
                 style={{ height: ROW }}
-                className={`flex items-center gap-1 rounded-inline px-1 text-11 leading-none ${current ? "bg-hover text-ink" : "text-ink-3"}`}
+                className={`flex items-center gap-1 rounded-inline px-1 text-11 leading-none ${current ? "bg-hover-2 text-ink" : "text-ink-3"}`}
               >
                 <Icon icon={PHASE_ICONS[phase]} size={12} />
                 {PHASE_LABELS[phase]}
@@ -90,7 +90,7 @@ export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; no
             ))}
             {layout.gaps.map((gap) => (
               <g key={`${gap.x}-${gap.label}`} data-gap>
-                <rect x={gap.x - 12} y={gap.y - 8} width={24} height={16} rx={4} className="fill-hover" />
+                <rect x={gap.x - 12} y={gap.y - 8} width={24} height={16} rx={4} className="fill-field" />
                 <text x={gap.x} y={gap.y + 4} textAnchor="middle" className="fill-ink-2 text-10">
                   {gap.label}
                 </text>

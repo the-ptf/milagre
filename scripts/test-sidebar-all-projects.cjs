@@ -155,7 +155,7 @@ async function browserChecks() {
       const expected = document.createElement('span');
       expected.style.color = 'var(--red)';
       document.body.append(expected);
-      const matches = dot?.getAttribute('aria-label') === 'Last turn failed' && getComputedStyle(dot).backgroundColor === getComputedStyle(expected).color;
+      const matches = dot?.getAttribute('aria-label') === 'Failed' && getComputedStyle(dot).backgroundColor === getComputedStyle(expected).color;
       expected.remove();
       return matches;
     })()`),

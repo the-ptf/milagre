@@ -13,7 +13,7 @@ export function useArchiveActivity() {
 
 export function ArchiveProgress() {
   const styles = useStyles();
-  useAnnounce("Archiving Chat");
+  useAnnounce("Archiving Chat", { onMount: true });
   return (
     <View
       accessible
@@ -30,7 +30,7 @@ export function ArchiveProgress() {
 /** Desktop's archiving pill: a SpinnerRing and "Archiving…" over a Chat's row while it archives; the row itself fades and takes no taps until the archive ends. */
 export function ArchivingOverlay({ title }: { title: string }) {
   const s = useS();
-  useAnnounce(`Archiving ${title}`);
+  useAnnounce(`Archiving ${title}`, { onMount: true });
   return (
     <View accessible accessibilityRole="progressbar" accessibilityLabel={`Archiving ${title}`} style={[StyleSheet.absoluteFill, s.overlay]}>
       <View style={s.pill}>

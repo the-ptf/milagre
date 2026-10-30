@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { BubbleChatIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
-import { fileKind } from "@milagre/shared/file-kinds";
+import { IMAGE_COLOR, fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
 
-// One box for every chip: the same height, padding and line height. The label alone sets the chip's baseline
+// One box for every chip: the same height, padding and line height, at 0.875em of the text around it (the phone's
+// size too). The label alone sets the chip's baseline
 // (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
 // (an icon has no baseline, a badge a smaller one); icons and badges are sized in em, centred, and never set the height.
 const CHIP =
-  "inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[length:inherit] leading-[1.35] font-[inherit] whitespace-nowrap";
+  "inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[0.875em] leading-[1.35] font-[inherit] whitespace-nowrap";
 const LABEL = "truncate self-baseline";
 const ICON_SIZE = "0.95em";
 // A chip that opens something: a stronger border on hover; focus is the base accent outline. File and image chips keep
@@ -93,7 +94,7 @@ export function ImageChip({ index, name, onOpen }: { index: number; name?: strin
   const className = `${CHIP} border-line-strong bg-hover text-ink`;
   const content = (
     <>
-      <HugeiconsIcon icon={Image01Icon} size={ICON_SIZE} strokeWidth={1.8} color="var(--green)" aria-hidden className="shrink-0" />
+      <HugeiconsIcon icon={Image01Icon} size={ICON_SIZE} strokeWidth={1.8} color={IMAGE_COLOR} aria-hidden className="shrink-0" />
       <span className={LABEL}>{label}</span>
     </>
   );

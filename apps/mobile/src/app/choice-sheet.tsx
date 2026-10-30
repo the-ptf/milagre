@@ -1,21 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Cancel01Icon, GitBranchIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import { EdgeFade } from "../bottom-fade";
 import { currentChoice } from "../choice-store";
 import { Icon } from "../icons";
-import { Chip, HeaderButton, SectionLabel, pressStyle, useStyles } from "../ui";
+import { CheckRow, Chip, EmptyState, HeaderButton, InlineError, SectionLabel, useStyles } from "../ui";
 import { useTheme } from "../theme";
-import { lineHeight, type } from "../design-tokens";
 
 /** The grabber and title bar of the sheet, which content scrolls under. */
 const SHEET_HEADER_HEIGHT = 76;
 
 function ChoiceSeparator() {
   const { colors } = useTheme();
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: 42 }} />;
+  // Past the 20pt leading icon, as in a Group.
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: 32 }} />;
 }
 
 /** Long choice lists use a native sheet with the system search toolbar. */
@@ -97,42 +97,33 @@ export default function ChoiceSheet() {
               {switching ? "Loading…" : `${items.length} ${items.length === 1 ? "result" : "results"}`}
               {load ? " · Pull to refresh" : ""}
             </Text>
-            {refreshError ? <Text style={[styles.caption, { color: colors.redInk, marginTop: 4 }]}>{refreshError}</Text> : null}
+            <InlineError message={refreshError} />
           </View>
         }
         ItemSeparatorComponent={ChoiceSeparator}
-        ListEmptyComponent={switching ? undefined : <Text style={[styles.muted, { paddingVertical: 24, textAlign: "center" }]}>{entry.emptyLabel}</Text>}
+        ListEmptyComponent={switching ? undefined : <EmptyState title={entry.emptyLabel} />}
         renderItem={({ item, index }) => {
+          // The chosen row shows only its tick, like the Linear issue rows; no fill. The leading icon stays ink3.
           const row = (
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityLabel={item.subtitle ? `${item.title}. ${item.subtitle}` : item.title}
-              accessibilityState={{ checked: !!item.checked, disabled: !!item.disabled }}
+            <CheckRow
+              title={item.title}
+              // Full names wrap (long branch names); a path subtitle keeps its start and end.
+              titleLines={0}
+              subtitle={item.subtitle}
+              subtitleLines={1}
+              checked={!!item.checked}
               disabled={item.disabled}
               onPress={() => close(item.id)}
-              style={({ pressed }) => [
-                // The chosen row shows only its tick, like the Linear issue rows; no fill.
-                { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 12, paddingVertical: 12 },
-                pressStyle({ pressed, disabled: !!item.disabled, kind: "row" }),
-              ]}
-            >
-              {item.leading ?? entry.leading ?? <Icon icon={entry.icon ?? GitBranchIcon} tone={item.checked ? "accent" : "ink3"} size={18} />}
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{item.title}</Text>
-                {item.subtitle && (
-                  <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
-                    {item.subtitle}
-                  </Text>
-                )}
-              </View>
-              <View style={{ width: 18 }}>{item.checked && <Icon icon={Tick02Icon} tone="accent" size={18} />}</View>
-            </Pressable>
+              leading={item.leading ?? entry.leading ?? <Icon icon={entry.icon ?? GitBranchIcon} tone="ink3" size={20} />}
+            />
           );
           // The first row of a section (a computer's Projects) carries its heading.
           if (!item.section || item.section === items[index - 1]?.section) return row;
           return (
             <View>
-              <SectionLabel style={{ paddingHorizontal: 12, paddingTop: index ? 16 : 0, paddingBottom: 4 }}>{item.section}</SectionLabel>
+              <SectionLabel flush style={{ paddingTop: index ? 16 : 0, paddingBottom: 4 }}>
+                {item.section}
+              </SectionLabel>
               {row}
             </View>
           );

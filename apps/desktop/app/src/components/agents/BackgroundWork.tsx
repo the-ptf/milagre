@@ -89,7 +89,7 @@ export function BackgroundWork({
                     type="button"
                     data-background-task={item.id}
                     onClick={() => setSelected(item)}
-                    className="flex w-full flex-col gap-1 rounded-control px-2 py-2 text-left text-13 transition-colors duration-fast hover:bg-hover"
+                    className="flex w-full flex-col gap-1 rounded-control px-2 py-2 text-left text-13 transition-colors hover:bg-hover active:bg-hover-2"
                   >
                     <span className="break-words">{item.title}</span>
                     <span className="text-11 text-ink-3">{BACKGROUND_ITEM_LABELS[item.type]} · Running</span>

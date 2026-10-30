@@ -5,7 +5,7 @@ import { useSession } from "../session";
 import { ArchiveProgress } from "../archive-progress";
 import { useLinks } from "../use-links";
 import { endNamer, linkedLabels } from "../chat-links";
-import { Button, ErrorNotice, Field, PageScroll, SectionLabel, useStyles } from "../ui";
+import { ErrorNotice, Field, PageScroll, PillButton, SectionLabel, useStyles } from "../ui";
 
 export default function ChatDetails() {
   const styles = useStyles();
@@ -62,12 +62,14 @@ export default function ChatDetails() {
   }
   return (
     <PageScroll>
-      <Text style={styles.title}>Manage Chat</Text>
+      <Text accessibilityRole="header" style={styles.title}>
+        Manage Chat
+      </Text>
       <Field label="Chat name" value={title} onChangeText={setTitle} placeholder="Give this Chat a name" />
-      <Button title="Save name" disabled={busy || !title.trim()} onPress={() => void save({ title: title.trim() })} />
+      <PillButton title="Save name" disabled={busy || !title.trim()} onPress={() => void save({ title: title.trim() })} />
       {linked.length > 0 && (
         <View style={{ gap: 6 }}>
-          <SectionLabel>Linked</SectionLabel>
+          <SectionLabel flush>Linked</SectionLabel>
           {linked.map(({ link, label }) => (
             <Text key={link.id} style={styles.text}>
               {label}
@@ -79,7 +81,7 @@ export default function ChatDetails() {
         {chat.archived ? "Restoring brings this Chat back to its Worktree list." : "Archiving hides this Chat from the active list. Its messages stay saved."}
       </Text>
       {running && <Text style={styles.muted}>Stop the running turn before archiving this Chat.</Text>}
-      <Button
+      <PillButton
         title={chat.archived ? "Restore Chat" : "Archive Chat"}
         secondary
         disabled={busy || running}

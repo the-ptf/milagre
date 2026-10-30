@@ -10,9 +10,7 @@ import { isLean } from "../lib/state-events";
 import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { EditorLinks } from "./editor-links";
 import { ScrollArea } from "./primitives/ScrollArea";
-import Tooltip from "./primitives/Tooltip";
 import { Button, IconButton } from "./primitives/Button";
-import { Icon } from "./primitives/Icon";
 import { ChatMarkDot } from "./sidebar/ChatRow";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
@@ -242,48 +240,44 @@ const ChatTile = memo(function ChatTile({
         {onOpenRoutine && session && <RoutineChip chatKey={chatKey} run={session.routine} place="tile" onOpen={onOpenRoutine} />}
         {needsYou && !focused && <span className="shrink-0 font-medium text-orange-ink">Needs you</span>}
         {onClose && (
-          <Tooltip label="Close" side="bottom">
-            <IconButton
-              label="Close"
-              icon={Cancel01Icon}
-              size={24}
-              data-tile-close
-              onClick={(event) => {
-                event.stopPropagation();
-                onClose(chatKey);
-              }}
-            />
-          </Tooltip>
+          <IconButton
+            label="Close"
+            icon={Cancel01Icon}
+            size={24}
+            side="bottom"
+            data-tile-close
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose(chatKey);
+            }}
+          />
         )}
         {!onClose && !isDraftTileKey(chatKey) && (
-          <Tooltip label={pinned ? "Remove from grid" : "Keep in grid"} side="bottom">
-            <IconButton
-              label={pinned ? "Remove from grid" : "Keep in grid"}
-              size={24}
-              aria-pressed={pinned}
-              data-tile-pin
-              onClick={(event) => {
-                event.stopPropagation();
-                onTogglePin(chatKey);
-              }}
-            >
-              <Icon icon={pinned ? PinOffIcon : PinIcon} size={14} className={pinned ? "text-ink" : undefined} />
-            </IconButton>
-          </Tooltip>
+          <IconButton
+            label={pinned ? "Remove from grid" : "Keep in grid"}
+            icon={pinned ? PinOffIcon : PinIcon}
+            size={24}
+            side="bottom"
+            aria-pressed={pinned}
+            data-tile-pin
+            onClick={(event) => {
+              event.stopPropagation();
+              onTogglePin(chatKey);
+            }}
+          />
         )}
         {!onClose && mark === "unread" && !focused && (
-          <Tooltip label="Mark read" side="bottom">
-            <IconButton
-              label="Mark read"
-              icon={Cancel01Icon}
-              size={24}
-              data-tile-dismiss
-              onClick={(event) => {
-                event.stopPropagation();
-                onDismiss(chatKey);
-              }}
-            />
-          </Tooltip>
+          <IconButton
+            label="Mark read"
+            icon={Cancel01Icon}
+            size={24}
+            side="bottom"
+            data-tile-dismiss
+            onClick={(event) => {
+              event.stopPropagation();
+              onDismiss(chatKey);
+            }}
+          />
         )}
       </header>
       {focused ? (
@@ -328,7 +322,7 @@ export function GridDropOverlay() {
       <div className="absolute rounded-window bg-accent-tint" style={area} />
       <div className="absolute w-1 rounded-full bg-accent" style={bar} />
       <div
-        className="absolute rounded-full bg-accent px-2.5 py-1 text-12 font-medium whitespace-nowrap text-on-accent"
+        className="absolute rounded-full bg-accent-ink px-2.5 py-1 text-12 font-medium whitespace-nowrap text-on-accent"
         style={{ left: area.left + 12, top: area.top + area.height - 40 }}
       >
         {label}

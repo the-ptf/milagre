@@ -1,23 +1,70 @@
-import type { ComponentProps } from "react";
-import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
+import { createContext, use, useId, useMemo, type HTMLAttributes, type InputHTMLAttributes } from "react";
+import { CHECK_BOX } from "./Checkbox";
 
-// shadcn/ui Radio Group, adapted to Milagre's tokens.
-// https://ui.shadcn.com/docs/components/radix/radio-group
-export function RadioGroup({ className = "", ...props }: ComponentProps<typeof RadioGroupPrimitive.Root>) {
-  return <RadioGroupPrimitive.Root data-slot="radio-group" className={`grid gap-3 ${className}`} {...props} />;
+const Group = createContext<{ name: string; value?: string; onValueChange?: (value: string) => void; disabled?: boolean } | null>(null);
+
+/**
+ * A radio group on real <input type="radio">s sharing one name, so the arrow keys move and pick, and a <label>
+ * around each works. Same API as the Radix one it replaces: `value`, `onValueChange`, RadioGroupItem children.
+ */
+export function RadioGroup({
+  value,
+  onValueChange,
+  name,
+  disabled,
+  orientation,
+  className = "",
+  children,
+  ...props
+}: Omit<HTMLAttributes<HTMLDivElement>, "onChange"> & {
+  value?: string;
+  onValueChange?: (value: string) => void;
+  name?: string;
+  disabled?: boolean;
+  orientation?: "horizontal" | "vertical";
+}) {
+  const id = useId();
+  const group = useMemo(() => ({ name: name ?? id, value, onValueChange, disabled }), [name, id, value, onValueChange, disabled]);
+  return (
+    <div role="radiogroup" aria-orientation={orientation} {...props} className={`grid gap-3 ${className}`}>
+      <Group value={group}>{children}</Group>
+    </div>
+  );
 }
 
-/** Ink when checked, or the theme accent with `tone="accent"` (Babysit PRs). */
-export function RadioGroupItem({ className = "", tone = "ink", ...props }: ComponentProps<typeof RadioGroupPrimitive.Item> & { tone?: "ink" | "accent" }) {
+/**
+ * A 16px radio: an ink-3 ring at rest, filled ink with an 8px on-ink dot when checked (like a checked checkbox). It
+ * carries role, aria-checked and data-state as well, the hooks the Radix one had. Selection is ink: `tone` is ignored.
+ */
+export function RadioGroupItem({
+  value,
+  className = "",
+  tone: _tone,
+  disabled,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "checked" | "onChange"> & {
+  value: string;
+  /** @deprecated Selection is ink (round 2, decision 2); remove it from call sites. */
+  tone?: "ink" | "accent";
+}) {
+  const group = use(Group);
+  const checked = group?.value === value;
   return (
-    <RadioGroupPrimitive.Item
-      data-slot="radio-group-item"
-      className={`aspect-square size-4 shrink-0 rounded-full border border-ink-3 bg-surface transition-colors disabled:cursor-not-allowed disabled:opacity-40 aria-invalid:border-red ${tone === "accent" ? "text-on-accent data-[state=checked]:border-accent data-[state=checked]:bg-accent" : "text-ink data-[state=checked]:border-ink"} ${className}`}
-      {...props}
-    >
-      <RadioGroupPrimitive.Indicator data-slot="radio-group-indicator" className="flex items-center justify-center">
-        <span className="size-2 rounded-full bg-current" />
-      </RadioGroupPrimitive.Indicator>
-    </RadioGroupPrimitive.Item>
+    <span className={`inline-grid shrink-0 place-items-center ${className}`}>
+      <input
+        type="radio"
+        role="radio"
+        name={group?.name}
+        value={value}
+        checked={checked}
+        aria-checked={checked}
+        data-state={checked ? "checked" : "unchecked"}
+        disabled={disabled ?? group?.disabled}
+        onChange={() => group?.onValueChange?.(value)}
+        {...props}
+        className={`${CHECK_BOX} rounded-full`}
+      />
+      <span aria-hidden className="pointer-events-none col-start-1 row-start-1 hidden size-2 rounded-full bg-on-ink peer-checked:block" />
+    </span>
   );
 }

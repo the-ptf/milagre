@@ -78,11 +78,11 @@ async function checks() {
     await evaluate(`document.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
     await waitFor(`!document.querySelector('input')`);
     assert.equal(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('ending-two')`), true);
-    await click("New worktree");
+    await click("New Worktree");
     await waitFor(`document.querySelectorAll('[data-picker-row]').length === 2`);
     await evaluate(`[...document.querySelectorAll('[data-picker-row]')].find(row => row.textContent.includes('Local')).click()`);
     await click("main");
-    await waitFor(`!!document.querySelector('input[placeholder="Search worktrees"]')`);
+    await waitFor(`!!document.querySelector('input[placeholder="Search Worktrees"]')`);
     await type("ending-one");
     await waitFor(`document.querySelectorAll('[data-picker-row]').length === 1`);
     await screenshot("desktop-worktrees");

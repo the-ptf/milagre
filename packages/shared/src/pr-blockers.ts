@@ -58,6 +58,27 @@ export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boo
   return { blocker, ready, checking, tone, icon, label } as const;
 }
 
+export type PullRequestTone = ReturnType<typeof pullRequestPresentation>["tone"];
+/** A PR tone as palette keys, the same on both apps: the icon in the fill color, the label in its -ink shade. The
+ * number beside them stays ink2. Purple is Ultracode's brand purple (ULTRACODE_PURPLE in ./themes). */
+export const PR_TONE = {
+  green: { icon: "green", label: "greenInk" },
+  orange: { icon: "orange", label: "orangeInk" },
+  red: { icon: "red", label: "redInk" },
+  purple: { icon: "purple", label: "purpleInk" },
+} as const satisfies Record<PullRequestTone, { icon: string; label: string }>;
+
+/** The pill after a PR's number in its header: Draft, Merged or Closed; an open PR ready for review has none. Fill and
+ * label are palette keys; the pill is full-round, 11 semibold. */
+export function pullRequestStatePill(pr: { state: string; isDraft?: boolean }) {
+  if (pr.state === "MERGED") return { label: "Merged", fill: "purpleTint", ink: "purpleInk" } as const;
+  if (pr.state === "CLOSED") return { label: "Closed", fill: "redTint", ink: "redInk" } as const;
+  return pr.isDraft ? ({ label: "Draft", fill: "hover", ink: "ink2" } as const) : null;
+}
+
+/** The auto-merge button's words once it is armed. */
+export const AUTO_MERGE_LABEL = "Merges when ready";
+
 /** Blocked PRs first, then other open PRs, then merged ones; retain creation order within each group. */
 export function rowPullRequests(prs: PullRequest[]): PullRequest[] {
   const rank = (pr: PullRequest) => (pr.state === "MERGED" ? 2 : pullRequestBlockers(pr).length ? 0 : 1);

@@ -14,6 +14,7 @@ import { useResolvedScheme, useSettings } from "../lib/settings";
 import { applyPalette } from "../lib/theme-sheet";
 import { applyAppearance } from "../lib/appearance";
 import { useDismiss } from "../lib/use-dismiss";
+import { TOAST } from "../lib/toast";
 import { answerSummary, draftAnswers, draftOf, pickOption, typeAnswer, type QuestionDrafts } from "../lib/question-answers";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
@@ -22,6 +23,7 @@ import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 import { EmptyState } from "./primitives/EmptyState";
 import { InlineError } from "./primitives/InlineError";
+import { ShortcutKeys } from "./primitives/ShortcutKeys";
 import { ProviderLogo } from "./ProviderLogo";
 import { PermissionCard } from "./agents/PermissionCard";
 
@@ -80,9 +82,7 @@ export function FloatingDragTargets() {
   }, []);
   return (
     <div data-floating-drag-overlay className="pointer-events-none fixed inset-0 bg-scrim">
-      <p className="absolute top-12 left-1/2 -translate-x-1/2 rounded-full bg-ink px-5 py-2 text-13 text-on-ink shadow-overlay">
-        Drop on a highlighted edge to dock. Release elsewhere to return.
-      </p>
+      <p className={`absolute top-12 left-1/2 -translate-x-1/2 ${TOAST}`}>Drop on a highlighted edge to dock. Release elsewhere to return.</p>
       {state?.targets.map((target) => (
         <div
           key={target.edge}
@@ -307,16 +307,16 @@ export function FloatingBar({
           onPointerCancel={(event) => finishDrag(event, true)}
           className={`floating-inbox-drag flex shrink-0 items-center justify-center ${horizontal ? "h-6 w-1.5" : "h-1.5 w-6"}`}
         >
-          <span className={`rounded-full bg-ink-3/40 ${horizontal ? "h-3 w-0.5" : "h-0.5 w-3"}`} />
+          <span className={`rounded-full bg-ink-4 ${horizontal ? "h-3 w-0.5" : "h-0.5 w-3"}`} />
         </div>
         <button
           type="button"
           aria-label="Open Milagre inbox"
           title="Milagre inbox"
           onClick={toggleInbox}
-          className="flex h-[26px] w-7 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
+          className="flex size-7 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-hover"
         >
-          <img src="./logo-milagre-image.png" alt="" className="size-[19px] rounded-chip" />
+          <img src="./logo-milagre-image.png" alt="" className="size-5 rounded-chip" />
         </button>
         {!dragging && shown.length > 0 && <div className={divider} />}
       </div>
@@ -336,7 +336,7 @@ export function FloatingBar({
                 hidePreview();
                 void window.milagre.selectInboxItem(item.key);
               }}
-              className="flex size-[27px] shrink-0 items-center justify-center rounded-control transition-colors duration-fast hover:bg-hover"
+              className="flex size-7 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-hover"
             >
               {item.status === "working" ? (
                 // SpinnerRing keeps a stepped fade under reduced motion, where a CSS spin would freeze.
@@ -353,36 +353,38 @@ export function FloatingBar({
               type="button"
               onClick={toggleInbox}
               aria-label={`${agents.length - 5} more Chats. Open inbox`}
-              className="flex h-[27px] w-7 shrink-0 items-center justify-center text-10 text-ink-2 transition-colors duration-fast hover:text-ink"
+              className="flex size-7 shrink-0 items-center justify-center rounded-control text-11 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
             >
               +{agents.length - 5}
             </button>
           )}
           {shown.length === 0 && !expanded && (
-            <button type="button" aria-label="Open inbox" onClick={toggleInbox} className="flex size-[27px] items-center justify-center">
-              <span className="size-2 rounded-full bg-ink-3" />
+            <button type="button" aria-label="Open inbox" onClick={toggleInbox} className="flex size-7 items-center justify-center">
+              <span className="size-2 rounded-full bg-ink-4" />
             </button>
           )}
           <div className="floating-inbox-reveal floating-inbox-trailing" inert={!expanded} aria-hidden={!expanded}>
             <div className={divider} />
-            <button
-              type="button"
+            {/* Rests clear; hover-2 only while the inbox is open. A native title: a Tooltip would be clipped by this small window. */}
+            <IconButton
               data-inbox-trigger
-              aria-label={`Open inbox${pending ? `, ${pending} Chats need you` : ""}`}
+              label={`Open inbox${pending ? `, ${pending} Chats need you` : ""}`}
+              tooltip={false}
               title={error || "Open inbox"}
+              aria-expanded={inboxOpen}
               onClick={toggleInbox}
-              className="relative flex h-[30px] w-7 shrink-0 items-center justify-center rounded-control bg-hover-2 text-ink"
             >
               <Icon icon={InboxIcon} size={16} />
               {pending > 0 && (
+                // A count on a fill: orange-ink with its on-orange label (4.5:1), ringed off the bar like a pin.
                 <span
                   data-inbox-badge
-                  className="absolute -top-[3px] -right-0.5 flex min-w-[14px] items-center justify-center rounded-chip border-[1.5px] border-surface bg-orange px-0.5 text-10 leading-[11px] font-semibold text-page"
+                  className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-orange-ink px-0.5 text-10 leading-none font-semibold text-on-orange shadow-pin"
                 >
                   {pending > 99 ? "99+" : pending}
                 </span>
               )}
-            </button>
+            </IconButton>
           </div>
         </>
       )}
@@ -506,15 +508,16 @@ export function InboxPanel({
         <header ref={header} className="flex items-center justify-end gap-2 px-4 pt-2">
           {shown.length > 0 && (
             <nav data-inbox-pagination aria-label="Inbox pages" className="flex items-center">
-              <button
-                type="button"
-                aria-label="Previous message"
+              <IconButton
+                label="Previous message"
+                tooltip={false}
+                size={24}
+                shape="pill"
                 aria-keyshortcuts="ArrowLeft"
                 title="Previous message (Left arrow)"
                 data-inbox-arrow="left"
                 disabled={index === 0}
                 onClick={() => select(index - 1)}
-                className="flex size-6 items-center justify-center rounded-full text-ink-3 transition-colors duration-fast hover:bg-hover disabled:opacity-40"
               >
                 <motion.span
                   key={arrowPulse.direction === -1 ? arrowPulse.revision : 0}
@@ -525,11 +528,11 @@ export function InboxPanel({
                       : { opacity: 0.45, x: 0, scale: 1 }
                   }
                   transition={{ duration: 0.12, ease: [0.23, 1, 0.32, 1] }}
-                  className="flex text-black dark:text-white"
+                  className="flex text-ink"
                 >
                   <Icon icon={ArrowLeft01Icon} size={14} />
                 </motion.span>
-              </button>
+              </IconButton>
               <RangeSlider
                 variant="position"
                 showTicks={false}
@@ -545,15 +548,16 @@ export function InboxPanel({
               <span data-inbox-count aria-live="polite" className="min-w-[49px] text-center text-11 text-ink-3 tabular-nums">
                 {index + 1} of {shown.length}
               </span>
-              <button
-                type="button"
-                aria-label="Next message"
+              <IconButton
+                label="Next message"
+                tooltip={false}
+                size={24}
+                shape="pill"
                 aria-keyshortcuts="ArrowRight"
                 title="Next message (Right arrow)"
                 data-inbox-arrow="right"
                 disabled={index === shown.length - 1}
                 onClick={() => select(index + 1)}
-                className="flex size-6 items-center justify-center rounded-full text-ink-3 transition-colors duration-fast hover:bg-hover disabled:opacity-40"
               >
                 <motion.span
                   key={arrowPulse.direction === 1 ? arrowPulse.revision : 0}
@@ -564,30 +568,34 @@ export function InboxPanel({
                       : { opacity: 0.45, x: 0, scale: 1 }
                   }
                   transition={{ duration: 0.12, ease: [0.23, 1, 0.32, 1] }}
-                  className="flex text-black dark:text-white"
+                  className="flex text-ink"
                 >
                   <Icon icon={ArrowRight01Icon} size={14} />
                 </motion.span>
-              </button>
+              </IconButton>
             </nav>
           )}
-          <IconButton label="Close inbox" title="Close inbox (Esc or Cmd/Ctrl+D)" icon={Cancel01Icon} onClick={closeInbox} />
+          <IconButton label="Close inbox" tooltip={false} title="Close inbox (Esc or Cmd/Ctrl+D)" icon={Cancel01Icon} onClick={closeInbox} />
         </header>
         <ScrollArea ref={scroller} data-inbox-scroller className="flex-1 px-4 pt-1 pb-3">
           <div ref={content} className="relative">
             {error ? (
-              <div role="alert" className="rounded-control bg-red-tint p-3 text-12 text-red-ink">
+              <InlineError
+                variant="card"
+                action={
+                  <Button variant="secondary" size={28} onClick={refresh}>
+                    Retry
+                  </Button>
+                }
+              >
                 {error}
-                <button type="button" className="mt-1 block h-6 underline" onClick={refresh}>
-                  Retry
-                </button>
-              </div>
+              </InlineError>
             ) : loading ? (
               <p role="status" className="py-10 text-center text-12 text-ink-3">
                 Loading inbox…
               </p>
             ) : !selected ? (
-              <EmptyState data-inbox-empty icon={InboxIcon} title="All caught up" className="py-12">
+              <EmptyState data-inbox-empty icon={InboxIcon} title="All caught up" className="px-6 py-12">
                 Questions and finished work will appear here.
               </EmptyState>
             ) : (
@@ -619,10 +627,10 @@ export function InboxPanel({
       </section>
       <footer ref={footer} className="flex shrink-0 items-center justify-center gap-2">
         {(selected || shortcutOptions.length > 0 || shown.length > 1) && (
-          <p data-inbox-shortcuts className="rounded-full border border-line-strong bg-surface px-3 py-1.5 text-11 text-ink-2">
+          <p data-inbox-shortcuts className="rounded-full border border-line-strong bg-surface px-3 py-1 text-11 text-ink-2">
             {selected && !selected.question && (
               <>
-                Press <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">Enter</kbd> {selected.permission ? "to allow once" : "to open Chat"}
+                Press <ShortcutKeys shortcut="↵" className="align-middle" /> {selected.permission ? "to allow once" : "to open Chat"}
               </>
             )}
             {shortcutOptions.length > 0 && (
@@ -631,7 +639,7 @@ export function InboxPanel({
                 {shortcutOptions.map((option, optionIndex) => (
                   <span key={option.label}>
                     {optionIndex ? " / " : ""}
-                    <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">{optionIndex + 1}</kbd>
+                    <ShortcutKeys shortcut={String(optionIndex + 1)} className="align-middle" />
                   </span>
                 ))}{" "}
                 {selected?.question?.questions[0]?.multiSelect ? "to select · Enter to send" : "to answer"}
@@ -640,23 +648,23 @@ export function InboxPanel({
             {shown.length > 1 && (
               <span data-inbox-navigation-hint>
                 {(selected && !selected.question) || shortcutOptions.length > 0 ? " · " : ""}
-                <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">←</kbd>{" "}
-                <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">→</kbd> to move
+                <ShortcutKeys shortcut="←" className="align-middle" /> <ShortcutKeys shortcut="→" className="align-middle" /> to move
               </span>
             )}
           </p>
         )}
-        <button
-          type="button"
-          aria-label="Floating inbox settings"
+        {/* Secondary: it floats on the window's clear margin, so it carries its own surface. */}
+        <IconButton
+          label="Floating inbox settings"
+          variant="secondary"
+          shape="pill"
+          icon={Settings01Icon}
+          tooltip={false}
           title={`${working} ${working === 1 ? "agent" : "agents"} working · Settings`}
           onClick={() => {
             void window.milagre.openInboxSettings();
           }}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-ink-3 transition-colors duration-fast hover:text-ink"
-        >
-          <Icon icon={Settings01Icon} size={12} />
-        </button>
+        />
       </footer>
     </div>
   );
@@ -775,7 +783,7 @@ function InboxCard({
           <h2 className={`mt-3 text-15 font-semibold ${item.status === "failed" ? "text-red-ink" : ""}`}>
             {item.status === "failed" ? "Turn failed" : item.status === "working" ? item.title : "Ready to review"}
           </h2>
-          <p className="mt-2 text-12 leading-5 text-ink-2">{item.preview}</p>
+          <p className="mt-2 text-12 text-ink-2">{item.preview}</p>
         </>
       )}
       <InlineError size={12} className="mt-2">
@@ -856,7 +864,7 @@ function InboxQuestion({
   }, [answers, busy, drafts, request, send, setDrafts, present]);
   const label = request.questions.length > 1 ? "Send answers" : "Send answer";
   const sendButton = (
-    <IconButton type="submit" label={label} title={busy ? "Sending…" : label} disabled={busy || !answers} icon={SentIcon} iconSize={18} size={32} />
+    <IconButton type="submit" label={label} tooltip={false} title={busy ? "Sending…" : label} disabled={busy || !answers} icon={SentIcon} size={32} />
   );
   return (
     <form
@@ -888,22 +896,21 @@ function InboxQuestion({
                       event.currentTarget.focus();
                       setDrafts(pickOption(drafts, question, option.label));
                     }}
-                    className={`flex min-h-8 w-full items-center gap-2 rounded-control border px-2 py-2 text-left text-12 transition-colors duration-fast disabled:opacity-40 ${draft.picked.includes(option.label) ? "border-accent-ink bg-accent-tint text-ink" : "border-line bg-field text-ink-2 enabled:hover:bg-hover"}`}
+                    // Picked is ink, as in QuestionCard: a stronger line on the inset fill, never accent.
+                    className={`flex min-h-8 w-full items-center gap-2 rounded-control border p-2 text-left text-12 transition-colors disabled:opacity-40 ${draft.picked.includes(option.label) ? "border-ink bg-inset text-ink" : "border-line bg-field text-ink-2 enabled:hover:bg-hover enabled:active:bg-hover-2"}`}
                   >
-                    <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded-inline bg-hover-2 text-11 text-ink-2">
-                      {optionIndex + 1}
-                    </span>
+                    <ShortcutKeys shortcut={String(optionIndex + 1)} compact aria-hidden="true" />
                     <span className="min-w-0 flex-1">
                       {option.label.replace(/\s*\(Recommended\)\s*$/i, "")}
                       {option.description && <span className="mt-0.5 block text-11 text-ink-3">{option.description}</span>}
                     </span>
-                    {recommended && <span className="shrink-0 rounded-full bg-orange-tint px-1.5 py-0.5 text-10 font-medium text-orange-ink">Recommended</span>}
+                    {recommended && <span className="shrink-0 rounded-full bg-field px-1.5 py-0.5 text-10 font-medium text-ink-2">Recommended</span>}
                   </button>
                 );
               })}
             </div>
             {question.allowOther && (
-              <div className="mt-2 flex min-h-9 items-center gap-1 rounded-control border border-line bg-field px-2 transition-colors duration-fast focus-within:border-accent">
+              <div className="mt-2 flex min-h-9 items-center gap-1 rounded-control border border-line-strong bg-field px-2 transition-colors focus-within:border-accent">
                 <input
                   type={question.secret ? "password" : "text"}
                   aria-label={`Your own answer to: ${question.question}`}
@@ -918,7 +925,7 @@ function InboxQuestion({
               </div>
             )}
             {!question.allowOther && last && (
-              <div className="mt-2 flex min-h-9 items-center justify-between rounded-control border border-line bg-field px-2">
+              <div className="mt-2 flex min-h-9 items-center justify-between rounded-control border border-line-strong bg-field px-2">
                 <span className="px-0.5 text-12 text-ink-3">{answers ? "Send your selection" : "Choose an answer"}</span>
                 {sendButton}
               </div>
@@ -926,14 +933,9 @@ function InboxQuestion({
           </fieldset>
         );
       })}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => send(null)}
-        className="h-6 justify-self-end rounded-control px-1.5 text-11 text-ink-3 transition-colors duration-fast hover:text-ink-2 disabled:opacity-40"
-      >
+      <Button variant="quiet" size={24} disabled={busy} onClick={() => send(null)} className="justify-self-end">
         Dismiss
-      </button>
+      </Button>
     </form>
   );
 }

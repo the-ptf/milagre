@@ -83,7 +83,8 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
           borderCurve: "continuous",
           backgroundColor: colors.field,
           borderWidth: 2,
-          borderColor: selected ? colors.accent : "transparent",
+          // The chosen theme is outlined in ink, as on desktop: accent is for focus and links.
+          borderColor: selected ? colors.ink : "transparent",
         },
         pressStyle({ pressed }),
       ]}

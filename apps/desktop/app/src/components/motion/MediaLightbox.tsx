@@ -2,7 +2,7 @@ import { canCopyImage } from "../../lib/media";
 import { animate, AnimatePresence, motion, type MotionValue, type Transition, useMotionValue, useTransform } from "motion/react";
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { containedRect, type Frame, panBy, type Rect, step, type View, zoomAt } from "../../lib/lightbox";
 
 // `file` is what an image's right-click menu copies or saves: its absolute path, or a pasted image's data URL.
@@ -73,8 +73,9 @@ const Icon = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 );
+// Over media, in the on-media tokens (the phone viewer's): an on-media tint, brighter on hover.
 const control =
-  "flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 transition-[background-color,scale] duration-fast hover:bg-white/20 enabled:active:scale-press disabled:opacity-40 disabled:hover:bg-white/10";
+  "flex size-9 items-center justify-center rounded-full bg-on-media-tint text-on-media transition-[background-color,scale] duration-fast hover:bg-on-media/20 enabled:active:scale-press disabled:opacity-40 disabled:hover:bg-on-media-tint";
 
 export function MediaLightbox({
   items,
@@ -151,7 +152,7 @@ export function MediaLightbox({
     const run =
       !reduce && target
         ? pose(figure, { ...flip(figure, target), corner: thumbCorner(thumb) }, scaledSpring(SPRING_LAYOUT, speed))
-        : pose(figure, { opacity: 0, scale: reduce ? 1 : 0.96 }, { duration: scaled(0.18, speed), ease: EASE_OUT });
+        : pose(figure, { opacity: 0, scale: reduce ? 1 : 0.96 }, { duration: scaled(DURATION.base, speed), ease: EASE_OUT });
     run.then(close);
   };
 
@@ -175,7 +176,7 @@ export function MediaLightbox({
         source = thumbRect(thumb);
       if (reduce || !source) {
         figure.scale.jump(reduce ? 1 : 0.96);
-        pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(0.18, speed), ease: EASE_OUT });
+        pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(DURATION.base, speed), ease: EASE_OUT });
         return;
       }
       // jump(), not set(): set() reads the leap to the thumbnail as velocity, and the spring would fling the image past it.
@@ -300,7 +301,7 @@ export function MediaLightbox({
   const chrome = {
     initial: { opacity: 0 },
     animate: { opacity: closing ? 0 : 1 },
-    transition: { duration: scaled(closing ? 0.18 : 0.28, speed), ease: EASE_OUT },
+    transition: { duration: scaled(closing ? DURATION.base : DURATION.slow, speed), ease: EASE_OUT },
   };
   return createPortal(
     <dialog
@@ -310,11 +311,11 @@ export function MediaLightbox({
         event.preventDefault();
         requestClose();
       }}
-      className="m-0 h-dvh max-h-none w-dvw max-w-none overflow-hidden bg-transparent p-0 text-white backdrop:bg-transparent"
+      className="m-0 h-dvh max-h-none w-dvw max-w-none overflow-hidden bg-transparent p-0 text-on-media backdrop:bg-transparent"
     >
-      <motion.div {...chrome} className="absolute inset-0 bg-black/70 backdrop-blur-overlay" onClick={requestClose} />
+      <motion.div {...chrome} className="absolute inset-0 bg-media/70 backdrop-blur-overlay" onClick={requestClose} />
       <motion.header {...chrome} className="absolute inset-x-0 top-0 flex h-14 items-center justify-between px-4">
-        <span aria-live="polite" className="text-12 tabular-nums text-white/70">
+        <span aria-live="polite" className="text-12 tabular-nums text-on-media-2">
           {items.length > 1 ? `${index + 1} / ${items.length}` : ""}
         </span>
         <button autoFocus type="button" aria-label="Close preview" onClick={requestClose} className={control}>
@@ -344,7 +345,7 @@ export function MediaLightbox({
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: scaled(0.18, speed), ease: EASE_OUT }}
+            transition={{ duration: scaled(DURATION.base, speed), ease: EASE_OUT }}
             className="absolute inset-0 flex items-center justify-center p-4"
           >
             <Slide item={item} intro={!opened.current} zoom={zoom} elements={elements} onReady={ready} />
@@ -357,7 +358,7 @@ export function MediaLightbox({
             <Icon d="M15 6l-6 6 6 6" />
           </button>
         )}
-        <span className="min-w-0 max-w-[60vw] truncate text-13 text-white/80" title={item.name}>
+        <span className="min-w-0 max-w-[60vw] truncate text-13 text-on-media-2" title={item.name}>
           {item.name}
         </span>
         {items.length > 1 && (

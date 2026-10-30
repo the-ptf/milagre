@@ -16,8 +16,10 @@ import type { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import { Button, IconButton } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
+import { Segmented } from "../primitives/Segmented";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import Tooltip from "../primitives/Tooltip";
 
@@ -115,7 +117,11 @@ export function UndoPanel({
                 Loading…
               </li>
             )}
-            {!review.pending && !tasks.length && <li className="px-2.5 py-2 text-ink-3">No task has changed files yet.</li>}
+            {!review.pending && !tasks.length && (
+              <li>
+                <EmptyState size="compact" title="No task has changed files yet" />
+              </li>
+            )}
             {tasks.map((item, index) => (
               <li key={item.id} role="option" aria-selected={index === current}>
                 <button
@@ -124,7 +130,7 @@ export function UndoPanel({
                   disabled={review.pending}
                   onPointerEnter={() => setActive(index)}
                   onClick={() => void review.inspect(item.id)}
-                  className={`flex w-full items-center gap-4 rounded-control px-2.5 py-2 text-left transition-colors duration-fast disabled:opacity-40 ${index === current ? "bg-hover" : ""}`}
+                  className={`flex h-8 w-full items-center gap-4 rounded-control px-2.5 text-left transition-colors disabled:opacity-40 ${index === current ? "bg-hover-2" : ""}`}
                 >
                   <span className="min-w-0 flex-1 truncate">{checkpointTask(item)}</span>
                   <span className="shrink-0 text-12 text-ink-3">{checkpointMeta(item)}</span>
@@ -143,11 +149,11 @@ export function UndoPanel({
             {preview && (
               <>
                 {tasks.length > 0 && intent === "Undo" ? (
-                  <Tooltip label="Choose another task" className="min-w-0">
+                  <Tooltip label="Choose another task" asChild>
                     <button
                       type="button"
                       onClick={() => review.back()}
-                      className="flex h-6 min-w-0 items-center gap-1.5 rounded-chip bg-field px-2 font-medium transition-colors duration-fast hover:bg-hover"
+                      className="flex h-6 min-w-0 items-center gap-1.5 rounded-chip bg-field px-2 font-medium transition-colors hover:bg-hover-2"
                     >
                       <span className="truncate">{checkpointTask(preview)}</span>
                       <span className="shrink-0 text-ink-3">
@@ -260,7 +266,7 @@ function FileRow({
       <span className="shrink-0 text-ink-3">
         <Icon icon={FILE_ICONS[file.action]} size={16} />
       </span>
-      <Tooltip label={onOpen ? "Show the diff" : file.path} className="min-w-0">
+      <Tooltip label={onOpen ? "Show the diff" : file.path} asChild>
         <button type="button" onClick={onOpen} disabled={!onOpen} className="flex min-w-0 items-baseline gap-2 text-left enabled:hover:underline">
           <span className="truncate font-medium">{name}</span>
           {dir && <span className="truncate text-ink-3">{dir}</span>}
@@ -274,22 +280,16 @@ function FileRow({
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         {file.conflict ? (
-          <span role="radiogroup" aria-label={`${name}: keep it or ${intent.toLowerCase()} it`} className="flex gap-0.5 rounded-control bg-field p-0.5">
-            {(["keep", "restore"] as const).map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                role="radio"
-                aria-checked={decision === choice}
-                data-checkpoint-choice={choice}
-                disabled={disabled}
-                onClick={() => onChoose(choice)}
-                className={`flex h-6 items-center rounded-chip px-2.5 text-12 font-medium transition-colors duration-fast disabled:opacity-40 ${decision === choice ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"}`}
-              >
-                {choice === "keep" ? "Keep current" : intent}
-              </button>
-            ))}
-          </span>
+          <Segmented
+            label={`${name}: keep it or ${intent.toLowerCase()} it`}
+            value={decision ?? null}
+            options={[
+              { value: "keep", label: "Keep current", disabled },
+              { value: "restore", label: intent, disabled },
+            ]}
+            onChange={onChoose}
+            dataKey="checkpoint-choice"
+          />
         ) : (
           <span className="text-12 text-ink-2">{effect}</span>
         )}

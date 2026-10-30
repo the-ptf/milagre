@@ -5,22 +5,11 @@ import { issueChipLabel, LINK_PR_HINT, type LinearIssue } from "@milagre/shared/
 import { LinearLogo } from "../ProviderLogo";
 import { LinearIssuePicker } from "../LinearIssuePicker";
 import { SpinnerRing } from "../primitives/SpinnerRing";
-import {
-  createContext,
-  Fragment,
-  memo,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { createContext, Fragment, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
+  Alert02Icon,
   Archive02Icon,
   BubbleChatIcon,
   EthernetPortIcon,
@@ -50,7 +39,9 @@ import {
   Unlink04Icon,
 } from "@hugeicons/core-free-icons";
 import type { LinkedEnd } from "./SidebarLinks";
-import GlideMenu from "@/components/primitives/GlideMenu";
+import { IconButton } from "@/components/primitives/Button";
+import { menuRowClass, MenuRow, MenuSeparator, Popover } from "@/components/primitives/Popover";
+import { ProjectAvatar } from "@/components/primitives/ProjectAvatar";
 import Tooltip from "@/components/primitives/Tooltip";
 import { ShortcutKeys } from "@/components/primitives/ShortcutKeys";
 import { archiveChoices, type ArchiveMode, type ArchivePlan } from "@/lib/archive";
@@ -59,18 +50,18 @@ import { rowPullRequests } from "@/lib/chat-pull-requests";
 import { useEditors } from "@/lib/editors";
 import type { AgentPort, DiffStat, PullRequest } from "@/model";
 import { portComputer, portUrl, unreachablePortReason } from "@/lib/ports";
-import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr-blockers";
+import { BLOCKERS, PR_TONE, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr-blockers";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Icon } from "../primitives/Icon";
 import { useDismiss } from "../../lib/use-dismiss";
-import { chatMarkTone } from "@milagre/shared/chats";
+import { chatMarkPresentation, chatMarkTone } from "@milagre/shared/chats";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { activityAgo, DESKTOP_CHAT_ROW_SHOW, type ChatRowShow } from "@milagre/shared/chat-row";
 import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
-import { WorkspaceIcon } from "../WorkspaceIcon";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -78,7 +69,10 @@ function useMinute(on: boolean) {
   return on ? now : 0;
 }
 
-const markToneClass = { accent: "text-accent", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-3" } as const;
+/** A mark's words (status lines): the -ink shade of its tone. */
+const markToneClass = { accent: "text-accent-ink", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-3" } as const;
+/** A mark's glyph: the fill tone (chatMarkPresentation). */
+const markGlyphClass = { accent: "text-accent", orange: "text-orange", red: "text-red", ink4: "text-ink-4" } as const;
 
 const toneClass = { red: "text-red-ink", orange: "text-orange-ink" } as const;
 
@@ -173,18 +167,9 @@ export const PullRequestOpenContext = createContext<((item: SidebarRecent, pr: P
 /** What the confirm step offers when nothing is known about the worktree: only hide the chat. */
 const HIDE_ONLY: ArchivePlan = { milagreOwned: false, shared: false, status: null };
 
-const MARK_LABEL: Record<Exclude<ChatMark, "idle">, string> = {
-  question: "Asking you",
-  waiting: "Waiting for you",
-  delegated: "Working on a Delegation",
-  running: "Running",
-  background: "Working in the background",
-  unread: "Unread",
-};
-
-/** The mark's words, a background mark with its count: "2 background tasks running". */
+/** The mark's words (shared with the phone), a background mark with its count: "2 background tasks running". */
 const markLabel = (mark: Exclude<ChatMark, "idle">, background = 0) =>
-  mark === "background" && background ? `${backgroundLabel(background)} running` : MARK_LABEL[mark];
+  mark === "background" && background ? `${backgroundLabel(background)} running` : chatMarkPresentation(mark).label;
 
 /** Work going on with no turn: a still ring around how many background tasks run, so it reads apart from running. */
 function BackgroundMark({ count = 0 }: { count?: number }) {
@@ -223,24 +208,29 @@ const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgen
 /* ─────────────────────────────────────────────────────────
  * CHAT MARK
  * One slot left of the label. A question shows a chat bubble,
- * an approval a shield, running spins a ring, unread is a plain
- * accent dot, and an idle chat keeps a faint dot so labels stay
- * aligned.
+ * an approval a shield, an interrupted turn an alert, running
+ * spins a ring, unread is a plain accent dot, and an idle chat
+ * keeps a small ink-4 dot so labels stay aligned.
  * ───────────────────────────────────────────────────────── */
-/** Marks that ask for you draw an icon, so a question and an approval read apart. The shield is orange like the approval card. */
+/** Marks that ask for you draw an icon, so a question and an approval read apart; chatMarkPresentation names them. */
 const MARK_ICON = {
-  question: { icon: BubbleChatIcon },
-  waiting: { icon: ShieldAlertIcon },
-  delegated: { icon: Link04Icon },
-} satisfies Partial<Record<ChatMark, { icon: HugeIconData }>>;
+  question: BubbleChatIcon,
+  waiting: ShieldAlertIcon,
+  delegated: Link04Icon,
+  interrupted: Alert02Icon,
+} satisfies Partial<Record<ChatMark, HugeIconData>>;
 
 function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
   return (
-    <span className={`flex ${markToneClass[chatMarkTone(mark)]}`}>
-      <Icon icon={MARK_ICON[mark].icon} size={12} />
+    <span className={`flex ${markGlyphClass[chatMarkPresentation(mark).tone]}`}>
+      <Icon icon={MARK_ICON[mark]} size={12} />
     </span>
   );
 }
+
+/** Unread and failed are 8px dots (accent, red); idle keeps a solid 6px ink-4 dot so labels stay aligned. */
+const markDot = (mark: ChatMark, failed: boolean) =>
+  mark === "idle" && failed ? "size-2 bg-red" : mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-4";
 
 export function ChatMarkDot({
   mark,
@@ -254,14 +244,13 @@ export function ChatMarkDot({
   topAligned?: boolean;
 }) {
   const failure = mark === "idle" && failed;
-  const label = failure ? "Last turn failed" : mark === "idle" ? "" : markLabel(mark, background);
-  const dot = failure ? "size-2 bg-red" : mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
+  const label = failure ? chatMarkPresentation("failed").label : mark === "idle" ? "" : markLabel(mark, background);
   const dotMark = (
     <span
       data-slot="chat-mark"
       data-mark={failure ? "failed" : mark}
       {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
-      className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
+      className={mark === "running" || mark === "background" || mark in MARK_ICON ? "flex" : `rounded-full ${markDot(mark, failure)}`}
     >
       {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
       {mark === "background" && <BackgroundMark count={background} />}
@@ -297,31 +286,18 @@ function recentInitials(label: string) {
  * Linear issue, what the chat is doing, the diff, and the computer
  * when it isn't this Mac. Its menu opens on a right-click.
  * ───────────────────────────────────────────────────────── */
-/** What an inbox row's second line says the chat is doing, in its mark's color. Unread says it with the dot instead. */
-const INBOX_STATUS: Record<Exclude<ChatMark, "idle" | "unread">, string> = {
-  question: "Needs reply",
-  waiting: "Needs approval",
-  delegated: "On a Delegation",
-  running: "Running",
-  background: "In the background",
-};
-
+/** What an inbox row's second line says the chat is doing (the mark's words), in its tone. Unread says it with the dot instead. */
 function inboxStatus(item: SidebarRecent): { label: string; tone: string } | null {
   const mark = item.mark ?? "idle";
-  if (mark === "idle") return item.details?.failed ? { label: "Failed", tone: "text-red-ink" } : null;
+  if (mark === "idle") return item.details?.failed ? { label: chatMarkPresentation("failed").label, tone: markToneClass.red } : null;
   if (mark === "unread") return null;
-  return { label: INBOX_STATUS[mark], tone: markToneClass[chatMarkTone(mark)] };
+  return { label: chatMarkPresentation(mark).label, tone: markToneClass[chatMarkTone(mark)] };
 }
 
-function RowProjectIcon({ image, initial = "" }: { image?: string | null; initial?: string }) {
-  const letter = initial.trim().slice(0, 1).toUpperCase() || "P";
+function RowProjectIcon({ name = "", image, initial }: { name?: string; image?: string | null; initial?: string }) {
   return (
-    <span
-      aria-hidden
-      data-chat-project-icon
-      className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
-    >
-      <WorkspaceIcon src={image} fallback={letter} />
+    <span data-chat-project-icon className="sidebar-copy flex shrink-0">
+      <ProjectAvatar size={24} name={name} src={image} initial={initial?.trim() ? initial.trim().slice(0, 1).toUpperCase() : undefined} />
     </span>
   );
 }
@@ -644,7 +620,7 @@ export const ChatRow = memo(function ChatRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const hoverTimer = useRef<number | null>(null);
   const [card, setCard] = useState<{ top: number; left: number; flip: boolean } | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; fromButton: boolean } | null>(null);
   // The issue picker opened from the menu's "Link issue…", at the menu's place.
   const [linking, setLinking] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -695,10 +671,11 @@ export const ChatRow = memo(function ChatRow({
 
   useEffect(() => clearHover, []);
 
-  const openMenu = (x: number, y: number) => {
+  // `fromButton`: opened from ⋯, so the menu hangs off the button (which toggles it); otherwise at the pointer.
+  const openMenu = (x: number, y: number, fromButton = false) => {
     if (item.pending || archivePending.current) return;
     hideCard();
-    setMenu({ x: Math.min(x, window.innerWidth - MENU_WIDTH - 8), y });
+    setMenu({ x: Math.min(x, window.innerWidth - MENU_WIDTH - 8), y, fromButton });
   };
 
   return (
@@ -706,7 +683,7 @@ export const ChatRow = memo(function ChatRow({
       <div
         ref={rowRef}
         data-chat-id={item.id}
-        className={`group/row relative ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
+        className={`group/row relative ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-60" : ""}`}
         onPointerEnter={showCardSoon}
         onPointerLeave={() => {
           clearPrefetch();
@@ -723,7 +700,7 @@ export const ChatRow = memo(function ChatRow({
             data-row
             className="sidebar-row relative z-10 mx-2 flex h-12 items-start gap-3 rounded-control bg-hover-2 px-2 py-1.5 focus-within:ring-2 focus-within:ring-accent focus-within:ring-inset"
           >
-            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
+            <RowProjectIcon name={projectName} image={projectImage} initial={projectInitial} />
             <RenameField
               inbox
               initial={item.label}
@@ -764,11 +741,11 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Archiving ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex h-12 items-start gap-3 rounded-control px-2 py-1.5 text-left transition-[width,background-color,color,scale] duration-fast active:scale-press ${
-              active ? "bg-hover-2" : "hover:bg-hover-sidebar"
+            className={`sidebar-row relative z-10 mx-2 flex h-12 items-start gap-3 rounded-control px-2 py-1.5 text-left transition-[width,background-color,color] duration-fast active:bg-hover-2 ${
+              active ? "bg-hover-2" : "hover:bg-hover"
             } ${archiving ? "opacity-30" : ""}`}
           >
-            <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
+            <RowProjectIcon name={projectName} image={projectImage} initial={projectInitial} />
             <InboxTitleLine item={item} linked={linked} lastAt={lastAt} now={now} hideTime={Boolean(shortcutHint) || Boolean(menu)} />
           </button>
         ) : (
@@ -780,8 +757,8 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Archiving ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-12 items-start pt-1.5" : "h-8 items-center"} rounded-control px-2 text-left transition-[width,background-color,color,scale] duration-fast active:scale-press ${
-              active ? "bg-hover-2" : "hover:bg-hover-sidebar"
+            className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-12 items-start pt-1.5" : "h-8 items-center"} rounded-control px-2 text-left transition-[width,background-color,color] duration-fast active:bg-hover-2 ${
+              active ? "bg-hover-2" : "hover:bg-hover"
             } ${archiving ? "opacity-30" : ""}`}
           >
             <span className="sidebar-chat-initials relative size-6 shrink-0 items-center justify-center rounded-chip bg-field text-10 font-semibold text-ink-2">
@@ -863,7 +840,7 @@ export const ChatRow = memo(function ChatRow({
             {facts.map((fact, index) => (
               <Fragment key={(fact as { key: string | null }).key}>
                 {index > 0 && (
-                  <span aria-hidden className="text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-3 opacity-60">
+                  <span aria-hidden className="text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-4">
                     ·
                   </span>
                 )}
@@ -871,7 +848,7 @@ export const ChatRow = memo(function ChatRow({
               </Fragment>
             ))}
             {facts.length > 0 && hasChips && (
-              <span aria-hidden className="text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-3 opacity-60">
+              <span aria-hidden className="text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-4">
                 ·
               </span>
             )}
@@ -908,24 +885,28 @@ export const ChatRow = memo(function ChatRow({
           </div>
         )}
         {!item.pending && !collapsed && !inbox && !renaming && !shortcutHint && (
-          <button
-            ref={triggerRef}
-            type="button"
-            disabled={archiving}
-            aria-label="Chat actions"
-            aria-haspopup="menu"
-            aria-expanded={Boolean(menu)}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              if (menu) setMenu(null);
-              else openMenu(rect.left, rect.bottom + 4);
-            }}
-            className={`absolute right-3 ${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} z-20 flex size-6 items-center justify-center rounded-chip text-ink-3 transition-[opacity,background-color,color] duration-fast hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100 ${
-              menu ? "bg-hover text-ink opacity-100" : "opacity-0"
+          // IconButton positions itself relative, so the span places it; it shows on hover, focus or while open.
+          <span
+            className={`absolute right-3 ${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} z-20 flex transition-opacity duration-fast group-hover/row:opacity-100 has-[:focus-visible]:opacity-100 ${
+              menu ? "opacity-100" : "opacity-0"
             }`}
           >
-            <Icon icon={MoreVerticalIcon} size={16} />
-          </button>
+            <IconButton
+              ref={triggerRef}
+              label="Chat actions"
+              icon={MoreVerticalIcon}
+              size={24}
+              tooltip={false}
+              disabled={archiving}
+              aria-haspopup="menu"
+              aria-expanded={Boolean(menu)}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                if (menu) setMenu(null);
+                else openMenu(rect.left, rect.bottom + 4, true);
+              }}
+            />
+          </span>
         )}
 
         {menu && (
@@ -977,9 +958,14 @@ export const ChatRow = memo(function ChatRow({
   );
 });
 
-/** Merged is purple, a blocked PR takes its first blocker's tone, running CI is orange like GitHub's own dot, other open PRs are green. */
+const PR_ICON_CLASS = { green: "text-green", orange: "text-orange", red: "text-red", purple: "text-purple" } as const;
+
+/**
+ * Merged is purple, a blocked PR takes its first blocker's tone, running CI is orange like GitHub's own dot, other open
+ * PRs are green: the icon in the fill tone (PR_TONE, as on the phone); words beside it use the -ink shade.
+ */
 function prTone(pr: PullRequest) {
-  return { purple: "text-purple", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" }[pullRequestPresentation(pr).tone];
+  return PR_ICON_CLASS[PR_TONE[pullRequestPresentation(pr).tone].icon];
 }
 
 function prIcon(pr: PullRequest) {
@@ -1006,7 +992,7 @@ function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?:
           event.stopPropagation();
           window.open(issue.url, "_blank", "noopener,noreferrer");
         }}
-        className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "pointer-events-auto shrink-0 text-ink-2" : "text-ink-3"}`}
+        className={`relative inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums before:absolute before:-inset-x-0.5 before:-inset-y-1 hover:text-ink ${inbox ? "pointer-events-auto shrink-0 text-ink-2" : "text-ink-3"}`}
       >
         <LinearLogo size={12} />
         <span className="truncate">{inbox ? issue.key : issueChipLabel(issue)}</span>
@@ -1040,7 +1026,7 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
         rel="noopener noreferrer"
         aria-label={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : readyToMerge ? ", ready to merge" : checking ? ", CI running" : ""}`}
         data-chat-pr
-        className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
+        className="group/pr relative inline-flex min-w-0 items-center gap-1 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums text-ink-2 no-underline before:absolute before:-inset-x-0.5 before:-inset-y-1 hover:text-ink"
         onClick={(event) => {
           event.stopPropagation();
           // A plain click on the Chat's own PR opens its panel; ⌘-click still opens GitHub.
@@ -1127,7 +1113,7 @@ function ChatHoverCard({
     mark !== "idle"
       ? { label: markLabel(mark, item.background), tone: markToneClass[chatMarkTone(mark)] }
       : details.failed
-        ? { label: "Last turn failed", tone: "text-red-ink" }
+        ? { label: chatMarkPresentation("failed").label, tone: markToneClass.red }
         : null;
   return (
     <div
@@ -1181,7 +1167,7 @@ function ChatHoverCard({
                   <span className={`flex size-4 shrink-0 items-center justify-center ${prTone(pr)}`}>
                     <Icon icon={prIcon(pr)} size={14} />
                   </span>
-                  <span className="min-w-0 flex-1 truncate leading-snug">
+                  <span className="min-w-0 flex-1 truncate">
                     <span className="tabular-nums">#{pr.number}</span>
                     {pr.title ? ` · ${pr.title}` : ""}
                   </span>
@@ -1281,7 +1267,7 @@ function ChatHoverCard({
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="text-11 text-ink-3">Linked with</span>
               {linked.map((end) => (
-                <span key={end.linkId} data-chat-card-link className="truncate leading-snug">
+                <span key={end.linkId} data-chat-card-link className="truncate">
                   {end.label}
                 </span>
               ))}
@@ -1298,7 +1284,7 @@ export function ChatMarkDotInline({ mark, failed, background }: { mark: ChatMark
   if (mark === "running") return <SpinnerRing size={12} color="var(--accent)" />;
   if (mark === "background") return <BackgroundMark count={background} />;
   if (mark in MARK_ICON) return <MarkIcon mark={mark as keyof typeof MARK_ICON} />;
-  return <span aria-hidden className={`size-2 rounded-full ${mark === "idle" && failed ? "bg-red" : "bg-accent"}`} />;
+  return <span aria-hidden className={`rounded-full ${markDot(mark, failed)}`} />;
 }
 
 function CardLine({ icon, children }: { icon: ReactNode; children: ReactNode }) {
@@ -1353,8 +1339,8 @@ function ChatMenu({
   actions,
 }: {
   item: SidebarRecent;
-  position: { x: number; y: number };
-  /** The ⋮ button toggles the menu itself, so a press on it isn't an outside press. */
+  /** Where it opened: under the ⋮ button (`fromButton`, which toggles it) or at a right-click. */
+  position: { x: number; y: number; fromButton: boolean };
   trigger: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onRename: () => void;
@@ -1363,27 +1349,16 @@ function ChatMenu({
   linked: boolean;
   actions: ChatRowActions;
 }) {
-  const menuRef = useRef<HTMLDivElement>(null);
   const [archiveArmed, setArchiveArmed] = useState(false);
   // What the confirm step offers: null until the worktree has been looked at.
   const [plan, setPlan] = useState<ArchivePlan | null>(actions.onArchiveCheck ? null : HIDE_ONLY);
-  const [top, setTop] = useState(position.y);
   const { details = {} } = item;
   const running = item.mark === "running" || item.mark === "waiting" || item.mark === "question";
 
+  // Arming Archive moves focus to its choice, so Enter or the arrows go on from there.
   useLayoutEffect(() => {
-    menuRef.current?.querySelector<HTMLElement>("[data-menu-row]")?.focus();
-  }, []);
-
-  // The confirm step can add items and a line, so the height is measured again with it.
-  useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (!menu) return;
-    // Opens upwards when there isn't room below.
-    const height = menu.getBoundingClientRect().height;
-    setTop(position.y + height > window.innerHeight - 8 ? Math.max(8, position.y - height - 8) : position.y);
-    if (archiveArmed) menu.querySelector<HTMLElement>("[data-archive-choice]:not(:disabled)")?.focus();
-  }, [position.y, archiveArmed, plan]);
+    if (archiveArmed) document.querySelector<HTMLElement>("[data-chat-menu] [data-archive-choice]:not(:disabled)")?.focus();
+  }, [archiveArmed, plan]);
 
   // The worktree is checked as the menu opens, so "Archive" goes straight to its choice instead of
   // flashing a checking row. Archive stays disabled until the check is back.
@@ -1401,8 +1376,6 @@ function ChatMenu({
     };
     // Checked once per opening; the menu remounts each time it opens.
   }, []);
-
-  useDismiss(true, onClose, (target) => !!(menuRef.current?.contains(target) || trigger.current?.contains(target)));
 
   const run = (action: () => void) => () => {
     onClose();
@@ -1460,10 +1433,10 @@ function ChatMenu({
           { key: "copy-path", label: "Copy path", icon: Copy01Icon, onSelect: copy(details.path ?? ""), disabled: !details.path },
           { key: "copy-branch", label: "Copy branch name", icon: GitBranchIcon, onSelect: copy(details.branch ?? ""), disabled: !details.branch },
         ]),
-    { key: "rename", label: "Rename chat", icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
+    { key: "rename", label: UI_COPY.renameChat, icon: PencilEdit02Icon, onSelect: run(onRename), disabled: !actions.onRename },
     {
       key: "reload",
-      label: "Reload chat",
+      label: "Reload Chat",
       icon: Refresh01Icon,
       hint: RELOAD_HINT,
       onSelect: run(() => actions.onReload?.(item.id)),
@@ -1547,69 +1520,60 @@ function ChatMenu({
     ...archiveItems,
   ].filter((entry) => entry === "divider" || !actions.remote || (entry.key !== "reveal" && entry.key !== "editor"));
 
-  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
-    const index = rows.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      rows[(index + step + rows.length) % rows.length]?.focus();
-    } else if (event.key === "Escape") {
-      // Consumed here, so Escape doesn't also stop the open chat's turn.
-      event.preventDefault();
-      onClose();
-    } else if (event.key === "Tab") {
-      event.preventDefault();
-    }
-  };
+  // Archive's choices can be long ("Stop, archive and delete worktree"), so they wrap instead of truncating.
+  const menuRow = (entry: MenuEntry) =>
+    entry.archiveChoice ? (
+      <button
+        key={entry.key}
+        data-menu-row
+        data-archive-choice
+        role="menuitem"
+        type="button"
+        disabled={entry.disabled}
+        onClick={entry.onSelect}
+        className={menuRowClass({ wrap: true, danger: entry.danger })}
+      >
+        <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
+          {entry.icon && <Icon icon={entry.icon} size={16} />}
+        </span>
+        <span className="min-w-0 flex-1">{entry.label}</span>
+      </button>
+    ) : (
+      <MenuRow
+        key={entry.key}
+        icon={entry.leading ?? entry.icon}
+        title={entry.label}
+        danger={entry.danger}
+        disabled={entry.disabled}
+        onClick={entry.onSelect}
+      />
+    );
 
-  const menuRow = (entry: MenuEntry) => (
-    <button
-      key={entry.key}
-      data-menu-row
-      role="menuitem"
-      type="button"
-      disabled={entry.disabled}
-      onClick={entry.onSelect}
-      {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
-      className={`relative z-10 flex w-full items-center gap-2 rounded-control px-2 text-left focus-visible:bg-hover-2 focus-visible:-outline-offset-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red-ink" : "text-ink"}`}
-    >
-      <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-        {entry.leading ?? (entry.icon && <Icon icon={entry.icon} size={16} />)}
-      </span>
-      <span className={`min-w-0 flex-1 text-13 ${entry.archiveChoice ? "leading-snug" : "truncate"}`}>{entry.label}</span>
-    </button>
-  );
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={`Actions for ${item.label}`}
+  return (
+    <Popover
+      anchor={position.fromButton ? trigger : position}
+      align="start"
+      width={MENU_WIDTH}
+      label={`Actions for ${item.label}`}
+      onClose={onClose}
       data-chat-menu
-      onKeyDown={moveFocus}
-      className="fixed z-[70] rounded-card bg-surface p-1.5 shadow-raised"
-      style={{ top, left: position.x, width: MENU_WIDTH, animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "top left" }}
     >
-      <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">
-        {items.map((entry, index) =>
-          entry === "divider" ? (
-            <div key={`divider-${index}`} className="my-1 h-px bg-line" />
-          ) : entry.hint ? (
-            <Tooltip key={entry.key} label={entry.hint} wrap side="bottom" className="w-full">
-              {menuRow(entry)}
-            </Tooltip>
-          ) : (
-            menuRow(entry)
-          ),
-        )}
-      </GlideMenu>
+      {items.map((entry, index) =>
+        entry === "divider" ? (
+          <MenuSeparator key={`divider-${index}`} />
+        ) : entry.hint ? (
+          <Tooltip key={entry.key} label={entry.hint} wrap side="bottom" asChild>
+            {menuRow(entry)}
+          </Tooltip>
+        ) : (
+          menuRow(entry)
+        ),
+      )}
       {confirm?.reason && (
-        <p data-archive-reason className="px-2 pb-1 pt-1.5 text-12 text-ink-3">
+        <p data-archive-reason className="px-2 pt-1.5 pb-1 text-12 text-ink-3">
           {confirm.reason}
         </p>
       )}
-    </div>,
-    document.body,
+    </Popover>
   );
 }

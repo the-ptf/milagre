@@ -12,7 +12,8 @@ import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { announce, CircleButton, ErrorNotice, Field, PageScroll, PillButton, SectionLabel, useStyles } from "./ui";
+import { announce, CircleButton, ErrorNotice, Field, InlineError, PageScroll, PillButton, SectionLabel, SheetHeader, useStyles } from "./ui";
+import { over } from "@milagre/shared/themes";
 import { lineHeight, radius, type } from "./design-tokens";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
@@ -145,33 +146,27 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
   return (
     <View style={{ flex: 1, backgroundColor: colors.page, paddingBottom: insets.bottom }}>
       {/* Keep the header as one native view: form-sheet scroll sizing cannot account for a flattened header. */}
-      <View
-        collapsable={false}
-        style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}
-      >
-        {selected && canChoose ? (
-          <CircleButton
-            label="Back to pages"
-            icon={ArrowLeft01Icon}
-            onPress={() => {
-              setChoosing(true);
-              setChosen(null);
-              setPage(null);
-              void refresh();
-            }}
-          />
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
-            {shown?.title || "Browser"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
-            {shown?.url || "This Chat"}
-          </Text>
-        </View>
-        <CircleButton label="Close browser" icon={Cancel01Icon} onPress={() => router.back()} />
+      <View collapsable={false} style={{ flexShrink: 0 }}>
+        <SheetHeader
+          title={shown?.title || "Browser"}
+          subtitle={shown?.url || "This Chat"}
+          subtitleEllipsis={shown?.url ? "middle" : "tail"}
+          leading={
+            selected && canChoose ? (
+              <CircleButton
+                label="Back to pages"
+                icon={ArrowLeft01Icon}
+                onPress={() => {
+                  setChoosing(true);
+                  setChosen(null);
+                  setPage(null);
+                  void refresh();
+                }}
+              />
+            ) : null
+          }
+          trailing={<CircleButton label="Close browser" icon={Cancel01Icon} onPress={() => router.back()} />}
+        />
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source || !chatId ? (
@@ -241,7 +236,7 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
                   gap: 12,
                   borderRadius: radius.control,
                   borderCurve: "continuous",
-                  backgroundColor: pressed ? colors.hover : colors.surface,
+                  backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
                 })}
               >
                 <Icon icon={BrowserIcon} size={18} tone="ink2" />
@@ -267,7 +262,11 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
                 )}
               </Pressable>
             ))}
-            {!!list?.others.length && <SectionLabel style={{ paddingTop: 8 }}>Other browsers on this computer</SectionLabel>}
+            {!!list?.others.length && (
+              <SectionLabel flush style={{ paddingTop: 8 }}>
+                Other browsers on this computer
+              </SectionLabel>
+            )}
             {list?.others.map((other) => (
               <View
                 key={other.id}
@@ -391,13 +390,9 @@ function PageComment({
           style={{ minHeight: 64, backgroundColor: colors.page }}
         />
       )}
-      {!!error && (
-        <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-          {error}
-        </Text>
-      )}
+      <InlineError message={error} />
       <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12 }}>
-        <PillButton title="Cancel" secondary disabled={sending} onPress={() => onCommenting(false)} />
+        <PillButton title="Cancel" variant="plain" muted disabled={sending} onPress={() => onCommenting(false)} />
         {picked && <PillButton title="Send" loading={sending} disabled={!text.trim() || sending} onPress={() => void send()} />}
       </View>
     </View>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelOption, Routine, RoutineTrigger } from "@milagre/shared/model";
-import { PERMISSION_MODES } from "@milagre/shared/model-copy";
+import { PERMISSION_MODES, UI_COPY } from "@milagre/shared/model-copy";
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
 import { projectOfKey } from "@milagre/shared/agent-runs";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -274,7 +274,7 @@ export function useRoutineForm({ initial, models, defaultProjectPath }: { initia
   const chatOptions: SelectOption<string>[] = (project?.chats ?? []).map((chat) => ({ value: chat.chatId, label: chat.title || "Untitled Chat" }));
   if (state.chatId && !chatOptions.some((option) => option.value === state.chatId)) chatOptions.unshift({ value: state.chatId, label: "This Chat" });
   const runInOptions: SelectOption<RoutineFormState["runIn"]>[] = [
-    { value: "worktree", label: "New Worktree", description: "A new Chat in its own Worktree", disabled: editing && heartbeat },
+    { value: "worktree", label: UI_COPY.newWorktree, description: "A new Chat in its own Worktree", disabled: editing && heartbeat },
     { value: "project", label: "Project folder", description: "A new Chat in the Project folder", disabled: editing && heartbeat },
     {
       value: "chat",

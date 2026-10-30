@@ -23,8 +23,8 @@ export type ThreadActions = {
 
 function Avatar({ login }: { login: string }) {
   return (
-    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-hover text-10 font-semibold text-ink-2 uppercase">
-      {login.slice(0, 1)}
+    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-hover text-10 font-semibold text-ink-2">
+      {login.slice(0, 1).toUpperCase()}
     </span>
   );
 }
@@ -130,15 +130,10 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
             )}
             <span className="flex-1" />
             {state === "open" && (
-              <button
-                type="button"
-                data-pr-fix
-                onClick={() => actions.fixInChat(thread)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-control px-2 text-12 font-medium text-accent-ink transition-colors duration-fast hover:bg-hover"
-              >
+              <Button variant="link" size={28} data-pr-fix onClick={() => actions.fixInChat(thread)}>
                 <Icon icon={SparklesIcon} size={14} />
                 Fix in Chat
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -222,7 +217,7 @@ export function ReviewBar({
           <span data-pr-review-summary className="min-w-0 flex-1 truncate text-13 text-ink-2">
             {summary}
           </span>
-          <Button data-pr-review-open aria-expanded={open} onClick={() => setOpen((value) => !value)} className="rounded-full active:scale-press">
+          <Button data-pr-review-open shape="pill" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
             Submit review
           </Button>
         </div>

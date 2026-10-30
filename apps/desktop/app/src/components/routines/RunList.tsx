@@ -54,7 +54,7 @@ function foldedLine(run: RoutineRun): { icon: HugeIconData; text: string } {
 }
 
 const Icon = ({ icon, spin = false, className }: { icon: HugeIconData; spin?: boolean; className: string }) => (
-  <span className={`flex size-5 shrink-0 items-center justify-center ${className}`}>{spin ? <SpinnerRing size={14} /> : <Glyph icon={icon} size={16} />}</span>
+  <span className={`flex size-5 shrink-0 items-center justify-center ${className}`}>{spin ? <SpinnerRing size={14} /> : <Glyph icon={icon} size={14} />}</span>
 );
 
 /**
@@ -105,7 +105,7 @@ function Row({
       onClick={onClick}
       aria-expanded={expanded}
       aria-current={selected || undefined}
-      className={`${shape} transition-colors duration-fast hover:bg-hover focus-visible:bg-hover focus-visible:-outline-offset-2`}
+      className={`${shape} transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:-outline-offset-2 active:bg-hover-2`}
       {...data}
     >
       {body}

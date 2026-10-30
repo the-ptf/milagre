@@ -58,7 +58,8 @@ function LoadedImage({ load, src, alt, width }: { load: Promise<string>; src: st
     return (
       <span
         data-markdown-image-loading=""
-        className="inline-block h-24 max-w-full animate-pulse rounded-chip bg-field align-middle"
+        // The Skeleton look (primitives/Skeleton), as an inline block sized like the image it waits for.
+        className="inline-block h-24 max-w-full rounded-chip bg-hover-2 align-middle motion-safe:animate-pulse"
         style={size ?? { width: 160 }}
       />
     );

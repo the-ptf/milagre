@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Archive02Icon, ArrowLeft01Icon, Cancel01Icon, RefreshIcon, SquareIcon } from "@hugeicons/core-free-icons";
+import { Archive02Icon, ArrowLeft01Icon, Cancel01Icon, RefreshIcon, SquareIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { advisorAction, subagentActivityLabel } from "@milagre/shared/agent-activity";
 import { subagentFinished } from "@milagre/shared/project-edits";
 import type { Subagent } from "@milagre/shared/model";
@@ -9,7 +9,7 @@ import { useSession } from "../session";
 import { qaFleetFirst, qaPersona } from "@milagre/shared/qa-personas";
 import { PersonaAvatar, WholeSubagentDetail, SubagentRow, elapsed, subagentRunning, useClock } from "../subagent-glance";
 import { Icon } from "../icons";
-import { CircleButton, ErrorNotice, IconButton, ListRow, PageScroll, useStyles } from "../ui";
+import { CircleButton, EmptyState, ErrorNotice, IconButton, ListRow, PageScroll, SheetHeader, useStyles } from "../ui";
 import { useTheme } from "../theme";
 import { lineHeight, type } from "../design-tokens";
 
@@ -75,44 +75,32 @@ export default function AgentsSheet() {
   const action = child ? advisorAction(child) : undefined;
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: 40 }}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          paddingBottom: 8,
-          backgroundColor: colors.page,
-        }}
-      >
-        {child ? (
-          <CircleButton label="Back to subagents" icon={ArrowLeft01Icon} onPress={() => setSelected(null)} />
-        ) : (
-          <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-        )}
-        <View style={{ flex: 1, alignItems: "center", gap: 2 }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
-            {child ? (qaPersona(child)?.name ?? child.title) : "Subagents"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-            {child
-              ? [subagentActivityLabel(child), elapsed(child, now), child.model].filter(Boolean).join(" · ")
-              : [running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}
-          </Text>
-        </View>
-        {child && action ? (
-          <CircleButton
-            label={`${action === "stop" ? "Stop" : "Retry"} ${child.title}`}
-            icon={action === "stop" ? SquareIcon : RefreshIcon}
-            disabled={disabled}
-            onPress={() => control(action, child.id)}
-          />
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
-      </View>
+      <SheetHeader
+        style={{ backgroundColor: colors.page }}
+        title={child ? (qaPersona(child)?.name ?? child.title) : "Subagents"}
+        subtitle={
+          (child
+            ? [subagentActivityLabel(child), elapsed(child, now), child.model].filter(Boolean).join(" · ")
+            : [running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")) || undefined
+        }
+        leading={
+          child ? (
+            <CircleButton label="Back to subagents" icon={ArrowLeft01Icon} onPress={() => setSelected(null)} />
+          ) : (
+            <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
+          )
+        }
+        trailing={
+          child && action ? (
+            <CircleButton
+              label={`${action === "stop" ? "Stop" : "Retry"} ${child.title}`}
+              icon={action === "stop" ? SquareIcon : RefreshIcon}
+              disabled={disabled}
+              onPress={() => control(action, child.id)}
+            />
+          ) : undefined
+        }
+      />
       {error ? (
         <View style={{ paddingHorizontal: 16 }}>
           <ErrorNotice message={error} />
@@ -134,7 +122,7 @@ export default function AgentsSheet() {
         </View>
       ) : (
         <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
-          {!visible.length && <Text style={[styles.muted, { paddingVertical: 16 }]}>No subagents to show.</Text>}
+          {!visible.length && <EmptyState icon={UserMultipleIcon} title="No subagents to show" />}
           {fleet.length > 0 && (
             <View accessibilityRole="header" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 2 }}>
               <View style={{ flexDirection: "row", paddingLeft: 6 }}>
@@ -145,7 +133,7 @@ export default function AgentsSheet() {
                 ))}
               </View>
               <Text style={{ flex: 1, color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>QA fleet</Text>
-              <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+              <Text style={styles.footnote}>
                 {fleet.length} {fleet.length === 1 ? "persona" : "personas"}
               </Text>
             </View>

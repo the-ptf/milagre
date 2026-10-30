@@ -100,6 +100,7 @@ const themeHooks = {
   useTheme: () => ({ colors: fakePalette, scheme: "light", settings: {}, set() {} }),
   createStylesHook: (make) => () => make(fakePalette),
   fonts: { mono: "mono" },
+  inkFor: (colors, tone) => (tone === "ink" || tone === "ink2" || tone === "ink3" ? colors[tone] : colors[`${tone}Ink`]),
 };
 // The ui barrel's pure helpers are real; screen-reader announcements, haptics and the home-indicator inset do nothing in a test.
 const uiHooks = {
@@ -112,9 +113,22 @@ const uiHooks = {
   useSheetBottomInset: () => 16,
   // Shared components draw as named elements unless a test passes its own.
   ...Object.fromEntries(
-    ["SheetHeader", "SheetBody", "SectionLabel", "TranscriptDivider", "Chip", "Checkbox", "CheckboxBox", "CheckRow", "Group", "Toast", "ErrorNotice"].map(
-      (name) => [name, name],
-    ),
+    [
+      "SheetHeader",
+      "SheetBody",
+      "SectionLabel",
+      "TranscriptDivider",
+      "Chip",
+      "Tag",
+      "CheckboxBox",
+      "CheckRow",
+      "Group",
+      "Toast",
+      "ErrorNotice",
+      "InlineError",
+      "EmptyState",
+      "ProgressBar",
+    ].map((name) => [name, name]),
   ),
 };
 const designsOn = {
@@ -230,6 +244,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         [
           "@milagre/shared/archive",
           "@milagre/shared/chat-history",
+          "@milagre/shared/chat-scopes",
           "@milagre/shared/chat-window-cache",
           "@milagre/shared/display-clock",
           "@milagre/shared/refresh-loop",
@@ -302,6 +317,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
       if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
       if (!(id in modules)) {
+        // Haptics do nothing in a test.
+        if (id === "expo-haptics") return { selectionAsync: async () => {}, impactAsync: async () => {}, notificationAsync: async () => {} };
         // Icons draw as their names, like the fakes tests pass for them; insets are a phone without a notch.
         if (id === "@hugeicons/core-free-icons" || base === "icons") return new Proxy({}, { get: (_target, key) => key });
         if (id === "react-native-safe-area-context")
@@ -341,18 +358,81 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
 }
 // The long-press wrapper gives its children no `open`; elements built through `jsx` show them in its place, so a test reads the message.
 const messageActionsStub = ({ children }) => children(undefined);
-// A named SheetHeader or Group keeps its type, and holds what it draws (its buttons, its title as a header) as children, so
-// a search through children reaches them as it would the real primitive's.
-const slotChildren = (type, props) =>
-  type === "SheetHeader"
-    ? [props.leading, { type: "Text", props: { accessibilityRole: "header", children: props.title } }, props.trailing]
-    : type === "Group" && props.title
-      ? [{ type: "SectionLabel", props: { children: props.title } }, props.children]
-      : null;
+// The real phone primitives (primitives/*.tsx), loaded once over a minimal native layer: no hook state, announcements
+// recorded on primitiveAnnouncements. A screen's named Chip, CheckRow, SheetHeader, Group, ErrorNotice (any in DRAWN)
+// keeps its name and props (tests read them) and holds what the real primitive draws as its children, so the roles,
+// states and text a test finds come from the primitive itself. SectionLabel stays a name: tests read its text prop.
+const primitiveAnnouncements = [];
+const primitiveModules = {
+  react: {
+    useState: (initial) => [typeof initial === "function" ? initial() : initial, () => {}],
+    useEffect() {},
+    useRef: (current) => ({ current }),
+    Fragment: "Fragment",
+    isValidElement: (node) => !!node && typeof node === "object" && "type" in node && "props" in node,
+    Children: {
+      toArray: (children) => [children].flat(Infinity).filter((child) => child != null && typeof child !== "boolean" && child !== ""),
+      count: (children) => [children].flat(Infinity).filter((child) => child != null && typeof child !== "boolean").length,
+    },
+  },
+  "react/jsx-runtime": { jsx: (...args) => jsx(...args), jsxs: (...args) => jsx(...args), Fragment: "Fragment" },
+  "react-native": {
+    View: "View",
+    Text: "Text",
+    Pressable: "Pressable",
+    TextInput: "TextInput",
+    StyleSheet: { create: (styles) => styles, hairlineWidth: 0.5 },
+    Platform: { OS: "ios", select: (choices) => choices.ios ?? choices.default },
+    AccessibilityInfo: { announceForAccessibility: (message) => primitiveAnnouncements.push(message) },
+    useWindowDimensions: () => ({ width: 402, height: 874, fontScale: 1 }),
+  },
+  "expo-haptics": { selectionAsync: async () => {} },
+  "@expo/ui": { Host: "Host", Switch: "Switch" },
+  "@expo/ui/swift-ui/modifiers": new Proxy(
+    {},
+    {
+      get:
+        (_target, name) =>
+        (...args) => ({ [name]: args }),
+    },
+  ),
+  "@expo/ui/jetpack-compose/modifiers": new Proxy(
+    {},
+    {
+      get:
+        (_target, name) =>
+        (...args) => ({ [name]: args }),
+    },
+  ),
+};
+const DRAWN = {
+  Chip: "chip",
+  Tag: "tag",
+  CheckRow: "check-row",
+  CheckboxBox: "checkbox",
+  SheetHeader: "sheet",
+  Group: "group",
+  TranscriptDivider: "transcript-divider",
+  Toast: "toast",
+  ErrorNotice: "error-notice",
+  InlineError: "inline-error",
+  EmptyState: "empty-state",
+  ProgressBar: "progress-bar",
+};
+const realPrimitives = new Map();
+let primitiveCache;
+const primitive = (name, file) => {
+  primitiveCache ??= new Map();
+  const fn = load(`primitives/${file}.tsx`, primitiveModules, "", primitiveCache)[name];
+  realPrimitives.set(fn, name);
+  return fn;
+};
 const jsx = (type, props, key) => {
   if (type === messageActionsStub) return props.children(undefined);
-  const drawn = slotChildren(type, props);
-  return { type, props: drawn ? { ...props, children: drawn } : props, key };
+  // A primitive drawing a sibling (Group's SectionLabel, CheckRow's CheckboxBox) reads as that sibling's name.
+  type = realPrimitives.get(type) ?? type;
+  if (typeof type === "string" && Object.hasOwn(DRAWN, type)) return { type, props: { ...props, children: primitive(type, DRAWN[type])(props) }, key };
+  return { type, props, key };
 };
 
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
@@ -913,7 +993,7 @@ function planPanelHost(initial) {
     "./plan-label": require("../apps/mobile/src/plan-label.ts"),
     "./plan-panel-frame": require("../apps/mobile/src/plan-panel-frame.ts"),
     "./plan-view": { PlanTree: "PlanTree", PlanPhaseGraph: "PlanPhaseGraph" },
-    "./ui": { IconButton: "IconButton", PageScroll: "PageScroll" },
+    "./ui": { IconButton: "IconButton", PageScroll: "PageScroll", SectionLabel: "SectionLabel" },
   });
   // The pill sits in the composer row at `pill` (a test moves it as the keyboard would); the overlay covers the window.
   const host = { plan: initial, finishes, focused, backs, keyboard, pill: { x: 250, y: 790, width: 54, height: 34 }, heading: { heading: true } };
@@ -925,8 +1005,8 @@ function planPanelHost(initial) {
     if (chip) chip.props.ref({ measureInWindow: (done) => done(host.pill.x, host.pill.y, host.pill.width, host.pill.height) });
     const root = tree.overlay;
     if (root) root.props.ref({ measureInWindow: (done) => done(0, 0, 402, 874) });
-    const label = find(root, (node) => node.props?.textRef);
-    if (label) label.props.textRef.current = host.heading;
+    const label = find(root, (node) => node.type === "SectionLabel" && node.props.ref);
+    if (label) label.props.ref.current = host.heading;
     const surface = find(root, (node) => node.props?.testID === "plan-surface");
     const box = surface && Object.assign({}, ...[surface.props.style].flat(Infinity).filter(Boolean));
     return { ...tree, chip, root, box, face: find(root, (node) => node.props?.testID === "plan-panel") };
@@ -972,8 +1052,8 @@ test("the Tasks pill grows into its panel over the Chat and folds back into the 
     find(screen.face, (node) => node.type === "PlanPhaseGraph"),
     "and the phase graph below it",
   );
-  const heading = find(screen.face, (node) => node.type?.name === "SectionLabel");
-  assert.deepEqual([heading.props.title, heading.props.count], ["Tasks", 2], "under desktop's header: Tasks and the leaf total");
+  const heading = find(screen.face, (node) => node.type === "SectionLabel");
+  assert.deepEqual([heading.props.children, heading.props.trailing], ["Tasks", 2], "under desktop's header: Tasks and the leaf total");
   const surface = find(screen.root, (node) => node.props?.testID === "plan-surface");
   const box = Object.assign({}, ...[surface.props.style].flat(Infinity).filter(Boolean));
   assert.equal(box.left + box.width, 402 - 12, "the panel spans the Chat to its right padding");
@@ -2974,7 +3054,7 @@ function chatHost({
     const props = find(render(), (node) => node.type === "PromptField").props;
     return { ...props, value: props.draft };
   };
-  const send = () => find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up"].includes(node.props.label)).props.onPress();
+  const send = () => find(render(), (node) => node.type === "IconButton" && ["Send", "Send follow-up"].includes(node.props.label)).props.onPress();
   return { session, sending, params, field, send, render, router, calls, choices, panels, undo };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -3874,9 +3954,9 @@ test("mobile chat status labels use the same tone as their status icons", () => 
   for (const [mark, label, color] of [
     ["running", "Running", "accentInk"],
     ["question", "Needs reply", "accentInk"],
-    ["waiting", "Needs approval", "orange"],
-    ["interrupted", "Interrupted", "orange"],
-    ["failed", "Failed", "red"],
+    ["waiting", "Needs approval", "orangeInk"],
+    ["interrupted", "Interrupted", "orangeInk"],
+    ["failed", "Failed", "redInk"],
     ["unread", "Unread", "accentInk"],
   ]) {
     const row = list.props.renderItem({ item: { ...item, mark } });
@@ -4789,7 +4869,7 @@ test("isolation uses desktop artwork inside SwiftUI labels and preserves delayed
   });
   assert.deepEqual(
     Array.from(labels, (node) => node.props.title),
-    ["Local", "New worktree"],
+    ["Local", "New Worktree"],
   );
   assert.deepEqual(
     Array.from(labels, (node) => node.props.icon.props.name),
@@ -4806,7 +4886,7 @@ test("isolation uses desktop artwork inside SwiftUI labels and preserves delayed
   choices.props.onSelectionChange("worktree");
   assert.equal(find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.nativeTrigger.title, "Local");
   t.mock.timers.tick(250);
-  assert.equal(find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.nativeTrigger.title, "New worktree");
+  assert.equal(find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose isolation").props.nativeTrigger.title, "New Worktree");
 });
 
 test("the branch picker opens searchable choices while short action menus remain native", () => {
@@ -4814,7 +4894,7 @@ test("the branch picker opens searchable choices while short action menus remain
   const choices = require("../apps/mobile/src/choice-store.ts");
   const screen = chatHost();
   const trigger = find(screen.render(), (node) => node.type === "PullDown" && node.props.label === "Choose branch");
-  assert.equal(trigger.props.searchable.placeholder, "Search worktrees");
+  assert.equal(trigger.props.searchable.placeholder, "Search Worktrees");
   const rendered = PullDown(trigger.props);
   assert.equal(
     find(rendered, (node) => node.type === "IOSMenu"),
@@ -4822,7 +4902,7 @@ test("the branch picker opens searchable choices while short action menus remain
   );
   rendered.props.onPress();
   const entry = choices.currentChoice();
-  assert.equal(entry.title, "Choose a worktree");
+  assert.equal(entry.title, "Choose a Worktree");
   assert.equal(entry.items[0].title, "main");
   entry.choose(null);
 });
@@ -4894,13 +4974,14 @@ test("searching the choice sheet filters full names and selection applies only a
   field().props.onChangeText({ nativeEvent: { text: "  RESOLVE-PR-246  " } });
   assert.equal(list().props.data.length, 1);
   const row = list().props.renderItem({ item: list().props.data[0] });
-  assert.equal(row.props.accessibilityLabel, longName);
-  assert.equal(find(row, (node) => node.type === "Text").props.numberOfLines, undefined, "the full name can wrap");
-  assert.equal(find(row, (node) => node.type === "Text").props.style.fontFamily, undefined, "names use the body font");
+  // CheckRow draws the row (radio role, "title. subtitle" label, the body font); the sheet passes it the full name.
+  assert.equal(row.type, "CheckRow");
+  assert.equal(row.props.title, longName);
+  assert.ok(!row.props.titleLines, "the full name can wrap");
   assert.equal(find(render(), (node) => node.type === "EdgeFade").props.edge, "top", "rows blur under the title bar");
   field().props.onChangeText({ nativeEvent: { text: "missing" } });
   assert.equal(list().props.data.length, 0);
-  assert.equal(list().props.ListEmptyComponent.props.children, "No branches found.");
+  assert.equal(list().props.ListEmptyComponent.props.title, "No branches found.");
   field().props.onCancelButtonPress();
   assert.equal(list().props.data.length, 2, "native cancel restores the complete list");
   field().props.onChangeText({ nativeEvent: { text: "resolve" } });
@@ -5441,7 +5522,7 @@ test("a failed first send restores the sent text alongside the next draft and re
   await settle();
   assert.equal(screen.params.id, undefined);
   assert.equal(screen.field().value, "first message\n\nedited during failed send");
-  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send");
   assert.equal(button.props.disabled, false);
   assert.equal(find(screen.render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
 });
@@ -5489,7 +5570,7 @@ test("an accepted mobile send releases the composer before a slow refresh finish
   screen.sending.resolve({ sessionId: 7 });
   await settle();
   screen.field().onChangeText("Next message");
-  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  const button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send");
   assert.equal(button.props.disabled, false);
   refresh.resolve();
 });
@@ -5507,7 +5588,7 @@ test("switching the mounted mobile composer between computers isolates concurren
   // The routed pane stays mounted, including when the other computer uses the same path and Chat id.
   screen.session.client.url = "other-mac";
   screen.field().onChangeText("Second computer");
-  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  let button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send");
   assert.equal(button.props.disabled, false, "the first computer's send does not lock the second");
   screen.send();
   await settle();
@@ -5525,7 +5606,7 @@ test("switching the mounted mobile composer between computers isolates concurren
   sends[1].reject(new Error("Second computer refused the send"));
   await settle();
   assert.equal(screen.field().value, "Second computer\n\nNext draft");
-  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send message");
+  button = find(screen.render(), (node) => node.type === "IconButton" && node.props.label === "Send");
   assert.equal(button.props.disabled, false);
 });
 
@@ -6075,11 +6156,11 @@ test("late Chat rename cannot pop another screen after its form loses focus", as
     "../attachment-picker": { pickAttachments: async () => [] },
     "../attachments": require("../apps/mobile/src/attachments.ts"),
     "../status-indicators": { ChatStatus: "ChatStatus", AgentStatus: "AgentStatus", WorktreeStatus: "WorktreeStatus" },
-    "../ui": { ...Object.fromEntries(["Button", "ErrorNotice", "Field", "PageScroll"].map((name) => [name, name])), styles: {} },
+    "../ui": { ...Object.fromEntries(["PillButton", "ErrorNotice", "Field", "PageScroll"].map((name) => [name, name])), styles: {} },
   });
   react.begin();
   const tree = Form();
-  find(tree, (n) => n.type === "Button" && n.props.title === "Save name").props.onPress();
+  find(tree, (n) => n.type === "PillButton" && n.props.title === "Save name").props.onPress();
   cleanup?.();
   saving.resolve({});
   await settle();
@@ -6866,7 +6947,7 @@ function updatesHost() {
     "@hugeicons/core-free-icons": { Cancel01Icon: "close" },
     "./update-controller": {},
     "./theme": { colors: {}, hex: () => ({ page: "#17181a" }) },
-    "./ui": { PillButton: "PillButton", IconButton: "IconButton" },
+    "./ui": { PillButton: "PillButton", CircleButton: "CircleButton" },
   });
   return {
     set(status, error = "", updateId = state.updateId) {
@@ -6922,7 +7003,7 @@ test("the update sheet opens only for an actionable update and dismissal survive
   host.set("ready");
   const ready = host.render();
   assert.equal(ready.presented, true);
-  find(ready.content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
+  find(ready.content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
   assert.equal(host.render().presented, false);
   host.background();
   assert.equal(host.render().presented, false);
@@ -6941,7 +7022,7 @@ test("closing the update keeps a Settings dot and only a newer update prompts ag
   const ready = host.render();
   find(ready.content, (node) => node.type === "PillButton" && node.props.title === "What's new").props.onPress();
   assert.equal(host.notes(), 1);
-  find(ready.content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
+  find(ready.content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
   assert.equal(host.render().presented, false);
   assert.ok(host.render().badge);
   host.set("downloading");
@@ -6971,7 +7052,7 @@ test("Closing during retry stays dismissed when the download finishes or polling
     host.set("error");
     host.render();
     host.set("downloading");
-    find(host.render().content, (node) => node.type === "IconButton" && node.props.label === "Dismiss update").props.onPress();
+    find(host.render().content, (node) => node.type === "CircleButton" && node.props.label === "Dismiss update").props.onPress();
     host.set(final);
     assert.equal(host.render().presented, false);
     host.foreground();
@@ -8885,7 +8966,7 @@ test("pending snapshot acknowledgement does not disable mobile Stop", async () =
   screen.sending.resolve({ sessionId: 7 });
   await settle();
   assert.ok(Object.keys(screen.session.pendingChats).length);
-  const stop = find(screen.render(), (node) => node.props?.label === "Stop");
+  const stop = find(screen.render(), (node) => node.props?.label === "Stop agent");
   assert.equal(stop.props.disabled, false);
   stop.props.onPress();
   await settle();
@@ -8960,7 +9041,7 @@ test("mobile file preview renders text and reports unreadable, empty, and trunca
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
     "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
-    "../ui": { colors: {}, styles: {}, Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   const render = () => {
     react.begin();
@@ -9000,7 +9081,7 @@ test("mobile file preview shows Markdown formatted, with the source a tap away",
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
     "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
-    "../ui": { colors: {}, styles: {}, Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   const render = () => {
     react.begin();
@@ -9062,7 +9143,7 @@ test("mobile picked files preview locally before sending", async () => {
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
     "@milagre/shared/file-link": require("../packages/shared/src/file-link.mjs"),
-    "../ui": { colors: {}, styles: {}, Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": { colors: {}, styles: {}, PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
   });
   react.begin();
   FilePreview();
@@ -9150,7 +9231,7 @@ test("mobile ZIP preview offers Download, progress, success and retryable errors
     "../file-code": { FileCode: "FileCode" },
     "../markdown": { Markdown: "Markdown" },
     "@milagre/shared/file-link": require("@milagre/shared/file-link"),
-    "../ui": { Button: "Button", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
+    "../ui": { PillButton: "PillButton", ErrorNotice: "ErrorNotice", PageScroll: "PageScroll" },
     "../save-attachment": {
       saveAttachment: async (options) => {
         if (failure) throw new Error("Connection lost");
@@ -9165,9 +9246,9 @@ test("mobile ZIP preview offers Download, progress, success and retryable errors
     react.begin();
     return FilePreview();
   };
-  find(render(), (node) => node.type === "Button").props.onPress();
+  find(render(), (node) => node.type === "PillButton").props.onPress();
   await settle();
-  assert.equal(find(render(), (node) => node.type === "Button").props.title, "Downloading… 50%");
+  assert.equal(find(render(), (node) => node.type === "PillButton").props.title, "Downloading… 50%");
   gate.resolve();
   await settle();
   assert.ok(find(render(), (node) => node.type?.name === "Toast" && node.props.text === "File saved."));
@@ -9177,10 +9258,10 @@ test("mobile ZIP preview offers Download, progress, success and retryable errors
     "success is not left in the preview content",
   );
   failure = true;
-  find(render(), (node) => node.type === "Button").props.onPress();
+  find(render(), (node) => node.type === "PillButton").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "ErrorNotice").props.message, "Connection lost");
-  assert.equal(find(render(), (node) => node.type === "Button").props.loading, false);
+  assert.equal(find(render(), (node) => node.type === "PillButton").props.loading, false);
 });
 
 test("mobile TSX preview colors native text in both themes and preserves selection", () => {
@@ -9831,7 +9912,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
         "./design-catalog": require("../apps/mobile/src/design-catalog.ts"),
       }),
       "./icons": { Icon: "Icon" },
-      "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {}, colors: {}, styles: {} },
+      "./ui": { PillButton: "PillButton", PullDown: "PullDown", CircleButton: "CircleButton", tap() {}, colors: {}, styles: {} },
       "./pele-script": { PELE_SCRIPT: "var pele={};" },
       "./share-availability": share,
       "./viewer-chrome": viewerChrome(react),
@@ -9946,7 +10027,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "./session": { useSession: () => ({ client, designs: feature }) },
       "./use-design-catalog": { markDesignDeleted() {} },
       "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
-      "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {} },
+      "./ui": { PillButton: "PillButton", PullDown: "PullDown", CircleButton: "CircleButton", tap() {} },
       "./share-availability": share,
       "./viewer-chrome": viewerChrome(react),
     },
@@ -10133,7 +10214,7 @@ test("on the designs sheet, a held spot's comment and the choice wait for Send, 
   const h = designsHost(client, { back: () => backs++ });
   const props = { hostId: "mac", chatId: "/p#7", id: "home", version: "1" };
   let tree = await h.open(props);
-  const sendButton = (node) => node.type?.name === "SendButton";
+  const sendButton = (node) => node.type === "CircleButton" && node.props.filled;
   assert.equal(find(tree, sendButton), undefined, "nothing to send yet");
   find(tree, (node) => node.type === "PullDown").props.onSelect("choose");
   tree = h.render("DesignsSheet", props);
@@ -10414,7 +10495,7 @@ test("mobile activity sheet opens the selected call without paging and keeps app
     return ActivitySheet();
   };
   let tree = render();
-  assert.equal(find(tree, (node) => node.type === "Text" && node.props.accessibilityRole === "header").props.children, "Tool call");
+  assert.equal(find(tree, (node) => node.type === "SheetHeader").props.title, "Tool call");
   assert.equal(find(tree, (node) => node.type === "ToolRow").props.expanded, true);
   assert.equal(
     find(tree, (node) => node.type === "PillButton"),
@@ -10762,7 +10843,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
     "@hugeicons/core-free-icons": {},
     "./session": { useSession: () => ({ client }) },
     "./icons": { Icon: "Icon" },
-    "./ui": { ErrorNotice: "ErrorNotice", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
+    "./ui": { InlineError: "InlineError", ListRow: "ListRow", Toggle: "Toggle", styles: {} },
   });
   const render = () => {
     react.begin();
@@ -10783,7 +10864,7 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   toggle().props.onPress();
   await settle();
   assert.equal(toggle().props.selected, true, "a refused save puts the switch back");
-  assert.equal(find(render(), (n) => n.type === "ErrorNotice").props.message, "This demo computer only opens its demo project.");
+  assert.equal(find(render(), (n) => n.type === "InlineError").props.message, "This demo computer only opens its demo project.");
 });
 
 test("mobile Auto update switch shows the Mac's setting, saves a change and hides for an older Mac", async () => {
@@ -10883,7 +10964,7 @@ function loadSettings(state) {
     },
     "../chat-display-setting": { useChatList: () => ["list"] },
     "../app-version": { appVersionLine: () => "0.1.0 · 31 · d3dac403 · 5f83390" },
-    "../theme": { useTheme: () => ({ colors: { green: "green", lineStrong: "gray" }, settings: { mode: "system" } }) },
+    "../theme": { useTheme: () => ({ colors: { green: "green", ink4: "gray" }, settings: { mode: "system" } }) },
     "../ui": { HeaderButton: "HeaderButton", PageScroll: "PageScroll", useStyles: () => ({ card: {}, separator: {} }) },
   });
 }
@@ -11159,7 +11240,7 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
     "react-native": { View: "View", Text: "Text" },
     "expo-router": { useFocusEffect: (fn) => focused.push(fn) },
     "./session": { useSession: () => session },
-    "./ui": { ErrorNotice: "ErrorNotice", Toggle: "Toggle", styles: {} },
+    "./ui": { InlineError: "InlineError", Toggle: "Toggle", styles: {} },
   });
   const { LimitAutoSwitchSection } = load("limit-switch-section.tsx", modules({ client }));
   const render = () => {
@@ -11188,7 +11269,7 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   tree = render();
   assert.deepEqual(saves, [true, false]);
   assert.equal(find(tree, (n) => n.props?.title === title).props.selected, true, "a refused save puts the switch back");
-  assert.match(find(tree, (n) => n.type === "ErrorNotice").props.message, /does not allow/);
+  assert.match(find(tree, (n) => n.type === "InlineError").props.message, /does not allow/);
   const older = load("limit-switch-section.tsx", modules({ client: { call: async () => null } })).LimitAutoSwitchSection;
   react.begin();
   older();
@@ -11563,7 +11644,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
     "./session": { useSession: () => session },
-    "./ui": { ErrorNotice: "ErrorNotice", PillButton: "PillButton" },
+    "./ui": { InlineError: "InlineError", PillButton: "PillButton" },
   });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   const render = (props) => {
@@ -11619,7 +11700,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   );
   await settle();
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
-  assert.equal(find(tree, (n) => n.type === "ErrorNotice").props.message, failSwitch);
+  assert.equal(find(tree, (n) => n.type === "InlineError").props.message, failSwitch);
   assert.equal(rows(tree).length, 2);
 
   failSwitch = null;
@@ -11764,7 +11845,7 @@ test("a new Chat presents setup, prompt and action controls in focus order", () 
   const order = [];
   find(screen.render(), (node) => {
     const label = node.props?.label ?? node.props?.accessibilityLabel;
-    if (["Choose isolation", "Choose branch", "Start from a Linear issue", "Add photos or files", "Send message"].includes(label)) order.push(label);
+    if (["Choose isolation", "Choose branch", "Start from a Linear issue", "Add photos or files", "Send"].includes(label)) order.push(label);
     if (["PromptField", "AgentControls", "PermissionChip"].includes(node.type)) order.push(node.type);
     return false;
   });
@@ -11776,7 +11857,7 @@ test("a new Chat presents setup, prompt and action controls in focus order", () 
     "Add photos or files",
     "AgentControls",
     "PermissionChip",
-    "Send message",
+    "Send",
   ]);
 });
 
@@ -12193,7 +12274,7 @@ test("the phone library binds a renderer to every component of the contract and 
       useIsStreaming: () => false,
     },
     "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
-    "../ui": { Button: "Button", PageScroll: "PageScroll" },
+    "../ui": { PillButton: "PillButton", PageScroll: "PageScroll" },
     "./charts": load("genui/charts.tsx", {
       "@milagre/shared/genui": require("../packages/shared/src/genui.ts"),
       react: hookHost(),
@@ -12205,7 +12286,7 @@ test("the phone library binds a renderer to every component of the contract and 
   assert.deepEqual(Object.keys(components.renderers), Object.keys(GENUI_COMPONENTS));
   const action = { steps: [{ type: "continue_conversation", message: "Go" }] };
   const button = components.renderers.Button({ props: { label: "Go", action }, renderNode: () => null });
-  find(button, (node) => node.type === "Button").props.onPress();
+  find(button, (node) => node.type === "PillButton").props.onPress();
   assert.deepEqual(triggered, [["Go", undefined, action]]);
   const table = components.renderers.Table({ props: { columns: ["a", "b"], rows: [["1"]] }, renderNode: () => null });
   assert.match(JSON.stringify(table), /"1"/);
@@ -12275,7 +12356,7 @@ test("new Chat restores worktree choices on reopen, falls back from a removed br
   const reopened = chatHost({ effects: true, chatDefaults: create(), linear: { active: true }, call: async () => ["main", "release"] });
   reopened.render();
   await settle();
-  assert.equal(menu(reopened, "Choose isolation").props.nativeTrigger.title, "New worktree");
+  assert.equal(menu(reopened, "Choose isolation").props.nativeTrigger.title, "New Worktree");
   assert.equal(menu(reopened, "Choose branch").props.nativeTrigger.title, "release");
   assert.equal(
     reopened.calls.some((call) => call.method === "worktree:create"),
@@ -13037,7 +13118,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     "./session": { useSession: () => ({ client }) },
     "./icons": { Icon: "Icon" },
     "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
-    "./ui": { Button: "Button", Field: "Field", Toggle: "Toggle" },
+    "./ui": { PillButton: "PillButton", Field: "Field", Toggle: "Toggle" },
   });
   const render = () => {
     hooks.begin();
@@ -13054,7 +13135,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
   ).props.onPress();
-  find(render(), (node) => node.type === "Button" && node.props.title === "Enable Codex CLI").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Enable Codex CLI").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
   assert.ok(find(render(), (node) => node.type === "Text" && node.props.children === "All Projects · Read only"));
@@ -13068,7 +13149,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
   ).props.onPress();
   find(render(), (node) => node.type === "Field" && node.props.label === "Chat reference").props.onChangeText("/project#2");
-  find(render(), (node) => node.type === "Button" && node.props.title === "Save access").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Save access").props.onPress();
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, true);
   assert.deepEqual(calls.findLast((call) => call.method === "local-mcp:enableClient").args[1].grants, {
@@ -13078,7 +13159,7 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
   await settle();
   assert.equal(find(render(), (node) => node.type === "Toggle" && node.props.title === "Codex CLI").props.selected, false);
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Create MCP config"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Create MCP config"),
     undefined,
   );
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
@@ -13086,9 +13167,9 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "All Projects",
   ).props.onPress();
-  assert.equal(find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.disabled, true);
+  assert.equal(find(render(), (node) => node.type === "PillButton" && node.props.title === "Create configuration").props.disabled, true);
   find(render(), (node) => node.type === "Field" && node.props.label === "Connection name").props.onChangeText("Designs phone");
-  assert.equal(find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.disabled, false);
+  assert.equal(find(render(), (node) => node.type === "PillButton" && node.props.title === "Create configuration").props.disabled, false);
   find(
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "radio" && node.props.accessibilityLabel === "Designs only",
@@ -13099,30 +13180,30 @@ test("local MCP phone settings configure a client, disable it and copy a custom 
     render(),
     (node) => node.type === "Pressable" && node.props.accessibilityRole === "checkbox" && node.props.accessibilityLabel === "Allow design edits",
   ).props.onPress();
-  find(render(), (node) => node.type === "Button" && node.props.title === "Create configuration").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Create configuration").props.onPress();
   await settle();
   assert.deepEqual(calls.find((call) => call.method === "local-mcp:create").args[0].grants, {
     designs: { chatId: "/project#2", designIds: ["one", "two"], capabilities: ["read", "write"] },
   });
-  find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Copy MCP config").props.onPress();
   await settle();
   assert.equal(JSON.parse(copied).mcpServers.milagre.headers.Authorization, "Bearer phone-fixture");
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Manage custom connections (1)"),
     undefined,
   );
   assert.equal(records[0].revokedAt, undefined);
   find(render(), (node) => node.type === "Toggle" && node.props.title === "Custom MCP").props.onPress();
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Copy MCP config"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Copy MCP config"),
     undefined,
   );
-  find(render(), (node) => node.type === "Button" && node.props.title === "Manage custom connections (1)").props.onPress();
-  find(render(), (node) => node.type === "Button" && node.props.title === "Revoke").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Manage custom connections (1)").props.onPress();
+  find(render(), (node) => node.type === "PillButton" && node.props.title === "Revoke").props.onPress();
   await settle();
   assert.equal(
-    find(render(), (node) => node.type === "Button" && node.props.title === "Revoke"),
+    find(render(), (node) => node.type === "PillButton" && node.props.title === "Revoke"),
     undefined,
   );
 });
@@ -13187,7 +13268,7 @@ test("HTML artifact opens the current single page with Designs off, without vers
     "the header names the page",
   );
   assert.equal(
-    find(tree, (n) => n.type?.name === "SendButton"),
+    find(tree, (n) => n.type === "CircleButton" && n.props.filled),
     undefined,
     "nothing to send yet",
   );
@@ -13280,7 +13361,7 @@ test("on the Artifact page, a held spot's comment waits for Send, which hands on
     find(tree, (node) => node.type?.name === "CommentBox"),
     undefined,
   );
-  find(tree, (node) => node.type?.name === "SendButton").props.onPress();
+  find(tree, (node) => node.type === "CircleButton" && node.props.filled).props.onPress();
   await settle();
   const message = outbox.peekDesignMessage("mac|/p#9");
   const id = /\(comment ([a-f0-9]{8})\)/.exec(message.text)?.[1];
@@ -13530,8 +13611,8 @@ test("the phone canvas lists the sidebar's chats by Project and Worktree, with l
 
 test("the phone canvas filter keeps the cards that need you, and counts each choice", () => {
   const host = canvasHost();
-  // Each filter is a Chip, a radio in the "Show chats" group.
-  const radios = allNodes(host.render(), (node) => node.type === "Chip");
+  // Each filter is a Chip: the real primitive draws a radio in the "Show chats" group.
+  const radios = allNodes(host.render(), (node) => node.props?.accessibilityRole === "radio");
   assert.deepEqual(
     radios.map((radio) => radio.props.accessibilityLabel),
     ["All, 4", "Needs you, 2", "Running, 1"],
@@ -13727,7 +13808,7 @@ test("undo changes on the phone: task list, conflict-only choice, stale preview 
   assert.deepEqual(previews, [["recovery", "Redo"]]);
 });
 
-test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add project, Link projects, Canvas and Triage", () => {
+test("the header opens Settings over the sidebar and Routines as a page, and its ⋯ holds Add Project, Link Projects, Canvas and Triage", () => {
   const nav = navigationHost(deferred().promise);
   const tree = nav.render();
   find(tree, (node) => node.props?.label === "Settings").props.onPress();
@@ -13742,7 +13823,7 @@ test("the header opens Settings over the sidebar and Routines as a page, and its
   const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "More");
   same(
     menu.props.sections.flatMap((section) => section.items.map((item) => item.title)),
-    ["Add project", "Link projects", "Canvas", "Triage an issue"],
+    ["Add Project", "Link Projects", "Canvas", "Triage an issue"],
   );
   menu.props.onSelect("canvas");
   menu.props.onSelect("link");
@@ -13788,7 +13869,7 @@ test("the floating controls hold the Filters menu and New Chat, which opens in t
   const controls = find(nav.render(), (node) => node.type === "ChatListControls");
   same(
     controls.props.filters.sections.map((section) => section.title ?? ""),
-    ["", "Show", "On chats"],
+    ["", "Show", "On Chats"],
   );
   same(
     controls.props.filters.sections[1].items.map((item) => [item.title, item.checked]),
@@ -13811,7 +13892,10 @@ test("a search that finds nothing offers a new Chat with the search as its draft
     nav.rows().props.data.map((item) => item.kind),
     ["start"],
   );
-  find(nav.row("start"), (node) => node.props?.accessibilityLabel === "Start a new chat with your search").props.onPress();
+  const empty = find(nav.row("start"), (node) => node.type === "EmptyState");
+  assert.equal(empty.props.title, "No Chat matches “dark canvas”");
+  assert.equal(empty.props.action.title, "Start a new Chat with your search");
+  empty.props.action.onPress();
   assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/last", hostId: "mac", prefill: "dark canvas" } }]));
 });
 
@@ -13944,7 +14028,7 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.deepEqual(host.groups(tree), ["Heartbeats", "Triggers"]);
   // The filters are Chips, radios in their group.
   assert.deepEqual(
-    allNodes(tree, (node) => node.type === "Chip").map((node) => node.props.accessibilityLabel),
+    allNodes(tree, (node) => node.props?.accessibilityRole === "radio").map((node) => node.props.accessibilityLabel),
     ["All, 2", "Heartbeats, 1", "Triggers, 1", "Paused, 1"],
   );
   const [heartbeat, trigger] = host.rows(tree);
@@ -13976,7 +14060,7 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
     ),
   );
   // The Paused chip keeps only the paused trigger.
-  allNodes(tree, (node) => node.type === "Chip")[3].props.onPress();
+  allNodes(tree, (node) => node.props?.accessibilityRole === "radio")[3].props.onPress();
   assert.deepEqual(host.groups(host.render()), ["Triggers"]);
 });
 
@@ -14215,7 +14299,7 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   );
   // No Delete on the screen: it is in Edit.
   assert.equal(
-    find(host.render(), (node) => node.type === "Button"),
+    find(host.render(), (node) => String(node.props?.title ?? node.props?.label ?? node.props?.accessibilityLabel ?? "").startsWith("Delete")),
     undefined,
   );
 });
@@ -14294,7 +14378,7 @@ test("the phone Routine screen says No Runs yet with the next Run", async () => 
   assert.ok(play, "a Heartbeat runs now");
   assert.equal(play.props.icon, "play.fill");
   assert.equal(
-    find(empty.render(), (node) => node.type === "Button" && node.props.title === "Run now"),
+    find(empty.render(), (node) => node.type === "PillButton" && node.props.title === "Run now"),
     undefined,
   );
 
@@ -14828,7 +14912,7 @@ function heartbeatCardHost(routines, { fail, now } = {}) {
       }),
       "@milagre/shared/routines": require("@milagre/shared/routines"),
       "./icons": { Icon: "Icon" },
-      "./ui": { tap() {}, ErrorNotice: "ErrorNotice" },
+      "./ui": { tap() {}, InlineError: "InlineError" },
     },
     now === undefined ? "" : `\nDate.now = () => ${now};`,
   );
@@ -14888,8 +14972,9 @@ test("editing a Routine on the phone starts from it and saves the formToUpdate p
   assert.equal(host.pick(tree, "Label").props.nativeTrigger.title, "agent", "VoiceOver reads the row as Label: agent");
   find(tree, (node) => node.type === "Field" && node.props.label === "Name").props.onChangeText("Agent issues");
   tree = host.render();
-  assert.equal(find(tree, (node) => node.type === "PillButton").props.title, "Save");
-  find(tree, (node) => node.type === "PillButton").props.onPress();
+  const save = find(tree, (node) => node.type === "PillButton" && node.props.title === "Save");
+  assert.ok(save, "Edit saves with Save");
+  save.props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   const update = host.calls.find(([method]) => method === "routines:update");
   const { formFromRoutine, formToUpdate } = require("@milagre/shared/routine-form");
@@ -14918,7 +15003,7 @@ test("the phone New Routine sheet uses desktop's copy, and Create waits for a na
   assert.equal(host.pick(tree, "Repeats") !== undefined, true);
   assert.equal(find(tree, (node) => node.type === "PillButton").props.disabled, true);
   assert.equal(
-    find(tree, (node) => node.type === "Button" && node.props.title === "Delete Routine"),
+    find(tree, (node) => node.type === "PillButton" && node.props.title === "Delete Routine"),
     undefined,
     "a new Routine has nothing to delete",
   );
@@ -14970,7 +15055,7 @@ test("Delete Routine sits at the bottom of the phone Edit sheet, says what delet
   host.render();
   const tree = host.render();
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Its Chats stay."));
-  find(tree, (node) => node.type === "Button" && node.props.title === "Delete Routine").props.onPress();
+  find(tree, (node) => node.type === "PillButton" && node.props.title === "Delete Routine").props.onPress();
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(
     host.calls.filter(([method]) => method === "routines:delete"),
@@ -15035,7 +15120,7 @@ test("the phone Heartbeat set card shows a refused Stop as an error and keeps th
   find(host.render(), (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473").props.onPress();
   await new Promise((resolve) => setImmediate(resolve));
   const tree = host.render();
-  assert.match(find(tree, (node) => node.type === "ErrorNotice").props.message, /does not allow/);
+  assert.match(find(tree, (node) => node.type === "InlineError").props.message, /does not allow/);
   assert.ok(find(tree, (node) => node.props?.accessibilityLabel === "Stop Babysit PR #473"));
   assert.equal(host.refreshed(), 0);
 });
@@ -15662,7 +15747,7 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
     await new Promise((resolve) => setImmediate(resolve));
     let tree = render();
     assert.equal(tree.props.accessibilityLabel, "Fix toolbar needs attention. Open the Chat.");
-    assert.equal(tree.props.style({ pressed: false })[0].top, 111, "the phone pill stays below header controls");
+    assert.equal(tree.props.style({ pressed: false })[0].top, 119, "the phone pill stays below header controls");
     tree.props.onPress();
     assert.deepEqual({ ...opened[0].params }, { projectPath: "/other", hostId: "test-host", id: "4" });
     // A different client forces a refresh without waiting for the poll timer.
@@ -15747,7 +15832,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
     host.begin();
     return AddComputer();
   };
-  find(render(), (node) => node.props.title === "LAN or Tailscale only").props.onPress();
+  find(render(), (node) => node.props.title === "LAN or Tailscale only").props.toggle.onChange();
   find(render(), (node) => node.type === "ListRow" && node.props.title === "Enter address and token").props.onPress();
   assert.match(
     find(render(), (node) => node.type === "ErrorNotice").props.message,
@@ -16023,4 +16108,231 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+// The phone primitives themselves (primitives/*.tsx), rendered for real with hook state and effects: the roles, states
+// and looks the screens above rely on.
+function primitiveHost(file, { fontScale = 1 } = {}) {
+  const said = [];
+  const host = hookHost({ effects: true });
+  const modifiers = new Proxy(
+    {},
+    {
+      get:
+        (_target, name) =>
+        (...args) => ({ [name]: args }),
+    },
+  );
+  const exports = load(
+    ["tsx", "ts"].map((extension) => `primitives/${file}.${extension}`).find((path) => fs.existsSync(`${__dirname}/../apps/mobile/src/${path}`)),
+    {
+      react: { ...host, ...primitiveModules.react, useState: host.useState, useEffect: host.useEffect, useRef: host.useRef },
+      "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+      "react-native": {
+        ...primitiveModules["react-native"],
+        AccessibilityInfo: { announceForAccessibility: (message) => said.push(message) },
+        useWindowDimensions: () => ({ width: 402, height: 874, fontScale }),
+      },
+      "@expo/ui": { Host: "Host", Switch: "Switch" },
+      "@expo/ui/swift-ui/modifiers": modifiers,
+      "@expo/ui/jetpack-compose/modifiers": modifiers,
+    },
+    "",
+    new Map(),
+  );
+  const render = (component, props) => {
+    host.begin();
+    return component(props);
+  };
+  return { ...exports, render, said, host };
+}
+// A Pressable's style callback at rest, merged into one object.
+const restingStyle = (style) => Object.assign({}, ...[typeof style === "function" ? style({ pressed: false }) : style].flat(Infinity).filter(Boolean));
+
+test("phone Chip is a radio, a checkbox, a tab, a button or a static label, at one weight", () => {
+  const { Chip, render } = primitiveHost("chip");
+  const radio = render(Chip, { label: "All", selected: true, onPress() {} });
+  assert.equal(radio.props.accessibilityRole, "radio");
+  same(radio.props.accessibilityState, { checked: true, disabled: false });
+  assert.equal(restingStyle(radio.props.style).backgroundColor, "ink");
+  const checkbox = render(Chip, { label: "Running", selected: false, multiple: true, onPress() {} });
+  assert.equal(checkbox.props.accessibilityRole, "checkbox");
+  same(checkbox.props.accessibilityState, { checked: false, disabled: false });
+  const tab = render(Chip, { label: "Claude", selected: true, role: "tab", onPress() {} });
+  assert.equal(tab.props.accessibilityRole, "tab");
+  same(tab.props.accessibilityState, { selected: true, disabled: false });
+  assert.equal(render(Chip, { label: "Edit", onPress() {} }).props.accessibilityRole, "button");
+  const label = render(Chip, { label: "main" });
+  assert.equal(label.type, "View", "without onPress a Chip is a static label");
+  // Selected and not, the label keeps 500, so the chip keeps its width.
+  const weights = [radio, checkbox].map((chip) => find(chip, (node) => node.type === "Text").props.style.fontWeight);
+  same(weights, ["500", "500"]);
+});
+
+test("phone CheckRow reads as a radio or checkbox with its state and marks a selection in ink", () => {
+  const { CheckRow, render } = primitiveHost("check-row");
+  const pressed = [];
+  const radio = render(CheckRow, { title: "Opus", subtitle: "Most capable", checked: true, onPress: () => pressed.push("opus") });
+  assert.equal(radio.props.accessibilityRole, "radio");
+  assert.equal(radio.props.accessibilityLabel, "Opus. Most capable");
+  same(radio.props.accessibilityState, { checked: true, disabled: false });
+  assert.equal(restingStyle(radio.props.style).minHeight, 56);
+  assert.equal(find(radio, (node) => node.type === "Icon").props.tone, "ink", "the tick is ink, not accent");
+  radio.props.onPress();
+  same(pressed, ["opus"]);
+  const one = render(CheckRow, { title: "Ask", checked: false, onPress() {} });
+  assert.equal(restingStyle(one.props.style).minHeight, 52, "a one-line row is ListRow's 52");
+  assert.equal(
+    find(one, (node) => node.type === "Icon"),
+    undefined,
+    "an unchecked radio shows no tick",
+  );
+  const box = render(CheckRow, { title: "blog", checked: true, kind: "checkbox", onPress() {} });
+  assert.equal(box.props.accessibilityRole, "checkbox");
+  assert.equal(find(box, (node) => node.type?.name === "CheckboxBox").props.checked, true);
+});
+
+test("phone SheetHeader is one header with its subtitle, between balanced slots", () => {
+  const { SheetHeader, render } = primitiveHost("sheet");
+  const header = render(SheetHeader, { title: "Browser", subtitle: "localhost:3000", leading: "Close" });
+  const title = find(header, (node) => node.props?.accessibilityRole === "header");
+  assert.equal(title.props.accessibilityLabel, "Browser, localhost:3000");
+  assert.equal(textOf(title), "Browserlocalhost:3000");
+  const slots = header.props.children.filter((child) => child?.type === "View" && child.props.style.minWidth);
+  same(
+    slots.map((slot) => slot.props.style.minWidth),
+    [40, 40],
+  );
+  const two = render(SheetHeader, { title: "Designs", leading: "Close", trailing: { type: "Fragment", props: { children: ["Share", "More"] } } });
+  same(
+    two.props.children.filter((child) => child?.type === "View" && child.props.style.minWidth).map((slot) => slot.props.style.minWidth),
+    [88, 88],
+  );
+  const pager = { type: "InboxPager", props: {} };
+  assert.equal(
+    find(render(SheetHeader, { center: pager }), (node) => node.props?.accessibilityRole === "header"),
+    undefined,
+  );
+});
+
+test("phone Group draws its label, a radiogroup card and separators at the text or past the icon", () => {
+  const { Group, render } = primitiveHost("group");
+  const rows = ["A", "B", "C"].map((name) => ({ type: "Row", props: { name }, key: name }));
+  const group = render(Group, { title: "Babysit PRs", footer: "Off by default.", children: [rows[0], null, rows[1], rows[2]] });
+  assert.equal(find(group, (node) => node.type?.name === "SectionLabel").props.children, "Babysit PRs");
+  const separators = (tree) =>
+    allNodes(tree, (node) => node.type === "View" && Array.isArray(node.props.style) && node.props.style[1]?.marginLeft !== undefined);
+  same(
+    separators(group).map((node) => node.props.style[1].marginLeft),
+    [32, 32],
+  );
+  assert.equal(textOf(find(group, (node) => node.type === "Text")), "Off by default.");
+  const flat = render(Group, { inset: 0, role: "radiogroup", accessibilityLabel: "Level", children: rows });
+  same(
+    separators(flat).map((node) => node.props.style[1].marginLeft),
+    [0, 0],
+  );
+  const card = find(flat, (node) => node.props?.accessibilityRole === "radiogroup");
+  assert.equal(card.props.accessibilityLabel, "Level");
+  same(
+    card.props.children.map((row) => row.key),
+    ["A", "B", "C"],
+  );
+});
+
+test("phone Toast and ErrorNotice speak once as they show; useAnnounce speaks only a change", () => {
+  const toast = primitiveHost("toast");
+  toast.render(toast.Toast, { text: "Link copied." });
+  toast.render(toast.Toast, { text: "Link copied." });
+  same(toast.said, ["Link copied."]);
+  const notice = primitiveHost("error-notice");
+  const card = notice.render(notice.ErrorNotice, { message: "Connection lost", retry() {} });
+  notice.render(notice.ErrorNotice, { message: "Connection lost", retry() {} });
+  assert.equal(card.props.accessibilityRole, "alert");
+  same(notice.said, ["Connection lost"]);
+  const status = primitiveHost("announce");
+  const line = (message) => status.render(() => status.useAnnounce(message), {});
+  line("Loading…");
+  line("Loading…");
+  same(status.said, [], "the value a view mounts with is not read again");
+  line("Saved");
+  same(status.said, ["Saved"]);
+  const inline = primitiveHost("inline-error");
+  assert.equal(inline.render(inline.InlineError, { message: "" }), null);
+  assert.equal(inline.render(inline.InlineError, { message: "Not a colour" }).props.accessibilityRole, "alert");
+  same(inline.said, ["Not a colour"]);
+});
+
+test("phone PillButton variants: a destructive primary is a redInk fill, Cancel is plain ink2, loading keeps the width", () => {
+  const { PillButton, render } = primitiveHost("pill-button");
+  const danger = render(PillButton, { title: "Delete", destructive: true, size: "large", onPress() {} });
+  assert.equal(restingStyle(danger.props.style).backgroundColor, "redInk");
+  assert.equal(find(danger, (node) => node.type === "Text").props.style.color, "onRedInk");
+  const cancel = render(PillButton, { title: "Cancel", variant: "plain", muted: true, onPress() {} });
+  same([restingStyle(cancel.props.style).backgroundColor, restingStyle(cancel.props.style).borderWidth], ["transparent", 0]);
+  same([find(cancel, (node) => node.type === "Text").props.style.color, find(cancel, (node) => node.type === "Text").props.style.fontWeight], ["ink2", "500"]);
+  const quiet = render(PillButton, { title: "Remove", variant: "secondary", destructive: true, onPress() {} });
+  same([restingStyle(quiet.props.style).backgroundColor, find(quiet, (node) => node.type === "Text").props.style.color], ["surface", "redInk"]);
+  assert.equal(restingStyle(render(PillButton, { title: "Retry", variant: "tinted", onPress() {} }).props.style).backgroundColor, "field");
+  const stop = render(PillButton, { title: "Stop", accessibilityLabel: "Stop Heartbeat", onPress() {} });
+  assert.equal(stop.props.accessibilityLabel, "Stop Heartbeat");
+  const busy = render(PillButton, { title: "Save", loading: true, onPress() {} });
+  assert.equal(find(busy, (node) => node.type === "Text").props.style.opacity, 0, "the label holds the width");
+  assert.ok(find(busy, (node) => node.type === "SpinnerRing"));
+  assert.equal(busy.props.accessibilityState.busy, true);
+});
+
+test("phone ListRow: a toggle row is one switch, a plain row lets VoiceOver reach inside, a large text size stacks the value", () => {
+  const { ListRow, render } = primitiveHost("list-row");
+  let on = true;
+  const row = render(ListRow, { title: "Show its Chats", toggle: { value: on, onChange: () => (on = !on) } });
+  assert.equal(row.props.accessibilityRole, "switch");
+  same(row.props.accessibilityState, { checked: true, disabled: false });
+  row.props.onPress();
+  assert.equal(on, false, "a tap anywhere on the row flips it");
+  const hidden = find(row, (node) => node.props?.importantForAccessibility === "no-hide-descendants");
+  assert.equal(hidden.props.pointerEvents, "none", "the switch only shows the state");
+  assert.equal(find(hidden, (node) => node.type?.name === "RowSwitch").props.selected, true);
+  const plain = render(ListRow, { title: "Version", value: "0.1.0" });
+  assert.equal(plain.props.accessible, false);
+  assert.equal(plain.props.accessibilityRole, undefined);
+  const big = primitiveHost("list-row", { fontScale: 1.5 });
+  const stacked = big.render(big.ListRow, { title: "Project Accounts", value: "Inherited", onPress() {} });
+  const column = find(stacked, (node) => node.type === "View" && node.props.style?.flex === 1);
+  assert.ok(
+    find(column, (node) => node.type === "Text" && node.props.children === "Inherited"),
+    "the value moves under the title",
+  );
+});
+
+test("phone IconButton and CircleButton show an on toggle as hover2 with an ink glyph", () => {
+  const icon = primitiveHost("icon-button");
+  const on = icon.render(icon.IconButton, { label: "Wrap", icon: "WrapIcon", selected: true, onPress() {} });
+  assert.equal(restingStyle(on.props.style).backgroundColor, "hover2");
+  assert.equal(on.props.accessibilityState.selected, true);
+  assert.equal(find(on, (node) => node.type === "Icon").props.tone, "ink");
+  const dense = icon.render(icon.IconButton, { label: "Send", icon: "SendIcon", size: 32, filled: true, fill: "purple", onPress() {} });
+  same([restingStyle(dense.props.style).backgroundColor, find(dense, (node) => node.type === "Icon").props.size, dense.props.hitSlop], ["purple", 16, 6]);
+  const circle = primitiveHost("circle-button");
+  const pin = circle.render(circle.CircleButton, { label: "Comment mode", icon: "PinIcon", selected: true, badge: 3, onPress() {} });
+  assert.equal(pin.props.accessibilityState.selected, true);
+  assert.equal(find(pin, (node) => node.type === "View" && node.props.style.width === 40).props.style.backgroundColor, "hover2");
+  assert.equal(textOf(find(pin, (node) => node.props?.maxFontSizeMultiplier === 1.3)), "3");
+  const trigger = circle.render(circle.CircleButton, { label: "More", icon: "MoreIcon", asTrigger: true });
+  same([trigger.type, trigger.props.accessibilityRole, trigger.props.style], ["View", "button", undefined], "a menu trigger looks enabled with no onPress");
+});
+
+test("phone Field outlines itself, turns accent while focused and redInk when invalid", () => {
+  const field = primitiveHost("field");
+  const focused = [];
+  const draw = (props) => find(field.render(field.Field, { label: "Name", onFocus: () => focused.push(true), ...props }), (node) => node.type === "TextInput");
+  const input = () => restingStyle(draw({ invalid: true }).props.style);
+  assert.equal(input().borderColor, "redInk");
+  draw({ invalid: true }).props.onFocus({});
+  assert.equal(input().borderColor, "accent", "focus wins while typing");
+  same(focused, [true], "the caller's onFocus still runs");
+  draw({ invalid: true }).props.onBlur({});
+  assert.equal(input().borderColor, "redInk");
+  same([restingStyle(draw({}).props.style).borderWidth, restingStyle(draw({}).props.style).borderColor], [1, "lineStrong"]);
+  assert.equal(restingStyle(draw({ bare: true }).props.style).borderWidth, 0, "bare sits inside a row that draws the edge");
 });

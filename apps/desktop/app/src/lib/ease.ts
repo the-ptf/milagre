@@ -2,8 +2,13 @@ import { useReducedMotion } from "motion/react";
 import { MOTION_SPEEDS } from "@milagre/shared/appearance";
 import { useSettings } from "./settings";
 
-// Motion tokens adapted from beUI's shared animation library.
-export const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+// Motion tokens for motion/react, the JS side of styles.css's --duration-* and --ease-* (.interface-design/system.md).
+/** The enter curve, --ease-enter: everything that appears or settles. */
+export const EASE_OUT = [0.23, 1, 0.32, 1] as const;
+/** --ease-slide: panels and sheets travelling a long way. */
+export const EASE_SLIDE = [0.32, 0.72, 0, 1] as const;
+/** --duration-fast / base / slow in seconds: hover and press, enter, panels and sheets. */
+export const DURATION = { fast: 0.12, base: 0.18, slow: 0.28 } as const;
 export const EASE_IN_OUT = [0.77, 0, 0.175, 1] as const;
 export const SPRING_LAYOUT = {
   type: "spring",

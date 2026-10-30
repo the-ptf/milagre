@@ -3,6 +3,7 @@ import { customContrast, DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, see
 import type { CustomTheme, Scheme, ThemeId, ThemeSeeds } from "@milagre/shared/themes";
 import { updateSettings, useResolvedScheme, useSettings } from "../../lib/settings";
 import { Button } from "../primitives/Button";
+import { fieldClass } from "../primitives/Field";
 import { InlineError } from "../primitives/InlineError";
 import { Segmented } from "../primitives/Segmented";
 import { Select } from "../primitives/Select";
@@ -67,20 +68,23 @@ function ColorRow({ name, value, onCommit }: { name: string; value: string; onCo
           }}
           className="size-7 cursor-pointer rounded-control border-0 bg-transparent p-0"
         />
-        <input
-          type="text"
-          aria-label={`${name} hex`}
-          value={text}
-          spellCheck={false}
-          maxLength={7}
-          onChange={(event) => {
-            const next = event.target.value.trim();
-            setDraft({ source: value, text: next });
-            if (HEX.test(next)) onCommit(next.toLowerCase());
-          }}
-          onBlur={() => setDraft(null)}
-          className="w-20 rounded-control bg-field px-2 py-1 font-mono text-13 text-ink outline-none focus:ring-2 focus:ring-accent"
-        />
+        {/* The span sets the width: fieldClass is w-full, which a w-* beside it can't beat. */}
+        <span className="w-20">
+          <input
+            type="text"
+            aria-label={`${name} hex`}
+            value={text}
+            spellCheck={false}
+            maxLength={7}
+            onChange={(event) => {
+              const next = event.target.value.trim();
+              setDraft({ source: value, text: next });
+              if (HEX.test(next)) onCommit(next.toLowerCase());
+            }}
+            onBlur={() => setDraft(null)}
+            className={`${fieldClass({ size: 28 })} font-mono`}
+          />
+        </span>
       </div>
     </div>
   );
@@ -90,7 +94,7 @@ function Preview({ theme, scheme }: { theme: CustomTheme; scheme: Scheme }) {
   const p = resolvePalette("custom", scheme, theme);
   return (
     <div className="flex h-44 w-64 shrink-0 overflow-hidden rounded-card" style={{ background: p.page, boxShadow: `0 0 0 1px ${p.line}` }} aria-hidden>
-      <div className="grid w-20 shrink-0 content-start gap-1.5 p-2.5" style={{ background: p.canvas, borderRight: `1px solid ${p.line}` }}>
+      <div className="grid w-20 shrink-0 content-start gap-1.5 p-2" style={{ background: p.canvas, borderRight: `1px solid ${p.line}` }}>
         <div className="h-1.5 w-10 rounded-full" style={{ background: p.ink3 }} />
         <div className="h-5 rounded-chip" style={{ background: p.hover }} />
         <div className="h-1.5 w-12 rounded-full" style={{ background: p.ink3 }} />
@@ -98,7 +102,7 @@ function Preview({ theme, scheme }: { theme: CustomTheme; scheme: Scheme }) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col justify-between p-3">
         <div className="grid gap-2">
-          <div className="rounded-control px-2.5 py-1.5 text-12" style={{ background: p.surface, color: p.ink }}>
+          <div className="rounded-control px-2 py-1.5 text-12" style={{ background: p.surface, color: p.ink }}>
             Done. The tests pass.
           </div>
           <div className="rounded-chip px-2 py-1 font-mono text-11" style={{ background: p.inset, color: p.ink2 }}>

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import {
@@ -21,13 +21,14 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { canMergeNow, checksProgress, mergeStatus, type MergeMethod } from "@milagre/shared/pull-request-review";
+import { AUTO_MERGE_LABEL, pullRequestStatePill } from "@milagre/shared/pr-blockers";
 import type { Client } from "./client";
-import { lineHeight, radius, type } from "./design-tokens";
-import { Icon, SpinnerRing, type IconData, type Tone } from "./icons";
+import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
+import { Icon, SpinnerRing, type IconData } from "./icons";
 import { PrMarkdown } from "./pr-markdown";
 import { confirm } from "./confirm-store";
-import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, PullDown, Segmented, tap, useAnnounce, useStyles } from "./ui";
-import { fonts, useTheme } from "./theme";
+import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, PullDown, Segmented, Tag, tap, useAnnounce, useStyles } from "./ui";
+import { fonts, inkFor, useTheme } from "./theme";
 import { usePrDetail, writePr } from "./pr-store";
 import { prChoiceKey, prefillChat, type PrChoice } from "./pr-chat";
 import { isOldMacError } from "./file-mentions";
@@ -114,6 +115,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
     );
 
   const status = mergeStatus(pr);
+  const statePill = pullRequestStatePill(pr);
   const now = canMergeNow(pr);
   const isOpen = pr.state === "OPEN";
   const pending = pr.pendingReview?.count ?? 0;
@@ -141,27 +143,30 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
 
   // GitHub can't merge a branch that conflicts, even when asked to merge it once ready.
   const conflicts = pr.mergeStateStatus === "DIRTY";
-  // The one action the PR is waiting for: nothing once it is merged or closed, or while it conflicts.
+  // The one action the PR is waiting for: nothing once it is merged or closed, or while it conflicts. Merge is the primary.
   const action = !isOpen ? null : pr.isDraft ? (
-    <ActionButton title="Ready for review" busy={busy} onPress={() => void run({ draft: false }, "pr:ready")} />
+    <PillButton size="small" secondary title="Ready for review" loading={busy} onPress={() => void run({ draft: false }, "pr:ready")} />
   ) : now ? (
-    <ActionButton title="Merge" icon={GitMergeIcon} primary busy={busy} onPress={() => void merge()} />
+    <PillButton size="small" title="Merge" icon={GitMergeIcon} loading={busy} onPress={() => void merge()} />
   ) : pr.autoMerge ? (
-    <ActionButton
-      title="Merging when ready"
+    <PillButton
+      size="small"
+      secondary
+      title={AUTO_MERGE_LABEL}
       icon={GitMergeIcon}
-      busy={busy}
+      loading={busy}
       onPress={() =>
         void confirm("Turn off auto-merge?", `PR #${pr.number} stays open.`, "Turn off").then((yes) => (yes ? run({ disableAuto: true }) : undefined))
       }
     />
   ) : conflicts ? null : (
-    <ActionButton title="Merge when ready" icon={GitMergeIcon} busy={busy} onPress={() => void mergeWhenReady()} />
+    <PillButton size="small" secondary title="Merge when ready" icon={GitMergeIcon} loading={busy} onPress={() => void mergeWhenReady()} />
   );
 
   const menu = (
     <PullDown
       label="PR actions"
+      hitSlop={hitSlopFor(40)}
       title={pr.autoMerge && isOpen ? `Auto-merge is on (${pr.autoMerge.method})` : status.detail}
       sections={[
         ...(isOpen && !pr.isDraft
@@ -226,7 +231,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
         else if (id === "refresh") refresh();
       }}
     >
-      <MenuTrigger label="PR actions" icon={MoreHorizontalIcon} />
+      <CircleButton label="PR actions" icon={MoreHorizontalIcon} asTrigger />
     </PullDown>
   );
 
@@ -251,7 +256,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
             accessibilityRole="link"
-            accessibilityLabel={`${repoOf(pr.url)} #${pr.number}, open on GitHub`}
+            accessibilityLabel={`${repoOf(pr.url)} #${pr.number}${statePill ? `, ${statePill.label}` : ""}, open on GitHub`}
             onPress={openGitHub}
             style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
           >
@@ -260,6 +265,25 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             </Text>
             <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>#{pr.number}</Text>
             <Icon icon={LinkSquare02Icon} tone="accentInk" size={12} />
+            {statePill && (
+              <View
+                style={{
+                  minHeight: 20,
+                  paddingHorizontal: 8,
+                  marginLeft: 2,
+                  borderRadius: radius.full,
+                  justifyContent: "center",
+                  backgroundColor: colors[statePill.fill],
+                }}
+              >
+                <Text
+                  maxFontSizeMultiplier={1.5}
+                  style={{ color: colors[statePill.ink], fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600" }}
+                >
+                  {statePill.label}
+                </Text>
+              </View>
+            )}
           </Pressable>
           {action}
           {menu}
@@ -294,9 +318,12 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             }}
             style={({ pressed }) => [{ flex: 1, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
           >
-            <Text style={{ color: colors.ink2, fontSize: type.caption1, fontFamily: fonts.mono }}>{pr.baseRefName}</Text>
+            <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}>{pr.baseRefName}</Text>
             <Icon icon={ArrowLeft01Icon} tone="ink3" size={12} />
-            <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink3, fontSize: type.caption1, fontFamily: fonts.mono }}>
+            <Text
+              numberOfLines={1}
+              style={{ flexShrink: 1, color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}
+            >
               {middleTruncate(pr.headRefName, 28)}
             </Text>
           </Pressable>
@@ -362,7 +389,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
                 {pr.labels.length ? (
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
                     {pr.labels.map((label) => (
-                      <LabelChip key={label.name} name={label.name} color={label.color} />
+                      <Tag key={label.name} label={label.name} tint={`#${label.color}33`} square />
                     ))}
                   </View>
                 ) : (
@@ -417,7 +444,7 @@ const PROGRESS_ICON = { pass: CheckmarkCircle02Icon, fail: CancelCircleIcon } as
 /** "13 of 18 done" and the split bar under it: passed, skipped, failed, still running. */
 function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> }) {
   const { colors } = useTheme();
-  const tone: Tone = progress.tone === "fail" ? "red" : progress.tone === "pass" ? "green" : "ink2";
+  const tone = progress.tone === "fail" ? "red" : progress.tone === "pass" ? "green" : "ink2";
   // ponytail: the running part is dim, not pulsing; animate it if it reads as stuck.
   const parts = [
     { key: "passed", count: progress.passed, color: colors.greenInk, opacity: 1 },
@@ -435,7 +462,7 @@ function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> 
         ) : null}
         <Text
           style={{
-            color: colors[tone === "red" ? "redInk" : tone === "green" ? "greenInk" : tone],
+            color: inkFor(colors, tone),
             fontSize: type.subheadline,
             lineHeight: lineHeight.subheadline,
           }}
@@ -448,29 +475,6 @@ function ChecksLine({ progress }: { progress: ReturnType<typeof checksProgress> 
           <View key={part.key} style={{ flex: part.count, borderRadius: radius.full, backgroundColor: part.color, opacity: part.opacity }} />
         ))}
       </View>
-    </View>
-  );
-}
-
-/** A label as GitHub colours it: its colour as a tint behind the name. */
-function LabelChip({ name, color }: { name: string; color: string }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={{
-        paddingHorizontal: 8,
-        minHeight: 22,
-        borderRadius: radius.chip,
-        borderCurve: "continuous",
-        justifyContent: "center",
-        backgroundColor: `#${color}33`,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: `#${color}99`,
-      }}
-    >
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
-        {name}
-      </Text>
     </View>
   );
 }
@@ -570,47 +574,6 @@ function Section({
         {open && trailing}
       </View>
       {open && children}
-    </View>
-  );
-}
-
-/** The header's action: Merge, Merge when ready, Ready for review. Merge is the primary (ink); the others are secondary. */
-function ActionButton({
-  title,
-  icon,
-  onPress,
-  primary = false,
-  busy = false,
-}: {
-  title: string;
-  icon?: IconData;
-  onPress: () => void;
-  primary?: boolean;
-  busy?: boolean;
-}) {
-  return <PillButton size="small" title={title} icon={icon} secondary={!primary} loading={busy} onPress={onPress} />;
-}
-
-/** The ⋯ menu's trigger: CircleButton's look without its press, since the PullDown around it takes the tap. */
-function MenuTrigger({ label, icon }: { label: string; icon: IconData }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: radius.full,
-        backgroundColor: colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.lineStrong,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Icon icon={icon} tone="ink" size={20} />
     </View>
   );
 }

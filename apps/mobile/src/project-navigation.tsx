@@ -43,7 +43,7 @@ import { useRoutinesAvailable } from "./use-routines";
 import { endNamer, linkMenuSection, linkWorktree, linkedAccessibilityLabel, linkedLabels, type LinkChat } from "./chat-links";
 import { linkWithChat, removeLinkFromChat } from "./link-actions";
 import { afterSend, selectedModel, sendOptions, turnTarget } from "./turn-options";
-import { chatMark, type ChatMark } from "./indicators";
+import { chatMark, MARK_LABEL, type ChatMark } from "./indicators";
 import { shownChat } from "./chat-list-filter";
 import { backgroundLabel, chatActivity } from "@milagre/shared/chat-activity";
 import { ChatMarkIcon } from "./status-indicators";
@@ -51,7 +51,7 @@ import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
 import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
-import { DISABLED_OPACITY, ErrorNotice, IconButton, pressStyle, PullDown, SectionLabel, Toast, useAnnounce, useStyles } from "./ui";
+import { CircleButton, DISABLED_OPACITY, EmptyState, ErrorNotice, IconButton, pressStyle, PullDown, SectionLabel, Toast, useAnnounce, useStyles } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
@@ -78,6 +78,7 @@ import { allComputers, chatsHomePath, useAllComputers, useFoldedProjects } from 
 import type { HostView, ProjectCopy, Reach } from "./all-computers-store";
 import { mergeChatLists } from "./chat-list-order";
 import { groupByOrigin } from "@milagre/shared/project-origin";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
 
@@ -179,7 +180,7 @@ const SHOW: [Show, string, string][] = [
   ["archived", "Archived", "archivebox"],
 ];
 const NEEDS = new Set<ChatMark>(["question", "waiting", "interrupted", "failed", "unread"]);
-// What a Chat row can show under its title (the Filters menu's "On chats"); the computer is a desktop choice.
+// What a Chat row can show under its title (the Filters menu's "On Chats"); the computer is a desktop choice.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
 const FIELD_SYMBOLS: Record<string, string> = {
   pullRequests: "arrow.triangle.pull",
@@ -187,16 +188,6 @@ const FIELD_SYMBOLS: Record<string, string> = {
   branch: "arrow.triangle.branch",
   diff: "plusminus",
   lastActivity: "clock",
-};
-const labels: Record<ChatMark, string> = {
-  idle: "",
-  running: "Running",
-  background: "In the background",
-  question: "Needs reply",
-  waiting: "Needs approval",
-  interrupted: "Interrupted",
-  failed: "Failed",
-  unread: "Unread",
 };
 
 const sameDeps = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((value, index) => value === b[index]);
@@ -267,7 +258,7 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
       mark,
       background,
       pending,
-      worktree: pending?.newWorktree ? "New worktree" : copy?.project.state.worktrees[chat.worktree_id]?.name || "Worktree",
+      worktree: pending?.newWorktree ? UI_COPY.newWorktree : copy?.project.state.worktrees[chat.worktree_id]?.name || "Worktree",
       prPath: !pending && !copy?.project.link && !home ? copy?.project.state.worktrees[chat.worktree_id]?.path : undefined,
       prRefs: chat.summary?.pullRequests ?? copy?.project.pullRequestRefs?.[chat.id] ?? pullRequestRefs(byChat.get(chat.id) || []),
     }));
@@ -385,8 +376,8 @@ const NavigationBody = memo(function NavigationBody({
   const bottomInset = useControlsBottomInset();
   const searchInput = useRef<TextInputInstance>(null);
   const background = surface ? colors.surface : colors.page;
-  // On a card the open Chat's row takes the stronger tint, so a row under the pointer still reads apart from it.
-  const selectedFill = surface ? colors.hover2 : colors.hover;
+  // The open Chat's row takes the stronger tint on page and card alike; the pointer's hover is the lighter one.
+  const selectedFill = colors.hover2;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -470,7 +461,7 @@ const NavigationBody = memo(function NavigationBody({
           hostId: build.hostId,
           hostName: build.hostName,
           reach: build.reach,
-          message: `Loading chats from ${build.hostName}…`,
+          message: `Loading Chats from ${build.hostName}…`,
         };
       return null;
     };
@@ -518,10 +509,10 @@ const NavigationBody = memo(function NavigationBody({
           listed.push({
             ...base,
             key: `${build.hostId}|${project.path}:error`,
-            message: `Could not ${project.copy ? "refresh" : "load"} chats on ${build.hostName}. Tap to retry.`,
+            message: `Could not ${project.copy ? "refresh" : "load"} Chats on ${build.hostName}. Tap to retry.`,
             failed: true,
           });
-        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading chats from ${build.hostName}…` });
+        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading Chats from ${build.hostName}…` });
       }
       if (listed.length === 1)
         listed.push({
@@ -531,7 +522,7 @@ const NavigationBody = memo(function NavigationBody({
           hostId: head.build.hostId,
           hostName: head.build.hostName,
           reach: head.build.reach,
-          message: show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
+          message: show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
         });
       return listed;
     };
@@ -641,14 +632,14 @@ const NavigationBody = memo(function NavigationBody({
             result.push({
               ...base,
               key: `${build.hostId}|${project.path}:error`,
-              message: project.copy ? "Could not refresh chats. Tap to retry." : "Could not load chats. Tap to retry.",
+              message: project.copy ? "Could not refresh Chats. Tap to retry." : "Could not load Chats. Tap to retry.",
               failed: true,
             });
           else if (!project.copy || !project.chats.length)
             result.push({
               ...base,
               key: `${build.hostId}|${project.path}:notice`,
-              message: !project.copy ? "Loading chats…" : show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
+              message: !project.copy ? "Loading Chats…" : show !== "all" ? "No matching Chats" : "No Chats yet. Start one with +.",
             });
         }
       }
@@ -674,7 +665,7 @@ const NavigationBody = memo(function NavigationBody({
       : [];
     // A Show filter that leaves nothing says so, above the offline line.
     if (!needle && show !== "all" && !result.some((row) => row.kind === "chat"))
-      result.unshift({ key: "filter-empty", path: "", kind: "section", name: "No chats match this filter." });
+      result.unshift({ key: "filter-empty", path: "", kind: "section", name: "No Chats match this filter." });
     return { rows: result, searchable: found, projectHits: hits };
   }, [builds, chatList, needle, show, manyHosts, folds, chatsFolded]);
   // Projects held without their messages (a preview, or a host that keeps them by Chat) are searched on their own
@@ -1048,7 +1039,7 @@ const NavigationBody = memo(function NavigationBody({
     });
   }
   async function startAddProject() {
-    const hostId = await chooseComputer("Add project to");
+    const hostId = await chooseComputer("Add Project to");
     if (!hostId || busy) return;
     if (hostId !== currentHostId) {
       const host = allComputers.hostFor(hostId);
@@ -1078,7 +1069,7 @@ const NavigationBody = memo(function NavigationBody({
     if (!target) {
       // With no Project anywhere, a Chat without one is still there to start.
       if (noProjectChoice(views, null, currentHostId)) void startWithoutProject();
-      else setError("Add a project from your computer to start a Chat.");
+      else setError("Add a Project from your computer to start a Chat.");
       return;
     }
     void enter(target.hostId, target.path, undefined, undefined, prefill);
@@ -1111,7 +1102,7 @@ const NavigationBody = memo(function NavigationBody({
     );
     const client = target && clientOf(target.hostId);
     if (!target || !client) {
-      setError("Add a project from your computer to triage an issue.");
+      setError("Add a Project from your computer to triage an issue.");
       return;
     }
     try {
@@ -1131,10 +1122,10 @@ const NavigationBody = memo(function NavigationBody({
   }
   // Filters: which Projects, which Chats, and what each row shows, as desktop's Filters menu.
   const filterSections = [
-    { items: [{ id: "choose-projects", title: "Choose projects…", systemImage: "checklist" }] },
+    { items: [{ id: "choose-projects", title: "Choose Projects…", systemImage: "checklist" }] },
     { title: "Show", items: SHOW.map(([id, title, systemImage]) => ({ id, title, systemImage, checked: show === id })) },
     {
-      title: "On chats",
+      title: "On Chats",
       items: ROW_FIELDS.map((field) => ({ id: `field:${field.id}`, title: field.label, systemImage: FIELD_SYMBOLS[field.id], checked: rowShow[field.id] })),
     },
   ];
@@ -1237,24 +1228,24 @@ const NavigationBody = memo(function NavigationBody({
   if (page)
     return (
       <View style={[styles.screen, { backgroundColor: background }]}>
-        <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <IconButton label={`Back to ${ALL_CHATS_LABEL}`} icon={ArrowLeft01Icon} size={44} onPress={() => setPage(null)} />
+        <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <CircleButton label={`Back to ${ALL_CHATS_LABEL}`} icon={ArrowLeft01Icon} onPress={() => setPage(null)} />
           <Text
             accessibilityRole="header"
             numberOfLines={1}
             style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}
           >
-            Add project
+            Add Project
           </Text>
-          {onClose && <IconButton label="Close navigation" icon={Cancel01Icon} size={44} onPress={onClose} />}
+          {onClose && <CircleButton label="Close navigation" icon={Cancel01Icon} onPress={onClose} />}
         </View>
         <ProjectSearch onOpen={addProject} />
       </View>
     );
   const emptyText = needle
-    ? "No chats match your search."
+    ? "No Chats match your search."
     : builds.length
-      ? "Add a project from your computer to start a Chat."
+      ? "Add a Project from your computer to start a Chat."
       : session.hosts.length
         ? "Every computer is hidden. Show one in Settings."
         : "Pair your computer. Open Settings → Devices in Milagre on your Mac, then scan its pairing code.";
@@ -1280,11 +1271,12 @@ const NavigationBody = memo(function NavigationBody({
             )}
             <PullDown
               label="More"
+              hitSlop={hitSlopFor(40)}
               sections={[
                 {
                   items: [
-                    { id: "add", title: "Add project", systemImage: "folder.badge.plus" },
-                    { id: "link", title: "Link projects", systemImage: "link" },
+                    { id: "add", title: "Add Project", systemImage: "folder.badge.plus" },
+                    { id: "link", title: "Link Projects", systemImage: "link" },
                     { id: "canvas", title: "Canvas", systemImage: "square.grid.2x2" },
                   ],
                 },
@@ -1408,7 +1400,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, load },
   } = view;
-  if (item.kind === "section") return <SectionLabel style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>{item.name}</SectionLabel>;
+  if (item.kind === "section") return <SectionLabel style={{ paddingTop: 16, paddingBottom: 8 }}>{item.name}</SectionLabel>;
   if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
   if (item.kind === "divider") return <View style={[s.divider, { backgroundColor: colors.line }]} />;
   if (item.kind === "chatsGroup")
@@ -1430,7 +1422,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             </Text>
             {!item.expanded && (
               <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                {`${item.count} ${item.count === 1 ? "chat" : "chats"}`}
+                {`${item.count} ${item.count === 1 ? "Chat" : "Chats"}`}
               </Text>
             )}
             <View style={{ flex: 1 }} />
@@ -1443,31 +1435,11 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     );
   if (item.kind === "start")
     return (
-      <View style={s.startEmpty}>
-        <Icon icon={SearchRemoveIcon} tone="ink3" size={32} />
-        <Text style={s.startTitle}>No chat matches “{query.trim()}”</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start a new chat with your search"
-          disabled={busy}
-          onPress={() => {
-            tap();
-            startNewChat(query.trim());
-          }}
-          style={({ pressed }) => [s.startCard, pressed && { backgroundColor: colors.hover }]}
-        >
-          {/* Liquid Glass like the controls under it; only its position may animate, never its alpha. */}
-          <LiquidGlassView
-            pointerEvents="none"
-            glassType="regular"
-            isInteractive={false}
-            reducedTransparencyFallbackColor={colors.surface}
-            style={[StyleSheet.absoluteFill, { borderRadius: radius.card, borderCurve: "continuous" }]}
-          />
-          <Icon icon={PencilEdit02Icon} tone="ink" size={20} />
-          <Text style={[s.secondary, { flex: 1, color: colors.ink, fontWeight: "600" }]}>Start a new chat with your search</Text>
-        </Pressable>
-      </View>
+      <EmptyState
+        icon={SearchRemoveIcon}
+        title={`No Chat matches “${query.trim()}”`}
+        action={{ title: "Start a new Chat with your search", icon: PencilEdit02Icon, onPress: () => !busy && startNewChat(query.trim()) }}
+      />
     );
   const offline = item.reach === "offline";
   if (item.kind === "projectHit")
@@ -1523,7 +1495,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             </Text>
             {(item.chip || !item.expanded) && (
               <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "chat" : "chats"}`]
+                {[item.chip ? item.hostName + (offline ? ", offline" : "") : "", item.expanded ? "" : `${item.count} ${item.count === 1 ? "Chat" : "Chats"}`]
                   .filter(Boolean)
                   .join(" · ")}
               </Text>
@@ -1616,8 +1588,9 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       <Icon icon={Link04Icon} tone="ink3" size={12} />
     </View>
   ) : null;
-  const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : labels[item.mark];
-  const markColor = tone === "accent" ? colors.accentInk : colors[tone];
+  const markLabel = item.mark === "background" && item.background ? backgroundLabel(item.background) : MARK_LABEL[item.mark];
+  // Status words take the tone's -ink text shade (inkFor in theme.ts); icons keep the fill.
+  const markColor = tone === "ink3" ? colors.ink3 : colors[`${tone}Ink` as const];
   // A PR link opens the Chat and then its PR there, for a Chat of this computer with a Worktree of its own.
   const openPullRequest =
     item.hostId === currentHostId && !copy?.project.link && !item.pending
@@ -1710,6 +1683,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     const running = item.mark === "running" || item.mark === "background";
     const word = item.mark === "unread" ? "" : markLabel;
     const unreadColor = colors[chatMarkTone("unread")];
+    const unreadInk = colors.accentInk;
     const otherComputer = item.many && (item.hostId !== currentHostId || offline);
     const separator = <Text style={s.inboxSeparator}>·</Text>;
     // What VoiceOver reads for the row: what it shows, without the branch.
@@ -1822,7 +1796,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                 ) : (
                   <>
                     {lastAt !== undefined && (
-                      <Text style={[s.inboxTime, item.chat.unread && { color: unreadColor, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
+                      <Text style={[s.inboxTime, item.chat.unread && { color: unreadInk, fontWeight: "600" }]}>{activityAgo(lastAt, now)}</Text>
                     )}
                     {item.chat.unread && <View style={[s.unread, { backgroundColor: unreadColor }]} />}
                   </>
@@ -2029,19 +2003,6 @@ const makeS = (colors: Palette) =>
     detail: { color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
     headerGroup: { flexDirection: "row", alignItems: "center", height: 40, paddingHorizontal: 2, borderRadius: radius.full, borderCurve: "continuous" },
     headerButton: { width: 40, height: 40, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
-    startEmpty: { alignItems: "center", gap: 12, paddingHorizontal: 16, paddingTop: 80 },
-    startTitle: { color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600", textAlign: "center", marginBottom: 12 },
-    startCard: {
-      alignSelf: "stretch",
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      padding: 16,
-      borderRadius: radius.card,
-      borderCurve: "continuous",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.line,
-    },
     projectHit: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingHorizontal: 16 },
     headerDot: { position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: radius.full },
     chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.field },

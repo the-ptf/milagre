@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useDismiss } from "../../../lib/use-dismiss";
+import Tooltip from "../../primitives/Tooltip";
 
 const GAP = 6;
 const INSET = 12;
@@ -9,7 +10,9 @@ const NATURAL = 330;
 
 /**
  * A button that opens a panel under it (above when there's no room), for the PR panel's menus and pickers.
- * `renderPanel` renders a PickerPanel; give it `className="min-h-0"` so it shrinks to the room there is.
+ * `renderPanel` renders a PickerPanel; give it `className="min-h-0"` so it shrinks to the room there is. `className` draws
+ * the trigger, open state included (`aria-expanded:bg-hover-2 aria-expanded:text-ink`, IconButton's); `label` is its name
+ * and Tooltip.
  */
 export function PopoverButton({
   label,
@@ -71,23 +74,25 @@ export function PopoverButton({
 
   return (
     <>
-      <button
-        {...rest}
-        ref={triggerRef}
-        type="button"
-        aria-label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          if (open) return close(false);
-          place();
-          setOpen(true);
-          onOpen?.();
-        }}
-        className={`${className} ${open ? "bg-hover text-ink" : ""}`}
-      >
-        {children}
-      </button>
+      <Tooltip label={label} side="bottom" asChild>
+        <button
+          {...rest}
+          ref={triggerRef}
+          type="button"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => {
+            if (open) return close(false);
+            place();
+            setOpen(true);
+            onOpen?.();
+          }}
+          className={className}
+        >
+          {children}
+        </button>
+      </Tooltip>
       {open &&
         createPortal(
           <div

@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { currentConfirmation } from "../confirm-store";
-import { SheetBody, pressStyle, tap, useStyles } from "../ui";
-import { useTheme } from "../theme";
-import { lineHeight, radius, type } from "../design-tokens";
+import { PillButton, SheetBody, useStyles } from "../ui";
 
 /**
  * A confirmation as a bottom sheet: the question, then its buttons, Cancel last. The choice runs once the sheet has
  * gone, so whatever it does next (leaving the Chat, another sheet) never fights the sheet's own dismissal.
  */
 export default function ConfirmSheet() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const [entry] = useState(currentConfirmation);
   const chosen = useRef<number | null>(null);
@@ -29,10 +26,7 @@ export default function ConfirmSheet() {
   return (
     <SheetBody style={{ gap: 24 }}>
       <View style={{ gap: 8 }}>
-        <Text
-          accessibilityRole="header"
-          style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600", textAlign: "center" }}
-        >
+        <Text accessibilityRole="header" style={[styles.sheetTitle, { textAlign: "center" }]}>
           {entry.title}
         </Text>
         {entry.message ? <Text style={[styles.muted, { textAlign: "center" }]}>{entry.message}</Text> : null}
@@ -40,40 +34,20 @@ export default function ConfirmSheet() {
       <View style={{ gap: 12 }}>
         {order.map(({ button, index }) => {
           const cancel = button.style === "cancel";
+          // As desktop's Dialog: the confirm is the ink primary (a red fill when destructive), Cancel a plain ink2 label.
           return (
-            <Pressable
+            <PillButton
               key={index}
-              accessibilityRole="button"
-              accessibilityLabel={button.text}
+              size="large"
+              title={button.text}
+              variant={cancel ? "plain" : "primary"}
+              muted={cancel}
+              destructive={button.style === "destructive"}
               onPress={() => {
-                tap();
                 chosen.current = index;
                 router.back();
               }}
-              style={({ pressed }) => [
-                {
-                  minHeight: 52,
-                  borderRadius: radius.full,
-                  borderCurve: "continuous",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  paddingHorizontal: 16,
-                  backgroundColor: cancel ? "transparent" : colors.field,
-                },
-                pressStyle({ pressed, filled: !cancel }),
-              ]}
-            >
-              <Text
-                style={{
-                  fontSize: type.body,
-                  lineHeight: lineHeight.body,
-                  fontWeight: cancel ? "500" : "600",
-                  color: button.style === "destructive" ? colors.redInk : cancel ? colors.ink2 : colors.ink,
-                }}
-              >
-                {button.text}
-              </Text>
-            </Pressable>
+            />
           );
         })}
       </View>

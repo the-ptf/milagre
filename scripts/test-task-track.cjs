@@ -241,13 +241,13 @@ async function browserChecks() {
       await evaluate('window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
       await waitFor('!document.querySelector("[data-context-card]")');
     }
-    // The ring turns to the accent at 75% and red at 90%; the card keeps its concise footer.
+    // The ring turns orange at 75% and red at 90%; the card keeps its concise footer.
     const stroke = () => evaluate(`document.querySelector("${ring} circle:last-child").getAttribute("stroke")`);
     assert.equal(await stroke(), "var(--ink-2)");
     assert.equal(await evaluate('document.querySelector("[data-context-attention]")'), null);
     await evaluate("window.setContext({ used: 800000, size: 1000000 })");
     await waitFor(`document.querySelector("${ring}").getAttribute("aria-label") === "Context: 80% used (800k of 1M tokens)"`);
-    assert.equal(await stroke(), "var(--accent-ink)");
+    assert.equal(await stroke(), "var(--orange)");
     assert.equal(await evaluate('document.querySelector("[data-context-attention]").getAttribute("data-tone")'), "warning");
     await evaluate(`document.querySelector("${ring}").click()`);
     await waitFor('!!document.querySelector("[data-context-card]")');
@@ -312,7 +312,7 @@ async function browserChecks() {
     await screenshot("automatic-compaction-done");
     await evaluate("window.setExtraMessages([])");
     await evaluate("window.setContext({ used: 366000, size: 1000000 })");
-    assert.ok(await evaluate(`document.querySelector("${pill}").getBoundingClientRect().height <= 24`));
+    assert.ok(await evaluate(`document.querySelector("${pill}").getBoundingClientRect().height <= 28`), "the composer-row pill is 28px, like a Chip");
     // The pill sits right next to Subagents, on the same row.
     const gap = await evaluate(
       `(() => {const a=document.querySelector("${pill}").getBoundingClientRect(), b=document.querySelector("[data-slot=subagent-track] [data-face=pill] button").getBoundingClientRect();return {gap:b.left-a.right,dy:Math.abs(a.top-b.top)}})()`,

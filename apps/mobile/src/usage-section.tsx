@@ -5,8 +5,8 @@ import type { ProviderUsage, UsageWindow } from "@milagre/shared/model";
 import { providerName } from "@milagre/shared/providers";
 import { formatPercent, formatResetsIn, formatUpdatedAgo } from "@milagre/shared/usage";
 import { ProviderLogo, SpinnerRing } from "./icons";
-import { IconButton, SectionLabel, useStyles } from "./ui";
-import { lineHeight, radius, type } from "./design-tokens";
+import { IconButton, InlineError, ProgressBar, SectionLabel, useStyles } from "./ui";
+import { lineHeight, type } from "./design-tokens";
 import { useSession } from "./session";
 import { useUsage } from "./use-usage";
 import { useTheme } from "./theme";
@@ -27,15 +27,7 @@ function WindowRow({ window, now }: { window: UsageWindow; now: number }) {
           {formatPercent(percent)} used
         </Text>
       </View>
-      <View
-        accessible
-        accessibilityRole="progressbar"
-        accessibilityLabel={`${window.label} usage`}
-        accessibilityValue={{ min: 0, max: 100, now: percent, text: `${formatPercent(percent)} used${reset ? `, ${reset}` : ""}` }}
-        style={{ height: 4, borderRadius: radius.full, overflow: "hidden", backgroundColor: colors.lineStrong }}
-      >
-        <View style={{ width: `${percent}%`, height: "100%", borderRadius: radius.full, backgroundColor: colors.ink }} />
-      </View>
+      <ProgressBar value={percent / 100} size={4} accessibilityLabel={`${window.label} usage${reset ? `, ${reset}` : ""}`} />
       {reset ? (
         <Text selectable style={styles.caption}>
           {reset}
@@ -77,9 +69,13 @@ function ProviderRows({ provider, now }: { provider: ProviderUsage; now: number 
         </Text>
       ) : null}
       {provider.message ? (
-        <Text selectable accessibilityRole={failed ? "alert" : undefined} style={[styles.caption, { color: failed ? colors.orangeInk : colors.ink2 }]}>
-          {provider.message}
-        </Text>
+        failed ? (
+          <InlineError warning message={provider.message} />
+        ) : (
+          <Text selectable style={[styles.caption, { color: colors.ink2 }]}>
+            {provider.message}
+          </Text>
+        )
       ) : null}
       {!provider.windows.length && !provider.message ? <Text style={styles.muted}>Usage is unavailable.</Text> : null}
     </View>
@@ -88,7 +84,6 @@ function ProviderRows({ provider, now }: { provider: ProviderUsage; now: number 
 
 /** Plan usage, sourced only from the currently connected computer. */
 export function UsageSection() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
   const usage = useUsage(session.client, session.snapshot?.project.path, session.providerRevision);
@@ -109,12 +104,15 @@ export function UsageSection() {
   const providers = usage.snapshot?.providers.filter((provider) => provider.status !== "unavailable") ?? [];
   return (
     <View style={{ gap: 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 16 }}>
-        <SectionLabel>Plan usage</SectionLabel>
-        {session.client ? (
-          <IconButton label="Refresh plan usage" icon={RefreshIcon} size={44} loading={usage.loading} onPress={() => void usage.refresh()} />
-        ) : null}
-      </View>
+      <SectionLabel
+        trailing={
+          session.client ? (
+            <IconButton label="Refresh plan usage" icon={RefreshIcon} size={32} loading={usage.loading} onPress={() => void usage.refresh()} />
+          ) : null
+        }
+      >
+        Plan usage
+      </SectionLabel>
       <View style={[styles.card, { gap: 24 }]}>
         {!session.client ? (
           <Text style={styles.muted}>Connect to a computer to see its plan usage.</Text>
@@ -133,14 +131,10 @@ export function UsageSection() {
         ) : !usage.error ? (
           <Text style={styles.muted}>No plan usage is available. Sign in to Claude, Codex or Antigravity on your computer, then refresh.</Text>
         ) : null}
-        {usage.error ? (
-          <Text selectable accessibilityRole="alert" style={[styles.muted, { color: colors.orangeInk }]}>
-            {usage.error}
-          </Text>
-        ) : null}
+        <InlineError warning message={usage.error} />
       </View>
       {session.client ? (
-        <Text style={[styles.caption, { paddingHorizontal: 16 }]}>
+        <Text style={[styles.footnote, { paddingHorizontal: 16 }]}>
           From {session.hostName || "your computer"}. Limits are shared across its Projects and Chats.
         </Text>
       ) : null}

@@ -561,7 +561,7 @@ export function MessageScroller({
               setFollowing(true);
               scrollToEnd(reduce || !smooth ? "auto" : "smooth");
             }}
-            className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-[background-color,scale] duration-fast hover:bg-surface/80 active:scale-press"
+            className="pointer-events-auto inline-flex size-10 items-center justify-center rounded-full bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-[background-color,scale] duration-fast hover:bg-surface/80 active:scale-press"
           >
             <Icon icon={ArrowDown01Icon} size={18} />
           </button>

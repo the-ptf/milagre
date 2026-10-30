@@ -11,7 +11,8 @@ export function ContextRing({ onPress, canCompact = false, ...usage }: ContextUs
   const { colors } = useTheme();
   const { ratio, percent, tokens } = contextSummary(usage);
   const tone = contextTone(percent);
-  const color = { normal: colors.ink2, warning: colors.accentInk, critical: colors.red }[tone];
+  // Getting full is a warning (orange), not a link or a selection.
+  const color = { normal: colors.ink2, warning: colors.orange, critical: colors.red }[tone];
   const attention = canCompact && tone !== "normal";
   const radius = 8;
   const circumference = 2 * Math.PI * radius;
@@ -21,8 +22,8 @@ export function ContextRing({ onPress, canCompact = false, ...usage }: ContextUs
       accessibilityLabel={`Context: ${percent}% used (${tokens})`}
       accessibilityHint={attention ? "Compaction recommended. Open context details to compact." : undefined}
       onPress={onPress}
-      hitSlop={hitSlopFor(34)}
-      style={({ pressed }) => [{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
+      hitSlop={hitSlopFor(32)}
+      style={({ pressed }) => [{ width: 32, height: 32, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
     >
       <Svg width={20} height={20} viewBox="0 0 20 20" style={{ transform: [{ rotate: "-90deg" }] }}>
         <Circle cx={10} cy={10} r={radius} fill="none" stroke={colors.lineStrong} strokeWidth={2.5} />

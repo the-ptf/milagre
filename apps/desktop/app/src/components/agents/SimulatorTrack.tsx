@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { EASE_OUT } from "../../lib/ease";
+import { DURATION, EASE_OUT } from "../../lib/ease";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import type { SimulatorApi, SimulatorDevice, SimulatorList } from "@milagre/shared/simulator";
 import {
@@ -15,6 +15,8 @@ import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { Icon } from "../primitives/Icon";
 import { IconButton } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
+import { InlineError } from "../primitives/InlineError";
 import { PillSlot, StatusPill } from "../primitives/StatusPill";
 import { useAnchoredPopover } from "./useAnchoredPopover";
 import { viewerTheme } from "./viewerTheme";
@@ -164,7 +166,6 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
               <IconButton
                 label="Back to devices"
                 icon={ArrowLeft01Icon}
-                iconSize={16}
                 size={24}
                 onClick={() => {
                   setSelected(null);
@@ -180,7 +181,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             {!selected && <div className="text-11 text-ink-3">{attaching ? "Other devices on this Mac" : "This Chat"}</div>}
           </div>
           <Tooltip label="Close simulator">
-            <IconButton label="Close simulator" icon={Cancel01Icon} iconSize={16} size={24} onClick={close} />
+            <IconButton label="Close simulator" icon={Cancel01Icon} size={24} onClick={close} />
           </Tooltip>
         </header>
       )}
@@ -204,7 +205,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             <div data-slot="simulator-connection" data-state={connectionState} className="flex shrink-0 items-center gap-1.5 text-11 text-ink-2">
               <span
                 aria-hidden
-                className={`h-1.5 w-1.5 rounded-full ${connectionState === "live" ? "bg-green" : connectionState === "error" ? "bg-red" : "bg-ink-4"}`}
+                className={`size-1.5 rounded-full ${connectionState === "live" ? "bg-green" : connectionState === "error" ? "bg-red" : "bg-ink-4"}`}
               />
               {SIMULATOR_CONNECTION_LABELS[connectionState]}
             </div>
@@ -216,18 +217,12 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
         </>
       ) : (
         <ScrollArea className="p-1">
-          {loading && (
-            <p role="status" className="p-3 text-13 text-ink-2">
-              Finding running simulators…
-            </p>
-          )}
-          {list.error && (
-            <p role="alert" className="p-3 text-13 text-red-ink">
-              {list.error}
-            </p>
-          )}
+          {loading && <EmptyState size="compact" title="Finding running simulators…" />}
+          <InlineError size={12} className="p-3">
+            {list.error}
+          </InlineError>
           {!loading && !list.error && !(attaching ? list.available : list.attached)?.length && (
-            <p className="p-3 text-13 text-ink-2">{attaching ? "No other devices are running on this Mac." : "No simulators attached to this Chat."}</p>
+            <EmptyState size="compact" title={attaching ? "No other devices are running on this Mac" : "No simulators attached to this Chat"} />
           )}
           {(attaching ? (list.available ?? []) : (list.attached ?? [])).map((device) => {
             const running = attaching || list.devices.some((d) => d.id === device.id);
@@ -238,7 +233,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   disabled={busy || !running}
                   data-simulator-device={device.id}
                   onClick={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors duration-fast hover:bg-hover disabled:opacity-60"
+                  className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover-2 active:bg-hover-2 disabled:opacity-60"
                 >
                   <Icon icon={SmartphoneIcon} size={16} />
                   <span className="min-w-0 flex-1 truncate text-13">{device.name}</span>
@@ -246,13 +241,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                 </button>
                 {!attaching && (
                   <Tooltip label="Detach from Chat">
-                    <IconButton
-                      label={`Detach ${device.name} from Chat`}
-                      icon={Cancel01Icon}
-                      iconSize={14}
-                      disabled={busy}
-                      onClick={() => void mutate("detach", device)}
-                    />
+                    <IconButton label={`Detach ${device.name} from Chat`} icon={Cancel01Icon} disabled={busy} onClick={() => void mutate("detach", device)} />
                   </Tooltip>
                 )}
               </div>
@@ -262,7 +251,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
             <button
               type="button"
               onClick={() => setAttaching(true)}
-              className="flex h-8 w-full items-center rounded-control px-3 text-left text-13 text-ink-2 transition-colors duration-fast hover:bg-hover"
+              className="flex h-8 w-full items-center rounded-control px-3 text-left text-13 text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink active:bg-hover-2"
             >
               Attach simulator
             </button>
@@ -321,7 +310,7 @@ export function SimulatorTrack({ chatId }: { chatId: string }) {
                   initial={reduced ? false : { opacity: 0, y: 6, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={reduced ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, y: 6, scale: 0.98 }}
-                  transition={{ duration: 0.18, ease: EASE_OUT }}
+                  transition={{ duration: DURATION.base, ease: EASE_OUT }}
                   ref={panel}
                   id={panelId}
                   role="dialog"

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { PendingComputer } from "../electron";
 import { ALLOW_DETAIL, allowQuestion } from "../lib/pending-computers";
 import { Button } from "./primitives/Button";
+import { Dialog } from "./primitives/Dialog";
 import { InlineError } from "./primitives/InlineError";
 
 /**
@@ -20,7 +20,6 @@ export function ComputerAllowPrompt() {
   const [busy, setBusy] = useState(false);
   // Tied to the request it came from, so it goes with that request.
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
   // How many devices:pending events arrived. The event is the newer word: an answer's own reply that lands after one is stale.
   const heardCount = useRef(0);
   useEffect(() => {
@@ -42,12 +41,6 @@ export function ComputerAllowPrompt() {
     };
   }, []);
   const request = requests[0];
-  useEffect(() => {
-    const element = dialog.current;
-    if (!element) return;
-    if (request && !element.open) element.showModal();
-    if (!request && element.open) element.close();
-  }, [request]);
   // The key of the request whose buttons work; any other request has just appeared.
   const [armedKey, setArmedKey] = useState<string | null>(null);
   const requestKey = request?.key;
@@ -78,36 +71,30 @@ export function ComputerAllowPrompt() {
 
   // Nothing is mounted until a computer waits: other screens look for the page's one open dialog.
   if (!request) return null;
-  return createPortal(
-    <dialog
-      ref={dialog}
+  // No onClose: it must be answered. Esc answers Deny; the scrim does nothing.
+  return (
+    <Dialog
       data-computer-allow
-      aria-labelledby="computer-allow-title"
-      onCancel={(event) => {
-        event.preventDefault();
-        void answer(false);
-      }}
-      className="m-auto w-[400px] max-w-[calc(100vw-32px)] overflow-hidden rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
-      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
+      role="alertdialog"
+      title={allowQuestion(request)}
+      description={ALLOW_DETAIL}
+      onEscape={() => void answer(false)}
+      dismissOnScrim={false}
+      width={400}
+      actions={
+        <>
+          <Button variant="ghost" disabled={busy || !armed} onClick={() => void answer(false)}>
+            Deny
+          </Button>
+          <Button disabled={busy || !armed} onClick={() => void answer(true)}>
+            Allow
+          </Button>
+        </>
+      }
     >
-      {request && (
-        <div key={request.key} className="flex flex-col p-5">
-          <h2 id="computer-allow-title" className="text-17 font-semibold">
-            {allowQuestion(request)}
-          </h2>
-          <p className="mt-1 text-13 text-ink-2">{ALLOW_DETAIL}</p>
-          <InlineError className="mt-3">{error}</InlineError>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" disabled={busy || !armed} onClick={() => void answer(false)}>
-              Deny
-            </Button>
-            <Button disabled={busy || !armed} onClick={() => void answer(true)}>
-              Allow
-            </Button>
-          </div>
-        </div>
-      )}
-    </dialog>,
-    document.body,
+      <InlineError size={12} className="mt-3">
+        {error}
+      </InlineError>
+    </Dialog>
   );
 }

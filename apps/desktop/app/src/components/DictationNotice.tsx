@@ -20,7 +20,7 @@ export function DictationNotice({ error, onOpenSettings }: { error: DictationErr
       className="pointer-events-none absolute right-0 bottom-full z-[60] mb-2 flex w-max max-w-[320px] items-center gap-1.5 rounded-control bg-ink px-2 py-1.5 text-12 font-medium text-on-ink shadow-overlay"
       style={{ animation: "fade-in var(--duration-fast) var(--ease-enter) both" }}
     >
-      <Icon icon={ICONS[error.kind]} size={14} className="shrink-0 opacity-70" />
+      <Icon icon={ICONS[error.kind]} size={14} className="shrink-0" />
       <span className="min-w-0">{error.message}</span>
       {error.kind === "permission" && (
         <>
@@ -28,7 +28,7 @@ export function DictationNotice({ error, onOpenSettings }: { error: DictationErr
           <button
             type="button"
             onClick={onOpenSettings}
-            className="pointer-events-auto relative flex shrink-0 items-center gap-0.5 font-semibold transition-opacity duration-fast before:absolute before:-inset-1 hover:opacity-80"
+            className="pointer-events-auto relative flex shrink-0 items-center gap-0.5 font-semibold underline-offset-2 before:absolute before:-inset-1 hover:underline"
           >
             Open Settings
             <Icon icon={ArrowRight01Icon} size={12} />

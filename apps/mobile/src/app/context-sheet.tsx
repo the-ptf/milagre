@@ -4,8 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { contextHint, contextSummary } from "@milagre/shared/usage";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { useComposer, useSession } from "../session";
-import { PillButton, SheetBody, useAnnounce, useStyles } from "../ui";
-import { lineHeight, radius, type } from "../design-tokens";
+import { PillButton, ProgressBar, SheetBody, useAnnounce, useStyles } from "../ui";
+import { lineHeight, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 /**
@@ -29,26 +29,19 @@ export default function ContextSheet() {
     if (missing) router.back();
   }, [missing]);
   const blocked = run ? "Wait for the agent to finish." : null;
-  useAnnounce(missing ? null : blocked);
+  // The sheet can open already blocked; say why Compact now is off.
+  useAnnounce(missing ? null : blocked, { onMount: true });
   if (missing) return null;
   const { percent, tokens } = contextSummary(usage);
   const hint = contextHint(percent);
   const canCompact = Boolean(chat) && providerCapabilities(chat?.provider ?? "claude").compact;
   return (
     <SheetBody style={{ gap: 16 }}>
-      <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
+      <Text accessibilityRole="header" style={styles.sheetTitle}>
         Context
       </Text>
       <View style={{ gap: 8 }}>
-        <View
-          accessible
-          accessibilityRole="progressbar"
-          accessibilityLabel="Context usage"
-          accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}% used, ${tokens}` }}
-          style={{ height: 6, borderRadius: radius.full, overflow: "hidden", backgroundColor: colors.lineStrong }}
-        >
-          <View style={{ width: `${percent}%`, height: "100%", borderRadius: radius.full, backgroundColor: colors.ink }} />
-        </View>
+        <ProgressBar value={percent / 100} accessibilityLabel="Context usage" valueText={`${percent}% used, ${tokens}`} />
         <View style={[styles.row, { justifyContent: "space-between", gap: 4 }]}>
           <Text
             selectable
@@ -72,7 +65,7 @@ export default function ContextSheet() {
               router.back();
             }}
           />
-          {blocked && <Text style={[styles.muted, { textAlign: "center", fontSize: type.footnote, lineHeight: lineHeight.footnote }]}>{blocked}</Text>}
+          {blocked && <Text style={[styles.footnote, { textAlign: "center" }]}>{blocked}</Text>}
         </View>
       )}
     </SheetBody>

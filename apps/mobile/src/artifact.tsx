@@ -3,7 +3,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
-import { ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, File01Icon, MoreHorizontalIcon, PaintBoardIcon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, Cancel01Icon, CheckmarkCircle02Icon, File01Icon, MoreHorizontalIcon, PaintBoardIcon, Sent02Icon } from "@hugeicons/core-free-icons";
 import {
   artifactShell,
   designFeedbackMessage,
@@ -25,13 +25,13 @@ import { File, Paths } from "expo-file-system";
 import { useSession } from "./session";
 import { useArtifactCatalog } from "./use-design-catalog";
 import { Icon } from "./icons";
-import { onColor } from "@milagre/shared/themes";
+import { over } from "@milagre/shared/themes";
 import { lineHeight, radius, space, type } from "./design-tokens";
-import { ErrorNotice, PullDown, tap, useStyles, type MenuSection } from "./ui";
+import { CircleButton, ErrorNotice, PullDown, SheetHeader, tap, useStyles, type MenuSection } from "./ui";
 import { useTheme } from "./theme";
 import { PELE_SCRIPT } from "./pele-script";
 import { onShareAvailability } from "./share-availability";
-import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
+import { CommentBox } from "./viewer-chrome";
 
 /** Feedback the user sent on the designs, as what it was: the design they chose, then each comment and its design. */
 export function DesignFeedbackCard({
@@ -144,19 +144,21 @@ export function DesignFeedbackCard({
             >
               <View
                 style={{
-                  width: 20,
-                  height: 20,
-                  // The desktop canvas's pin: round, its point the top-left corner.
+                  minWidth: 20,
+                  minHeight: 20,
+                  paddingHorizontal: 4,
+                  // The desktop canvas's pin: round, its point the top-left corner; a number on it takes the -ink fill.
                   borderRadius: radius.full,
                   borderTopLeftRadius: 0,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: resolved === undefined ? colors.accent : colors.green,
+                  backgroundColor: resolved === undefined ? colors.accentInk : colors.greenInk,
                 }}
               >
                 <Text
+                  maxFontSizeMultiplier={1.3}
                   style={{
-                    color: resolved === undefined ? colors.onAccent : onColor(colors.green, colors.page),
+                    color: resolved === undefined ? colors.onAccent : colors.onGreen,
                     fontSize: type.caption2,
                     lineHeight: lineHeight.caption2,
                     fontWeight: "600",
@@ -253,7 +255,7 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.line,
-        backgroundColor: pressed ? colors.hover : colors.surface,
+        backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
         opacity: openable ? 1 : 0.6,
       })}
     >
@@ -325,7 +327,7 @@ function ArtifactCard({ step, chatId, chosen, kind = "design" }: { step: Artifac
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: isChosen ? colors.accent : colors.line,
-        backgroundColor: pressed ? colors.hover : colors.surface,
+        backgroundColor: pressed ? over(colors.hover, colors.surface) : colors.surface,
         opacity: openable ? 1 : 0.6,
       })}
     >
@@ -495,8 +497,8 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
               y: comment.y,
               ...(comment.anchor ? { a: comment.anchor } : {}),
               n: numbers.get(comment.id) ?? 1,
-              fill: comment.resolved ? colors.green : colors.ink2,
-              ink: colors.page,
+              fill: comment.resolved ? colors.greenInk : colors.ink2,
+              ink: comment.resolved ? colors.onGreen : colors.page,
               label: `Sent comment${comment.resolved ? ", resolved" : ""}: ${comment.text}`,
             },
           ],
@@ -511,14 +513,14 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
               y: note.y,
               ...(note.anchor ? { a: note.anchor } : {}),
               n: index + 1,
-              fill: colors.accent,
+              fill: colors.accentInk,
               ink: colors.onAccent,
               label: `Comment ${index + 1}`,
             },
           ],
     );
     return [...done, ...waiting].map((pin) => (pin.k === composer?.key ? { ...pin, hide: true } : pin));
-  }, [artifact, sent, notes, numbers, composer?.key, colors.green, colors.ink2, colors.page, colors.accent, colors.onAccent]);
+  }, [artifact, sent, notes, numbers, composer?.key, colors.greenInk, colors.onGreen, colors.ink2, colors.page, colors.accentInk, colors.onAccent]);
   // A pin just opened scrolls near the top once the page has it, out of the keyboard's way; the page then says where it
   // landed, and the box opens there.
   const revealing = useRef<string | null>(null);
@@ -617,28 +619,25 @@ export function ArtifactSheet({ hostId, chatId, id, onClose }: { hostId?: string
   const [room, setRoom] = useState({ width: 0, height: 0 });
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.gutter, minHeight: 52, gap: space.md }}>
-        <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
-          {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
-          {!onClose && <RoundButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
-        </View>
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
-            {artifact?.title ?? "Artifact"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
-            Artifact
-          </Text>
-        </View>
-        <View style={{ flexDirection: "row", gap: 8, width: 76, justifyContent: "flex-end" }}>
-          {source && written.length > 0 && <SendButton count={written.length} onPress={send} />}
-          {menu.length > 0 && (
-            <PullDown label="Page actions" sections={menu} onSelect={(action) => action === "share" && openShare()}>
-              <RoundButton label="Page actions" icon={MoreHorizontalIcon} />
-            </PullDown>
-          )}
-        </View>
-      </View>
+      <SheetHeader
+        title={artifact?.title ?? "Artifact"}
+        subtitle="Artifact"
+        // In the panel docked beside the Chat (an iPad), the panel's own button closes it.
+        leading={!onClose && <CircleButton label="Close artifact" icon={Cancel01Icon} onPress={close} />}
+        // Two slots: Send and ⋯ (88 wide on both sides, so the title stays centred).
+        trailing={
+          <>
+            {source && written.length > 0 && (
+              <CircleButton label={`Send ${written.length} to the agent`} icon={Sent02Icon} onPress={send} filled badge={written.length} />
+            )}
+            {menu.length > 0 && (
+              <PullDown label="Page actions" sections={menu} onSelect={(action) => action === "share" && openShare()}>
+                <CircleButton label="Page actions" icon={MoreHorizontalIcon} asTrigger />
+              </PullDown>
+            )}
+          </>
+        }
+      />
       <View style={{ flex: 1, backgroundColor: colors.surface }} onLayout={(event) => setRoom(event.nativeEvent.layout)}>
         {!source ? (
           <Text style={[styles.muted, { padding: space.xl }]}>Reconnect to this Mac to open this page.</Text>

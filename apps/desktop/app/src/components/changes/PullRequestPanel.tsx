@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   AlertCircleIcon,
@@ -30,6 +30,7 @@ import {
   type PullRequestFile,
   type PullRequestThread,
 } from "@milagre/shared/pull-request-review";
+import { AUTO_MERGE_LABEL, pullRequestStatePill } from "@milagre/shared/pr-blockers";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
 import { age, MERGE_METHODS, readMergeMethod, repoOf, saveMergeMethod } from "../../lib/pull-request-view";
 import { prImageLoader } from "../../lib/pr-images";
@@ -37,12 +38,15 @@ import { Markdown, type MarkdownImageLoader } from "../markdown/Markdown";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { SpinnerRing } from "../primitives/SpinnerRing";
-import { buttonClass } from "../primitives/Button";
+import { Button, buttonClass } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
 import { Icon, type IconSize } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
-import { SectionLabel } from "../primitives/SectionLabel";
+import { MenuLabel, MenuSeparator } from "../primitives/Popover";
+import { Tabs as TabStrip } from "../primitives/Tabs";
+import Tooltip from "../primitives/Tooltip";
 import { ProjectAvatarStack } from "../ProjectAvatarStack";
-import { Counts, moveTab } from "./ChangesPanel";
+import { Counts } from "./ChangesPanel";
 import { PopoverButton } from "./pr/Popover";
 import { Avatar, LabelsRow, ReviewersRow, type PrSource } from "./pr/Properties";
 import type { PullRequestReview } from "./usePullRequest";
@@ -52,27 +56,33 @@ import type { PullRequestReview } from "./usePullRequest";
 
 export type { PrSource };
 
+// Status icons in the fill tone; words beside them use the -ink shade.
 const CHECK_ICON: Record<PullRequestCheck["outcome"], { icon: IconSvgElement; className: string }> = {
-  pass: { icon: CheckmarkCircle02Icon, className: "text-green-ink" },
-  fail: { icon: CancelCircleIcon, className: "text-red-ink" },
-  running: { icon: Loading03Icon, className: "text-orange-ink" },
+  pass: { icon: CheckmarkCircle02Icon, className: "text-green" },
+  fail: { icon: CancelCircleIcon, className: "text-red" },
+  running: { icon: Loading03Icon, className: "text-orange" },
   skipped: { icon: MinusSignCircleIcon, className: "text-ink-3" },
   neutral: { icon: CircleIcon, className: "text-ink-3" },
 };
 // Failing checks first, then the ones still running.
 const CHECK_ORDER: Record<PullRequestCheck["outcome"], number> = { fail: 0, running: 1, pass: 2, neutral: 3, skipped: 4 };
 
-const STATE_PILL = {
-  draft: { label: "Draft", className: "bg-hover text-ink-2" },
-  MERGED: { label: "Merged", className: "bg-purple-tint text-purple-ink" },
-  CLOSED: { label: "Closed", className: "bg-red-tint text-red-ink" },
+// pullRequestStatePill's palette keys (shared with the phone header).
+const PILL_CLASS = {
+  purpleTint: "bg-purple-tint",
+  redTint: "bg-red-tint",
+  hover: "bg-hover",
+  purpleInk: "text-purple-ink",
+  redInk: "text-red-ink",
+  ink2: "text-ink-2",
 } as const;
 
 const icon = (glyph: IconSvgElement, size: IconSize = 14) => <Icon icon={glyph} size={size} />;
 
 const secondary = buttonClass({ variant: "secondary", size: 28 });
+// IconButton's 28 ghost look, for PopoverButton's own trigger: ink-3 at rest, hover-2 and ink while its menu is open.
 const iconButton =
-  "flex size-7 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press";
+  "flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 transition-[color,background-color,scale] hover:bg-hover hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink";
 
 const ago = (iso: string) => {
   const text = age(iso);
@@ -100,25 +110,30 @@ export function PullRequestPanelBody({
   project?: { name: string; path: string };
 }) {
   const [tab, setTab] = useState<"summary" | "files">("summary");
+  const panel = useId();
   const { state, pr } = review;
   if (!pr) {
-    return (
-      <p data-pr-panel-notice className="px-4 py-6 text-center text-12 text-ink-3">
-        {state.status === "error" ? state.message : "Loading the PR…"}
-      </p>
+    return state.status === "error" ? (
+      <InlineError data-pr-panel-notice size={12} className="px-4 py-6 text-center">
+        {state.message}
+      </InlineError>
+    ) : (
+      <EmptyState size="compact" title="Loading the PR…" className="px-4 py-6" data-pr-panel-notice />
     );
   }
   return (
     <ScrollArea data-pr-panel className="flex-1 pb-3">
       <Header key={pr.url} pr={pr} review={review} local={local} project={project} />
       <div className="h-px bg-line" />
-      <Tabs pr={pr} tab={tab} onTab={setTab} />
-      {tab === "summary" ? (
-        // A Link Chat's PR tabs share this panel: another repository's PR starts with fresh pickers.
-        <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} />
-      ) : (
-        <Files pr={pr} activePath={activePath} onOpenFile={actions.openFile} />
-      )}
+      <Tabs pr={pr} tab={tab} onTab={setTab} panel={panel} />
+      <div role="tabpanel" id={panel} aria-label={tab === "summary" ? "Summary" : "Files"}>
+        {tab === "summary" ? (
+          // A Link Chat's PR tabs share this panel: another repository's PR starts with fresh pickers.
+          <Summary key={`${pr.url}\0${source?.cwd ?? ""}`} pr={pr} review={review} source={source} onOpenFile={actions.openFile} />
+        ) : (
+          <Files pr={pr} activePath={activePath} onOpenFile={actions.openFile} />
+        )}
+      </div>
     </ScrollArea>
   );
 }
@@ -143,7 +158,7 @@ function Header({
   }, [confirming]);
   const open = pr.state === "OPEN";
   const busy = review.busy !== null;
-  const pill = pr.state !== "OPEN" ? STATE_PILL[pr.state] : pr.isDraft ? STATE_PILL.draft : null;
+  const pill = pullRequestStatePill(pr);
   const notInPr = local && open ? notInPrLabel(local.count, pr.localCommits ?? 0) : "";
   const status = mergeStatus(pr);
   // GitHub can't merge a conflicting PR, not even later or as an admin.
@@ -188,7 +203,7 @@ function Header({
     primary = (
       <span data-pr-auto-merge className="inline-flex h-7 shrink-0 items-center gap-1.5 px-1 text-12 text-ink-2">
         {icon(GitMergeIcon, 12)}
-        <span className="@max-[308px]:hidden">Merges when ready</span>
+        <span className="@max-[308px]:hidden">{AUTO_MERGE_LABEL}</span>
         <span className="hidden @max-[308px]:inline">Auto-merge on</span>
       </span>
     );
@@ -223,7 +238,9 @@ function Header({
           <span className="shrink-0 text-accent-ink">#{pr.number}</span>
           <span className="flex shrink-0 text-accent-ink">{icon(LinkSquare02Icon, 12)}</span>
         </a>
-        {pill && <span className={`shrink-0 rounded-full px-2 py-px text-11 font-semibold ${pill.className}`}>{pill.label}</span>}
+        {pill && (
+          <span className={`shrink-0 rounded-full px-2 py-px text-11 font-semibold ${PILL_CLASS[pill.fill]} ${PILL_CLASS[pill.ink]}`}>{pill.label}</span>
+        )}
         <span className="flex-1" />
         {primary}
         <PopoverButton
@@ -258,9 +275,7 @@ function Header({
               )}
               {open && !pr.isDraft && (
                 <>
-                  <SectionLabel as="div" variant="menu" className="px-2 pt-2 pb-1">
-                    Merge method
-                  </SectionLabel>
+                  <MenuLabel>Merge method</MenuLabel>
                   {MERGE_METHODS.map((entry) => (
                     <PickerRow
                       key={entry.value}
@@ -273,7 +288,7 @@ function Header({
                       option
                     />
                   ))}
-                  <div className="mx-2 my-1 h-px bg-line" />
+                  <MenuSeparator />
                 </>
               )}
               <PickerRow
@@ -297,9 +312,11 @@ function Header({
         <span className="min-w-0 truncate text-ink-3">· updated {ago(pr.updatedAt)}</span>
       </div>
       <div className="flex min-w-0 items-center gap-1.5 text-12">
-        <span className="min-w-0 truncate font-mono text-11 text-ink-3" title={`${pr.baseRefName} ← ${pr.headRefName}`}>
-          <span className="text-ink-2">{pr.baseRefName}</span> ← {pr.headRefName}
-        </span>
+        <Tooltip label={`${pr.baseRefName} ← ${pr.headRefName}`} side="bottom" asChild>
+          <span className="min-w-0 truncate font-mono text-11 text-ink-3">
+            <span className="text-ink-2">{pr.baseRefName}</span> ← {pr.headRefName}
+          </span>
+        </Tooltip>
         <span className="flex-1" />
         <span className="shrink-0 text-ink-2">
           {pr.changedFiles} file{pr.changedFiles === 1 ? "" : "s"}
@@ -307,8 +324,8 @@ function Header({
         <Counts added={pr.additions} removed={pr.deletions} />
       </div>
       {open && (status.tone === "blocked" || status.tone === "draft") && (
-        <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-12 leading-4">
-          <span className={`flex h-4 shrink-0 items-center ${status.tone === "blocked" ? "text-red-ink" : "text-ink-3"}`}>{icon(AlertCircleIcon, 12)}</span>
+        <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-12">
+          <span className={`flex h-4 shrink-0 items-center ${status.tone === "blocked" ? "text-red" : "text-ink-3"}`}>{icon(AlertCircleIcon, 12)}</span>
           {/* Wraps rather than cutting the base branch off in a narrow panel. */}
           <span className="line-clamp-2 min-w-0 text-ink-2">
             <span className={`font-semibold ${status.tone === "blocked" ? "text-red-ink" : "text-ink"}`}>{status.title}</span> · {status.detail}
@@ -320,7 +337,7 @@ function Header({
           type="button"
           data-pr-local={notInPr}
           onClick={local?.onOpen}
-          className="-mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-12 text-orange-ink transition-colors hover:bg-hover"
+          className="relative -mx-1 flex min-w-0 items-center gap-1.5 self-start rounded-chip px-1 text-left text-12 text-orange-ink transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-hover"
         >
           <span className="flex shrink-0">{icon(CloudUploadIcon, 12)}</span>
           <span className="truncate">{notInPr.replace(" · ", " and ")} not in the PR yet</span>
@@ -328,7 +345,7 @@ function Header({
         </button>
       )}
       {review.writeError && (
-        <InlineError data-pr-write-error size={12} className="leading-4">
+        <InlineError data-pr-write-error size={12}>
           {review.writeError}
         </InlineError>
       )}
@@ -336,46 +353,31 @@ function Header({
   );
 }
 
+// Solid status tokens; skipped is the neutral track colour.
 const SEGMENTS = [
   { key: "passed", className: "bg-green" },
-  { key: "skipped", className: "bg-ink-3/40" },
+  { key: "skipped", className: "bg-line-strong" },
   { key: "failed", className: "bg-red" },
-  { key: "running", className: "bg-orange/40 motion-safe:animate-pulse" },
+  { key: "running", className: "bg-orange motion-safe:animate-pulse" },
 ] as const;
 
-const tabClass = (on: boolean) =>
-  `flex h-6 items-center gap-1.5 rounded-chip px-3 text-12 transition-colors duration-fast ${on ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:text-ink"}`;
-
-function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "files"; onTab: (tab: "summary" | "files") => void }) {
+function Tabs({ pr, tab, onTab, panel }: { pr: PullRequestDetail; tab: "summary" | "files"; onTab: (tab: "summary" | "files") => void; panel: string }) {
   const progress = checksProgress(pr.checks);
   return (
     <div className="flex flex-col gap-2 px-4 pt-3 pb-1">
       {/* The checks status wraps under the tabs when they don't fit side by side. */}
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div role="tablist" aria-label="Pull request" onKeyDown={moveTab} className="flex shrink-0 items-center gap-0.5 rounded-control bg-inset p-0.5">
-          <button
-            type="button"
-            role="tab"
-            data-pr-tab="summary"
-            aria-selected={tab === "summary"}
-            tabIndex={tab === "summary" ? 0 : -1}
-            onClick={() => onTab("summary")}
-            className={tabClass(tab === "summary")}
-          >
-            Summary
-          </button>
-          <button
-            type="button"
-            role="tab"
-            data-pr-tab="files"
-            aria-selected={tab === "files"}
-            tabIndex={tab === "files" ? 0 : -1}
-            onClick={() => onTab("files")}
-            className={tabClass(tab === "files")}
-          >
-            Files <span className="text-11 font-normal text-ink-3 tabular-nums">{pr.changedFiles}</span>
-          </button>
-        </div>
+        <TabStrip
+          label="Pull request"
+          value={tab}
+          dataKey="pr-tab"
+          className="shrink-0"
+          options={[
+            { value: "summary", label: "Summary", controls: panel },
+            { value: "files", label: "Files", count: pr.changedFiles, controls: panel },
+          ]}
+          onChange={onTab}
+        />
         {progress.label && (
           <span
             data-pr-checks-status={progress.tone}
@@ -384,14 +386,16 @@ function Tabs({ pr, tab, onTab }: { pr: PullRequestDetail; tab: "summary" | "fil
             {progress.tone === "running" ? (
               <SpinnerRing size={12} color="var(--orange)" />
             ) : (
-              icon(progress.tone === "fail" ? CancelCircleIcon : CheckmarkCircle02Icon, 12)
+              <span className={`flex ${progress.tone === "fail" ? "text-red" : progress.tone === "pass" ? "text-green" : ""}`}>
+                {icon(progress.tone === "fail" ? CancelCircleIcon : CheckmarkCircle02Icon, 12)}
+              </span>
             )}
             <span className="tabular-nums">{progress.label}</span>
           </span>
         )}
       </div>
       {progress.total > 0 && (
-        <div data-pr-checks-bar className="flex h-[3px] gap-0.5" aria-hidden>
+        <div data-pr-checks-bar className="flex h-1 gap-0.5" aria-hidden>
           {SEGMENTS.map(({ key, className }) =>
             progress[key] ? <span key={key} data-pr-checks-segment={key} className={`rounded-full ${className}`} style={{ flexGrow: progress[key] }} /> : null,
           )}
@@ -434,7 +438,7 @@ function Summary({
       <div className="flex flex-col px-2 pt-1.5">
         <Section data-pr-description="" label="Description">
           <div className="text-13 text-ink-2">
-            {pr.body.trim() ? <Markdown text={pr.body} html loadImage={loadImage} /> : <p className="text-ink-3">No description.</p>}
+            {pr.body.trim() ? <Markdown text={pr.body} html loadImage={loadImage} /> : <p className="text-12 text-ink-3">No description</p>}
           </div>
         </Section>
         <Section data-pr-checks="" label="Checks" meta={pr.checks.length ? undefined : "None"}>
@@ -467,15 +471,10 @@ function Summary({
           defaultOpen
           action={
             comments.length > 1 && (
-              <button
-                type="button"
-                data-pr-comments-sort={newest ? "newest" : "oldest"}
-                onClick={() => setNewest((value) => !value)}
-                className="flex h-6 shrink-0 items-center gap-1 rounded-chip px-1 text-12 text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-              >
+              <Button variant="quiet" size={24} data-pr-comments-sort={newest ? "newest" : "oldest"} onClick={() => setNewest((value) => !value)}>
                 {icon(ArrowUpDownIcon, 12)}
                 {newest ? "Newest first" : "Oldest first"}
-              </button>
+              </Button>
             )
           }
         >
@@ -490,7 +489,7 @@ function Summary({
               )}
             </div>
           ) : (
-            <p className="px-1 text-12 text-ink-3">No comments yet.</p>
+            <p className="px-1 text-12 text-ink-3">No comments yet</p>
           )}
         </Section>
       </div>

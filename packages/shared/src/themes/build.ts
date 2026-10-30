@@ -1,4 +1,4 @@
-import { contrastRatio, mix, onColor, readableOn, withAlpha } from "./color.ts";
+import { contrastRatio, mix, onColor, over, readableOn, withAlpha } from "./color.ts";
 import type { Ansi, Scheme, ThemePalette, ThemeSource } from "./types.ts";
 import type { SyntaxKind } from "../file-syntax.mjs";
 
@@ -6,8 +6,8 @@ import type { SyntaxKind } from "../file-syntax.mjs";
 const tint = (page: string, color: string, scheme: Scheme, light: number, dark: number) =>
   scheme === "dark" ? withAlpha(color, dark) : mix(page, color, light);
 
-/** Text tokens solved from the rest of the palette at the end, so a theme never sets them below 4.5:1. */
-type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk";
+/** Tokens solved from the rest of the palette at the end, so a theme never sets text below 4.5:1. */
+type Solved = "ink4" | "greenInk" | "orangeInk" | "redInk" | "onGreen" | "onOrange" | "onRed";
 
 export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette {
   const { page, surface, ink, accent, green, orange, red } = source;
@@ -26,10 +26,11 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     syntax: source.syntax,
     canvas: mix(page, ink, dark ? 0.025 : 0.03),
     inset: mix(page, surface, 0.5),
-    hover: toward(dark ? 0.05 : 0.035),
-    hover2: toward(dark ? 0.09 : 0.07),
+    // Translucent ink, so a hover darkens whatever it sits on: page, card or field.
+    hover: withAlpha(ink, dark ? 0.05 : 0.04),
+    hover2: withAlpha(ink, dark ? 0.09 : 0.08),
     field: toward(dark ? 0.06 : 0.04),
-    ink2: mix(ink, page, 0.36),
+    ink2: mix(ink, page, 0.25),
     ink3: mix(ink, page, 0.56),
     onAccent: onColor(accent, page),
     line: toward(dark ? 0.09 : 0.07),
@@ -48,21 +49,33 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
   };
   const given = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined));
   const palette = { ...derived, ...given } as Omit<ThemePalette, Solved>;
-  // ink3 and the status colors carry metadata, descriptions and counts at 10–13px, so as text they need 4.5:1 on the
-  // page and on cards. A theme's own ink3 stays as ink4, for icons at rest, dots and disabled controls.
-  const on = [palette.page, palette.surface];
-  const worst = (color: string) => Math.min(...on.map((bg) => contrastRatio(color, bg)));
-  const ink2 = readableOn(palette.ink2, palette.ink, on);
+  // ink2, ink3 and the status colors carry metadata, descriptions and counts at 10–13px, so as text they need 4.5:1
+  // wherever they sit: the page, cards, fields, the hover-2 highlight (on page or card) and, for a status, its own
+  // tint. A theme's own ink3 stays as ink4, for icons at rest, dots and disabled controls.
+  const { page: pg, surface: sf } = palette;
+  const behind = (fill: string) => [over(fill, pg), over(fill, sf)];
+  const text = [pg, sf, ...behind(palette.field), ...behind(palette.hover2)];
+  const onTint = (tint: string) => [pg, sf, ...behind(tint)];
+  const worst = (color: string) => Math.min(...text.map((bg) => contrastRatio(color, bg)));
+  const ink2 = readableOn(palette.ink2, palette.ink, text);
   // Where ink2 is itself close to 4.5:1, a readable ink3 would pass it; the levels then share ink2.
-  const ink3 = readableOn(palette.ink3, palette.ink, on);
+  const ink3 = readableOn(palette.ink3, palette.ink, text);
+  const greenInk = readableOn(palette.green, palette.ink, onTint(palette.greenTint));
+  const orangeInk = readableOn(palette.orange, palette.ink, onTint(palette.orangeTint));
+  const redInk = readableOn(palette.red, palette.ink, onTint(palette.redTint));
   return {
     ...palette,
     ink2,
     ink3: worst(ink3) > worst(ink2) ? ink2 : ink3,
     ink4: palette.ink3,
-    greenInk: readableOn(palette.green, palette.ink, on),
-    orangeInk: readableOn(palette.orange, palette.ink, on),
-    redInk: readableOn(palette.red, palette.ink, on),
+    accentInk: readableOn(palette.accentInk, palette.ink, onTint(palette.accentTint)),
+    greenInk,
+    orangeInk,
+    redInk,
+    // Labels on a status fill that carries a count or a word: the fill is the -ink color (bg-red-ink text-on-red).
+    onGreen: onColor(greenInk, pg),
+    onOrange: onColor(orangeInk, pg),
+    onRed: onColor(redInk, pg),
   };
 }
 

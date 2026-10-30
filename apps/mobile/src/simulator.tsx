@@ -19,7 +19,7 @@ import { lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, useStyles } from "./ui";
+import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, SheetHeader, useStyles } from "./ui";
 import { usePanelTabs } from "./panel-tabs";
 
 /** Poll discovery only while this screen is visible. Discovery never starts a video session. */
@@ -97,6 +97,8 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
   const docked = onClose !== goBack;
   const background = docked ? colors.surface : colors.page;
   const styles = useStyles();
+  // The viewer header's sub-lines, as SheetHeader's subtitle: caption1 12/16 ink3.
+  const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
   const { client } = useSession();
   const insets = useSafeAreaInsets();
   const source = client && chatId && (!hostId || hostId === client.url) ? client : null;
@@ -168,13 +170,12 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
         paddingBottom: insets.bottom,
       }}
     >
-      <View
-        collapsable={false}
-        style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}
-      >
+      {/* One header view, kept by Fabric, sizes the native sheet. In the panel docked beside the Chat (an iPad), the panel's
+      own button closes it. */}
+      <View collapsable={false} style={{ flexShrink: 0 }}>
         {selected ? (
-          <>
-            <View style={{ flex: 1, gap: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 8 }}>
+            <View style={{ flex: 1, gap: 2 }}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${selected.name}, choose simulator`}
@@ -187,19 +188,13 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
               >
                 <Text
                   numberOfLines={1}
-                  style={{
-                    flexShrink: 1,
-                    color: colors.ink,
-                    fontSize: type.subheadline,
-                    lineHeight: lineHeight.subheadline,
-                    fontWeight: "600",
-                  }}
+                  style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}
                 >
                   {selected.name}
                 </Text>
                 <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
               </Pressable>
-              <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
+              <Text style={caption}>
                 {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
               </Text>
             </View>
@@ -212,46 +207,34 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                   backgroundColor: connectionState === "live" ? colors.green : connectionState === "error" ? colors.red : colors.ink4,
                 }}
               />
-              <Text style={{ color: colors.ink2, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
-                {SIMULATOR_CONNECTION_LABELS[connectionState]}
-              </Text>
+              <Text style={caption}>{SIMULATOR_CONNECTION_LABELS[connectionState]}</Text>
             </View>
-          </>
+            {onClose === goBack && <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />}
+          </View>
         ) : (
-          <>
-            {attaching ? (
-              <CircleButton
-                label="Back to devices"
-                icon={ArrowLeft01Icon}
-                onPress={() => {
-                  setChoosing(true);
-                  setSelected(null);
-                  setAttaching(false);
-                }}
-              />
-            ) : (
-              <View style={{ width: 40, alignItems: "center" }}>
-                <Icon icon={SmartphoneIcon} tone="ink2" size={18} />
-              </View>
-            )}
-            <View style={{ flex: 1, alignItems: "center" }}>
-              <Text
-                accessibilityRole="header"
-                numberOfLines={1}
-                style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}
-              >
-                {attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}
-              </Text>
-              {!selected && (
-                <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
-                  {attaching ? "Other devices on this Mac" : "This Chat"}
-                </Text>
-              )}
-            </View>
-          </>
+          <SheetHeader
+            title={attaching ? "Attach simulator" : "Simulators"}
+            subtitle={attaching ? "Other devices on this Mac" : "This Chat"}
+            leading={
+              attaching ? (
+                <CircleButton
+                  label="Back to devices"
+                  icon={ArrowLeft01Icon}
+                  onPress={() => {
+                    setChoosing(true);
+                    setSelected(null);
+                    setAttaching(false);
+                  }}
+                />
+              ) : (
+                <View style={{ width: 40, alignItems: "center" }}>
+                  <Icon icon={SmartphoneIcon} tone="ink2" size={20} />
+                </View>
+              )
+            }
+            trailing={onClose === goBack ? <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} /> : undefined}
+          />
         )}
-        {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
-        {onClose === goBack && <CircleButton label="Close simulator" icon={Cancel01Icon} onPress={onClose} />}
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source ? (
@@ -454,11 +437,11 @@ function SimulatorWebView({
   };
   if (error)
     return (
-      <View style={{ padding: 16, gap: 16 }}>
-        <ErrorNotice message={error} />
-        <PillButton
-          title="Retry"
-          onPress={() => {
+      <View style={{ padding: 16 }}>
+        <ErrorNotice
+          message={error}
+          retryTitle="Retry"
+          retry={() => {
             setError("");
             setUri(null);
             setRevision((value) => value + 1);

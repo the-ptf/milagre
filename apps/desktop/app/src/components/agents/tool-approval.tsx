@@ -59,10 +59,10 @@ const STATUS_COPY: Record<ToolApprovalStatus, string> = {
 };
 
 function statusTone(status: ToolApprovalStatus) {
-  if (status === "error" || status === "denied") return "border-red/30 bg-red-tint text-red-ink";
-  if (status === "approved" || status === "complete") return "border-green/30 bg-green-tint text-green-ink";
-  if (status === "approving" || status === "running") return "border-accent/30 bg-accent-tint text-accent-ink";
-  return "border-orange/30 bg-orange-tint text-orange-ink";
+  if (status === "error" || status === "denied") return "bg-red-tint text-red-ink";
+  if (status === "approved" || status === "complete") return "bg-green-tint text-green-ink";
+  if (status === "approving" || status === "running") return "bg-accent-tint text-accent-ink";
+  return "bg-orange-tint text-orange-ink";
 }
 
 function StatusIcon({ status }: { status: ToolApprovalStatus }) {
@@ -150,13 +150,13 @@ export function ToolApproval({
               <h2 className={`mt-0.5 ${inline ? "text-13" : "text-15"} font-semibold text-ink`}>{title}</h2>
             </div>
             {!inline && (
-              <span className={`inline-flex shrink-0 items-center gap-1 rounded-chip border px-2 py-1 text-10 font-semibold ${statusTone(status)}`}>
+              <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-chip px-2 text-10 font-semibold ${statusTone(status)}`}>
                 <StatusIcon status={status} />
                 {STATUS_COPY[status]}
               </span>
             )}
           </div>
-          {description && <p className="mt-2 text-12 leading-5 text-ink-2">{description}</p>}
+          {description && <p className="mt-2 text-12 text-ink-2">{description}</p>}
           {inline && isBusy && (
             <p role="status" className="mt-2 text-12 text-ink-3">
               Sending decision…
@@ -181,7 +181,7 @@ export function ToolApproval({
             type="button"
             aria-expanded={detailsOpen}
             onClick={() => setDetailsOpen(!detailsOpen)}
-            className="flex h-9 w-full items-center justify-between gap-3 px-4 text-left text-12 font-medium text-ink-2 transition-colors duration-fast hover:bg-hover"
+            className="flex h-9 w-full items-center justify-between gap-3 px-4 text-left text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
           >
             <span>{detailsOpen ? "Hide details" : "View details"}</span>
             <motion.span animate={{ rotate: detailsOpen ? 180 : 0 }} transition={reduce ? { duration: 0 } : SPRING_SWAP}>
@@ -222,17 +222,15 @@ export function ToolApproval({
             transition={reduce ? { duration: 0 } : SPRING_SWAP}
             className={inline ? "flex flex-wrap justify-end gap-2" : "flex flex-wrap justify-end gap-2 border-t border-line bg-inset px-4 py-3"}
           >
-            <Button variant="secondary" onClick={onDeny} className="enabled:active:scale-press">
+            <Button variant="danger-ghost" onClick={onDeny}>
               {denyLabel}
             </Button>
             {onAlwaysAllow && (
-              <Button variant="secondary" onClick={onAlwaysAllow} className="enabled:active:scale-press">
+              <Button variant="secondary" onClick={onAlwaysAllow}>
                 {alwaysAllowLabel}
               </Button>
             )}
-            <Button onClick={onApprove} className="enabled:active:scale-press">
-              {approveLabel}
-            </Button>
+            <Button onClick={onApprove}>{approveLabel}</Button>
           </motion.div>
         )}
       </AnimatePresence>

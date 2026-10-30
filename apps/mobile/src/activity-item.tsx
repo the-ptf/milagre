@@ -28,7 +28,7 @@ export function ActivityTitle({
   const active = useScreenActive();
   const reduced = useShimmerReducedMotion(active && shimmer);
   const sweeping = shimmer && active && !reduced;
-  const style = styleProp ?? { color: colors.ink2, fontSize: type.subheadline };
+  const style = styleProp ?? { color: colors.ink2, fontSize: type.subheadline, lineHeight: TITLE_LINE };
   const spans = (moving: boolean) =>
     titleSpans(title).map((span, index) =>
       span.code ? (
@@ -36,7 +36,8 @@ export function ActivityTitle({
           key={index}
           style={{
             fontFamily: fonts.mono,
-            fontSize: (style.fontSize || type.subheadline) * 0.92,
+            // Inline code a step under the 15 title, as desktop's 0.92em.
+            fontSize: type.footnote,
             backgroundColor: moving ? undefined : colors.field,
             color: shimmer ? colors.ink3 : colors.ink,
           }}

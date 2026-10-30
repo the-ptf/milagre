@@ -32,23 +32,12 @@ export function QueuedMessages({ items, held, running, onSendNow, onRemove, disa
       </p>
       <ul className="flex flex-col">
         {items.map((item) => (
-          <li
-            key={item.id}
-            data-queued-message={item.id}
-            className="group flex items-center gap-2 rounded-control px-2 py-1 transition-colors duration-fast hover:bg-hover"
-          >
+          <li key={item.id} data-queued-message={item.id} className="group flex items-center gap-2 rounded-control px-2 py-1 transition-colors hover:bg-hover">
             <span className="min-w-0 flex-1 truncate">
               {item.body.trim() || "Attachments"}
               {attachmentNote(item) && <span className="text-ink-3"> · {attachmentNote(item)}</span>}
             </span>
-            <Button
-              variant="ghost"
-              size={24}
-              data-queued-send={item.id}
-              disabled={disabled}
-              onClick={() => onSendNow(item.id)}
-              className="text-ink-2 enabled:hover:text-ink"
-            >
+            <Button variant="quiet" size={24} data-queued-send={item.id} disabled={disabled} onClick={() => onSendNow(item.id)}>
               {running ? "Stop and send" : "Send now"}
             </Button>
             <Tooltip label="Remove from queue" side="top" align="end">

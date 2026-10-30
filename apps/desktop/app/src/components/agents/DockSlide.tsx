@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { motion, useMotionValue, useMotionValueEvent, usePresence, animate } from "motion/react";
-import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { ResizeHandle } from "../primitives/ResizeHandle";
 import { dockLayer } from "./dock-area";
 import { roomToWiden, usePanelWidth, type ResizablePanel } from "./panel-width";
@@ -130,7 +130,7 @@ export const DockSlide = forwardRef<
         initial={reduced ? false : { opacity: 0, x: 24 }}
         animate={{ opacity: 1, x: 0 }}
         exit={reduced ? undefined : { opacity: 0, x: 24 }}
-        transition={{ duration: scaled(0.28, scale), ease: EASE_OUT }}
+        transition={{ duration: scaled(DURATION.slow, scale), ease: EASE_OUT }}
         onAnimationComplete={onEntered}
       >
         {children}

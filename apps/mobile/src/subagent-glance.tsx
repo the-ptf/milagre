@@ -96,7 +96,7 @@ const FOOTNOTE = { fontSize: type.footnote, lineHeight: lineHeight.footnote } as
 
 function useText() {
   const { colors } = useTheme();
-  return { colors, label: useStyles().section };
+  return { colors, label: [useStyles().footnote, { fontWeight: "500" as const }] };
 }
 
 /** A QA persona's face, as on desktop (qa-personas.ts): a solid blob with white eyes, the same in light and dark. */
@@ -114,7 +114,7 @@ export function PersonaAvatar({ persona, size }: { persona: QaPersona; size: num
 function QaTag({ persona }: { persona: QaPersona }) {
   return (
     <View style={{ borderRadius: radius.chip, borderCurve: "continuous", paddingHorizontal: 6, paddingVertical: 2, backgroundColor: persona.tint }}>
-      <Text style={{ color: persona.ink, fontSize: type.caption2, fontWeight: "600" }}>QA</Text>
+      <Text style={{ color: persona.ink, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600" }}>QA</Text>
     </View>
   );
 }
@@ -158,7 +158,7 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
 
 function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   if (subagentRunning(agent)) return <SpinnerRing size={16} />;
-  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} tone="ink3" size={18} />;
+  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} tone="ink3" size={16} />;
   return <ProviderLogo provider={agent.provider ?? provider} size={16} />;
 }
 
@@ -240,7 +240,7 @@ function StepNumber({ value, current }: { value: number; current?: boolean }) {
     <View
       style={{
         minWidth: 20,
-        height: 20,
+        minHeight: 20,
         borderRadius: radius.chip,
         borderCurve: "continuous",
         paddingHorizontal: 4,
@@ -249,7 +249,12 @@ function StepNumber({ value, current }: { value: number; current?: boolean }) {
         backgroundColor: current ? colors.hover2 : colors.hover,
       }}
     >
-      <Text style={{ color: current ? colors.ink2 : colors.ink3, fontSize: type.caption1, fontVariant: ["tabular-nums"] }}>{value}</Text>
+      <Text
+        maxFontSizeMultiplier={1.3}
+        style={{ color: current ? colors.ink2 : colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -283,15 +288,13 @@ function ToolChips({ counts }: { counts?: SubagentStep["tools"] }) {
 }
 
 function PlanList({ tasks, said, tool }: { tasks: AgentTask[]; said?: string; tool?: string }) {
-  const { colors, label } = useText();
+  const { colors } = useTheme();
   const counts = planCounts(tasks)!;
   return (
     <View style={{ gap: 4 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <Text accessibilityRole="header" style={label}>
-          Plan
-        </Text>
-        <Text style={{ color: colors.ink3, ...FOOTNOTE }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+        <SectionLabel flush>Plan</SectionLabel>
+        <Text style={{ color: colors.ink3, ...FOOTNOTE, fontVariant: ["tabular-nums"] }}>
           {counts.done} of {counts.total} done
         </Text>
       </View>
@@ -351,7 +354,7 @@ function StepList({ steps, title }: { steps: SubagentStep[]; title: string }) {
   if (!steps.length) return null;
   return (
     <View style={{ gap: 12 }}>
-      <SectionLabel>{title}</SectionLabel>
+      <SectionLabel flush>{title}</SectionLabel>
       {steps.map((step, index) => (
         <View key={step.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
           <StepNumber value={index + 1} />
@@ -452,13 +455,13 @@ function SubagentDetail({ agent }: { agent: Subagent }) {
       )}
       {!!result && (
         <View style={{ gap: 6 }}>
-          <SectionLabel>Result</SectionLabel>
+          <SectionLabel flush>Result</SectionLabel>
           <Clamped text={result} lines={6} style={{ color: colors.ink2, ...BODY }} />
         </View>
       )}
       {!!agent.prompt && (
         <View style={{ gap: 6 }}>
-          <SectionLabel>Task</SectionLabel>
+          <SectionLabel flush>Task</SectionLabel>
           <Clamped text={agent.prompt} lines={2} style={{ color: colors.ink2, ...BODY }} />
         </View>
       )}
@@ -493,7 +496,7 @@ function SubagentDetail({ agent }: { agent: Subagent }) {
                 selectable
                 style={
                   entry.kind === "tool"
-                    ? { color: colors.ink2, fontSize: type.caption1, lineHeight: 18, fontFamily: fonts.mono }
+                    ? { color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }
                     : { color: colors.ink2, ...BODY }
                 }
               >

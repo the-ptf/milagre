@@ -120,12 +120,14 @@ export function MermaidBlock({ code }: { code: string }) {
   };
 
   const label = diagramLabel(type);
-  const tab = (on: boolean) => `rounded-chip px-2 py-0.5 text-11 transition-colors duration-fast ${on ? "bg-field text-ink" : "text-ink-3 hover:text-ink"}`;
+  // Segmented's look at the header's size: the picked one raised on the field track.
+  const tab = (on: boolean) =>
+    `rounded-chip px-2 py-0.5 text-11 font-medium transition-colors ${on ? "bg-surface text-ink shadow-card dark:bg-hover-2" : "text-ink-2 hover:text-ink"}`;
   return (
     <div data-slot="mermaid-block" className="markdown-code my-2 overflow-hidden rounded-control border border-line bg-inset">
       <div className="flex h-7 items-center gap-1 border-b border-line pr-1 pl-2.5 text-11 text-ink-3">
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <div role="group" aria-label="Show" className="flex items-center gap-0.5 rounded-control bg-surface p-0.5">
+        <div role="group" aria-label="Show" className="flex items-center gap-0.5 rounded-control bg-field p-0.5">
           <button type="button" aria-pressed={!source} onClick={() => setSource(false)} className={tab(!source)}>
             Diagram
           </button>
@@ -143,7 +145,7 @@ export function MermaidBlock({ code }: { code: string }) {
               The diagram didn't draw: {error}
             </p>
           )}
-          <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[length:var(--code-size)] leading-[1.6]">
+          <pre className="overflow-x-auto px-3 py-3 font-mono text-[length:var(--code-size)] leading-[1.6]">
             <code>{code}</code>
           </pre>
         </>

@@ -408,7 +408,7 @@ async function browserChecks() {
     await waitFor(`${shareDialog}.textContent.includes("Revoked")`);
     assert.deepEqual(await evaluate("window.shareCalls"), [["all"], ["revoke", "orphan"]]);
     await screenshot("published-pages-orphan-revoked");
-    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog}`);
     await openSection("Experimental");
     const botsSwitch = 'document.querySelector("[data-slot=bots-setting] [role=switch][aria-label=Bots]")';

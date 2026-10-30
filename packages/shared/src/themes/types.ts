@@ -23,16 +23,24 @@ export interface ThemePalette {
   canvas: string;
   surface: string;
   inset: string;
+  /** Translucent ink (4% light, 5% dark): pointer hover on anything, page, card or field. */
   hover: string;
+  /** Translucent ink (8% light, 9% dark): the open or selected row, a pressed toggle, the menu highlight. */
   hover2: string;
   field: string;
   ink: string;
+  /** Secondary text: values, descriptions, chip labels. 4.5:1 on page, surface, field and hover-2. */
   ink2: string;
-  /** Tertiary text: metadata, descriptions, placeholders. Always 4.5:1 on page and surface. */
+  /** Tertiary text: metadata, descriptions, placeholders. 4.5:1 on page, surface, field and hover-2. */
   ink3: string;
   /** The theme's own faint ink, for icons at rest, dots and disabled controls; not for text. */
   ink4: string;
+  /** Label on an accent or accent-ink fill. */
   onAccent: string;
+  /** Labels on the status -ink fills (a count on a pin, the danger button): white or the page, whichever reads. */
+  onGreen: string;
+  onOrange: string;
+  onRed: string;
   line: string;
   lineStrong: string;
   accent: string;
@@ -44,7 +52,7 @@ export interface ThemePalette {
   orangeTint: string;
   red: string;
   redTint: string;
-  /** The status colors as text: 4.5:1 on page and surface. The plain ones stay for fills, dots and icons. */
+  /** The status colors as text: 4.5:1 on page, surface and their own tint. The plain ones stay for fills, dots and icons. */
   greenInk: string;
   orangeInk: string;
   redInk: string;

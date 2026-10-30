@@ -8,7 +8,7 @@ export function OfflineBanner({ text, empty }: { text: string; empty: boolean })
       </div>
       {empty && (
         <p data-offline-empty className="mt-6 text-center text-13 text-ink-3">
-          No copy of this chat on this Mac yet.
+          No copy of this Chat on this Mac yet.
         </p>
       )}
     </div>

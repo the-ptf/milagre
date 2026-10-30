@@ -35,7 +35,8 @@ import { useScreenActive } from "./display-clock";
 import { useRpc } from "./use-rpc";
 import { Icon } from "./icons";
 import { Counts, StatusBox } from "./diff-ui";
-import { announce, ErrorNotice, pressStyle, useStyles } from "./ui";
+import { UI_COPY } from "@milagre/shared/model-copy";
+import { announce, Chip, EmptyState, ErrorNotice, pressStyle, useStyles } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
@@ -62,7 +63,7 @@ function TreeRow({ node, depth, onOpen }: { node: DiffTreeNode<DiffFileEntry>; d
         onPress={() => onOpen(node.file)}
         style={({ pressed }) => [row, { backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
-        <Icon icon={File01Icon} tone="ink3" size={16} strokeWidth={1.6} />
+        <Icon icon={File01Icon} tone="ink3" size={16} />
         <Text numberOfLines={1} ellipsizeMode="middle" style={[styles.text, { flex: 1, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }]}>
           {node.name}
         </Text>
@@ -236,30 +237,36 @@ export function ChangeSections({
           {data && !data.branch && <Text style={styles.caption}>detached</Text>}
         </View>
       </View>
-      <View style={{ flexDirection: "row", gap: 24 }}>
-        {(["files", "commits"] as const).map((item) => (
-          <Pressable
-            key={item}
-            accessibilityRole="tab"
-            accessibilityLabel={item === "files" ? "Files" : "Commits"}
-            accessibilityState={{ selected: view === item }}
-            onPress={() => {
-              setView(item);
-              if (item === "commits") setLimit((value) => Math.max(value, 30));
-            }}
-            style={{
-              minHeight: 44,
-              flexDirection: "row",
-              gap: 6,
-              alignItems: "center",
-              borderBottomWidth: 2,
-              borderBottomColor: view === item ? colors.accent : "transparent",
-            }}
-          >
-            <Text style={view === item ? styles.label : styles.muted}>{item === "files" ? "Files" : "Commits"}</Text>
-            <Text style={styles.caption}>{item === "files" ? fileCount : data?.total}</Text>
-          </Pressable>
-        ))}
+      <View accessibilityRole="tablist" style={{ flexDirection: "row", gap: 8, paddingVertical: 8 }}>
+        {(["files", "commits"] as const).map((item) => {
+          const count = item === "files" ? fileCount : data?.total;
+          return (
+            <Chip
+              key={item}
+              role="tab"
+              label={item === "files" ? "Files" : "Commits"}
+              selected={view === item}
+              trailing={
+                count === undefined ? undefined : (
+                  <Text
+                    style={{
+                      color: view === item ? colors.onInk : colors.ink3,
+                      fontSize: type.caption1,
+                      lineHeight: lineHeight.caption1,
+                      fontVariant: ["tabular-nums"],
+                    }}
+                  >
+                    {count}
+                  </Text>
+                )
+              }
+              onPress={() => {
+                setView(item);
+                if (item === "commits") setLimit((value) => Math.max(value, 30));
+              }}
+            />
+          );
+        })}
       </View>
       {missing?.cwd === cwd && missing.client === client && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -339,7 +346,11 @@ export function ChangeSections({
     return (
       <>
         {controls}
-        <Text style={[styles.muted, { textAlign: "center", paddingVertical: 32 }]}>{!done ? "Reading changes…" : notRepo || message || "No changes."}</Text>
+        {done ? (
+          <EmptyState title={notRepo || UI_COPY.noChanges}>{notRepo ? undefined : message}</EmptyState>
+        ) : (
+          <Text style={[styles.muted, { textAlign: "center", paddingVertical: 32 }]}>Reading changes…</Text>
+        )}
       </>
     );
   }
@@ -358,7 +369,7 @@ export function ChangeSections({
             <Counts
               added={section.files.reduce((sum, file) => sum + file.added, 0)}
               removed={section.files.reduce((sum, file) => sum + file.removed, 0)}
-              size={13}
+              size={type.footnote}
             />
           </View>
           <View style={[styles.card, { paddingVertical: 4, paddingHorizontal: 0, gap: 0 }]}>

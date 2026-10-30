@@ -17,7 +17,7 @@ import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntr
 import { Icon, SpinnerRing, type IconData, type Tone } from "./icons";
 import { ChatMarkIcon } from "./status-indicators";
 import { lineHeight, space, type } from "./design-tokens";
-import { Button, pressStyle, SectionLabel, useStyles } from "./ui";
+import { Group, PillButton, pressStyle, SectionLabel, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 /** Day groups shown at first, and how many more each Show earlier days adds, as on desktop. */
@@ -86,7 +86,7 @@ export function RunList({
       return next;
     });
   // The time keeps its width, wide enough for a fold's range ("13:29–13:30") on one line; the words give way first.
-  const time = [styles.caption, { fontVariant: ["tabular-nums" as const], width: 92, flexShrink: 0, fontSize: type.footnote, lineHeight: lineHeight.footnote }];
+  const time = [styles.footnote, { fontVariant: ["tabular-nums" as const], width: 92, flexShrink: 0 }];
   const openable = (run: RoutineRun) => (run.chatId && canOpen(run.chatId) ? run.chatId : undefined);
 
   /** One row: the time column, an icon, the words, then the unread dot and a chevron when it opens a Chat. */
@@ -229,20 +229,14 @@ export function RunList({
           ...(open ? day.entries.flatMap(entry) : []),
         ];
         return (
-          <View key={day.key} style={{ gap: 6 }}>
-            <SectionLabel style={{ paddingHorizontal: space.xs }}>{day.label}</SectionLabel>
-            <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-              {rows.map((child, index) => (
-                <View key={child.key ?? index}>
-                  {index > 0 ? <View style={styles.separator} /> : null}
-                  {child}
-                </View>
-              ))}
-            </View>
+          <View key={day.key} style={{ gap: space.md }}>
+            <SectionLabel>{day.label}</SectionLabel>
+            {/* The rows start with their time, so the separators run from the text's edge. */}
+            <Group inset={0}>{rows}</Group>
           </View>
         );
       })}
-      {days.length > shownDays ? <Button title="Show earlier days" secondary onPress={() => setShownDays((count) => count + MORE_DAYS)} /> : null}
+      {days.length > shownDays ? <PillButton title="Show earlier days" secondary onPress={() => setShownDays((count) => count + MORE_DAYS)} /> : null}
       <Text style={[styles.caption, { textAlign: "center" }]}>Keeps the newest 50 Runs that acted</Text>
     </View>
   );

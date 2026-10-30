@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, MoreVerticalIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import type { AccountsSnapshot, ModelProvider } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
 import { lineHeight, radius, type as typeScale } from "./design-tokens";
-import { ErrorNotice, IconButton, pressStyle, PullDown, useStyles } from "./ui";
+import { IconButton, InlineError, pressStyle, PullDown, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 export function AccountsSection() {
@@ -74,7 +74,7 @@ export function AccountsForComputer() {
           }}
         />
       </View>
-      {error ? <ErrorNotice message={error} /> : null}
+      <InlineError message={error} />
       {!snapshot && !error ? <Text style={styles.muted}>Checking accounts…</Text> : null}
       {providers?.map((group) => (
         <View key={group.provider} style={{ gap: 8 }}>
@@ -97,7 +97,7 @@ export function AccountsForComputer() {
               borderRadius: radius.card,
               borderCurve: "continuous",
               overflow: "hidden",
-              borderWidth: 1,
+              borderWidth: StyleSheet.hairlineWidth,
               borderColor: colors.line,
             }}
           >
@@ -121,11 +121,8 @@ export function AccountsForComputer() {
               return (
                 <View
                   key={account.id}
-                  style={{
-                    borderTopWidth: index ? 1 : 0,
-                    borderColor: colors.line,
-                    backgroundColor: selected ? colors.hover : undefined,
-                  }}
+                  // The tick marks the chosen account (D2): no fill.
+                  style={{ borderTopWidth: index ? StyleSheet.hairlineWidth : 0, borderColor: colors.line }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Pressable
@@ -245,13 +242,10 @@ export function AccountsForComputer() {
                       </PullDown>
                     )}
                   </View>
-                  {account.message && account.state !== "signing-in" ? (
-                    <Text
-                      accessibilityRole={account.state === "error" ? "alert" : undefined}
-                      style={[styles.caption, { paddingHorizontal: 12, paddingBottom: 12 }]}
-                    >
-                      {account.message}
-                    </Text>
+                  {account.message && account.state === "error" ? (
+                    <InlineError message={account.message} style={{ paddingHorizontal: 12, paddingBottom: 12 }} />
+                  ) : account.message && account.state !== "signing-in" ? (
+                    <Text style={[styles.caption, { paddingHorizontal: 12, paddingBottom: 12 }]}>{account.message}</Text>
                   ) : null}
                 </View>
               );

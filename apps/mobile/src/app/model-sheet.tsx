@@ -15,7 +15,7 @@ import { EffortSlider } from "../effort-slider";
 import { UltracodeFatality } from "../ultracode-fatality";
 import { ultraRumble } from "../ultra-haptics";
 import { useUltracodeFatality } from "../ultracode-fatality-setting";
-import { CircleButton, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
+import { CheckRow, Chip, CircleButton, InlineError, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
 import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
@@ -107,95 +107,59 @@ export default function ModelSheet() {
             {pickerProviders(session.cliStatus, initial.provider, draft.provider).map((provider) => {
               const on = provider === draft.provider;
               const problem = session.cliStatus?.[provider] && session.cliStatus[provider].state !== "ready";
+              // Chips kept as tabs: these switch the list below.
               return (
-                <Pressable
+                <Chip
                   key={provider}
-                  accessibilityRole="tab"
-                  accessibilityLabel={providerName(provider)}
-                  accessibilityState={{ selected: on }}
-                  hitSlop={6}
+                  role="tab"
+                  label={providerName(provider)}
+                  selected={on}
                   onPress={() => setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }))}
-                  // The Chip look (32 tall, 44 with hitSlop), kept as a tab: these switch the list below.
-                  style={({ pressed }) => [
-                    {
-                      minHeight: 32,
-                      paddingHorizontal: 12,
-                      borderRadius: radius.full,
-                      borderCurve: "continuous",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 6,
-                      backgroundColor: on ? colors.ink : colors.surface,
-                      borderWidth: on ? 0 : 1,
-                      borderColor: colors.lineStrong,
-                    },
-                    pressStyle({ pressed }),
-                  ]}
-                >
-                  <ProviderLogo provider={provider} size={16} inverted={on} />
-                  <Text
-                    style={{ color: on ? colors.onInk : colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: on ? "600" : "500" }}
-                  >
-                    {providerName(provider)}
-                  </Text>
-                  {problem && <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} />}
-                </Pressable>
+                  leading={<ProviderLogo provider={provider} size={16} inverted={on} />}
+                  trailing={problem ? <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} /> : undefined}
+                />
               );
             })}
           </ScrollView>
         </View>
         <View accessibilityRole="radiogroup" accessibilityLabel="Model" style={{ paddingHorizontal: 16 }}>
           {busy && <Text style={[styles.caption, { paddingBottom: 8 }]}>Changes apply to your next message. This turn keeps its settings.</Text>}
-          {cli && cli.state !== "ready" && (
-            <Text style={[styles.caption, { color: colors.orangeInk, paddingBottom: 8 }]}>
-              {cli.message || `${providerName(draft.provider)} is ${cli.state}.`}
-            </Text>
-          )}
+          {cli && cli.state !== "ready" ? (
+            <InlineError warning message={cli.message || `${providerName(draft.provider)} is ${cli.state}.`} style={{ paddingBottom: 8 }} />
+          ) : null}
           {models.map((item, index) => (
             <View key={item.id}>
               {index > 0 && <View style={styles.separator} />}
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityLabel={item.description ? `${item.name}. ${item.description}` : item.name}
-                accessibilityState={{ checked: item.id === model.id }}
+              <CheckRow
+                title={item.name}
+                subtitle={item.description || undefined}
+                checked={item.id === model.id}
                 onPress={() => setDraft((current) => ({ ...current, model: item.id }))}
-                style={({ pressed }) => [
-                  { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, minHeight: item.description ? 56 : 44 },
-                  pressStyle({ pressed, kind: "row" }),
-                ]}
-              >
-                <ProviderLogo provider={item.provider} size={16} />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500", flexShrink: 1 }}>
-                      {item.name}
+                leading={<ProviderLogo provider={item.provider} size={16} />}
+                accessory={
+                  contextLabel(item) ? (
+                    <Text
+                      accessibilityLabel={`${contextLabel(item)} context window`}
+                      style={{
+                        color: colors.ink3,
+                        fontSize: type.caption2,
+                        lineHeight: lineHeight.caption2,
+                        fontWeight: "500",
+                        fontVariant: ["tabular-nums"],
+                        borderWidth: 1,
+                        borderColor: colors.lineStrong,
+                        borderRadius: radius.chip,
+                        borderCurve: "continuous",
+                        paddingHorizontal: 4,
+                        paddingVertical: 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {contextLabel(item)}
                     </Text>
-                    {!!contextLabel(item) && (
-                      <Text
-                        accessibilityLabel={`${contextLabel(item)} context window`}
-                        style={{
-                          color: colors.ink3,
-                          fontSize: type.caption2,
-                          lineHeight: lineHeight.caption2,
-                          fontWeight: "500",
-                          fontVariant: ["tabular-nums"],
-                          borderWidth: StyleSheet.hairlineWidth,
-                          borderColor: colors.lineStrong,
-                          borderRadius: radius.chip,
-                          borderCurve: "continuous",
-                          paddingHorizontal: 4,
-                          paddingVertical: 2,
-                          overflow: "hidden",
-                        }}
-                      >
-                        {contextLabel(item)}
-                      </Text>
-                    )}
-                  </View>
-                  {!!item.description && <Text style={styles.caption}>{item.description}</Text>}
-                </View>
-                {item.id === model.id && <Icon icon={Tick02Icon} tone="accent" size={18} />}
-              </Pressable>
+                  ) : undefined
+                }
+              />
             </View>
           ))}
         </View>
@@ -219,7 +183,7 @@ export default function ModelSheet() {
         >
           {levels.length > 0 && effort && (
             <View style={{ gap: 8 }}>
-              <SectionLabel>Thinking effort</SectionLabel>
+              <SectionLabel flush>Thinking effort</SectionLabel>
               {levels.length > 1 && (
                 <>
                   <EffortSlider
@@ -322,11 +286,14 @@ function SettingTile({
           borderRadius: radius.card,
           borderCurve: "continuous",
           backgroundColor: value ? (tone === "purple" ? colors.purpleTint : colors.orangeTint) : colors.surface,
+          borderWidth: 1,
+          borderColor: value ? "transparent" : colors.line,
         },
         pressStyle({ pressed }),
       ]}
     >
-      <Icon icon={icon} tone={value ? (tone === "purple" ? "purpleInk" : "orange") : "ink2"} size={18} />
+      {/* Fills are for icons: the orange or purple fill while on. */}
+      <Icon icon={icon} tone={value ? tone : "ink2"} size={18} />
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: value ? ink : colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>{title}</Text>
         <Text style={styles.caption}>{detail}</Text>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_THEME_ID, getTheme, resolvePalette, resolveThemeSettings, themes, isHex, contrastRatio, onColor } from "./index.ts";
+import { DEFAULT_THEME_ID, getTheme, resolvePalette, resolveThemeSettings, themes, isHex, contrastRatio, onColor, over, luminance } from "./index.ts";
 
 test("registers the twelve themes in picker order", () => {
   assert.deepEqual(
@@ -33,14 +33,49 @@ test("every theme builds a complete palette in both schemes with readable text",
     }
 });
 
-test("tertiary and status text reads at 4.5:1 on the page and on cards, in every theme", () => {
+test("text reads at 4.5:1 on the page, cards, fields and the hover-2 highlight, and each status ink on its tint", () => {
   for (const theme of themes)
     for (const scheme of ["light", "dark"] as const) {
       const p = resolvePalette(theme.id, scheme);
-      for (const key of ["ink3", "greenInk", "orangeInk", "redInk"] as const)
-        for (const bg of ["page", "surface"] as const)
-          assert.ok(contrastRatio(p[key], p[bg]) >= 4.5, `${theme.id} ${scheme} ${key} ${p[key]} on ${bg} ${p[bg]}`);
+      const behind = (fill: string) => [over(fill, p.page), over(fill, p.surface)];
+      const grounds = { page: [p.page], surface: [p.surface], field: behind(p.field), hover2: behind(p.hover2) };
+      for (const key of ["ink2", "ink3"] as const)
+        for (const [name, bgs] of Object.entries(grounds))
+          for (const bg of bgs) assert.ok(contrastRatio(p[key], bg) >= 4.5, `${theme.id} ${scheme} ${key} ${p[key]} on ${name} ${bg}`);
+      for (const key of ["greenInk", "orangeInk", "redInk"] as const)
+        for (const bg of [p.page, p.surface]) assert.ok(contrastRatio(p[key], bg) >= 4.5, `${theme.id} ${scheme} ${key} ${p[key]} on ${bg}`);
+      for (const [ink, tint] of [
+        ["greenInk", "greenTint"],
+        ["orangeInk", "orangeTint"],
+        ["redInk", "redTint"],
+        ["accentInk", "accentTint"],
+      ] as const)
+        for (const bg of behind(p[tint])) assert.ok(contrastRatio(p[ink], bg) >= 4.5, `${theme.id} ${scheme} ${ink} ${p[ink]} on ${tint} ${bg}`);
+      for (const [label, fill] of [
+        ["onGreen", "greenInk"],
+        ["onOrange", "orangeInk"],
+        ["onRed", "redInk"],
+      ] as const)
+        assert.ok(contrastRatio(p[label], p[fill]) >= 3, `${theme.id} ${scheme} ${label} ${p[label]} on ${fill} ${p[fill]}`);
     }
+});
+
+test("hover and hover-2 are translucent, so they show on a field and hover never matches the open row", () => {
+  for (const theme of themes)
+    for (const scheme of ["light", "dark"] as const) {
+      const p = resolvePalette(theme.id, scheme);
+      assert.equal(p.hover.length, 9, `${theme.id} ${scheme} hover ${p.hover}`);
+      assert.notEqual(over(p.hover, p.field), p.field, `${theme.id} ${scheme} hover on field`);
+      const distance = (fill: string) => Math.abs(luminance(over(fill, p.page)) - luminance(p.page));
+      assert.ok(distance(p.hover2) > distance(p.hover), `${theme.id} ${scheme} hover-2 is the stronger step`);
+    }
+});
+
+test("Milagre Blue light: ink-2 is a clear step darker than ink-3, and the danger fill takes a white label at 4.5:1", () => {
+  const p = resolvePalette("milagre-blue", "light");
+  assert.ok(contrastRatio(p.ink2, p.page) / contrastRatio(p.ink3, p.page) >= 1.3, `${p.ink2} vs ${p.ink3}`);
+  assert.equal(p.onRed, "#ffffff");
+  assert.ok(contrastRatio(p.onRed, p.redInk) >= 4.5, p.redInk);
 });
 
 test("a color that already reads keeps its value", () => {

@@ -41,8 +41,8 @@ export function ExperimentalSection() {
         </Text>
         {floatingInbox && (
           <View style={{ marginLeft: 16, gap: 4 }}>
-            <Toggle title="Show chat activity" selected={inboxActivity} onPress={() => setInboxActivity(!inboxActivity)} />
-            <Text style={styles.caption}>Include working chats with a progress summary and finished updates. Off: only questions and permission requests.</Text>
+            <Toggle title="Show Chat activity" selected={inboxActivity} onPress={() => setInboxActivity(!inboxActivity)} />
+            <Text style={styles.caption}>Include working Chats with a progress summary and finished updates. Off: only questions and permission requests.</Text>
           </View>
         )}
       </View>

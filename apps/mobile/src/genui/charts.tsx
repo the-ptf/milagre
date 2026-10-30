@@ -1,4 +1,4 @@
-import { Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Polyline, Rect, Text as SvgText } from "react-native-svg";
 import type { GenuiProps } from "@milagre/shared/genui";
 import { useTheme } from "../theme";
@@ -35,7 +35,7 @@ function Frame({ title, label, children }: { title?: string; label: string; chil
       style={{
         borderRadius: radius.card,
         borderCurve: "continuous",
-        borderWidth: 1,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.line,
         backgroundColor: colors.surface,
         padding: 12,
@@ -43,9 +43,12 @@ function Frame({ title, label, children }: { title?: string; label: string; chil
       }}
     >
       {title && <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>{title}</Text>}
-      <Svg width="100%" height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none">
-        {children}
-      </Svg>
+      {/* Scales with the column at its own proportions, so an iPad's labels and dots don't stretch sideways. */}
+      <View style={{ width: "100%", maxWidth: 448, aspectRatio: WIDTH / HEIGHT }}>
+        <Svg width="100%" height="100%" viewBox={`0 0 ${WIDTH} ${HEIGHT}`}>
+          {children}
+        </Svg>
+      </View>
     </View>
   );
 }

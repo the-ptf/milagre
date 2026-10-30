@@ -11,6 +11,7 @@ import { Cancel01Icon, GiftIcon } from "@hugeicons/core-free-icons";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
+import { ProgressBar } from "./primitives/ProgressBar";
 
 const Updates = createContext<UpdateState | null>(null);
 const SlotRegistry = createContext<((slot: HTMLElement) => () => void) | null>(null);
@@ -134,6 +135,16 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
     window.addEventListener("milagre:show-update", show);
     return () => window.removeEventListener("milagre:show-update", show);
   }, []);
+  // The release notes hand focus back to What's new once their modal is out of the page (while it's open, nothing
+  // outside it can take focus).
+  const notesShown = useRef(false);
+  useLayoutEffect(() => {
+    if (notesVersion) notesShown.current = true;
+    else if (notesShown.current) {
+      notesShown.current = false;
+      notesTrigger.current?.focus();
+    }
+  }, [notesVersion]);
   useLayoutEffect(() => {
     if (open || !refocus.current) return;
     refocus.current = false;
@@ -206,7 +217,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
             <h2 className="flex-1 text-15 font-semibold">{title}</h2>
             {!installing && !pending && <IconButton label="Dismiss update" icon={Cancel01Icon} className="-mr-1" onClick={dismiss} />}
           </div>
-          <div id="update-description" className="mt-3 text-13 leading-relaxed text-ink-2" aria-live="polite">
+          <div id="update-description" className="mt-3 text-13 text-ink-2" aria-live="polite">
             <p>
               {ready
                 ? `${version ? `v${version}` : "The update"} is ready to install.`
@@ -224,20 +235,11 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
           </div>
           {downloading && (
             <div className="mt-4 flex items-center gap-3">
-              <div
-                role="progressbar"
-                aria-label="Update download"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                className="h-1.5 flex-1 overflow-hidden rounded-full bg-hover"
-              >
-                <div className="h-full rounded-full bg-ink transition-[width] duration-base motion-reduce:transition-none" style={{ width: `${percent}%` }} />
-              </div>
+              <ProgressBar value={percent / 100} size={6} label="Update download" className="flex-1" />
               <span className="text-12 tabular-nums text-ink-2">{percent}%</span>
             </div>
           )}
-          <InlineError className="mt-3 leading-relaxed">{error}</InlineError>
+          <InlineError className="mt-3">{error}</InlineError>
           <div className="mt-5 flex gap-2">
             {version && (
               <Button ref={notesTrigger} variant="secondary" className="flex-1" onClick={() => setNotesVersion(version)}>
@@ -264,7 +266,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
         >
           <Icon icon={GiftIcon} size={slot ? 14 : 18} />
           <span>{downloading ? `Downloading update · ${percent}%` : title}</span>
-          {ready && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-ink" />}
+          {ready && <span aria-hidden="true" className="size-1.5 rounded-full bg-ink" />}
         </motion.button>
       </div>
     </div>
@@ -272,15 +274,7 @@ function UpdateNotice({ state, slot }: { state: UpdateState | null; slot: HTMLEl
   return (
     <>
       {slot ? createPortal(notice, slot) : notice}
-      {notesVersion && (
-        <UpdateReleaseNotes
-          version={notesVersion}
-          onClose={() => {
-            setNotesVersion(null);
-            notesTrigger.current?.focus();
-          }}
-        />
-      )}
+      {notesVersion && <UpdateReleaseNotes version={notesVersion} onClose={() => setNotesVersion(null)} />}
     </>
   );
 }

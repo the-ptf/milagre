@@ -4,9 +4,12 @@ import type { ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button } from "../primitives/Button";
+import { Chip } from "../primitives/Chip";
 import { EmptyState } from "../primitives/EmptyState";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
+import { SectionLabel } from "../primitives/SectionLabel";
+import { radioKeys } from "../primitives/Segmented";
 import { RoutineRow } from "./RoutineRow";
 import { RoutineEditor } from "./RoutineEditor";
 import { RoutinePage } from "./RoutinePage";
@@ -305,41 +308,35 @@ export function RoutinesPage({
           <>
             {routines.length > 0 && (
               <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <div role="tablist" aria-label="Show" className="flex gap-1.5">
+                <div role="radiogroup" aria-label="Show" onKeyDown={radioKeys({ axis: "horizontal" })} className="flex gap-1.5">
                   {chips.map((chip) => (
-                    <button
+                    <Chip
                       key={chip.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={filter === chip.id}
+                      variant="filter"
+                      checked={filter === chip.id}
+                      tabIndex={filter === chip.id ? 0 : -1}
                       data-routine-filter={chip.id}
                       onClick={() => setFilter(chip.id)}
-                      className={`h-7 rounded-full px-3 text-12 font-medium transition-colors duration-fast ${
-                        filter === chip.id ? "bg-ink text-on-ink" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
-                      }`}
                     >
                       {chip.label} {chip.count}
-                    </button>
+                    </Chip>
                   ))}
                 </div>
                 {computerChoices.length > 0 && (
-                  <div role="tablist" aria-label="Computer" className="flex flex-wrap gap-1.5">
+                  <div role="radiogroup" aria-label="Computer" onKeyDown={radioKeys({ axis: "horizontal" })} className="flex flex-wrap gap-1.5">
                     {["all", ...computerChoices].map((id) => (
-                      <button
+                      <Chip
                         key={id}
-                        type="button"
-                        role="tab"
-                        aria-selected={pickedComputer === id}
+                        variant="filter"
+                        checked={pickedComputer === id}
+                        tabIndex={pickedComputer === id ? 0 : -1}
+                        icon={id === "all" ? undefined : LaptopIcon}
                         data-routine-computer-filter={id}
                         onClick={() => setOnComputer(id)}
-                        className={`inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-12 font-medium transition-colors duration-fast ${
-                          pickedComputer === id ? "bg-ink text-on-ink" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"
-                        }`}
                       >
-                        {id !== "all" && <Icon icon={LaptopIcon} size={14} />}
                         {id === "all" ? "Every computer" : computerName(id)}{" "}
                         {id === "all" ? routines.length : routines.filter((routine) => computerOfRoutine(routine) === id).length}
-                      </button>
+                      </Chip>
                     ))}
                   </div>
                 )}
@@ -348,23 +345,21 @@ export function RoutinesPage({
             <div className={empty ? "flex min-h-[200px] flex-1 flex-col items-center justify-center gap-3 py-10 text-center" : "mt-5 space-y-5"}>
               {heartbeats.length > 0 && (
                 <section data-routine-group="heartbeats" className="space-y-2">
-                  <h2 className="flex items-center gap-1.5 px-1 text-13 font-semibold text-ink">
-                    <Icon icon={Pulse01Icon} size={14} className="text-ink-2" />
+                  <SectionLabel icon={Pulse01Icon} className="px-1">
                     Heartbeats
-                  </h2>
+                  </SectionLabel>
                   <div className={card}>{heartbeats.map(row)}</div>
                 </section>
               )}
               {triggers.length > 0 && (
                 <section data-routine-group="triggers" className="space-y-2">
-                  <h2 className="flex items-center gap-1.5 px-1 text-13 font-semibold text-ink">
-                    <Icon icon={ZapIcon} size={14} className="text-ink-2" />
+                  <SectionLabel icon={ZapIcon} className="px-1">
                     Triggers
-                  </h2>
+                  </SectionLabel>
                   <div className={card}>{triggers.map(row)}</div>
                 </section>
               )}
-              {empty && <EmptyState data-routines-empty icon={RepeatIcon} title="No Routines yet." className="p-0" />}
+              {empty && <EmptyState data-routines-empty icon={RepeatIcon} title="No Routines yet" className="p-0" />}
               {routines.length > 0 && heartbeats.length === 0 && triggers.length === 0 && (
                 <p data-routines-empty className="px-1 text-13 text-ink-3">
                   None here.

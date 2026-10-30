@@ -2,19 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureDetector, usePanGesture, useTapGesture, useCompetingGestures } from "react-native-gesture-handler";
-import Animated, { cancelAnimation, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue } from "react-native-reanimated";
+import Animated, { cancelAnimation, ReduceMotion, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import type { InboxStatus } from "@milagre/shared/attention";
 import { Icon, SpinnerRing } from "./icons";
 import { springTo, useMotionScale } from "./motion";
-import { radius } from "./design-tokens";
+import { chrome, duration, radius, space } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const SIZE = 56;
 const GAP = 12;
 const PEEK = 16;
-const SPRING = { duration: 300, dampingRatio: 0.85, overshootClamping: true, reduceMotion: ReduceMotion.System };
+const SPRING = { duration: duration.slow, dampingRatio: 0.85, overshootClamping: true, reduceMotion: ReduceMotion.System };
 type Edge = 0 | 1 | 2;
 type Position = { x: number; y: number; edge: Edge };
 // Keep the placement while moving between Chats. Coordinates are fractions, so rotation stays reachable.
@@ -49,9 +49,9 @@ function landInboxButton(x: number, y: number, vx: number, vy: number, width: nu
 
 function StatusBadge({ status, small = false }: { status?: InboxStatus; small?: boolean }) {
   const { colors } = useTheme();
-  const reduced = useReducedMotion();
   if (!status) return null;
-  if (status === "working" && !reduced) return <SpinnerRing size={small ? 10 : 12} stroke={1.5} tone="accentInk" />;
+  // The ring pulses instead of spinning under Reduce Motion, so it stays the one working mark.
+  if (status === "working") return <SpinnerRing size={12} stroke={1.5} tone="accentInk" />;
   const color = status === "approval" ? colors.orange : status === "failed" ? colors.red : status === "completed" ? colors.green : colors.accentInk;
   return <View style={{ width: small ? 6 : 8, height: small ? 6 : 8, borderRadius: radius.full, backgroundColor: color }} />;
 }
@@ -60,7 +60,8 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
   const { colors } = useTheme();
   const frame = useSafeAreaFrame(),
     insets = useSafeAreaInsets();
-  const top = insets.top + 52;
+  // 8 under the header, as the attention pill and the top Toast.
+  const top = insets.top + chrome.header + space.md;
   const width = Math.max(SIZE + GAP * 2, frame.width - insets.left - insets.right);
   const height = Math.max(SIZE + GAP * 2, frame.height - top - (bottom ?? Math.max(insets.bottom, 16) + 120));
   const [hidden, setHidden] = useState<Edge>(placement.edge);
@@ -205,10 +206,10 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
               style={[
                 {
                   position: "absolute",
-                  top: 0,
-                  right: 0,
-                  width: 18,
-                  height: 18,
+                  top: -4,
+                  right: -4,
+                  width: 20,
+                  height: 20,
                   borderRadius: radius.full,
                   backgroundColor: colors.surface,
                   alignItems: "center",

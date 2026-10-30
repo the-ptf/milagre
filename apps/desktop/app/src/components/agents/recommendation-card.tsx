@@ -35,7 +35,7 @@ export function RecommendationCard({ question, options, onSelect }: Recommendati
             key={option.id}
             type="button"
             onClick={() => onSelect(option)}
-            className="flex items-center gap-2 rounded-control bg-inset px-2.5 py-2 text-left transition-colors duration-fast hover:bg-hover"
+            className="flex items-center gap-2 rounded-control bg-inset px-3 py-2 text-left transition-colors hover:bg-hover active:bg-hover-2"
           >
             <span className="min-w-0 flex-1 text-13 text-ink">{option.label}</span>
           </button>
@@ -58,11 +58,11 @@ export function RecommendationCard({ question, options, onSelect }: Recommendati
           <button
             type="button"
             onClick={() => onSelect(recommendation)}
-            className="mt-2 flex w-full items-start gap-2 rounded-control bg-inset px-2.5 py-2 text-left transition-colors duration-fast hover:bg-hover"
+            className="mt-2 flex w-full items-start gap-2 rounded-control bg-inset px-3 py-2 text-left transition-colors hover:bg-hover active:bg-hover-2"
           >
             <RecommendedBars />
             <span className="min-w-0 flex-1 text-13 text-ink">{recommendation.label}</span>
-            <span className="shrink-0 text-11 font-medium text-green-ink">Recommended</span>
+            <span className="shrink-0 rounded-full bg-field px-1.5 py-0.5 text-10 font-medium text-ink-2">Recommended</span>
           </button>
         )}
         {!separate && others.length > 0 && <div className={recommendation ? "mt-1" : "mt-3"}>{rows}</div>}

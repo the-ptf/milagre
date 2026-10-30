@@ -1,5 +1,5 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { FlashIcon, Search01Icon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
+import { FlashIcon, Search01Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { providerName } from "@milagre/shared/providers";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider } from "../model";
 import { effortCopy } from "../model";
@@ -7,6 +7,8 @@ import { cliMessage, cliTabLabel } from "../lib/cli-status";
 import { contextWindowFor } from "../lib/model-options";
 import { formatTokens } from "./usage/format";
 import { ProviderLogo } from "./ProviderLogo";
+import { EmptyState } from "./primitives/EmptyState";
+import { PickerRow } from "./primitives/Picker";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
 import { Icon } from "./primitives/Icon";
@@ -94,30 +96,30 @@ export function ModelPicker({
       data-picker-panel
       data-model-picker
       className={`absolute z-20 flex h-[340px] overflow-hidden rounded-card bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
-      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", ...style }}
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards", ...style }}
     >
       <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
         {providers.map((item) => {
           const warning = cliTabLabel(cliStatus?.[item]);
           const on = item === provider;
+          // asChild: the tabs stay the rail's direct children. A CLI message, when there is one, is also the tab's description.
           return (
-            <button
-              key={item}
-              type="button"
-              aria-label={providerName(item)}
-              aria-pressed={on}
-              aria-description={cliMessage(cliStatus?.[item]) ?? undefined}
-              // Native title: the tabs must stay the rail's direct children, which a Tooltip wrapper would break.
-              title={cliMessage(cliStatus?.[item]) ?? providerName(item)}
-              onClick={() => onProviderChange(item)}
-              className={`relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors duration-fast ${on ? "bg-surface shadow-card" : "hover:bg-hover"}`}
-            >
-              {on && <span aria-hidden className="absolute top-2 bottom-2 -left-1.5 w-[3px] rounded-r-full bg-accent-ink" />}
-              <span className={on ? "" : "opacity-60 grayscale-[0.4]"}>
-                <ProviderLogo provider={item} size={16} />
-              </span>
-              {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
-            </button>
+            <Tooltip key={item} label={cliMessage(cliStatus?.[item]) ?? providerName(item)} wrap asChild>
+              <button
+                type="button"
+                aria-label={providerName(item)}
+                aria-pressed={on}
+                onClick={() => onProviderChange(item)}
+                className={`relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors ${on ? "bg-surface shadow-card" : "hover:bg-hover"}`}
+              >
+                {/* Selection is ink, like every other picked state. */}
+                {on && <span aria-hidden className="absolute top-2 bottom-2 -left-1.5 w-[3px] rounded-r-full bg-ink" />}
+                <span className={on ? "" : "opacity-60 grayscale-[0.4]"}>
+                  <ProviderLogo provider={item} size={16} />
+                </span>
+                {warning && <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-orange" />}
+              </button>
+            </Tooltip>
           );
         })}
       </ScrollArea>
@@ -129,10 +131,11 @@ export function ModelPicker({
             {totalModels} {totalModels === 1 ? "model" : "models"}
           </span>
         </div>
-        <label className="mr-2 mb-1 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-1.5 text-ink-3 transition-colors duration-fast focus-within:border-accent">
+        {/* PickerPanel's search field. */}
+        <label className="mr-2 mb-1 flex h-9 shrink-0 items-center gap-2 rounded-control border border-line-strong bg-field px-3 text-ink-3 transition-colors focus-within:border-accent">
           <Icon icon={Search01Icon} size={14} />
           <input
-            className="w-full border-0 bg-transparent text-12 text-ink outline-none placeholder:text-ink-3"
+            className="w-full border-0 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search models…"
@@ -140,36 +143,19 @@ export function ModelPicker({
           />
         </label>
         {notice}
-        <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-0.5 pr-2 pb-2">
-          {models.map((model) => {
-            const selected = model.id === selectedModel.id && model.provider === selectedModel.provider;
-            const meta = contextLabel(model);
-            return (
-              <ModelTip key={model.id} description={model.description}>
-                <button
-                  type="button"
-                  data-picker-row
-                  aria-current={selected || undefined}
-                  onClick={() => onModelChange(model)}
-                  className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition-colors duration-fast focus-visible:bg-hover focus-visible:-outline-offset-2 ${selected ? "bg-hover-2" : "hover:bg-hover"}`}
-                >
-                  <ProviderLogo provider={model.provider} size={14} />
-                  <strong className="truncate text-12 font-medium text-ink">{model.name}</strong>
-                  {meta && (
-                    <span data-picker-meta className="shrink-0 rounded-chip border border-line px-1 text-10 font-medium tabular-nums text-ink-3">
-                      {meta}
-                    </span>
-                  )}
-                  {selected && (
-                    <span className="ml-auto shrink-0 text-ink">
-                      <Icon icon={Tick02Icon} size={14} />
-                    </span>
-                  )}
-                </button>
-              </ModelTip>
-            );
-          })}
-          {models.length === 0 && <div className="px-2 py-5 text-center text-12 text-ink-3">No models found.</div>}
+        <ScrollArea className="grid flex-1 grid-cols-1 content-start gap-px pr-2 pb-2">
+          {models.map((model) => (
+            <ModelTip key={model.id} description={model.description}>
+              <PickerRow
+                icon={<ProviderLogo provider={model.provider} size={16} />}
+                label={model.name}
+                meta={contextLabel(model)}
+                selected={model.id === selectedModel.id && model.provider === selectedModel.provider}
+                onClick={() => onModelChange(model)}
+              />
+            </ModelTip>
+          ))}
+          {models.length === 0 && <EmptyState size="compact" title="No models found" />}
         </ScrollArea>
       </div>
 
@@ -200,7 +186,7 @@ export function ModelPicker({
                   </div>
                 </>
               ) : null}
-              <p data-effort-caption className="pt-1.5 text-11 leading-snug text-ink-3">
+              <p data-effort-caption className="pt-1.5 text-11 text-ink-3">
                 <strong className={`font-semibold ${current === "ultra" ? "text-purple-ink" : "text-ink"}`}>{effortCopy(current).name}</strong>
                 {effortCopy(current).description ? ` · ${effortCopy(current).description}` : ""}
               </p>
@@ -239,7 +225,8 @@ function SettingRow({
   onChange,
   tone = "orange",
 }: {
-  /** The color the row takes while on: Fast is orange, Ultracode purple like its Fatality overlay. */
+  /** The colour the row takes while on: Fast is orange, Ultracode purple like its Fatality overlay. The icon takes the
+   * plain fill (fills are for icons), the title the -ink shade. */
   tone?: "orange" | "purple";
   icon: typeof FlashIcon;
   label: string;
@@ -249,6 +236,7 @@ function SettingRow({
   onChange: (on: boolean) => void;
 }) {
   const ink = tone === "purple" ? "text-purple-ink" : "text-orange-ink";
+  const fill = tone === "purple" ? "text-purple" : "text-orange";
   return (
     <button
       type="button"
@@ -256,9 +244,9 @@ function SettingRow({
       aria-label={label}
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`flex w-full items-center gap-2 rounded-control border px-2.5 py-2 text-left transition-colors duration-fast ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-hover"}`}
+      className={`flex w-full items-center gap-2 rounded-control border px-2.5 py-2 text-left transition-colors ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-hover"}`}
     >
-      <span className={on ? ink : "text-ink-2"}>
+      <span className={on ? fill : "text-ink-2"}>
         <Icon icon={icon} size={16} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">

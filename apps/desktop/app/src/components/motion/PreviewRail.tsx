@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useCallback, useMemo, useId, useLayoutEffect, useRef, useState } from "react";
-import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 
 export interface PreviewRailItem {
   id: string;
@@ -147,7 +147,7 @@ export function PreviewRail({
                 }}
                 onClick={() => selectItem(item)}
                 style={{ height: "100%" }}
-                className="relative flex h-6 w-6 items-center justify-end text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="relative flex size-6 items-center justify-end text-ink-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <motion.span
                   data-slot="preview-rail-tick"
@@ -182,9 +182,11 @@ export function PreviewRail({
                           initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4, filter: "blur(6px)" }}
                           animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
                           exit={
-                            reduce ? { opacity: 0 } : { opacity: 0, y: -2, filter: "blur(4px)", transition: { duration: scaled(0.12, speed), ease: EASE_OUT } }
+                            reduce
+                              ? { opacity: 0 }
+                              : { opacity: 0, y: -2, filter: "blur(4px)", transition: { duration: scaled(DURATION.fast, speed), ease: EASE_OUT } }
                           }
-                          transition={{ duration: scaled(0.18, speed), ease: EASE_OUT }}
+                          transition={{ duration: scaled(DURATION.base, speed), ease: EASE_OUT }}
                         >
                           {renderPreview ? renderPreview(item) : <DefaultPreview item={item} />}
                         </motion.div>

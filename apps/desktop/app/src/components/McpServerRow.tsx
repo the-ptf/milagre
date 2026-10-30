@@ -7,8 +7,6 @@ import { Button } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 
 const keyOf = (chip: Pick<McpChip, "provider" | "accountId">) => `${chip.provider}:${chip.accountId}`;
-/** Remove before it is confirmed: quiet red text; the confirm is the red-filled danger Button. */
-const QUIET_DANGER = "text-red-ink enabled:hover:bg-red-tint";
 
 /** The name without the group it already sits under: "notion" for plugin:engineering:notion, "Gmail" for claude.ai Gmail. */
 const shortName = (row: McpRow) => (row.source ? row.name.replace(/^plugin:[^:]+:/, "").replace(/^claude\.ai /, "") : row.name);
@@ -53,7 +51,7 @@ export function McpSignInRow({
     <div data-mcp-attention={row.name} className={`flex items-center gap-3 ${compact ? "min-h-12 px-3 py-2" : "min-h-15 px-4 py-3"}`}>
       {!compact && <Tile row={row} warn />}
       <div className="grid min-w-0 flex-1 gap-0.5">
-        <span className={`truncate font-semibold text-ink ${"text-13"}`}>{shortName(row)}</span>
+        <span className="truncate text-13 font-semibold text-ink">{shortName(row)}</span>
         <span className="truncate text-12 text-ink-3">{signingIn ? "Finish in your browser, then come back." : mcpTransportLine(row)}</span>
       </div>
       {remote ? (
@@ -118,7 +116,7 @@ export function McpServerRow({
           <span className="truncate text-13 font-semibold text-ink">{row.name}</span>
           <span className={`truncate text-12 ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
         </span>
-        {row.everywhere && <span className="rounded-chip bg-hover px-2 py-0.5 text-11 font-medium text-ink">Everywhere</span>}
+        {row.everywhere && <span className="rounded-chip bg-field px-2 py-0.5 text-11 font-medium text-ink-2">Everywhere</span>}
         <span className="flex items-center gap-1.5 text-12 text-ink-3">
           {failed && <Failed />}
           {mcpSummary(row)}
@@ -156,8 +154,9 @@ export function McpServerRow({
                     Edit
                   </Button>
                 )}
+                {/* The first step is quiet red text; the confirm is the red-filled danger Button. */}
                 {onRemove && (
-                  <Button variant="ghost" data-mcp-remove className={QUIET_DANGER} onClick={() => setConfirming(true)}>
+                  <Button variant="danger-ghost" data-mcp-remove onClick={() => setConfirming(true)}>
                     Remove
                   </Button>
                 )}
@@ -233,7 +232,7 @@ export function McpOtherHeader({ open, count, attention, onToggle }: { open: boo
   return (
     <button type="button" data-mcp-other aria-expanded={open} onClick={onToggle} className="flex min-h-13 w-full items-center gap-3 px-4 text-left">
       <Icon icon={FolderGitIcon} size={16} className="shrink-0 text-ink-2" />
-      <span className="flex-1 text-13 font-medium text-ink">From projects, plugins and claude.ai</span>
+      <span className="flex-1 text-13 font-medium text-ink">From Projects, plugins and claude.ai</span>
       <span className="text-12 text-ink-3">{attention ? `${count} · ${attention} needs sign-in` : count}</span>
       <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
     </button>

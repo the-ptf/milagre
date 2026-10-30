@@ -4,8 +4,8 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import { mcpChipLine, mcpEditTarget, mcpRemoveTargets, mcpTargetPlaces, mcpTransportLine } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
 import { useMcp } from "../../use-mcp";
-import { Button, ErrorNotice, PageScroll, Toggle, pressStyle, useStyles } from "../../ui";
-import { lineHeight, radius, type } from "../../design-tokens";
+import { ErrorNotice, Group, PageScroll, PillButton, Toggle, pressStyle, useStyles } from "../../ui";
+import { lineHeight, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 import { confirm } from "../../confirm-store";
 
@@ -51,19 +51,18 @@ export default function McpServerScreen() {
         <Text selectable style={[styles.muted, { paddingHorizontal: 4 }]}>
           {mcpTransportLine(row)}
         </Text>
-        <View style={{ backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous", paddingHorizontal: 16 }}>
-          {row.chips.map((chip, index) => {
+        <Group inset={0}>
+          {row.chips.map((chip) => {
             // While the write runs the switch shows the value it was flipped to, and ignores taps.
             const pending = mcp.pending(chip, row.name);
             const on = pending ?? chip.state !== "disabled";
             return (
-              <View key={`${chip.provider}:${chip.accountId}`} style={{ borderTopWidth: index ? 1 : 0, borderColor: colors.line, paddingVertical: 8, gap: 2 }}>
+              <View key={`${chip.provider}:${chip.accountId}`} style={{ paddingVertical: 8, gap: 2 }}>
                 <Toggle
                   title={`${providerName(chip.provider)} · ${chip.label}`}
                   selected={on}
                   // Off in the provider's own config: Milagre's switch can't turn it on.
                   disabled={pending !== undefined || chip.disabledBy === "provider"}
-                  tint={colors.ink}
                   onPress={() => {
                     setError("");
                     void mcp.toggle(chip, row.name, !on)?.catch(fail);
@@ -78,12 +77,12 @@ export default function McpServerScreen() {
               </View>
             );
           })}
-        </View>
+        </Group>
         {error ? <ErrorNotice message={error} /> : null}
         {row.editable && row.transport === "url" ? (
           <View style={{ gap: 12 }}>
-            <Button title="Edit" secondary onPress={() => router.push({ pathname: "/mcp-add", params: { name: row.name, target: mcpEditTarget(row) } })} />
-            <Button title="Remove" secondary destructive loading={removing} onPress={() => void remove()} />
+            <PillButton title="Edit" secondary onPress={() => router.push({ pathname: "/mcp-add", params: { name: row.name, target: mcpEditTarget(row) } })} />
+            <PillButton title="Remove" secondary destructive loading={removing} onPress={() => void remove()} />
           </View>
         ) : row.editable ? (
           <Text style={[styles.muted, { paddingHorizontal: 4 }]}>Edit on the Mac.</Text>

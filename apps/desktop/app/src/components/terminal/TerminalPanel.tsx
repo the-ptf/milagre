@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
 import type { TerminalInfo, TerminalProfiles } from "@milagre/shared/terminal";
@@ -6,7 +6,8 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { Select } from "../primitives/Select";
 import Tooltip from "../primitives/Tooltip";
 import { Icon } from "../primitives/Icon";
-import { IconButton } from "../primitives/Button";
+import { Button, IconButton } from "../primitives/Button";
+import { radioKeys } from "../primitives/Segmented";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { useDismiss } from "../../lib/use-dismiss";
 import { closeTerminal, newTerminal, openTerminal, takeFocusRequest, toggleTerminalPanel, type TerminalPlace } from "../../lib/terminal-actions";
@@ -40,6 +41,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
   const panel = useRef<HTMLElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const plus = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
   // A confirmation is for the Terminal it was asked about, while that Terminal is the one shown.
   const [asked, setArmed] = useState<string | null>(null);
   const armed = asked === active ? asked : null;
@@ -195,19 +197,27 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
               className="absolute inset-x-3 -top-1.5 z-10 h-2 cursor-row-resize"
             />
             <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
-              <div role="tablist" aria-label="Terminals" className="flex min-w-0 flex-1 items-center gap-1">
+              <div
+                role="tablist"
+                aria-label="Terminals"
+                onKeyDown={radioKeys({ role: "tab", axis: "horizontal" })}
+                className="flex min-w-0 flex-1 items-center gap-1"
+              >
                 {terminals.map((terminal) => {
                   const selected = terminal.id === active;
                   const asking = armed === terminal.id;
                   return (
+                    // The Tabs look (ink-2 at rest, hover fill, hover-2 selected), with each tab's close button inside it.
                     <div
                       key={terminal.id}
-                      className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-12 transition-colors duration-fast ${selected ? "bg-hover text-ink" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                      className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-12 font-medium transition-colors ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
                     >
                       <button
                         type="button"
                         role="tab"
                         aria-selected={selected}
+                        aria-controls={bodyId}
+                        tabIndex={selected ? 0 : -1}
                         data-terminal-tab={terminal.id}
                         onClick={() => {
                           showTerminal(chatId, terminal.id);
@@ -221,22 +231,18 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                       </button>
                       {asking ? (
                         // Focus stays in the Terminal, so a second ⌘W confirms.
-                        <button
-                          type="button"
-                          onClick={() => close(terminal)}
-                          className="mr-0.5 h-6 shrink-0 rounded-chip bg-red-tint px-1.5 text-11 font-medium text-red-ink"
-                        >
+                        <Button variant="danger" size={24} onClick={() => close(terminal)} className="mr-0.5">
                           End {terminal.title}
-                        </button>
+                        </Button>
                       ) : (
-                        <button
-                          type="button"
-                          aria-label={`Close ${terminal.title}`}
+                        <IconButton
+                          label={`Close ${terminal.title}`}
+                          icon={Cancel01Icon}
+                          size={20}
+                          tooltip={false}
                           onClick={() => close(terminal)}
-                          className={`relative mr-1 flex size-5 shrink-0 items-center justify-center rounded-chip transition-[background-color,opacity] duration-fast hover:bg-inset before:absolute before:-inset-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
-                        >
-                          <Icon icon={Cancel01Icon} size={12} />
-                        </button>
+                          className={`mr-1 ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
+                        />
                       )}
                     </div>
                   );
@@ -286,7 +292,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                 <IconButton label="Hide Terminals" icon={ArrowDown01Icon} onClick={() => setTerminalPanelOpen(chatId, false)} />
               </Tooltip>
             </header>
-            <div ref={body} data-terminal-body className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1" />
+            <div ref={body} id={bodyId} role="tabpanel" aria-label="Terminal" data-terminal-body className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1" />
           </section>
         </TerminalSlide>
       )}

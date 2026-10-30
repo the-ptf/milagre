@@ -17,7 +17,7 @@ import { providerName } from "@milagre/shared/providers";
 import type { MilagreBridge } from "../electron";
 import { McpOtherHeader, McpOutsideRow, McpServerRow, McpSignInRow } from "./McpServerRow";
 import { McpServerSheet } from "./McpServerSheet";
-import { Button, IconButton } from "./primitives/Button";
+import { Button, IconButton, buttonClass } from "./primitives/Button";
 import { EmptyState } from "./primitives/EmptyState";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
@@ -304,14 +304,14 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
                 <p className="text-12 text-ink-2">Set up outside Milagre. Turn them on or off here; change them where they live.</p>
                 {outside.map((group) => (
                   <div key={group.source} className="space-y-1.5">
-                    <div className="flex items-baseline justify-between gap-3 px-0.5">
+                    <div className="flex min-h-6 items-center justify-between gap-3 px-0.5">
                       <SectionLabel as="h3">{group.source}</SectionLabel>
                       {group.source === "claude.ai connectors" ? (
                         <a
                           href="https://claude.ai/settings/connectors"
                           target="_blank"
                           rel="noreferrer"
-                          className="text-12 font-medium text-ink hover:underline"
+                          className={`${buttonClass({ variant: "link", size: 24 })} -mr-2`}
                         >
                           Manage on claude.ai
                         </a>
@@ -348,7 +348,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
           </div>
         )}
         {entries && !checking && !attention.length && !user.length && !other.length && !problems.length && (
-          <EmptyState title="No MCP servers yet" className="py-6">
+          <EmptyState title="No MCP servers yet" className="px-6 py-6">
             Add one with Add server.
           </EmptyState>
         )}

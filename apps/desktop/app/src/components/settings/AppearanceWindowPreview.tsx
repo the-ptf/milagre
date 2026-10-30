@@ -27,6 +27,7 @@ import { useSettings } from "../../lib/settings";
 import { FileChip, FileKindIcon, SkillChip } from "../PromptChip";
 import { ProviderLogo } from "../ProviderLogo";
 import { Icon as ScaleIcon, type IconSize } from "../primitives/Icon";
+import { ProjectAvatar } from "../primitives/ProjectAvatar";
 
 /** The part of the window a setting changes. `ui` is the interface font: everything but code. */
 export type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui" | "usage";
@@ -136,15 +137,13 @@ function SidebarMark({ mark }: { mark?: "running" | "unread" }) {
   if (mark === "running")
     return <span className="size-3 rounded-full border-[1.5px] border-accent border-r-transparent" style={{ transform: "rotate(45deg)" }} />;
   if (mark === "unread") return <span className="size-2 rounded-full bg-accent" />;
-  return <span className="size-1.5 rounded-full bg-ink-3 opacity-50" />;
+  return <span className="size-1.5 rounded-full bg-ink-4" />;
 }
 
-function ProjectRow({ initial, color, name, current = false }: { initial: string; color: string; name: string; current?: boolean }) {
+function ProjectRow({ name, current = false }: { name: string; current?: boolean }) {
   return (
     <Part keep={["sidebar", "ui"]} className="mx-2 flex h-8 items-center gap-2 px-2">
-      <span className="flex size-5 items-center justify-center rounded-chip text-11 font-semibold text-white" style={{ background: color }}>
-        {initial}
-      </span>
+      <ProjectAvatar name={name} size={20} />
       <span className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}>{name}</span>
       {current && (
         <span className="text-ink-3">
@@ -171,7 +170,7 @@ function SidebarUsagePreview({ compact }: { compact: boolean }) {
             className="sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-control px-2 text-12 tabular-nums text-ink-2"
           >
             <span className="flex shrink-0 items-center justify-center">
-              <ProviderLogo provider={item.provider} size={13} />
+              <ProviderLogo provider={item.provider} size={14} />
             </span>
             <span className="sidebar-copy min-w-0 truncate text-ink-2">{item.name}</span>
             <span className="sidebar-copy ml-auto flex w-[104px] shrink-0 items-center gap-2">
@@ -218,7 +217,7 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
           <Icon icon={FilterHorizontalIcon} />
         </span>
       </Part>
-      <ProjectRow initial="m" color="#3b6cf6" name="milagre" current />
+      <ProjectRow name="milagre" current />
       <div className="grid gap-0.5">
         {SIDEBAR_CHATS.map((chat) => (
           <div
@@ -245,7 +244,7 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
         ))}
       </div>
       <div className="mt-3">
-        <ProjectRow initial="r" color="#16a34a" name="relay" />
+        <ProjectRow name="relay" />
       </div>
       <div className="mx-2 flex h-8 items-center rounded-control px-2">
         <Part keep={["sidebar", "ui"]} className="flex min-w-0 flex-1 items-center">
@@ -262,12 +261,12 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
           { key: "tasks", icon: CheckListIcon },
           { key: "link", icon: Link04Icon },
         ].map(({ key, icon }) => (
-          <span key={key} className="flex size-9 items-center justify-center">
-            <Icon icon={icon} size={18} />
+          <span key={key} className="flex size-8 items-center justify-center">
+            <Icon icon={icon} size={16} />
           </span>
         ))}
-        <span className="ml-auto flex size-9 items-center justify-center">
-          <Icon icon={Settings01Icon} size={18} />
+        <span className="ml-auto flex size-8 items-center justify-center">
+          <Icon icon={Settings01Icon} size={16} />
         </span>
       </Part>
     </Part>
@@ -325,7 +324,7 @@ function CodeBlock() {
 
 function Pill({ icon, label }: { icon: IconSvgElement; label: string }) {
   return (
-    <span className="status-pill flex h-6 items-center gap-1.5 rounded-full px-2 text-11 whitespace-nowrap text-ink-2">
+    <span className="status-pill flex h-7 items-center gap-1.5 rounded-full px-2.5 text-12 whitespace-nowrap text-ink-2">
       <Icon icon={icon} size={14} />
       <span className="tabular-nums">{label}</span>
     </span>
@@ -341,14 +340,14 @@ function Composer() {
       <span data-preview-composer className="min-h-7 min-w-0 flex-1 truncate px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px] text-ink-3">
         Prompt or mention a file with @
       </span>
-      <span className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2">
+      <span className="flex h-7 shrink-0 items-center gap-1.5 rounded-full pr-2 pl-2.5 text-12 font-medium text-ink-2">
         <ProviderLogo provider="claude" size={14} />
         Opus 5.5 · High
         <span className="text-ink-3">
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
       </span>
-      <span className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-green-ink">
+      <span className="flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-12 font-medium text-ink-2">
         <Icon icon={SecurityCheckIcon} size={14} />
         Auto
       </span>

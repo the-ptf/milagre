@@ -110,13 +110,13 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
         <PersonaAvatar persona={persona} size={40} />
         <span className="flex min-w-0 flex-col">
           <span className="text-15 font-semibold">{persona.title}</span>
-          <span className="text-12 opacity-80">{persona.tagline}</span>
+          <span className="text-12">{persona.tagline}</span>
         </span>
       </span>
       {persona.chips && (
         <span className="flex flex-wrap gap-1.5">
           {persona.chips.map((chip) => (
-            <span key={chip} className="rounded-chip bg-white/60 px-2 py-0.5 text-11">
+            <span key={chip} className="rounded-chip bg-paper/60 px-2 py-0.5 text-11">
               {chip}
             </span>
           ))}
@@ -373,7 +373,7 @@ export const SubagentDetail = memo(function SubagentDetail({
           Couldn't load this subagent's activity. Open it again to retry.
         </InlineError>
       )}
-      {status === "ready" && !transcript.length && !plan && <EmptyState className="py-6">No child output received yet.</EmptyState>}
+      {status === "ready" && !transcript.length && !plan && <EmptyState size="compact" title="No child output received yet" />}
       {transcript.length > 0 && (
         <section className="flex flex-col gap-3">
           <button
@@ -479,8 +479,6 @@ export function SubagentTrack({
   const running = visible.filter(subagentActive).length;
   const done = visible.filter(subagentFinished).length;
   const now = useDisplayNow(1000, opened && rows.some(subagentActive));
-  const footerClass =
-    "flex h-6 items-center gap-1.5 rounded-control px-2 text-12 text-ink-3 transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-40";
   // The QA fleet's personas come first, under their own header (qa-personas.ts).
   const { fleet, others } = qaFleetFirst(rows);
   const row = (agent: Subagent) => (
@@ -596,29 +594,29 @@ export function SubagentTrack({
                 {fleet.length > 0 && others.length > 0 && <li aria-hidden className="mx-2 my-1 border-t border-line" />}
                 {others.map(row)}
               </ScrollArea>
-              {!rows.length && <EmptyState className="px-3 py-6">{archived ? "No archived subagents." : "No subagents to show."}</EmptyState>}
+              {!rows.length && <EmptyState size="compact" title={archived ? "No archived subagents" : "No subagents to show"} />}
               <footer className="mt-1 flex shrink-0 items-center gap-1 border-t border-line pt-1">
                 {archived ? (
-                  <button type="button" data-subagent-archived-toggle onClick={() => setArchived(false)} className={footerClass}>
+                  <Button variant="quiet" size={24} data-subagent-archived-toggle onClick={() => setArchived(false)}>
                     <Icon icon={ArrowLeft01Icon} size={12} />
                     Back to subagents
-                  </button>
+                  </Button>
                 ) : (
                   <>
-                    <button
-                      type="button"
+                    <Button
+                      variant="quiet"
+                      size={24}
                       data-subagent-archive-finished
                       disabled={!onArchiveFinished || !visible.some(subagentFinished)}
                       onClick={onArchiveFinished}
-                      className={footerClass}
                     >
                       <Icon icon={Archive02Icon} size={12} />
                       Archive finished
-                    </button>
+                    </Button>
                     {archivedCount > 0 && (
-                      <button type="button" data-subagent-archived-toggle onClick={() => setArchived(true)} className={footerClass}>
+                      <Button variant="quiet" size={24} data-subagent-archived-toggle onClick={() => setArchived(true)}>
                         Archived ({archivedCount})
-                      </button>
+                      </Button>
                     )}
                   </>
                 )}

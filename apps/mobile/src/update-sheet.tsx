@@ -8,7 +8,7 @@ import { createUpdateController, watchUpdates, type UpdateState } from "./update
 import { lineHeight, radius, type } from "./design-tokens";
 import { SpinnerRing } from "./icons";
 import { useTheme } from "./theme";
-import { IconButton, PillButton, useAnnounce } from "./ui";
+import { CircleButton, PillButton, useAnnounce } from "./ui";
 
 const AppUpdates = createContext<{ state: UpdateState; check: (force?: boolean) => Promise<void>; install: () => Promise<void>; dismiss: () => void } | null>(
   null,
@@ -181,6 +181,7 @@ export function UpdateSheet({
           : busy
             ? "You can keep using Milagre while the update downloads."
             : "";
+  // Status changes and errors, not the title the sheet opens with (VoiceOver reads that as the sheet appears).
   useAnnounce(state.error ? `${title}. ${state.error}` : title);
   return (
     <View style={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 32, gap: 24 }}>
@@ -190,7 +191,7 @@ export function UpdateSheet({
           <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
             {title}
           </Text>
-          {state.status !== "restarting" && <IconButton label="Dismiss update" icon={Cancel01Icon} onPress={onDismiss} />}
+          {state.status !== "restarting" && <CircleButton label="Dismiss update" icon={Cancel01Icon} onPress={onDismiss} />}
         </View>
         {description ? <Text style={{ color: colors.ink2, fontSize: type.callout, lineHeight: lineHeight.callout }}>{description}</Text> : null}
         {state.error ? (

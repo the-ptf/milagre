@@ -7,6 +7,7 @@ import Tooltip from "../primitives/Tooltip";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import { radioKeys } from "../primitives/Segmented";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
@@ -100,8 +101,14 @@ export function BrowserPanel({ chatKey, ports, onSendComments }: { chatKey: stri
 function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs: BrowserTab[]; active: string; onClose: () => void }) {
   const { rules } = useKeybindings();
   return (
-    <div role="tablist" aria-label="Pages" className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+    <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
+      {/* The Tabs look and keys (one Tab stop, the arrows pick), with a close button per tab. */}
+      <div
+        role="tablist"
+        aria-label="Pages"
+        onKeyDown={radioKeys({ role: "tab", axis: "horizontal" })}
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
+      >
         {tabs.map((tab) => {
           const selected = tab.id === active;
           const name = tab.title || (tab.url === "about:blank" ? "New page" : hostLabel(tab.url));
@@ -109,13 +116,14 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
             <div
               key={tab.id}
               data-browser-tab={tab.id}
-              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 transition-colors duration-fast ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover"}`}
+              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 font-medium transition-colors ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
             >
               <Tooltip label={addressText(tab.url) || name} side="bottom" className="min-w-0 flex-1">
                 <button
                   type="button"
                   role="tab"
                   aria-selected={selected}
+                  tabIndex={selected ? 0 : -1}
                   onClick={() => selectBrowserTab(chatKey, tab.id)}
                   className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                 >
@@ -134,9 +142,7 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
           );
         })}
       </div>
-      <Tooltip label="New page" side="bottom">
-        <IconButton label="New page" icon={PlusSignIcon} onClick={() => addBlankTab(chatKey)} />
-      </Tooltip>
+      <IconButton label="New page" icon={PlusSignIcon} side="bottom" onClick={() => addBlankTab(chatKey)} />
       <Tooltip label="Hide Browser panel" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
         <IconButton label="Hide Browser panel" icon={Cancel01Icon} onClick={onClose} />
       </Tooltip>
@@ -197,12 +203,8 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
   const blank = tab.url === "about:blank";
   return (
     <form onSubmit={submit} className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
-      <Tooltip label="Back" side="bottom">
-        <IconButton label="Back" icon={ArrowLeft01Icon} disabled={!tab.canGoBack} onClick={() => page()?.goBack()} />
-      </Tooltip>
-      <Tooltip label="Forward" side="bottom">
-        <IconButton label="Forward" icon={ArrowRight01Icon} disabled={!tab.canGoForward} onClick={() => page()?.goForward()} />
-      </Tooltip>
+      <IconButton label="Back" icon={ArrowLeft01Icon} side="bottom" disabled={!tab.canGoBack} onClick={() => page()?.goBack()} />
+      <IconButton label="Forward" icon={ArrowRight01Icon} side="bottom" disabled={!tab.canGoForward} onClick={() => page()?.goForward()} />
       <Tooltip label={tab.loading ? "Stop" : "Reload"} shortcut={tab.loading ? undefined : "⌘R"} side="bottom">
         <IconButton label={tab.loading ? "Stop loading" : "Reload"} icon={tab.loading ? Cancel01Icon : Refresh01Icon} disabled={blank} onClick={reload} />
       </Tooltip>
@@ -228,7 +230,7 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
           setText(addressText(tab.url));
           event.currentTarget.blur();
         }}
-        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none transition-colors duration-fast placeholder:text-ink-3 focus:border-accent focus:bg-surface"
+        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent focus:bg-surface"
       />
       <CommentControls chatKey={chatKey} live={!blank && !tab.error} onSend={onSendComments} />
       <Tooltip label="Open in your default browser" side="bottom" align="end">
@@ -283,7 +285,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
                 type="button"
                 data-browser-port={port.port}
                 onClick={() => openBrowserTab(chatKey, url)}
-                className="flex h-8 items-center gap-2 rounded-control px-3 text-left text-13 transition-colors duration-fast hover:bg-hover"
+                className="flex h-8 items-center gap-2 rounded-control px-3 text-left text-13 transition-colors hover:bg-hover active:bg-hover-2"
               >
                 <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-3">{port.command}</span>

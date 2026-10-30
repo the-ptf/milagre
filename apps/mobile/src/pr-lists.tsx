@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Linking from "expo-linking";
 import {
   BubbleChatIcon,
@@ -25,9 +25,9 @@ import type {
 } from "@milagre/shared/pull-request-review";
 import type { Client } from "./client";
 import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
-import { Icon } from "./icons";
+import { Icon, SpinnerRing } from "./icons";
 import { PrMarkdown } from "./pr-markdown";
-import { ErrorNotice, Field, PageScroll, PillButton, pressStyle, Segmented, tap, useStyles } from "./ui";
+import { ErrorNotice, Field, InlineError, PageScroll, PillButton, pressStyle, Segmented, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { useRpc } from "./use-rpc";
 import { usePrDetail, writePr, patchDetail } from "./pr-store";
@@ -37,14 +37,13 @@ type Base = { client: Client; cwd: string; number: number };
 
 /** While the PR is being read for the first time, or couldn't be. */
 function Waiting({ error, retry }: { error: string; retry: () => void }) {
-  const { colors } = useTheme();
   return error ? (
     <View style={{ padding: space.xl }}>
       <ErrorNotice message={error} retry={retry} retryTitle="Try again" />
     </View>
   ) : (
     <View style={{ paddingVertical: 48, alignItems: "center" }}>
-      <ActivityIndicator color={colors.ink3} />
+      <SpinnerRing size={20} />
     </View>
   );
 }
@@ -79,9 +78,18 @@ export function Avatar({ login, size = 18, ring, team = false }: { login: string
       }}
     >
       {team ? (
-        <Icon icon={UserGroupIcon} color={colors.page} size={size * 0.6} />
+        <Icon icon={UserGroupIcon} color={colors.page} size={12} />
       ) : failed ? (
-        <Text style={{ color: colors.page, fontSize: size * 0.55, fontWeight: "600" }}>{login.slice(0, 1).toUpperCase()}</Text>
+        <Text
+          maxFontSizeMultiplier={1.3}
+          style={
+            size < 24
+              ? { color: colors.page, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600" }
+              : { color: colors.page, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "600" }
+          }
+        >
+          {login.slice(0, 1).toUpperCase()}
+        </Text>
       ) : (
         <Image
           accessibilityIgnoresInvertColors
@@ -152,12 +160,15 @@ export function CheckList({ checks }: { checks: PullRequestCheck[] }) {
   );
 }
 
-function CommentHeader({ comment, trailing }: { comment: PullRequestComment; trailing?: React.ReactNode }) {
+function CommentHeader({ comment, trailing, muted = false }: { comment: PullRequestComment; trailing?: React.ReactNode; muted?: boolean }) {
   const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
       <Avatar login={comment.author} />
-      <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
+      <Text
+        numberOfLines={1}
+        style={{ flexShrink: 1, color: muted ? colors.ink2 : colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}
+      >
         {comment.author}
       </Text>
       <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
@@ -225,14 +236,16 @@ export function ThreadCard({
     return result.ok;
   }
   return (
-    <View style={[cardStyle(colors, drafts), { opacity: thread.resolved ? 0.7 : 1 }]}>
+    // A resolved thread reads quieter in ink2 at full strength, not faded.
+    <View style={cardStyle(colors, drafts)}>
       {thread.comments.map((comment, index) => (
         <View key={comment.id} style={{ gap: space.sm }}>
           <CommentHeader
             comment={comment}
+            muted={thread.resolved}
             trailing={
               comment.pending ? (
-                <PillButton size="small" secondary title="Delete" onPress={() => void write("pr:delete-comment", { commentId: comment.id })} />
+                <PillButton size="small" secondary destructive title="Delete" onPress={() => void write("pr:delete-comment", { commentId: comment.id })} />
               ) : index === 0 && thread.resolved ? (
                 <Text style={styles.caption}>Resolved</Text>
               ) : index === 0 && thread.outdated ? (
@@ -253,7 +266,7 @@ export function ThreadCard({
               </Text>
             </Pressable>
           )}
-          <PrMarkdown text={comment.body} client={client} cwd={cwd} />
+          <PrMarkdown text={comment.body} client={client} cwd={cwd} tone={thread.resolved ? "ink2" : undefined} />
         </View>
       ))}
       {replying && (
@@ -323,7 +336,7 @@ export function ThreadCard({
           )}
         </View>
       )}
-      {!!error && <ErrorNotice message={error} />}
+      <InlineError message={error} />
     </View>
   );
 }
@@ -522,7 +535,11 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
             clearButtonMode="while-editing"
           />
           {!!(error || failure) && <ErrorNotice message={error || failure} retry={error ? undefined : list.refresh} retryTitle="Try again" />}
-          {list.loading && <ActivityIndicator color={colors.ink3} />}
+          {list.loading && (
+            <View style={{ alignItems: "center" }}>
+              <SpinnerRing size={20} />
+            </View>
+          )}
         </View>
       }
       ItemSeparatorComponent={PickSeparator}
@@ -568,7 +585,7 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
               </Text>
             )}
           </View>
-          <View style={{ width: 18 }}>{item.checked && <Icon icon={Tick02Icon} tone="accent" size={18} />}</View>
+          <View style={{ width: 18 }}>{item.checked && <Icon icon={Tick02Icon} tone="ink" size={18} />}</View>
         </Pressable>
       )}
     />

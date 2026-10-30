@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BackHandler, Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -22,8 +22,9 @@ import { ProjectNavigation } from "./project-navigation";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
-import { GlassIconButton, IconButton, tap } from "./ui";
-import { lineHeight, radius, type } from "./design-tokens";
+import { GlassIconButton, IconButton, PageScroll, tap } from "./ui";
+import { chrome, duration, easing, lineHeight, radius, type } from "./design-tokens";
+import { PR_TONE } from "@milagre/shared/pr-blockers";
 import { Icon, type IconData, type Tone } from "./icons";
 import { PrOverview } from "./pr-overview";
 import { openPrFile, openPrPage } from "./pr-nav";
@@ -139,9 +140,13 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     (then?: () => void) => {
       setOpen(null);
       progress.set(
-        withTiming(0, scaledTiming({ duration: 180, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }, getMotionScale()), () => {
-          if (then) scheduleOnRN(then);
-        }),
+        withTiming(
+          0,
+          scaledTiming({ duration: duration.base, easing: Easing.bezier(...easing.enter), reduceMotion: ReduceMotion.System }, getMotionScale()),
+          () => {
+            if (then) scheduleOnRN(then);
+          },
+        ),
       );
     },
     [progress],
@@ -628,7 +633,7 @@ export function SidePanelsHost() {
           bottom: Math.max(insets.bottom, CARD_MARGIN),
           [side]: CARD_MARGIN,
           width: side === "left" ? SIDEBAR_WIDTH : CHANGES_WIDTH,
-          borderRadius: 18,
+          borderRadius: radius.sheet,
           borderCurve: "continuous",
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.line,
@@ -646,7 +651,7 @@ export function SidePanelsHost() {
       style={StyleSheet.absoluteFill}
     >
       {/* Outside a card (an iPad's panels), a tap on the dimmed screen closes the panel, as a sheet's backdrop does. */}
-      <Animated.View pointerEvents={open && card ? "auto" : "none"} style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, shade]}>
+      <Animated.View pointerEvents={open && card ? "auto" : "none"} style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, shade]}>
         <Pressable accessibilityLabel="Close panel" accessibilityRole="button" style={StyleSheet.absoluteFill} onPress={() => show(null)} />
       </Animated.View>
       <GestureDetector gesture={close}>
@@ -715,13 +720,13 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
     <View style={{ flex: 1 }}>
       {/* One compact row: the tabs scroll sideways, the close button keeps its place at the end, centred with them. */}
       <View style={{ marginTop: insets.top, height: TAB_BAR_HEIGHT, paddingLeft: 8, paddingRight: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <ScrollView
+        <PageScroll
           horizontal
           showsHorizontalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
           automaticallyAdjustContentInsets={false}
           style={{ flex: 1, alignSelf: "stretch" }}
-          contentContainerStyle={{ gap: 2, alignItems: "center" }}
+          contentContainerStyle={{ padding: 0, paddingBottom: 0, gap: 2, alignItems: "center" }}
         >
           {tabs.includes("changes") && (
             <PanelTab label="Changes" icon={FileDiffIcon} tone="ink2" selected={shownTab === "changes"} onPress={() => onTab("changes")} />
@@ -732,7 +737,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
                 key={prChoiceKey(choice)}
                 label={`#${choice.number}`}
                 icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
-                tone={choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED") ? "purpleInk" : (choice.look?.tone ?? "green")}
+                tone={PR_TONE[choice.look?.tone ?? (choice.state === "MERGED" ? "purple" : "green")].icon}
                 selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
                 onPress={() => {
                   onPick(prChoiceKey(choice));
@@ -752,7 +757,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               onPress={() => onTab("designs")}
             />
           )}
-        </ScrollView>
+        </PageScroll>
         <GlassIconButton label={closeLabel} systemImage="xmark" icon={Cancel01Icon} onPress={onClose} />
       </View>
       {file && shownTab === "changes" && (
@@ -846,8 +851,8 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
   );
 }
 
-/** The right panel's tab row; the hidden designs canvas sits under it. */
-const TAB_BAR_HEIGHT = 52;
+/** The right panel's tab row, the chat header's height; the hidden designs canvas sits under it. */
+const TAB_BAR_HEIGHT = chrome.header;
 
 const TAB_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
@@ -872,7 +877,8 @@ function PanelTab({ label, icon, tone, selected, onPress }: { label: string; ico
         flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        backgroundColor: selected || pressed ? colors.hover : "transparent",
+        // The open tab holds hover2 (an open state), a press the lighter hover.
+        backgroundColor: selected ? colors.hover2 : pressed ? colors.hover : "transparent",
       })}
     >
       <Icon icon={icon} tone={tone} size={16} />

@@ -20,9 +20,11 @@ import { Select } from "./primitives/Select";
 import { Markdown } from "./markdown/Markdown";
 import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { Button } from "./primitives/Button";
+import { EmptyState } from "./primitives/EmptyState";
 import { FIELD } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
+import Tooltip from "./primitives/Tooltip";
 
 const badge = "shrink-0 rounded-full bg-field px-2 py-px text-11 font-medium text-ink-2";
 const scopeLabel = (scope: SkillScope) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
@@ -57,7 +59,7 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
   return (
     <div className="mt-6 grid gap-5" data-skills-settings>
       <div className="flex items-start justify-between gap-6">
-        <p className="max-w-[430px] text-13 leading-5 text-ink-3">
+        <p className="max-w-[430px] text-13 text-ink-3">
           Skills from this Project and your home folder. When two share a name, the first one found wins and the / menu offers only that one.
         </p>
         <Button variant="secondary" size={28} disabled={loading} onClick={() => setRevision((value) => value + 1)}>
@@ -102,9 +104,14 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
         </section>
       ))}
       {!groups.length && !loading && (
-        <p role="status" className="text-13 text-ink-3">
-          No skills found. Create one in <code className="font-mono text-12">.claude/skills/&lt;name&gt;/SKILL.md</code>.
-        </p>
+        <EmptyState
+          size="compact"
+          title={
+            <>
+              No skills found. Create one in <code className="font-mono">.claude/skills/&lt;name&gt;/SKILL.md</code>.
+            </>
+          }
+        />
       )}
       {warnings.length > 0 && (
         <section data-skill-warnings>
@@ -128,7 +135,7 @@ function SkillRow({ skill, hidden, onOpen }: { skill: SkillOption; hidden: numbe
       <button
         type="button"
         onClick={onOpen}
-        className="grid w-full gap-0.5 px-4 py-2 text-left transition-colors duration-fast hover:bg-hover focus-visible:-outline-offset-2"
+        className="grid w-full gap-0.5 px-4 py-2 text-left transition-colors hover:bg-hover focus-visible:-outline-offset-2 active:bg-hover-2"
       >
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-13 font-medium text-ink">/{skill.name}</span>
@@ -213,20 +220,23 @@ function SkillDetail({
           <span className={badge}>{skillProviderLabel(skill.provider)}</span>
           <span className={badge}>{scopeLabel(skill.scope)}</span>
         </div>
-        <p className="text-13 leading-5 text-ink-2">{skill.description}</p>
+        <p className="text-13 text-ink-2">{skill.description}</p>
         {skill.path && <p className="break-all font-mono text-11 text-ink-3">{shortenHome(skill.path)}</p>}
         <div className="flex flex-wrap gap-2">
-          {skill.path && !isRemoteKey(projectPath) && (
-            <Button
-              variant="secondary"
-              size={28}
-              disabled={!editor}
-              title={editor ? undefined : "Install Cursor, VS Code, Zed or another editor"}
-              onClick={() => void open()}
-            >
-              {editor ? `Open in ${editor.name}` : "Open in editor"}
-            </Button>
-          )}
+          {skill.path &&
+            !isRemoteKey(projectPath) &&
+            (editor ? (
+              <Button variant="secondary" size={28} onClick={() => void open()}>
+                Open in {editor.name}
+              </Button>
+            ) : (
+              // aria-disabled, so the Tooltip saying why stays reachable.
+              <Tooltip label="Install Cursor, VS Code, Zed or another editor" asChild>
+                <Button variant="secondary" size={28} aria-disabled>
+                  Open in editor
+                </Button>
+              </Tooltip>
+            ))}
           {skill.path && !isRemoteKey(projectPath) && (
             <Button variant="secondary" size={28} onClick={reveal}>
               Show in Finder
@@ -253,7 +263,7 @@ function SkillDetail({
           </ul>
         </section>
       )}
-      <section className="rounded-card bg-surface px-5 py-4 text-13 leading-6 text-ink shadow-card">
+      <section className="rounded-card bg-surface px-5 py-4 text-13 leading-5 text-ink shadow-card">
         {!content ? (
           <p role="status" className="text-ink-3">
             Reading SKILL.md…

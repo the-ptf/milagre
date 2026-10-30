@@ -6,6 +6,8 @@ import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
 import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
+import { menuRowClass } from "../primitives/Popover";
 import { PillMorph } from "../motion/PillMorph";
 import { opensInPanel } from "../../lib/link-target";
 
@@ -72,9 +74,11 @@ export function PortTrack({
                 data-port-stop-all
                 disabled={!onStop || ports.every((port) => stopping.has(port.pid))}
                 onClick={() => stop([...new Set(ports.map((port) => port.pid))])}
-                className="flex h-8 w-full items-center gap-2 rounded-inline px-2 text-left text-13 text-ink-2 transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 disabled:opacity-40 disabled:hover:bg-transparent"
+                className={menuRowClass({ danger: true })}
               >
-                <Icon icon={StopCircleIcon} size={14} />
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  <Icon icon={StopCircleIcon} size={16} />
+                </span>
                 Stop all
               </button>
             </div>
@@ -85,7 +89,7 @@ export function PortTrack({
                 key={port.port}
                 data-port-row
                 data-stopping={stopping.has(port.pid) || undefined}
-                className="group flex items-center gap-1 rounded-inline pr-1 transition-colors hover:bg-hover focus-within:bg-hover"
+                className="group flex items-center gap-1 rounded-inline pr-1 transition-colors hover:bg-hover-2 focus-within:bg-hover-2"
               >
                 {(() => {
                   const computer = portComputer(port);
@@ -142,16 +146,15 @@ export function PortTrack({
                     </span>
                   ) : (
                     <Tooltip label="Stop">
-                      <button
-                        type="button"
+                      <IconButton
+                        label={`Stop port ${port.port}`}
+                        icon={StopCircleIcon}
+                        size={24}
+                        variant="danger-ghost"
                         data-port-stop
-                        aria-label={`Stop port ${port.port}`}
                         disabled={!onStop}
                         onClick={() => stop([port.pid])}
-                        className="flex size-6 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-red-ink focus-visible:outline-2 enabled:active:scale-press disabled:opacity-40"
-                      >
-                        <Icon icon={StopCircleIcon} size={14} />
-                      </button>
+                      />
                     </Tooltip>
                   )}
                 </span>

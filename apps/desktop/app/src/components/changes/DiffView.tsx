@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT } from "../../lib/ease";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { EmptyState } from "../primitives/EmptyState";
 import { SpinnerRing } from "../primitives/SpinnerRing";
@@ -130,13 +130,13 @@ export function DiffView({
       initial={{ opacity: 0, x: 32 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 32 }}
-      transition={reduced ? { duration: 0 } : { x: SPRING_LAYOUT, opacity: { duration: 0.18, ease: EASE_OUT } }}
+      transition={reduced ? { duration: 0 } : { x: SPRING_LAYOUT, opacity: { duration: DURATION.base, ease: EASE_OUT } }}
     >
       {/* Starts under the top bar, level with the sidebar and the panel; only the bottom edge fades, while there's more below. */}
       <ScrollArea ref={scroller} data-diff-view className="diff-scroll mt-[var(--window-chrome-height)] h-[calc(100%-var(--window-chrome-height))] px-3 pb-4">
         {files.length === 0 &&
           (list.state === "ready" ? (
-            <EmptyState className="py-16">No changes to show.</EmptyState>
+            <EmptyState size="page" title="No changes to show" />
           ) : (
             <p role="status" className="flex items-center justify-center gap-2 py-16 text-13 text-ink-3">
               <SpinnerRing size={12} />

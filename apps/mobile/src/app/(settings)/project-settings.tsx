@@ -152,7 +152,7 @@ export default function ProjectSettingsScreen() {
           <SectionLabel>Remove Project</SectionLabel>
           <View style={[styles.card, { gap: 12 }]}>
             <Text style={styles.caption}>Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.</Text>
-            <PillButton title="Remove Project" secondary disabled={busy} onPress={() => void remove()} />
+            <PillButton title="Remove Project" secondary destructive disabled={busy} onPress={() => void remove()} />
           </View>
         </View>
       </PageScroll>

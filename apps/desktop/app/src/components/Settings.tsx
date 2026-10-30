@@ -29,6 +29,7 @@ import {
   type LinearStatus,
 } from "@milagre/shared/linear";
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
+import { permissionPresentation } from "@milagre/shared/model-copy";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -49,6 +50,8 @@ import {
   RepeatIcon,
   SecurityCheckIcon,
   Settings01Icon,
+  Shield01Icon,
+  ShieldAlertIcon,
   SmartphoneIcon,
   UserCircleIcon,
   VolumeHighIcon,
@@ -80,7 +83,7 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
-import { buttonClass, IconButton } from "./primitives/Button";
+import { Button, IconButton } from "./primitives/Button";
 import { FIELD, FIELD_AREA } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
@@ -120,6 +123,9 @@ import { setProjectImage, useProjectImages } from "../lib/project-images";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
+
+// permissionPresentation's icon names as Hugeicons, as in the composer's permission picker.
+const PERMISSION_ICONS = { shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon } as const;
 
 export type SettingsSection =
   | "general"
@@ -205,14 +211,7 @@ export function SettingsNav({
         className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex h-8 items-center gap-1"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
-        <button
-          type="button"
-          aria-label="Back"
-          onClick={onBack}
-          className="no-drag flex size-8 items-center justify-center rounded-control text-ink-2 transition-[background-color,color,scale] duration-fast hover:bg-hover-sidebar hover:text-ink active:scale-press"
-        >
-          <Icon icon={ArrowLeft01Icon} size={18} />
-        </button>
+        <IconButton label="Back" icon={ArrowLeft01Icon} size={32} onClick={onBack} className="no-drag" />
         <h2 className="text-13 font-semibold text-ink">Settings</h2>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-window bg-surface pt-2 shadow-card">
@@ -371,7 +370,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         {status}
       </p>
       <Group title="General">
-        <Row label="Name" description="Shown on its chats in the sidebar. Only on this Mac.">
+        <Row label="Name" description="Shown on its Chats in the sidebar. Only on this Mac.">
           <input
             aria-label="Name"
             value={name}
@@ -441,21 +440,21 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
-          description={`Its chats leave this sidebar and this Mac forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.`}
+          description={`Its Chats leave this sidebar and this Mac forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.`}
         >
           {confirming ? (
             <span className="flex gap-2">
-              <button type="button" className={SECONDARY_BUTTON} disabled={busy} onClick={() => setConfirming(false)}>
+              <Button variant="secondary" size={28} disabled={busy} onClick={() => setConfirming(false)}>
                 Cancel
-              </button>
-              <button type="button" data-computer-remove-confirm className={DANGER_BUTTON} disabled={busy} onClick={() => void remove()}>
+              </Button>
+              <Button variant="danger" size={28} data-computer-remove-confirm disabled={busy} onClick={() => void remove()}>
                 Remove {computer.name}
-              </button>
+              </Button>
             </span>
           ) : (
-            <button type="button" data-computer-remove className={QUIET_DANGER_BUTTON} onClick={() => setConfirming(true)}>
+            <Button variant="danger-ghost" size={28} data-computer-remove onClick={() => setConfirming(true)}>
               Remove
-            </button>
+            </Button>
           )}
         </Row>
       </Group>
@@ -521,16 +520,13 @@ function NotificationChimeSetting() {
     <Row label="Notification chime" description="Plays when a Chat finishes or needs you. Picking one plays it.">
       <div className="flex items-center gap-1.5">
         {notificationChime !== "system" && (
-          <Tooltip label="Play">
-            <IconButton
-              label="Play notification chime"
-              icon={VolumeHighIcon}
-              iconSize={14}
-              variant="secondary"
-              data-chime-play
-              onClick={() => playNotificationChime(notificationChime)}
-            />
-          </Tooltip>
+          <IconButton
+            label="Play notification chime"
+            icon={VolumeHighIcon}
+            variant="secondary"
+            data-chime-play
+            onClick={() => playNotificationChime(notificationChime)}
+          />
         )}
         <Select<NotificationChime>
           label="Notification chime"
@@ -553,9 +549,9 @@ function PublishedPagesSettings() {
   return (
     <div data-slot="published-pages-setting">
       <Row label="Published pages" description="Manage public links to designs and artifacts, including pages from deleted Chats.">
-        <button type="button" className={SECONDARY_BUTTON} onClick={() => setPublishedPages(true)}>
+        <Button variant="secondary" size={28} onClick={() => setPublishedPages(true)}>
           Manage
-        </button>
+        </Button>
       </Row>
       {publishedPages && <DesignPageShareDialog onClose={() => setPublishedPages(false)} />}
     </div>
@@ -689,11 +685,11 @@ function ExperimentalSettings({ title }: { title?: string }) {
         {settings.floatingInbox && (
           <div className="ml-4 border-l border-line pl-4">
             <Row
-              label="Show chat activity"
-              description="Include working chats with a progress summary and finished updates. Off: only questions and permission requests."
+              label="Show Chat activity"
+              description="Include working Chats with a progress summary and finished updates. Off: only questions and permission requests."
             >
               <Switch
-                label="Show chat activity"
+                label="Show Chat activity"
                 checked={settings.floatingInboxActivity}
                 onChange={(floatingInboxActivity) => updateSettings({ floatingInboxActivity })}
               />
@@ -720,7 +716,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
   return (
     <>
       <Group title="Agents">
-        <Row label="Default model" description="Used for new chats; remembers your last selection">
+        <Row label="Default model" description="Used for new Chats; remembers your last selection">
           <Select
             label="Default model"
             width={280}
@@ -738,7 +734,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
             )}
           />
         </Row>
-        <Row label="Default permission" description="Used for new chats; remembers your last selection">
+        <Row label="Default permission" description="Used for new Chats; remembers your last selection">
           <Select<PermissionMode>
             label="Default permission"
             width={340}
@@ -749,8 +745,8 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
               label: mode.name,
               description: mode.description,
               icon: (
-                <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
-                  <Icon icon={SecurityCheckIcon} size={14} />
+                <span className={`flex shrink-0 ${permissionPresentation(mode.id).tone === "orange" ? "text-orange" : "text-ink-2"}`}>
+                  <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={14} />
                 </span>
               ),
             }))}
@@ -776,7 +772,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
           description={
             editors && editors.length === 0
               ? "Install Cursor, VS Code, Zed or another editor to open files and folders"
-              : "Used by file links in replies and tool rows, and by Open in <editor> in the chat menu"
+              : "Used by file links in replies and tool rows, and by Open in <editor> in the Chat menu"
           }
         >
           {editors && editors.length === 0 ? (
@@ -831,20 +827,20 @@ function NotificationsSettings() {
   return (
     <>
       <Group title="Alerts">
-        <Row label="Notify when finished" description="When a turn finishes or fails while you are outside the chat">
+        <Row label="Notify when finished" description="When a turn finishes or fails while you are outside the Chat">
           <Switch
             label="Notify when finished"
             checked={settings.notifyOnCompletion}
             onChange={(notifyOnCompletion) => updateSettings({ notifyOnCompletion })}
           />
         </Row>
-        <Row label="Dock badge" description="Count chats with unread replies or waiting for your input">
+        <Row label="Dock badge" description="Count Chats with unread replies or waiting for your input">
           <Switch label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
         </Row>
-        <Row label="Notify when waiting" description="When a chat needs an approval or an answer and Milagre is in the background">
+        <Row label="Notify when waiting" description="When a Chat needs an approval or an answer and Milagre is in the background">
           <Switch label="Notify when waiting" checked={settings.notifyWhenWaiting} onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })} />
         </Row>
-        <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
+        <Row label="Attention button" description="Top right, when a Chat in another Project needs an approval or an answer">
           <Switch label="Attention button" checked={settings.showAttentionButton} onChange={(showAttentionButton) => updateSettings({ showAttentionButton })} />
         </Row>
       </Group>
@@ -1008,7 +1004,7 @@ function AppearanceSettings() {
               options={fontOptions(MONO_FONTS)}
             />
           </Row>
-          <Row label="Sidebar size" description="Project and chat names in the sidebar." preview={preview.row("sidebar")}>
+          <Row label="Sidebar size" description="Project and Chat names in the sidebar." preview={preview.row("sidebar")}>
             <Select
               label="Sidebar size"
               width={160}
@@ -1126,7 +1122,7 @@ function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }
   const { otherComputers } = useSettings();
   return (
     <Group title="Other computers">
-      <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
+      <Row label="Drive other computers" description="Drive the Chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
         <Switch label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
       {otherComputers && onAddComputer && (
@@ -1134,9 +1130,9 @@ function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }
           label="Add computer"
           description="Pair with another Mac using the link from its Settings › Devices. The laptop button in the sidebar adds one too."
         >
-          <button type="button" data-settings-add-computer onClick={onAddComputer} className={SECONDARY_BUTTON}>
+          <Button variant="secondary" size={28} data-settings-add-computer onClick={onAddComputer}>
             Add computer…
-          </button>
+          </Button>
         </Row>
       )}
     </Group>
@@ -1224,12 +1220,6 @@ function usePairedDevices() {
   return { list, replace: show, error, now, fresh };
 }
 
-const SECONDARY_BUTTON = buttonClass({ variant: "secondary", size: 28 });
-/** The confirm of a destructive action. */
-const DANGER_BUTTON = buttonClass({ variant: "danger", size: 28 });
-/** The first Remove, before its confirm: red text, no fill. */
-const QUIET_DANGER_BUTTON = `${buttonClass({ variant: "ghost", size: 28 })} text-red-ink enabled:hover:bg-red-tint`;
-
 function DeviceGroup({
   title,
   devices,
@@ -1275,7 +1265,7 @@ function DeviceGroup({
               <Icon icon={device.kind === "computer" ? LaptopIcon : SmartphoneIcon} size={14} />
               <span
                 aria-hidden
-                className={`absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-surface ${device.route ? "bg-green" : "bg-ink-3"}`}
+                className={`absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-surface ${device.route ? "bg-green" : "bg-ink-4"}`}
               />
             </span>
             <div className="grid min-w-0 flex-1 gap-0.5">
@@ -1295,26 +1285,26 @@ function DeviceGroup({
             </div>
             {asking ? (
               <span className="flex shrink-0 items-center gap-2">
-                <button type="button" onClick={() => setConfirming(null)} className={SECONDARY_BUTTON}>
+                <Button variant="secondary" size={28} onClick={() => setConfirming(null)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="danger"
+                  size={28}
                   disabled={busy}
                   data-device-remove-confirm
                   onClick={() => {
                     setConfirming(null);
                     onRemove(device.key);
                   }}
-                  className={DANGER_BUTTON}
                 >
                   Remove
-                </button>
+                </Button>
               </span>
             ) : (
-              <button type="button" disabled={busy} data-device-remove onClick={() => setConfirming(device.key)} className={QUIET_DANGER_BUTTON}>
+              <Button variant="danger-ghost" size={28} disabled={busy} data-device-remove onClick={() => setConfirming(device.key)}>
                 Remove
-              </button>
+              </Button>
             )}
           </div>
         );
@@ -1401,7 +1391,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { computers, phones } = devicesByKind(paired.list ?? []);
   return (
     <>
-      <p className="mt-1 text-13 text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
+      <p className="mt-1 text-13 text-ink-2">Phones and other Macs that can see and drive this Mac's Chats.</p>
       <Group title="Access">
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
           <Switch
@@ -1464,7 +1454,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
               alt="QR code to pair your phone"
               width={176}
               height={176}
-              className="size-44 shrink-0 rounded-card bg-white"
+              className="size-44 shrink-0 rounded-card bg-paper"
             />
             <div className="grid min-w-0 gap-3">
               <div className="grid gap-0.5">
@@ -1472,9 +1462,9 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
                 <span className="text-12 text-ink-3">Open the app on your phone and point its camera at this code.</span>
               </div>
               <div>
-                <button type="button" onClick={copyLink} className={SECONDARY_BUTTON}>
+                <Button variant="secondary" size={28} onClick={copyLink}>
                   {copied ? "Copied" : "Copy link"}
-                </button>
+                </Button>
               </div>
               <p data-phone-warning className="text-12 text-ink-2">
                 This code gives access to your agents. Don't share it or post a screenshot of it.
@@ -1495,15 +1485,9 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
                       : "Pairing is closed to new devices."}
                   </span>
                   {!pairing.open && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      data-phone-allow-pairing
-                      onClick={() => run(() => window.milagre.openPhonePairing())}
-                      className={SECONDARY_BUTTON}
-                    >
+                    <Button variant="secondary" size={28} disabled={busy} data-phone-allow-pairing onClick={() => run(() => window.milagre.openPhonePairing())}>
                       Allow pairing again
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -1536,26 +1520,26 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
           >
             {confirmReset ? (
               <span className="flex items-center gap-2">
-                <button type="button" onClick={() => setConfirmReset(false)} className={SECONDARY_BUTTON}>
+                <Button variant="secondary" size={28} onClick={() => setConfirmReset(false)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="danger"
+                  size={28}
                   disabled={busy}
                   data-phone-reset-confirm
                   onClick={() => {
                     setConfirmReset(false);
                     run(() => window.milagre.resetPhoneAccess());
                   }}
-                  className={DANGER_BUTTON}
                 >
                   Reset and disconnect
-                </button>
+                </Button>
               </span>
             ) : (
-              <button type="button" disabled={busy || status.state === "starting"} onClick={() => setConfirmReset(true)} className={SECONDARY_BUTTON}>
+              <Button variant="secondary" size={28} disabled={busy || status.state === "starting"} onClick={() => setConfirmReset(true)}>
                 Reset access
-              </button>
+              </Button>
             )}
           </Row>
         </Group>
@@ -1659,14 +1643,14 @@ export function AboutSettings({ update }: { update: UpdateState | null }) {
         />
       </Row>
       <Row label="Updates" description={updateDescription(update)}>
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size={28}
           disabled={update?.status === "checking" || update?.status === "downloading" || update?.status === "unavailable" || update?.status === "installing"}
           onClick={() => void (update?.status === "downloaded" ? showUpdateNotice() : window.milagre.checkForUpdates())}
-          className={SECONDARY_BUTTON}
         >
           {update?.status === "installing" ? "Restarting…" : update?.status === "downloaded" ? "Install & restart" : "Check for updates"}
-        </button>
+        </Button>
       </Row>
       <AutoUpdateRow bridge={window.milagre} />
       {electron && (
@@ -1808,7 +1792,7 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
         </p>
       )}
       {loadError ? (
-        <InlineError size={12}>Couldn't read this project's files: {loadError}</InlineError>
+        <InlineError size={12}>Couldn't read this Project's files: {loadError}</InlineError>
       ) : (
         <p data-files-to-copy-preview className="break-words text-12 text-ink-3">
           {found ? previewSentence(found.matches) : "Checking…"}
@@ -1899,7 +1883,7 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
     <div className="grid gap-2 px-4 py-3">
       <label htmlFor="setup-command" className="grid gap-0.5">
         <span className="text-13 font-medium text-ink">Setup command</span>
-        <span className="text-12 text-ink-3">Runs once in each new worktree before the agent starts, e.g. npm ci.</span>
+        <span className="text-12 text-ink-3">Runs once in each new Worktree before the agent starts, e.g. npm ci.</span>
       </label>
       <input
         id="setup-command"
@@ -1985,12 +1969,12 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
             if (file) void save(() => iconDataUrl(file));
           }}
         />
-        <button type="button" disabled={busy} data-project-icon-choose onClick={() => input.current?.click()} className={SECONDARY_BUTTON}>
+        <Button variant="secondary" size={28} disabled={busy} data-project-icon-choose onClick={() => input.current?.click()}>
           Choose image
-        </button>
-        <button type="button" disabled={busy} data-project-icon-reset onClick={() => void save(async () => null)} className={SECONDARY_BUTTON}>
+        </Button>
+        <Button variant="secondary" size={28} disabled={busy} data-project-icon-reset onClick={() => void save(async () => null)}>
           Reset
-        </button>
+        </Button>
       </div>
       {error && (
         <p data-project-icon-error className="break-words text-12 text-red-ink">
@@ -2224,9 +2208,9 @@ function LinearSettings() {
             label={workspace.organization.name}
             description={`Signed in as ${workspace.viewer.name}` + (moveToStarted && workspace.canWrite === false ? `. ${linearReadOnlyHint("mac")}` : "")}
           >
-            <button type="button" data-linear-workspace={workspace.id} className={SECONDARY_BUTTON} onClick={() => void disconnect(workspace.id)}>
+            <Button variant="secondary" size={28} data-linear-workspace={workspace.id} onClick={() => void disconnect(workspace.id)}>
               Disconnect
-            </button>
+            </Button>
           </Row>
         ))}
       {enabled && status?.connected && moveToStarted !== null && (
@@ -2243,20 +2227,15 @@ function LinearSettings() {
         >
           <div className="flex shrink-0 items-center gap-2">
             {connecting === "window" && (
-              <button type="button" data-linear-use-browser className={SECONDARY_BUTTON} onClick={() => void connect(false)}>
+              <Button variant="secondary" size={28} data-linear-use-browser onClick={() => void connect(false)}>
                 {LINEAR_USE_BROWSER}
-              </button>
+              </Button>
             )}
             {/* Connecting the first workspace keeps the browser's Linear login; another one signs in afresh. Start again
                 keeps whichever way the waiting sign-in went. */}
-            <button
-              type="button"
-              data-linear-connect
-              className={SECONDARY_BUTTON}
-              onClick={() => void connect(connecting ? connecting === "window" : status.connected)}
-            >
+            <Button variant="secondary" size={28} data-linear-connect onClick={() => void connect(connecting ? connecting === "window" : status.connected)}>
               {connecting ? "Start again" : status.connected ? "Add" : "Connect"}
-            </button>
+            </Button>
           </div>
         </Row>
       )}
@@ -2335,15 +2314,15 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
       <Group title="Worktrees">
         <MainSyncSetting projectPath={project.path} />
       </Group>
-      <Group title="New worktrees">
+      <Group title="New Worktrees">
         <FilesToCopy projectPath={project.path} />
         <SetupCommand projectPath={project.path} />
       </Group>
       <Group title="Remove Project">
         <Row label="Remove from Projects list" description="Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.">
-          <button type="button" data-project-remove className={DANGER_BUTTON} onClick={() => setRemoving(true)}>
+          <Button variant="danger-ghost" size={28} data-project-remove onClick={() => setRemoving(true)}>
             Remove Project
-          </button>
+          </Button>
         </Row>
       </Group>
       {removing && <RemoveProjectDialog project={project} onClose={() => setRemoving(false)} />}
@@ -2411,7 +2390,7 @@ export function SettingsPanel({
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />
           ) : (
-            <p className="mt-6 text-13 text-ink-3">Open a project to see its skills.</p>
+            <p className="mt-6 text-13 text-ink-3">Open a Project to see its skills.</p>
           ))}
         {section === "mcp" && <McpSettings title={title} />}
         {section === "local-mcp" && (

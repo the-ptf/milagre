@@ -110,7 +110,7 @@ async function browserChecks() {
     // One row per repository; the heading leaves the computer to the chip once the Project is on several.
     await waitFor(`document.querySelectorAll("[data-new-chat-pickers] button[aria-expanded]").length === 3`);
     assert.equal(await heading(), "milagre-ade");
-    assert.deepEqual(await chip(), ["victor-mbp", "New worktree", "main"]);
+    assert.deepEqual(await chip(), ["victor-mbp", "New Worktree", "main"]);
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
     await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);
     assert.deepEqual(await evaluate(`[...document.querySelectorAll("[data-new-chat-heading] [data-picker-row]")].map((row) => row.textContent)`), [
@@ -146,7 +146,7 @@ async function browserChecks() {
     await pickRow("[data-new-chat-heading]", "website");
     await waitFor(`window.moves.at(-1) === "/Users/v/Code/website"`);
     await waitFor(`document.querySelector("[data-new-chat-pickers] button[aria-expanded]").textContent === "victor-mbp"`);
-    assert.deepEqual(await chip(), ["victor-mbp", "New worktree", "main"]);
+    assert.deepEqual(await chip(), ["victor-mbp", "New Worktree", "main"]);
     assert.equal(await heading(), "website");
     await evaluate(`document.querySelector("[data-new-chat-project]").click()`);
     await waitFor(`document.querySelectorAll("[data-new-chat-heading] [data-picker-row]").length === 3`);

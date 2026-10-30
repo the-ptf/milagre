@@ -16,26 +16,33 @@ const makeStyles = (colors: Palette) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
     },
-    title: { color: colors.ink, fontSize: type.largeTitle, lineHeight: lineHeight.largeTitle, fontWeight: "700", letterSpacing: -0.6 },
+    title: { color: colors.ink, fontSize: type.largeTitle, lineHeight: lineHeight.largeTitle, fontWeight: "700" },
     subtitle: { color: colors.ink, fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600" },
     text: { color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body },
     muted: { color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
     label: { color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" },
     caption: { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
-    /** A section's header above its rows: sentence case, no tracking (SectionLabel renders it with the header role). */
-    section: { color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" },
+    /** A meta line: footnote 13/18 in ink3. */
+    footnote: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote },
+    /** A sheet's or card's title: 17/22 semibold ink (SheetHeader draws it). */
+    sheetTitle: { color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" },
+    /** @deprecated Render `SectionLabel`; this is its text style (13 medium ink3). */
+    section: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" },
+    /** A text field: field fill with a 1px lineStrong edge (Field turns it accent while focused, redInk when invalid). */
     input: {
       backgroundColor: colors.field,
       color: colors.ink,
       fontSize: type.body,
       borderRadius: radius.control,
       borderCurve: "continuous",
+      borderWidth: 1,
+      borderColor: colors.lineStrong,
       paddingHorizontal: 16,
       paddingVertical: 12,
       minHeight: 44,
     },
     error: { backgroundColor: colors.redTint, borderRadius: radius.card, borderCurve: "continuous", padding: 16, gap: 12 },
-    code: { color: colors.ink, fontSize: type.footnote, lineHeight: 20, fontFamily: fonts.mono },
+    code: { color: colors.ink, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontFamily: fonts.mono },
     separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   });
 

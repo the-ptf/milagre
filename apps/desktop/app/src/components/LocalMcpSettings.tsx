@@ -20,12 +20,11 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { Checkbox } from "./primitives/Checkbox";
 import { RadioGroup, RadioGroupItem } from "./primitives/RadioGroup";
 import { Button } from "./primitives/Button";
-import { FIELD } from "./primitives/Field";
+import { FIELD, FIELD_LABEL } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
+import { Switch } from "./primitives/Switch";
 
 const input = `${FIELD} mt-1`;
-/** A quiet text action beside a row (Set up, Refresh): 24px tall, ink-2 until hovered. */
-const textAction = "h-6 shrink-0 rounded-control px-1 text-12 text-ink-2 transition-colors duration-fast hover:text-ink disabled:opacity-40";
 
 export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
   const local = useLocalMcp(bridge.localMcp);
@@ -59,7 +58,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
       >
         <h3 className="text-13 font-medium text-ink">{client ? `Access for ${client.label}` : "Custom connection"}</h3>
         {!client && (
-          <label className="block text-12 text-ink-2">
+          <label className={`block ${FIELD_LABEL}`}>
             Connection name
             <input
               autoFocus
@@ -83,7 +82,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
     );
   return (
     <section data-local-mcp className="mt-5 space-y-6">
-      <p className="max-w-prose text-13 leading-relaxed text-ink-2">
+      <p className="max-w-prose text-13 text-ink-2">
         Connect your local tools to Milagre. Choose which Projects or Designs each app can access when you enable it.
       </p>
       <InlineError>{local.error}</InlineError>
@@ -99,21 +98,21 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
               <div className="min-w-0">
                 <p className="text-13 font-medium text-ink">{client.label}</p>
                 {localMcpClientDetail(client) && (
-                  <p className={`mt-1 break-words text-12 leading-relaxed ${client.problem ? "text-red-ink" : "text-ink-2"}`}>{localMcpClientDetail(client)}</p>
+                  <p className={`mt-1 break-words text-12 ${client.problem ? "text-red-ink" : "text-ink-2"}`}>{localMcpClientDetail(client)}</p>
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 {(client.enabled || client.state === "error") && (
-                  <button type="button" className={textAction} disabled={local.busy} onClick={() => open(client)}>
+                  <Button variant="quiet" size={24} disabled={local.busy} onClick={() => open(client)}>
                     Set up
-                  </button>
+                  </Button>
                 )}
-                <McpSwitch
+                <Switch
                   label={`Enable ${client.label}`}
                   checked={client.enabled}
-                  expanded={setup === client.id}
+                  aria-expanded={setup === client.id}
                   disabled={local.busy || client.state === "unavailable"}
-                  onClick={() => {
+                  onChange={() => {
                     if (client.enabled) {
                       setSetup(null);
                       void local.disableClient(client.id);
@@ -128,24 +127,24 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         ))}
       </div>
       <div className="flex items-start justify-between gap-4">
-        <p className="max-w-prose text-12 leading-relaxed text-ink-2">
+        <p className="max-w-prose text-12 text-ink-2">
           Enabled clients are set up when Milagre starts. Restart a client after enabling it; scope changes apply at once. Access stays on the computer running
           Milagre.
         </p>
-        <button type="button" className={textAction} disabled={local.busy} onClick={() => void local.refresh()}>
+        <Button variant="quiet" size={24} disabled={local.busy} onClick={() => void local.refresh()}>
           Refresh
-        </button>
+        </Button>
       </div>
       <div className="space-y-3 border-t border-line pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-13 font-medium text-ink">Custom MCP</h3>
-          <McpSwitch
+          <Switch
             label="Custom MCP"
             checked={customOpen}
-            expanded={customOpen}
-            controls="custom-mcp-settings"
+            aria-expanded={customOpen}
+            aria-controls="custom-mcp-settings"
             disabled={local.busy || !local.status}
-            onClick={() => {
+            onChange={() => {
               setCustomOpen(!customOpen);
               if (customOpen) {
                 if (setup === "custom") setSetup(null);
@@ -156,7 +155,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         </div>
         {customOpen && (
           <div id="custom-mcp-settings" className="space-y-3">
-            <p className="text-12 leading-relaxed text-ink-2">For another app, create a scoped connection and copy its configuration.</p>
+            <p className="text-12 text-ink-2">For another app, create a scoped connection and copy its configuration.</p>
             {setup !== "custom" && !local.credential && (
               <Button variant="secondary" disabled={local.busy || !local.status} onClick={() => open()}>
                 Create MCP config
@@ -220,7 +219,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                                 Restrict to read
                               </Button>
                             )}
-                            <Button variant="secondary" disabled={local.busy} onClick={() => void local.revoke(connection.id)}>
+                            <Button variant="danger-ghost" disabled={local.busy} onClick={() => void local.revoke(connection.id)}>
                               Revoke
                             </Button>
                           </div>
@@ -242,7 +241,7 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
   return (
     <>
       <fieldset className="space-y-2">
-        <legend className="text-12 text-ink-2">Allow access to</legend>
+        <legend className={FIELD_LABEL}>Allow access to</legend>
         <RadioGroup
           aria-label="Allow access to"
           orientation="horizontal"
@@ -280,7 +279,7 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
         <p className="text-12 text-ink-2">Includes every Project open in Milagre now and any Project added later.</p>
       ) : (
         <>
-          <label className="block text-12 text-ink-2">
+          <label className={`block ${FIELD_LABEL}`}>
             Chat reference
             <input
               aria-label="Chat reference"
@@ -290,7 +289,7 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
               onChange={(e) => onChange({ ...draft, chatId: e.target.value })}
             />
           </label>
-          <label className="block text-12 text-ink-2">
+          <label className={`block ${FIELD_LABEL}`}>
             Design IDs
             <input aria-label="Design IDs" className={input} value={draft.designIds} onChange={(e) => onChange({ ...draft, designIds: e.target.value })} />
           </label>
@@ -310,40 +309,5 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
         {draft.kind === "designs" ? "Allow design edits" : "Allow creating Worktrees and Chats and starting tasks"}
       </label>
     </>
-  );
-}
-
-// ponytail: drawn as primitives/Switch, which has no aria-expanded/aria-controls; this switch also opens the setup form.
-function McpSwitch({
-  label,
-  checked,
-  expanded,
-  controls,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  checked: boolean;
-  expanded: boolean;
-  controls?: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-label={label}
-      aria-checked={checked}
-      aria-expanded={expanded}
-      aria-controls={controls}
-      disabled={disabled}
-      onClick={onClick}
-      className={`relative flex h-5 w-8 shrink-0 items-center rounded-full transition-colors duration-fast before:absolute before:-inset-y-0.5 before:inset-x-0 disabled:opacity-40 ${checked ? "bg-ink" : "bg-line-strong"}`}
-    >
-      <span
-        className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-fast ${checked ? "translate-x-3" : "translate-x-0"}`}
-      />
-    </button>
   );
 }

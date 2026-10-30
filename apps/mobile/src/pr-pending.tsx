@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { SpinnerRing } from "./icons";
-import { IconButton, useStyles } from "./ui";
+import { CircleButton, useStyles } from "./ui";
 
 const WAIT_MS = 15_000;
 
@@ -24,8 +24,8 @@ export function PrPending({ number, waiting, onClose }: { number: number; waitin
   return (
     <View style={[styles.screen, { paddingTop: 16 }]}>
       {onClose && (
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 12 }}>
-          <IconButton label="Close" icon={Cancel01Icon} size={44} onPress={onClose} />
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16 }}>
+          <CircleButton label="Close" icon={Cancel01Icon} onPress={onClose} />
         </View>
       )}
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>

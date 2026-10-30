@@ -15,7 +15,7 @@ import { chatShortcutIndex, useHardwareShortcuts } from "./hardware-keys";
 import { rulesOf, useHostKeybindings } from "./keybindings-store";
 import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
-import { radius } from "./design-tokens";
+import { duration, easing, radius } from "./design-tokens";
 import { useTheme } from "./theme";
 import { scaledTiming, useMotionScale } from "./motion";
 
@@ -50,7 +50,7 @@ export function SplitShell({ children }: { children: React.ReactNode }) {
 /** The room the pinned sidebar takes beside the Chat: its card and the gap to its left. */
 const SLOT = SIDEBAR_WIDTH + CARD_MARGIN;
 /** iOS's own sidebar timing: quick off the mark, settling gently. */
-const SLIDE = { duration: 320, easing: Easing.bezier(0.32, 0.72, 0, 1), reduceMotion: ReduceMotion.System };
+const SLIDE = { duration: duration.slow, easing: Easing.bezier(...easing.slide), reduceMotion: ReduceMotion.System };
 
 function PinnedSidebar({ shown }: { shown: boolean }) {
   const { colors } = useTheme();
@@ -270,8 +270,8 @@ const s = StyleSheet.create({
     flex: 1,
     width: SIDEBAR_WIDTH,
     marginLeft: CARD_MARGIN,
-    // ponytail: 18 matches the sidebar and panel cards in project-navigation and side-panels; move all three together.
-    borderRadius: 18,
+    // The iPad panels float like sheets (side-panels uses the same radius).
+    borderRadius: radius.sheet,
     borderCurve: "continuous",
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",

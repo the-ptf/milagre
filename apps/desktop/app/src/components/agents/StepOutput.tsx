@@ -24,7 +24,7 @@ export function StepOutput({ step, detail }: { step: ChatStep; detail?: string }
         />
       )}
       {clipped && (
-        <Button variant="ghost" size={24} onClick={() => setAll(true)} className="mb-2 text-ink-2 enabled:hover:text-ink">
+        <Button variant="quiet" size={24} onClick={() => setAll(true)} className="mb-2">
           Show {lines.length - 40} {consoleOutput ? "earlier" : "more"} lines
         </Button>
       )}

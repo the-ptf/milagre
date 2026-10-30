@@ -56,7 +56,7 @@ export function RemoteDelegationCard({
               Open
             </Button>
             {run && (
-              <Button variant="secondary" size={24} onClick={() => onStop(chat)}>
+              <Button variant="danger-ghost" size={24} onClick={() => onStop(chat)}>
                 Stop
               </Button>
             )}

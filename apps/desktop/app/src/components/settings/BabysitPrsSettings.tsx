@@ -24,7 +24,7 @@ import {
   type BabysitWake,
 } from "@milagre/shared/babysit";
 import { createDebouncedSave, useBabysitSettings, type BabysitChange, type SaveState } from "../../lib/babysit-settings";
-import { IconButton } from "../primitives/Button";
+import { Button, IconButton } from "../primitives/Button";
 import { Checkbox } from "../primitives/Checkbox";
 import { FIELD, FIELD_AREA } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
@@ -130,6 +130,10 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
   };
 }
 
+/** A wake toggle: the phone Chip's look, an ink fill with an on-ink label while pressed (selection is ink). */
+const WAKE_CHIP =
+  "flex h-7 items-center gap-1.5 rounded-full bg-surface pr-2.5 pl-2 text-12 font-medium text-ink-2 shadow-btn transition-colors hover:text-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-on-ink aria-pressed:shadow-none";
+
 function StepPill({ steps, selected }: { steps: readonly BabysitStep[]; selected: boolean }) {
   const names = steps.map((step) => STEPS[step].name).join(" → ");
   return (
@@ -137,7 +141,7 @@ function StepPill({ steps, selected }: { steps: readonly BabysitStep[]; selected
       <span
         role="img"
         aria-label={names}
-        className={`flex h-6 shrink-0 items-center gap-0.5 rounded-full px-1.5 ${selected ? "bg-surface text-accent shadow-card" : "bg-field text-ink-2"}`}
+        className={`flex h-6 shrink-0 items-center gap-0.5 rounded-full bg-field px-1.5 ${selected ? "text-ink" : "text-ink-2"}`}
       >
         {steps.map((step, index) => (
           <span key={step} data-step={step} className="flex items-center gap-0.5">
@@ -177,7 +181,7 @@ function StopRow({
   return (
     <div className="grid gap-2 px-4 py-3">
       <div className="flex min-h-6 items-center gap-3">
-        <Checkbox id={id} tone="accent" checked={checked} disabled={disabled} onCheckedChange={(next) => onChange?.(next === true)} />
+        <Checkbox id={id} checked={checked} disabled={disabled} onCheckedChange={(next) => onChange?.(next === true)} />
         <label htmlFor={id} className={`grid min-w-0 flex-1 gap-0.5 ${disabled ? "" : "cursor-pointer"}`}>
           <span className="text-13 font-medium text-ink">{label}</span>
           {description && <span className="text-12 text-ink-3">{description}</span>}
@@ -229,16 +233,16 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
       <Group
         title="Babysit PRs"
         action={
-          <button type="button" data-babysit-reset className="text-12 font-medium text-accent-ink hover:underline" onClick={reset}>
+          <Button variant="link" size={24} data-babysit-reset onClick={reset} className="-mr-2">
             Reset all to defaults
-          </button>
+          </Button>
         }
       >
         <Row
           label="Babysit new PRs"
           description="Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done."
         >
-          <Switch label="Babysit new PRs" tone="accent" checked={settings.enabled} onChange={(enabled) => change({ enabled })} />
+          <Switch label="Babysit new PRs" checked={settings.enabled} onChange={(enabled) => change({ enabled })} />
         </Row>
         <Row
           label="Check every"
@@ -260,13 +264,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
             {WAKE.map(({ kind, label }) => {
               const on = settings.wake.includes(kind);
               return (
-                <button
-                  key={kind}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => toggleWake(kind)}
-                  className={`flex h-7 items-center gap-1.5 rounded-full border px-2 text-13 font-medium transition-colors duration-fast ${on ? "border-transparent bg-accent-tint text-accent-ink" : "border-line text-ink-2 hover:bg-hover"}`}
-                >
+                <button key={kind} type="button" aria-pressed={on} onClick={() => toggleWake(kind)} className={WAKE_CHIP}>
                   <Icon icon={on ? Tick02Icon : Add01Icon} size={14} />
                   {label}
                 </button>
@@ -288,17 +286,17 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               <label
                 key={entry.level}
                 data-babysit-level={entry.level}
-                className={`flex cursor-pointer items-center gap-3 rounded-card px-2.5 py-1.5 transition-colors duration-fast ${selected ? "bg-accent-tint" : "hover:bg-hover"}`}
+                className="flex cursor-pointer items-center gap-3 rounded-inline px-2 py-1.5 transition-colors hover:bg-hover"
               >
-                <RadioGroupItem tone="accent" value={String(entry.level)} />
+                <RadioGroupItem value={String(entry.level)} />
                 <span className="grid min-w-0 flex-1 gap-0.5">
-                  <span className={`flex items-center gap-2 text-13 font-medium ${selected ? "text-accent-ink" : "text-ink"}`}>
+                  <span className="flex items-center gap-2 text-13 font-medium text-ink">
                     {entry.title}
                     {entry.level === BABYSIT_DEFAULTS.level && (
                       <span className="rounded-inline bg-field px-1.5 py-px text-11 font-medium text-ink-2">Default</span>
                     )}
                   </span>
-                  <span className={`text-12 ${selected ? "text-accent-ink" : "text-ink-3"}`}>{entry.description}</span>
+                  <span className="text-12 text-ink-3">{entry.description}</span>
                 </span>
                 <StepPill steps={entry.steps} selected={selected} />
               </label>
@@ -306,12 +304,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
           })}
         </RadioGroup>
         <Row label="Resolve threads it answered" description="On by default. After replying on a thread, the agent marks it resolved.">
-          <Switch
-            label="Resolve threads it answered"
-            tone="accent"
-            checked={settings.resolveThreads}
-            onChange={(resolveThreads) => change({ resolveThreads })}
-          />
+          <Switch label="Resolve threads it answered" checked={settings.resolveThreads} onChange={(resolveThreads) => change({ resolveThreads })} />
         </Row>
       </Group>
       <Group title="Stop babysitting when">
@@ -333,7 +326,6 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               label="Watch the PR for"
               width={120}
               disabled={!settings.stopAfterDays.on}
-              triggerClassName="disabled:opacity-40"
               value={String(settings.stopAfterDays.days)}
               options={options(DAYS_OPTIONS, "day", "days")}
               onChange={(value) => change((current) => ({ stopAfterDays: { ...current.stopAfterDays, days: Number(value) } }))}
@@ -350,7 +342,6 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               label="Failed to fix the same problem"
               width={120}
               disabled={!settings.stopAfterFailures.on}
-              triggerClassName="disabled:opacity-40"
               value={String(settings.stopAfterFailures.times)}
               options={options(FAILURE_OPTIONS, "time", "times")}
               onChange={(value) => change((current) => ({ stopAfterFailures: { ...current.stopAfterFailures, times: Number(value) } }))}
@@ -392,7 +383,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
             onChange={(event) => instructions.onChange(event.target.value)}
             onFocus={instructions.onFocus}
             onBlur={instructions.onBlur}
-            className={`${FIELD_AREA} resize-y leading-relaxed outline-none`}
+            className={`${FIELD_AREA} resize-y outline-none`}
           />
           <div className="flex min-h-4 justify-end">
             <SaveMark state={instructions.state} />
@@ -409,7 +400,7 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   return (
     <div data-babysit-prs-page>
       <div className="flex items-center gap-3">
-        <IconButton label="Back to Experimental" icon={ArrowLeft01Icon} onClick={onBack} className="bg-field" />
+        <IconButton label="Back to Experimental" icon={ArrowLeft01Icon} onClick={onBack} />
         <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.02em] text-ink">
           <span className="text-ink-3">Experimental</span>
           <span className="text-ink-3">

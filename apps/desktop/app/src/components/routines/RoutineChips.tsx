@@ -1,22 +1,20 @@
 import { useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
+import type { IconSvgElement } from "@hugeicons/react";
 import { useDismiss } from "../../lib/use-dismiss";
-import { Icon } from "../primitives/Icon";
+import { Chip as ChipBase } from "../primitives/Chip";
 
-type HugeIconData = typeof ArrowDown01Icon;
+type HugeIconData = IconSvgElement;
 
-const chipShape = "inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full px-2.5 text-12 font-medium";
 const GAP = 6;
 const INSET = 12;
 
 /** A Routine's setting as a pill on the field fill: its icon and words ("Every hour", "New Worktree in payments-api"). */
 export function Chip({ icon, children, ...data }: { icon?: HugeIconData; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
-    <span className={`${chipShape} bg-field text-ink-2`} {...data}>
-      {icon && <Icon icon={icon} size={14} className="shrink-0" />}
+    <ChipBase variant="static" icon={icon} className="max-w-full" {...data}>
       <span className="truncate">{children}</span>
-    </span>
+    </ChipBase>
   );
 }
 
@@ -62,20 +60,21 @@ export function PopoverChip({
 
   return (
     <>
-      <button
+      <ChipBase
         ref={trigger}
-        type="button"
+        variant="field"
+        icon={icon}
+        chevron
+        invalid={invalid}
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
         data-routine-chip-trigger={label}
         onClick={() => (open ? close(false) : place())}
-        className={`${chipShape} pr-2 transition-colors duration-fast hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "bg-field text-ink-2"} ${invalid ? "ring-1 ring-red" : ""}`}
+        className="max-w-full"
       >
-        {icon && <Icon icon={icon} size={14} className="shrink-0" />}
         <span className="truncate">{text}</span>
-        <Icon icon={ArrowDown01Icon} size={12} className="shrink-0 text-ink-3" />
-      </button>
+      </ChipBase>
       {position &&
         createPortal(
           <div

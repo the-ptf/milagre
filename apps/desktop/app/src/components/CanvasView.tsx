@@ -21,7 +21,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ZoomBar } from "./primitives/ZoomBar";
-import { Add01Icon, BubbleChatIcon, Folder01Icon, GitBranchIcon, Link04Icon, ShieldAlertIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Folder01Icon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import {
   canvasAttention,
   canvasFilterCounts,
@@ -44,12 +44,14 @@ import { useProjectImages } from "@/lib/project-images";
 import { NEGOTIATION_ROUNDS } from "@milagre/shared/limits";
 import { DiffBar } from "./changes/ChangesChrome";
 import { ProviderLogo } from "./ProviderLogo";
-import { SpinnerRing } from "./primitives/SpinnerRing";
 import { ChatMarkDotInline } from "./sidebar/ChatRow";
 import Tooltip from "./primitives/Tooltip";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
+import { EmptyState } from "./primitives/EmptyState";
+import { Segmented } from "./primitives/Segmented";
+import { DURATION } from "@/lib/ease";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 
 /* ─────────────────────────────────────────────────────────
@@ -171,7 +173,7 @@ function LinkEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
             <span>{activity?.label ?? "Projects"}</span>
             {activity?.negotiationId && (
               // -my-1 keeps the pill's height with a 24px button in it.
-              <Button variant="secondary" size={24} className="-my-1 ml-1" onClick={() => data?.onStop(activity.negotiationId!)}>
+              <Button variant="danger-ghost" size={24} className="-my-1 ml-1" onClick={() => data?.onStop(activity.negotiationId!)}>
                 Stop
               </Button>
             )}
@@ -208,20 +210,18 @@ function SectionNode({ data }: NodeProps<SectionNode>) {
         <ProjectAvatar name={data.name} src={data.image} size={20} />
         <span className="min-w-0 truncate text-13 font-semibold text-ink">{data.name}</span>
         <span className="shrink-0 text-12 text-ink-2">
-          {data.chatCount === 1 ? "1 chat" : `${data.chatCount} chats`}
-          {data.worktreeCount > 1 && ` · ${data.worktreeCount} worktrees`}
+          {data.chatCount === 1 ? "1 Chat" : `${data.chatCount} Chats`}
+          {data.worktreeCount > 1 && ` · ${data.worktreeCount} Worktrees`}
         </span>
         <span className="flex-1" />
         {data.onNewChat && (
-          <Tooltip label={`New chat in ${data.name}`} align="end">
-            <IconButton
-              label={`New chat in ${data.name}`}
-              icon={Add01Icon}
-              data-canvas-new-chat={data.projectPath}
-              className="nodrag"
-              onClick={() => data.onNewChat?.(data.projectPath)}
-            />
-          </Tooltip>
+          <IconButton
+            label={`New Chat in ${data.name}`}
+            icon={Add01Icon}
+            data-canvas-new-chat={data.projectPath}
+            className="nodrag"
+            onClick={() => data.onNewChat?.(data.projectPath)}
+          />
         )}
       </div>
     </div>
@@ -229,23 +229,11 @@ function SectionNode({ data }: NodeProps<SectionNode>) {
 }
 
 const toneClass: Record<CanvasTone, string> = { accent: "text-accent", orange: "text-orange-ink", red: "text-red-ink", ink3: "text-ink-2" };
-const MARK_ICON = { question: BubbleChatIcon, waiting: ShieldAlertIcon, delegated: Link04Icon } as const;
-
-/** The sidebar's mark: an icon when the chat asks for you, a spinner while it runs, a dot otherwise. */
+/** The sidebar's mark in its 12px slot; an idle chat keeps a solid 6px ink-4 dot. The status line says it in words. */
 function Mark({ mark, failed }: { mark: CanvasMark; failed: boolean }) {
   return (
-    <span data-canvas-mark={mark} className="flex size-3.5 shrink-0 items-center justify-center">
-      {mark === "running" ? (
-        <SpinnerRing size={12} color="var(--accent)" />
-      ) : mark === "background" ? (
-        <ChatMarkDotInline mark="background" failed={false} />
-      ) : mark in MARK_ICON ? (
-        <span className={`flex ${mark === "waiting" ? "text-orange-ink" : "text-accent"}`}>
-          <Icon icon={MARK_ICON[mark as keyof typeof MARK_ICON]} size={12} />
-        </span>
-      ) : (
-        <span className={`rounded-full ${mark === "unread" ? "size-2 bg-accent" : failed ? "size-1.5 bg-red" : "size-1.5 bg-ink-3 opacity-40"}`} />
-      )}
+    <span aria-hidden data-canvas-mark={mark} className="flex size-3 shrink-0 items-center justify-center">
+      {mark === "idle" && !failed ? <span className="size-1.5 rounded-full bg-ink-4" /> : <ChatMarkDotInline mark={mark} failed={failed} />}
     </span>
   );
 }
@@ -273,7 +261,7 @@ function ChatRow({ row, data, single }: { row: CardRow; data: CardData; single: 
         <span className="min-w-0 flex-1 truncate text-13 font-semibold text-ink group-hover/chat:underline">{row.title}</span>
         {single && <Diff diff={data.worktree.diff} />}
       </span>
-      <span className="flex h-4 w-full min-w-0 items-center gap-1.5 pl-[22px] text-12">
+      <span className="flex h-4 w-full min-w-0 items-center gap-1.5 pl-5 text-12">
         <span className={`shrink-0 font-medium ${toneClass[status.tone]}`}>{status.label}</span>
         {single && <span className="min-w-0 truncate text-ink-3">· {data.worktree.branch}</span>}
         {data.receiveOnly.has(row.id) && (
@@ -307,7 +295,7 @@ function WorktreeCard({ data }: NodeProps<CardNode>) {
         </div>
       ))}
       {!single && (
-        <div className="mt-2.5 flex h-4 items-center gap-1.5 pl-[22px] text-11 text-ink-2">
+        <div className="mt-2.5 flex h-4 items-center gap-1.5 pl-5 text-11 text-ink-2">
           <Icon icon={GitBranchIcon} size={12} className="text-ink-3" />
           <span className="min-w-0 flex-1 truncate">{data.worktree.branch}</span>
           <Diff diff={data.worktree.diff} />
@@ -378,16 +366,18 @@ function buildNodes(
     const running = chatsRunning(runs, project.path);
     const background = chatsInBackground(runs, project.path, state?.sessions);
     const delegated = delegatedChats(work, project.path);
-    const worktrees = canvasWorktrees(state, (id, unread) =>
-      chatMark({
+    const worktrees = canvasWorktrees(state, (id, unread) => {
+      const mark = chatMark({
         asking: asking.has(id),
         waiting: waiting.has(id),
         delegated: delegated.has(id),
         running: running.has(id),
         background: background.has(id),
         unread,
-      }),
-    );
+      });
+      // ponytail: no interruption is passed here, so this never fires; drop it once CanvasMark (shared/canvas.ts) has "interrupted".
+      return mark === "interrupted" ? "idle" : mark;
+    });
     // A Project with nothing active stays off the canvas, unless a Link or a named group needs it there.
     if (!worktrees.length && !keep.has(project.id)) continue;
     shown.push(...worktrees);
@@ -469,35 +459,27 @@ function fitSections(nodes: CanvasNode[]): CanvasNode[] {
 /* ─────────────────────────────────────────────────────────
  * CHROME
  * ───────────────────────────────────────────────────────── */
-const FILTERS: Array<{ id: CanvasFilter; label: string; dot?: string }> = [
-  { id: "all", label: "All" },
-  { id: "needs-you", label: "Needs you", dot: "bg-orange" },
-  { id: "running", label: "Running", dot: "bg-accent" },
-];
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "needs-you", label: "Needs you", dot: "orange" },
+  { value: "running", label: "Running", dot: "accent" },
+] as const;
 
 function FilterBar({ filter, counts, onChange }: { filter: CanvasFilter; counts: Record<CanvasFilter, number>; onChange: (filter: CanvasFilter) => void }) {
   return (
-    <div role="radiogroup" aria-label="Show chats" className="no-drag flex h-8 items-center gap-0.5 rounded-control bg-surface p-0.5 shadow-card">
-      {FILTERS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="radio"
-          aria-checked={filter === item.id}
-          data-canvas-filter={item.id}
-          onClick={() => onChange(item.id)}
-          className={`flex h-7 items-center gap-1.5 rounded-chip px-2.5 text-12 font-medium transition-colors duration-fast ${
-            filter === item.id ? "bg-hover-2 text-ink" : "text-ink-2 hover:text-ink"
-          }`}
-        >
-          {item.dot && <span className={`size-1.5 rounded-full ${item.dot}`} />}
-          {item.label}
-          <span className="tabular-nums">{counts[item.id]}</span>
-        </button>
-      ))}
-    </div>
+    <Segmented
+      label="Show Chats"
+      size="large"
+      className="no-drag"
+      dataKey="canvas-filter"
+      value={filter}
+      options={FILTERS.map((item) => ({ ...item, count: counts[item.value] }))}
+      onChange={onChange}
+    />
   );
 }
+
+const ZOOM_MS = DURATION.base * 1000;
 
 function ZoomControls() {
   const flow = useReactFlow();
@@ -506,10 +488,10 @@ function ZoomControls() {
     <ZoomBar
       data-canvas-zoom
       zoom={zoom}
-      onZoomOut={() => void flow.zoomOut({ duration: 160 })}
-      onReset={() => void flow.zoomTo(1, { duration: 160 })}
-      onZoomIn={() => void flow.zoomIn({ duration: 160 })}
-      onFit={() => void flow.fitView({ padding: 0.15, duration: 200 })}
+      onZoomOut={() => void flow.zoomOut({ duration: ZOOM_MS })}
+      onReset={() => void flow.zoomTo(1, { duration: ZOOM_MS })}
+      onZoomIn={() => void flow.zoomIn({ duration: ZOOM_MS })}
+      onFit={() => void flow.fitView({ padding: 0.15, duration: ZOOM_MS })}
     />
   );
 }
@@ -692,20 +674,17 @@ export function CanvasView({
         trailing={
           <div className="no-drag flex items-center gap-2">
             {selectedLink && (
-              <button
-                type="button"
-                data-canvas-remove-link
-                className="h-8 rounded-control bg-surface px-3 text-13 font-medium text-red-ink shadow-btn transition-colors duration-fast hover:bg-hover"
-                onClick={() => void remove()}
-              >
+              <Button variant="danger-ghost" data-canvas-remove-link onClick={() => void remove()}>
                 Remove Link
-              </button>
+              </Button>
             )}
             <FilterBar filter={filter} counts={counts} onChange={setFilter} />
           </div>
         }
       />
-      <InlineError className="absolute inset-x-5 top-14 z-30 rounded-control bg-surface px-3 py-2 shadow-overlay">{error}</InlineError>
+      <InlineError variant="floating" className="absolute inset-x-5 top-14 z-30">
+        {error}
+      </InlineError>
       <div className="milagre-canvas-surface min-h-0 flex-1">
         {snapshot ? (
           <ReactFlow
@@ -737,8 +716,8 @@ export function CanvasView({
               <ZoomControls />
             </Panel>
             {!nodes.length && (
-              <Panel position="top-center" className="!top-1/3 text-13 text-ink-3">
-                No active chats. Chats the sidebar shows appear here.
+              <Panel position="top-center" className="!top-1/3">
+                <EmptyState title="No active Chats">Chats the sidebar shows appear here.</EmptyState>
               </Panel>
             )}
           </ReactFlow>

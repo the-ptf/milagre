@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, ComputerIcon, LaptopIcon, SmartPhone01Icon } from "@hugeicons/core-free-icons";
+import { presenceTone } from "@milagre/shared/chat-scopes";
 import { useSession } from "../../session";
 import { savedHosts } from "../../hosts-native";
 import { phoneName } from "../../phone-name-native";
 import { statusLine, isDesktopComputer } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Icon } from "../../icons";
-import { ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowSwitch, pressStyle, useStyles } from "../../ui";
+import { EmptyState, ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowSwitch, pressStyle, useStyles } from "../../ui";
 import { lineHeight, radius, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 
@@ -23,7 +24,6 @@ export default function ComputersScreen() {
   const reachability = useComputerStatus(hosts);
   useRouteChanges(hosts);
   const [error, setError] = useState("");
-  const dot = (state: string) => (state === "online" ? colors.green : state === "checking" ? colors.orange : colors.lineStrong);
   return (
     <>
       <Stack.Screen options={{ title: "Computers" }} />
@@ -56,7 +56,7 @@ export default function ComputersScreen() {
                   >
                     <View style={{ flex: 1, gap: 2 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: dot(state) }} />
+                        <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors[presenceTone(state)] }} />
                         <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink2" size={16} />
                         <Text
                           numberOfLines={1}
@@ -89,14 +89,13 @@ export default function ComputersScreen() {
             })}
           </View>
         ) : (
-          <View style={[styles.card, { gap: 6 }]}>
-            <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>No computers paired</Text>
-            <Text style={styles.muted}>Open Settings → Devices in Milagre on your Mac, then scan its pairing code with +.</Text>
-          </View>
+          <EmptyState icon={ComputerIcon} title="No computers paired">
+            Open Settings → Devices in Milagre on your Mac, then scan its pairing code with +.
+          </EmptyState>
         )}
         {error ? <ErrorNotice message={error} /> : null}
         <Group title="This iPhone">
-          {[<ListRow key="name" title="Name on computers" icon={SmartPhone01Icon} value={phoneName || undefined} chevron={false} />]}
+          <ListRow title="Name on computers" icon={SmartPhone01Icon} value={phoneName || undefined} chevron={false} />
         </Group>
       </PageScroll>
     </>

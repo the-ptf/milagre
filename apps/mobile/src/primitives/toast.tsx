@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { lineHeight, radius, type } from "../design-tokens";
+import { chrome, lineHeight, radius, space, type } from "../design-tokens";
 import { useTheme } from "../theme";
 import { announce } from "./announce";
 
 /**
- * A brief confirmation over the current screen: ink fill, onInk label, read aloud on VoiceOver and TalkBack. `placement`
- * "top" floats under a large-title header without moving the list (the Chats list), "bottom" above the home indicator. Mount for each new action.
+ * A brief confirmation over the current screen, an ink capsule as on desktop: ink fill, onInk label, read aloud once on
+ * VoiceOver and TalkBack. `placement` "top" floats 8 under the header (`chrome.header`) without moving the list,
+ * "bottom" above the home indicator. Mount for each new action.
  */
 export function Toast({ text, placement = "bottom" }: { text: string; placement?: "top" | "bottom" }) {
   const { colors } = useTheme();
@@ -24,7 +25,7 @@ export function Toast({ text, placement = "bottom" }: { text: string; placement?
       pointerEvents="none"
       style={[
         { position: "absolute", left: 16, right: 16, alignItems: "center", zIndex: 10 },
-        placement === "top" ? { top: insets.top + 60 } : { bottom: Math.max(insets.bottom + 12, 24) },
+        placement === "top" ? { top: insets.top + chrome.header + space.md } : { bottom: Math.max(insets.bottom + 12, 24) },
       ]}
     >
       <View

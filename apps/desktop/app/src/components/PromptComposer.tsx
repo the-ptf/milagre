@@ -6,14 +6,16 @@ import { flushSync } from "react-dom";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
-  ArrowDown01Icon,
   ArrowUp01Icon,
   Attachment01Icon,
   ClipboardPasteIcon,
   FlashIcon,
   Mic01Icon,
   SecurityCheckIcon,
+  Shield01Icon,
+  ShieldAlertIcon,
 } from "@hugeicons/core-free-icons";
+import { permissionPresentation, UI_COPY } from "@milagre/shared/model-copy";
 import type { AgentCliStatus, ContextUsage, EffortLevel, ModelCapability, ModelOption, ModelProvider, PermissionMode } from "../model";
 import { effortCopy, PERMISSION_MODE_LABEL, PERMISSION_MODES } from "../model";
 import { cliNotice, messageParts } from "../lib/cli-status";
@@ -43,7 +45,9 @@ import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation
 import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
 import { Button, IconButton } from "./primitives/Button";
+import { Chip } from "./primitives/Chip";
 import { Icon } from "./primitives/Icon";
+import { MenuLabel } from "./primitives/Popover";
 import { InlineError } from "./primitives/InlineError";
 import { SpinnerRing } from "./primitives/SpinnerRing";
 import Tooltip from "./primitives/Tooltip";
@@ -57,11 +61,14 @@ const SOURCES: Source[] = [
   { key: "paste", name: "Paste image", desc: "Attach an image from the clipboard", icon: ClipboardPasteIcon },
 ];
 
+// permissionPresentation's semantic icon names, as Hugeicons. Full is the only orange mode.
+const PERMISSION_ICONS = { shield: Shield01Icon, "security-check": SecurityCheckIcon, "shield-alert": ShieldAlertIcon } as const;
+
 const UNDO_COMMAND = { key: "undo", name: "/undo", desc: "Undo a task's file changes" };
 
 const COMMANDS = [
   { key: "summarize", name: "/summarize", desc: "Digest the thread so far" },
-  { key: "blockers", name: "/blockers", desc: "Find blockers across worktrees" },
+  { key: "blockers", name: "/blockers", desc: "Find blockers across Worktrees" },
   { key: "plan", name: "/plan", desc: "Draft the next steps" },
   { key: "review", name: "/review", desc: "Review the current agent output" },
 ];
@@ -350,6 +357,7 @@ export function PromptComposer({
   const providerTabs = pickerProviders(cliStatus, selectedModel.provider, provider);
   const modelRows = models.filter((model) => model.provider === provider && `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase()));
   const canStop = running && Boolean(onStop);
+  const permission = permissionPresentation(permissionMode);
   const canSend = draft.trim().length > 0 || imageDraft.images.length > 0 || imageDraft.files.length > 0;
   const visibleSuggestion =
     suggestion &&
@@ -643,13 +651,13 @@ export function PromptComposer({
           <div
             data-picker-panel
             onMouseLeave={() => setEngaged(false)}
-            className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1 shadow-raised"
+            className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1.5 shadow-raised"
             style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "bottom center" }}
           >
             <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-x-1 rounded-chip bg-hover"
+                className="pointer-events-none absolute inset-x-0 rounded-inline bg-hover-2"
                 style={{
                   top: rowBox?.top ?? 0,
                   height: rowBox?.height ?? 0,
@@ -665,8 +673,8 @@ export function PromptComposer({
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
-                      <div data-skill-group={row.group} className="px-2 pt-2 pb-1 text-11 font-medium text-ink-3">
-                        {row.group}
+                      <div data-skill-group={row.group}>
+                        <MenuLabel>{row.group}</MenuLabel>
                       </div>
                     )}
                     <button
@@ -681,11 +689,11 @@ export function PromptComposer({
                       }}
                       onClick={() => pick(row)}
                       title={row.path ?? row.desc}
-                      className="relative z-10 flex h-9 w-full items-center gap-2 rounded-chip px-2 text-left focus-visible:-outline-offset-2"
+                      className="relative z-10 flex h-8 w-full items-center gap-2 rounded-inline px-2 text-left focus-visible:-outline-offset-2"
                     >
                       {source && (
                         <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                          <Icon icon={source.icon} size={14} />
+                          <Icon icon={source.icon} size={16} />
                         </span>
                       )}
                       <span className="max-w-[45%] shrink-0 truncate text-13 font-medium text-ink">{row.name}</span>
@@ -701,7 +709,7 @@ export function PromptComposer({
                 </InlineError>
               )}
               {rows.length === 0 && (
-                <div className="flex h-9 items-center px-2 text-12 text-ink-3">
+                <div className="flex h-8 items-center px-2 text-12 text-ink-3">
                   {fileSearch.loading && menu === "at" ? "Searching files…" : `No matches for “${tokenQuery}”`}
                 </div>
               )}
@@ -734,7 +742,7 @@ export function PromptComposer({
             notice={
               providerNotice ? (
                 <div role="status" className="mx-1 mb-1 flex flex-col gap-2 rounded-control bg-inset px-2.5 py-2 text-12 text-ink-2">
-                  <p className="leading-snug">
+                  <p>
                     {messageParts(providerNotice).map((part, index) =>
                       part.code ? (
                         <code key={index} className="rounded-chip bg-surface px-1 py-px font-mono text-11 text-ink">
@@ -789,8 +797,8 @@ export function PromptComposer({
               <PickerRow
                 key={mode.id}
                 icon={
-                  <span className={`flex shrink-0 ${mode.id === "full" ? "text-ink" : mode.id === "auto" ? "text-green-ink" : "text-accent-ink"}`}>
-                    <Icon icon={SecurityCheckIcon} size={14} />
+                  <span className={`flex shrink-0 ${permissionPresentation(mode.id).tone === "orange" ? "text-orange" : "text-ink-2"}`}>
+                    <Icon icon={PERMISSION_ICONS[permissionPresentation(mode.id).icon]} size={14} />
                   </span>
                 }
                 label={mode.name}
@@ -898,59 +906,63 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} rounded-full ${plusOpen ? "bg-hover" : ""}`}
+              shape="pill"
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"}`}
             />
             <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
-              <button
-                type="button"
-                aria-expanded={modelOpen}
-                title={[selectedModel.name, effortLabel, canUseFastMode && fastMode ? "Fast mode" : ""].filter(Boolean).join(" · ")}
-                onClick={(event) => {
-                  anchorTo(event.currentTarget, capability.efforts.length > 0 || capability.fastMode || capability.ultracode ? 580 : 300);
-                  setPlusOpen(false);
-                  setPermissionOpen(false);
-                  setModelOpen((current) => !current);
-                }}
-                className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
-              >
-                <ProviderLogo provider={selectedModel.provider} size={14} />
-                <span data-model-name className="max-w-28 truncate">
-                  {selectedModel.name}
-                </span>
-                {effortLabel && (
-                  <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
-                    <span className="text-ink-3">·</span>
-                    <span className="hidden min-[900px]:inline">{effortLabel}</span>
-                    <span className="min-[900px]:hidden">
-                      <EffortMeter level={effortIndex} total={effortLevels.length} />
+              <Tooltip label={[selectedModel.name, effortLabel, canUseFastMode && fastMode ? "Fast mode" : ""].filter(Boolean).join(" · ")} asChild>
+                <Chip
+                  chevron
+                  aria-expanded={modelOpen}
+                  icon={<ProviderLogo provider={selectedModel.provider} size={14} />}
+                  onClick={(event) => {
+                    anchorTo(event.currentTarget, capability.efforts.length > 0 || capability.fastMode || capability.ultracode ? 580 : 300);
+                    setPlusOpen(false);
+                    setPermissionOpen(false);
+                    setModelOpen((current) => !current);
+                  }}
+                  className="shrink-0"
+                >
+                  <span data-model-name className="max-w-28 truncate">
+                    {selectedModel.name}
+                  </span>
+                  {effortLabel && (
+                    <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                      <span className="text-ink-3">·</span>
+                      <span className="hidden min-[900px]:inline">{effortLabel}</span>
+                      <span className="min-[900px]:hidden">
+                        <EffortMeter level={effortIndex} total={effortLevels.length} />
+                      </span>
                     </span>
-                  </span>
-                )}
-                {canUseFastMode && fastMode && (
-                  <span data-fast-mode className="text-orange-ink">
-                    <Icon icon={FlashIcon} size={14} />
-                  </span>
-                )}
-                <Icon icon={ArrowDown01Icon} size={12} />
-              </button>
+                  )}
+                  {canUseFastMode && fastMode && (
+                    <span data-fast-mode className="text-orange-ink">
+                      <Icon icon={FlashIcon} size={14} />
+                    </span>
+                  )}
+                </Chip>
+              </Tooltip>
             </div>
-            <button
-              type="button"
-              aria-label="Agent permissions"
-              aria-expanded={permissionOpen}
-              disabled={permissionLocked}
-              title={permissionLocked ? PERMISSION_MODE_LABEL[permissionMode] : undefined}
-              onClick={(event) => {
-                anchorTo(event.currentTarget, 340);
-                setPlusOpen(false);
-                setModelOpen(false);
-                setPermissionOpen((current) => !current);
-              }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors duration-fast hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
-            >
-              <Icon icon={SecurityCheckIcon} size={14} />
-              <span className="hidden min-[900px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
-            </button>
+            {/* The label hides below 900px; the Tooltip still names the mode. */}
+            <Tooltip label={`Permissions: ${PERMISSION_MODE_LABEL[permissionMode]}`} asChild>
+              <Chip
+                aria-label="Agent permissions"
+                aria-expanded={permissionOpen}
+                disabled={permissionLocked}
+                icon={<Icon icon={PERMISSION_ICONS[permission.icon]} size={14} className={`shrink-0 ${permission.tone === "orange" ? "text-orange" : ""}`} />}
+                onClick={(event) => {
+                  anchorTo(event.currentTarget, 340);
+                  setPlusOpen(false);
+                  setModelOpen(false);
+                  setPermissionOpen((current) => !current);
+                }}
+                className={`shrink-0 ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              >
+                <span className={`hidden min-[900px]:inline ${permission.ink === "orangeInk" ? "text-orange-ink" : ""}`}>
+                  {PERMISSION_MODE_LABEL[permissionMode]}
+                </span>
+              </Chip>
+            </Tooltip>
             <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
               {contextUsage && contextUsage.size > 0 && (
                 <ContextRing
@@ -974,7 +986,7 @@ export function PromptComposer({
                       if (dictation.phase === "recording") return void dictation.stop();
                       void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
                     }}
-                    className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-fast disabled:cursor-default ${dictation.phase === "recording" ? "text-on-red" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                    className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-fast disabled:cursor-default ${offlineName ? "disabled:opacity-40" : ""} ${dictation.phase === "recording" ? "text-on-red" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
                   >
                     {(dictation.phase === "preparing" || dictation.phase === "transcribing") && (
                       // An arc turning around the mic while dictation starts or the take is transcribed.
@@ -1003,13 +1015,13 @@ export function PromptComposer({
                   </button>
                 </Tooltip>
               </span>
+              {/* Ink, or purple with Ultracode on; disabled is 40% of the same look. */}
               <button
                 type="button"
-                aria-label={canStop ? "Stop agent" : "Send"}
+                aria-label={canStop ? UI_COPY.stop : UI_COPY.send}
                 disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
-                className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,color,scale] duration-fast enabled:active:scale-press disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
-                style={{ background: canStop || (canSend && !sendBlocked) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)" }}
+                className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,opacity,scale] duration-fast enabled:hover:opacity-90 enabled:active:scale-press disabled:cursor-not-allowed disabled:opacity-40 ${ultracodeOn ? "bg-purple" : "bg-ink"}`}
               >
                 {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
               </button>

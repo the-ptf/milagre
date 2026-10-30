@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
-import { MoreHorizontalIcon } from "@hugeicons/core-free-icons";
+import { Archive02Icon, MoreHorizontalIcon } from "@hugeicons/core-free-icons";
 import { allComputers, useArchivedChats } from "../../all-computers";
 import { createOpenGuard } from "../../archived-open";
 import type { ArchivedChat } from "../../chat-list-archived";
@@ -11,7 +11,7 @@ import { lineHeight, radius, type } from "../../design-tokens";
 import { ProjectIcon } from "../../project-icon";
 import { useSession } from "../../session";
 import { fonts, useTheme } from "../../theme";
-import { ErrorNotice, PullDown, useStyles, type MenuSection } from "../../ui";
+import { EmptyState, ErrorNotice, PullDown, useStyles, type MenuSection } from "../../ui";
 
 const keyOf = (item: ArchivedChat) => `${item.hostId}|${item.projectPath}#${item.chat.id}`;
 const MENU: MenuSection[] = [{ items: [{ id: "unarchive", title: "Unarchive", systemImage: "tray.and.arrow.up" }] }];
@@ -146,7 +146,7 @@ export default function ArchivedChatsScreen() {
             <View style={{ gap: 4, paddingLeft: 16, paddingVertical: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 }}>
                 <ProjectIcon client={allComputers.clientFor(item.hostId)} path={item.projectPath} size={16} />
-                <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>
+                <Text numberOfLines={1} style={[styles.label, { flex: 1 }]}>
                   {item.projectName}
                 </Text>
               </View>
@@ -155,16 +155,13 @@ export default function ArchivedChatsScreen() {
               </Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 }}>
                 {!!item.branch && (
-                  <Text
-                    numberOfLines={1}
-                    style={{ flexShrink: 1, color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}
-                  >
+                  <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1, fontFamily: fonts.mono }]}>
                     {item.branch}
                   </Text>
                 )}
-                {many && !!item.branch && <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>·</Text>}
+                {many && !!item.branch && <Text style={styles.caption}>·</Text>}
                 {many && (
-                  <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
+                  <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1 }]}>
                     {item.hostName}
                   </Text>
                 )}
@@ -178,7 +175,7 @@ export default function ArchivedChatsScreen() {
             onSelect={(action) => action === "unarchive" && void unarchive(item)}
           >
             <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-              {taken || loadingThis ? <SpinnerRing size={18} /> : <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />}
+              {taken || loadingThis ? <SpinnerRing size={20} /> : <Icon icon={MoreHorizontalIcon} tone="ink2" size={20} />}
             </View>
           </PullDown>
         </View>
@@ -213,10 +210,9 @@ export default function ArchivedChatsScreen() {
               <SpinnerRing size={20} />
             </View>
           ) : (
-            <View style={[styles.card, { gap: 6 }]}>
-              <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>No archived Chats</Text>
-              <Text style={styles.muted}>Chats you archive from the list show up here, and can be put back.</Text>
-            </View>
+            <EmptyState icon={Archive02Icon} title="No archived Chats">
+              Chats you archive from the list show up here, and can be put back.
+            </EmptyState>
           )
         }
       />

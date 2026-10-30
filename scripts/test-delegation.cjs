@@ -94,13 +94,13 @@ async function browserChecks() {
   const button = (label) => `[...document.querySelectorAll("button")].find((item) => item.textContent.trim() === ${JSON.stringify(label)})`;
   try {
     await window.loadURL(process.argv[2]);
-    await waitFor(`!!${button("Always allow for this Link in this chat")}`);
+    await waitFor(`!!${button("Always allow for this Link in this Chat")}`);
     const cardText = await evaluate("document.body.textContent");
     assert.match(cardText, /Open a Negotiation with web \/ main \/ Health client\?/);
     assert.match(cardText, /Negotiation, up to 10 rounds\./);
     assert.match(cardText, /Agree on the \/health payload: I propose \{ ok: boolean, version: string \}\./);
     await screenshot("approval-card");
-    await evaluate(`${button("Always allow for this Link in this chat")}.click()`);
+    await evaluate(`${button("Always allow for this Link in this Chat")}.click()`);
     assert.equal(await evaluate("window.answer()"), "allow-for-chat");
 
     await evaluate('window.setFixture("receiver")');

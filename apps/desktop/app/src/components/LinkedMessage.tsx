@@ -19,7 +19,7 @@ export function LinkedMessageHeader({ context, onOpenChat }: { context: LinkedCo
       type="button"
       data-linked-from={chat}
       onClick={() => onOpenChat(chat)}
-      className="flex max-w-full items-center gap-1.5 text-11 font-medium text-accent-ink hover:underline"
+      className="relative flex max-w-full items-center gap-1.5 text-11 font-medium text-accent-ink before:absolute before:-inset-x-1 before:-inset-y-1 hover:underline"
     >
       {label}
     </button>

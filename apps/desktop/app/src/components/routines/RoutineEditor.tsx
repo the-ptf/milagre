@@ -21,6 +21,7 @@ import { Select } from "../primitives/Select";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button } from "../primitives/Button";
 import { Checkbox } from "../primitives/Checkbox";
+import { FIELD_LABEL, fieldClass } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { SectionLabel } from "../primitives/SectionLabel";
@@ -31,9 +32,11 @@ import { routineIcon } from "./routine-icon";
 import { routineDeleteWarning, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
-// The field's border colour comes from the caller (line-strong, or red when invalid); focus is the accent border.
-const field = "w-full rounded-control border bg-field px-2.5 py-2 text-13 text-ink outline-none transition-colors duration-fast focus:border-accent";
-const labelClass = "block text-12 font-medium text-ink-2";
+// Fields are 36 in the form and 32 beside a 32px Select; aria-invalid draws the red border (focus wins while focused).
+// fieldClass is w-full, which a w-* beside it never beats: a narrower field takes a max-w-*.
+const FIELD = fieldClass();
+const FIELD_32 = fieldClass({ size: 32 });
+const labelClass = `block ${FIELD_LABEL}`;
 const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_MS = 864e5;
@@ -137,7 +140,7 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
               <input
                 type="time"
                 aria-label="Time"
-                className={`${field} h-8 w-[104px] border-line-strong py-0`}
+                className={`${FIELD_32} max-w-[104px]`}
                 value={schedule.time}
                 onChange={(event) => set({ time: event.target.value })}
               />
@@ -169,7 +172,8 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
           <div className="space-y-1.5">
             <input
               aria-label="Cron"
-              className={`${field} font-mono ${errors.schedule ? "border-red" : "border-line-strong"}`}
+              aria-invalid={Boolean(errors.schedule)}
+              className={`${FIELD} font-mono`}
               placeholder="30 8 * * 1-5"
               value={schedule.cron}
               onChange={(event) => set({ cron: event.target.value })}
@@ -243,7 +247,8 @@ function LinearRows({ form }: { form: RoutineFormApi }) {
     ) : (
       <input
         aria-label={title}
-        className={`${field} h-8 py-0 ${errors[kind] ? "border-red" : "border-line-strong"}`}
+        aria-invalid={Boolean(errors[kind])}
+        className={FIELD_32}
         placeholder={kind === "label" ? "agent" : "Todo"}
         value={value}
         onChange={(event) => set(event.target.value)}
@@ -361,7 +366,7 @@ function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: Routin
         <Labeled label="Signature header (optional)" className="flex-1">
           <input
             aria-label="Signature header"
-            className={`${field} border-line-strong`}
+            className={FIELD}
             placeholder={DEFAULT_SIGNATURE_HEADER}
             value={state.webhook.signingHeader}
             onChange={(event) => update({ webhook: { ...state.webhook, signingHeader: event.target.value } })}
@@ -372,7 +377,8 @@ function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: Routin
             type="password"
             aria-label="Signing secret"
             autoComplete="off"
-            className={`${field} ${errors.signingSecret ? "border-red" : "border-line-strong"}`}
+            aria-invalid={Boolean(errors.signingSecret)}
+            className={FIELD}
             placeholder={state.webhook.signed ? "Kept; type to replace" : "HMAC SHA-256 secret"}
             value={state.webhook.signingSecret}
             onChange={(event) => update({ webhook: { ...state.webhook, signingSecret: event.target.value } })}
@@ -633,7 +639,7 @@ export function RoutineEditor({
                 aria-label="Runs"
                 min={1}
                 max={1000}
-                className={`${field} h-8 w-[90px] border-line-strong py-0`}
+                className={`${FIELD_32} max-w-[90px]`}
                 value={state.stop.runs}
                 onChange={(event) => update({ stop: { ...state.stop, runs: Number(event.target.value) } })}
               />
@@ -642,7 +648,7 @@ export function RoutineEditor({
               <input
                 type="date"
                 aria-label="Stop date"
-                className={`${field} h-8 w-[160px] border-line-strong py-0`}
+                className={`${FIELD_32} max-w-[160px]`}
                 min={dateValue(form.openedAt + DAY_MS)}
                 max={dateValue(form.openedAt + 30 * DAY_MS)}
                 value={dateValue(state.stop.at)}
@@ -672,13 +678,7 @@ export function RoutineEditor({
                 </Button>
               </>
             ) : (
-              <Button
-                variant="ghost"
-                size={28}
-                data-routine-delete-start
-                onClick={() => setConfirming(true)}
-                className="text-red-ink enabled:hover:bg-red-tint"
-              >
+              <Button variant="danger-ghost" size={28} data-routine-delete-start onClick={() => setConfirming(true)}>
                 <Icon icon={Delete02Icon} size={14} />
                 Delete Routine
               </Button>

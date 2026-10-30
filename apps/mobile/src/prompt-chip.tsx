@@ -1,10 +1,10 @@
 import { Pressable, Text, View } from "react-native";
 import { BubbleChatIcon, File01Icon, Folder01Icon, Image01Icon, MagicWand01Icon, ReactIcon } from "@hugeicons/core-free-icons";
-import { fileKind } from "@milagre/shared/file-kinds";
+import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
-import { radius } from "./design-tokens";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 // An inline View in Text sits with its bottom on the text baseline, so every chip shares one box (`chipBox`) and one
@@ -73,12 +73,12 @@ function KindIcon({ path, size }: { path: string; size: number }) {
   const kind = fileKind(path);
   if (kind.badge)
     return (
-      <View style={{ borderRadius: 2, paddingHorizontal: 4, backgroundColor: withAlpha(kind.color, 0.16) }}>
-        <Text style={{ color: kind.color, fontSize: Math.round(size * 0.62), lineHeight: Math.round(size * 0.9), fontWeight: "600" }}>{kind.badge}</Text>
+      <View style={{ borderRadius: radius.chip, borderCurve: "continuous", paddingHorizontal: 4, backgroundColor: withAlpha(kind.color, 0.16) }}>
+        <Text style={{ color: kind.color, fontSize: type.caption2, lineHeight: lineHeight.caption2, fontWeight: "600" }}>{kind.badge}</Text>
       </View>
     );
   const icon = kind.icon === "react" ? ReactIcon : kind.icon === "image" ? Image01Icon : kind.icon === "folder" ? Folder01Icon : File01Icon;
-  return <Icon icon={icon} color={kind.color} size={Math.round(size * 0.95)} strokeWidth={1.8} />;
+  return <Icon icon={icon} color={kind.color} size={Math.round(size * 0.95)} />;
 }
 
 /** A file in a sent prompt: its type and name; a tap opens the preview when `onOpen` is given. */
@@ -101,7 +101,8 @@ export function ImageMentionChip({ index, onOpen }: { index: number; onOpen?: ()
   const label = imageLabel(index);
   return (
     <Box px={textPx} color={colors.lineStrong} fill={colors.hover} onPress={onOpen} label={`Preview ${label}`}>
-      <Icon icon={Image01Icon} color="#26a69a" size={chipIcon(textPx)} strokeWidth={1.8} />
+      {/* The file-kind image colour, as a .png chip beside it and on desktop. */}
+      <Icon icon={Image01Icon} color={IMAGE_COLOR} size={chipIcon(textPx)} />
       <Text numberOfLines={1} style={{ color: colors.ink, ...chipLabel(textPx), flexShrink: 1 }}>
         {label}
       </Text>

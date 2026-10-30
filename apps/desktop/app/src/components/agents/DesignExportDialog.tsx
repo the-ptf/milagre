@@ -1,17 +1,15 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { designPageExportBlob, designPageExportSize, type DesignExportItem, type DesignExportFormat } from "./design-export";
 import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
 import { InlineError } from "../primitives/InlineError";
+import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { SectionLabel } from "../primitives/SectionLabel";
 
 /** Export a snapshot of the current draft, without saving it to the Chat. */
 export function DesignExportDialog({ designs, onClose }: { designs: DesignExportItem[]; onClose: () => void }) {
-  const formatName = useId();
   const alive = useRef(false);
   const working = useRef(false);
-  // Read while rendering: the Dialog's own effect, which runs first, moves focus into it.
-  const [previousFocus] = useState(() => window.document.activeElement as HTMLElement | null);
   const [format, setFormat] = useState<DesignExportFormat>("png");
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
@@ -27,9 +25,8 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
     alive.current = true;
     return () => {
       alive.current = false;
-      previousFocus?.focus();
     };
-  }, [previousFocus]);
+  }, []);
 
   const close = () => {
     if (!working.current) onClose();
@@ -86,36 +83,36 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
           </>
         }
       >
-        <fieldset disabled={exporting} className="mt-5 space-y-2">
+        <fieldset disabled={exporting} className="mt-5">
           <SectionLabel as="legend" className="mb-2">
             File format
           </SectionLabel>
-          {formats.map((option) => (
-            <label
-              key={option.value}
-              className={`flex items-center gap-3 rounded-control border px-3 py-3 transition-colors duration-fast ${format === option.value ? "border-accent bg-accent-tint" : "border-line hover:bg-hover"} ${exporting ? "opacity-40" : "cursor-pointer"}`}
-            >
-              <input
-                type="radio"
-                name={formatName}
-                value={option.value}
-                aria-label={option.label}
-                checked={format === option.value}
-                onChange={() => {
-                  setFormat(option.value);
-                  setError("");
-                }}
-                className="size-4 shrink-0 accent-accent"
-              />
-              <span>
-                <span className="block text-13 font-medium">{option.label}</span>
-                <span className="mt-0.5 block text-12 text-ink-3">{option.description}</span>
-              </span>
-            </label>
-          ))}
+          <RadioGroup
+            value={format}
+            onValueChange={(value) => {
+              setFormat(value as DesignExportFormat);
+              setError("");
+            }}
+          >
+            <div className="space-y-2">
+              {formats.map((option) => (
+                // Selection is ink: the filled radio and an ink edge.
+                <label
+                  key={option.value}
+                  className={`flex items-center gap-3 rounded-control border p-3 transition-colors ${format === option.value ? "border-ink" : "border-line hover:bg-hover"} ${exporting ? "opacity-40" : "cursor-pointer"}`}
+                >
+                  <RadioGroupItem value={option.value} aria-label={option.label} />
+                  <span>
+                    <span className="block text-13 font-medium">{option.label}</span>
+                    <span className="mt-0.5 block text-12 text-ink-3">{option.description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </RadioGroup>
         </fieldset>
         <p className="mt-4 break-all text-11 text-ink-3">{filename}</p>
-        <InlineError size={12} className="mt-3 leading-relaxed">
+        <InlineError size={12} className="mt-3">
           {error}
         </InlineError>
       </Dialog>

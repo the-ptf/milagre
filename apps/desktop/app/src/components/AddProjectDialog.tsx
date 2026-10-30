@@ -7,6 +7,7 @@ import { bridgeFor } from "../lib/computer-bridge";
 import { DOT_COLOR, computerTone, routeLine, useComputers } from "../lib/computers";
 import { Button } from "./primitives/Button";
 import { Dialog } from "./primitives/Dialog";
+import { FIELD_LABEL } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -14,7 +15,7 @@ import { ScrollArea } from "./primitives/ScrollArea";
 const THIS_MAC = "this-mac";
 
 /**
- * Add project with other computers (design add-project-remote v1): choose the computer (offline ones disabled), then a
+ * Add Project with other computers (design add-project-remote v1): choose the computer (offline ones disabled), then a
  * folder on it. This Mac keeps its folder dialog; another computer's home folder is browsed through fs:list-dirs and the
  * checkout opens there, whose daemon owns it. Mounted only while open.
  */
@@ -90,9 +91,9 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
   const [now] = useState(() => Date.now());
 
   return (
-    <Dialog data-add-project title="Add project" onClose={onClose} width={520}>
-      <p className="mt-4 text-12 text-ink-3">On</p>
-      <div className="mt-1.5 flex gap-1.5">
+    <Dialog data-add-project title="Add Project" onClose={onClose} width={520}>
+      <p className={`mt-4 ${FIELD_LABEL}`}>On</p>
+      <div className="mt-1 flex gap-1.5">
         {[
           { id: THIS_MAC, name: thisMac, line: "This Mac", tone: "online" as const, away: false },
           ...computers.map((item) => ({ id: item.id, name: item.name, line: routeLine(item, now), tone: computerTone(item), away: item.state !== "online" })),
@@ -104,7 +105,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
             aria-pressed={on === choice.id}
             disabled={choice.away}
             onClick={() => setOn(choice.id)}
-            className={`flex h-11 min-w-0 flex-1 items-center gap-2 rounded-card px-3 text-left ring-1 transition-colors duration-fast disabled:opacity-40 ${on === choice.id ? "bg-accent-tint ring-accent" : "ring-line-strong enabled:hover:bg-hover"}`}
+            className={`flex h-11 min-w-0 flex-1 items-center gap-2 rounded-card px-3 text-left ring-1 transition-colors duration-fast disabled:opacity-40 ${on === choice.id ? "bg-hover-2 ring-ink" : "ring-line-strong enabled:hover:bg-hover"}`}
           >
             <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: DOT_COLOR[choice.tone] }} />
             <span className="min-w-0">
@@ -123,13 +124,13 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
         </div>
       ) : (
         <>
-          <p className="mt-4 text-12 text-ink-3">Folder on {computer?.name}</p>
+          <p className={`mt-4 ${FIELD_LABEL}`}>Folder on {computer?.name}</p>
           {!reachable && (
-            <p data-add-project-away className="mt-1.5 text-13 text-ink-2">
+            <p data-add-project-away className="mt-1 text-13 text-ink-2">
               {computer?.name} is offline. Pick another computer or wait for it to come back.
             </p>
           )}
-          <div data-folder-path className="mt-1.5 flex h-9 items-center gap-1 rounded-control bg-field px-2.5 text-12 text-ink-2 ring-1 ring-line-strong">
+          <div data-folder-path className="mt-1 flex h-9 items-center gap-1 rounded-control bg-field px-2.5 text-12 text-ink-2 ring-1 ring-line-strong">
             {crumbs.map((crumb, index) =>
               index === crumbs.length - 1 && index > 0 ? (
                 <b key={index} className="font-medium text-ink">{` ${crumb} /`}</b>
@@ -138,7 +139,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
               ),
             )}
           </div>
-          <ScrollArea className="mt-2 h-[250px] rounded-card ring-1 ring-line">
+          <ScrollArea className="mt-2 h-64 rounded-card ring-1 ring-line">
             {listing?.parent && (
               <button
                 type="button"
@@ -169,7 +170,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
             ))}
           </ScrollArea>
           {listing?.truncated && (
-            <p data-add-project-truncated className="mt-1.5 text-12 text-ink-3">
+            <p data-add-project-truncated className="mt-1 text-12 text-ink-3">
               Showing the first 500 folders.
             </p>
           )}
@@ -184,7 +185,7 @@ export function AddProjectDialog({ onClose, onOpened }: { onClose: () => void; o
           </Button>
           {computer && (
             <Button disabled={!reachable || !selected || !(selected.git || selected.project) || busy} onClick={() => void add()}>
-              {selected ? `${selected.project ? "Open" : "Add"} ${selected.name}` : "Add project"}
+              {selected ? `${selected.project ? "Open" : "Add"} ${selected.name}` : "Add Project"}
             </Button>
           )}
         </span>

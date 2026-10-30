@@ -8,6 +8,30 @@ export const PERMISSION_MODES: Array<{ id: PermissionMode; name: string; descrip
 
 /** The composer chip's word for each mode. Bot rules is only ever set by a bot, so the picker above never offers it. */
 export const PERMISSION_MODE_LABEL: Record<PermissionMode, string> = { ask: "Ask", auto: "Auto", full: "Full", bot: "Bot rules" };
+/**
+ * How a permission mode looks on both apps. `icon`: shield (Shield01Icon), security-check (SecurityCheckIcon) or
+ * shield-alert (ShieldAlertIcon). `tone` colors the icon, `ink` the label, as palette keys. Full is the only orange
+ * mode; nothing is green or accent.
+ */
+export function permissionPresentation(mode: PermissionMode) {
+  if (mode === "full") return { icon: "shield-alert", tone: "orange", ink: "orangeInk" } as const;
+  return { icon: mode === "auto" ? "security-check" : "shield", tone: "ink2", ink: "ink2" } as const;
+}
+
+/** Words both apps share. Product nouns (Project, Chat, Routine, Run, Link, Heartbeat, Worktree) are capitalised. */
+export const UI_COPY = {
+  /** The composer's send and stop buttons; `queue` while a turn runs. */
+  send: "Send",
+  sendFollowUp: "Send follow-up",
+  queue: "Queue message",
+  stop: "Stop agent",
+  renameChat: "Rename Chat",
+  newWorktree: "New Worktree",
+  noChanges: "No changes yet",
+  noProjects: "No Projects found",
+  saving: "Saving…",
+} as const;
+
 export const SETUP_APPROVAL_COPY = { allow: "Run once", always: "Trust this version", deny: "Skip setup" } as const;
 
 export const EFFORT_COPY: Record<string, { name: string; description: string }> = {

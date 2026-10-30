@@ -1,4 +1,4 @@
-import { Pressable, Text } from "react-native";
+import { Text } from "react-native";
 import { ArrowDataTransferHorizontalIcon } from "@hugeicons/core-free-icons";
 import type { HandoffContext } from "@milagre/shared/model";
 import { ProviderLogo, SpinnerRing } from "./icons";
@@ -23,25 +23,23 @@ export function HandoffDivider({
   const label = sides.restored ? `Context restored to ${sides.to}` : `Context handoff from ${sides.from} to ${sides.to}`;
   const caption = { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 };
   return (
-    <Pressable
-      accessibilityRole={brief ? "button" : undefined}
-      accessibilityLabel={label}
-      accessibilityHint={brief ? "Opens the handoff brief" : undefined}
-      disabled={!brief}
-      onPress={() => brief && onOpen(brief)}
+    <TranscriptDivider
+      label={label}
+      icon={ArrowDataTransferHorizontalIcon}
+      leading={context.status === "preparing" ? <SpinnerRing size={12} /> : undefined}
+      onPress={brief ? () => onOpen(brief) : undefined}
+      hint="Opens the handoff brief"
     >
-      <TranscriptDivider label={label} icon={ArrowDataTransferHorizontalIcon} leading={context.status === "preparing" ? <SpinnerRing size={12} /> : undefined}>
-        <Text style={caption}>{sides.restored ? "Context restored" : "Context handoff"}</Text>
-        {!sides.restored && (
-          <>
-            <ProviderLogo provider={context.from.provider} size={12} />
-            <Text style={caption}>{sides.from} →</Text>
-          </>
-        )}
-        <ProviderLogo provider={context.to.provider} size={12} />
-        <Text style={[caption, { color: colors.ink2, fontWeight: "500" }]}>{sides.to}</Text>
-        {context.status === "failed" && <Text style={[caption, { color: colors.orangeInk }]}>· Handoff failed</Text>}
-      </TranscriptDivider>
-    </Pressable>
+      <Text style={caption}>{sides.restored ? "Context restored" : "Context handoff"}</Text>
+      {!sides.restored && (
+        <>
+          <ProviderLogo provider={context.from.provider} size={12} />
+          <Text style={caption}>{sides.from} →</Text>
+        </>
+      )}
+      <ProviderLogo provider={context.to.provider} size={12} />
+      <Text style={[caption, { color: colors.ink2, fontWeight: "500" }]}>{sides.to}</Text>
+      {context.status === "failed" && <Text style={[caption, { color: colors.orangeInk }]}>· Handoff failed</Text>}
+    </TranscriptDivider>
   );
 }

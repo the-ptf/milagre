@@ -199,7 +199,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelector('dialog[open] h1').textContent`), "Live activities");
     assert.equal(await evaluate(`document.querySelector('dialog[open] strong').textContent`), "plan");
     assert.equal(await evaluate("window.fileReads.at(-1)"), "/fixture/docs/spec.md");
-    assert.equal(await evaluate(`document.querySelector('dialog[open] [aria-pressed=true]').getAttribute('aria-label')`), "Formatted");
+    assert.equal(await evaluate(`document.querySelector('dialog[open] [aria-checked=true]').getAttribute('aria-label')`), "Formatted");
     await screenshot("markdown-link-formatted");
     // A relative link inside the document resolves against the document's folder.
     await evaluate(`[...document.querySelectorAll('dialog[open] a')].find(a => a.textContent === 'goals').click()`);

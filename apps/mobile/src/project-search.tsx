@@ -5,7 +5,7 @@ import { useSession } from "./session";
 import { Icon } from "./icons";
 import { ProjectIcon } from "./project-icon";
 import { lineHeight, radius, type } from "./design-tokens";
-import { Field, pressStyle, useStyles } from "./ui";
+import { Field, InlineError, pressStyle, useStyles } from "./ui";
 import { createStylesHook, useTheme, type Palette } from "./theme";
 
 type Found = { path: string; name: string };
@@ -20,7 +20,6 @@ const shortPath = (value: string) => value.replace(/^\/Users\/[^/]+(?=\/|$)/, "~
  */
 export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   const s = useS();
-  const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
   const client = session.client;
@@ -43,7 +42,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
                 query,
                 items: [],
                 error: /not available from mobile/i.test((e as Error).message)
-                  ? "Update Milagre on your Mac to search its projects. You can still type a full path."
+                  ? "Update Milagre on your Mac to search its Projects. You can still type a full path."
                   : (e as Error).message,
               });
           });
@@ -66,9 +65,10 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
           <Icon icon={Search01Icon} tone="ink3" size={18} />
           <View style={{ flex: 1 }}>
             <Field
-              label="Search projects on your computer"
+              label="Search Projects on your computer"
               hideLabel
-              placeholder="Search projects on your computer"
+              bare
+              placeholder="Search Projects on your computer"
               value={query}
               onChangeText={setQuery}
               autoFocus
@@ -82,11 +82,11 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
                 if (path) onOpen(path);
                 else if (current?.items[0]) onOpen(current.items[0].path);
               }}
-              style={{ backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 8 }}
+              style={{ paddingHorizontal: 0, paddingVertical: 8 }}
             />
           </View>
         </View>
-        {current?.error ? <Text style={[styles.muted, { color: colors.orangeInk }]}>{current.error}</Text> : null}
+        <InlineError warning message={current?.error} />
       </View>
       <FlatList
         data={current?.items ?? []}

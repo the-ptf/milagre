@@ -16,13 +16,13 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import { lineHeight, radius, type } from "./design-tokens";
+import { duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { announce, IconButton } from "./ui";
 import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
 
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
-const TRACK_EASE = cubicBezier(0.23, 1, 0.32, 1);
+const EASE_OUT = Easing.bezier(...easing.enter);
+const TRACK_EASE = cubicBezier(...easing.enter);
 type InboxKit = {
   layout?: ReturnType<typeof LinearTransition.duration>;
   right?: ReturnType<typeof FadeInRight.duration>;
@@ -39,16 +39,16 @@ function kitFor(scale: number): InboxKit {
     scale <= 0
       ? {}
       : {
-          layout: LinearTransition.duration(ms(240)).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
-          right: FadeInRight.duration(ms(180))
+          layout: LinearTransition.duration(ms(duration.slow)).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
+          right: FadeInRight.duration(ms(duration.base))
             .easing(EASE_OUT)
             .withInitialValues({ transform: [{ translateX: 40 }] })
             .reduceMotion(ReduceMotion.System),
-          left: FadeInLeft.duration(ms(180))
+          left: FadeInLeft.duration(ms(duration.base))
             .easing(EASE_OUT)
             .withInitialValues({ transform: [{ translateX: -40 }] })
             .reduceMotion(ReduceMotion.System),
-          exit: FadeOut.duration(ms(100)).reduceMotion(ReduceMotion.System),
+          exit: FadeOut.duration(ms(duration.fast)).reduceMotion(ReduceMotion.System),
         };
   kits.set(scale, kit);
   return kit;
@@ -119,7 +119,7 @@ export function InboxPager({ index, count, select, label = "message" }: { index:
               backgroundColor: colors.ink,
               transform: [{ translateX: last ? (current / last) * 78 : 0 }],
               transitionProperty: "transform",
-              transitionDuration: reduced ? 0 : Math.round(220 * scale),
+              transitionDuration: reduced ? 0 : Math.round(duration.base * scale),
               transitionTimingFunction: TRACK_EASE,
             }}
           />

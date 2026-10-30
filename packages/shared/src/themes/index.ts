@@ -8,6 +8,13 @@ export { buildPalette } from "./build.ts";
 export * from "./custom.ts";
 export { DEFAULT_THEME_ID, getTheme, themes } from "./registry.ts";
 
+/** Ultracode's purple, a brand color that themes don't override; merged PRs use it too. `purple` for icons and fills,
+ * `purpleInk` for text, `purpleTint` behind it. The phone theme reads it; desktop styles.css mirrors it. */
+export const ULTRACODE_PURPLE = {
+  light: { purple: "#ad46ff", purpleInk: "#8e2bdc", purpleTint: "#f6edff" },
+  dark: { purple: "#ad46ff", purpleInk: "#d0a3ff", purpleTint: "#ad46ff2e" },
+} as const;
+
 const cache = new Map<string, ThemePalette>();
 export const isThemeChoice = (value: unknown): value is ThemeChoice => value === "custom" || (typeof value === "string" && byId.has(value));
 

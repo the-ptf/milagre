@@ -113,14 +113,9 @@ export function UsageLimitCard({
               )
             )}
             {choices.length > 0 && choices.every((choice) => choice.disabled) && onOpenAccounts && (
-              <button
-                type="button"
-                data-usage-limit-manage
-                onClick={onOpenAccounts}
-                className="h-6 self-start text-12 text-ink-3 transition-colors hover:text-ink"
-              >
+              <Button variant="quiet" size={24} data-usage-limit-manage onClick={onOpenAccounts} className="-ml-2 self-start">
                 Manage accounts
-              </button>
+              </Button>
             )}
           </>
         )

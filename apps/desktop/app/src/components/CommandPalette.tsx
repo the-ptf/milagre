@@ -22,10 +22,13 @@ import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { ShortcutKeys } from "./primitives/ShortcutKeys";
 import { Icon } from "./primitives/Icon";
+import { EmptyState } from "./primitives/EmptyState";
+import { MenuLabel } from "./primitives/Popover";
+import { DURATION, EASE_OUT } from "../lib/ease";
 
 /** `--duration-fast` and `--ease-enter` from styles.css, for the Web Animations API. */
-const DURATION_FAST = 120;
-const EASE_ENTER = "cubic-bezier(0.23, 1, 0.32, 1)";
+const DURATION_FAST = DURATION.fast * 1000;
+const EASE_ENTER = `cubic-bezier(${EASE_OUT.join(", ")})`;
 
 const icons = {
   add: Add01Icon,
@@ -116,8 +119,8 @@ export function CommandPalette({
       : [
           {
             id: "start-chat-with-search",
-            label: "Start a new chat with your search",
-            group: "New chat",
+            label: "Start a new Chat with your search",
+            group: "New Chat",
             icon: "newChat",
             run: () => onStartChat(query.trim()),
           },
@@ -233,7 +236,7 @@ export function CommandPalette({
         <input
           ref={input}
           role="combobox"
-          aria-label="Search commands, chats, projects, and messages"
+          aria-label="Search commands, Chats, Projects and messages"
           aria-autocomplete="list"
           aria-expanded="true"
           aria-controls={listId}
@@ -243,7 +246,7 @@ export function CommandPalette({
             setQuery(event.target.value);
             setSelectedId(null);
           }}
-          placeholder="Search commands, chats, and projects…"
+          placeholder="Search commands, Chats and Projects…"
           className="min-w-0 flex-1 bg-transparent text-15 text-ink outline-none placeholder:text-ink-3"
         />
         {showHints && <ShortcutKeys shortcut="esc" />}
@@ -251,8 +254,8 @@ export function CommandPalette({
       <ScrollArea id={listId} role="listbox" aria-label="Commands" className="p-1.5">
         {Array.from(new Set(results.map((command) => command.group))).map((group) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5">
-            <div aria-hidden="true" className="px-2.5 pb-1.5 pt-2.5 text-11 font-medium text-ink-3">
-              {group}
+            <div aria-hidden="true">
+              <MenuLabel>{group}</MenuLabel>
             </div>
             {results
               .filter((command) => command.group === group)
@@ -265,9 +268,12 @@ export function CommandPalette({
                   onPointerMove={() => setSelectedId(command.id)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => close(command)}
-                  className={`flex cursor-default items-center gap-3 rounded-control px-2.5 py-2 text-13 ${command.id === selected?.id ? "bg-hover-2" : ""}`}
+                  // MenuRow's metrics; the highlight follows the selection (pointer or arrows), so there's no separate hover.
+                  className={`flex h-8 w-full cursor-default items-center gap-2 rounded-inline px-2 text-13 font-medium text-ink active:bg-hover-2 ${command.id === selected?.id ? "bg-hover-2" : ""}`}
                 >
-                  <Icon icon={icons[command.icon]} size={16} className="shrink-0 text-ink-3" />
+                  <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
+                    <Icon icon={icons[command.icon]} size={16} />
+                  </span>
                   <span className="min-w-0 flex-1 truncate">
                     <Label command={command} />
                   </span>
@@ -277,13 +283,9 @@ export function CommandPalette({
               ))}
           </div>
         ))}
-        {!results.length && !searching && (
-          <div role="status" className="px-4 py-10 text-center text-13 text-ink-3">
-            No results for “{query}”
-          </div>
-        )}
+        {!results.length && !searching && <EmptyState size="compact" title={`No results for “${query}”`} />}
       </ScrollArea>
-      <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2.5 text-11 text-ink-3 ${showHints ? "" : "invisible"}`}>
+      <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2 text-11 text-ink-3 ${showHints ? "" : "invisible"}`}>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↑↓" plain /> : "↑ ↓"}Navigate</span>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↵" plain /> : "↵"}Run</span>
         <span className="ml-auto inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="esc" plain /> : "esc"}Close</span>

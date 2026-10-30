@@ -7,13 +7,13 @@ import type { SkillCatalog } from "@milagre/shared/model";
 import { formatChatMention, formatFileMention, promptParts } from "@milagre/shared/prompt-parts";
 import { matchingMentionChats, type MentionChat, editImageMentions } from "@milagre/shared/prompt-mentions";
 import { withAlpha } from "@milagre/shared/themes";
-import { fileKind } from "@milagre/shared/file-kinds";
+import { fileKind, IMAGE_COLOR } from "@milagre/shared/file-kinds";
 import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@milagre/shared/prompt-skills";
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
 import { Field, ListRow, PageScroll, SectionLabel, useAnnounce, useStyles } from "./ui";
-import { lineHeight, radius, type } from "./design-tokens";
+import { duration, easing, lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import { useReturnKey } from "./hardware-keys";
@@ -30,7 +30,6 @@ const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 // so it ships over the air.
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
-const IMAGE_ICON = "#26a69a";
 // The mic sits over the field's trailing edge; the text stops short of it.
 const MIC_WIDTH = 34;
 
@@ -57,8 +56,8 @@ function readMarks(draft: string, options: Parameters<typeof promptParts>[1], lo
 const openSkills = (scale: number) =>
   scale <= 0
     ? undefined
-    : FadeInDown.duration(Math.round(140 * scale))
-        .easing(Easing.bezier(0.23, 1, 0.32, 1))
+    : FadeInDown.duration(Math.round(duration.fast * scale))
+        .easing(Easing.bezier(...easing.enter))
         .withInitialValues({ opacity: 0, transform: [{ translateY: 6 }] })
         .reduceMotion(ReduceMotion.System);
 
@@ -297,7 +296,11 @@ export function PromptField({
             {(onMention ? files.items : []).slice(0, chatRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            {chatRows.length > 0 && <SectionLabel style={{ paddingHorizontal: 12, paddingVertical: 6 }}>Chats</SectionLabel>}
+            {chatRows.length > 0 && (
+              <SectionLabel flush style={{ paddingVertical: 6 }}>
+                Chats
+              </SectionLabel>
+            )}
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
             ))}
@@ -385,7 +388,7 @@ export function PromptField({
                   <Text
                     style={{
                       fontFamily: GLYPHS,
-                      color: part.kind === "image" ? IMAGE_ICON : part.kind === "file" ? fileKind(part.path).color : colors.accentInk,
+                      color: part.kind === "image" ? IMAGE_COLOR : part.kind === "file" ? fileKind(part.path).color : colors.accentInk,
                     }}
                   >
                     {part.text[0]}

@@ -1,11 +1,5 @@
 {
-  "font": {
-    "components/primitives/Picker.tsx": 7,
-    "components/primitives/Select.tsx": 3,
-    "components/primitives/ShortcutKeys.tsx": 2,
-    "components/primitives/ZoomBar.tsx": 2,
-    "lib/toast.ts": 1
-  },
+  "font": {},
   "radius": {
     "components/ChatComposer.tsx": 1,
     "components/PromptComposer.tsx": 2,
@@ -17,12 +11,8 @@
     "components/agents/LiveDesignFrame.tsx": 3,
     "components/changes/DiffFile.tsx": 1,
     "components/changes/PullRequestReview.tsx": 1,
-    "components/primitives/RangeSlider.tsx": 1,
-    "components/primitives/Select.tsx": 2,
-    "components/primitives/ShortcutKeys.tsx": 1,
     "components/settings/ChatDisplayChoices.tsx": 1,
     "components/terminal/TerminalSlide.tsx": 1,
-    "lib/phone.ts": 1,
-    "lib/toast.ts": 1
+    "lib/phone.ts": 1
   }
 }

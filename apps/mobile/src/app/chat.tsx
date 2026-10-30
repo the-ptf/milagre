@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { chatHistory } from "@milagre/shared/chat-history";
 import type Reanimated from "react-native-reanimated";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { Alert, Image, Keyboard, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Image, Keyboard, Linking, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { UltracodeGlow } from "../ultracode-glow";
 import { Redirect, Stack, router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import type { NavigationProp } from "expo-router/react-navigation";
@@ -24,10 +24,10 @@ import {
   MoreHorizontalIcon,
   RepeatIcon,
   SidebarLeftIcon,
-  StopIcon,
 } from "@hugeicons/core-free-icons";
 import { sessionForWorktree } from "@milagre/shared/model";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import type { ChatMessage, LinkIssueResult, PullRequestActionContext, RoutineRunContext, WorktreeBinding } from "@milagre/shared/model";
 import {
   associatedPullRequest,
@@ -105,7 +105,7 @@ import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 // Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
 import LINEAR_MARK from "../../assets/linear-mark.png";
-import { Icon, LinearLogo } from "../icons";
+import { Icon, LinearLogo, type IconData } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplit, useSplitLayout } from "../split-context";
 import { chatAreaWidth, READING_WIDTH } from "../split-width";
@@ -128,7 +128,7 @@ import {
   type MenuSection,
 } from "../ui";
 import { Counts } from "../diff-ui";
-import { radius } from "../design-tokens";
+import { chrome, hitSlopFor, lineHeight, radius, type } from "../design-tokens";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -165,6 +165,8 @@ import { besideState, closeBeside, openBeside, useBesideChat } from "../split-ch
 import { BesideSession, touchPane } from "../beside-session";
 
 const PAGE = 40;
+/** Stop as desktop draws it: a filled 10pt square with 2pt corners (14 of the 24-unit box, plus the glyph's stroke). */
+const STOP_SQUARE: IconData = [["rect", { x: 5, y: 5, width: 14, height: 14, rx: 2.5, fill: "currentColor", key: "0" }]];
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
 const PLACE_FALLBACK_MS = 500;
 
@@ -364,6 +366,8 @@ function ChatPane({
   const composer = useComposer();
   const pendingStore = usePendingChats();
   const insets = useSafeAreaInsets();
+  // Where the floating header ends: overlays sit 8 under it, message navigation 20, the transcript 32.
+  const headerBottom = insets.top + chrome.header;
   const window = useWindowDimensions();
   // Only the pieces that read whether the sidebar is pinned (SidebarToolbar, SidebarButton, HeaderTitleBox) re-render as it
   // shows or hides; the Chat itself doesn't.
@@ -771,7 +775,7 @@ function ChatPane({
       const y = messagePositions.current.get(id);
       if (y !== undefined) {
         navigationTarget.current = null;
-        scroll.current?.scrollTo({ y: Math.max(0, y - insets.top - 72), animated: true });
+        scroll.current?.scrollTo({ y: Math.max(0, y - headerBottom - 20), animated: true });
       }
     }
   };
@@ -1127,8 +1131,8 @@ function ChatPane({
     if (busy) return;
     showChoiceSheet({
       title: "Start building in",
-      placeholder: "Search projects",
-      emptyLabel: "No projects",
+      placeholder: "Search Projects",
+      emptyLabel: UI_COPY.noProjects,
       items: [
         // First, above every Project: a Chat with no repository, in its own empty folder.
         ...(noProject
@@ -1433,7 +1437,7 @@ function ChatPane({
             ]),
           );
           const chat = sessionForWorktree(created.project.state, created.worktreeId);
-          if (!chat) throw new Error("No Chat was created for the new worktree.");
+          if (!chat) throw new Error("No Chat was created for the new Worktree.");
           ready = { client, path: sendingProjectPath, base, issueKey, worktreeId: created.worktreeId, sessionId: chat.id };
           preparedTarget.current = ready;
         }
@@ -1702,7 +1706,11 @@ function ChatPane({
     <>
       <HeaderTitleBox routineButton={!!ownRoutine}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600", flexShrink: 1 }}
+          >
             {title}
           </Text>
         </View>
@@ -1714,7 +1722,7 @@ function ChatPane({
                 numberOfLines={1}
                 ellipsizeMode="tail"
                 accessibilityLabel={otherComputer ? `${projectName} on ${hostName}` : projectName}
-                style={{ color: colors.ink2, fontSize: 12, fontWeight: "500", flexShrink: 1 }}
+                style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "500", flexShrink: 1 }}
               >
                 {otherComputer ? `${projectName} · ${hostName}` : projectName}
               </Text>
@@ -1722,7 +1730,11 @@ function ChatPane({
             {!project.link && !chatsHomeOpen && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
                 <Icon icon={GitBranchIcon} tone="ink3" size={12} />
-                <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
+                <Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, flexShrink: 1 }}
+                >
                   {worktree?.name ?? ""}
                 </Text>
                 {diff && (diff.added > 0 || diff.removed > 0) ? <Counts added={diff.added} removed={diff.removed} /> : null}
@@ -1846,7 +1858,7 @@ function ChatPane({
           {
             items: [
               { id: "rename", title: "Rename", systemImage: "pencil" },
-              { id: "reload", title: "Reload chat", systemImage: "arrow.clockwise", disabled: busy },
+              { id: "reload", title: "Reload Chat", systemImage: "arrow.clockwise", disabled: busy },
               ...(canLink
                 ? [
                     {
@@ -1975,7 +1987,7 @@ function ChatPane({
                   contentContainerStyle={[
                     styles.content,
                     column,
-                    { paddingTop: insets.top + 84, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
+                    { paddingTop: headerBottom + 32, paddingLeft: 28, paddingRight: 20, gap: 16, paddingBottom: dockHeight + 16 },
                   ]}
                   scrollEventThrottle={32}
                   onScrollBeginDrag={() => {
@@ -2031,7 +2043,7 @@ function ChatPane({
                         {project.link
                           ? LINK_CHAT_WORKTREES_TEXT
                           : newWorktree
-                            ? `Your agent starts in a new worktree from ${base || "the selected branch"} on your computer.`
+                            ? `Your agent starts in a new Worktree from ${base || "the selected branch"} on your computer.`
                             : `Your agent runs in ${worktree?.name || "this Worktree"} on your computer.`}
                       </Text>
                     </View>
@@ -2075,7 +2087,7 @@ function ChatPane({
                               }
                               if (navigationTarget.current === message.id) {
                                 navigationTarget.current = null;
-                                scroll.current?.scrollTo({ y: Math.max(0, layout.y - insets.top - 72), animated: true });
+                                scroll.current?.scrollTo({ y: Math.max(0, layout.y - headerBottom - 20), animated: true });
                               }
                             }}
                           >
@@ -2146,7 +2158,9 @@ function ChatPane({
                     />
                   )}
                   {heartbeat && !run && !pending && typeof heartbeat.nextRunAt === "number" && heartbeat.nextRunAt > now ? (
-                    <Text style={{ color: colors.ink2, fontSize: 12, textAlign: "center" }}>{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
+                    <Text
+                      style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, textAlign: "center" }}
+                    >{`Next check ${clock(heartbeat.nextRunAt)}`}</Text>
                   ) : null}
                   {chat?.resumeTurn && !run && (
                     <PillButton
@@ -2164,7 +2178,7 @@ function ChatPane({
         find this scroll view (it only follows each view's first child), so the blur is drawn here. It ends where the
         transcript's top padding does and gradually strengthens toward the status bar. It shows only while the transcript
         is under the header, so the dots run edge to edge otherwise. */}
-                {underHeader && <EdgeFade edge="top" height={insets.top + 84} width={window.width} />}
+                {underHeader && <EdgeFade edge="top" height={headerBottom + 32} width={window.width} />}
                 {paneHeader}
                 {startingChat && (
                   <Animated.View
@@ -2174,7 +2188,7 @@ function ChatPane({
                         position: "absolute",
                         left: 24,
                         right: 24,
-                        top: insets.top + 56,
+                        top: headerBottom + 8,
                         bottom: dockHeight,
                         alignItems: "center",
                         justifyContent: "center",
@@ -2196,9 +2210,14 @@ function ChatPane({
                             pressStyle({ pressed, disabled: busy }),
                           ]}
                         >
-                          <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>{JUST_CHAT_HEADING} on</Text>
+                          <Text style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.ink }}>
+                            {JUST_CHAT_HEADING} on
+                          </Text>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}>
+                            <Text
+                              numberOfLines={1}
+                              style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}
+                            >
                               {chatsComputer}
                             </Text>
                             <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2209,10 +2228,12 @@ function ChatPane({
                           accessibilityLabel={`${NO_PROJECT_LABEL}, ${NO_PROJECT_FOLDER.toLowerCase()}. Change project`}
                           disabled={busy}
                           onPress={chooseProject}
-                          hitSlop={8}
+                          hitSlop={12}
                           style={({ pressed }) => pressStyle({ pressed, disabled: busy })}
                         >
-                          <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LINE}</Text>
+                          <Text style={{ fontSize: type.subheadline, lineHeight: lineHeight.subheadline, color: colors.ink3, textAlign: "center" }}>
+                            {NO_PROJECT_LINE}
+                          </Text>
                         </Pressable>
                       </>
                     ) : (
@@ -2226,9 +2247,12 @@ function ChatPane({
                           pressStyle({ pressed, disabled: busy }),
                         ]}
                       >
-                        <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
+                        <Text style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}>
+                          <Text
+                            numberOfLines={1}
+                            style={{ fontSize: type.title3, lineHeight: lineHeight.title3, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}
+                          >
                             {projectName}
                           </Text>
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2242,7 +2266,7 @@ function ChatPane({
                 <MessageNavigation
                   items={navigationItems}
                   onSelect={navigateToMessage}
-                  top={insets.top + 72}
+                  top={headerBottom + 20}
                   bottom={dockHeight + 12}
                   keyboardOffset={lift}
                   followKeyboard={ownsKeyboard && !terminalTyping}
@@ -2271,12 +2295,19 @@ function ChatPane({
                     />
                     {(!question || answering) && (
                       // More pills than fit scroll sideways; the spacer still right-aligns them when they fit.
-                      <ScrollView
+                      <PageScroll
                         horizontal
                         showsHorizontalScrollIndicator={false}
-                        keyboardShouldPersistTaps="handled"
                         style={{ marginHorizontal: -12, flexGrow: 0 }}
-                        contentContainerStyle={{ flexGrow: 1, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }}
+                        contentContainerStyle={{
+                          flexGrow: 1,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          padding: 0,
+                          paddingBottom: 0,
+                          paddingHorizontal: 16,
+                          gap: 8,
+                        }}
                       >
                         {prAction && prActionRequest && chat && !chatsHomeOpen && (
                           <PullRequestAction
@@ -2306,7 +2337,7 @@ function ChatPane({
                         {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
                         {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                         {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
-                      </ScrollView>
+                      </PageScroll>
                     )}
                     {chat?.queued?.length ? (
                       <QueuedMessages
@@ -2364,7 +2395,7 @@ function ChatPane({
                             startTray
                               ? {
                                   backgroundColor: colors.inset,
-                                  borderRadius: 28,
+                                  borderRadius: radius.composer + 4,
                                   borderCurve: "continuous",
                                   padding: 4,
                                   gap: 2,
@@ -2391,6 +2422,7 @@ function ChatPane({
                                   <PullDown
                                     label="Choose computer"
                                     style={{ flexShrink: 1 }}
+                                    hitSlop={{ top: 6, bottom: 6 }}
                                     nativeTrigger={{
                                       title: computerName,
                                       systemImage: "desktopcomputer",
@@ -2442,8 +2474,9 @@ function ChatPane({
                                 }
                                 <PullDown
                                   label="Choose isolation"
+                                  hitSlop={{ top: 6, bottom: 6 }}
                                   nativeTrigger={{
-                                    title: isolation === "local" ? "Local" : "New worktree",
+                                    title: isolation === "local" ? "Local" : UI_COPY.newWorktree,
                                     systemImage: isolation === "local" ? "laptopcomputer" : "arrow.triangle.branch",
                                     icon: isolation === "local" ? "laptop" : "fork",
                                     disabled: targetDisabled,
@@ -2462,7 +2495,7 @@ function ChatPane({
                                         },
                                         {
                                           id: "worktree",
-                                          title: "New worktree",
+                                          title: UI_COPY.newWorktree,
                                           systemImage: "arrow.triangle.branch",
                                           icon: "fork",
                                           checked: isolation === "worktree",
@@ -2489,7 +2522,7 @@ function ChatPane({
                                   >
                                     <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={16} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
-                                      {isolation === "local" ? "Local" : "New worktree"}
+                                      {isolation === "local" ? "Local" : UI_COPY.newWorktree}
                                     </Text>
                                     <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
                                   </View>
@@ -2497,14 +2530,15 @@ function ChatPane({
                                 <PullDown
                                   label="Choose branch"
                                   style={{ flexShrink: 1 }}
+                                  hitSlop={{ top: 6, bottom: 6 }}
                                   searchable={{
-                                    placeholder: newWorktree ? "Search branches" : "Search worktrees",
-                                    emptyLabel: newWorktree ? "No branches found." : "No worktrees found.",
+                                    placeholder: newWorktree ? "Search branches" : "Search Worktrees",
+                                    emptyLabel: newWorktree ? "No branches found." : "No Worktrees found.",
                                   }}
                                   nativeTrigger={{ title: branchName, systemImage: "arrow.triangle.branch", disabled: branchDisabled, maxWidth: 180 }}
                                   sections={[
                                     {
-                                      title: newWorktree ? "Branch from" : "Choose a worktree",
+                                      title: newWorktree ? "Branch from" : "Choose a Worktree",
                                       items: newWorktree
                                         ? (branches?.items || []).map((item) => ({
                                             id: item,
@@ -2576,7 +2610,7 @@ function ChatPane({
                               // A floating composer is elevated: its shadow token paints the ring. Inside the new-Chat tray it stays bordered.
                               borderWidth: startTray || ultracodeOn ? 1 : 0,
                               borderColor: colors.lineStrong,
-                              borderRadius: 24,
+                              borderRadius: radius.composer,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
@@ -2587,7 +2621,7 @@ function ChatPane({
                             }}
                           >
                             {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                            {ultracodeOn && <UltracodeGlow radius={24} />}
+                            {ultracodeOn && <UltracodeGlow radius={radius.composer} />}
                             {!!attachments.length && (
                               <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
                                 {attachments.map((item) => {
@@ -2602,6 +2636,7 @@ function ChatPane({
                                         paddingLeft: item.image ? 4 : 12,
                                         flexDirection: "row",
                                         alignItems: "center",
+                                        minHeight: 44,
                                         maxWidth: 220,
                                       }}
                                     >
@@ -2621,7 +2656,8 @@ function ChatPane({
                                               params: item.path ? { path: item.path } : { uri: item.uri, name: item.name },
                                             })
                                           }
-                                          style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}
+                                          // The whole name up to Remove opens it, at the tile's full height.
+                                          style={{ flexDirection: "row", alignItems: "center", alignSelf: "stretch", flexShrink: 1, paddingRight: 4 }}
                                         >
                                           <Icon icon={File01Icon} tone="ink2" size={18} />
                                           <Text numberOfLines={1} style={[styles.label, { flexShrink: 1, paddingLeft: 6 }]}>
@@ -2711,6 +2747,7 @@ function ChatPane({
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"
+                                hitSlop={hitSlopFor(36)}
                                 nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
                                 sections={[
                                   {
@@ -2769,10 +2806,11 @@ function ChatPane({
                               )}
                               {run && !draft.trim() && !attachments.length && (
                                 <IconButton
-                                  label="Stop"
-                                  icon={StopIcon}
+                                  label={UI_COPY.stop}
+                                  icon={STOP_SQUARE}
                                   filled
-                                  size={34}
+                                  fill={ultracodeOn ? colors.purple : undefined}
+                                  size={32}
                                   disabled={actionBusy}
                                   onPress={() => void action(() => client.call("agent:interrupt", [chatId]), true)}
                                 />
@@ -2784,13 +2822,14 @@ function ChatPane({
                                       ? "Sending…"
                                       : run
                                         ? providerCapabilities(chat?.provider ?? actualProvider).steer
-                                          ? "Send follow-up"
-                                          : "Queue message"
-                                        : "Send message"
+                                          ? UI_COPY.sendFollowUp
+                                          : UI_COPY.queue
+                                        : UI_COPY.send
                                   }
                                   icon={ArrowUp01Icon}
                                   filled
-                                  size={34}
+                                  fill={ultracodeOn ? colors.purple : undefined}
+                                  size={32}
                                   loading={busy}
                                   disabled={sendDisabled}
                                   onPress={() => void send()}

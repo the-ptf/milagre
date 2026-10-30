@@ -1,13 +1,12 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
+import { useRef, useState } from "react";
 import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
 import { canEditRoutine, canRunNow } from "@milagre/shared/routines";
 import { Button, IconButton } from "../primitives/Button";
-import GlideMenu from "../primitives/GlideMenu";
 import { Icon } from "../primitives/Icon";
+import { MenuRow, Popover } from "../primitives/Popover";
 import { Switch } from "../primitives/Switch";
-import { useDismiss } from "../../lib/use-dismiss";
+import Tooltip from "../primitives/Tooltip";
 import { isHeartbeat, routineDeleteQuestion, type RoutineWithRuns } from "../../lib/routines";
 import { routineIcon } from "./routine-icon";
 
@@ -37,40 +36,8 @@ function RoutineTile({ routine, large = false }: { routine: Routine; large?: boo
 
 /** A Routine's ⋯ button and the menu it opens with `entries`; picking one closes the menu first. */
 function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntry[] }) {
-  const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
+  const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const close = (refocus = true) => {
-    setMenu(null);
-    if (refocus) buttonRef.current?.focus();
-  };
-  useDismiss(
-    menu !== null,
-    () => close(false),
-    (target) => !!(menuRef.current?.contains(target) || buttonRef.current?.contains(target)),
-  );
-  const open = () => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setMenu({ top: rect.bottom + 6, left: Math.max(12, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 12)) });
-    requestAnimationFrame(() => menuRef.current?.querySelector<HTMLElement>("[data-menu-row]")?.focus());
-  };
-  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>("[data-menu-row]") ?? [])];
-    const index = rows.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]?.focus();
-    } else if (event.key === "Escape") {
-      // Consumed here, so Escape doesn't also leave the Routines page.
-      event.preventDefault();
-      close();
-    } else if (event.key === "Tab") {
-      event.preventDefault();
-    }
-  };
-
   return (
     <>
       <IconButton
@@ -78,52 +45,27 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
         label={`Actions for ${routine.name}`}
         icon={MoreHorizontalIcon}
         aria-haspopup="menu"
-        aria-expanded={menu !== null}
+        aria-expanded={open}
         data-routine-more
-        onClick={() => (menu ? close(false) : open())}
-        className="aria-expanded:bg-hover-2 aria-expanded:text-ink"
+        onClick={() => setOpen((value) => !value)}
       />
-      {menu &&
-        createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            aria-label={`Actions for ${routine.name}`}
-            data-routine-menu
-            onKeyDown={moveFocus}
-            className="fixed z-[70] rounded-card bg-surface p-1.5 shadow-raised"
-            style={{
-              top: menu.top,
-              left: menu.left,
-              width: MENU_WIDTH,
-              animation: "pop-in var(--duration-base) var(--ease-enter) both",
-              transformOrigin: "top right",
-            }}
-          >
-            <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]" highlightClassName="inset-x-0 rounded-control bg-hover-2">
-              {entries.map((entry) => (
-                <button
-                  key={entry.key}
-                  data-menu-row
-                  data-routine-action={entry.key}
-                  role="menuitem"
-                  type="button"
-                  onClick={() => {
-                    close(false);
-                    entry.onSelect();
-                  }}
-                  className={`relative z-10 flex h-8 w-full items-center gap-2 rounded-control px-2 text-left focus-visible:-outline-offset-2 ${entry.danger ? "text-red-ink" : "text-ink"}`}
-                >
-                  <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-                    <Icon icon={entry.icon} size={16} />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-13">{entry.label}</span>
-                </button>
-              ))}
-            </GlideMenu>
-          </div>,
-          document.body,
-        )}
+      {open && (
+        <Popover anchor={buttonRef} width={MENU_WIDTH} label={`Actions for ${routine.name}`} onClose={() => setOpen(false)} data-routine-menu>
+          {entries.map((entry) => (
+            <MenuRow
+              key={entry.key}
+              data-routine-action={entry.key}
+              icon={entry.icon}
+              title={entry.label}
+              danger={entry.danger}
+              onClick={() => {
+                setOpen(false);
+                entry.onSelect();
+              }}
+            />
+          ))}
+        </Popover>
+      )}
     </>
   );
 }
@@ -217,9 +159,11 @@ export function RoutineRow({
               <span className="truncate">{meta}</span>
             </span>
             {problem && (
-              <span data-routine-problem className="truncate text-12 text-red-ink" title={problem}>
-                {problem}
-              </span>
+              <Tooltip label={problem} side="bottom" wrap asChild>
+                <span data-routine-problem className="truncate text-12 text-red-ink">
+                  {problem}
+                </span>
+              </Tooltip>
             )}
           </span>
           <span data-routine-status className={`shrink-0 text-right text-12 ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>

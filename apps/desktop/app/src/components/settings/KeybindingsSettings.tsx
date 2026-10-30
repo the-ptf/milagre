@@ -28,8 +28,10 @@ import { ShortcutKeys } from "../primitives/ShortcutKeys";
 import Tooltip from "../primitives/Tooltip";
 import { Switch } from "../primitives/Switch";
 import { Button, IconButton } from "../primitives/Button";
-import { FIELD_AREA } from "../primitives/Field";
+import { EmptyState } from "../primitives/EmptyState";
+import { FIELD_AREA, fieldClass } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
 import { Group, Row } from "./SettingsGroup";
 
 // Settings › Keybindings, as T3 Code has it: the rules of a computer's keybindings.json, edited on one computer or on all
@@ -236,16 +238,15 @@ export function KeybindingsSettings() {
           />
         </label>
         {shownId === LOCAL_COMPUTER && window.milagre.openKeybindingsFile && (
-          <Tooltip label="Open keybindings.json" side="bottom">
-            <IconButton
-              label="Open keybindings.json"
-              icon={FileEditIcon}
-              size={32}
-              variant="secondary"
-              data-keybindings-open-file
-              onClick={() => void window.milagre.openKeybindingsFile?.()}
-            />
-          </Tooltip>
+          <IconButton
+            label="Open keybindings.json"
+            icon={FileEditIcon}
+            size={32}
+            variant="secondary"
+            side="bottom"
+            data-keybindings-open-file
+            onClick={() => void window.milagre.openKeybindingsFile?.()}
+          />
         )}
         <Select<KeybindingCommandId | "">
           label="Add keybinding"
@@ -317,7 +318,7 @@ export function KeybindingsSettings() {
           </Group>
         );
       })}
-      {shown.length === 0 && <p className="mt-6 px-1 text-13 text-ink-3">No keybindings match “{query}”.</p>}
+      {shown.length === 0 && <EmptyState size="compact" className="mt-6 py-6" title={`No keybindings match “${query}”`} />}
 
       <Group title="Advanced">
         <Row label="Conditions" description="Adds When to each keybinding, to run a key only in some places (for example not in a Terminal).">
@@ -337,9 +338,9 @@ export function KeybindingsSettings() {
             </Button>
           </>
         ) : (
-          <button type="button" className="h-6 font-medium text-accent-ink hover:underline" onClick={() => setConfirmReset(true)}>
+          <Button variant="link" size={24} className="-mr-2" onClick={() => setConfirmReset(true)}>
             Reset all to defaults
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -348,7 +349,7 @@ export function KeybindingsSettings() {
 
 function Notice({ tone, children }: { tone: "warn"; children: ReactNode }) {
   return (
-    <div data-keybindings-notice={tone} className="mt-4 flex gap-2 rounded-card bg-hover px-3 py-2 text-12 text-ink-2">
+    <div data-keybindings-notice={tone} className="mt-4 flex gap-2 rounded-card bg-field px-3 py-2 text-12 text-ink-2">
       <span className="mt-px shrink-0 text-orange">
         <Icon icon={Alert02Icon} size={14} />
       </span>
@@ -407,16 +408,11 @@ function CommandRow({
           {recording === -1 ? (
             <KeyChip recording rule={{ key: "" }} onClick={() => {}} />
           ) : rules.length === 0 ? (
-            <button
-              type="button"
-              data-keybinding-add
-              className="h-6 rounded-control px-2 text-12 text-ink-3 transition-colors duration-fast hover:bg-hover hover:text-ink"
-              onClick={() => onRecord(-1)}
-            >
+            <Button variant="quiet" size={24} data-keybinding-add onClick={() => onRecord(-1)}>
               Unbound · Add key
-            </button>
+            </Button>
           ) : (
-            <Tooltip label="Add another key" side="bottom">
+            <Tooltip label="Add another key" side="bottom" asChild>
               <IconButton label={`Add a key for ${command.title}`} icon={PlusSignIcon} size={24} data-keybinding-add onClick={() => onRecord(-1)} />
             </Tooltip>
           )}
@@ -425,13 +421,14 @@ function CommandRow({
               type="button"
               data-keybinding-conditions
               aria-expanded={editing}
-              className={`h-6 rounded-control px-1.5 text-12 transition-colors duration-fast hover:bg-hover hover:text-ink ${editing ? "text-ink" : "text-ink-3"}`}
+              // A disclosure toggle: hover-2 and ink while open.
+              className="h-6 rounded-control px-2 text-12 font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink aria-expanded:bg-hover-2 aria-expanded:text-ink"
               onClick={() => setEditing((value) => !value)}
             >
               When
             </button>
           )}
-          <Tooltip label="Back to default" side="bottom">
+          <Tooltip label="Back to default" side="bottom" asChild>
             <IconButton
               label={`Reset ${command.title}`}
               icon={Undo02Icon}
@@ -445,7 +442,7 @@ function CommandRow({
         </div>
       </div>
       {pending && (
-        <div data-keybinding-pending className="mt-2 flex items-center justify-between gap-3 rounded-control bg-hover px-2.5 py-1.5 text-12 text-ink-2">
+        <div data-keybinding-pending className="mt-2 flex items-center justify-between gap-3 rounded-control bg-field px-2.5 py-1.5 text-12 text-ink-2">
           <span>
             {pending.error ??
               `${label(pending.key)} already runs ${pending.conflicts.map((other) => `“${title(other)}”`).join(", ")}. Replace takes it from ${pending.conflicts.length > 1 ? "them" : "it"}.`}
@@ -496,11 +493,11 @@ function KeyChip({
   }
   return (
     <span className="group/chip relative inline-flex items-center">
-      <Tooltip label={rule.when ? `${rule.key} when ${rule.when}` : rule.key} side="bottom">
+      <Tooltip label={rule.when ? `${rule.key} when ${rule.when}` : rule.key} side="bottom" asChild>
         <button
           type="button"
           data-keybinding-chip={rule.key}
-          className="inline-flex items-center gap-1 rounded-control p-0.5 transition-colors duration-fast hover:bg-hover"
+          className="inline-flex items-center gap-1 rounded-control p-0.5 transition-colors hover:bg-hover"
           onClick={onClick}
         >
           <ShortcutKeys shortcut={label(rule.key)} />
@@ -556,14 +553,18 @@ function WhenField({ rule, onChange }: { rule: { key: string; when?: string }; o
           placeholder="Always (e.g. !terminalFocus && chatView)"
           aria-label={`Condition for ${label(rule.key)}`}
           aria-invalid={invalid}
-          className={`h-7 w-full rounded-control border bg-field px-2 font-mono text-12 text-ink outline-none transition-colors duration-fast placeholder:font-sans placeholder:text-ink-3 ${invalid ? "border-red" : "border-line-strong focus:border-accent"}`}
+          className={`${fieldClass({ size: 28 })} font-mono placeholder:font-sans`}
         />
-        {(invalid || unknown.length > 0) && (
-          <p className="mt-0.5 text-11 text-ink-3">
-            {invalid
-              ? "Use names with !, &&, || and parentheses."
-              : `${unknown.join(", ")} ${unknown.length > 1 ? "are" : "is"} never true. Known: ${Object.keys(WHEN_KEYS).join(", ")}.`}
-          </p>
+        {invalid ? (
+          <InlineError size={12} className="mt-1">
+            Use names with !, &&, || and parentheses.
+          </InlineError>
+        ) : (
+          unknown.length > 0 && (
+            <p className="mt-1 text-11 text-ink-3">
+              {`${unknown.join(", ")} ${unknown.length > 1 ? "are" : "is"} never true. Known: ${Object.keys(WHEN_KEYS).join(", ")}.`}
+            </p>
+          )
         )}
       </div>
     </div>

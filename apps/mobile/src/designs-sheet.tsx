@@ -1,21 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, {
-  FadeOut,
-  useAnimatedProps,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-  Easing,
-} from "react-native-reanimated";
+import Animated, { FadeOut, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
-import { Cancel01Icon, DashboardSquare01Icon, MoreHorizontalIcon, Share08Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, DashboardSquare01Icon, MoreHorizontalIcon, Sent02Icon, Share08Icon } from "@hugeicons/core-free-icons";
 import {
   artifactDocument,
   designFeedbackMessage,
@@ -32,12 +23,13 @@ import type { ArtifactRef } from "@milagre/shared/model";
 import { postDesignMessage, sendDesignMessageNow } from "./design-outbox";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { ErrorNotice, PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
+import { CircleButton, ErrorNotice, PullDown, SheetHeader, tap, useStyles, type MenuSection } from "./ui";
 import { confirmSheet } from "./confirm-store";
-import { lineHeight, type } from "./design-tokens";
+import { duration } from "./design-tokens";
+import { useReducedMotion } from "./motion";
 import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
-import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
+import { CommentBox } from "./viewer-chrome";
 
 /** A comment waiting for Send, pinned where the user held the design. */
 type Note = DesignComment & { key: string };
@@ -443,51 +435,50 @@ export function DesignsSheet({
 
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 52, gap: 8 }}>
-        <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
-          {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
-          {!onClose && <RoundButton label="Close designs" icon={Cancel01Icon} onPress={close} />}
-          {source && ordered.length > 0 && (
-            <RoundButton
+      <SheetHeader
+        title={title}
+        subtitle={subtitle}
+        leading={[
+          // In the panel docked beside the Chat (an iPad), the panel's own button closes it.
+          !onClose && <CircleButton key="close" label="Close designs" icon={Cancel01Icon} onPress={close} />,
+          source && ordered.length > 0 && (
+            <CircleButton
+              key="overview"
               label={canvasMode ? "Open the design" : "All designs"}
               icon={DashboardSquare01Icon}
-              on={canvasMode}
+              selected={canvasMode}
               onPress={() => command(canvasMode && shownId ? { t: "focus", id: shownId } : { t: "overview" })}
             />
-          )}
-        </View>
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
-            {title}
-          </Text>
-          {subtitle ? (
-            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
-              {subtitle}
-            </Text>
-          ) : null}
-        </View>
-        <View style={{ flexDirection: "row", gap: 8, width: 76, justifyContent: "flex-end" }}>
-          {source && feedback > 0 && <SendButton count={feedback} onPress={send} />}
-          {canvasMode ? (
-            sharing && <RoundButton label="Share page" icon={Share08Icon} onPress={openShare} />
-          ) : source && shown ? (
-            <PullDown label="Design actions" sections={menu} onSelect={choose}>
-              <RoundButton label="Design actions" icon={MoreHorizontalIcon} />
-            </PullDown>
-          ) : null}
-        </View>
-      </View>
+          ),
+        ].filter(Boolean)}
+        trailing={[
+          source && feedback > 0 && (
+            <CircleButton key="send" label={`Send ${feedback} to the agent`} icon={Sent02Icon} onPress={send} filled badge={feedback} />
+          ),
+          canvasMode
+            ? sharing && <CircleButton key="share" label="Share page" icon={Share08Icon} onPress={openShare} />
+            : source &&
+              shown && (
+                <PullDown key="actions" label="Design actions" sections={menu} onSelect={choose}>
+                  <CircleButton label="Design actions" icon={MoreHorizontalIcon} asTrigger />
+                </PullDown>
+              ),
+        ].filter(Boolean)}
+      />
       <View style={{ flex: 1 }}>
         {!matching ? (
           <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this Mac to open this page.</Text>
         ) : feature.enabled !== true ? (
-          <View style={{ padding: 16, gap: 16 }}>
-            <Text style={styles.muted}>
-              {feature.enabled === false
-                ? "Designs is off for this Mac. Update Milagre on the Mac to use Designs."
-                : feature.error || "Checking whether Designs is available…"}
-            </Text>
-            {feature.error && <PillButton title="Retry" onPress={() => void feature.refresh()} />}
+          <View style={{ padding: 16 }}>
+            {feature.enabled !== false && feature.error ? (
+              <ErrorNotice message={feature.error} retry={() => void feature.refresh()} retryTitle="Retry" />
+            ) : (
+              <Text style={styles.muted}>
+                {feature.enabled === false
+                  ? "Designs is off for this Mac. Update Milagre on the Mac to use Designs."
+                  : "Checking whether Designs is available…"}
+              </Text>
+            )}
           </View>
         ) : listError && !summaries ? (
           <View style={{ padding: 16 }}>
@@ -499,7 +490,7 @@ export function DesignsSheet({
             {!painted && (
               <Animated.View
                 pointerEvents="none"
-                exiting={motionScale > 0 ? FadeOut.duration(Math.round(220 * motionScale)) : undefined}
+                exiting={motionScale > 0 ? FadeOut.duration(Math.round(duration.base * motionScale)) : undefined}
                 style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }]}
               >
                 <DrawingDesignIcon />
@@ -536,23 +527,34 @@ const PALETTE =
   "M22 12C22 6.477 17.523 2 12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C12.842 22 14 22.116 14 21C14 20.391 13.683 19.921 13.369 19.454C12.908 18.772 12.452 18.095 13 17C13.667 15.667 14.778 15.667 16.481 15.667C17.333 15.667 18.333 15.667 19.5 15.5C21.601 15.2 22 13.908 22 12Z";
 const PALETTE_LENGTH = 72;
 const DOT_LENGTH = 9.5;
+/** Artwork timing: one drawing, or under reduced motion one full-and-faded step pair (SpinnerRing's pulse). */
+const DRAW_MS = 1800;
+const PULSE_MS = 1600;
 
 /**
  * The design icon drawing itself, stroke by stroke, then fading to draw again: the canvas page does the same in each
- * design's place until it loads. Reduced motion shows it drawn and still.
+ * design's place until it loads. Reduced motion shows it drawn, stepping between full and 45% opacity.
  */
 function DrawingDesignIcon() {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
-  const progress = useSharedValue(reduced ? 0.6 : 0);
+  const progress = useSharedValue(0);
   useEffect(() => {
-    if (reduced) return;
-    progress.set(withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.quad) }), -1, false));
+    progress.set(0);
+    progress.set(
+      withRepeat(withTiming(1, reduced ? { duration: PULSE_MS, easing: Easing.linear } : { duration: DRAW_MS, easing: Easing.inOut(Easing.quad) }), -1, false),
+    );
   }, [progress, reduced]);
   // Drawn over the first 55%, held, then faded over the last 15%.
-  const outline = useAnimatedProps(() => ({ strokeDashoffset: PALETTE_LENGTH * (1 - Math.min(1, progress.value / 0.55)) }));
-  const dot = useAnimatedProps(() => ({ strokeDashoffset: DOT_LENGTH * (1 - Math.min(1, progress.value / 0.55)) }));
-  const fade = useAnimatedStyle(() => ({ opacity: progress.value > 0.85 ? 1 - (progress.value - 0.85) / 0.15 : 1 }));
+  const drawn = (length: number) => {
+    "worklet";
+    return reduced ? 0 : length * (1 - Math.min(1, progress.value / 0.55));
+  };
+  const outline = useAnimatedProps(() => ({ strokeDashoffset: drawn(PALETTE_LENGTH) }));
+  const dot = useAnimatedProps(() => ({ strokeDashoffset: drawn(DOT_LENGTH) }));
+  const fade = useAnimatedStyle(() => ({
+    opacity: reduced ? (progress.value < 0.5 ? 1 : 0.45) : progress.value > 0.85 ? 1 - (progress.value - 0.85) / 0.15 : 1,
+  }));
   return (
     <Animated.View accessibilityRole="progressbar" accessibilityLabel="Loading the design" style={fade}>
       <Svg width={44} height={44} viewBox="0 0 24 24" fill="none" stroke={colors.ink3} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">

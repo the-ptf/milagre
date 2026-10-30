@@ -12,10 +12,11 @@ export function isChatListed(session: AgentSession | LinkChatSession, sessionMes
 }
 
 /** What the mark at the left of a chat row shows; the first that applies wins. */
-export type ChatMark = "question" | "waiting" | "delegated" | "running" | "background" | "unread" | "idle";
+export type ChatMark = "question" | "waiting" | "delegated" | "running" | "interrupted" | "background" | "unread" | "idle";
 
 /**
- * `delegated`: a Delegation from another Chat is queued or running here. `background`: the Chat's activity is
+ * `delegated`: a Delegation from another Chat is queued or running here. `interrupted`: its turn stopped when the app
+ * quit and can resume (`resumeTurn`), as the phone marks it. `background`: the Chat's activity is
  * background (chat-activity.mjs): its turn ended, but background agents still work and will wake it.
  */
 export function chatMark({
@@ -23,6 +24,7 @@ export function chatMark({
   waiting,
   delegated = false,
   running,
+  interrupted = false,
   background = false,
   unread,
 }: {
@@ -30,6 +32,7 @@ export function chatMark({
   waiting: boolean;
   delegated?: boolean;
   running: boolean;
+  interrupted?: boolean;
   background?: boolean;
   unread: boolean;
 }): ChatMark {
@@ -37,6 +40,7 @@ export function chatMark({
   if (waiting) return "waiting";
   if (delegated) return "delegated";
   if (running) return "running";
+  if (interrupted) return "interrupted";
   if (background) return "background";
   if (unread) return "unread";
   return "idle";

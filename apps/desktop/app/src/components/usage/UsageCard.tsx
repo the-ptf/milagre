@@ -123,7 +123,7 @@ export function UsageCard({
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onBlur={onBlur}
-      className="fixed z-50 rounded-window bg-surface text-ink shadow-overlay"
+      className="fixed z-50 rounded-card bg-surface text-ink shadow-raised"
       style={{
         width: USAGE_CARD_WIDTH,
         left: position.left,
@@ -151,15 +151,18 @@ export function UsageCard({
           }}
           // aria-disabled, not disabled: a disabled button drops focus to <body>, which would close the card.
           aria-disabled={loading}
-          className="aria-disabled:cursor-default"
         >
-          <span className={`flex ${spin.spinning ? "animate-spin" : ""}`} onAnimationIteration={spin.onAnimationIteration}>
-            <Icon icon={RefreshIcon} size={14} />
+          <span
+            className={`flex ${spin.spinning ? "refresh-spin animate-spin" : ""}`}
+            onAnimationIteration={spin.onAnimationIteration}
+            onAnimationEnd={spin.onAnimationEnd}
+          >
+            <Icon icon={RefreshIcon} size={16} />
           </span>
         </IconButton>
       </div>
 
-      {usage.message && <p className="mx-4 mb-3 rounded-control bg-field px-2.5 py-1.5 text-12 text-ink">{usage.message}</p>}
+      {usage.message && <p className="mx-4 mb-3 rounded-control bg-field px-3 py-1.5 text-12 text-ink">{usage.message}</p>}
 
       {usage.windows.length > 0 && (
         <div className="flex flex-col gap-3 border-t border-line px-4 pb-4 pt-3">

@@ -6,9 +6,10 @@ import type { PageElement, ParsedPageComment } from "@milagre/shared/page-commen
 import { pageCommentsMessage } from "@milagre/shared/page-comments";
 import { isTurnEnd } from "@milagre/shared/agent-runs";
 import Tooltip from "../primitives/Tooltip";
-import { Button } from "../primitives/Button";
+import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
+import { TOAST } from "../../lib/toast";
 import { isRemoteKey, onAnyAgentEvent, useBridge, useScope } from "../../lib/computer-bridge";
 import { mediaUrl } from "../../lib/media";
 import type { BrowserTab } from "../../lib/browser-panel";
@@ -97,17 +98,16 @@ export function CommentControls({ chatKey, live, onSend }: { chatKey: string; li
         </Tooltip>
       )}
       <Tooltip label={label} side="bottom" align="end">
-        <button
-          type="button"
-          aria-label={label}
+        {/* Comment mode changes what a click on the page does: the armed accent look. */}
+        <IconButton
+          label={label}
+          icon={CommentAdd01Icon}
+          tone="accent"
           aria-pressed={commenting}
           data-slot="browser-comment-toggle"
           disabled={!live}
           onClick={() => setCommenting(chatKey, !commenting)}
-          className={`flex size-7 shrink-0 items-center justify-center rounded-control transition-colors duration-fast enabled:active:scale-press disabled:opacity-40 ${commenting ? "bg-accent-tint text-accent" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
-        >
-          <Icon icon={CommentAdd01Icon} size={16} />
-        </button>
+        />
       </Tooltip>
     </>
   );
@@ -186,10 +186,7 @@ export function PageCommenting({ chatKey, tab, live }: { chatKey: string; tab: B
   if (!draft)
     return picking
       ? createPortal(
-          <div
-            data-slot="browser-comment-hint"
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink px-3 py-1.5 text-12 whitespace-nowrap text-on-ink shadow-overlay"
-          >
+          <div data-slot="browser-comment-hint" className={`absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap ${TOAST}`}>
             Click an element to comment on it · Esc to stop
           </div>,
           overlay,
@@ -325,11 +322,11 @@ function PageCommentRow({ comment, image }: { comment: ParsedPageComment; image?
   return (
     <div data-slot="page-comment" data-resolved={saved?.resolved ? "" : undefined} className="flex gap-3 border-b border-line px-3 py-3 last:border-b-0">
       <div className="relative h-10 w-14 shrink-0">
-        <div className="h-full w-full overflow-hidden rounded-chip border border-line-strong bg-white">
+        <div className="h-full w-full overflow-hidden rounded-chip border border-line-strong bg-paper">
           {src ? <img src={src} alt="" className="h-full w-full object-contain" /> : null}
         </div>
         <span
-          className={`absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full text-10 font-semibold ring-[1.5px] ring-surface ${saved?.resolved ? "bg-green text-on-accent" : "bg-accent text-on-accent"}`}
+          className={`absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full text-10 font-semibold shadow-pin ${saved?.resolved ? "bg-green-ink text-on-green" : "bg-accent-ink text-on-accent"}`}
         >
           {saved?.resolved ? <Icon icon={Tick02Icon} size={12} /> : comment.number}
         </span>

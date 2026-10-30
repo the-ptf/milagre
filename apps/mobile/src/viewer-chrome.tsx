@@ -1,88 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
-import { CheckmarkCircle02Icon, Sent02Icon } from "@hugeicons/core-free-icons";
+import { Text, TextInput, View, type TextInputInstance } from "react-native";
+import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import type { ArtifactComment } from "@milagre/shared/artifact";
-import { Icon, type IconData } from "./icons";
+import { Icon } from "./icons";
 import { useTheme } from "./theme";
-import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
-import { PillButton, pressStyle, tap, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
+import { PillButton, useStyles } from "./ui";
 
-// The full-screen viewers' chrome, the Designs canvas's and the Artifact page's: round header buttons, Send with the
-// count waiting, and the comment box that opens from a pin.
-
-/** A 34pt round header button, like the in-app browser's. `on` marks the squares while the whole board shows. */
-export function RoundButton({ label, icon, onPress, on = false }: { label: string; icon: IconData; onPress?: () => void; on?: boolean }) {
-  const { colors } = useTheme();
-  const body = (
-    <View
-      style={{
-        width: 34,
-        height: 34,
-        borderRadius: radius.full,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: on ? colors.ink : colors.field,
-      }}
-    >
-      <Icon icon={icon} size={18} tone={on ? "onInk" : "ink"} />
-    </View>
-  );
-  if (!onPress) return body;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: on }}
-      hitSlop={hitSlopFor(34)}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => pressStyle({ pressed, filled: on })}
-    >
-      {body}
-    </Pressable>
-  );
-}
-
-/** Send, as an icon with the number of comments (and the choice) waiting. */
-export function SendButton({ count, onPress }: { count: number; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Send ${count} to the agent`}
-      hitSlop={hitSlopFor(34)}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => pressStyle({ pressed, filled: true })}
-    >
-      <View style={{ width: 34, height: 34, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.ink }}>
-        <Icon icon={Sent02Icon} size={18} tone="onInk" />
-      </View>
-      <View
-        style={{
-          position: "absolute",
-          top: -5,
-          right: -5,
-          minWidth: 18,
-          height: 18,
-          paddingHorizontal: 4,
-          borderRadius: radius.full,
-          borderWidth: 2,
-          borderColor: colors.surface,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.ink,
-        }}
-      >
-        <Text style={{ color: colors.onInk, fontSize: type.caption2, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{count}</Text>
-      </View>
-    </Pressable>
-  );
-}
+// The full-screen viewers' comment box, the Designs canvas's and the Artifact page's, that opens from a pin. Their header
+// buttons are CircleButtons (Send is `filled badge={count}`).
 
 /**
  * The comment on a pin, opened from its point as on desktop: the box's square corner sits where the pin pointed. A new
@@ -179,7 +105,11 @@ export function CommentBox({
             style={[styles.input, { maxHeight: 120 }]}
           />
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-            <PillButton size="small" secondary title={kind === "new" ? "Cancel" : "Delete"} onPress={onCancel} />
+            {kind === "new" ? (
+              <PillButton size="small" variant="plain" muted title="Cancel" onPress={onCancel} />
+            ) : (
+              <PillButton size="small" variant="plain" destructive title="Delete" onPress={onCancel} />
+            )}
             <PillButton size="small" title={kind === "new" ? "Add" : "Done"} disabled={kind === "new" && !text.trim()} onPress={onDone} />
           </View>
         </>

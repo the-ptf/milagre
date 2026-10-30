@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SpinnerRing } from "../primitives/SpinnerRing";
+import { menuRowClass } from "../primitives/Popover";
 import { SectionLabel } from "../primitives/SectionLabel";
 import { ChatMarkDotInline, type SidebarRecent } from "./ChatRow";
 import type { RailStatus } from "../../lib/sidebar-scopes";
@@ -79,7 +80,7 @@ export function ScopeRail({
           data-rail-scope={scope.key}
           data-rail-status={scope.status}
           aria-current={scope.current ? "true" : undefined}
-          aria-label={scope.status === "idle" ? scope.name : `${scope.name}, a chat ${STATUS_LABEL[scope.status]}`}
+          aria-label={scope.status === "idle" ? scope.name : `${scope.name}, a Chat ${STATUS_LABEL[scope.status]}`}
           onClick={() => {
             hide();
             if (!scope.current) onOpenScope(scope.key);
@@ -91,7 +92,7 @@ export function ScopeRail({
             place(scope.key, event.currentTarget);
           }}
           onBlur={hideSoon}
-          className={`relative flex size-8 items-center justify-center rounded-control transition-[background-color,scale] duration-fast active:scale-press ${scope.current ? "bg-hover-2" : "hover:bg-hover-sidebar"}`}
+          className={`relative flex size-8 items-center justify-center rounded-control transition-[background-color,scale] duration-fast active:scale-press ${scope.current ? "bg-hover-2" : "hover:bg-hover"}`}
         >
           <span className="relative flex items-center justify-center">
             {scope.icon}
@@ -139,7 +140,7 @@ export function ScopeRail({
                       hide();
                       onOpenChat(open.key, chat.id);
                     }}
-                    className="flex h-8 w-full min-w-0 items-center gap-2 rounded-control px-2 text-left text-13 font-medium text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink focus-visible:bg-hover-2 focus-visible:-outline-offset-2"
+                    className={menuRowClass()}
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center">
                       <ChatMarkDotInline mark={chat.mark ?? "idle"} failed={false} background={chat.background} />
@@ -149,7 +150,7 @@ export function ScopeRail({
                 ))}
               </div>
             ) : (
-              <p className="px-2 pb-1 text-13 text-ink-3">No chat running</p>
+              <p className="px-2 pb-1 text-12 text-ink-3">No Chat running</p>
             )}
           </div>,
           document.body,

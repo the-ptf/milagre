@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
-import { Alert, AppState, Keyboard, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { Alert, AppState, Keyboard, Pressable, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAvoidingView, KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
@@ -19,9 +19,9 @@ import { useSession } from "./session";
 import { Icon, type IconData } from "./icons";
 import { fonts, useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { CircleButton, ErrorNotice, PillButton, PullDown, showActions, useStyles } from "./ui";
+import { CircleButton, ErrorNotice, PageScroll, PillButton, PullDown, SheetHeader, showActions, useStyles } from "./ui";
 import { confirmSheet } from "./confirm-store";
-import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
+import { duration, easing, hitSlopFor, lineHeight, radius, type } from "./design-tokens";
 import { createTerminalHtml, scriptValue, xtermTheme, type TerminalTheme, type TerminalViewMessage } from "./terminal-receiver";
 
 /** A Worktree a new Terminal can start in; a shared Chat has one per member Project. */
@@ -342,34 +342,22 @@ export function TerminalSheet({
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.page, paddingTop: docked ? 0 : insets.top }}>
-      <View
-        style={{
-          flexShrink: 0,
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: docked ? 12 : 16,
-          paddingTop: docked ? 0 : 8,
-          paddingBottom: docked ? 4 : 8,
-          gap: 8,
-        }}
-      >
-        {/* Docked, the button only puts the Terminals away (they keep running, as the pill's count says); each tab's X ends one. */}
-        {docked ? (
-          <CircleButton label="Hide Terminal" icon={ArrowDown01Icon} onPress={onClose} />
-        ) : (
-          <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={() => router.back()} />
-        )}
-        <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
-            {shown?.title ?? "Terminal"}
-          </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
-            {/* The folder, not its whole path: a Worktree's path is long and mostly the same for every Terminal. */}
-            {shown?.cwd ? shown.cwd.split(/[\\/]/).findLast(Boolean) || shown.cwd : "This Chat"}
-          </Text>
-        </View>
-        <CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />
-      </View>
+      {/* Docked, the button only puts the Terminals away (they keep running, as the pill's count says); each tab's X ends one. */}
+      <SheetHeader
+        title={shown?.title ?? "Terminal"}
+        // The folder, not its whole path: a Worktree's path is long and mostly the same for every Terminal.
+        subtitle={shown?.cwd ? shown.cwd.split(/[\\/]/).findLast(Boolean) || shown.cwd : "This Chat"}
+        subtitleEllipsis="middle"
+        style={docked ? { paddingHorizontal: 12, paddingTop: 0, paddingBottom: 4 } : undefined}
+        leading={
+          docked ? (
+            <CircleButton label="Hide Terminal" icon={ArrowDown01Icon} onPress={onClose} />
+          ) : (
+            <CircleButton label="Close Terminal" icon={Cancel01Icon} onPress={() => router.back()} />
+          )
+        }
+        trailing={<CircleButton label="New Terminal" icon={Add01Icon} onPress={opening ? undefined : add} />}
+      />
       {/* Docked, the Terminal keeps its rows for output; the computer's shell is picked on the phone page or desktop. */}
       {profiles && !docked && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 8, gap: 4 }}>
@@ -404,11 +392,12 @@ export function TerminalSheet({
         </View>
       )}
       {!!terminals?.length && (
-        <ScrollView
+        <PageScroll
           horizontal
+          contentInsetAdjustmentBehavior="never"
           showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 8, gap: 6 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 0, paddingBottom: 8, gap: 6 }}
         >
           {terminals.map((terminal) => {
             const selected = terminal.id === shown?.id;
@@ -457,7 +446,7 @@ export function TerminalSheet({
               </View>
             );
           })}
-        </ScrollView>
+        </PageScroll>
       )}
       <KeyboardAvoidingView enabled={!docked} behavior="padding" keyboardVerticalOffset={0} style={{ flex: 1, minHeight: 0 }}>
         <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
@@ -501,8 +490,9 @@ export function TerminalSheet({
           )}
         </View>
         {shown && !paused && (
-          <ScrollView
+          <PageScroll
             horizontal
+            contentInsetAdjustmentBehavior="never"
             keyboardShouldPersistTaps="always"
             showsHorizontalScrollIndicator={false}
             style={{ flexGrow: 0, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface }}
@@ -548,7 +538,7 @@ export function TerminalSheet({
             {EDIT_KEYS.map((key) => (
               <KeyButton key={key.label} label={key.label} name={key.name} repeat={key.repeat} onPress={() => view.current?.send(key.send)} />
             ))}
-          </ScrollView>
+          </PageScroll>
         )}
       </KeyboardAvoidingView>
     </View>
@@ -622,7 +612,9 @@ function KeyButton({
       {icon ? (
         <Icon icon={icon} size={18} tone="ink2" />
       ) : (
-        <Text style={{ color: held ? colors.onAccent : colors.ink, fontSize: type.footnote, fontFamily: fonts.mono }}>{label}</Text>
+        <Text style={{ color: held ? colors.onAccent : colors.ink, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontFamily: fonts.mono }}>
+          {label}
+        </Text>
       )}
     </Pressable>
   );
@@ -811,7 +803,7 @@ const DOCK_MIN = 200;
 const DOCK_MAX_SHARE = 0.6;
 const DOCK_SHARE = 0.3;
 /** It rises and sinks with iOS's own sheet timing, as the iPad's side panels slide. */
-const DOCK_SLIDE = { duration: 320, easing: Easing.bezier(0.32, 0.72, 0, 1), reduceMotion: ReduceMotion.System };
+const DOCK_SLIDE = { duration: duration.slow, easing: Easing.bezier(...easing.slide), reduceMotion: ReduceMotion.System };
 
 /** A drag on the docked Terminal's grabber: up makes it taller, down shorter, within its bounds. */
 function resizeGesture(height: SharedValue<number>, start: SharedValue<number>, max: number) {

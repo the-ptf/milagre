@@ -8,7 +8,7 @@ import { lineHeight, radius, type } from "./design-tokens";
 import { Icon, SpinnerRing } from "./icons";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { ErrorNotice, PillButton, pressStyle, useAnnounce } from "./ui";
+import { InlineError, PillButton, pressStyle, useAnnounce } from "./ui";
 
 /**
  * A reply the plan's usage limit stopped. It offers the Project's other accounts for the provider only while this is the
@@ -69,7 +69,7 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
         paddingVertical: 12,
         borderRadius: radius.card,
         borderCurve: "continuous",
-        borderWidth: 1,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.line,
         backgroundColor: colors.surface,
       }}
@@ -136,7 +136,7 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
           </>
         )
       )}
-      {error ? <ErrorNotice message={error} /> : null}
+      <InlineError message={error} />
     </View>
   );
 }

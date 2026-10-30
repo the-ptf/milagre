@@ -1,13 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import type { HandoffContext, ModelOption } from "../model";
-import { ArrowDataTransferHorizontalIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { ArrowDataTransferHorizontalIcon } from "@hugeicons/core-free-icons";
 import { handoffLabel } from "../lib/handover";
 import { ProviderLogo } from "./ProviderLogo";
 import { Markdown } from "./markdown/Markdown";
-import { ScrollArea } from "./primitives/ScrollArea";
 import { SpinnerRing } from "./primitives/SpinnerRing";
-import { Button, IconButton } from "./primitives/Button";
+import { Button } from "./primitives/Button";
+import { Dialog } from "./primitives/Dialog";
 import { Icon } from "./primitives/Icon";
 import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
@@ -51,25 +50,12 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
   );
 }
 
-const FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
-
 /**
- * The brief the new provider was sent, or the linked summary a Link gave a Chat, in a modal as the GitActionsDialog is
- * built: a Preview with Close.
+ * The brief the new provider was sent, or the linked summary a Link gave a Chat, in a Dialog with a Close bar.
  */
 export function HandoffBriefDialog({ title, brief, onClose }: { title: string; brief: string; onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-
-  // Focus moves into the dialog, and back to where it was when the dialog closes.
-  useLayoutEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-    return () => {
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
 
   // Escape closes the dialog wherever focus is, and is consumed here so it doesn't also stop the chat's turn.
   useEffect(() => {
@@ -84,62 +70,27 @@ export function HandoffBriefDialog({ title, brief, onClose }: { title: string; b
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
-  // Tab and Shift+Tab stay inside the dialog.
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "Tab") return;
-    const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((element) => element.offsetParent !== null);
-    if (!focusable.length) return event.preventDefault();
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (!first || !last) return;
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || active === panelRef.current)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || active === panelRef.current)) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  return createPortal(
-    <div
-      data-brief-dialog-overlay
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-4 backdrop-blur-overlay no-drag"
-      style={{ animation: "fade-in var(--duration-fast) var(--ease-enter) both" }}
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+  return (
+    <Dialog
+      data-brief-dialog
+      title={
+        <span id="brief-dialog-title" className="block truncate">
+          {title}
+        </span>
+      }
+      width={680}
+      onClose={onClose}
+      footer="bar"
+      actions={
+        <Button data-brief-close onClick={onClose}>
+          Close
+        </Button>
+      }
+      className="pt-3"
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="brief-dialog-title"
-        tabIndex={-1}
-        onKeyDown={handleKeyDown}
-        data-brief-dialog
-        className="flex h-[min(88vh,760px)] w-[680px] max-w-full flex-col overflow-hidden rounded-window bg-surface text-ink shadow-overlay outline-none"
-        style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
-      >
-        <header className="flex items-center gap-3 px-4 pt-4 pb-2">
-          <h2 id="brief-dialog-title" className="min-w-0 flex-1 truncate text-17 font-semibold">
-            {title}
-          </h2>
-          <IconButton label="Close" icon={Cancel01Icon} size={28} onClick={onClose} />
-        </header>
-        <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-1">
-          <ScrollArea data-brief-preview className="flex-1 text-13 leading-[1.55]">
-            <Markdown text={brief} />
-          </ScrollArea>
-        </div>
-        <footer className="flex items-center justify-end gap-2 border-t border-line bg-inset px-4 py-3">
-          <Button data-brief-close onClick={onClose}>
-            Close
-          </Button>
-        </footer>
+      <div data-brief-preview className="text-13 leading-5">
+        <Markdown text={brief} />
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   );
 }

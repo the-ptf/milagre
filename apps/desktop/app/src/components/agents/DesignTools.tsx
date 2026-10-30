@@ -12,7 +12,6 @@ import {
   TextFontIcon,
 } from "@hugeicons/core-free-icons";
 import type { DesignDocument, DesignNode } from "@milagre/shared/design";
-import Tooltip from "../primitives/Tooltip";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
@@ -26,8 +25,6 @@ const tools = [
   { type: "image", label: "Add image", icon: Image01Icon },
   { type: "icon", label: "Add icon", icon: StarIcon },
 ] as const;
-const iconButton =
-  "flex size-9 items-center justify-center rounded-control text-ink-2 transition-[color,background-color,scale] duration-fast ease-enter enabled:hover:bg-hover enabled:hover:text-ink enabled:active:scale-press disabled:opacity-40";
 
 /** The layer panel is a persistent, optional workspace panel, so inspecting a layer does not dismiss it. */
 export function DesignTools({
@@ -102,7 +99,7 @@ export function DesignTools({
         aria-label={`Select ${node.name ?? node.id}`}
         aria-pressed={selectedIds.includes(node.id)}
         onClick={(event) => onSelect(node.id, event.shiftKey || event.metaKey || event.ctrlKey)}
-        className={`my-0.5 flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-1.5 text-left text-12 transition-colors duration-fast ${selectedIds.includes(node.id) ? "bg-accent-tint text-accent-ink" : "text-ink-2 hover:bg-hover"}`}
+        className={`my-0.5 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-left text-12 transition-colors ${selectedIds.includes(node.id) ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
       >
         <span aria-hidden className="w-3 shrink-0 text-center text-10">
           {node.component
@@ -147,26 +144,18 @@ export function DesignTools({
         }}
         className="absolute left-4 top-4 z-10 flex flex-col gap-1 rounded-card bg-surface p-1 shadow-raised"
       >
-        <Tooltip label="Layers">
-          <button
-            type="button"
-            aria-label="Layers"
-            aria-expanded={open}
-            aria-controls={panelId}
-            data-slot="design-layers-toggle"
-            className={`${iconButton} ${open ? "bg-accent-tint text-accent-ink" : ""}`}
-            onClick={onToggle}
-          >
-            <Icon icon={Layers01Icon} size={18} />
-          </button>
-        </Tooltip>
+        <IconButton
+          label="Layers"
+          icon={Layers01Icon}
+          size={32}
+          aria-expanded={open}
+          aria-controls={panelId}
+          data-slot="design-layers-toggle"
+          onClick={onToggle}
+        />
         <div className="mx-1 my-0.5 border-t border-line" />
         {tools.map((tool) => (
-          <Tooltip key={tool.type} label={tool.label}>
-            <button type="button" aria-label={tool.label} className={iconButton} disabled={saving} onClick={() => onAdd(tool.type)}>
-              <Icon icon={tool.icon} size={18} />
-            </button>
-          </Tooltip>
+          <IconButton key={tool.type} label={tool.label} icon={tool.icon} size={32} disabled={saving} onClick={() => onAdd(tool.type)} />
         ))}
       </div>
       {open && (
@@ -180,9 +169,7 @@ export function DesignTools({
             <span className="flex-1 text-12 font-medium">
               Layers <span className="ml-1 font-normal text-ink-3">{layerCount}</span>
             </span>
-            <Tooltip label="Close Layers">
-              <IconButton label="Close Layers" icon={Cancel01Icon} size={24} onClick={onClose} />
-            </Tooltip>
+            <IconButton label="Close Layers" icon={Cancel01Icon} size={24} onClick={onClose} />
           </header>
           <ScrollArea as="ul" className="min-h-0 flex-1 p-1" aria-label="Design layers">
             {designs.length <= 1
@@ -196,7 +183,7 @@ export function DesignTools({
                       aria-label={`Show layers for ${design.title}`}
                       aria-expanded={design.id === activeId}
                       aria-pressed={design.id === activeId}
-                      className={`my-0.5 flex w-full items-center gap-2 rounded-control px-2 py-2 text-left text-12 transition-colors duration-fast ${design.id === activeId ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover"}`}
+                      className={`my-0.5 flex h-8 w-full items-center gap-2 rounded-control px-2 text-left text-12 transition-colors ${design.id === activeId ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
                       onClick={() => {
                         onActivate(design.id);
                         requestAnimationFrame(() =>
@@ -230,7 +217,7 @@ export function DesignTools({
                     key={component.id}
                     type="button"
                     aria-label={`Insert ${component.name ?? component.id} instance`}
-                    className="mb-1 w-full truncate rounded-control px-2 py-1.5 text-left text-12 text-ink-2 transition-colors duration-fast enabled:hover:bg-hover disabled:opacity-40"
+                    className="mb-1 h-7 w-full truncate rounded-control px-2 text-left text-12 text-ink-2 transition-colors enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-40"
                     disabled={saving}
                     onClick={() => onInsertInstance(component)}
                   >

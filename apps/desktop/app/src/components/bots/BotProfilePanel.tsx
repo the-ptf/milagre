@@ -6,9 +6,11 @@ import { bridgeFor } from "../../lib/computer-bridge";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
+import { FIELD_AREA } from "../primitives/Field";
 import { Icon } from "../primitives/Icon";
 import { InlineError } from "../primitives/InlineError";
 import { SectionLabel } from "../primitives/SectionLabel";
+import Tooltip from "../primitives/Tooltip";
 import { BotAvatar } from "./BotAvatar";
 import { BOT_CHAT_STATUS, projectLabel } from "./BotChatCard";
 
@@ -98,7 +100,7 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
             disabled={brief === null}
             onChange={(event) => setBriefDraft(event.target.value)}
             rows={6}
-            className="w-full resize-y rounded-control border border-transparent bg-transparent px-0 py-0.5 text-13 text-ink outline-none transition-colors duration-fast hover:border-line focus:border-accent focus:px-2"
+            className="w-full resize-y rounded-control border border-transparent bg-transparent px-0 py-0.5 text-13 text-ink outline-none transition-colors hover:border-line focus:border-accent focus:px-2"
           />
           {briefChanged && (
             <div className="mt-1 flex justify-end gap-1">
@@ -119,18 +121,18 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
         <Section title={`Chats ${bot.name} opened`}>
           {chats.length === 0 && <p className="text-13 text-ink-3">None yet.</p>}
           {chats.map((chat) => (
-            <button
-              key={chat.chatKey}
-              type="button"
-              data-profile-chat={chat.chatKey}
-              onClick={() => onOpenChat?.(chat.chatKey)}
-              title={projectLabel(chat.projectPath)}
-              className="-mx-1.5 flex h-8 w-[calc(100%+12px)] items-center gap-2 rounded-control px-1.5 text-left transition-colors duration-fast hover:bg-hover"
-            >
-              <Icon icon={GitBranchIcon} size={14} className="shrink-0 text-ink-3" />
-              <span className="min-w-0 flex-1 truncate text-13 text-ink">{chat.title}</span>
-              <span className="shrink-0 text-12 text-ink-3">{BOT_CHAT_STATUS[chat.status]}</span>
-            </button>
+            <Tooltip key={chat.chatKey} label={projectLabel(chat.projectPath)} asChild>
+              <button
+                type="button"
+                data-profile-chat={chat.chatKey}
+                onClick={() => onOpenChat?.(chat.chatKey)}
+                className="-mx-1.5 flex h-8 w-[calc(100%+12px)] items-center gap-2 rounded-control px-1.5 text-left transition-colors hover:bg-hover"
+              >
+                <Icon icon={GitBranchIcon} size={14} className="shrink-0 text-ink-3" />
+                <span className="min-w-0 flex-1 truncate text-13 text-ink">{chat.title}</span>
+                <span className="shrink-0 text-12 text-ink-3">{BOT_CHAT_STATUS[chat.status]}</span>
+              </button>
+            </Tooltip>
           ))}
         </Section>
 
@@ -156,16 +158,12 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
           <Section title={`Always for ${bot.name}`}>
             {grants.map((grant) => (
               <div key={grant.id} data-grant={grant.id} className="flex h-8 items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-13 text-ink" title={grant.target}>
-                  {GATE_LABEL[grant.gate]} · {projectLabel(grant.target)}
-                </span>
-                <Button
-                  variant="ghost"
-                  size={24}
-                  disabled={busy}
-                  onClick={() => void run(() => bridge.revokeBotGrant(grant.id))}
-                  className="text-red-ink enabled:hover:bg-red-tint"
-                >
+                <Tooltip label={grant.target} asChild>
+                  <span className="min-w-0 flex-1 truncate text-13 text-ink">
+                    {GATE_LABEL[grant.gate]} · {projectLabel(grant.target)}
+                  </span>
+                </Tooltip>
+                <Button variant="danger-ghost" size={24} disabled={busy} onClick={() => void run(() => bridge.revokeBotGrant(grant.id))}>
                   Revoke
                 </Button>
               </div>
@@ -187,7 +185,7 @@ export function BotProfilePanel({ bot, snapshot, onOpenChat }: { bot: BotSummary
               </div>
             </div>
           ) : (
-            <Button variant="ghost" size={24} onClick={() => setConfirmDelete(true)} className="-ml-2">
+            <Button variant="danger-ghost" size={24} onClick={() => setConfirmDelete(true)} className="-ml-2">
               Delete bot
             </Button>
           )}
@@ -248,7 +246,6 @@ function MemorySheet({
       description={`${botName}'s memory`}
       width={600}
       onClose={saving ? undefined : onClose}
-      className="flex max-h-[calc(100vh-64px)] flex-col"
       actions={
         <>
           <Button variant="ghost" disabled={saving} onClick={onClose}>
@@ -265,7 +262,7 @@ function MemorySheet({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         rows={18}
-        className="mt-3 min-h-0 w-full flex-1 resize-none rounded-control border border-line-strong bg-field px-3 py-2 font-mono text-12 outline-none transition-colors duration-fast focus:border-accent"
+        className={`mt-3 resize-none font-mono ${FIELD_AREA}`}
       />
       <InlineError size={12} data-memory-error className="mt-3">
         {error}

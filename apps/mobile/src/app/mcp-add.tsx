@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
-import { Icon } from "../icons";
 import { mcpHeadersPayload, renameHeader, type McpHeaderRow } from "../mcp-headers";
 import { useMcp } from "../use-mcp";
-import { CheckRow, CircleButton, ErrorNotice, Field, PageScroll, SheetHeader, pressStyle, useStyles } from "../ui";
-import { hitSlopFor, lineHeight, radius, type as typeScale } from "../design-tokens";
+import { CheckRow, CircleButton, ErrorNotice, Field, Group, IconButton, PageScroll, PillButton, SheetHeader, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 const TARGETS: { value: McpTarget; title: string }[] = [
@@ -26,7 +24,7 @@ export default function McpAddSheet() {
   const { colors } = useTheme();
   const [name, setName] = useState(params.name ?? "");
   const [url, setUrl] = useState("");
-  const [type, setType] = useState<"http" | "sse">("http");
+  const [transport, setTransport] = useState<"http" | "sse">("http");
   const [headers, setHeaders] = useState<McpHeaderRow[]>([]);
   const [target, setTarget] = useState<McpTarget>(asTarget(params.target));
   const [loading, setLoading] = useState(editing);
@@ -47,7 +45,7 @@ export default function McpAddSheet() {
         else {
           setName(def.name);
           setUrl(def.url);
-          setType(def.type);
+          setTransport(def.type);
           setHeaders(Object.entries(def.headers).map(([key, value]) => ({ id: nextId.current++, key, value, masked: value === MCP_SECRET_MASK })));
         }
       } catch (cause) {
@@ -65,7 +63,7 @@ export default function McpAddSheet() {
     if (saving || loading) return;
     const payload = mcpHeadersPayload(headers);
     if ("error" in payload) return setError(payload.error);
-    const def: McpServerDefinition = { name: name.trim(), type, url: url.trim(), headers: payload.headers };
+    const def: McpServerDefinition = { name: name.trim(), type: transport, url: url.trim(), headers: payload.headers };
     const problem = validateMcpServer(def);
     if (problem) return setError(problem);
     setSaving(true);
@@ -131,39 +129,29 @@ export default function McpAddSheet() {
                       onBlur={() => row.masked && !row.value && change(row.id, { value: MCP_SECRET_MASK })}
                     />
                   </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove header"
-                    hitSlop={hitSlopFor(18)}
+                  <IconButton
+                    label="Remove header"
+                    icon={Cancel01Icon}
+                    size={32}
+                    tone="ink3"
                     onPress={() => setHeaders((rows) => rows.filter((item) => item.id !== row.id))}
-                    style={({ pressed }) => pressStyle({ pressed })}
-                  >
-                    <Icon icon={Cancel01Icon} tone="ink3" size={18} />
-                  </Pressable>
+                  />
                 </View>
               ))}
-              <Pressable
-                accessibilityRole="button"
+              <PillButton
+                title="Add header"
+                icon={Add01Icon}
+                variant="tinted"
+                size="small"
+                style={{ alignSelf: "flex-start" }}
                 onPress={() => setHeaders((rows) => [...rows, { id: nextId.current++, key: "", value: "", masked: false }])}
-                style={({ pressed }) => [{ alignSelf: "flex-start", minHeight: 44, justifyContent: "center" }, pressStyle({ pressed })]}
-              >
-                <Text style={{ color: colors.ink, fontSize: typeScale.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Add header</Text>
-              </Pressable>
+              />
             </View>
-            <View style={{ gap: 8 }}>
-              <Text style={styles.label}>Load it in</Text>
-              <View
-                accessibilityRole="radiogroup"
-                style={{ backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous", paddingHorizontal: 16 }}
-              >
-                {TARGETS.map((item, index) => (
-                  <View key={item.value}>
-                    {index > 0 && <View style={styles.separator} />}
-                    <CheckRow title={item.title} checked={target === item.value} onPress={() => setTarget(item.value)} />
-                  </View>
-                ))}
-              </View>
-            </View>
+            <Group title="Load it in" role="radiogroup" inset={0}>
+              {TARGETS.map((item) => (
+                <CheckRow key={item.value} title={item.title} checked={target === item.value} onPress={() => setTarget(item.value)} />
+              ))}
+            </Group>
           </>
         )}
       </View>

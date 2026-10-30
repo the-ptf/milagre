@@ -5,7 +5,7 @@ import { PERMISSION_MODES } from "@milagre/shared/model-copy";
 import type { PermissionMode } from "@milagre/shared/model";
 import { PermissionIcon } from "../agent-controls";
 import { useComposer, useSession } from "../session";
-import { CheckRow, CircleButton, SheetHeader, useStyles } from "../ui";
+import { CheckRow, CircleButton, Group, SheetHeader, useStyles } from "../ui";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
 import { chatPreferences } from "../turn-options";
 
@@ -40,20 +40,18 @@ export default function PermissionSheet() {
       <SheetHeader title="Permissions" leading={<CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />} />
       <View style={{ paddingHorizontal: 16, gap: 12 }}>
         {busy === "1" && <Text style={styles.caption}>Applies to your next message. This turn keeps its permissions.</Text>}
-        <View accessibilityRole="radiogroup" accessibilityLabel="Permissions" style={[styles.card, { paddingVertical: 0, paddingHorizontal: 16, gap: 0 }]}>
-          {PERMISSION_MODES.map((mode, index) => (
-            <View key={mode.id}>
-              {index > 0 && <View style={[styles.separator, { marginLeft: 32 }]} />}
-              <CheckRow
-                title={mode.name}
-                subtitle={mode.description}
-                leading={<PermissionIcon mode={mode.id} size={20} />}
-                checked={mode.id === current}
-                onPress={() => pick(mode.id)}
-              />
-            </View>
+        <Group role="radiogroup" accessibilityLabel="Permissions">
+          {PERMISSION_MODES.map((mode) => (
+            <CheckRow
+              key={mode.id}
+              title={mode.name}
+              subtitle={mode.description}
+              leading={<PermissionIcon mode={mode.id} size={20} />}
+              checked={mode.id === current}
+              onPress={() => pick(mode.id)}
+            />
           ))}
-        </View>
+        </Group>
       </View>
     </ScrollView>
   );

@@ -1,5 +1,6 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { chatActivity } from "@milagre/shared/chat-activity";
+import { chatMarkPresentation } from "@milagre/shared/chats";
 import type { AgentRun } from "@milagre/shared/agent-runs";
 import type { AgentSession, ChatMessage, Subagent } from "@milagre/shared/model";
 export function agentCounts(agents: Subagent[]) {
@@ -29,13 +30,10 @@ export function chatMark(chat: AgentSession | undefined, run?: AgentRun, message
   if (activity === "failed") return "failed";
   return "idle";
 }
-export const MARK_LABEL: Record<ChatMark, string> = {
-  question: "Has a question",
-  waiting: "Needs approval",
-  interrupted: "Interrupted",
-  running: "Running",
-  background: "Working in the background",
-  failed: "Last turn failed",
-  unread: "Unread",
-  idle: "",
-};
+/** The mark's words, the same as desktop's (chatMarkPresentation). */
+export const MARK_LABEL = Object.fromEntries(
+  (["question", "waiting", "interrupted", "running", "background", "failed", "unread", "idle"] as const).map((mark) => [
+    mark,
+    chatMarkPresentation(mark).label,
+  ]),
+) as Record<ChatMark, string>;

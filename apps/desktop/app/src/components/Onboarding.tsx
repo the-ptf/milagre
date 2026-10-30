@@ -21,14 +21,15 @@ import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
+import { Input } from "./primitives/Field";
 import { InlineError } from "./primitives/InlineError";
 import { SectionLabel } from "./primitives/SectionLabel";
+import { Skeleton } from "./primitives/Skeleton";
 
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity"];
 
-// A text-only link-like button at the edge of the footer: no fill, so it lines up with the content's left edge.
-const quiet =
-  "inline-flex h-8 items-center gap-1.5 rounded-control text-13 font-medium text-ink-2 transition-colors duration-fast hover:text-ink disabled:cursor-default disabled:opacity-40";
+// The footer's quiet button pulls left by its padding, so its label lines up with the content's left edge.
+const QUIET_EDGE = "-ml-3";
 
 /** ~/Code/web for /Users/me/Code/web, so a path reads the way people say it. */
 function homePath(folder: string) {
@@ -65,7 +66,7 @@ function Header({ step, title, children }: { step: 1 | 2; title: string; childre
       <h1 id="onboarding-title" className="text-26 font-semibold text-ink">
         {title}
       </h1>
-      <p className="text-15 leading-relaxed text-ink-2">{children}</p>
+      <p className="text-15 text-ink-2">{children}</p>
     </header>
   );
 }
@@ -169,9 +170,9 @@ function AgentStep({ onNext }: { onNext: () => void }) {
       <InlineError className="-mt-3">{error}</InlineError>
       <p className="text-13 text-ink-3">Add more accounts or pick an agent per Project later in Settings › Accounts.</p>
       <footer className="flex items-center justify-between">
-        <button type="button" className={quiet} onClick={onNext}>
+        <Button variant="quiet" className={QUIET_EDGE} onClick={onNext}>
           Set up later
-        </button>
+        </Button>
         <Button onClick={onNext}>
           {ready ? `Continue with ${providerName(ready.provider)}` : "Continue"}
           <Icon icon={ArrowRight02Icon} size={16} />
@@ -224,7 +225,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
   ];
   return (
     <>
-      <Header step={2} title="Open a project">
+      <Header step={2} title="Open a Project">
         Any folder works. Folders with Git give each Chat its own Worktree.
       </Header>
       <div className="grid grid-cols-3 gap-3">
@@ -235,7 +236,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             data-onboarding-tile={tile.id}
             disabled={busy}
             onClick={tile.onClick}
-            className={`flex h-[108px] flex-col items-start rounded-card border bg-surface p-4 text-left transition-colors duration-fast enabled:hover:border-line-strong enabled:hover:bg-hover disabled:cursor-default disabled:opacity-40 ${form?.kind === tile.id ? "border-line-strong bg-hover" : "border-line"}`}
+            className={`flex h-[108px] flex-col items-start rounded-card border bg-surface p-4 text-left transition-colors duration-fast enabled:hover:border-line-strong enabled:hover:bg-hover disabled:cursor-default disabled:opacity-40 ${form?.kind === tile.id ? "border-line-strong bg-hover-2" : "border-line"}`}
           >
             <Icon icon={tile.icon} size={18} className="text-ink" />
             <span className="mt-auto text-15 font-semibold text-ink">{tile.title}</span>
@@ -252,7 +253,8 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             submit();
           }}
         >
-          <input
+          <Input
+            size={32}
             autoFocus
             aria-label={form.kind === "clone" ? "Repository address" : "Project name"}
             placeholder={form.kind === "clone" ? "https://github.com/owner/repository" : "my-project"}
@@ -260,13 +262,13 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             disabled={busy}
             onChange={(event) => setForm({ ...form, value: event.target.value })}
             onKeyDown={(event) => event.key === "Escape" && setForm(null)}
-            className="h-8 min-w-0 flex-1 rounded-control bg-inset px-3 text-13 text-ink outline-none transition-shadow duration-fast placeholder:text-ink-3 focus:ring-2 focus:ring-accent disabled:opacity-40"
+            className="min-w-0 flex-1"
           />
           {form.kind === "create" && form.value.trim() && <span className="shrink-0 text-12 text-ink-3">~/Code/{form.value.trim()}</span>}
           <Button type="submit" disabled={busy || !form.value.trim()}>
             {busy ? (form.kind === "clone" ? "Cloning…" : "Creating…") : form.kind === "clone" ? "Clone" : "Create"}
           </Button>
-          <IconButton label="Close" icon={Cancel01Icon} iconSize={14} size={32} onClick={() => setForm(null)} />
+          <IconButton label="Close" icon={Cancel01Icon} onClick={() => setForm(null)} />
         </form>
       )}
       <InlineError className="-mt-2">{error}</InlineError>
@@ -280,8 +282,8 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             {folders === null &&
               [0, 1, 2].map((index) => (
                 <li key={index} className="flex h-12 items-center gap-3 px-2.5">
-                  <span className="size-8 rounded-control bg-inset" />
-                  <span className="h-3 w-40 rounded-inline bg-inset" />
+                  <Skeleton secondary className="size-8" />
+                  <Skeleton className="h-3 w-40" />
                 </li>
               ))}
             {folders?.map((folder) => {
@@ -293,7 +295,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
                     disabled={busy}
                     aria-expanded={folder.git ? undefined : open}
                     onClick={() => (folder.git ? void run(() => window.milagre.openProjectAt(folder.path)) : setExpanded(open ? null : folder.path))}
-                    className="group flex h-12 w-full items-center gap-3 rounded-control px-2.5 text-left transition-colors duration-fast enabled:hover:bg-hover disabled:cursor-default disabled:opacity-60"
+                    className="group flex h-12 w-full items-center gap-3 rounded-control px-2.5 text-left transition-colors duration-fast enabled:hover:bg-hover disabled:cursor-default disabled:opacity-40"
                   >
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-control border border-line bg-inset text-ink-2">
                       <Icon icon={folder.git ? FolderGitIcon : Folder01Icon} size={16} />
@@ -318,7 +320,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
                   </button>
                   {open && (
                     <div data-no-git className="grid gap-3 pr-2.5 pb-2.5 pl-[54px]">
-                      <p className="text-13 leading-normal text-ink-2">
+                      <p className="text-13 text-ink-2">
                         {folder.name} has no Git, so Chats work right in this folder instead of their own Worktree. Add Git later to run Chats side by side and
                         undo their changes.
                       </p>
@@ -339,10 +341,10 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
         </section>
       )}
       <footer className="flex items-center">
-        <button type="button" className={quiet} onClick={onBack} disabled={busy}>
+        <Button variant="quiet" className={QUIET_EDGE} onClick={onBack} disabled={busy}>
           <Icon icon={ArrowLeft02Icon} size={16} />
           Back
-        </button>
+        </Button>
       </footer>
     </>
   );

@@ -38,7 +38,7 @@ import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
 import { useTheme } from "./theme";
 import { hitSlopFor, lineHeight as typeLineHeight, radius, space, type } from "./design-tokens";
-import { pressStyle, useStyles } from "./ui";
+import { InlineError, pressStyle, useStyles } from "./ui";
 import { showImages, type MediaValue, type ViewerImage } from "./viewer-store";
 
 /** Resolves a saved file on the computer to an authenticated image source, or a cached file once it is fetched. */
@@ -531,19 +531,14 @@ export const ChatReply = memo(function ChatReply({
       {!!thought && (
         <MessageActions text={thought} markdown>
           {(openActions) => (
-            <View style={{ opacity: 0.75 }}>
-              <Markdown text={thought} media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
-            </View>
+            // Thinking reads a step quieter, in ink2 at full strength: code, links and images keep their own colours.
+            <Markdown text={thought} tone="ink2" media={savedMedia} basePath={basePath} selectable={selectableMessageText} onMessageAction={openActions} />
           )}
         </MessageActions>
       )}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
       {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}
-      {!run && !limit && message?.outcome === "failed" && (
-        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-          The turn failed. Review the response before trying again.
-        </Text>
-      )}
+      {!run && !limit && message?.outcome === "failed" && <InlineError message="The turn failed. Review the response before trying again." />}
       {!run && !text && !allSteps.length && !message?.outcome && <Text style={styles.muted}>No text response</Text>}
     </View>
   );

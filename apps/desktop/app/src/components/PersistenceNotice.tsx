@@ -3,8 +3,8 @@ import { useState, type ReactNode } from "react";
 import type { PersistenceFailure } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { bridgeForKey } from "../lib/computer-bridge";
-import { Notice } from "./Notice";
 import { Button } from "./primitives/Button";
+import { InlineError } from "./primitives/InlineError";
 import { ScrollArea } from "./primitives/ScrollArea";
 
 export type UnsavedScope = { scope: string; name: string; failure: PersistenceFailure; offline: boolean };
@@ -25,21 +25,25 @@ export function SaveFailure({ scope, name, failure, offline }: UnsavedScope) {
     }
   }
   return (
-    <Notice
-      data-save-failure
-      className="mb-2"
-      action={
-        <Button disabled={offline || saving} onClick={() => void retry()}>
-          {saving && !offline ? "Saving…" : "Retry saving"}
-        </Button>
-      }
-    >
-      <p className="font-medium">Changes to {name} haven't been saved on your computer.</p>
-      <p className="mt-1 text-ink-2">
-        {offline ? "Computer disconnected. Reconnect to check saving." : "Changes are kept in memory. Keep your computer running until saving succeeds."}
-      </p>
-      {!offline && <p className="mt-1 text-12 text-ink-3">{error ? persistenceFailureDetail({ error, saving: false }) : persistenceFailureDetail(failure)}</p>}
-    </Notice>
+    // A blocking failure with a way out: the error card, on a surface (with the overlay shadow) because it floats over the app.
+    <div data-save-failure className="mb-2 rounded-card bg-surface shadow-overlay" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
+      <InlineError
+        variant="card"
+        action={
+          <Button variant="secondary" size={28} disabled={offline || saving} onClick={() => void retry()}>
+            {saving && !offline ? "Saving…" : "Retry saving"}
+          </Button>
+        }
+      >
+        <span className="block font-medium">Changes to {name} haven't been saved on your computer.</span>
+        <span className="mt-1 block">
+          {offline ? "Computer disconnected. Reconnect to check saving." : "Changes are kept in memory. Keep your computer running until saving succeeds."}
+        </span>
+        {!offline && (
+          <span className="mt-1 block text-12">{error ? persistenceFailureDetail({ error, saving: false }) : persistenceFailureDetail(failure)}</span>
+        )}
+      </InlineError>
+    </div>
   );
 }
 

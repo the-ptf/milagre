@@ -29,6 +29,7 @@ import { Switch } from "../primitives/Switch";
 import Tooltip from "../primitives/Tooltip";
 import { Icon } from "../primitives/Icon";
 import { Button, IconButton } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
 import { InlineError } from "../primitives/InlineError";
 import { routineProblem } from "./RoutineRow";
 import { Chip, Segmented } from "./RoutineChips";
@@ -139,7 +140,7 @@ export function RoutinePage({
     <ScrollArea className="flex h-full flex-col">
       <div data-routine-page={routine.id} className={`flex w-full flex-1 flex-col pb-10 ${narrow ? "px-3 pt-4" : "mx-auto max-w-[680px] px-6 pt-14"}`}>
         <div>
-          <Button ref={back} variant="ghost" size={28} data-routine-back onClick={onBack} className="-ml-2 pl-1.5 text-ink-2 enabled:hover:text-ink">
+          <Button ref={back} variant="quiet" size={28} data-routine-back onClick={onBack} className="-ml-2 pl-1.5">
             <Icon icon={ArrowLeft02Icon} size={16} />
             Routines
           </Button>
@@ -239,10 +240,9 @@ export function RoutinePage({
               onOpenChat={onOpenChat}
             />
           ) : (
-            <div data-routine-runs-empty className="space-y-0.5">
-              <p className="text-13 text-ink-2">No Runs yet</p>
-              {routine.enabled && typeof routine.nextRunAt === "number" && <p className="text-12 text-ink-3">Next Run {clock(routine.nextRunAt)}</p>}
-            </div>
+            <EmptyState data-routine-runs-empty title="No Runs yet">
+              {routine.enabled && typeof routine.nextRunAt === "number" ? `Next Run ${clock(routine.nextRunAt)}.` : undefined}
+            </EmptyState>
           )}
         </section>
       </div>

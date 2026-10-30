@@ -10,9 +10,8 @@ import { useScreenActive } from "./display-clock";
 import { useRpc } from "./use-rpc";
 import { LARGE_DIFF_LINES, diffRows, wordSegments, type DiffRow } from "./diff-rows";
 import { Counts, StatusBox } from "./diff-ui";
-import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
-import { Icon } from "./icons";
-import { ErrorNotice, Field, PillButton, pressStyle, tap, useStyles } from "./ui";
+import { lineHeight, radius, space, type } from "./design-tokens";
+import { CircleButton, ErrorNotice, Field, InlineError, PillButton, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { usePrDetail, writePr } from "./pr-store";
 import { sendToChat } from "./pr-chat";
@@ -132,7 +131,7 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
           ))}
         </View>
       )}
-      {!!notice && <Text style={[styles.caption, { color: colors.accentInk }]}>{notice}</Text>}
+      {!!notice && <Text style={[styles.caption, { color: colors.ink2 }]}>{notice}</Text>}
     </View>
   );
 
@@ -213,7 +212,7 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
             boxShadow: colors.shadowRaised,
           }}
         >
-          <NavButton
+          <CircleButton
             label={previous ? `Previous file, ${fileName(previous.path)}` : "No previous file"}
             icon={ArrowLeft01Icon}
             disabled={!previous}
@@ -231,30 +230,13 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
           >
             File {index + 1} of {pr.files.length}
           </Text>
-          <Pressable
-            accessibilityRole="button"
+          <PillButton
+            variant="tinted"
+            title={pr.pendingReview?.count ? `${pr.pendingReview.count} pending` : "Review"}
             accessibilityLabel={`Review${pr.pendingReview?.count ? `, ${pr.pendingReview.count} pending` : ""}`}
-            hitSlop={hitSlopFor(40)}
-            onPress={() => {
-              tap();
-              onReview();
-            }}
-            style={({ pressed }) => [
-              {
-                minHeight: 40,
-                paddingHorizontal: space.xl,
-                borderRadius: radius.full,
-                justifyContent: "center",
-                backgroundColor: colors.hover2,
-              },
-              pressStyle({ pressed, filled: true }),
-            ]}
-          >
-            <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
-              {pr.pendingReview?.count ? `${pr.pendingReview.count} pending` : "Review"}
-            </Text>
-          </Pressable>
-          <NavButton
+            onPress={onReview}
+          />
+          <CircleButton
             label={next ? `Next file, ${fileName(next.path)}` : "No next file"}
             icon={ArrowRight01Icon}
             disabled={!next}
@@ -263,36 +245,6 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
         </View>
       </View>
     </View>
-  );
-}
-
-function NavButton({ label, icon, disabled, onPress }: { label: string; icon: typeof ArrowLeft01Icon; disabled: boolean; onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      hitSlop={hitSlopFor(40)}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => [
-        {
-          width: 40,
-          height: 40,
-          borderRadius: radius.full,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.hover,
-        },
-        pressStyle({ pressed, disabled, filled: true }),
-      ]}
-    >
-      <Icon icon={icon} tone="ink" size={18} />
-    </Pressable>
   );
 }
 
@@ -425,11 +377,11 @@ function LineComposer({
         value={text}
         onChangeText={setText}
         placeholder="Comment on this line"
-        style={{ minHeight: 72, fontSize: type.subheadline, textAlignVertical: "top", borderWidth: 1, borderColor: colors.accent }}
+        style={{ minHeight: 72, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, textAlignVertical: "top" }}
       />
-      {!!error && <ErrorNotice message={error} />}
+      <InlineError message={error} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-        <PillButton size="small" secondary title="Cancel" onPress={onCancel} />
+        <PillButton size="small" variant="plain" muted title="Cancel" onPress={onCancel} />
         <View style={{ flex: 1 }} />
         <PillButton size="small" secondary title="Send to Chat" disabled={!text.trim()} onPress={() => onChat(text)} />
         <PillButton

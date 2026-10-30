@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { Add01Icon, Cancel01Icon, FitToScreenIcon, MinusSignIcon, RedoIcon, UndoIcon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, RedoIcon, UndoIcon } from "@hugeicons/core-free-icons";
 import { designGroups, type DesignArtifact as Artifact } from "@milagre/shared/artifact";
 import type { DesignDocument } from "@milagre/shared/design";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -8,9 +8,10 @@ import { bridgeForKey } from "../../lib/computer-bridge";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { stateEvents } from "../../lib/state-events";
 import Tooltip from "../primitives/Tooltip";
-import { Button } from "../primitives/Button";
+import { Button, IconButton } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
-import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
+import { ZoomBar } from "../primitives/ZoomBar";
 import { DESIGN_SAVED, DesignDocumentEditor, type DesignSaved } from "./DesignEditor";
 import { DesignExportDialog } from "./DesignExportDialog";
 import { DesignPageShareDialog } from "./DesignPageShareDialog";
@@ -25,11 +26,6 @@ const GROUP_PADDING = 48;
 const MIN_SCALE = 0.025;
 const MAX_SCALE = 3;
 const clamp = (value: number) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
-// Round to match the pill toolbars they sit in; otherwise as IconButton and Button (accent focus from the base layer).
-const iconButton =
-  "flex size-8 items-center justify-center rounded-full text-ink-2 transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-ink enabled:active:scale-press disabled:opacity-40";
-const textButton =
-  "h-7 rounded-full px-3 text-12 font-medium text-ink-2 transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-40";
 const isTextField = (element: Element | null) =>
   element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || (element instanceof HTMLElement && element.isContentEditable);
 
@@ -379,8 +375,7 @@ export function DesignPageEditor({
     );
   };
   const status = saving
-    ? // ponytail: "..." kept, scripts/test-design-editor.cjs waits for this exact text.
-      "Saving..."
+    ? "Saving…"
     : changed.length
       ? `Unsaved changes${artifacts.length > 1 ? ` in ${changed.length} ${changed.length === 1 ? "design" : "designs"}` : ""}`
       : active
@@ -436,59 +431,36 @@ export function DesignPageEditor({
         role="toolbar"
         aria-label="Design page actions"
         data-slot="design-page-actions"
-        className="absolute right-4 top-[calc(var(--window-chrome-height)+8px)] z-30 flex items-center gap-0.5 rounded-full bg-surface p-1.5 shadow-overlay"
+        className="absolute right-4 top-[calc(var(--window-chrome-height)+8px)] z-30 flex items-center gap-0.5 rounded-full bg-surface p-1 shadow-raised"
       >
-        <Tooltip label="Undo" shortcut="⌘Z" side="bottom">
-          <button
-            type="button"
-            aria-label="Undo design edit"
-            className={iconButton}
-            disabled={blocked || saving || !active?.canUndo}
-            onClick={() => active?.undo()}
-          >
-            <Icon icon={UndoIcon} size={16} />
-          </button>
+        <Tooltip label="Undo" shortcut="⌘Z" side="bottom" asChild>
+          <IconButton label="Undo design edit" icon={UndoIcon} shape="pill" disabled={blocked || saving || !active?.canUndo} onClick={() => active?.undo()} />
         </Tooltip>
-        <Tooltip label="Redo" shortcut="⌘⇧Z" side="bottom">
-          <button
-            type="button"
-            aria-label="Redo design edit"
-            className={iconButton}
-            disabled={blocked || saving || !active?.canRedo}
-            onClick={() => active?.redo()}
-          >
-            <Icon icon={RedoIcon} size={16} />
-          </button>
+        <Tooltip label="Redo" shortcut="⌘⇧Z" side="bottom" asChild>
+          <IconButton label="Redo design edit" icon={RedoIcon} shape="pill" disabled={blocked || saving || !active?.canRedo} onClick={() => active?.redo()} />
         </Tooltip>
-        <span aria-hidden className="mx-1 h-4 border-l border-line" />
+        <span aria-hidden className="mx-0.5 h-4 w-px bg-line" />
         {sharingAvailable && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size={28}
+            shape="pill"
             aria-label="Share Designs page"
-            className={textButton}
             disabled={blocked || saving || loading || !!loadError}
             onClick={() => setSharing(true)}
           >
             Share
-          </button>
+          </Button>
         )}
-        <button type="button" aria-label="Export design" className={textButton} disabled={blocked || saving || loading || !!loadError} onClick={openExport}>
+        <Button variant="quiet" size={28} shape="pill" aria-label="Export design" disabled={blocked || saving || loading || !!loadError} onClick={openExport}>
           Export
-        </button>
-        <button
-          type="button"
-          data-slot="design-save"
-          className="ml-0.5 h-7 rounded-full bg-ink px-3 text-12 font-medium text-on-ink transition-opacity duration-fast enabled:hover:opacity-90 disabled:opacity-40"
-          disabled={blocked || !canSave}
-          onClick={() => void saveAll()}
-        >
+        </Button>
+        <Button size={28} shape="pill" data-slot="design-save" className="ml-0.5" disabled={blocked || !canSave} onClick={() => void saveAll()}>
           {saving ? "Saving…" : "Save"}
-        </button>
-        <span aria-hidden className="mx-1 h-4 border-l border-line" />
-        <Tooltip label="Back to Milagre" side="bottom" align="end">
-          <button type="button" aria-label="Close design editor" className={iconButton} disabled={blocked || saving} onClick={close}>
-            <Icon icon={Cancel01Icon} size={16} />
-          </button>
+        </Button>
+        <span aria-hidden className="mx-0.5 h-4 w-px bg-line" />
+        <Tooltip label="Back to Milagre" side="bottom" align="end" asChild>
+          <IconButton label="Close design editor" icon={Cancel01Icon} shape="pill" disabled={blocked || saving} onClick={close} />
         </Tooltip>
       </div>
       <div className="absolute inset-x-0 bottom-0 top-[calc(var(--window-chrome-height)+56px)]">
@@ -579,7 +551,7 @@ export function DesignPageEditor({
                 )}
                 <div
                   data-pan-canvas
-                  className={`flex items-start ${grouped ? "rounded-[40px] bg-hover/60" : ""}`}
+                  className={`flex items-start ${grouped ? "rounded-[40px] bg-hover" : ""}`}
                   style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}
                 >
                   {row.designs.map((item) => (
@@ -605,19 +577,22 @@ export function DesignPageEditor({
           style={{ left: layersOpen ? 312 : 88 }}
         >
           {loadError && (
-            <div role="alert" className="rounded-card bg-surface p-3 text-12 shadow-raised">
-              <p className="text-red-ink">{loadError}</p>
-              <Button variant="secondary" size={28} className="mt-2" disabled={loading} onClick={() => setReload((value) => value + 1)}>
-                Retry loading designs
-              </Button>
+            // The card's tint is translucent in dark, so it sits on a surface over the canvas.
+            <div className="rounded-card bg-surface shadow-raised">
+              <InlineError
+                variant="card"
+                action={
+                  <Button variant="secondary" size={28} disabled={loading} onClick={() => setReload((value) => value + 1)}>
+                    Retry loading designs
+                  </Button>
+                }
+              >
+                {loadError}
+              </InlineError>
             </div>
           )}
           {loading && <p className="self-start rounded-full bg-surface px-3 py-1.5 text-11 text-ink-3 shadow-raised">Loading Designs page…</p>}
-          {saveError && (
-            <p role="alert" className="rounded-card bg-surface p-3 text-12 text-red-ink shadow-raised">
-              {saveError}
-            </p>
-          )}
+          <InlineError variant="floating">{saveError}</InlineError>
           <div ref={setNotices} className="flex flex-col overflow-hidden rounded-control bg-surface empty:hidden" />
         </div>
         <div
@@ -625,41 +600,24 @@ export function DesignPageEditor({
           data-slot="design-editor-inspector"
           className="absolute bottom-4 right-4 top-4 z-20 flex w-[248px] flex-col overflow-hidden rounded-window bg-surface shadow-overlay"
         />
-        <div
+        <ZoomBar
           role="toolbar"
           aria-label="Canvas zoom"
-          className="absolute bottom-5 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-surface p-1 shadow-overlay"
+          className="absolute bottom-5 z-20 -translate-x-1/2"
           style={{ left: layersOpen ? "calc(50% + 16px)" : "calc(50% - 96px)" }}
-        >
-          <Tooltip label="Zoom out">
-            <button type="button" aria-label="Zoom out" className={iconButton} disabled={blocked || view.scale <= MIN_SCALE} onClick={() => zoom(1 / 1.25)}>
-              <Icon icon={MinusSignIcon} size={16} />
-            </button>
-          </Tooltip>
-          <span aria-live="polite" className="min-w-11 text-center text-11 tabular-nums text-ink-2">
-            {Math.round(view.scale * 100)}%
-          </span>
-          <Tooltip label="Zoom in">
-            <button type="button" aria-label="Zoom in" className={iconButton} disabled={blocked || view.scale >= MAX_SCALE} onClick={() => zoom(1.25)}>
-              <Icon icon={Add01Icon} size={16} />
-            </button>
-          </Tooltip>
-          <span aria-hidden className="mx-1 h-4 border-l border-line" />
-          <Tooltip label="Fit page">
-            <button
-              type="button"
-              aria-label="Fit Designs page"
-              className={iconButton}
-              disabled={blocked}
-              onClick={() => {
-                moved.current = false;
-                fit();
-              }}
-            >
-              <Icon icon={FitToScreenIcon} size={16} />
-            </button>
-          </Tooltip>
-        </div>
+          zoom={view.scale}
+          canZoomOut={!blocked && view.scale > MIN_SCALE}
+          canZoomIn={!blocked && view.scale < MAX_SCALE}
+          onZoomOut={() => zoom(1 / 1.25)}
+          onZoomIn={() => zoom(1.25)}
+          onReset={() => zoom(1 / view.scale)}
+          fitLabel="Fit Designs page"
+          onFit={() => {
+            if (blocked) return;
+            moved.current = false;
+            fit();
+          }}
+        />
       </div>
       {confirmClose && (
         // The dialog is portalled; its keys still bubble through React to the canvas, so they stop here.
@@ -674,7 +632,7 @@ export function DesignPageEditor({
             }}
             actions={
               <>
-                <Button variant="secondary" onClick={() => setConfirmClose(false)}>
+                <Button variant="ghost" onClick={() => setConfirmClose(false)}>
                   Keep editing
                 </Button>
                 <Button

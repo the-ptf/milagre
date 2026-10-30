@@ -1,10 +1,12 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Search01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Icon } from "./Icon";
+import { menuRowClass } from "./Popover";
 import { ScrollArea } from "./ScrollArea";
 
 /* Popover picker shared by the model, permission, and branch selectors and by Select: optional title with an
- * optional action beside it (a refresh button), optional header slot (e.g. provider tabs), optional search, and a scrolling list. */
+ * optional action beside it (a refresh button), optional header slot (e.g. provider tabs), optional search, and a
+ * scrolling list of PickerRows, which take MenuRow's metrics and states. */
 export function PickerPanel({
   title,
   titleAction,
@@ -60,10 +62,10 @@ export function PickerPanel({
   }
 
   const search = onQueryChange && (
-    <label className="my-2 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-2 text-ink-3 transition-colors focus-within:border-accent">
-      <HugeiconsIcon icon={Search01Icon} size={15} strokeWidth={1.8} color="currentColor" />
+    <label className="my-2 flex h-9 shrink-0 items-center gap-2 rounded-control border border-line-strong bg-field px-3 text-ink-3 transition-colors focus-within:border-accent">
+      <Icon icon={Search01Icon} size={14} />
       <input
-        className="w-full border-0 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3"
+        className="w-full border-0 bg-transparent text-13 text-ink outline-none placeholder:text-ink-3"
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         placeholder={placeholder}
@@ -77,25 +79,30 @@ export function PickerPanel({
       data-picker-panel
       onKeyDown={handleKeyDown}
       className={`z-20 flex flex-col rounded-card bg-surface p-1.5 shadow-raised ${className}`}
-      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", ...style }}
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) backwards", ...style }}
     >
       {title && (
         <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
-          <strong className="text-sm text-ink">{title}</strong>
+          <span className="text-13 font-semibold text-ink">{title}</span>
           {titleAction}
         </div>
       )}
       {header}
       {searchPlacement === "top" && search}
-      <ScrollArea className="grid max-h-64 grid-cols-1 content-start gap-0.5">
+      <ScrollArea className="grid max-h-64 grid-cols-1 content-start gap-px">
         {children}
-        {isEmpty && <div className="px-2 py-5 text-center text-xs text-ink-3">{emptyLabel}</div>}
+        {isEmpty && <div className="px-2 py-5 text-center text-12 text-ink-3">{emptyLabel}</div>}
       </ScrollArea>
       {searchPlacement === "bottom" && search}
     </div>
   );
 }
 
+/**
+ * A picker choice with MenuRow's metrics: 32px (48 with a description), 13 medium label, 11 ink-3 description,
+ * trailing and meta. Hover and keyboard focus fill hover-2 (focus adds the inset ring); the selected row shows only a
+ * 14px tick. `option` makes it a listbox option (aria-selected); otherwise a selected row is aria-current.
+ */
 export function PickerRow({
   icon,
   label,
@@ -108,6 +115,7 @@ export function PickerRow({
   disabled = false,
   wrapLabel = false,
   labelStyle,
+  ...data
 }: {
   icon?: ReactNode;
   label: string;
@@ -123,39 +131,37 @@ export function PickerRow({
   wrapLabel?: boolean;
   /** Draws the label in its own font, e.g. a font menu row. */
   labelStyle?: CSSProperties;
-}) {
+} & { [key: `data-${string}`]: string | boolean | undefined }) {
+  const stacked = !!description || wrapLabel;
   return (
     <button
       type="button"
+      {...data}
       disabled={disabled}
       aria-disabled={disabled || undefined}
       data-picker-row
       role={option ? "option" : undefined}
       aria-selected={option ? selected : undefined}
+      aria-current={!option && selected ? true : undefined}
       onClick={onClick}
-      className={`relative z-10 flex w-full disabled:opacity-40 disabled:cursor-default items-center gap-2 rounded-control border px-2 py-1.5 text-left transition-colors focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 ${selected ? "border-line-strong bg-hover" : "border-transparent hover:border-line hover:bg-inset"}`}
+      className={`${menuRowClass({ tall: !!description, wrap: wrapLabel })} z-10`}
     >
-      {icon && <span className="shrink-0">{icon}</span>}
-      <span className={`flex min-w-0 flex-1 ${wrapLabel ? "flex-col gap-0.5" : "items-baseline gap-1.5"}`}>
-        <strong style={labelStyle} className={`${wrapLabel ? "w-full whitespace-normal break-words leading-4" : "shrink-0"} text-xs font-medium text-ink`}>
-          {label}
-        </strong>
-        {meta && (
-          <span
-            data-picker-meta
-            className="shrink-0 self-center rounded-chip border border-line px-1 text-[10px] leading-[14px] font-medium tabular-nums text-ink-3"
-          >
-            {meta}
-          </span>
-        )}
-        {description && <span className="truncate text-[10px] text-ink-3">{description}</span>}
-      </span>
-      {trailing && <span className="max-w-[40%] shrink-0 truncate text-[11px] text-ink-3">{trailing}</span>}
-      {selected && (
-        <span className="shrink-0">
-          <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={1.8} color="currentColor" />
+      {icon && <span className="flex min-w-5 shrink-0 items-center justify-center text-ink-2">{icon}</span>}
+      <span className={`flex min-w-0 flex-1 ${stacked ? "flex-col" : "items-center gap-1.5"}`}>
+        <span className={`flex min-w-0 items-center gap-1.5 ${stacked ? "w-full" : ""}`}>
+          <strong style={labelStyle} className={`font-medium ${wrapLabel ? "min-w-0 whitespace-normal break-words" : "min-w-0 truncate"}`}>
+            {label}
+          </strong>
+          {meta && (
+            <span data-picker-meta className="shrink-0 rounded-inline bg-field px-1 text-10 font-medium tabular-nums text-ink-3">
+              {meta}
+            </span>
+          )}
         </span>
-      )}
+        {description && <span className="w-full truncate text-11 font-normal text-ink-3">{description}</span>}
+      </span>
+      {trailing && <span className="max-w-[40%] shrink-0 truncate text-11 font-normal text-ink-3">{trailing}</span>}
+      {selected && <Icon icon={Tick02Icon} size={14} className="shrink-0" />}
     </button>
   );
 }

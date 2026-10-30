@@ -7,7 +7,7 @@ import { useActivity } from "../../live-activity";
 import { usePush } from "../../push";
 import { useSession } from "../../session";
 import { Icon } from "../../icons";
-import { ErrorNotice, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../../ui";
+import { ErrorNotice, InlineError, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../../ui";
 import { NotificationScheduleSetting } from "../../notification-schedule-setting";
 import { useTheme } from "../../theme";
 import { radius } from "../../design-tokens";
@@ -127,7 +127,7 @@ export function NotificationsView() {
           </PullDown>
         </View>
         {!activity.available ? <Text style={styles.muted}>Live Activities are unavailable in this build or disabled in system settings.</Text> : null}
-        {activity.error ? <ErrorNotice message={activity.error} /> : null}
+        <InlineError message={activity.error} />
       </View>
       {push.error ? <ErrorNotice message={push.error} /> : null}
       {state?.pending.length ? (

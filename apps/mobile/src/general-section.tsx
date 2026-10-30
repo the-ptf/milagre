@@ -1,17 +1,16 @@
 import { useCallback, useState } from "react";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { ChartBarLineIcon } from "@hugeicons/core-free-icons";
 import { space } from "./design-tokens";
 import { Icon } from "./icons";
 import { useSession } from "./session";
-import { ErrorNotice, ListRow, SectionLabel, Toggle, useStyles } from "./ui";
+import { Group, InlineError, ListRow, Toggle } from "./ui";
 
 /** Settings › General: plan usage, the connected Mac's worktree default and its Auto update (desktop's About). */
 export function GeneralSection() {
-  const styles = useStyles();
   const session = useSession();
   // The Mac's Auto update (desktop Settings › About); null until it answers (an older Mac never does).
   const [autoUpdate, setAutoUpdate] = useState<boolean | null>(null);
@@ -73,9 +72,8 @@ export function GeneralSection() {
     }
   }
   return (
-    <View style={{ gap: space.md }}>
-      <SectionLabel>Plan usage</SectionLabel>
-      <View style={[styles.card, { paddingVertical: space.xs, gap: 0 }]}>
+    <View style={{ gap: space.section }}>
+      <Group title="Plan usage">
         <ListRow
           compact
           title="Plan usage"
@@ -83,27 +81,22 @@ export function GeneralSection() {
           leading={<Icon icon={ChartBarLineIcon} tone="ink" size={20} />}
           onPress={() => router.push("/usage")}
         />
-      </View>
+      </Group>
       {session.client && syncMain !== null && (
-        <>
-          {/* 16 plus the 8 gap: sections sit 24 apart. */}
-          <SectionLabel style={{ marginTop: space.xl }}>Worktrees</SectionLabel>
-          <View style={[styles.card, { gap: space.xs }]}>
+        <View style={{ gap: space.md }}>
+          <Group title="Worktrees" footer={MAIN_SYNC_HINT}>
             <Toggle title={MAIN_SYNC_TITLE} selected={syncMain} onPress={() => void changeSyncMain(!syncMain)} />
-            <Text style={styles.caption}>{MAIN_SYNC_HINT}</Text>
-            {syncMainError ? <ErrorNotice message={syncMainError} /> : null}
-          </View>
-        </>
+          </Group>
+          <InlineError message={syncMainError} style={{ paddingHorizontal: 16 }} />
+        </View>
       )}
       {session.client && autoUpdate !== null && (
-        <>
-          <SectionLabel style={{ marginTop: space.xl }}>Updates</SectionLabel>
-          <View style={[styles.card, { gap: space.xs }]}>
+        <View style={{ gap: space.md }}>
+          <Group title="Updates" footer={AUTO_UPDATE_HINT}>
             <Toggle title={AUTO_UPDATE_TITLE} selected={autoUpdate} onPress={() => void changeAutoUpdate(!autoUpdate)} />
-            <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
-            {autoUpdateError ? <ErrorNotice message={autoUpdateError} /> : null}
-          </View>
-        </>
+          </Group>
+          <InlineError message={autoUpdateError} style={{ paddingHorizontal: 16 }} />
+        </View>
       )}
     </View>
   );

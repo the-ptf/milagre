@@ -264,7 +264,7 @@ export function ArtifactFrame({
   const url = registered?.html === html ? registered.url : undefined;
   if (isolated && !url)
     return (
-      <div role={previewError ? "alert" : "status"} className="grid size-full place-items-center text-12 text-ink-3">
+      <div role={previewError ? "alert" : "status"} className={`grid size-full place-items-center text-12 ${previewError ? "text-red-ink" : "text-ink-3"}`}>
         {previewError || "Loading artifact…"}
       </div>
     );
@@ -279,7 +279,7 @@ export function ArtifactFrame({
       {...{ csp: ARTIFACT_CSP }}
       referrerPolicy="no-referrer"
       tabIndex={preview ? -1 : undefined}
-      className={`block size-full border-0 bg-white ${preview ? "pointer-events-none" : ""}`}
+      className={`block size-full border-0 bg-paper ${preview ? "pointer-events-none" : ""}`}
     />
   );
 }
@@ -576,10 +576,7 @@ export const ArtifactCanvas = forwardRef<
                 </div>
               </div>
             )}
-            <div
-              className={`flex items-start ${grouped ? "rounded-[40px] bg-hover/60" : ""}`}
-              style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}
-            >
+            <div className={`flex items-start ${grouped ? "rounded-[40px] bg-hover" : ""}`} style={{ gap: GAP, padding: grouped ? GROUP_PADDING : undefined }}>
               {row.designs.map((design, offset) => (
                 <DesignFrame
                   key={design.id}
@@ -725,7 +722,7 @@ const DesignFrame = memo(function DesignFrame({
     <>
       {design.format !== "html" && (
         <>
-          <Tooltip label="Previous version">
+          <Tooltip label="Previous version" asChild>
             <IconButton
               label={`Previous version of ${shown.title}`}
               icon={ArrowLeft01Icon}
@@ -737,7 +734,7 @@ const DesignFrame = memo(function DesignFrame({
           <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
             v{shown.version} of {last}
           </span>
-          <Tooltip label="Next version">
+          <Tooltip label="Next version" asChild>
             <IconButton
               label={`Next version of ${shown.title}`}
               icon={ArrowRight01Icon}
@@ -771,12 +768,19 @@ const DesignFrame = memo(function DesignFrame({
             </Button>
           </span>
         ) : (
-          <Tooltip label="Delete design">
-            <IconButton data-slot="artifact-delete" label={`Delete ${shown.title}`} icon={Delete02Icon} size={24} onClick={() => setDeleting("confirm")} />
+          <Tooltip label="Delete design" asChild>
+            <IconButton
+              data-slot="artifact-delete"
+              variant="danger-ghost"
+              label={`Delete ${shown.title}`}
+              icon={Delete02Icon}
+              size={24}
+              onClick={() => setDeleting("confirm")}
+            />
           </Tooltip>
         ))}
       {sentHere ? (
-        <span data-slot="artifact-chosen" className="flex h-6 items-center gap-1.5 rounded-control bg-accent-tint px-2 text-accent-ink">
+        <span data-slot="artifact-chosen" className="flex h-6 items-center gap-1.5 rounded-control bg-hover-2 px-2 font-medium text-ink">
           <Icon icon={CheckmarkCircle02Icon} size={14} />
           Chosen
         </span>
@@ -788,7 +792,7 @@ const DesignFrame = memo(function DesignFrame({
             aria-pressed={pendingHere}
             data-slot={pendingHere ? "artifact-choice-pending" : undefined}
             onClick={() => choice.onChoose?.(shown)}
-            className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors duration-fast enabled:active:scale-press ${pendingHere ? "bg-accent-tint text-accent-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
+            className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors ${pendingHere ? "bg-hover-2 text-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
           >
             {pendingHere && <Icon icon={CheckmarkCircle02Icon} size={14} />}
             {pendingHere ? "Chosen" : "Choose"}
@@ -817,7 +821,7 @@ const DesignFrame = memo(function DesignFrame({
           </span>
           {compact ? (
             <>
-              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-accent" />}
+              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-ink" />}
               <div
                 data-slot="artifact-frame-controls"
                 className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
@@ -834,7 +838,7 @@ const DesignFrame = memo(function DesignFrame({
         <div
           data-design-body
           data-active={active || undefined}
-          className={`size-full overflow-hidden rounded-card border-2 bg-white shadow-raised ${isChosen || active ? "border-accent" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
+          className={`size-full overflow-hidden rounded-card border-2 bg-paper shadow-raised ${active ? "border-accent" : isChosen ? "border-ink" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
         >
           {artifact ? (
             <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} />

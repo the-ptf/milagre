@@ -39,11 +39,7 @@ export function ActivitySources({ steps }: { steps: ChatStep[] }) {
   return (
     <span data-slot="activity-sources" aria-hidden className="isolate flex shrink-0 items-center pl-1.5">
       {activitySources(steps).map((source) => (
-        <Tooltip
-          key={source.id}
-          label={source.label}
-          className="-ml-1.5 size-[22px] items-center justify-center rounded-full bg-field text-ink-2 ring-2 ring-page"
-        >
+        <Tooltip key={source.id} label={source.label} className="-ml-1.5 size-5 items-center justify-center rounded-full bg-field text-ink-2 ring-2 ring-page">
           <ActivityIcon source={source} size={12} />
         </Tooltip>
       ))}

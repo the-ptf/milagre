@@ -12,8 +12,8 @@ export function AnswerCard({ answered }: { answered: AnsweredQuestion[] }) {
       </div>
       {answered.map((item, index) => (
         <div key={index} data-slot="answer-card-row" className="border-t border-line px-3 py-2 first:border-t-0">
-          <span className="block text-12 leading-5 text-ink-3">{item.question}</span>
-          <span className="block font-medium leading-5 text-ink">{item.answers.join(", ")}</span>
+          <span className="block text-12 text-ink-3">{item.question}</span>
+          <span className="block font-medium text-ink">{item.answers.join(", ")}</span>
         </div>
       ))}
     </div>

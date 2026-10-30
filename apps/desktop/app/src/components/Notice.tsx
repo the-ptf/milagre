@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "./primitives/Button";
 
 /** A dismissable notice card, above the composer or over a view: a line of text, or a list. `className` sets its outer spacing and width. */
 export function Notice({
@@ -19,14 +20,9 @@ export function Notice({
       <div className="min-w-0 flex-1 break-words">{children}</div>
       {action}
       {onDismiss && (
-        <button
-          type="button"
-          data-notice-dismiss
-          onClick={onDismiss}
-          className="-mr-2 inline-flex h-6 shrink-0 items-center rounded-control px-2 text-12 font-medium text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-        >
+        <Button variant="quiet" size={24} data-notice-dismiss onClick={onDismiss} className="-mr-2">
           Dismiss
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { isMarkdownFile } from "@milagre/shared/file-link";
 import { File, FileMode } from "expo-file-system";
 import { Platform, Text, View } from "react-native";
-import { SourceCodeIcon, TextIcon } from "@hugeicons/core-free-icons";
+import { Download04Icon, SourceCodeIcon, TextIcon } from "@hugeicons/core-free-icons";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useSession } from "../session";
 import { useRpc } from "../use-rpc";
@@ -10,7 +10,7 @@ import { FileCode } from "../file-code";
 import { saveAttachment } from "../save-attachment";
 import { Toast } from "../primitives/toast";
 import { Markdown } from "../markdown";
-import { Button, ErrorNotice, HeaderButton, PageScroll, useStyles } from "../ui";
+import { ErrorNotice, HeaderButton, PageScroll, PillButton, useStyles } from "../ui";
 
 export default function FilePreview() {
   const styles = useStyles();
@@ -85,7 +85,9 @@ export default function FilePreview() {
       )}
       <PageScroll contentContainerStyle={{ padding: 16, gap: 12 }}>
         {!error && data?.binary && <Text style={styles.muted}>This file does not have a text preview.</Text>}
-        <Button
+        {/* With an icon the ring takes its place, so the percentage stays readable. */}
+        <PillButton
+          icon={Download04Icon}
           title={downloading ? `Downloading… ${downloadProgress}%` : "Download"}
           loading={downloading}
           disabled={!uri && !client}

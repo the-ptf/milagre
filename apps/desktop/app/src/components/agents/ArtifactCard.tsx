@@ -29,6 +29,7 @@ import type { ArtifactRef, ChatStep, Subagent } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { Button, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
 import { THEME_EVENT } from "../../lib/theme-sheet";
 import { DESIGNS_EXPANDED, dockLayer, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
@@ -168,9 +169,11 @@ function usePinColors() {
   const read = () => {
     const style = getComputedStyle(document.documentElement);
     return {
-      accent: style.getPropertyValue("--accent").trim(),
-      green: style.getPropertyValue("--green").trim(),
-      label: style.getPropertyValue("--on-accent").trim(),
+      // A number on a coloured fill sits on the -ink fill, so it reaches 4.5:1.
+      accent: style.getPropertyValue("--accent-ink").trim(),
+      green: style.getPropertyValue("--green-ink").trim(),
+      onAccent: style.getPropertyValue("--on-accent").trim(),
+      onGreen: style.getPropertyValue("--on-green").trim(),
     };
   };
   const [colors, setColors] = useState(read);
@@ -248,7 +251,7 @@ function ScaledPreview({
                         ...(pin.anchor ? { a: pin.anchor } : {}),
                         n: pin.label,
                         fill: pin.resolved ? colors.green : colors.accent,
-                        ink: colors.label,
+                        ink: pin.resolved ? colors.onGreen : colors.onAccent,
                         label: `Comment ${pin.label}`,
                       },
                     ],
@@ -261,7 +264,7 @@ function ScaledPreview({
             <span
               aria-hidden
               // The canvas's pin shape: its point, the top-left corner, on the spot.
-              className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-10 font-medium text-on-accent shadow-[0_0_0_1.5px_var(--surface),0_1px_3px_rgb(0_0_0/0.3)] ${pin.resolved ? "bg-green" : "bg-accent"}`}
+              className={`absolute grid size-5 place-items-center rounded-full rounded-tl-none text-10 font-semibold shadow-pin ${pin.resolved ? "bg-green-ink text-on-green" : "bg-accent-ink text-on-accent"}`}
               style={{
                 left: `${pin.x * 100}%`,
                 top: `${pin.y * 100}%`,
@@ -290,7 +293,7 @@ const ArtifactCard = memo(function ArtifactCard({ step }: { step: ChatStep & { a
   if (!allowed) return null;
   return (
     <div data-slot="artifact-card" data-artifact={id} className="my-2 max-w-xl overflow-hidden rounded-card border border-line bg-surface">
-      <div className="relative h-56 overflow-hidden border-b border-line bg-white">
+      <div className="relative h-56 overflow-hidden border-b border-line bg-paper">
         {artifact ? (
           <ScaledPreview html={artifact.html} format={artifact.format} title={`Preview of ${title}`} width={artifact.width} height={artifact.height} />
         ) : (
@@ -343,7 +346,7 @@ export function DesignFeedbackCard({
         </div>
         {choice && (
           <div data-slot="design-feedback-choice" className="flex w-full items-center gap-2 px-3 py-2">
-            <Icon icon={CheckmarkCircle02Icon} size={16} className="shrink-0 text-accent" />
+            <Icon icon={CheckmarkCircle02Icon} size={16} className="shrink-0 text-ink" />
             <span className="min-w-0 flex-1 truncate">
               Chose <span className="font-medium">{choice.title}</span>
             </span>
@@ -390,7 +393,7 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
             "aria-label": `Show comment ${number} on ${comment.design.title}`,
           }
         : {})}
-      className={`flex w-full items-start gap-3 border-t border-line px-3 py-2 text-left first:border-t-0 ${onOpen ? "transition-colors hover:bg-hover" : ""}`}
+      className={`flex w-full items-start gap-3 border-t border-line px-3 py-2 text-left first:border-t-0 ${onOpen ? "transition-colors hover:bg-hover active:bg-hover-2" : ""}`}
     >
       <span className="relative block h-16 w-24 shrink-0 overflow-hidden rounded-chip border border-line">
         {artifact && (
@@ -479,7 +482,7 @@ function GroupThumb({ design }: { design: ArtifactRef }) {
       aria-label={`Open ${design.title}, version ${design.version}`}
       disabled={!chatId}
       onClick={() => open(design)}
-      className="flex w-40 shrink-0 flex-col gap-1 rounded-control p-1 text-left transition-colors hover:bg-hover disabled:opacity-40"
+      className="flex w-40 shrink-0 flex-col gap-1 rounded-control p-1 text-left transition-colors enabled:hover:bg-hover enabled:active:bg-hover-2 disabled:opacity-40"
     >
       <span className="relative block h-28 w-full overflow-hidden rounded-chip border border-line">
         {artifact ? (
@@ -1079,7 +1082,7 @@ function ArtifactDock({
       panelClassName="overflow-hidden rounded-window bg-surface text-ink shadow-card"
     >
       <header className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-2">
-        <Icon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={16} />
+        <Icon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={14} />
         <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
           {/* The page names itself; the Designs keep their name. */}
           <span data-slot="artifact-dock-title" className="truncate text-13">
@@ -1094,43 +1097,25 @@ function ArtifactDock({
             </Button>
           </Tooltip>
         )}
-        {sharingAvailable && (
-          <Tooltip label="Share page">
-            <IconButton label="Share page" icon={Share08Icon} iconSize={16} size={24} onClick={() => setSharingChat(chatId)} />
-          </Tooltip>
-        )}
+        {sharingAvailable && <IconButton label="Share page" icon={Share08Icon} size={24} onClick={() => setSharingChat(chatId)} />}
         <Tooltip label={commentLabel} keyHint={COMMENT_KEY}>
-          <button
-            type="button"
-            aria-label={commentLabel}
-            aria-pressed={commenting}
-            disabled={!onSend}
-            onClick={toggleComment}
-            // IconButton's look, with the accent tint while it is on (a pressed toggle is a selection).
-            className={`inline-flex size-6 shrink-0 items-center justify-center rounded-control transition-colors duration-fast enabled:active:scale-press disabled:opacity-40 ${commenting ? "bg-accent-tint text-accent" : "text-ink-3 enabled:hover:bg-hover enabled:hover:text-ink"}`}
-          >
-            <Icon icon={Comment01Icon} size={16} />
-          </button>
+          {/* Comment mode is armed: it changes what a click on the design does, so it's the accent pressed look. */}
+          <IconButton label={commentLabel} icon={Comment01Icon} size={24} tone="accent" aria-pressed={commenting} disabled={!onSend} onClick={toggleComment} />
         </Tooltip>
         {!cramped && (
-          <Tooltip label={expanded ? `Show the chat beside the ${kind}` : `Fill the window with the ${kind}`}>
-            <IconButton
-              label={expanded ? `Show the chat beside the ${kind}` : `Fill the window with the ${kind}`}
-              icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
-              iconSize={16}
-              size={24}
-              aria-pressed={expanded}
-              onClick={() => {
-                // Filling the workspace, the designs take the room of the other side panels: they close.
-                if (!expanded) window.dispatchEvent(new Event(DESIGNS_EXPANDED));
-                setExpanded(!expanded);
-              }}
-            />
-          </Tooltip>
+          <IconButton
+            label={expanded ? `Show the Chat beside the ${kind}` : `Fill the window with the ${kind}`}
+            icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
+            size={24}
+            aria-pressed={expanded}
+            onClick={() => {
+              // Filling the workspace, the designs take the room of the other side panels: they close.
+              if (!expanded) window.dispatchEvent(new Event(DESIGNS_EXPANDED));
+              setExpanded(!expanded);
+            }}
+          />
         )}
-        <Tooltip label={`Close ${kind}`}>
-          <IconButton label={`Close ${kind}`} icon={Cancel01Icon} iconSize={16} size={24} onClick={onClose} />
-        </Tooltip>
+        <IconButton label={`Close ${kind}`} icon={Cancel01Icon} size={24} onClick={onClose} />
       </header>
       {entered && kind === "artifacts" ? (
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -1147,7 +1132,7 @@ function ArtifactDock({
               onEscape={escape}
             />
           ) : (
-            <p role="status" data-slot="artifact-page" className="min-h-0 flex-1 bg-white p-4 text-12 text-ink-3">
+            <p role="status" data-slot="artifact-page" className="min-h-0 flex-1 bg-paper p-4 text-12 text-ink-3">
               {pageError || "Loading artifact…"}
             </p>
           )}
@@ -1162,11 +1147,9 @@ function ArtifactDock({
             fitLabel="Fit the page"
             resetProps={{ "data-slot": "artifact-zoom" }}
           />
-          {error && (
-            <p role="alert" className="absolute right-4 bottom-4 rounded-control bg-surface px-2 py-1 text-12 text-red-ink shadow-card">
-              {error}
-            </p>
-          )}
+          <InlineError variant="floating" className="absolute right-4 bottom-4">
+            {error}
+          </InlineError>
         </div>
       ) : entered ? (
         <div className="relative flex min-h-0 flex-1 flex-col">

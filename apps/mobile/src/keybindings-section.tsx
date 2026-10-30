@@ -149,20 +149,17 @@ export function KeybindingsSection() {
       </Group>
       {editable ? (
         <Group>
-          {[
-            <Row
-              key="reset"
-              title="Reset all to defaults"
-              destructive
-              chevron={false}
-              onPress={() =>
-                confirmSheet("Reset all keybindings?", "Every key goes back to its default, on the Mac too.", [
-                  { text: "Reset all", style: "destructive", onPress: () => void store?.resetAll().catch(fail) },
-                  { text: "Cancel", style: "cancel" },
-                ])
-              }
-            />,
-          ]}
+          <Row
+            title="Reset all to defaults"
+            destructive
+            chevron={false}
+            onPress={() =>
+              confirmSheet("Reset all keybindings?", "Every key goes back to its default, on the Mac too.", [
+                { text: "Reset all", style: "destructive", onPress: () => void store?.resetAll().catch(fail) },
+                { text: "Cancel", style: "cancel" },
+              ])
+            }
+          />
         </Group>
       ) : null}
     </View>

@@ -24,8 +24,8 @@ export function CompactionDivider({ context }: { context: CompactionContext }) {
         <Text
           style={{
             color: label.after ? colors.ink3 : colors.ink2,
-            fontSize: type.caption1,
-            lineHeight: lineHeight.caption1,
+            fontSize: type.caption2,
+            lineHeight: lineHeight.caption2,
             fontFamily: fonts.mono,
             fontVariant: ["tabular-nums"],
           }}

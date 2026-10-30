@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { CheckmarkCircle02Icon, Comment01Icon } from "@hugeicons/core-free-icons";
 import type { ParsedPageComment, SavedPageComment } from "@milagre/shared/page-comments";
 import { useSession } from "./session";
@@ -35,7 +35,7 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
         minWidth: 240,
         borderRadius: radius.card,
         borderCurve: "continuous",
-        borderWidth: 1,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.line,
         backgroundColor: colors.surface,
         overflow: "hidden",
@@ -48,7 +48,7 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
           gap: 6,
           paddingHorizontal: 16,
           paddingVertical: 8,
-          borderBottomWidth: 1,
+          borderBottomWidth: StyleSheet.hairlineWidth,
           borderColor: colors.line,
         }}
       >
@@ -62,13 +62,20 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
         return (
           <View
             key={comment.id}
-            style={{ flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderColor: colors.line }}
+            style={{
+              flexDirection: "row",
+              gap: 12,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.line,
+            }}
           >
             {note ? (
               <Icon icon={CheckmarkCircle02Icon} tone="green" size={16} />
             ) : (
               <Text
-                style={{ width: 16, color: colors.accent, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", textAlign: "center" }}
+                style={{ width: 16, color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", textAlign: "center" }}
               >
                 {comment.number}
               </Text>

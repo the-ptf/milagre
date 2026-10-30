@@ -1,31 +1,52 @@
 const TOAST_MS = 2600;
+const ACTION_MS = 6000;
 let element: HTMLDivElement | null = null;
 let timer: number | undefined;
 
+/** The toast's look, also for a hint that stays (the floating inbox's drag hint): an ink capsule, on-ink 13. */
+export const TOAST = "flex items-center gap-3 rounded-card bg-ink px-4 py-2 text-13 text-on-ink shadow-raised";
+
+export type ToastOptions = {
+  /** An on-ink action after the text (Undo). The toast then stays 6s, and pressing it closes the toast. */
+  action?: { label: string; onClick: () => void; attribute?: `data-${string}` };
+  /** A data attribute for the toast besides data-toast (tests, e.g. data-chat-toast). */
+  attribute?: `data-${string}`;
+};
+
 /**
- * Shows a short confirmation at the bottom of the window. The toast is a manual popover in the top layer, and showing it
- * again moves it to the top, so a toast from a modal dialog (also in the top layer) appears over the dialog, not under
- * its backdrop.
+ * Shows a short confirmation at the bottom centre of the window: an ink capsule that fades up and leaves after 2.6s.
+ * The toast is a manual popover in the top layer, and showing it again moves it to the top, so a toast from a modal
+ * dialog (also in the top layer) appears over the dialog, not under its backdrop. One at a time: a new one replaces it.
  */
-export function showToast(text: string) {
-  if (!element?.isConnected) {
-    element = document.createElement("div");
-    element.popover = "manual";
-    element.role = "status";
-    element.ariaLive = "polite";
-    element.dataset.toast = "";
-    element.className =
-      "fixed inset-auto bottom-4 left-1/2 m-0 max-w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 overflow-visible rounded-[10px] border-0 bg-surface px-3 py-2 text-[13px] text-ink shadow-overlay";
-    document.body.append(element);
-  }
-  const toast = element;
+export function showToast(text: string, { action, attribute }: ToastOptions = {}) {
+  // Out of the document when hidden: `flex` would otherwise override the hidden popover's display:none.
+  element?.remove();
+  const toast = document.createElement("div");
+  toast.popover = "manual";
+  toast.role = "status";
+  toast.ariaLive = "polite";
+  toast.dataset.toast = "";
+  if (attribute) toast.setAttribute(attribute, "");
+  toast.className = `fixed inset-auto bottom-4 left-1/2 m-0 max-w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 overflow-visible border-0 ${TOAST}`;
+  toast.style.animation = "fade-up var(--duration-base) var(--ease-enter) both";
   const line = document.createElement("span");
-  line.className = "block";
-  line.style.animation = "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both";
   line.textContent = text;
-  toast.replaceChildren(line);
-  if (toast.matches(":popover-open")) toast.hidePopover();
+  toast.append(line);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "shrink-0 font-medium text-on-ink hover:underline";
+    button.textContent = action.label;
+    if (action.attribute) button.setAttribute(action.attribute, "");
+    button.addEventListener("click", () => {
+      toast.remove();
+      action.onClick();
+    });
+    toast.append(button);
+  }
+  document.body.append(toast);
+  element = toast;
   toast.showPopover();
   window.clearTimeout(timer);
-  timer = window.setTimeout(() => toast.hidePopover(), TOAST_MS);
+  timer = window.setTimeout(() => toast.remove(), action ? ACTION_MS : TOAST_MS);
 }

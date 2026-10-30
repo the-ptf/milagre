@@ -22,7 +22,7 @@ import { useTheme } from "./theme";
 /** One choice of a setting shown as a card: a small sketch of what it looks like, its name and a line about it. */
 export type VisualChoice<T extends string> = { value: T; title: string; description: string; preview: ReactNode };
 
-/** Two or more settings choices side by side, each a card with its sketch; the chosen one is outlined in the accent. */
+/** Two or more settings choices side by side, each a card with its sketch; the chosen one is outlined in ink (accent is for focus and links). */
 export function ChoiceCards<T extends string>({
   label,
   value,
@@ -51,13 +51,13 @@ export function ChoiceCards<T extends string>({
               tap();
               onChange(option.value);
             }}
-            style={({ pressed }) => [s.card, selected ? { borderColor: colors.accent, borderWidth: 2 } : null, pressStyle({ pressed })]}
+            style={({ pressed }) => [s.card, selected ? { borderColor: colors.ink, borderWidth: 2 } : null, pressStyle({ pressed })]}
           >
             <View style={s.preview}>{option.preview}</View>
             <View style={s.name}>
               {selected ? (
-                <View style={[s.mark, { backgroundColor: colors.accent }]}>
-                  <Icon icon={Tick02Icon} tone="onAccent" size={12} />
+                <View style={[s.mark, { backgroundColor: colors.ink }]}>
+                  <Icon icon={Tick02Icon} tone="onInk" size={12} />
                 </View>
               ) : (
                 <View style={[s.mark, { borderWidth: 1.5, borderColor: colors.ink3 }]} />

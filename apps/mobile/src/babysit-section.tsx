@@ -9,7 +9,7 @@ import { Icon, type IconData } from "./icons";
 import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
-import { Chip, DISABLED_OPACITY, ErrorNotice, pressStyle, Segmented, Toggle, useStyles } from "./ui";
+import { Chip, DISABLED_OPACITY, ErrorNotice, InlineError, pressStyle, Segmented, Tag, Toggle, useStyles } from "./ui";
 
 type Save = (change: BabysitChange) => Promise<void>;
 
@@ -126,9 +126,7 @@ export function BabysitSection() {
   const caption = (text: string) => <Text style={styles.caption}>{text}</Text>;
   const saveMark = (mark: SaveState) =>
     mark === "error" ? (
-      <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk }]}>
-        Not saved
-      </Text>
+      <InlineError message="Not saved" />
     ) : mark === "saving" ? (
       <Text style={styles.caption}>Saving…</Text>
     ) : mark === "saved" ? (
@@ -138,7 +136,7 @@ export function BabysitSection() {
       </View>
     ) : null;
   const toggle = (title: string, selected: boolean, onPress: () => void, disabled = false) => (
-    <Toggle title={title} selected={selected} disabled={disabled} tint={colors.accent} onPress={onPress} />
+    <Toggle title={title} selected={selected} disabled={disabled} onPress={onPress} />
   );
   const reset = () => {
     ownRule.reset();
@@ -148,7 +146,7 @@ export function BabysitSection() {
   return (
     <View style={{ gap: space.section }}>
       {error}
-      <Group title="Babysit PRs">
+      <Group title="Babysit PRs" inset={0}>
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("Babysit new PRs", settings.enabled, () => change({ enabled: !settings.enabled }))}
           {caption("Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.")}
@@ -182,7 +180,7 @@ export function BabysitSection() {
           </View>
         </View>
       </Group>
-      <Group title="When something needs fixing" footer="Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.">
+      <Group title="When something needs fixing" inset={0} footer="Each PR keeps the settings it started with: changes here apply to PRs opened afterwards.">
         <View accessibilityRole="radiogroup" accessibilityLabel="When something needs fixing" style={{ gap: 8, paddingVertical: 12 }}>
           {BABYSIT_LEVELS.map((entry) => {
             const selected = entry.level === settings.level;
@@ -199,31 +197,22 @@ export function BabysitSection() {
                   {
                     flexDirection: "row",
                     gap: space.lg,
-                    padding: space.lg,
                     borderRadius: radius.card,
                     borderCurve: "continuous",
+                    // The 2pt ink edge marks the choice; padding gives back the extra point so the card doesn't move.
                     borderWidth: selected ? 2 : 1,
-                    borderColor: selected ? colors.accent : colors.line,
-                    backgroundColor: selected ? colors.accentTint : "transparent",
+                    borderColor: selected ? colors.ink : colors.lineStrong,
+                    padding: selected ? space.lg - 1 : space.lg,
                   },
                   pressStyle({ pressed }),
                 ]}
               >
-                {selected ? (
-                  <View
-                    style={{ width: 20, height: 20, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent }}
-                  >
-                    <Icon icon={Tick02Icon} tone="onAccent" size={12} />
-                  </View>
-                ) : (
-                  <View style={{ width: 20, height: 20, borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.ink3 }} />
-                )}
                 <View style={{ flex: 1, gap: 6 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <Text
                       style={{
                         flexShrink: 1,
-                        color: selected ? colors.accentInk : colors.ink,
+                        color: colors.ink,
                         fontSize: type.subheadline,
                         lineHeight: lineHeight.subheadline,
                         fontWeight: "600",
@@ -231,26 +220,9 @@ export function BabysitSection() {
                     >
                       {entry.title}
                     </Text>
-                    {entry.level === BABYSIT_DEFAULTS.level ? (
-                      <Text
-                        style={{
-                          color: colors.ink2,
-                          fontSize: type.caption2,
-                          lineHeight: lineHeight.caption2,
-                          fontWeight: "500",
-                          backgroundColor: colors.field,
-                          borderRadius: radius.chip,
-                          paddingHorizontal: 6,
-                          overflow: "hidden",
-                        }}
-                      >
-                        Default
-                      </Text>
-                    ) : null}
+                    {entry.level === BABYSIT_DEFAULTS.level ? <Tag label="Default" /> : null}
                   </View>
-                  <Text style={{ color: selected ? colors.accentInk : colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-                    {entry.description}
-                  </Text>
+                  <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{entry.description}</Text>
                   <View
                     accessibilityLabel={entry.steps.map((step) => STEPS[step].name).join(", then ")}
                     style={{
@@ -261,17 +233,19 @@ export function BabysitSection() {
                       height: 24,
                       paddingHorizontal: space.md,
                       borderRadius: radius.full,
-                      backgroundColor: selected ? colors.surface : colors.field,
+                      backgroundColor: colors.field,
                     }}
                   >
                     {entry.steps.map((step, index) => (
                       <View key={step} style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
                         {index > 0 ? <Icon icon={ArrowRight01Icon} tone="ink3" size={12} /> : null}
-                        <Icon icon={STEPS[step].icon} tone={selected ? "accent" : "ink2"} size={12} />
+                        <Icon icon={STEPS[step].icon} tone="ink2" size={12} />
                       </View>
                     ))}
                   </View>
                 </View>
+                {/* CheckRow's tick, at the end. */}
+                {selected && <Icon icon={Tick02Icon} tone="ink" size={18} />}
               </Pressable>
             );
           })}
@@ -281,7 +255,7 @@ export function BabysitSection() {
           {caption("On by default. After replying on a thread, the agent marks it resolved.")}
         </View>
       </Group>
-      <Group title="Stop babysitting when">
+      <Group title="Stop babysitting when" inset={0}>
         <View style={{ gap: 4, paddingVertical: 8 }}>
           {toggle("The PR is merged or closed", true, () => {}, true)}
           {caption("Always")}
@@ -338,24 +312,22 @@ export function BabysitSection() {
           ) : null}
         </View>
       </Group>
-      <Group title="Your instructions">
-        {[
-          <View key="instructions" style={{ gap: 6, paddingVertical: 12 }}>
-            <TextInput
-              ref={instructionsInput}
-              accessibilityLabel="Your instructions"
-              multiline
-              maxLength={4000}
-              value={instructions.value}
-              onChangeText={instructions.onChangeText}
-              onFocus={instructions.onFocus}
-              onBlur={instructions.onBlur}
-              selectionColor={colors.accent}
-              style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
-            />
-            <View style={{ minHeight: 16, alignItems: "flex-end" }}>{saveMark(instructions.state)}</View>
-          </View>,
-        ]}
+      <Group title="Your instructions" inset={0}>
+        <View style={{ gap: 6, paddingVertical: 12 }}>
+          <TextInput
+            ref={instructionsInput}
+            accessibilityLabel="Your instructions"
+            multiline
+            maxLength={4000}
+            value={instructions.value}
+            onChangeText={instructions.onChangeText}
+            onFocus={instructions.onFocus}
+            onBlur={instructions.onBlur}
+            selectionColor={colors.accent}
+            style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
+          />
+          <View style={{ minHeight: 16, alignItems: "flex-end" }}>{saveMark(instructions.state)}</View>
+        </View>
       </Group>
       <View style={[styles.card, { paddingVertical: 0 }]}>
         <Row title="Reset all to defaults" chevron={false} onPress={reset} />

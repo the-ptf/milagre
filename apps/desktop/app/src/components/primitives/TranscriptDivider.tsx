@@ -4,7 +4,7 @@ import { Icon } from "./Icon";
 
 /**
  * A transcript event between messages (compaction, reload, account switch, a Link): a hairline each side of a centred
- * 12px ink-3 label. `label` is the group's accessible name when the visible content is more than plain text.
+ * 12px ink-3 label, 12px from each rule. `label` is the group's accessible name when the visible content is more than plain text.
  * `leading` replaces the icon (a SpinnerRing while it is under way).
  */
 export function TranscriptDivider({
@@ -20,9 +20,9 @@ export function TranscriptDivider({
   children?: ReactNode;
 } & { [key: `data-${string}`]: string | boolean | undefined }) {
   return (
-    <div {...data} role="group" aria-label={label} className="flex w-full items-center gap-3 py-1 text-12 text-ink-3">
+    <div {...data} role="group" aria-label={label} className="flex w-full items-center gap-3 py-1.5 text-12 text-ink-3">
       <span className="h-px flex-1 bg-line" />
-      <span className="flex min-w-0 items-center gap-1.5 px-2 py-0.5">
+      <span className="flex min-w-0 items-center gap-1.5">
         {leading ?? (icon && <Icon icon={icon} size={12} className="shrink-0" />)}
         {children ?? <span className="min-w-0 truncate">{label}</span>}
       </span>

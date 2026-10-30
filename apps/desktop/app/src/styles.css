@@ -29,31 +29,6 @@ html[data-floating-inbox] #root {
   transition: none;
 }
 
-.floating-inbox-panel {
-  --surface: #fafafa;
-  --field: #ededed;
-  --inset: #f2f2f2;
-  --ink: #191919;
-  --ink-2: #424242;
-  --ink-3: #777;
-  --line: rgb(0 0 0 / 0.06);
-  --line-strong: rgb(0 0 0 / 0.15);
-  --hover: #e7e7e7;
-  --hover-2: #dedede;
-}
-.dark .floating-inbox-panel {
-  --surface: #161616;
-  --field: #242424;
-  --inset: #202020;
-  --ink: #f5f5f5;
-  --ink-2: #dedede;
-  --ink-3: #8d8d8d;
-  --line: rgb(255 255 255 / 0.06);
-  --line-strong: rgb(255 255 255 / 0.19);
-  --hover: #292929;
-  --hover-2: #393939;
-}
-
 .floating-inbox-drag {
   touch-action: none;
   cursor: grab;
@@ -316,13 +291,14 @@ html[data-floating-inbox] #root {
   --canvas: #e9f1fa;
   --surface: #ffffff;
   --inset: #f9fcff;
-  --hover: #f6f6f7;
-  --hover-2: #edeeee;
+  /* translucent ink (4% / 8%), so a hover darkens page, card and field alike; hover-2 is the open row */
+  --hover: #1c222b0a;
+  --hover-2: #1c222b14;
 
-  /* ink ramp */
+  /* ink ramp: ink-2 and ink-3 read at 4.5:1 on page, surface, field and hover-2 */
   --ink: #1c222b;
-  --ink-2: #616770;
-  --ink-3: #6e737b;
+  --ink-2: #4b515a;
+  --ink-3: #636870;
   --ink-4: #8c929a;
 
   /* borders — solid and crisp, not alpha */
@@ -340,21 +316,31 @@ html[data-floating-inbox] #root {
   /* semantic */
   --green: #199a4d;
   --green-tint: #e5f2ef;
-  /* Ultracode's color, the same purple as its Fatality overlay */
-  --purple: oklch(0.627 0.265 303.9);
-  --purple-ink: oklch(0.558 0.288 302.321);
-  --purple-tint: oklch(0.977 0.014 308.299);
+  /* Ultracode's brand purple, also merged PRs; mirrors ULTRACODE_PURPLE in @milagre/shared/themes */
+  --purple: #ad46ff;
+  --purple-ink: #8e2bdc;
+  --purple-tint: #f6edff;
   --orange: #ef720d;
   --orange-tint: #f5efee;
   --red: #e3474c;
   --red-tint: #f5ecef;
-  --green-ink: #008439;
-  --orange-ink: #c54b00;
-  --red-ink: #d3373f;
+  /* status text: 4.5:1 on page, surface and their own tint */
+  --green-ink: #007e33;
+  --orange-ink: #bf4600;
+  --red-ink: #cb2f39;
 
-  /* labels on filled controls: themes write --on-accent (lib/theme-sheet.ts); on-ink is the surface (@theme below) */
+  /* labels on filled controls: themes write --on-accent and --on-green/orange/red (lib/theme-sheet.ts), for the
+   * accent or -ink fills (bg-red-ink text-on-red); on-ink is the surface (@theme below) */
   --on-accent: #ffffff;
+  --on-green: #ffffff;
+  --on-orange: #ffffff;
   --on-red: #ffffff;
+  /* full-screen media (lightbox): black behind, white on top, in every theme; paper is a page that stays white */
+  --media: #000000;
+  --on-media: #ffffff;
+  --on-media-2: rgb(255 255 255 / 0.8);
+  --on-media-tint: rgb(255 255 255 / 0.15);
+  --paper: #ffffff;
   /* behind a modal dialog or the command palette */
   --scrim: rgb(0 0 0 / 0.2);
 
@@ -372,6 +358,8 @@ html[data-floating-inbox] #root {
   --shadow-card: 0 0 0 1px var(--line), var(--shadow-sm);
   --shadow-raised: 0 0 0 1px var(--line), var(--shadow-md);
   --shadow-overlay: 0 0 0 1px var(--line), var(--shadow-lg);
+  /* a numbered comment pin over content: a surface ring that keeps it off whatever it sits on */
+  --shadow-pin: 0 0 0 1.5px var(--surface), var(--shadow-sm);
 
   /* diff view row tints */
   --diff-add: #ddeee8;
@@ -385,12 +373,12 @@ html[data-floating-inbox] #root {
   --canvas: #111b29;
   --surface: #172232;
   --inset: #121c2b;
-  --hover: #202b3b;
-  --hover-2: #273242;
+  --hover: #e9eff70d;
+  --hover-2: #e9eff717;
 
   --ink: #e9eff7;
-  --ink-2: #9199a4;
-  --ink-3: #808996;
+  --ink-2: #abb2bd;
+  --ink-3: #939ca9;
   --ink-4: #646c79;
 
   --line: #273242;
@@ -405,19 +393,21 @@ html[data-floating-inbox] #root {
 
   --green: #3cbb72;
   --green-tint: #3cbb7224;
-  --purple: oklch(0.627 0.265 303.9);
-  --purple-ink: oklch(0.827 0.119 306.383);
-  --purple-tint: oklch(0.627 0.265 303.9 / 0.18);
+  --purple: #ad46ff;
+  --purple-ink: #d0a3ff;
+  --purple-tint: #ad46ff2e;
   --orange: #f68f3c;
   --orange-tint: #f68f3c24;
   --red: #ee5c61;
   --red-tint: #ee5c6124;
   --green-ink: var(--green);
   --orange-ink: var(--orange);
-  --red-ink: var(--red);
+  --red-ink: #f66468;
 
-  /* the light accent and red take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
+  /* the light accent and status fills take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
   --on-accent: var(--page);
+  --on-green: var(--page);
+  --on-orange: var(--page);
   --on-red: var(--page);
   --scrim: rgb(0 0 0 / 0.4);
 
@@ -450,8 +440,9 @@ html[data-floating-inbox] #root {
   --color-ink-4: var(--ink-4);
   --color-hover: var(--hover);
   --color-hover-2: var(--hover-2);
-  /* The sidebar's row hover: --hover nearly matches --page in Milagre Blue light, so the sidebar takes hover-2. */
-  --color-hover-sidebar: var(--hover-2);
+  /* Deprecated alias of hover (decision 1: a hovered row is bg-hover, the open row bg-hover-2). Delete once no
+   * hover:bg-hover-sidebar is left. */
+  --color-hover-sidebar: var(--hover);
   --color-field: var(--field);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
@@ -477,8 +468,15 @@ html[data-floating-inbox] #root {
    * on-ink reads --surface where it is used, so a panel that redefines --surface (the floating inbox) still matches. */
   --color-on-ink: var(--surface);
   --color-on-accent: var(--on-accent);
+  --color-on-green: var(--on-green);
+  --color-on-orange: var(--on-orange);
   --color-on-red: var(--on-red);
   --color-scrim: var(--scrim);
+  --color-media: var(--media);
+  --color-on-media: var(--on-media);
+  --color-on-media-2: var(--on-media-2);
+  --color-on-media-tint: var(--on-media-tint);
+  --color-paper: var(--paper);
 
   /* motion: duration-fast / duration-base / duration-slow, active:scale-press */
   --transition-duration-fast: var(--duration-fast);
@@ -492,6 +490,7 @@ html[data-floating-inbox] #root {
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-overlay: var(--shadow-overlay);
+  --shadow-pin: var(--shadow-pin);
 
   /* type */
   --font-sans: var(--ui-font, ui-sans-serif, system-ui, sans-serif);
@@ -533,6 +532,10 @@ html[data-floating-inbox] #root {
 
   --ease-enter: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-slide: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* A bare transition / transition-colors runs at duration-fast on the enter curve, not Tailwind's 150ms ease. */
+  --default-transition-duration: var(--duration-fast);
+  --default-transition-timing-function: var(--ease-enter);
 }
 
 /* ── base ─────────────────────────────────────────────── */
@@ -741,7 +744,10 @@ a {
     0 1px 2px oklch(0.24 0.008 258 / 0.05);
 }
 .status-pill:not(:disabled):hover {
-  background: color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--hover)) 12%, var(--hover)) 84%, transparent);
+  /* hover is translucent ink, so it goes over the frosted fill instead of into it */
+  background:
+    linear-gradient(var(--hover), var(--hover)),
+    color-mix(in oklab, color-mix(in oklab, var(--status-pill-tint, var(--surface)) 12%, var(--surface)) 84%, transparent);
 }
 .dark .status-pill {
   box-shadow:
@@ -825,7 +831,7 @@ a {
  * clickable must invite the click */
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]),
-label:has(input),
+label:has(input, [role="checkbox"], [role="radio"]),
 a {
   cursor: pointer;
 }
@@ -837,6 +843,19 @@ a {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+
+  /* Chrome labels don't select when a drag crosses them. Content (transcript, markdown, code, diffs, errors, paths)
+     stays selectable, and so does anything editable. */
+  button,
+  [role="button"],
+  [role="menuitem"],
+  [role="tab"],
+  [role="option"],
+  label,
+  nav,
+  header {
+    user-select: none;
   }
 
   /* Fields show focus with their own border or ring utilities, not the outline. */
@@ -1545,7 +1564,8 @@ code.step-running.step-sweep {
   }
   /* Still show that something is loading: a slow two-step fade instead of the turn, no movement. */
   .running-logo,
-  .spinner-ring {
+  .spinner-ring,
+  .refresh-spin.animate-spin {
     animation: reduced-motion-loading 1.6s steps(2, jump-none) infinite !important;
   }
 }
@@ -1702,10 +1722,10 @@ code.step-running.step-sweep {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  animation: chat-title-out 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: chat-title-out 150ms var(--ease-enter) both;
 }
 .chat-title[data-changing] .chat-title-current {
-  animation: chat-title-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: chat-title-in 240ms var(--ease-enter) both;
 }
 @keyframes chat-title-out {
   to {

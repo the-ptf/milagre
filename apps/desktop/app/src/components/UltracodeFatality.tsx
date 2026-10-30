@@ -44,7 +44,7 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
       transition={{ duration: SECONDS, times: [0, 0.06, 0.82, 1], ease: "easeOut" }}
       onAnimationComplete={onDone}
     >
-      <div className="absolute inset-0 bg-black/80" />
+      <div className="absolute inset-0 bg-media/80" />
       <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at center, transparent 30%, rgba(76,29,149,0.6) 100%)" }} />
       <motion.div
         className="relative"

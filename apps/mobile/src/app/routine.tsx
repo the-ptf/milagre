@@ -26,10 +26,8 @@ import { useActivityClock } from "../chat-row-store";
 import { modelsFor } from "../turn-options";
 import { routineIcon } from "../routine-rows";
 import { RunList } from "../run-list";
-import { Icon, type IconData } from "../icons";
-import { Chip, ErrorNotice, HeaderButton, PageScroll, RowSwitch, SectionLabel, Segmented, useStyles } from "../ui";
-import { lineHeight, radius, type } from "../design-tokens";
-import { useTheme } from "../theme";
+import type { IconData } from "../icons";
+import { EmptyState, ErrorNotice, HeaderButton, InlineError, PageScroll, RowSwitch, SectionLabel, Segmented, Tag, useStyles } from "../ui";
 
 type Targets = { projects: { path: string; chats: { chatId: string; title: string }[] }[] };
 
@@ -48,35 +46,14 @@ function leave(left: { current: boolean }) {
   else router.replace("/routines");
 }
 
-/** A Routine's setting as a static chip, as desktop's chips: its icon and words. */
+/** A Routine's setting as a static Tag, as desktop's chips: its icon and words. */
 function SettingChip({ icon, text }: { icon: IconData; text: string }) {
-  return <Chip label={text} leading={<Icon icon={icon} tone="ink2" size={16} />} />;
+  return <Tag icon={icon} label={text} />;
 }
 
 /** "On" in green, or "Paused" in grey, under the Routine's name. */
 function StatePill({ on }: { on: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityLabel={on ? "On" : "Paused"}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 24,
-        paddingHorizontal: 8,
-        borderRadius: radius.full,
-        borderCurve: "continuous",
-        backgroundColor: on ? colors.greenTint : colors.field,
-      }}
-    >
-      <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: on ? colors.green : colors.ink3 }} />
-      <Text style={{ color: on ? colors.greenInk : colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "600" }}>
-        {on ? "On" : "Paused"}
-      </Text>
-    </View>
-  );
+  return <Tag tone={on ? "green" : "neutral"} dot label={on ? "On" : "Paused"} />;
 }
 
 /**
@@ -91,7 +68,6 @@ const deviceZone = () => new Intl.DateTimeFormat().resolvedOptions().timeZone;
 export default function RoutineScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const styles = useStyles();
-  const { colors } = useTheme();
   const session = useSession();
   const { client } = session;
   const routines = useRoutines(client);
@@ -230,11 +206,9 @@ export default function RoutineScreen() {
           <SettingChip icon={SparklesIcon} text={model} />
           <SettingChip icon={SecurityCheckIcon} text={mode} />
         </ScrollView>
-        {times ? <Text style={[styles.caption, { fontSize: type.footnote, lineHeight: lineHeight.footnote, paddingHorizontal: 4 }]}>{times}</Text> : null}
-        {problem ? (
-          <Text style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, paddingHorizontal: 4 }}>{problem}</Text>
-        ) : null}
-        <SectionLabel style={{ paddingHorizontal: 4, marginTop: 8 }}>Runs</SectionLabel>
+        {times ? <Text style={styles.footnote}>{times}</Text> : null}
+        <InlineError message={problem} />
+        <SectionLabel flush>Runs</SectionLabel>
         {runs.length ? (
           <>
             {filters.length > 1 ? (
@@ -251,12 +225,9 @@ export default function RoutineScreen() {
             />
           </>
         ) : (
-          <View style={[styles.card, { alignItems: "center", gap: 4, paddingVertical: 24 }]}>
-            <Text style={styles.muted}>No Runs yet</Text>
-            {routine.enabled && typeof routine.nextRunAt === "number" ? (
-              <Text style={[styles.caption, { color: colors.ink3 }]}>{`Next Run ${clock(routine.nextRunAt)}`}</Text>
-            ) : null}
-          </View>
+          <EmptyState title="No Runs yet">
+            {routine.enabled && typeof routine.nextRunAt === "number" ? `Next Run ${clock(routine.nextRunAt)}` : undefined}
+          </EmptyState>
         )}
       </PageScroll>
     </>

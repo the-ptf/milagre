@@ -12,7 +12,7 @@ import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../
 import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
-import { Chip, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
+import { Chip, EmptyState, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
 import { lineHeight, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
@@ -119,12 +119,10 @@ export default function RoutinesScreen() {
         )}
       </Stack.Toolbar>
       {empty ? (
-        <View style={[styles.screen, { padding: 16, paddingBottom: 32 }]}>
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
-            <Icon icon={RepeatIcon} tone="ink3" size={40} />
-            <Text style={[styles.muted, { textAlign: "center" }]}>No Routines yet.</Text>
-          </View>
-          <Text style={[styles.caption, { textAlign: "center" }]}>{LID_HELP}</Text>
+        <View style={[styles.screen, { justifyContent: "center", padding: 16 }]}>
+          <EmptyState icon={RepeatIcon} title="No Routines yet">
+            {LID_HELP}
+          </EmptyState>
         </View>
       ) : (
         <PageScroll style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
@@ -137,7 +135,7 @@ export default function RoutinesScreen() {
             </Text>
           ) : null}
           {all.length ? (
-            <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {FILTERS.map((item) => (
                 <Chip
                   key={item.id}
@@ -238,7 +236,7 @@ function RoutineRow({
               </Text>
               {unread ? <ChatMarkIcon mark="unread" /> : null}
             </View>
-            <Text numberOfLines={routine.pausedReason || routine.lastError ? 3 : 1} style={[styles.caption, { color: colors.ink2 }]}>
+            <Text numberOfLines={routine.pausedReason || routine.lastError ? 3 : 1} style={styles.caption}>
               {meta}
             </Text>
           </View>

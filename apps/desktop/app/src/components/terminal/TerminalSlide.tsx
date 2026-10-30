@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useMotionValueEvent, usePresence } from "motion/react";
-import { SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 
 // The gap between the Chat and the panel, part of the room that opens.
 const GAP = 8;
@@ -72,7 +72,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
         style={moving ? { height: card, flexShrink: 0 } : { flex: "1 1 0%" }}
         initial={reduced ? false : { opacity: 0 }}
         animate={{ opacity: isPresent ? 1 : 0 }}
-        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? 0.28 : 0.18, scale) }}
+        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? DURATION.slow : DURATION.base, scale) }}
       >
         {children}
       </motion.div>

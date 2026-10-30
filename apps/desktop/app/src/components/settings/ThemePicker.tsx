@@ -2,41 +2,22 @@ import { themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre
 import { updateSettings, useSettings } from "../../lib/settings";
 import type { ThemePreference } from "../../lib/settings";
 import { SectionLabel } from "../primitives/SectionLabel";
+import { radioKeys, Segmented } from "../primitives/Segmented";
 
 const GROUPS: ThemeGroup[] = ["Milagre", "Catppuccin", "Popular"];
-const MODES: { value: ThemePreference; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
+// Each segment keeps its aria-label, which scripts/test-theming.cjs selects by.
+const MODES = [
+  { value: "system", label: "System", ariaLabel: "System" },
+  { value: "light", label: "Light", ariaLabel: "Light" },
+  { value: "dark", label: "Dark", ariaLabel: "Dark" },
+] as const satisfies ReadonlyArray<{ value: ThemePreference; label: string; ariaLabel: string }>;
 
-/**
- * System, Light and Dark as one segmented control, drawn as the Segmented primitive's large size. Each segment keeps its
- * aria-label, which scripts/test-theming.cjs selects by.
- */
+/** System, Light and Dark as one segmented control, the Segmented primitive's large size. */
 export function ModeControl({ value, onChange }: { value: ThemePreference; onChange: (mode: ThemePreference) => void }) {
-  return (
-    <div role="radiogroup" aria-label="Mode" className="flex gap-0.5 rounded-control bg-field p-0.5">
-      {MODES.map((mode) => (
-        <button
-          key={mode.value}
-          type="button"
-          role="radio"
-          aria-checked={value === mode.value}
-          aria-label={mode.label}
-          onClick={() => onChange(mode.value)}
-          className={`flex h-7 flex-1 items-center justify-center rounded-chip px-3 text-13 font-medium whitespace-nowrap transition-colors duration-fast ${
-            value === mode.value ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"
-          }`}
-        >
-          {mode.label}
-        </button>
-      ))}
-    </div>
-  );
+  return <Segmented<ThemePreference> label="Mode" size="large" value={value} options={MODES} onChange={onChange} />;
 }
 
-function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; name: string; detail: string }) {
+function Tile({ id, label, name, detail, focusable }: { id: ThemeChoice; label: string; name: string; detail: string; focusable: boolean }) {
   const settings = useSettings();
   const selected = settings.colorTheme === id;
   const { page, accent } = themeSwatch(id, settings.customTheme);
@@ -46,8 +27,10 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
       role="radio"
       aria-checked={selected}
       aria-label={label}
+      tabIndex={focusable ? 0 : -1}
       onClick={() => updateSettings({ colorTheme: id })}
-      className={`flex items-center gap-3 rounded-card bg-surface px-3 py-3 text-left shadow-card transition-colors duration-fast hover:bg-hover ${selected ? "ring-2 ring-accent" : ""}`}
+      // The chosen theme is ringed in ink: accent is for focus and links.
+      className={`flex items-center gap-3 rounded-card bg-surface p-3 text-left shadow-card transition-colors hover:bg-hover ${selected ? "ring-2 ring-ink" : ""}`}
     >
       <span className="relative size-8 shrink-0 overflow-hidden rounded-full shadow-hairline" style={{ background: page }}>
         <span className="absolute right-0 bottom-0 size-1/2" style={{ background: accent }} />
@@ -62,8 +45,12 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
 
 export function ThemePicker() {
   const settings = useSettings();
+  const custom = settings.customThemeEnabled && settings.customTheme;
+  // One Tab stop: the chosen tile (the first when it isn't shown); the arrows move through the three-column grid.
+  const shown: ThemeChoice[] = [...themes.map((theme) => theme.id), ...(custom ? (["custom"] as const) : [])];
+  const focus = shown.includes(settings.colorTheme) ? settings.colorTheme : shown[0];
   return (
-    <div role="radiogroup" aria-label="Theme" className="grid gap-5">
+    <div role="radiogroup" aria-label="Theme" onKeyDown={radioKeys({ columns: 3 })} className="grid gap-5">
       {GROUPS.map((group) => (
         <section key={group}>
           <SectionLabel as="h3" className="mb-2 px-1">
@@ -79,11 +66,10 @@ export function ThemePicker() {
                   label={group === "Milagre" ? theme.name : `${group} ${theme.name}`}
                   name={theme.name}
                   detail={theme.id === "milagre-blue" ? "Default" : theme.id === "gray" ? "Classic" : `Light: ${theme.lightName}`}
+                  focusable={theme.id === focus}
                 />
               ))}
-            {group === "Milagre" && settings.customThemeEnabled && settings.customTheme && (
-              <Tile id="custom" label="Custom" name="Custom" detail="Your colors" />
-            )}
+            {group === "Milagre" && custom && <Tile id="custom" label="Custom" name="Custom" detail="Your colors" focusable={focus === "custom"} />}
           </div>
         </section>
       ))}

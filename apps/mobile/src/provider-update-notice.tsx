@@ -9,7 +9,7 @@ import { providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { savedProviderUpdateDismissals } from "./hosts-native";
 import { ProviderLogo } from "./icons";
-import { IconButton, PillButton, useAnnounce } from "./ui";
+import { IconButton, InlineError, PillButton, useAnnounce } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
@@ -61,11 +61,7 @@ export function ProviderUpdateNotice() {
         <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           Install the update on {session.hostName || "your computer"} now or review provider settings.
         </Text>
-        {!!error && (
-          <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-            {error}
-          </Text>
-        )}
+        <InlineError message={error} />
         <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
           <PillButton title="Settings" secondary onPress={() => router.push("/accounts")} />
           <PillButton title={working ? "Updating…" : error ? "Retry" : "Update"} loading={working} disabled={working} onPress={() => void updates.install()} />

@@ -13,7 +13,7 @@ import {
 import { checkpointEffect, checkpointMeta, checkpointTask, checkpointTime, splitCheckpointPath, type CheckpointFile } from "@milagre/shared/checkpoints";
 import type { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { Icon } from "./icons";
-import { ErrorNotice, IconButton, PageScroll, PillButton, Segmented, pressStyle } from "./ui";
+import { CircleButton, InlineError, PageScroll, PillButton, Segmented, pressStyle } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
@@ -52,7 +52,7 @@ export function UndoPanel({
       testID="undo-panel"
       accessibilityLabel={title}
       style={{
-        borderRadius: 24,
+        borderRadius: radius.composer,
         borderCurve: "continuous",
         overflow: "hidden",
         padding: 16,
@@ -61,13 +61,16 @@ export function UndoPanel({
         boxShadow: colors.shadowRaised,
       }}
     >
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous", backgroundColor: colors.surface }]} />
+      <View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { borderRadius: radius.composer, borderCurve: "continuous", backgroundColor: colors.surface }]}
+      />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Icon icon={intent === "Redo" && review.view === "preview" ? Redo02Icon : Undo02Icon} tone="ink2" size={18} />
         <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
           {title}
         </Text>
-        <IconButton label="Close" icon={Cancel01Icon} size={34} disabled={review.pending} onPress={review.close} />
+        <CircleButton label="Close" icon={Cancel01Icon} disabled={review.pending} onPress={review.close} />
       </View>
       {review.view === "list" ? (
         <PageScroll
@@ -140,11 +143,7 @@ export function UndoPanel({
               {review.tasks.length > 0 && intent === "Undo" && <Icon icon={UnfoldMoreIcon} tone="ink3" size={16} />}
             </Pressable>
           )}
-          {!!review.notice && (
-            <Text accessibilityRole="alert" style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-              {review.notice}
-            </Text>
-          )}
+          <InlineError warning message={review.notice} />
           {!preview ? (
             !review.error && <Text style={{ color: colors.ink3, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Checking files…</Text>
           ) : !preview.files.length ? (
@@ -170,7 +169,7 @@ export function UndoPanel({
               ))}
             </PageScroll>
           )}
-          {!!review.error && <ErrorNotice message={review.error} />}
+          {!!review.error && <InlineError message={review.error} />}
           {review.conflicts > 0 && !review.error && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Icon icon={Alert02Icon} tone="orange" size={16} />

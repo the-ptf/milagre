@@ -8,7 +8,7 @@ import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel } from "@milagre/shared/attention";
 import { readAttentionButton, saveAttentionButton } from "./hosts-native";
 import { useSession } from "./session";
-import { lineHeight, radius, type } from "./design-tokens";
+import { chrome, lineHeight, radius, space, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { pressStyle, PullDown } from "./ui";
 import { useTheme } from "./theme";
@@ -148,10 +148,11 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
       <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}>
         {label}
       </Text>
-      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} strokeWidth={2} />
+      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} />
     </View>
   );
-  const place = { position: "absolute" as const, top: insets.top + 52, right: 16 };
+  // Floating overlays sit 8 under the header, clear of it, level with the top Toast.
+  const place = { position: "absolute" as const, top: insets.top + chrome.header + space.md, right: space.gutter };
   const first = waiting[0];
   if (waiting.length === 1 && first)
     return (
@@ -167,7 +168,7 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
       </Pressable>
     );
   return (
-    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} style={place}>
+    <PullDown label={`${label}. Choose a Chat.`} title="Waiting for you" sections={[{ items }]} onSelect={open} hitSlop={6} style={place}>
       {pill}
     </PullDown>
   );

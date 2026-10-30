@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   BackHandler,
@@ -26,11 +26,11 @@ import { morphRect, planPanelFrame } from "./plan-panel-frame";
 import { PlanPhaseGraph, PlanTree } from "./plan-view";
 import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
-import { lineHeight, type } from "./design-tokens";
-import { IconButton, PageScroll, useStyles } from "./ui";
+import { duration, easing, hitSlopFor, lineHeight, type } from "./design-tokens";
+import { IconButton, PageScroll, PRESSED_OPACITY, SectionLabel } from "./ui";
 
-// Desktop's morph: 300 ms on this curve, the hidden face fading in 100 ms and the shown one in 180 ms after 60 ms.
-const EASE = Easing.bezier(0.16, 1, 0.3, 1);
+// Desktop's morph: slow on the enter curve, the hidden face fading out fast and the shown one in at base after 60 ms.
+const EASE = Easing.bezier(...easing.enter);
 // A downward drag on the header this long, or this fast, closes the panel.
 const DRAG_CLOSE = 72;
 const FLING_CLOSE = 900;
@@ -140,7 +140,7 @@ export type PlanPanelState = ReturnType<typeof usePlanPanel>;
 function PillFace({ label }: { label: string }) {
   const { colors } = useTheme();
   return (
-    <View style={{ minHeight: 34, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
+    <View style={{ minHeight: 32, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
       <Icon icon={ListTodoIcon} tone="ink2" size={16} />
       <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontVariant: ["tabular-nums"] }}>{label}</Text>
     </View>
@@ -165,30 +165,17 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
       accessibilityElementsHidden={away}
       importantForAccessibility={away ? "no-hide-descendants" : "auto"}
       disabled={away}
-      // A 34pt pill in the composer tray; the slop makes up the 44pt touch.
-      hitSlop={5}
+      // A 32pt pill in the composer tray; the slop makes up the 44pt touch.
+      hitSlop={hitSlopFor(32)}
       onPress={show}
       // A new label (1/2 to 2/2) resizes the pill; an open panel keeps growing from its new frame.
       onLayout={relayout}
-      style={({ pressed }) => ({ opacity: away ? 0 : pressed ? 0.6 : 1 })}
+      style={({ pressed }) => ({ opacity: away ? 0 : pressed ? PRESSED_OPACITY : 1 })}
     >
       <PillFace label={label} />
     </Pressable>
   );
 });
-
-/** The primitive SectionLabel's look (sentence case, no tracking), with a count and a ref for focus. */
-function SectionLabel({ title, count, textRef }: { title: string; count?: number; textRef?: Ref<TextInstance> }) {
-  const text = useStyles().section;
-  return (
-    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-      <Text ref={textRef} accessibilityRole="header" style={text}>
-        {title}
-      </Text>
-      {count !== undefined && <Text style={[text, { fontVariant: ["tabular-nums"] }]}>{count}</Text>}
-    </View>
-  );
-}
 
 /**
  * The Tasks panel: the pill's surface grown over the Chat, a fixed "Tasks" header with the leaf total and a collapse
@@ -211,7 +198,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const heading = useRef<TextInstance>(null);
   const { plan, label, phase, close, settle, opening, attachOverlay, keyboard, origin } = panel;
   // Before the first opening the pill is unmeasured; the panel still lays out at its real width so its height is known.
-  const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 64, width: 60, height: 34 };
+  const pill = panel.pill ?? { x: window.width - 80, y: window.height - insets.bottom - 64, width: 60, height: 32 };
   const { from, to } = planPanelFrame({ window, insets, pill, content: header + body, keyboard, origin });
   const surfaceStyle = useAnimatedStyle(() => {
     const rect = morphRect(from, to, progress.get());
@@ -222,18 +209,18 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
   const pillStyle = useAnimatedStyle(() => ({ opacity: pillFace.get() }));
   const panelStyle = useAnimatedStyle(() => ({ opacity: panelFace.get() }));
   useEffect(() => {
-    const timing = (duration: number) => ({ duration: reduced ? 0 : Math.round(duration * scale), easing: EASE, reduceMotion: ReduceMotion.System });
+    const timing = (ms: number) => ({ duration: reduced ? 0 : Math.round(ms * scale), easing: EASE, reduceMotion: ReduceMotion.System });
     const later = reduced ? 0 : Math.round(60 * scale);
     if (phase === "open") {
-      progress.set(withTiming(1, timing(300)));
-      pillFace.set(withTiming(0, timing(100)));
-      panelFace.set(withDelay(later, withTiming(1, timing(180))));
+      progress.set(withTiming(1, timing(duration.slow)));
+      pillFace.set(withTiming(0, timing(duration.fast)));
+      panelFace.set(withDelay(later, withTiming(1, timing(duration.base))));
     } else if (phase === "closing") {
-      panelFace.set(withTiming(0, timing(100)));
-      pillFace.set(withDelay(later, withTiming(1, timing(180))));
-      drag.set(withTiming(0, timing(300)));
+      panelFace.set(withTiming(0, timing(duration.fast)));
+      pillFace.set(withDelay(later, withTiming(1, timing(duration.base))));
+      drag.set(withTiming(0, timing(duration.slow)));
       progress.set(
-        withTiming(0, timing(300), (finished) => {
+        withTiming(0, timing(duration.slow), (finished) => {
           if (finished) scheduleOnRN(settle);
         }),
       );
@@ -259,7 +246,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
     onDeactivate: (event) => {
       "worklet";
       if (!event.canceled && (event.translationY > DRAG_CLOSE || event.velocityY > FLING_CLOSE)) scheduleOnRN(close);
-      else drag.set(withTiming(0, { duration: Math.round(200 * scale), easing: EASE, reduceMotion: ReduceMotion.System }));
+      else drag.set(withTiming(0, { duration: Math.round(duration.base * scale), easing: EASE, reduceMotion: ReduceMotion.System }));
     },
   });
   if (!plan || !label) return null;
@@ -280,7 +267,7 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
       importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
       style={[StyleSheet.absoluteFill, { opacity: shown ? 1 : 0 }]}
     >
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.backdrop }, backdropStyle]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, backdropStyle]}>
         <Pressable
           testID="plan-backdrop"
           accessibilityRole="button"
@@ -318,7 +305,11 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
               onLayout={({ nativeEvent }) => setHeader(Math.ceil(nativeEvent.layout.height))}
               style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 16, paddingRight: 6, paddingTop: 6 }}
             >
-              <SectionLabel title={tasks ? "Tasks" : "Phase graph"} count={tasks ? total : undefined} textRef={heading} />
+              <View style={{ flex: 1 }}>
+                <SectionLabel flush trailing={tasks ? total : undefined} ref={heading}>
+                  {tasks ? "Tasks" : "Phase graph"}
+                </SectionLabel>
+              </View>
               <IconButton label="Collapse tasks" icon={ArrowShrink02Icon} tone="ink3" size={36} onPress={close} />
             </View>
           </GestureDetector>
@@ -339,9 +330,9 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
             {plan.phases.length > 0 && (
               <View style={{ gap: 8 }}>
                 {tasks && (
-                  <View style={{ flexDirection: "row", paddingHorizontal: 4 }}>
-                    <SectionLabel title="Phase graph" />
-                  </View>
+                  <SectionLabel flush style={{ paddingHorizontal: 4 }}>
+                    Phase graph
+                  </SectionLabel>
                 )}
                 <PlanPhaseGraph key={opening} plan={plan} />
               </View>

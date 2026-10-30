@@ -25,7 +25,7 @@ import { ChatMarkIcon } from "../status-indicators";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { Icon, ProviderLogo } from "../icons";
 import { ProjectIcon } from "../project-icon";
-import { Chip, ErrorNotice, PageScroll, pressStyle, useStyles } from "../ui";
+import { Chip, EmptyState, ErrorNotice, PageScroll, Tag, pressStyle, useStyles } from "../ui";
 import { useTheme, type Palette } from "../theme";
 
 const FILTERS: Array<{ id: CanvasFilter; label: string; dot?: "orange" | "accent" }> = [
@@ -158,7 +158,7 @@ export default function CanvasScreen() {
     <>
       <Stack.Screen options={{ title: "Canvas" }} />
       <PageScroll refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}>
-        <View accessibilityRole="radiogroup" accessibilityLabel="Show chats" style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Show Chats" style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
           {FILTERS.map((item) => {
             return (
               <Chip
@@ -176,7 +176,7 @@ export default function CanvasScreen() {
         {loading ? (
           <Text style={styles.muted}>Loading Projects…</Text>
         ) : !total && !sections.length ? (
-          <Text style={styles.muted}>No active chats. Chats the sidebar shows appear here.</Text>
+          <EmptyState title="No active Chats">Chats the sidebar shows appear here.</EmptyState>
         ) : null}
         {sections.map((section) => {
           const cards = section.worktrees.filter((worktree) => filter === "all" || worktree.chats.some((chat) => matchesCanvasFilter(chat.mark, filter)));
@@ -193,9 +193,7 @@ export default function CanvasScreen() {
                 >
                   {section.name}
                 </Text>
-                <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
-                  {chatCount === 1 ? "1 chat" : `${chatCount} chats`}
-                </Text>
+                <Text style={styles.footnote}>{chatCount === 1 ? "1 Chat" : `${chatCount} Chats`}</Text>
                 <View style={{ flex: 1 }} />
                 {section.linked.map((label) => (
                   <LinkChip key={label} label={label} />
@@ -217,30 +215,9 @@ export default function CanvasScreen() {
   );
 }
 
+/** A Link written out on a card or header: a neutral Tag. */
 function LinkChip({ label, wide = false }: { label: string; wide?: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      accessible
-      accessibilityLabel={`Linked to ${label}`}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        minHeight: 24,
-        paddingHorizontal: 8,
-        borderRadius: radius.full,
-        borderCurve: "continuous",
-        backgroundColor: colors.hover,
-        maxWidth: wide ? "100%" : 200,
-      }}
-    >
-      <Icon icon={Link04Icon} tone="ink2" size={12} />
-      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "500", flexShrink: 1 }}>
-        {label}
-      </Text>
-    </View>
-  );
+  return <Tag icon={Link04Icon} label={label} accessibilityLabel={`Linked to ${label}`} style={{ maxWidth: wide ? "100%" : 200 }} />;
 }
 
 function Diff({ diff }: { diff?: CanvasWorktree["diff"] }) {
@@ -299,7 +276,7 @@ function Card({ worktree, now, onOpen }: { worktree: CanvasWorktree & { rows: Ro
                   {status.label}
                 </Text>
                 {single && (
-                  <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, flexShrink: 1 }}>
+                  <Text numberOfLines={1} style={[styles.footnote, { flexShrink: 1 }]}>
                     · {worktree.branch}
                   </Text>
                 )}

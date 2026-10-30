@@ -6,7 +6,7 @@ import type { GenuiComponentName, GenuiProps } from "@milagre/shared/genui";
 import { squareRows } from "@milagre/shared/genui";
 import { useTheme } from "../theme";
 import { radius } from "../design-tokens";
-import { Button as UiButton, PageScroll } from "../ui";
+import { PageScroll, PillButton, ProgressBar } from "../ui";
 import { BarChart, LineChart } from "./charts";
 
 export type GenuiRenderer<K extends GenuiComponentName> = (args: ComponentRenderProps<GenuiProps<K>>) => ReactNode;
@@ -115,7 +115,7 @@ const Callout: GenuiRenderer<"Callout"> = ({ props }) => {
   const { colors } = useTheme();
   const text = useChatText();
   const tone = props.tone ?? "info";
-  // Info is neutral: accent is kept for focus, links and selection.
+  // Info is neutral, as on desktop: accent is kept for focus and links.
   const tint = { info: colors.field, success: colors.greenTint, warning: colors.orangeTint, danger: colors.redTint }[tone];
   const edge = { info: colors.lineStrong, success: colors.green, warning: colors.orange, danger: colors.red }[tone];
   return (
@@ -143,20 +143,13 @@ const Progress: GenuiRenderer<"Progress"> = ({ props }) => {
   const value = Math.min(1, Math.max(0, Number.isFinite(props.value) ? props.value : 0));
   const percent = Math.round(value * 100);
   return (
-    <View
-      accessible
-      accessibilityRole="progressbar"
-      accessibilityLabel={props.label}
-      accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}%` }}
-      style={{ gap: 4 }}
-    >
-      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+    <View style={{ gap: 4 }}>
+      {/* The bar reads the label and its value; the row above only shows them. */}
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={{ color: colors.ink2, ...text.scaled(13) }}>{props.label}</Text>
         <Text style={{ color: colors.ink2, ...text.scaled(13), fontVariant: ["tabular-nums"] }}>{percent}%</Text>
       </View>
-      <View style={{ height: 6, borderRadius: radius.full, backgroundColor: colors.field, overflow: "hidden" }}>
-        <View style={{ height: 6, borderRadius: radius.full, backgroundColor: colors.ink, width: `${value * 100}%` }} />
-      </View>
+      <ProgressBar value={value} accessibilityLabel={props.label} />
     </View>
   );
 };
@@ -165,9 +158,9 @@ const Button: GenuiRenderer<"Button"> = ({ props }) => {
   const trigger = useTriggerAction();
   const streaming = useIsStreaming();
   return (
-    <UiButton
+    <PillButton
       title={props.label}
-      secondary={props.variant === "secondary"}
+      variant={props.variant === "secondary" ? "secondary" : "primary"}
       disabled={streaming}
       onPress={() => trigger(props.label, undefined, props.action as never)}
     />

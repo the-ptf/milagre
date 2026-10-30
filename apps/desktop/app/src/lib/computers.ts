@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { ComputersSnapshot, ComputerView } from "../electron.d.ts";
-import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
+import { LOCAL_COMPUTER, computerOfKey, presenceTone } from "@milagre/shared/chat-scopes";
 import { useSettings } from "./settings.ts";
 import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
 import { readHiddenComputers, subscribeHiddenComputers } from "./hidden-projects.ts";
@@ -17,12 +17,13 @@ export function useApplyOtherComputers() {
 }
 
 export type ComputerTone = "online" | "connecting" | "offline" | "refused";
-/** The status dot (design sidebar-c-sections v6): green online, amber while it connects, grey offline, red refused. */
+const DOT_VAR = { green: "var(--green)", orange: "var(--orange)", red: "var(--red)", ink4: "var(--ink-4)" } as const;
+/** The status dot, as the phone draws it (presenceTone): green online, orange while it connects, red refused, ink-4 offline. */
 export const DOT_COLOR: Record<ComputerTone, string> = {
-  online: "var(--green)",
-  connecting: "var(--orange)",
-  offline: "var(--ink-3)",
-  refused: "var(--red)",
+  online: DOT_VAR[presenceTone("online")],
+  connecting: DOT_VAR[presenceTone("connecting")],
+  offline: DOT_VAR[presenceTone("offline")],
+  refused: DOT_VAR[presenceTone("refused")],
 };
 
 export function computerTone({ state }: Pick<ComputerView, "state">): ComputerTone {

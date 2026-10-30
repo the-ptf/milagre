@@ -20,13 +20,13 @@ export function WorktreeLinkDivider({ context }: { context: WorktreeLinkedContex
   return (
     <>
       <TranscriptDivider data-worktree-link-divider label={worktreeLinkText(context)}>
-        {/* The visible text names the button; it opens the summary in a dialog. -mx/-my keep the row's size with a 24px target. */}
+        {/* The visible text names the button; it opens the summary in a dialog. */}
         <button
           type="button"
           disabled={!canOpen}
           onClick={() => setOpen(true)}
           aria-haspopup={canOpen ? "dialog" : undefined}
-          className="-mx-2 -my-0.5 flex h-6 min-w-0 items-center gap-1.5 rounded-control px-2 transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-ink disabled:cursor-default"
+          className="flex h-6 min-w-0 items-center gap-1.5 rounded-control px-2 transition-colors enabled:hover:bg-hover enabled:hover:text-ink disabled:cursor-default"
         >
           <Icon icon={Link04Icon} size={12} className="shrink-0" />
           <span className="shrink-0">Linked to{label.lead ? ` ${label.lead}` : ""}</span>

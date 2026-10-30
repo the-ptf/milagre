@@ -10,24 +10,29 @@ import { useReducedMotion } from "./motion";
 export type Tone = { [K in keyof Palette]: Palette[K] extends string ? K : never }[keyof Palette];
 export type IconData = IconSvgElement;
 
-/** Desktop's icon set (Hugeicons), so the same action looks the same on both apps. */
+/**
+ * Desktop's icon set (Hugeicons), so the same action looks the same on both apps. `size` is on the scale 12 | 16 | 18 |
+ * 20 | 24 (design-tokens.test.ts holds literals to it; a glyph sized to the chat text may follow the text). The line
+ * weight comes with the size: 1.6 at 12, 1.8 from 16 up.
+ */
 export function Icon({
   icon,
   tone = "ink2",
   color,
   size = 18,
-  strokeWidth = 1.8,
+  strokeWidth,
 }: {
   icon: IconData;
   tone?: Tone;
   color?: string;
   size?: number;
+  /** @deprecated The stroke follows the size. */
   strokeWidth?: number;
 }) {
   const { colors } = useTheme();
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <HugeiconsIcon icon={icon} size={size} color={color ?? colors[tone]} strokeWidth={strokeWidth} />
+      <HugeiconsIcon icon={icon} size={size} color={color ?? colors[tone]} strokeWidth={strokeWidth ?? (size <= 12 ? 1.6 : 1.8)} />
     </View>
   );
 }
@@ -35,7 +40,7 @@ export function Icon({
 /** Every provider mark follows the device's Appearance choice, using the same shapes as desktop. */
 export function ProviderLogo({
   provider,
-  size = 15,
+  size = 16,
   dim = false,
   inverted = false,
 }: {
@@ -106,7 +111,7 @@ export function ProviderLogo({
  * Desktop's SpinnerRing: a line-colored track with a short ink-3 arc turning once every 1.1s. Under reduced motion it
  * stands still and steps between full and 45% opacity every 0.8s, as desktop's does, so it still reads as loading.
  */
-export function SpinnerRing({ size = 14, stroke = 2, tone = "ink3", color }: { size?: number; stroke?: number; tone?: Tone; color?: string }) {
+export function SpinnerRing({ size = 16, stroke = 2, tone = "ink3", color }: { size?: number; stroke?: number; tone?: Tone; color?: string }) {
   const { colors } = useTheme();
   const reduced = useReducedMotion();
   const [spin] = useState(() => new Animated.Value(0));
@@ -124,7 +129,7 @@ export function SpinnerRing({ size = 14, stroke = 2, tone = "ink3", color }: { s
   return (
     <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{ width: size, height: size }, motion]}>
       <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color ?? colors.lineStrong} strokeOpacity={color ? 0.2 : 1} strokeWidth={stroke} />
+        <Circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color ?? colors.line} strokeOpacity={color ? 0.2 : 1} strokeWidth={stroke} />
         <Circle
           cx={size / 2}
           cy={size / 2}

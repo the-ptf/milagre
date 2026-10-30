@@ -10,13 +10,13 @@ import {
   GitPullRequestIcon,
   LaptopIcon,
   PlusMinus01Icon,
-  Tick02Icon,
   ViewIcon,
 } from "@hugeicons/core-free-icons";
 import { CHAT_ROW_FIELDS, type ChatRowField, type ChatRowShow } from "@milagre/shared/chat-row";
-import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
+import { CheckboxBox } from "../primitives/Checkbox";
 import { Icon } from "../primitives/Icon";
+import { MenuLabel, MenuRow } from "../primitives/Popover";
 import { ProjectAvatar } from "../primitives/ProjectAvatar";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { LinearLogo } from "../ProviderLogo";
@@ -43,8 +43,7 @@ const FilterHorizontalFilledIcon: HugeIconData = FilterHorizontalIcon.map(([tag,
 ) as HugeIconData;
 
 type Sub = "projects" | "show";
-const ROW =
-  "relative z-10 flex h-9 w-full items-center gap-2 rounded-control px-2 text-left focus-visible:bg-hover-2 focus-visible:-outline-offset-2 disabled:opacity-40";
+// Popover's panel (primitives/Popover), placed by hand: above the button, with its submenu beside it.
 const PANEL = "fixed z-50 flex flex-col overflow-hidden rounded-card bg-surface shadow-raised";
 const rowsOf = (panel: HTMLElement | null) => [...(panel?.querySelectorAll<HTMLElement>("[data-menu-row]:not(:disabled)") ?? [])];
 
@@ -144,56 +143,50 @@ export function FiltersButton({
     } else if (event.key === "Tab") event.preventDefault();
   };
 
-  const subRow = (which: Sub, icon: ReactNode, label: string, detail?: string) => (
-    <button
-      data-menu-row
+  const subRow = (which: Sub, icon: IconSvgElement, label: string, detail?: string) => (
+    <MenuRow
       data-sub={which}
-      type="button"
-      role="menuitem"
       aria-haspopup="menu"
       aria-expanded={sub?.which === which}
       onPointerEnter={(event) => openSub(which, event.currentTarget, false)}
       onClick={(event) => openSub(which, event.currentTarget, true)}
-      className={`${ROW} ${sub?.which === which ? "bg-hover-2" : ""}`}
-    >
-      <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-13 text-ink">{label}</span>
-      {detail && <span className="shrink-0 text-12 text-ink-3">{detail}</span>}
-      <span className="flex shrink-0 text-ink-3">
-        <Icon icon={ArrowRight01Icon} size={14} />
-      </span>
-    </button>
+      // The row whose submenu is open keeps the highlight.
+      className={sub?.which === which ? "bg-hover-2" : ""}
+      icon={icon}
+      title={label}
+      trailing={
+        <>
+          {detail && <span className="shrink-0 text-11 font-normal text-ink-3">{detail}</span>}
+          <Icon icon={ArrowRight01Icon} size={14} className="shrink-0 text-ink-3" />
+        </>
+      }
+    />
   );
 
   const projectRow = (project: PickerProject) => (
-    <Tooltip key={project.path} label={project.current && !project.shown ? "Shown while it's the open project" : project.path} wrap className="w-full">
-      <button
-        data-menu-row
+    <Tooltip key={project.path} label={project.current && !project.shown ? "Shown while it's the open Project" : project.path} wrap asChild>
+      <MenuRow
         data-project-choice={project.path}
         role="menuitemcheckbox"
         aria-checked={project.shown}
-        type="button"
         disabled={!project.listed}
         onClick={() => onShowProject(project.path, !project.shown)}
-        className={ROW}
-      >
-        {/* The Checkbox primitive's look: the row itself is the checkbox, so a nested control would be one too many. */}
-        <span
-          aria-hidden
-          className={`flex size-4 shrink-0 items-center justify-center rounded-inline border transition-colors duration-fast ${project.shown ? "border-ink bg-ink text-on-ink" : "border-ink-3"}`}
-        >
-          {project.shown && <Icon icon={Tick02Icon} size={14} />}
-        </span>
-        <ProjectAvatar name={project.name} initial={project.initial} src={project.current ? currentImage : imageOf(project.path)} />
-        <span className={`min-w-0 flex-1 truncate text-13 ${project.shown ? "text-ink" : "text-ink-3"}`}>{project.name}</span>
-        {project.current && <span className="shrink-0 text-11 text-ink-3">Open</span>}
-      </button>
+        // The row itself is the checkbox (CheckboxBox draws it), so a nested control would be one too many.
+        icon={<CheckboxBox checked={project.shown} />}
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            <ProjectAvatar name={project.name} initial={project.initial} src={project.current ? currentImage : imageOf(project.path)} />
+            <span className={`min-w-0 truncate ${project.shown ? "" : "text-ink-3"}`}>{project.name}</span>
+          </span>
+        }
+        trailing={project.current ? "Open" : undefined}
+      />
     </Tooltip>
   );
 
   return (
     <>
-      <Tooltip label={hiddenCount ? `Filters (${hiddenCount} projects hidden)` : "Filters"} side="bottom">
+      <Tooltip label={hiddenCount ? `Filters (${hiddenCount} Projects hidden)` : "Filters"} side="bottom" asChild>
         <button
           ref={buttonRef}
           type="button"
@@ -226,14 +219,10 @@ export function FiltersButton({
                 transformOrigin: "bottom left",
               }}
             >
-              <GlideMenu
-                className="flex flex-col gap-px"
-                rowSelector="[data-menu-row]:not(:disabled)"
-                highlightClassName="inset-x-0 rounded-control bg-hover-2"
-              >
-                {projects && subRow("projects", <Icon icon={Folder01Icon} />, "Projects", hiddenCount ? `${hiddenCount} hidden` : undefined)}
-                {subRow("show", <Icon icon={ViewIcon} />, "Show")}
-              </GlideMenu>
+              <div className="flex flex-col gap-px">
+                {projects && subRow("projects", Folder01Icon, "Projects", hiddenCount ? `${hiddenCount} hidden` : undefined)}
+                {subRow("show", ViewIcon, "Show")}
+              </div>
             </div>
             {sub && (
               <div
@@ -252,11 +241,7 @@ export function FiltersButton({
                 }}
               >
                 <ScrollArea className="p-1.5">
-                  <GlideMenu
-                    className="flex flex-col gap-px"
-                    rowSelector="[data-menu-row]:not(:disabled)"
-                    highlightClassName="inset-x-0 rounded-control bg-hover-2"
-                  >
+                  <div className="flex flex-col gap-px">
                     {sub.which === "projects"
                       ? (computers ? bySection(projects ?? [], computers) : [{ id: "", name: "", local: false, rows: projects ?? [] }]).map(
                           (section, index) => (
@@ -268,11 +253,10 @@ export function FiltersButton({
                               className="flex flex-col gap-px"
                             >
                               {computers && (
-                                <div
-                                  data-project-section-header
-                                  className={`flex h-7 items-center px-2 text-11 font-medium text-ink-3 ${index > 0 ? "mt-1.5" : ""}`}
-                                >
-                                  <span className="min-w-0 truncate">{section.local ? `${section.name} · This Mac` : section.name}</span>
+                                <div data-project-section-header className={index > 0 ? "mt-1.5" : ""}>
+                                  <MenuLabel>
+                                    <span className="block truncate">{section.local ? `${section.name} · This Mac` : section.name}</span>
+                                  </MenuLabel>
                                 </div>
                               )}
                               {section.rows.map(projectRow)}
@@ -280,26 +264,16 @@ export function FiltersButton({
                           ),
                         )
                       : fields.map((field) => (
-                          <button
+                          <MenuRow
                             key={field.id}
-                            data-menu-row
                             data-show-field={field.id}
-                            role="menuitemcheckbox"
-                            aria-checked={show[field.id]}
-                            type="button"
+                            checked={show[field.id]}
                             onClick={() => onShowField(field.id, !show[field.id])}
-                            className={ROW}
-                          >
-                            <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">{FIELD_ICONS[field.id]}</span>
-                            <span className="min-w-0 flex-1 truncate text-13 text-ink">{field.label}</span>
-                            {show[field.id] && (
-                              <span className="flex shrink-0 text-ink-2">
-                                <Icon icon={Tick02Icon} size={14} />
-                              </span>
-                            )}
-                          </button>
+                            icon={FIELD_ICONS[field.id]}
+                            title={field.label}
+                          />
                         ))}
-                  </GlideMenu>
+                  </div>
                 </ScrollArea>
               </div>
             )}

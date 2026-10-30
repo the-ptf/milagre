@@ -137,9 +137,9 @@ async function browserChecks() {
   async function sendInNewWorktree(prompt) {
     await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
-    if (!(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('New worktree')`))) {
+    if (!(await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree')`))) {
       await click("Local", { exact: false });
-      await click("New worktree", { exact: false });
+      await click("New Worktree", { exact: false });
     }
     await waitFor(`!!document.querySelector('[data-prompt-editor]')`);
     await evaluate(`document.querySelector('[data-prompt-editor]').focus()`);
@@ -162,7 +162,7 @@ async function browserChecks() {
     await evaluate(`(${settingsProject("shop")}).click()`);
     await waitFor(`!!document.querySelector('#setup-command') && !document.querySelector('#setup-command').disabled`);
     assert.equal(await evaluate(`document.querySelector('#setup-command').placeholder`), "npm ci");
-    assert.equal(await evaluate(`document.body.textContent.includes('Runs once in each new worktree before the agent starts, e.g. npm ci.')`), true);
+    assert.equal(await evaluate(`document.body.textContent.includes('Runs once in each new Worktree before the agent starts, e.g. npm ci.')`), true);
     await type("#setup-command", "pnpm install --frozen-lockfile", "HTMLInputElement");
     await waitFor(`window.calls.saved.at(-1) === "pnpm install --frozen-lockfile"`);
     await evaluate(`document.activeElement.blur()`);

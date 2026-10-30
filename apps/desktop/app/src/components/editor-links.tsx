@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import { openInEditor, useEditors } from "../lib/editors";
 import { useNotice } from "../lib/notice";
+import { TOAST } from "../lib/toast";
 
 const RootContext = createContext<string | null>(null);
 const FilesRootContext = createContext<string | null>(null);
@@ -36,13 +37,15 @@ export function useFileOpener(): { open: (path: string, line?: number) => void; 
   );
 }
 
-/** The small notice at the bottom of the window. */
+/** The small notice at the bottom of the window, drawn as the toast (lib/toast): an ink capsule that fades up. */
 export function Notice() {
   const notice = useNotice();
   if (!notice) return null;
   return (
-    <div role="status" key={notice.id} className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-6">
-      <div className="rounded-control bg-surface px-3 py-2 text-12 font-medium text-ink shadow-overlay">{notice.text}</div>
+    <div role="status" key={notice.id} className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-6">
+      <div className={TOAST} style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}>
+        {notice.text}
+      </div>
     </div>
   );
 }

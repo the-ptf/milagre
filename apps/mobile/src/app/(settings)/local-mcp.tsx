@@ -6,18 +6,17 @@ import { LocalMcpSection } from "../../local-mcp-section";
 
 /** Settings › Milagre: Designs and artifacts, then the Milagre MCP, like desktop's Milagre section. */
 export default function MilagreScreen() {
-  const header = (title: string) => <SectionLabel style={{ paddingHorizontal: 16 }}>{title}</SectionLabel>;
   return (
     <>
       <Stack.Screen options={{ title: "Milagre" }} />
       <PageScroll>
         <View style={{ gap: 24 }}>
           <View style={{ gap: 8 }}>
-            {header("Designs and artifacts")}
+            <SectionLabel>Designs and artifacts</SectionLabel>
             <PublishedPagesSection />
           </View>
           <View style={{ gap: 8 }}>
-            {header("Milagre MCP")}
+            <SectionLabel>Milagre MCP</SectionLabel>
             <LocalMcpSection />
           </View>
         </View>

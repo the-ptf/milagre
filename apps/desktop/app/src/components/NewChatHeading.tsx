@@ -2,7 +2,9 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowDown01Icon, BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
+import { MenuSeparator } from "./primitives/Popover";
 import { Icon } from "./primitives/Icon";
 import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { useDismiss } from "../lib/use-dismiss";
@@ -85,7 +87,8 @@ export function NewChatHeading({
                 setOpen(true);
               }
             }}
-            className={`flex h-8 max-w-[480px] items-center gap-1 rounded-control px-2 transition-colors duration-fast hover:bg-hover ${open ? "bg-hover" : "bg-field"}`}
+            // A field-filled trigger: hover-2 on hover and while open, so both show on the field fill.
+            className={`flex h-8 max-w-[480px] items-center gap-1 rounded-control px-2 transition-colors ${open ? "bg-hover-2" : "bg-field hover:bg-hover-2"}`}
           >
             {place}
             <span className="shrink-0 text-ink-3">
@@ -132,8 +135,8 @@ function ProjectPicker({
     <PickerPanel
       query={query}
       onQueryChange={setQuery}
-      placeholder="Search projects"
-      emptyLabel="No projects found."
+      placeholder="Search Projects"
+      emptyLabel={UI_COPY.noProjects}
       isEmpty={rows.length === 0}
       className="absolute top-[calc(100%+0.375rem)] left-0 z-30 w-[300px] max-w-[calc(100vw-2rem)] text-left"
       style={{ transformOrigin: "top left" }}
@@ -164,7 +167,7 @@ function ProjectPicker({
                   onPick(key, { exists: group.copies.find((copy) => copy.key === key)?.exists ?? false });
                 }}
               />
-              {index < rows.length - 1 && <div className="mx-1.5 my-1 h-px bg-line" />}
+              {index < rows.length - 1 && <MenuSeparator />}
             </Fragment>
           );
         return (

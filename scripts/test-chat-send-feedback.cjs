@@ -67,7 +67,7 @@ async function browserChecks() {
     await waitFor(`!!document.querySelector('[data-new-chat-pickers]')`);
     const current = await evaluate(`document.querySelector('[data-new-chat-pickers]').textContent`);
     if (!current.includes(isolation)) {
-      await clickText(isolation === "Local" ? "New worktree" : "Local");
+      await clickText(isolation === "Local" ? "New Worktree" : "Local");
       await clickText(isolation);
     }
   }
@@ -173,7 +173,7 @@ async function browserChecks() {
     assert.deepEqual(await evaluate("window.calls.queueRemoved"), [["/fixture#2", "q2"]]);
     await loadFixture(process.argv[2]);
     await waitFor(`!!document.querySelector('[aria-label="New chat"]')`);
-    await newChat("New worktree");
+    await newChat("New Worktree");
     await type("Add a checkout page");
     await screenshot("before-send");
     await evaluate(`document.querySelector('[aria-label="Send"]').click()`);
@@ -228,7 +228,7 @@ async function browserChecks() {
     assert.equal(await occurrences("Check the local project"), 1);
     assert.equal(await evaluate(`window.firstSendTranscript === ${transcript}`), true, "saving a first message keeps the transcript mounted");
 
-    await newChat("New worktree");
+    await newChat("New Worktree");
     await evaluate(`(() => {
       const transfer = new DataTransfer();
       transfer.items.add(new File([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='), c => c.charCodeAt(0))], 'note.png', { type: 'image/png' }));
@@ -263,7 +263,7 @@ async function browserChecks() {
     await evaluate("window.saveSend(); window.ackSend()");
     await waitFor(acknowledged);
 
-    await newChat("New worktree");
+    await newChat("New Worktree");
     await send("Continue in the background");
     await immediate("Continue in the background");
     await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);
@@ -281,7 +281,7 @@ async function browserChecks() {
       "background completion keeps the selected chat and its draft",
     );
     assert.equal(await evaluate(`${transcript}?.textContent.includes('Continue in the background') ?? false`), false);
-    await newChat("New worktree");
+    await newChat("New Worktree");
     await evaluate(`(() => {
       const transfer = new DataTransfer();
       transfer.items.add(new File(['notes'], 'recovery.txt', { type: 'text/plain' }));

@@ -5,6 +5,7 @@ import { useDismiss } from "../lib/use-dismiss";
 import { contextHint, contextSummary, contextTone } from "./usage/format";
 import { UsageBar } from "./usage/UsageBar";
 import Tooltip from "./primitives/Tooltip";
+import { Button, IconButton } from "./primitives/Button";
 
 const CARD_WIDTH = 264;
 const CARD_GAP = 8;
@@ -14,8 +15,9 @@ const CLOSE_DELAY_MS = 150;
 
 type Position = { left: number; bottom: number };
 
-// The ring's colour by how full the window is: ink, then the accent from 75%, then red from 90% (see contextTone).
-const STROKE = { normal: "var(--ink-2)", warning: "var(--accent-ink)", critical: "var(--red)" } as const;
+// The ring's colour by how full the window is: ink-2, then orange from 75%, then red from 90% (see contextTone). Accent
+// is for focus and links, never a state.
+const STROKE = { normal: "var(--ink-2)", warning: "var(--orange)", critical: "var(--red)" } as const;
 
 /**
  * A ring that fills as the agent's context window does; the agent compacts it when it gets close to full.
@@ -82,10 +84,11 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
 
   return (
     <>
-      <button
+      <IconButton
         ref={trigger}
-        type="button"
-        aria-label={label}
+        label={label}
+        tooltip={false}
+        shape="pill"
         aria-description={attention ? "Compaction recommended. Open context details to compact." : undefined}
         aria-expanded={position !== null}
         aria-controls={position ? "context-card" : undefined}
@@ -99,7 +102,6 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
           if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-context-card]"))) hide();
         }}
         onClick={() => (position ? hide() : show())}
-        className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-fast hover:bg-hover ${position ? "bg-hover-2" : ""}`}
       >
         <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" className="-rotate-90">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--line-strong)" strokeWidth="2" />
@@ -125,7 +127,7 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
             style={{ backgroundColor: STROKE[tone] }}
           />
         )}
-      </button>
+      </IconButton>
       {position &&
         createPortal(
           <div
@@ -153,25 +155,23 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
               </div>
             </div>
             {(hint || onCompact) && (
-              <div className="flex flex-col gap-2 border-t border-line px-4 py-3 text-12 leading-[1.45] text-ink-2">
+              <div className="flex flex-col gap-2 border-t border-line px-4 py-3 text-12 text-ink-2">
                 {hint && <p>{hint}</p>}
                 {onCompact && (
                   <Tooltip label={compactBlocked || "Summarize this Chat to free up context."} className="w-full" wrap>
-                    <button
-                      type="button"
+                    {/* aria-disabled, not disabled: it stays focusable, so the Tooltip's reason is read out. */}
+                    <Button
                       data-compact-now
                       aria-disabled={Boolean(compactBlocked)}
-                      aria-description={compactBlocked || undefined}
                       onClick={() => {
                         if (compactBlocked) return;
                         hide();
                         onCompact();
                       }}
-                      // Not Button: aria-disabled keeps it focusable for its tooltip, and Button's hover only knows `disabled`.
-                      className={`inline-flex h-8 w-full items-center justify-center rounded-control bg-ink px-2.5 text-12 font-medium text-on-ink transition-opacity duration-fast ${compactBlocked ? "cursor-default opacity-40" : "hover:opacity-90"}`}
+                      className="w-full"
                     >
                       Compact now
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               </div>

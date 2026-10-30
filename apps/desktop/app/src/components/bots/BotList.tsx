@@ -3,6 +3,7 @@ import type { BotsSnapshot } from "@milagre/shared/bots";
 import { BotAvatar } from "./BotAvatar";
 import { Icon } from "../primitives/Icon";
 import { SectionLabel } from "../primitives/SectionLabel";
+import Tooltip from "../primitives/Tooltip";
 
 /** 08:05 today; Oct 14 before that. */
 function botTime(at: number | null, now = Date.now()) {
@@ -38,7 +39,7 @@ export function BotList({
             const first = [...pending].sort((a, b) => a.createdAt - b.createdAt)[0];
             if (first) onPickBot(first.botId);
           }}
-          className={`sidebar-rail-button mb-3 flex h-8 items-center rounded-control border border-orange/30 bg-orange-tint text-orange-ink transition-transform duration-fast ease-enter active:scale-press ${
+          className={`sidebar-rail-button mb-3 flex h-8 items-center rounded-control bg-orange-tint text-orange-ink transition-transform duration-fast ease-enter active:scale-press ${
             collapsed ? "mx-auto w-8 justify-center" : "mx-2 gap-1.5 px-2"
           }`}
         >
@@ -54,7 +55,8 @@ export function BotList({
       </SectionLabel>
       {bots.map((bot) => {
         const active = bot.id === selectedBotId;
-        return (
+        // Rows press darker, not smaller; the open one is hover-2, a hovered one the lighter hover.
+        const row = (
           <button
             key={bot.id}
             type="button"
@@ -62,9 +64,8 @@ export function BotList({
             data-bot-id={bot.id}
             aria-current={active ? "page" : undefined}
             onClick={() => onPickBot(bot.id)}
-            title={collapsed ? bot.name : undefined}
-            className={`sidebar-row relative mx-2 mb-px flex h-12 items-center gap-2 rounded-control px-1.5 text-left transition-[background-color,transform] duration-fast ease-enter active:scale-press ${
-              active ? "bg-hover-2" : "hover:bg-hover-sidebar"
+            className={`sidebar-row relative mx-2 mb-px flex h-12 items-center gap-2 rounded-control px-1.5 text-left transition-colors active:bg-hover-2 ${
+              active ? "bg-hover-2" : "hover:bg-hover"
             }`}
           >
             <BotAvatar color={bot.color} body={bot.body} size={28} />
@@ -80,6 +81,14 @@ export function BotList({
             </span>
           </button>
         );
+        // Collapsed to the rail, only the avatar shows: the Tooltip names the bot.
+        return collapsed ? (
+          <Tooltip key={bot.id} label={bot.name} asChild>
+            {row}
+          </Tooltip>
+        ) : (
+          row
+        );
       })}
     </div>
   );
@@ -93,7 +102,7 @@ export function NewBotButton({ onClick, collapsed }: { onClick: () => void; coll
       data-new-bot
       aria-label="New bot"
       onClick={onClick}
-      className={`sidebar-rail-button flex h-8 items-center rounded-control text-13 text-ink-2 transition-colors duration-fast hover:bg-hover-sidebar hover:text-ink ${
+      className={`sidebar-rail-button flex h-8 items-center rounded-control text-13 text-ink-2 transition-colors hover:bg-hover hover:text-ink ${
         collapsed ? "mx-auto w-8 justify-center" : "mx-2 gap-1.5 px-2"
       }`}
     >

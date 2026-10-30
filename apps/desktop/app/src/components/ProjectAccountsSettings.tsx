@@ -8,6 +8,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { Select, type SelectOption } from "./primitives/Select";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
+import { Button } from "./primitives/Button";
 import { SectionLabel } from "./primitives/SectionLabel";
 import Tooltip from "./primitives/Tooltip";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
@@ -34,6 +35,9 @@ function AccountIcon({ plan }: { plan?: string }) {
   ) : null;
 }
 
+/** An inline link in a sentence: accent-ink, with a 24px target past its text. */
+const INLINE_LINK = "relative font-medium text-accent-ink before:absolute before:-inset-x-1 before:-inset-y-1 hover:underline disabled:opacity-40";
+
 const statusLabel = (state: string) =>
   state === "signing-in" ? "Signing in" : state === "error" ? "Account error" : state === "unknown" ? "Not checked" : "Not signed in";
 
@@ -53,7 +57,7 @@ export function projectAccountOptions(group: ProviderAccounts): SelectOption<str
       display: (
         <>
           <span className="truncate">{defaultAccount?.email || defaultAccount?.label || "Use computer default"}</span>
-          <span className="shrink-0 rounded-chip bg-hover px-1.5 py-0.5 text-10 font-medium text-ink-3">Default</span>
+          <span className="shrink-0 rounded-chip bg-field px-1.5 py-0.5 text-10 font-medium text-ink-2">Default</span>
         </>
       ),
     },
@@ -134,7 +138,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
     return (
       <InlineError className="px-4 py-3">
         {error}{" "}
-        <button type="button" className="underline" onClick={() => void load(true)}>
+        <button type="button" className={INLINE_LINK} onClick={() => void load(true)}>
           Retry
         </button>
       </InlineError>
@@ -174,14 +178,15 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
                 : `${effective!.email || effective!.label} · ${statusLabel(effective!.state)}`}
             </p>
             {needsSignIn && effective!.id !== "default" && (
-              <button
-                type="button"
-                className="shrink-0 text-12 font-medium text-ink underline underline-offset-2 disabled:opacity-40"
+              <Button
+                variant="link"
+                size={24}
+                className="-mr-2"
                 disabled={busy || signingIn}
                 onClick={() => void act(() => window.milagre.accountAction("login", group.provider, effective!.id))}
               >
                 Re-authenticate
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -199,11 +204,7 @@ function Footnote({ onManageAccounts }: { onManageAccounts: () => void }) {
   return (
     <p className="mt-2 px-1 text-12 text-ink-3">
       Running replies keep their original account. The next turn uses the one chosen here.{" "}
-      <button
-        type="button"
-        className="font-medium text-ink-2 underline underline-offset-2 transition-colors duration-fast hover:text-ink"
-        onClick={onManageAccounts}
-      >
+      <button type="button" className={INLINE_LINK} onClick={onManageAccounts}>
         Manage saved accounts
       </button>
     </p>
@@ -271,7 +272,7 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
           {scopeError ? (
             <InlineError className="px-4 py-3">
               {scopeError}{" "}
-              <button type="button" className="underline" onClick={() => setScopeReload((value) => value + 1)}>
+              <button type="button" className={INLINE_LINK} onClick={() => setScopeReload((value) => value + 1)}>
                 Retry
               </button>
             </InlineError>

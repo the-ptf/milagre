@@ -132,7 +132,7 @@ async function browserChecks() {
       const element = document.activeElement;
       return element.getAttribute('aria-label') || (element.querySelector('[data-model-name]') ? 'Model' : element.textContent.trim());
     })()`;
-    const expectedFocus = ["New worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
+    const expectedFocus = ["New Worktree", "main", "Linear issue", "Prompt", "Add attachments and sources", "Model", "Agent permissions", "Dictate", "Send"];
     const tab = async (backwards = false) => {
       const modifiers = backwards ? ["shift"] : [];
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab", modifiers });

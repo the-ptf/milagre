@@ -153,7 +153,10 @@ async function browserChecks() {
       `(()=>{const style=getComputedStyle(document.querySelector('[data-inbox-arrow="right"] span'));const matrix=new DOMMatrix(style.transform);const page=document.querySelector('[data-inbox-item="/work/shop#2"]');return {x:matrix.m41,scale:matrix.m11,opacity:Number(style.opacity),color:style.color,thumbX:new DOMMatrix(getComputedStyle(document.querySelector('[data-position-thumb]')).transform).m41,slideX:page?new DOMMatrix(getComputedStyle(page.parentElement).transform).m41:null}})()`,
       jumpSource(2, 3),
     );
-    assert.equal(navigation[0].color, "rgb(255, 255, 255)", "navigation feedback uses a white arrow");
+    const ink = await evaluate(
+      `(()=>{const probe=document.createElement('span');probe.style.color='var(--ink)';document.querySelector('[data-inbox-arrow="right"]').append(probe);const color=getComputedStyle(probe).color;probe.remove();return color})()`,
+    );
+    assert.equal(navigation[0].color, ink, "navigation feedback uses an ink arrow");
     if (!(await evaluate('window.matchMedia("(prefers-reduced-motion: reduce)").matches'))) {
       assert.ok(
         navigation.some((arrow) => arrow.x > 0 && arrow.scale > 1 && arrow.opacity > 0.45),
@@ -201,7 +204,12 @@ async function browserChecks() {
     window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
     window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
     await waitFor('window.opened === "/work/shop#3"');
-    assert.equal(await evaluate('document.querySelector("[data-inbox-shortcuts]").textContent.includes("Enter to open Chat")'), true);
+    assert.equal(
+      await evaluate(
+        '!!document.querySelector("[data-inbox-shortcuts] kbd[aria-label=Enter]") && document.querySelector("[data-inbox-shortcuts]").textContent.includes("to open Chat")',
+      ),
+      true,
+    );
     await click('[aria-label="Previous message"]');
     assert.equal(await evaluate('document.querySelector("[data-inbox-item]").dataset.inboxItem'), "/work/shop#2");
     await evaluate('document.activeElement.blur(); window.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft",bubbles:true}))');
@@ -294,7 +302,12 @@ async function browserChecks() {
     assert.equal(await evaluate("window.answer.answers"), null, "Enter on Dismiss must dismiss rather than send a selected answer");
     await evaluate("window.resetInbox(); window.permissionCalls=0; window.permission=null");
     await click('[data-inbox-agent="/work/shop#2"]');
-    assert.equal(await evaluate('document.querySelector("[data-inbox-shortcuts]").textContent.includes("Enter to allow once")'), true);
+    assert.equal(
+      await evaluate(
+        '!!document.querySelector("[data-inbox-shortcuts] kbd[aria-label=Enter]") && document.querySelector("[data-inbox-shortcuts]").textContent.includes("to allow once")',
+      ),
+      true,
+    );
     await evaluate(`document.activeElement.blur();
       for(const extra of [{repeat:true},{isComposing:true},{shiftKey:true},{altKey:true},{ctrlKey:true},{metaKey:true}])
         window.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,...extra}));`);
@@ -349,16 +362,20 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector('[aria-label=\"15 more Chats. Open inbox\"]').textContent.trim()"), "+15");
     await click('[aria-label="15 more Chats. Open inbox"]');
     assert.equal(await evaluate("window.toggled"), true, "overflow opens the inbox containing all Chats");
+    // The floating inbox follows the theme (decision 15): the thumb is the theme's ink.
     assert.equal(
-      await evaluate('getComputedStyle(document.querySelector("[data-position-thumb]")).backgroundColor'),
-      "rgb(245, 245, 245)",
-      "the thumb is the inbox panel's dark ink token",
+      await evaluate(
+        `(()=>{const thumb=document.querySelector("[data-position-thumb]");const probe=document.createElement('span');probe.style.color='var(--ink)';thumb.parentElement.append(probe);const ink=getComputedStyle(probe).color;probe.remove();return getComputedStyle(thumb).backgroundColor===ink&&ink!=='rgba(0, 0, 0, 0)'})()`,
+      ),
+      true,
+      "the thumb is the theme's ink token",
     );
     for (let index = 0; index < 20; index++) await click('[aria-label="Next message"]');
     assert.equal(await evaluate('document.querySelector("[data-inbox-count]").textContent.trim()'), "20 of 20");
     assert.equal(await evaluate('document.querySelectorAll("[data-position-track]").length'), 1);
     assert.equal(await evaluate('document.querySelector("[data-position-track]").getBoundingClientRect().width'), 100);
-    assert.equal(await evaluate('new DOMMatrix(getComputedStyle(document.querySelector("[data-position-thumb]")).transform).m41'), 78);
+    // At the last message the 24px thumb sits at the end of the 100px track.
+    assert.equal(await evaluate('new DOMMatrix(getComputedStyle(document.querySelector("[data-position-thumb]")).transform).m41'), 76);
     await jump(10, 20);
     assert.equal(await evaluate('document.querySelector("[data-inbox-count]").textContent.trim()'), "10 of 20");
     assert.equal(await evaluate('document.querySelector("[data-position-thumb]").getAttribute("aria-valuetext")'), "Chat 10 of 20");

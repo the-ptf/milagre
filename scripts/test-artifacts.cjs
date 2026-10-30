@@ -528,7 +528,7 @@ async function browserChecks() {
     assert.ok(await evaluate(`${pendingShare}.querySelector("a") !== null`), "an uncertain upload keeps its URL accessible and revocable");
     assert.equal(await evaluate(publishLabel), "Update snapshot", "a retry goes to the same link");
     await screenshot("share-page-uncertain");
-    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog}`);
     await evaluate(`${dock}.querySelector("[aria-label='Share page']").click()`);
     await waitFor(`!!${pendingShare}`);
@@ -542,7 +542,7 @@ async function browserChecks() {
       "the retry confirmed the same link",
     );
 
-    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((b) => b.textContent === "Close").click()`);
+    await evaluate(`${shareDialog}.querySelector("[aria-label='Close']").click()`);
     await waitFor(`!${shareDialog} && !!${dock}`);
 
     // The group card's Open frames every design it showed.
@@ -804,7 +804,7 @@ async function browserChecks() {
       `(() => { const p = ${frame("login")}.querySelector("[data-slot=artifact-pin]").getBoundingClientRect(); const b = ${frame("login")}.querySelector("[data-slot=artifact-comment-bubble]").getBoundingClientRect(); return { pin: [p.left, p.top, p.width], bubble: [b.left, b.top, Math.round(b.width)] }; })()`,
     );
     assert.ok(
-      Math.abs(bubble.pin[0] - point.x) < 1.5 && Math.abs(bubble.pin[1] - point.y) < 1.5 && Math.round(bubble.pin[2]) === 24,
+      Math.abs(bubble.pin[0] - point.x) < 1.5 && Math.abs(bubble.pin[1] - point.y) < 1.5 && Math.round(bubble.pin[2]) === 20,
       `the pin's point is on the click: ${JSON.stringify(bubble)}`,
     );
     assert.ok(
@@ -1092,7 +1092,7 @@ async function browserChecks() {
     );
     assert.equal(await evaluate("window.expandedEvents"), 1, "expanding asks the other side panels to close");
     await screenshot("expanded");
-    await evaluate(`${dock}.querySelector("[aria-label='Show the chat beside the designs']").click()`);
+    await evaluate(`${dock}.querySelector("[aria-label='Show the Chat beside the designs']").click()`);
     await waitFor(`!${dock}.dataset.full`);
     // Back beside the chat, the chat makes room for the panel again.
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');

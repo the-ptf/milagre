@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View, type ColorValue, type TextStyle } from "react-native";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions, type ColorValue, type TextStyle } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -14,8 +14,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { Icon, type IconData, type Tone } from "./icons";
 import { useReducedMotion } from "./motion";
-import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
-import { useTheme } from "./theme";
+import { duration, easing, hitSlopFor, lineHeight, radius, type } from "./design-tokens";
+import { inkFor, useTheme } from "./theme";
 import { DISABLED_OPACITY, PRESSED_OPACITY } from "./ui";
 
 // The Terminal and Ports pills set the size every status pill above the composer shares.
@@ -23,8 +23,12 @@ const HEIGHT = 24;
 const FONT_SIZE = type.caption2;
 const LINE_HEIGHT = lineHeight.caption2;
 const ICON_SIZE = 12;
+/** Pill text grows with the text size up to this, and the pill with it. */
+const MAX_SCALE = 1.5;
+/** Status words take their tone's -ink shade (4.5:1); the icon keeps the fill tone. */
+const INK_TONES = new Set<Tone>(["accent", "green", "orange", "red", "purple"]);
 
-const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+const EASE_OUT = Easing.bezier(...easing.enter);
 type PillKit = {
   layout?: ReturnType<typeof LinearTransition.duration>;
   pillIn?: EntryOrExitLayoutType;
@@ -43,22 +47,21 @@ function kitFor(scale: number): PillKit {
   const ms = (value: number) => Math.round(value * scale);
   // Worklets run on the UI thread and cannot call `ms`: every duration they use is computed here and captured as a number.
   const d90 = ms(90);
-  const d120 = ms(120);
-  const d160 = ms(160);
-  const d220 = ms(220);
-  const d260 = ms(260);
+  const fast = ms(duration.fast);
+  const base = ms(duration.base);
+  const slow = ms(duration.slow);
   if (scale <= 0) kit = { letterIn: () => undefined, scale };
   else
     kit = {
       scale,
-      layout: LinearTransition.duration(ms(240)).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
+      layout: LinearTransition.duration(slow).easing(EASE_OUT).reduceMotion(ReduceMotion.System),
       // A pill grows in from a slightly smaller size while the pills beside it slide over. Only its contents fade: UIKit
       // drops the Liquid Glass effect for good when an ancestor's alpha animates, so nothing above the glass may fade in.
       pillIn: () => {
         "worklet";
         return {
           initialValues: { transform: [{ scale: 0.85 }] },
-          animations: { transform: [{ scale: withDelay(d90, withTiming(1, { duration: d260, easing: EASE_OUT })) }] },
+          animations: { transform: [{ scale: withDelay(d90, withTiming(1, { duration: slow, easing: EASE_OUT })) }] },
         };
       },
       pillOut: () => {
@@ -66,24 +69,24 @@ function kitFor(scale: number): PillKit {
         return {
           initialValues: { opacity: 1, transform: [{ scale: 1 }] },
           animations: {
-            opacity: withTiming(0, { duration: d120 }),
-            transform: [{ scale: withTiming(0.85, { duration: d160 }) }],
+            opacity: withTiming(0, { duration: fast }),
+            transform: [{ scale: withTiming(0.85, { duration: base }) }],
           },
         };
       },
-      contentIn: FadeIn.delay(ms(90)).duration(ms(160)).reduceMotion(ReduceMotion.System),
-      countIn: FadeIn.duration(ms(180)).reduceMotion(ReduceMotion.System),
-      countOut: FadeOut.duration(ms(100)).reduceMotion(ReduceMotion.System),
+      contentIn: FadeIn.delay(d90).duration(base).reduceMotion(ReduceMotion.System),
+      countIn: FadeIn.duration(base).reduceMotion(ReduceMotion.System),
+      countOut: FadeOut.duration(fast).reduceMotion(ReduceMotion.System),
       /** One letter of a changed label rises into place after the letters before it. */
       letterIn: (delay: number) => {
-        const base = ms(delay);
+        const wait = ms(delay);
         return () => {
           "worklet";
           return {
             initialValues: { opacity: 0, transform: [{ translateY: 4 }] },
             animations: {
-              opacity: withDelay(base, withTiming(1, { duration: d160 })),
-              transform: [{ translateY: withDelay(base, withTiming(0, { duration: d220, easing: EASE_OUT })) }],
+              opacity: withDelay(wait, withTiming(1, { duration: base })),
+              transform: [{ translateY: withDelay(wait, withTiming(0, { duration: base, easing: EASE_OUT })) }],
             },
           };
         };
@@ -121,7 +124,8 @@ export function StatusPill({
 }) {
   const { colors } = useTheme();
   const kit = useKit();
-  const text: TextStyle = { color: colors[tone], fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, fontVariant: ["tabular-nums"] };
+  const ink = INK_TONES.has(tone) ? inkFor(colors, tone as Parameters<typeof inkFor>[1]) : colors[tone];
+  const text: TextStyle = { color: ink, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, fontVariant: ["tabular-nums"] };
   return (
     <Animated.View entering={kit.pillIn} exiting={kit.pillOut} layout={kit.layout}>
       <Pressable
@@ -132,7 +136,7 @@ export function StatusPill({
         onPress={onPress}
         hitSlop={hitSlopFor(HEIGHT)}
         style={({ pressed }) => ({
-          height: HEIGHT,
+          minHeight: HEIGHT,
           paddingHorizontal: 8,
           borderRadius: radius.full,
           borderCurve: "continuous",
@@ -178,12 +182,17 @@ function Letters({ text, style }: { text: string; style: TextStyle }) {
   const kit = useKit();
   const [shown, setShown] = useState({ text, generation: 0 });
   if (shown.text !== text) setShown({ text, generation: shown.generation + 1 });
-  if (!shown.generation || reduced) return <Text style={style}>{text}</Text>;
+  if (!shown.generation || reduced)
+    return (
+      <Text maxFontSizeMultiplier={MAX_SCALE} style={style}>
+        {text}
+      </Text>
+    );
   return (
     <View key={shown.generation} style={{ flexDirection: "row" }}>
       {[...text].map((letter, index) => (
         // The letters only ever remount together (the parent is keyed by generation), so an index key is stable.
-        <Animated.Text key={index} style={style} entering={kit.letterIn(Math.min(index * 18, 300))}>
+        <Animated.Text key={index} maxFontSizeMultiplier={MAX_SCALE} style={style} entering={kit.letterIn(Math.min(index * 18, 300))}>
           {letter}
         </Animated.Text>
       ))}
@@ -212,20 +221,22 @@ function RollingNumber({ value, style }: { value: number; style: TextStyle }) {
 function Digit({ digit, direction, style }: { digit: string; direction: number; style: TextStyle }) {
   const reduced = useReducedMotion();
   const { scale } = useKit();
+  // The digit's box is its line, grown with the text so a large digit isn't clipped.
+  const line = LINE_HEIGHT * Math.min(useWindowDimensions().fontScale, MAX_SCALE);
   const [state, setState] = useState<{ digit: string; previous: string | null; direction: number }>({ digit, previous: null, direction });
   if (state.digit !== digit) setState({ digit, previous: state.digit, direction });
   const progress = useSharedValue(1);
-  const travel = useSharedValue<number>(LINE_HEIGHT);
+  const travel = useSharedValue<number>(line);
   useEffect(() => {
     if (state.previous === null) return;
     if (reduced) {
       progress.set(1);
       return;
     }
-    travel.set(LINE_HEIGHT * state.direction);
+    travel.set(line * state.direction);
     progress.set(0);
-    progress.set(withDelay(16, withTiming(1, { duration: Math.round(280 * scale), easing: EASE_OUT })));
-  }, [state, reduced, scale, progress, travel]);
+    progress.set(withDelay(16, withTiming(1, { duration: Math.round(duration.slow * scale), easing: EASE_OUT })));
+  }, [state, reduced, scale, line, progress, travel]);
   const incoming = useAnimatedStyle(() => ({
     opacity: progress.get(),
     transform: [{ translateY: (1 - progress.get()) * travel.get() }],
@@ -235,10 +246,14 @@ function Digit({ digit, direction, style }: { digit: string; direction: number; 
     transform: [{ translateY: -progress.get() * travel.get() }],
   }));
   return (
-    <View style={{ height: LINE_HEIGHT, overflow: "hidden" }}>
-      <Animated.Text style={[style, incoming]}>{state.digit}</Animated.Text>
+    <View style={{ height: line, overflow: "hidden" }}>
+      <Animated.Text maxFontSizeMultiplier={MAX_SCALE} style={[style, incoming]}>
+        {state.digit}
+      </Animated.Text>
       {state.previous !== null && (
-        <Animated.Text style={[style, { position: "absolute", left: 0, right: 0, textAlign: "center" }, outgoing]}>{state.previous}</Animated.Text>
+        <Animated.Text maxFontSizeMultiplier={MAX_SCALE} style={[style, { position: "absolute", left: 0, right: 0, textAlign: "center" }, outgoing]}>
+          {state.previous}
+        </Animated.Text>
       )}
     </View>
   );

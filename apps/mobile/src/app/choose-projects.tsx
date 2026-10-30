@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
-import { lineHeight, radius, type } from "../design-tokens";
+import { lineHeight, type } from "../design-tokens";
 import { useSession } from "../session";
 import { allComputers, setOtherComputerProjectHidden, useComputerViews } from "../all-computers";
 import type { HostView } from "../all-computers-store";
@@ -109,14 +109,14 @@ export default function ChooseProjects() {
           ? "No Projects on this computer yet."
           : "Open a Project on your Mac to list it here.";
   const list = (projects: Computer) => (
-    <View key={projects.hostId} style={{ borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.surface, padding: 4 }}>
+    <View key={projects.hostId} style={[styles.card, { padding: 4, gap: 0 }]}>
       {projects.projects.map((project) => row(projects.hostId, project))}
       {!projects.projects.length && <Text style={[styles.muted, { padding: 16 }]}>{empty(projects)}</Text>}
     </View>
   );
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ gap: 0, padding: 0 }}>
-      <SheetHeader title="Choose projects" trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => router.back()} />} />
+      <SheetHeader title="Choose Projects" trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => router.back()} />} />
       <View style={{ gap: 16, padding: 16, paddingTop: 8 }}>
         <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
         {/* With two or more computers, each one's Projects sit under its name, as in desktop's Filters › Projects. */}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject, ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Delete02Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
-import { EASE_OUT } from "../../lib/ease";
+import { DURATION, EASE_OUT } from "../../lib/ease";
 import { labelFor } from "../../lib/diff-comments";
 import type { CommentView } from "./useDiffComments";
 import { Button, IconButton } from "../primitives/Button";
@@ -17,7 +17,7 @@ function Rise({ children, className, ...rest }: { children: ReactNode; className
       {...rest}
       initial={reduced ? false : { opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: EASE_OUT }}
+      transition={{ duration: DURATION.base, ease: EASE_OUT }}
     >
       {children}
     </motion.div>
@@ -67,7 +67,7 @@ export function CommentCard({ comment, onEdit, onDelete }: { comment: CommentVie
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         {onEdit && !comment.outdated && <IconButton label="Edit comment" icon={PencilEdit02Icon} size={24} data-diff-comment-edit onClick={onEdit} />}
-        <IconButton label="Delete comment" icon={Delete02Icon} size={24} data-diff-comment-delete onClick={onDelete} />
+        <IconButton label="Delete comment" icon={Delete02Icon} size={24} variant="danger-ghost" data-diff-comment-delete onClick={onDelete} />
       </div>
     </Rise>
   );
@@ -128,10 +128,10 @@ export function CommentEditor({
             if (body) (onAddToReview ?? onSave)(body);
           }
         }}
-        className="block w-full resize-none rounded-control border border-line-strong bg-page px-2.5 py-2 text-12 text-ink outline-none transition-colors duration-fast placeholder:text-ink-3 focus:border-accent"
+        className="block w-full resize-none rounded-control border border-line-strong bg-field px-2.5 py-2 text-12 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent"
       />
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" size={28} data-diff-comment-cancel onClick={onCancel}>
+        <Button variant="ghost" size={28} data-diff-comment-cancel onClick={onCancel}>
           Cancel
         </Button>
         {onAddToReview && (

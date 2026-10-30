@@ -10,6 +10,8 @@ import { MediaLightbox } from "./motion/LazyMediaLightbox";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { useRemoteMedia } from "../lib/remote-media";
 import { Icon } from "./primitives/Icon";
+import { ProgressBar } from "./primitives/ProgressBar";
+import { Skeleton } from "./primitives/Skeleton";
 import Tooltip from "./primitives/Tooltip";
 
 const NO_IMAGES: ImageAttachment[] = [];
@@ -129,13 +131,13 @@ export function Attachments({
               className="block rounded-inline"
             >
               {item.kind === "image" && !item.src ? (
-                <span aria-hidden className="block size-20 animate-pulse rounded-inline bg-hover" />
+                <Skeleton secondary className="size-20" />
               ) : item.kind === "image" ? (
                 <img src={item.src} alt={item.name} className={`size-20 rounded-inline object-contain ${showing(item.id) ? "opacity-0" : ""}`} />
               ) : (
                 <span className={`relative block ${showing(item.id) ? "opacity-0" : ""}`}>
                   <video src={item.src} muted preload="metadata" className="h-20 w-28 rounded-inline object-contain" />
-                  <span className="absolute bottom-0 left-0 rounded-inline bg-surface/90 px-1 text-10">Play video</span>
+                  <span className="absolute bottom-0 left-0 rounded-inline bg-surface px-1 text-10">Play video</span>
                 </span>
               )}
               <span className="block max-w-28 truncate px-1 text-11 text-ink-2">{item.name}</span>
@@ -146,7 +148,7 @@ export function Attachments({
           {item.index !== undefined && (
             <span
               data-image-badge={item.index}
-              className="pointer-events-none absolute top-1.5 left-1.5 rounded-inline bg-surface/90 px-1 py-px text-10 font-semibold leading-tight text-ink shadow-card"
+              className="pointer-events-none absolute top-1.5 left-1.5 rounded-inline bg-surface px-1 py-px text-10 font-semibold text-ink shadow-card"
             >
               #{item.index}
             </span>
@@ -239,18 +241,8 @@ function UploadTile({ upload }: { upload: AttachmentUpload }) {
         <span className="relative flex size-20 flex-col items-center justify-center gap-1 overflow-hidden rounded-inline bg-surface text-ink-3">
           <Icon icon={File01Icon} size={18} />
           <span className="text-11 font-medium tabular-nums">{percent}%</span>
-          <span
-            role="progressbar"
-            aria-label={`Uploading ${upload.name}`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
-            className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-hover"
-          >
-            <span
-              className="block h-full rounded-full bg-ink transition-[width] duration-base motion-reduce:transition-none"
-              style={{ width: `${percent}%` }}
-            />
+          <span className="absolute inset-x-2 bottom-2">
+            <ProgressBar label={`Uploading ${upload.name}`} value={percent / 100} />
           </span>
         </span>
         <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{upload.name}</span>

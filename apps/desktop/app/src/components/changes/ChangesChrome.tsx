@@ -2,13 +2,12 @@ import { useShortcutLabel } from "../../lib/keybindings";
 import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { chatMarkPresentation } from "@milagre/shared/chats";
 import Tooltip from "../primitives/Tooltip";
-import { Button, buttonClass } from "../primitives/Button";
+import { Button, buttonClass, IconButton } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
-import GlideMenu from "../primitives/GlideMenu";
-import { ScrollArea } from "../primitives/ScrollArea";
-import { useDismiss } from "../../lib/use-dismiss";
-import { EASE_OUT } from "../../lib/ease";
+import { MenuRow, Popover } from "../primitives/Popover";
+import { DURATION, EASE_OUT } from "../../lib/ease";
 import { useControlsClearance, useWindowChrome } from "../../lib/window-chrome";
 
 /**
@@ -43,7 +42,7 @@ export function DiffBar({
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
-          transition={reduced ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT }}
+          transition={reduced ? { duration: 0 } : { duration: DURATION.base, ease: EASE_OUT }}
         >
           <div className="no-drag flex items-center gap-2">
             <Button variant="secondary" data-diff-back onClick={onBack} className="pl-2">
@@ -60,7 +59,7 @@ export function DiffBar({
                   initial={{ opacity: 0, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.96 }}
-                  transition={reduced ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT }}
+                  transition={reduced ? { duration: 0 } : { duration: DURATION.base, ease: EASE_OUT }}
                   className={buttonClass()}
                 >
                   {send.count === 1 ? "Send 1 comment" : `Send ${send.count} comments`}
@@ -82,16 +81,7 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
   return (
     <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset }}>
       <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
-        <button
-          type="button"
-          aria-label="Toggle changes panel"
-          aria-pressed={open}
-          data-changes-toggle
-          onClick={onToggle}
-          className={`flex size-8 items-center justify-center rounded-control transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press ${open ? "bg-hover text-ink" : "text-ink-3"}`}
-        >
-          <Icon icon={GitBranchIcon} size={18} />
-        </button>
+        <IconButton label="Toggle changes panel" icon={GitBranchIcon} size={32} aria-pressed={open} data-changes-toggle onClick={onToggle} />
       </Tooltip>
     </div>
   );
@@ -104,16 +94,7 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
   return (
     <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
-        <button
-          type="button"
-          aria-label="Show active Chats as a grid"
-          aria-pressed={grid}
-          data-layout-toggle
-          onClick={onToggle}
-          className={`flex size-8 items-center justify-center rounded-control transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press ${grid ? "bg-hover text-ink" : "text-ink-3"}`}
-        >
-          <Icon icon={GridViewIcon} size={18} />
-        </button>
+        <IconButton label="Show active Chats as a grid" icon={GridViewIcon} size={32} aria-pressed={grid} data-layout-toggle onClick={onToggle} />
       </Tooltip>
     </div>
   );
@@ -130,13 +111,6 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const many = items.length > 1;
-  // The button is fixed to the window's corner, so a scroll or resize never moves it: the menu stays open.
-  useDismiss(
-    open && many,
-    () => setOpen(false),
-    (target) => !!target.closest("[data-attention]"),
-    () => {},
-  );
   const go = (key: string) => {
     setOpen(false);
     onOpen(key);
@@ -152,61 +126,39 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
         animation: "fade-in var(--duration-fast) var(--ease-enter)",
       }}
     >
-      <button
-        ref={trigger}
-        type="button"
-        data-attention-button
-        title={label}
-        aria-haspopup={many ? "menu" : undefined}
-        aria-expanded={many ? open : undefined}
-        onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-13 font-medium text-orange-ink transition-colors duration-fast hover:bg-hover ${open ? "bg-hover" : ""}`}
-      >
-        <span className="min-w-0 max-w-80 truncate">{label}</span>
-        <Icon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={14} />
-      </button>
-      {open && many && (
-        <div
-          role="menu"
-          aria-label="Chats waiting for you"
-          data-attention-menu
-          onKeyDown={(event) => {
-            const rows = [...event.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]")];
-            const index = rows.indexOf(document.activeElement as HTMLElement);
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setOpen(false);
-              trigger.current?.focus();
-            } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]?.focus();
-            }
-          }}
-          className="absolute top-full right-0 mt-1.5 flex w-72 flex-col overflow-hidden rounded-card bg-surface shadow-raised"
-          style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "top right" }}
+      <Tooltip label={label} side="bottom" align="end" asChild>
+        <button
+          ref={trigger}
+          type="button"
+          data-attention-button
+          aria-haspopup={many ? "menu" : undefined}
+          aria-expanded={many ? open : undefined}
+          onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
+          className="flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-3 text-13 font-medium text-orange-ink transition-colors hover:bg-hover aria-expanded:bg-hover-2"
         >
-          <ScrollArea className="max-h-80 p-1.5">
-            <GlideMenu className="flex flex-col gap-px" rowSelector="[role=menuitem]" highlightClassName="inset-x-0 rounded-control bg-hover-2">
-              {items.map((item, index) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  role="menuitem"
-                  data-attention-chat={item.key}
-                  autoFocus={index === 0}
-                  onClick={() => go(item.key)}
-                  className="relative z-10 flex min-h-11 w-full flex-col justify-center rounded-control px-2.5 py-1.5 text-left focus-visible:bg-hover-2 focus-visible:outline-2 focus-visible:-outline-offset-2"
-                >
-                  <span className="w-full truncate text-13 text-ink">{item.title || item.waitingFor || "Chat"}</span>
-                  <span className="w-full truncate text-11 text-ink-3">
-                    {item.project} ·{" "}
-                    <span className={item.asking ? "text-accent-ink" : "text-orange-ink"}>{item.asking ? "Asking you" : "Waiting for approval"}</span>
+          <span className="min-w-0 max-w-80 truncate">{label}</span>
+          <Icon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={14} />
+        </button>
+      </Tooltip>
+      {open && many && (
+        <Popover anchor={trigger} width={288} label="Chats waiting for you" onClose={() => setOpen(false)} data-attention-menu>
+          {items.map((item) => (
+            <MenuRow
+              key={item.key}
+              data-attention-chat={item.key}
+              onClick={() => go(item.key)}
+              title={item.title || item.waitingFor || "Chat"}
+              subtitle={
+                <>
+                  {item.project} ·{" "}
+                  <span className={item.asking ? "text-accent-ink" : "text-orange-ink"}>
+                    {chatMarkPresentation(item.asking ? "question" : "waiting").label}
                   </span>
-                </button>
-              ))}
-            </GlideMenu>
-          </ScrollArea>
-        </div>
+                </>
+              }
+            />
+          ))}
+        </Popover>
       )}
     </div>
   );

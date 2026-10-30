@@ -19,7 +19,8 @@ import {
 import { branchName, commitInitials, comparisonOptions, commitStatsNotice } from "@milagre/shared/git-diff";
 import type { GitCommit } from "@milagre/shared/git-diff";
 import type { PullRequest } from "@milagre/shared/model";
-import { pullRequestPresentation } from "@milagre/shared/pr-blockers";
+import { PR_TONE, pullRequestPresentation } from "@milagre/shared/pr-blockers";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import type { DiffFileEntry, DiffMode } from "../../electron";
 import type { ChangesMode } from "../../lib/pull-request-view";
 import { buildDiffTree, type DiffTreeNode } from "../../lib/diff-tree";
@@ -31,6 +32,9 @@ import { useRefreshSpin } from "./useRefreshSpin";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Icon } from "../primitives/Icon";
 import { Button, IconButton } from "../primitives/Button";
+import { EmptyState } from "../primitives/EmptyState";
+import { InlineError } from "../primitives/InlineError";
+import { Tabs } from "../primitives/Tabs";
 
 const STATUS = {
   added: { letter: "A", label: "Added", className: "bg-green-tint text-diff-add" },
@@ -200,26 +204,20 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         <span className="flex min-w-0 flex-1 items-center gap-1.5" aria-label={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}>
           <Icon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
           <BranchLabel name={current} />
-          {data && !data.branch && <span className="shrink-0 rounded-inline bg-hover px-1 text-10">detached</span>}
+          {data && !data.branch && <span className="shrink-0 rounded-inline bg-field px-1 text-10 text-ink-2">detached</span>}
         </span>
       </div>
-      <div className="flex gap-5 px-3" aria-label="Changes view" role="tablist" onKeyDown={moveTab}>
-        {(["files", "commits"] as const).map((view) => (
-          <button
-            key={view}
-            type="button"
-            role="tab"
-            aria-selected={c.view === view}
-            tabIndex={c.view === view ? 0 : -1}
-            data-comparison-view={view}
-            onClick={() => c.setView(view)}
-            className={`flex items-center gap-1.5 border-b-2 py-2 text-12 transition-colors duration-fast ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
-          >
-            {view === "files" ? "Files" : "Commits"}
-            <span className="font-normal tabular-nums text-ink-3">{view === "files" ? fileCount : data?.total}</span>
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Changes view"
+        value={c.view}
+        options={[
+          { value: "files", label: "Files", count: fileCount },
+          { value: "commits", label: "Commits", count: data?.total },
+        ]}
+        onChange={c.setView}
+        dataKey="comparison-view"
+        className="px-3 pb-2"
+      />
       {c.missing && (
         <div role="status" className="flex items-start gap-2 px-3 py-2 text-11 text-ink-3">
           <p className="min-w-0 flex-1 break-words">
@@ -232,16 +230,21 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         <div className="px-3 py-2 text-11 text-ink-3">
           <p>{data.message}</p>
           {fallback?.ref && fallback.ref !== data.comparisonRef && (
-            <button type="button" onClick={() => c.select(fallback.ref!)} className="mt-1 text-accent-ink hover:underline">
+            <Button variant="link" size={24} onClick={() => c.select(fallback.ref!)} className="mt-1 -ml-2">
               Compare with {fallback.name} instead
-            </button>
+            </Button>
           )}
         </div>
       )}
       {c.error && (
-        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-11 text-red-ink">
-          {c.error}. Retry
-        </button>
+        <div className="flex items-center gap-2 px-3 py-2">
+          <InlineError size={12} className="min-w-0 flex-1">
+            {c.error}.
+          </InlineError>
+          <Button variant="quiet" size={24} onClick={() => void c.refresh()}>
+            Retry
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -259,7 +262,7 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
         <CommitRow key={commit.sha} commit={commit} />
       ))}
       {c.data.hasMore && c.limit < 300 && (
-        <Button variant="ghost" size={28} onClick={c.more} disabled={c.loading} className="w-full text-ink-2">
+        <Button variant="quiet" size={28} onClick={c.more} disabled={c.loading} className="w-full">
           Show more commits
         </Button>
       )}
@@ -275,7 +278,7 @@ function CommitRow({ commit }: { commit: GitCommit }) {
       <summary className="cursor-pointer list-none font-medium text-ink">
         <span className="line-clamp-2 break-words">{commit.message.split("\n")[0]}</span>
         <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-11 font-normal text-ink-3">
-          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover text-10 leading-none text-ink-2">
+          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover-2 text-10 leading-none text-ink-2">
             {commitInitials(commit.author)}
           </span>
           <span className="min-w-0 truncate" title={`${commit.author} <${commit.email}>`}>
@@ -314,7 +317,7 @@ function CommitRow({ commit }: { commit: GitCommit }) {
                 () => setCopy("Copy failed. Retry"),
               )
             }
-            className="flex h-6 items-center gap-1.5 rounded-control bg-hover px-2 font-mono text-11 text-ink-2 transition-colors duration-fast hover:text-ink"
+            className="flex h-6 items-center gap-1.5 rounded-control bg-field px-2 font-mono text-11 text-ink-2 transition-colors hover:text-ink"
           >
             {commit.sha.slice(0, 8)}
             <Icon icon={Copy01Icon} size={12} />
@@ -329,16 +332,17 @@ function CommitRow({ commit }: { commit: GitCommit }) {
 /** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
 export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
 
-const TONES = { purple: "text-purple", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" } as const;
+// The icon in the fill colour (PR_TONE, as in the sidebar and on the phone); written out so Tailwind sees the classes.
+const ICON_TONE = { green: "text-green", orange: "text-orange", red: "text-red", purple: "text-purple" } as const;
 
 /** Merged purple, closed grey, otherwise the sidebar's tone: blocked red, checks running orange, open green. */
 function prLook(pr: PullRequest | undefined) {
   if (!pr) return { icon: GitPullRequestIcon, tone: "text-ink-3", state: "" };
-  if (pr.state === "MERGED") return { icon: GitMergeIcon, tone: TONES.purple, state: "Merged" };
+  if (pr.state === "MERGED") return { icon: GitMergeIcon, tone: ICON_TONE[PR_TONE.purple.icon], state: "Merged" };
   // ponytail: PullRequest has no CLOSED state today; a closed PR shows grey once it does.
   if (pr.state !== "OPEN") return { icon: GitPullRequestClosedIcon, tone: "text-ink-3", state: "Closed" };
   const look = pullRequestPresentation(pr);
-  return { icon: GitPullRequestIcon, tone: TONES[look.tone], state: look.label || "Open" };
+  return { icon: GitPullRequestIcon, tone: ICON_TONE[PR_TONE[look.tone].icon], state: look.label || "Open" };
 }
 
 /** Left and right arrows select the next tab, as a tab row does. */
@@ -422,7 +426,7 @@ export function ChangesTabs({
         >
           <Icon icon={FileDiffIcon} size={14} className="shrink-0" />
           Changes
-          {count > 0 && <span className="text-11 font-normal text-ink-3 tabular-nums">{count}</span>}
+          {count > 0 && <span className="text-ink-3 tabular-nums">{count}</span>}
         </PanelTab>
         {prs.map((tab) => {
           const look = prLook(tab.pr);
@@ -465,7 +469,8 @@ function PanelTab({
       role="tab"
       aria-selected={selected}
       tabIndex={selected ? 0 : -1}
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-12 whitespace-nowrap transition-colors duration-fast ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+      // The Tabs look (primitives/Tabs), kept by hand for the PR tabs' coloured icons and tooltips.
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-12 font-medium whitespace-nowrap transition-colors active:bg-hover-2 ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
       {...props}
     >
       {children}
@@ -522,8 +527,14 @@ export function ChangesSections({
           commentCounts={commentCounts?.[section.mode]}
         />
       ))}
-      {problem && <Notice>{problem.message}</Notice>}
-      {!sections.length && !problem && <Notice>{all.some((list) => list.state !== "ready") ? "Loading changes…" : (message ?? "No changes yet.")}</Notice>}
+      {problem?.state === "error" ? (
+        <InlineError size={12} className="px-4 py-6 text-center">
+          {problem.message}
+        </InlineError>
+      ) : (
+        problem && <Notice>{problem.message}</Notice>
+      )}
+      {!sections.length && !problem && <Notice>{all.some((list) => list.state !== "ready") ? "Loading changes…" : (message ?? UI_COPY.noChanges)}</Notice>}
     </>
   );
 }
@@ -552,7 +563,7 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
 }
 
 function Notice({ children }: { children: string }) {
-  return <p className="px-4 py-6 text-center text-12 text-ink-3">{children}</p>;
+  return <EmptyState size="compact" title={children} />;
 }
 
 type TreeProps = { onSelectFile: (path: string) => void; activePath?: string; commentCounts?: Record<string, number> };
@@ -578,7 +589,7 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
         aria-current={activePath === node.path}
         onClick={() => onSelectFile(node.path)}
         style={indent}
-        className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors duration-fast hover:bg-hover ${activePath === node.path ? "bg-hover" : ""}`}
+        className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors ${activePath === node.path ? "bg-hover-2" : "hover:bg-hover"}`}
       >
         <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
           <Icon icon={File01Icon} size={14} />
@@ -607,7 +618,7 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
         aria-expanded={!collapsed}
         onClick={() => setCollapsed((value) => !value)}
         style={indent}
-        className="flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors duration-fast hover:bg-hover"
+        className="flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors hover:bg-hover"
       >
         <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
           <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={12} />
@@ -626,9 +637,13 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
 function RefreshButton({ label, onRefresh, loading }: { label: string; onRefresh: () => void | Promise<unknown>; loading: boolean }) {
   const spin = useRefreshSpin(onRefresh, loading);
   return (
-    <Tooltip label={label} side="bottom" align="end">
+    <Tooltip label={label} side="bottom" align="end" asChild>
       <IconButton label={label} size={28} aria-busy={spin.busy || undefined} data-diff-refresh onClick={spin.refresh}>
-        <span className={spin.spinning ? "animate-spin" : ""} onAnimationIteration={spin.onAnimationIteration}>
+        <span
+          className={spin.spinning ? "refresh-spin animate-spin" : ""}
+          onAnimationIteration={spin.onAnimationIteration}
+          onAnimationEnd={spin.onAnimationEnd}
+        >
           <Icon icon={RefreshIcon} size={14} />
         </span>
       </IconButton>

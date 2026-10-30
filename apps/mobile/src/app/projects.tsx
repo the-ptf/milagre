@@ -3,16 +3,13 @@ import { Text, View } from "react-native";
 import { Redirect, Stack, router, useLocalSearchParams } from "expo-router";
 import { useSession } from "../session";
 import { ProjectNavigation } from "../project-navigation";
-import { ErrorNotice, PillButton, useStyles } from "../ui";
+import { EmptyState, ErrorNotice, useStyles } from "../ui";
 import { LoadingLogo } from "../loading-logo";
 import { useSplit } from "../split-context";
 import { requestNavigation } from "../navigation-commands";
-import { useTheme } from "../theme";
-import { lineHeight, type } from "../design-tokens";
 
 export default function ProjectsScreen() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const session = useSession();
   // On a wide iPad the Chats list is the pinned sidebar, so this page only invites a pick.
   const { pinned } = useSplit();
@@ -35,7 +32,7 @@ export default function ProjectsScreen() {
           router.replace({ pathname: "/chat", params: { id: String(chat.id), projectPath: copy.project.path, hostId: target.hostId } });
       })
       .catch(() => {
-        if (!cancelled) setError("Could not reopen your last Chat. Choose a project below to continue.");
+        if (!cancelled) setError("Could not reopen your last Chat. Choose a Project below to continue.");
       })
       .finally(() => {
         if (!cancelled) setRestoring(false);
@@ -66,12 +63,10 @@ export default function ProjectsScreen() {
             </View>
           ) : null}
           {pinned ? (
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 24 }}>
-              <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
-                Pick a Chat
-              </Text>
-              <Text style={[styles.muted, { textAlign: "center" }]}>Choose one in the sidebar, or start a new one with ⌘N.</Text>
-              <PillButton title="New Chat" onPress={() => requestNavigation({ kind: "new" })} style={{ marginTop: 8 }} />
+            <View style={{ flex: 1, justifyContent: "center" }}>
+              <EmptyState title="Pick a Chat" action={{ title: "New Chat", onPress: () => requestNavigation({ kind: "new" }) }}>
+                Choose one in the sidebar, or start a new one with ⌘N.
+              </EmptyState>
             </View>
           ) : (
             <ProjectNavigation onNavigate={(href, secondary) => (secondary ? router.push(href) : router.replace(href))} />

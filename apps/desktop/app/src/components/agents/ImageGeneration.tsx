@@ -2,8 +2,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Alert02Icon, RotateClockwiseIcon, Tick02Icon } from "@hugeicons/core-free-icons";
-import { EASE_IN_OUT, EASE_OUT, SPRING_PRESS } from "../../lib/ease";
-import { buttonClass } from "../primitives/Button";
+import { DURATION, EASE_IN_OUT, EASE_OUT } from "../../lib/ease";
+import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 
 // Adapted from beUI's Image Generation (https://beui.dev/components/agents/image-generation, MIT).
@@ -187,7 +187,7 @@ function DitherField({ interactive, reduce, status }: { interactive: boolean; re
       aria-hidden="true"
       initial={false}
       animate={{ opacity: OVERLAY_OPACITY[status] }}
-      transition={{ duration: reduce ? 0 : 0.28, ease: EASE_OUT }}
+      transition={{ duration: reduce ? 0 : DURATION.slow, ease: EASE_OUT }}
       className="absolute inset-0 overflow-hidden bg-field"
     >
       <canvas ref={canvasRef} className="absolute inset-0 size-full text-ink" />
@@ -227,7 +227,7 @@ export function ImageGeneration({
             aria-hidden={children ? undefined : true}
             initial={false}
             animate={reduce ? { opacity: mediaState.opacity } : { filter: mediaState.filter, opacity: mediaState.opacity, scale: mediaState.scale }}
-            transition={reduce ? { duration: 0 } : { duration: 0.28, ease: EASE_OUT }}
+            transition={reduce ? { duration: 0 } : { duration: DURATION.slow, ease: EASE_OUT }}
             className={cx("absolute inset-0 [&>*]:size-full [&>*]:object-cover [&_img]:size-full [&_img]:object-cover", mediaClassName)}
           >
             {children}
@@ -240,7 +240,7 @@ export function ImageGeneration({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: reduce ? 0 : 0.28, ease: EASE_OUT }}
+                transition={{ duration: reduce ? 0 : DURATION.slow, ease: EASE_OUT }}
                 className="absolute inset-0"
               >
                 <DitherField interactive={interactive} reduce={reduce} status={status} />
@@ -269,7 +269,7 @@ export function ImageGeneration({
                     initial={reduce ? false : { opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={reduce ? undefined : { opacity: 0, y: -4 }}
-                    transition={{ duration: reduce ? 0 : 0.12, ease: EASE_OUT }}
+                    transition={{ duration: reduce ? 0 : DURATION.fast, ease: EASE_OUT }}
                   >
                     {resolvedStatusText}
                   </motion.span>
@@ -285,16 +285,10 @@ export function ImageGeneration({
         ) : null}
 
         {status === "error" && onRetry ? (
-          <motion.button
-            type="button"
-            onClick={onRetry}
-            whileTap={reduce ? undefined : { scale: 0.97 }}
-            transition={SPRING_PRESS}
-            className={`mt-2 ${buttonClass({ variant: "ghost" })}`}
-          >
+          <Button variant="ghost" onClick={onRetry} className="mt-2">
             <Icon icon={RotateClockwiseIcon} size={14} />
             Try again
-          </motion.button>
+          </Button>
         ) : null}
       </div>
     </div>

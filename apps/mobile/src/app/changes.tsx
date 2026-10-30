@@ -52,7 +52,7 @@ function ProjectChangesView({ worktreeId, header, onOpen }: { worktreeId: number
       contentContainerStyle={{ gap: 12 }}
     >
       {header}
-      <Text numberOfLines={1} style={[styles.caption, { paddingHorizontal: 4 }]}>
+      <Text numberOfLines={1} style={styles.caption}>
         {worktree.name}
       </Text>
       <ChangeSections

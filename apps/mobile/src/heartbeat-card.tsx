@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Pulse01Icon } from "@hugeicons/core-free-icons";
 import { triggerText } from "@milagre/shared/routines";
 import type { ChatStep } from "@milagre/shared/model";
@@ -7,8 +7,8 @@ import { useSession } from "./session";
 import { useRoutines } from "./use-routines";
 import { heartbeatEnd } from "./routine-rows";
 import { Icon } from "./icons";
-import { ErrorNotice, pressStyle, tap } from "./ui";
-import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
+import { InlineError, PillButton } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -72,35 +72,10 @@ export function HeartbeatCard({ step }: { step: ChatStep }) {
             {meta}
           </Text>
         ) : null}
-        {error ? <ErrorNotice message={error} /> : null}
+        <InlineError message={error} />
       </View>
       {routine ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Stop ${ref.name}`}
-          accessibilityState={{ disabled: stopping, busy: stopping }}
-          disabled={stopping}
-          hitSlop={hitSlopFor(32)}
-          onPress={() => {
-            tap();
-            void stop();
-          }}
-          style={({ pressed }) => [
-            {
-              minHeight: 32,
-              paddingHorizontal: 12,
-              borderRadius: radius.full,
-              borderCurve: "continuous",
-              justifyContent: "center",
-              borderWidth: 1,
-              borderColor: colors.lineStrong,
-              backgroundColor: colors.surface,
-            },
-            pressStyle({ pressed, disabled: stopping }),
-          ]}
-        >
-          <Text style={{ color: colors.ink, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>Stop</Text>
-        </Pressable>
+        <PillButton size="small" secondary title="Stop" accessibilityLabel={`Stop ${ref.name}`} loading={stopping} onPress={() => void stop()} />
       ) : null}
     </View>
   );

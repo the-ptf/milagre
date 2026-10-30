@@ -8,8 +8,8 @@ import { CHATS_ACCOUNT_DETAIL } from "@milagre/shared/chats-home";
 import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
-import { CheckRow, ErrorNotice, ListRow, PageScroll, PullDown, SectionLabel, useStyles } from "./ui";
-import { lineHeight, radius, type as typeScale } from "./design-tokens";
+import { CheckRow, ErrorNotice, InlineError, ListRow, PageScroll, PullDown, SectionLabel, Tag, useStyles } from "./ui";
+import { lineHeight, type } from "./design-tokens";
 import { useTheme, type Palette } from "./theme";
 
 const statusLabel = (state: string, message?: string) =>
@@ -88,7 +88,7 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
           setError("");
         }
       } catch {
-        if (version === request.current && activeScope.current === scopeKey) setError("Could not load project accounts. Try refreshing.");
+        if (version === request.current && activeScope.current === scopeKey) setError("Could not load Project accounts. Try refreshing.");
       }
     },
     [client, scopeKey],
@@ -155,8 +155,8 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
     const fallback = group.accounts.find((account) => account.id === group.defaultId);
     const missing = group.accountId !== null && (!effective || effective.missing === true);
     const shown = group.accountId === null ? fallback : effective;
-    const type = accountType(shown?.plan);
-    const typeIcon = type === "Business" ? Briefcase01Icon : type === "Team" ? UserMultipleIcon : UserIcon;
+    const plan = accountType(shown?.plan);
+    const planIcon = plan === "Business" ? Briefcase01Icon : plan === "Team" ? UserMultipleIcon : UserIcon;
     const name = providerName(group.provider);
     const attention = missing
       ? "The assigned account is unavailable. Choose another saved account."
@@ -197,44 +197,26 @@ function ProjectAccountRows({ scopeKey }: { scopeKey: string }) {
           <View style={{ flexDirection: "row", gap: 12, alignItems: "center", minHeight: 44 }}>
             <ProviderLogo provider={group.provider} size={20} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.text, { fontWeight: "500", fontSize: typeScale.subheadline, lineHeight: lineHeight.subheadline }]}>{name}</Text>
+              <Text style={[styles.text, { fontWeight: "500", fontSize: type.subheadline, lineHeight: lineHeight.subheadline }]}>{name}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                {type ? <Icon icon={typeIcon} tone="ink3" size={12} /> : null}
+                {plan ? <Icon icon={planIcon} tone="ink3" size={12} /> : null}
                 <Text
                   numberOfLines={1}
                   style={[
                     styles.caption,
-                    { flexShrink: 1, fontSize: typeScale.footnote, lineHeight: lineHeight.footnote, color: missing ? colors.redInk : colors.ink2 },
+                    { flexShrink: 1, fontSize: type.footnote, lineHeight: lineHeight.footnote, color: missing ? colors.redInk : colors.ink2 },
                   ]}
                 >
                   {missing ? "Unavailable account" : shown?.email || shown?.label || "No computer default"}
                 </Text>
-                {group.accountId === null ? (
-                  <Text
-                    style={[
-                      styles.caption,
-                      {
-                        fontSize: typeScale.caption2,
-                        lineHeight: lineHeight.caption2,
-                        backgroundColor: colors.line,
-                        paddingHorizontal: 6,
-                        borderRadius: radius.chip,
-                        overflow: "hidden",
-                      },
-                    ]}
-                  >
-                    Default
-                  </Text>
-                ) : null}
+                {group.accountId === null ? <Tag label="Default" /> : null}
               </View>
             </View>
             <Icon icon={ArrowDown01Icon} tone="ink3" size={18} />
           </View>
         </PullDown>
         {attention ? (
-          <Text accessibilityRole="alert" style={[styles.caption, { color: colors.redInk, paddingLeft: 32 }]}>
-            {attention}
-          </Text>
+          <InlineError message={attention} style={{ paddingLeft: 32 }} />
         ) : effective?.message ? (
           <Text style={[styles.caption, { paddingLeft: 32 }]}>{effective.message}</Text>
         ) : null}
@@ -293,7 +275,7 @@ function ProjectAccountsForComputer() {
     ) : (
       <ProjectIcon client={client} path={scope.projects[0]?.path || scope.key} />
     );
-  if (!client) return <Text style={styles.muted}>Connect to a computer to choose project accounts.</Text>;
+  if (!client) return <Text style={styles.muted}>Connect to a computer to choose Project accounts.</Text>;
   return (
     <View style={{ gap: 8 }}>
       <Text style={styles.caption}>Choose which saved accounts a Project or Link uses on this computer.</Text>
@@ -318,7 +300,7 @@ function ProjectAccountsForComputer() {
           <PageScroll nestedScrollEnabled style={{ maxHeight: 280 }} contentContainerStyle={{ padding: 0 }}>
             {(["project", "link"] as const).map((kind) => (
               <View key={kind} accessibilityRole="radiogroup">
-                {scopes.some((scope) => scope.kind === kind) ? <SectionLabel>{kind === "project" ? "Projects" : "Links"}</SectionLabel> : null}
+                {scopes.some((scope) => scope.kind === kind) ? <SectionLabel flush>{kind === "project" ? "Projects" : "Links"}</SectionLabel> : null}
                 {scopes
                   .filter((scope) => scope.kind === kind)
                   .map((scope) => (

@@ -2,6 +2,7 @@ import { ShieldAlertIcon } from "@hugeicons/core-free-icons";
 import type { GateMeta, GateRecord } from "@milagre/shared/bots";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import Tooltip from "../primitives/Tooltip";
 
 export type GateChoice = "once" | "always" | "deny";
 
@@ -31,7 +32,7 @@ export function GateCard({
       data-gate-card
       data-gate-status={status}
       aria-label="Needs your sign-off"
-      className={`w-full max-w-xl rounded-card border px-4 py-3 ${open ? "border-orange/30 bg-orange-tint" : "border-line bg-surface"}`}
+      className={`w-full max-w-xl rounded-card border px-4 py-3 ${open ? "border-transparent bg-orange-tint" : "border-line bg-surface"}`}
     >
       <div className="flex items-center gap-1.5 text-12">
         <span className={`flex items-center gap-1.5 font-medium ${open ? "text-orange-ink" : "text-ink-3"}`}>
@@ -43,9 +44,11 @@ export function GateCard({
         </span>
       </div>
       <h3 className="mt-1.5 text-15 font-semibold text-ink">{gate.title}</h3>
-      <p data-gate-command className="mt-1 truncate font-mono text-12 text-ink-3" title={gate.command}>
-        {gate.command}
-      </p>
+      <Tooltip label={gate.command} side="bottom" wrap asChild>
+        <p data-gate-command className="mt-1 truncate font-mono text-12 text-ink-3">
+          {gate.command}
+        </p>
+      </Tooltip>
       {open && onAnswer && (
         <div className="mt-3 flex items-center gap-2">
           <Button disabled={answering !== null} onClick={() => onAnswer("once")}>
@@ -54,7 +57,7 @@ export function GateCard({
           <Button variant="secondary" disabled={answering !== null} onClick={() => onAnswer("always")}>
             Always for {botName}
           </Button>
-          <Button variant="ghost" disabled={answering !== null} onClick={() => onAnswer("deny")} className="text-red-ink enabled:hover:bg-red-tint">
+          <Button variant="danger-ghost" disabled={answering !== null} onClick={() => onAnswer("deny")}>
             Deny
           </Button>
         </div>

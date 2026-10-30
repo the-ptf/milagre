@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { Appearance, Platform, StyleSheet, useColorScheme } from "react-native";
 import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES } from "@milagre/shared/appearance";
-import { mix, onColor, resolvePalette, withAlpha, type ThemePalette } from "@milagre/shared/themes";
+import { mix, onColor, resolvePalette, ULTRACODE_PURPLE, withAlpha, type ThemePalette } from "@milagre/shared/themes";
 import { readThemeSettings, saveThemeSettings } from "./hosts-native";
 import { getThemeSettings, initThemeStore, setThemeSettings, subscribeTheme, type PhoneThemeSettings } from "./theme-store";
 
@@ -14,13 +14,22 @@ export type Palette = ThemePalette & {
   text: string;
   muted: string;
   error: string;
+  /** Label on an ink fill: the surface, as desktop's on-ink. */
   onInk: string;
+  /** The idle Chat mark: a solid ink4 dot. */
   idleDot: string;
+  /** Behind a modal sheet or panel (desktop's --scrim). */
+  scrim: string;
+  /** @deprecated Use `scrim`. */
   backdrop: string;
   purpleInk: string;
   purpleTint: string;
-  /** Label on a red fill (a recording mic, a destructive pill). */
+  /** Label on the plain red fill (a recording mic, icon only). */
   onRed: string;
+  /** Label on a redInk fill: the filled destructive PillButton (desktop's --on-red on bg-red-ink). */
+  onRedInk: string;
+  /** A page that is white in every theme: HTML artifacts, QR codes, design thumbnails. */
+  paper: string;
   /** Elevation as `boxShadow`, each with its hairline ring, so an elevated surface takes no border. Dark variants are deeper. */
   shadowCard: string;
   shadowRaised: string;
@@ -40,13 +49,7 @@ function applyMode(mode: PhoneThemeSettings["mode"]) {
 }
 void initThemeStore({ read: readThemeSettings, save: saveThemeSettings }).then(() => applyMode(getThemeSettings().mode));
 
-// Ultracode's purple is a brand color, the same in every theme (desktop keeps --purple out of the theme sheet too).
-// Merged PRs use it too: `purple` for icons and fills, `purpleInk` for text, `purpleTint` behind it.
-const ULTRACODE = {
-  light: { purple: "#ad46ff", purpleInk: "#8e2bdc", purpleTint: "#f6edff" },
-  dark: { purple: "#ad46ff", purpleInk: "#d0a3ff", purpleTint: "#ad46ff2e" },
-};
-const MEDIA = { media: "#000000", onMedia: "#ffffff", onMedia2: "#ffffffcc", onMediaTint: "#ffffff26" };
+const MEDIA = { media: "#000000", onMedia: "#ffffff", onMedia2: "#ffffffcc", onMediaTint: "#ffffff26", paper: "#ffffff" };
 const ELEVATION = {
   light: { card: "0 1px 3px #0000000f", raised: "0 4px 20px #0000000f", overlay: "0 8px 28px #00000017" },
   dark: { card: "0 1px 3px #00000040", raised: "0 4px 20px #00000059", overlay: "0 8px 28px #00000080" },
@@ -56,23 +59,31 @@ function extend(p: ThemePalette, scheme: "light" | "dark"): Palette {
   const shadow = ELEVATION[scheme];
   return {
     ...p,
-    ...ULTRACODE[scheme],
+    // Ultracode's purple is a brand color, the same in every theme (desktop keeps --purple out of the theme sheet too).
+    ...ULTRACODE_PURPLE[scheme],
     bg: p.page,
     panel: p.surface,
     text: p.ink,
     muted: p.ink2,
     error: p.redInk,
-    onInk: onColor(p.ink, p.page),
+    onInk: p.surface,
     onRed: onColor(p.red, p.page),
+    onRedInk: p.onRed,
     shadowCard: `${ring}, ${shadow.card}`,
     shadowRaised: `${ring}, ${shadow.raised}`,
     shadowOverlay: `${ring}, ${shadow.overlay}`,
     ...MEDIA,
-    idleDot: withAlpha(p.ink4, 0.4),
+    idleDot: p.ink4,
+    scrim: scheme === "dark" ? "#00000066" : "#00000033",
     backdrop: scheme === "dark" ? "#00000066" : "#00000033",
     add: p.green,
     remove: p.red,
   };
+}
+
+/** A status tone as text: its -ink shade, 4.5:1 on page, card and its tint. Icons, dots and spinners keep the fill tone. */
+export function inkFor(colors: Palette, tone: "accent" | "green" | "orange" | "red" | "purple" | "ink" | "ink2" | "ink3"): string {
+  return tone === "ink" || tone === "ink2" || tone === "ink3" ? colors[tone] : colors[`${tone}Ink`];
 }
 
 // Diff colors: swap the add/remove colors and the diff row tints; the theme's own green and red stay for status and errors.

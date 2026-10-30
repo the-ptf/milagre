@@ -75,7 +75,7 @@ export default function LinkProjects() {
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ gap: 0, padding: 0 }} automaticallyAdjustKeyboardInsets>
       <SheetHeader
-        title={linkId ? "Edit Link" : "Link projects"}
+        title={linkId ? "Edit Link" : "Link Projects"}
         leading={<CircleButton label="Cancel" icon={Cancel01Icon} disabled={busy} onPress={() => router.back()} />}
         trailing={
           <CircleButton
@@ -91,18 +91,18 @@ export default function LinkProjects() {
         <Text style={styles.muted}>{linkId ? LINK_UPDATE_WORKTREES_TEXT : LINK_CHAT_WORKTREES_TEXT}</Text>
         <Field label="Link name" value={name} onChangeText={setName} placeholder="e.g. RDFood" autoFocus editable={!busy} returnKeyType="next" />
         <Field
-          label="Search projects"
+          label="Search Projects"
           hideLabel
           value={query}
           onChangeText={setQuery}
-          placeholder="Search projects"
+          placeholder="Search Projects"
           editable={!busy}
           clearButtonMode="while-editing"
         />
         <PageScroll
           accessibilityLabel="Projects"
           contentInsetAdjustmentBehavior="never"
-          style={{ maxHeight: 264, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.surface }}
+          style={[styles.card, { maxHeight: 264, padding: 0 }]}
           contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 0 }}
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled

@@ -1133,7 +1133,7 @@ async function browserChecks() {
       releaseSave = resolve;
     });
     await click("[data-slot=design-save]");
-    await waitFor(`${status}.textContent.includes("Saving...")`);
+    await waitFor(`${status}.textContent.includes("Saving…")`);
     let pendingPreview;
     for (let attempt = 0; attempt < 100 && !pendingPreview; attempt++) {
       for (const child of window.webContents.mainFrame.framesInSubtree) {

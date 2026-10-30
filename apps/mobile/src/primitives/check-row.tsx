@@ -1,18 +1,20 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
-import { lineHeight, type } from "../design-tokens";
 import { Icon } from "../icons";
 import { useTheme } from "../theme";
 import { useStyles } from "./styles";
 import { tap } from "./tap";
+import { useHover } from "./hover";
 import { pressStyle } from "./press-style";
 import { CheckboxBox } from "./checkbox";
+import { rowHover, rowMetrics } from "./row-metrics";
 
 /**
- * A choice row. `kind="radio"` (one of a list: a mode, a model) shows an accent tick at the end when checked;
- * `kind="checkbox"` (any of a list: Projects to link) leads with a Checkbox. 56pt with a subtitle, 44 without.
- * Put the rows in a `radiogroup` view for radios.
+ * A choice row with ListRow's metrics (52 one line, 56 with a subtitle, 48 `compact`). `kind="radio"` (one of a list: a
+ * mode, a model) shows an 18pt ink tick at the end when checked; `kind="checkbox"` (any of a list: Projects to link)
+ * leads with a CheckboxBox. `accessory` sits after the title (a context badge), `trailing` before the tick. Put the
+ * rows in a `radiogroup` (Group `role="radiogroup"`) for radios.
  */
 export function CheckRow({
   title,
@@ -21,7 +23,12 @@ export function CheckRow({
   onPress,
   kind = "radio",
   disabled = false,
+  compact = false,
   leading,
+  accessory,
+  trailing,
+  titleLines = 2,
+  subtitleLines,
   destructive = false,
 }: {
   title: string;
@@ -30,13 +37,27 @@ export function CheckRow({
   onPress: () => void;
   kind?: "radio" | "checkbox";
   disabled?: boolean;
+  compact?: boolean;
   leading?: React.ReactNode;
+  accessory?: React.ReactNode;
+  trailing?: React.ReactNode;
+  titleLines?: number;
+  /** Unlimited by default; 1 keeps a path's start and end (middle ellipsis). */
+  subtitleLines?: number;
   destructive?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const { hovered, ...pointer } = useHover();
+  const metrics = rowMetrics({ compact, subtitle: !!subtitle });
+  const titleText = (
+    <Text numberOfLines={titleLines} style={[{ color: destructive ? colors.redInk : colors.ink, flexShrink: 1 }, metrics.title]}>
+      {title}
+    </Text>
+  );
   return (
     <Pressable
+      {...pointer}
       accessibilityRole={kind}
       accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
       accessibilityState={{ checked, disabled }}
@@ -45,28 +66,27 @@ export function CheckRow({
         tap();
         onPress();
       }}
-      style={({ pressed }) => [
-        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, minHeight: subtitle ? 56 : 44 },
-        pressStyle({ pressed, disabled, kind: "row" }),
-      ]}
+      style={({ pressed }) => [metrics.box, hovered && !disabled && rowHover(colors.hover), pressStyle({ pressed, disabled, kind: "row" })]}
     >
       {kind === "checkbox" && <CheckboxBox checked={checked} />}
       {leading}
       <View style={{ flex: 1, gap: 4 }}>
-        <Text
-          numberOfLines={1}
-          style={{
-            color: destructive ? colors.redInk : colors.ink,
-            fontSize: subtitle ? type.callout : type.body,
-            lineHeight: subtitle ? lineHeight.callout : lineHeight.body,
-            fontWeight: subtitle ? "500" : undefined,
-          }}
-        >
-          {title}
-        </Text>
-        {subtitle ? <Text style={styles.caption}>{subtitle}</Text> : null}
+        {accessory ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {titleText}
+            {accessory}
+          </View>
+        ) : (
+          titleText
+        )}
+        {subtitle ? (
+          <Text style={styles.caption} numberOfLines={subtitleLines} ellipsizeMode={subtitleLines === 1 ? "middle" : "tail"}>
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
-      {kind === "radio" && checked && <Icon icon={Tick02Icon} tone="accent" size={18} />}
+      {trailing}
+      {kind === "radio" && checked && <Icon icon={Tick02Icon} tone="ink" size={18} />}
     </Pressable>
   );
 }

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Alert02Icon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "../../model";
 import { useSettings } from "../../lib/settings";
 import { PROVIDER_NAMES, formatPercent, shownPercent, usageLabel, visibleProviders } from "./format";
 import { ProviderLogo } from "../ProviderLogo";
+import { Icon } from "../primitives/Icon";
+import Tooltip from "../primitives/Tooltip";
 import { UsageBar } from "./UsageBar";
 import { USAGE_CARD_WIDTH, UsageCard } from "./UsageCard";
 import type { UsageState } from "./useUsage";
@@ -130,31 +133,39 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
               if (!(event.relatedTarget as Element | null)?.closest("[data-usage-card]")) scheduleHide();
             }}
             onClick={() => show(item.provider)}
-            className={`sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-control px-2 text-12 tabular-nums text-ink-2 transition-[background-color,color,opacity] duration-fast hover:bg-hover-sidebar hover:text-ink ${expanded ? "bg-hover-2 text-ink" : ""} ${item.status === "error" ? "opacity-60" : ""}`}
+            className={`sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-control px-2 text-12 tabular-nums transition-[background-color,color] ${expanded ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
           >
             <span className="flex shrink-0 items-center justify-center">
               <ProviderLogo provider={item.provider} size={14} />
             </span>
             <span className="sidebar-copy min-w-0 truncate text-ink-2">{PROVIDER_NAMES[item.provider]}</span>
+            {/* The last read failed: its last-known numbers stay at full strength, and this says so. */}
+            {item.status === "error" && (
+              <Tooltip label="Couldn't read usage" side="top" className="sidebar-copy shrink-0">
+                <span data-usage-error className="flex text-red-ink">
+                  <Icon icon={Alert02Icon} size={12} />
+                </span>
+              </Tooltip>
+            )}
             {item.windows.length === 0 ? (
-              <span className="sidebar-copy ml-auto text-ink-3">—</span>
+              item.status !== "error" && <span className="sidebar-copy ml-auto text-ink-3">—</span>
             ) : (
-              <span className="sidebar-copy ml-auto flex w-[104px] shrink-0 items-center gap-2">
+              <span className="sidebar-copy ml-auto flex w-26 shrink-0 items-center gap-2">
                 {/* Share the meter area equally; a single window spans the full width. */}
                 {item.windows.slice(0, 2).map((entry) => (
-                  <span key={entry.id} className="flex min-w-0 flex-1 flex-col items-end gap-[3px]">
-                    <span className="flex items-baseline gap-[3px] whitespace-nowrap leading-none">
+                  <span key={entry.id} className="flex min-w-0 flex-1 flex-col items-end gap-0.5">
+                    <span className="flex items-baseline gap-1 whitespace-nowrap">
                       <span className="text-ink">{formatPercent(shownPercent(entry.usedPercent, usageDisplay))}</span>
                       <span className="text-ink-3">{entry.shortLabel}</span>
                     </span>
-                    <UsageBar usedPercent={entry.usedPercent} display={usageDisplay} className="h-[2px] w-full" />
+                    <UsageBar usedPercent={entry.usedPercent} display={usageDisplay} className="h-0.5 w-full" />
                   </span>
                 ))}
               </span>
             )}
             {item.windows.length > 0 && (
-              <span aria-hidden className="sidebar-usage-rail absolute bottom-[3px] left-1/2 -translate-x-1/2">
-                <UsageBar usedPercent={peakPercent(item.windows)} display={usageDisplay} className="h-[2px] w-4" />
+              <span aria-hidden className="sidebar-usage-rail absolute bottom-1 left-1/2 -translate-x-1/2">
+                <UsageBar usedPercent={peakPercent(item.windows)} display={usageDisplay} className="h-0.5 w-4" />
               </span>
             )}
           </button>

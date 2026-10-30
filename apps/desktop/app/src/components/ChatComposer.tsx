@@ -33,9 +33,7 @@ import { commitChatSwitch, transcriptShown } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
-  ArrowDown01Icon,
   BubbleChatIcon,
-  Comment01Icon,
   Folder01Icon,
   GitBranchIcon,
   GitForkIcon,
@@ -79,6 +77,8 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { Button, IconButton } from "./primitives/Button";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
+import { Chip } from "./primitives/Chip";
+import { UI_COPY } from "@milagre/shared/model-copy";
 import { SpinnerRing } from "./primitives/SpinnerRing";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
@@ -397,7 +397,7 @@ const MessageSection = memo(function MessageSection({
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && undoId && onUndo && (
-          <div className="absolute top-[3px] right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+          <div className="absolute top-0.5 right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
             <Tooltip
               label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
               keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
@@ -888,7 +888,7 @@ interface ChatComposerProps {
 type IsolationOption = { id: Isolation; name: string; description: string; icon: IconData };
 const ISOLATIONS: [IsolationOption, ...IsolationOption[]] = [
   { id: "local", name: "Local", description: "Work in the selected checkout", icon: LaptopIcon },
-  { id: "worktree", name: "New worktree", description: "Start a new branch in its own worktree", icon: GitForkIcon },
+  { id: "worktree", name: UI_COPY.newWorktree, description: "Start a new branch in its own Worktree", icon: GitForkIcon },
 ];
 
 function ChipButton({
@@ -906,18 +906,9 @@ function ChipButton({
   onClick: (trigger: HTMLElement) => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-expanded={open}
-      onClick={(event) => onClick(event.currentTarget)}
-      className={`flex h-7 min-w-0 items-center gap-1.5 rounded-control px-1.5 text-12 font-medium whitespace-nowrap transition-colors duration-fast hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
-    >
-      <span className="flex shrink-0">{leading ?? (icon && <Icon icon={icon} size={14} />)}</span>
+    <Chip icon={leading ?? icon} chevron aria-expanded={open} className="max-w-full" onClick={(event) => onClick(event.currentTarget)}>
       <span className="min-w-0 truncate">{label}</span>
-      <span className="shrink-0 text-ink-3">
-        <Icon icon={ArrowDown01Icon} size={12} />
-      </span>
-    </button>
+    </Chip>
   );
 }
 
@@ -1044,7 +1035,7 @@ function NewChatHeader({
             </Tooltip>
           )}
           {chats ? (
-            <span data-new-chat-label className="flex h-7 items-center gap-1.5 px-1.5 text-12 font-medium text-ink-2">
+            <span data-new-chat-label className="flex h-7 items-center gap-1.5 px-2.5 text-12 font-medium text-ink-2">
               <Icon icon={BubbleChatIcon} size={14} />
               {newChatLook("chats").trayLabel}
             </span>
@@ -1069,7 +1060,7 @@ function NewChatHeader({
             )
           )}
           {!chats && linearActive && onStartFromIssue && (
-            <ChipButton leading={<LinearLogo size={13} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
+            <ChipButton leading={<LinearLogo size={14} />} label="Linear issue" open={menu === "issue"} onClick={(trigger) => toggle("issue", trigger)} />
           )}
           {menu === "computer" && chooseComputer && (
             <PickerPanel title="Run on" className={`absolute ${popoverEdge} w-[320px]`} style={popoverStyle}>
@@ -1124,12 +1115,12 @@ function NewChatHeader({
           )}
           {menu === "branch" && (
             <PickerPanel
-              title={isolation === "local" ? "Choose a worktree" : "Branch from"}
+              title={isolation === "local" ? "Choose a Worktree" : "Branch from"}
               query={query}
               onQueryChange={setQuery}
-              placeholder={isolation === "local" ? "Search worktrees" : "Search branches"}
+              placeholder={isolation === "local" ? "Search Worktrees" : "Search branches"}
               searchPlacement="bottom"
-              emptyLabel={isolation === "local" ? "No worktrees found." : "No branches found."}
+              emptyLabel={isolation === "local" ? "No Worktrees found" : "No branches found"}
               isEmpty={branchRows.length === 0}
               className={`absolute ${popoverEdge} w-[420px] max-w-[calc(100vw-2rem)]`}
               style={popoverStyle}
@@ -1500,13 +1491,20 @@ export function ChatComposer({
                 <LoadingMark size={48} />
               </div>
             ) : messages.length === 0 ? (
-              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-13 text-ink-2" role="alert">
-                <p>Could not load this Chat: {loadError}</p>
-                {onRetryLoad && (
-                  <Button variant="secondary" onClick={onRetryLoad}>
-                    Try again
-                  </Button>
-                )}
+              <div className="relative flex min-h-0 flex-1 items-center justify-center px-6">
+                <InlineError
+                  variant="card"
+                  className="w-full max-w-md"
+                  action={
+                    onRetryLoad && (
+                      <Button variant="secondary" size={28} onClick={onRetryLoad}>
+                        Try again
+                      </Button>
+                    )
+                  }
+                >
+                  Could not load this Chat: {loadError}
+                </InlineError>
               </div>
             ) : (
               <div className="relative flex min-h-0 flex-1 flex-col">
@@ -1579,7 +1577,7 @@ export function ChatComposer({
                     {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
                     {resume && !isSending && (
                       <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-12 text-ink-2">
-                        <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>
+                        <span className="min-w-0 flex-1">Milagre closed while this Chat was working.</span>
                         <Button size={24} onClick={resume.onContinue} disabled={sendBlocked}>
                           Continue
                         </Button>
@@ -1621,7 +1619,7 @@ export function ChatComposer({
               )}
               {reviewPill && (
                 <PillSlot key="pr-review" slot="pr-review" className="mr-auto flex">
-                  <StatusPill onClick={reviewPill.onOpen} icon={Comment01Icon} label={`Review ${reviewPill.count}`} tone="orange" className="font-medium" />
+                  <StatusPill onClick={reviewPill.onOpen} icon={BubbleChatIcon} label="Review" count={reviewPill.count} tone="orange" className="font-medium" />
                 </PillSlot>
               )}
             </AnimatePresence>
@@ -1659,7 +1657,7 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
-          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[28px] border border-line bg-inset p-1.5 pt-1" : ""}>
+          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[20px] border border-line bg-inset p-1.5 pt-1" : ""}>
             {projectNewChat && (
               <NewChatHeader
                 worktrees={worktrees}

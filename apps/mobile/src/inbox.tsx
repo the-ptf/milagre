@@ -11,14 +11,14 @@ import { useFloatingInboxActivity } from "./floating-inbox-setting";
 import { FloatingInboxButton, floatingInboxStatus } from "./floating-inbox-button";
 import { useSession } from "./session";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { useReducedMotion } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { InboxPage, InboxPager, useInboxLayout } from "./inbox-motion";
 import { ProviderLogo, SpinnerRing } from "./icons";
 import { Approval, Questions, type InboxQuestionDraft } from "./questions";
 import { useTheme } from "./theme";
 import { lineHeight, radius, type } from "./design-tokens";
-import { GlassIconButton, ErrorNotice, PageScroll, PillButton, pressStyle, useStyles } from "./ui";
+import { EmptyState, GlassIconButton, ErrorNotice, PageScroll, PillButton, pressStyle, SheetHeader, useStyles } from "./ui";
 
 const EMPTY: InboxSnapshot = { agents: [], items: [] };
 const needsYou = (item: InboxItem) => item.status === "approval" || item.status === "question";
@@ -92,7 +92,6 @@ function usePhoneInbox() {
 
 function InboxDot({ status, monochrome = false }: { status: InboxStatus; monochrome?: boolean }) {
   const { colors } = useTheme();
-  const reduced = useReducedMotion();
   const color = monochrome
     ? colors.ink
     : status === "working"
@@ -104,7 +103,8 @@ function InboxDot({ status, monochrome = false }: { status: InboxStatus; monochr
           : status === "question"
             ? colors.accentInk
             : colors.orange;
-  if (status === "working" && !reduced) return <SpinnerRing size={12} stroke={1.5} tone="accent" color={monochrome ? color : undefined} />;
+  // Under reduced motion the ring pulses instead of turning, so working still reads as working.
+  if (status === "working") return <SpinnerRing size={12} stroke={1.5} tone="accent" color={monochrome ? color : undefined} />;
   return <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
@@ -218,20 +218,11 @@ function PhoneInboxPages({
         paddingBottom: Math.max(insets.bottom, 16),
       }}
     >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: 16,
-          minHeight: 44,
-        }}
-      >
-        <View style={{ width: 44, alignItems: "center" }}>
-          <GlassIconButton label="Close inbox" systemImage="xmark" icon={Cancel01Icon} onPress={() => router.back()} />
-        </View>
-        <View style={{ flex: 1, alignItems: "center" }}>{items.length > 0 && <InboxPager index={index} count={items.length} select={select} />}</View>
-        <View style={{ width: 44 }} pointerEvents="none" accessibilityElementsHidden />
-      </View>
+      <SheetHeader
+        style={{ paddingTop: 0, paddingBottom: 0, minHeight: 44 }}
+        leading={<GlassIconButton label="Close inbox" systemImage="xmark" icon={Cancel01Icon} onPress={() => router.back()} />}
+        center={<View style={{ flex: 1, alignItems: "center" }}>{items.length > 0 && <InboxPager index={index} count={items.length} select={select} />}</View>}
+      />
       {items.length > 1 && (
         <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2, textAlign: "center", paddingBottom: 4 }}>
           Swipe or tap the arrows to move between messages
@@ -254,19 +245,13 @@ function PhoneInboxPages({
             }}
           >
             {error ? (
-              <View style={{ gap: 12 }}>
-                <ErrorNotice message={error} />
-                <PillButton title="Retry" secondary onPress={refresh} />
-              </View>
+              <ErrorNotice message={error} retry={refresh} retryTitle="Retry" />
             ) : !connected ? (
               <Text style={styles.muted}>Connect to a computer to open its inbox.</Text>
             ) : loading ? (
               <Text style={styles.muted}>Loading inbox…</Text>
             ) : !selected ? (
-              <View style={{ alignItems: "center", paddingVertical: 40, gap: 8 }}>
-                <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "500" }}>All caught up</Text>
-                <Text style={styles.muted}>Questions and finished work will appear here.</Text>
-              </View>
+              <EmptyState title="All caught up">Questions and finished work will appear here.</EmptyState>
             ) : (
               <InboxPage pageKey={`${selected.key}:${selected.permission?.requestId ?? selected.question?.requestId ?? selected.at}`} direction={direction}>
                 <PhoneInboxCard
@@ -346,7 +331,7 @@ function PhoneInboxCard({
         ]}
       >
         <View style={{ position: "relative" }}>
-          <ProviderLogo provider={item.provider ?? "claude"} size={28} />
+          <ProviderLogo provider={item.provider ?? "claude"} size={24} />
           <View
             style={{
               position: "absolute",

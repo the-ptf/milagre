@@ -1,6 +1,5 @@
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { runChatMeta } from "@milagre/shared/routines";
-import Tooltip from "../primitives/Tooltip";
 import { IconButton } from "../primitives/Button";
 import { useRoutines } from "../../lib/routines";
 
@@ -22,9 +21,7 @@ export function RunChatHeader({ chatKey, title, branch, onClose }: { chatKey: st
           {run ? runChatMeta(run, branch) : (branch ?? "")}
         </p>
       </div>
-      <Tooltip label="Close" side="bottom">
-        <IconButton label="Close" icon={Cancel01Icon} data-run-chat-close onClick={onClose} />
-      </Tooltip>
+      <IconButton label="Close" icon={Cancel01Icon} side="bottom" data-run-chat-close onClick={onClose} />
     </header>
   );
 }

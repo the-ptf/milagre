@@ -67,6 +67,13 @@ export function withAlpha(hex: string, alpha: number) {
   const base = hex.slice(0, 7).toLowerCase();
   return alpha >= 1 ? base : `${base}${byte(alpha)}`;
 }
+/** `color` painted over an opaque `background`, blended in sRGB as browsers do. An opaque `color` comes back as is. */
+export function over(color: string, background: string) {
+  const fg = parse(color);
+  const bg = parse(background);
+  const blend = (f: number, b: number) => byte(f * fg.alpha + b * (1 - fg.alpha));
+  return `#${blend(fg.r, bg.r)}${blend(fg.g, bg.g)}${blend(fg.b, bg.b)}`;
+}
 /** WCAG relative luminance; alpha is ignored. */
 export function luminance(hex: string) {
   const { r, g, b } = parse(hex);

@@ -3,7 +3,7 @@ import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
-import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
 import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
 
@@ -108,16 +108,7 @@ export function PanelToggles({ right }: { right: number }) {
             side="bottom"
             align="end"
           >
-            <button
-              type="button"
-              aria-label={`Toggle ${label} panel`}
-              aria-pressed={panel.open}
-              data-panel-toggle={name}
-              onClick={panel.toggle}
-              className={`flex size-8 items-center justify-center rounded-control transition-[color,background-color,scale] duration-fast ease-enter hover:text-ink active:scale-press ${panel.open ? "bg-hover-2 text-ink" : "text-ink-3 hover:bg-hover"}`}
-            >
-              <Icon icon={icon} size={18} />
-            </button>
+            <IconButton label={`Toggle ${label} panel`} icon={icon} size={32} aria-pressed={panel.open} data-panel-toggle={name} onClick={panel.toggle} />
           </Tooltip>
         );
       })}

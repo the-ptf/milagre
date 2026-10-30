@@ -134,7 +134,7 @@ export function CodeBlock({
     <div ref={frame} className="markdown-code my-2 overflow-hidden rounded-control border border-line bg-inset">
       <div className="flex h-7 items-center justify-between border-b border-line pr-0.5 pl-3 text-11 text-ink-3">
         <span className="font-mono">{label ?? (fence?.toLowerCase() || "text")}</span>
-        <IconButton label={copied ? "Copied" : "Copy code"} icon={copied ? Tick02Icon : Copy01Icon} iconSize={12} size={24} onClick={copy} />
+        <IconButton label={copied ? "Copied" : "Copy code"} icon={copied ? Tick02Icon : Copy01Icon} size={24} onClick={copy} />
       </div>
       {rows ? (
         <pre className="overflow-x-auto py-1.5 font-mono text-[length:var(--code-size)] leading-[1.6]">

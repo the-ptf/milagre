@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { space } from "./design-tokens";
 import { useFocusEffect } from "expo-router";
 import { useSession } from "./session";
-import { ErrorNotice, SectionLabel, Toggle, useStyles } from "./ui";
+import { InlineError, SectionLabel, Toggle, useStyles } from "./ui";
 
 /** Settings › Accounts › Usage limits: the connected Mac's auto-switch, like desktop. Nothing shows for an older Mac. */
 export function LimitAutoSwitchSection() {
@@ -46,7 +46,7 @@ export function LimitAutoSwitchSection() {
       <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title="Switch accounts at usage limits" selected={autoSwitch} onPress={() => void changeAutoSwitch(!autoSwitch)} />
         <Text style={styles.caption}>When a Chat hits its plan&apos;s usage limit, move its Project to the next signed-in account and continue.</Text>
-        {autoSwitchError ? <ErrorNotice message={autoSwitchError} /> : null}
+        <InlineError message={autoSwitchError} />
       </View>
     </View>
   );

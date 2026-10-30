@@ -149,40 +149,32 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
         {selected && choosing ? (
-          <Tooltip label="Back to pages">
-            <IconButton
-              label="Back to pages"
-              icon={ArrowLeft01Icon}
-              iconSize={16}
-              size={24}
-              onClick={() => {
-                setSelected(null);
-                setPage(null);
-                void refresh();
-              }}
-            />
-          </Tooltip>
+          <IconButton
+            label="Back to pages"
+            icon={ArrowLeft01Icon}
+            size={24}
+            onClick={() => {
+              setSelected(null);
+              setPage(null);
+              void refresh();
+            }}
+          />
         ) : (
-          <Icon icon={BrowserIcon} size={16} />
+          <Icon icon={BrowserIcon} size={14} />
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-13">{shown?.title || "Browser"}</div>
           <div className="truncate text-11 text-ink-3">{shown?.url || "This Chat"}</div>
         </div>
         {selected && (
-          <Tooltip label={expanded ? "Collapse browser" : "Expand browser"}>
-            <IconButton
-              label={expanded ? "Collapse browser" : "Expand browser"}
-              icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
-              iconSize={16}
-              size={24}
-              onClick={() => setExpanded((value) => !value)}
-            />
-          </Tooltip>
+          <IconButton
+            label={expanded ? "Collapse browser" : "Expand browser"}
+            icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
+            size={24}
+            onClick={() => setExpanded((value) => !value)}
+          />
         )}
-        <Tooltip label="Close browser">
-          <IconButton label="Close browser" icon={Cancel01Icon} iconSize={16} size={24} onClick={close} />
-        </Tooltip>
+        <IconButton label="Close browser" icon={Cancel01Icon} size={24} onClick={close} />
       </header>
       {selected ? (
         <BrowserFrame key={selected.id} api={api} chatId={chatId} targetId={selected.id} onPage={setPage} onClose={close} />
@@ -195,8 +187,8 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
           )}
           <InlineError className="p-3">{list.error}</InlineError>
           {!loading && !list.error && !list.targets.length && (
-            <EmptyState icon={BrowserIcon} className="p-3">
-              This Chat's agent has no open pages. Attach a browser below to view it here.
+            <EmptyState icon={BrowserIcon} title="This Chat's agent has no open pages">
+              Attach a browser below to view it here.
             </EmptyState>
           )}
           {list.targets.map((target) => (
@@ -205,7 +197,7 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
                 type="button"
                 data-browser-target={target.id}
                 onClick={() => setSelected(target)}
-                className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors duration-fast hover:bg-hover"
+                className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded-control px-3 text-left transition-colors hover:bg-hover active:bg-hover-2"
               >
                 <Icon icon={BrowserIcon} size={16} className="shrink-0" />
                 <span className="min-w-0 flex-1">
@@ -219,7 +211,6 @@ export function BrowserTrack({ chatId }: { chatId?: string }) {
                   <IconButton
                     label={`Detach ${target.title || target.url} from this Chat`}
                     icon={Unlink04Icon}
-                    iconSize={14}
                     data-browser-detach={target.id.slice(0, target.id.indexOf(":"))}
                     disabled={attaching !== null}
                     onClick={() => void detach(target.id.slice(0, target.id.indexOf(":")))}

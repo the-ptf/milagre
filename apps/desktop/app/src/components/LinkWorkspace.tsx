@@ -59,6 +59,7 @@ import { gitChatContext } from "../lib/git-dialog";
 import { Select } from "./primitives/Select";
 import { Button } from "./primitives/Button";
 import { InlineError } from "./primitives/InlineError";
+import { Dialog } from "./primitives/Dialog";
 import { Notice } from "./Notice";
 import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
@@ -237,7 +238,6 @@ export function LinkWorkspace({
   const [gitMemberId, setGitMemberId] = useState("");
   const [gitDialog, setGitDialog] = useState<{ sessionId: number; member: WorktreeBinding } | null>(null);
   const [gitChoice, setGitChoice] = useState<number | null>(null);
-  const memberDialog = useRef<HTMLDialogElement>(null);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const terminalChatId = canvasOpen || session?.archived ? null : chatId;
@@ -275,9 +275,6 @@ export function LinkWorkspace({
   const committedLists = useLinkDiffLists({ members: comparisonMembers, chatId, mode: "committed", active: changes.open });
   const diffPrefs = useDiffPreferences();
   const comments = useDiffComments(chosen && chatId ? `${chatId}:${chosen.projectId}` : null, changes);
-  useEffect(() => {
-    if (gitChoice !== null) memberDialog.current?.showModal();
-  }, [gitChoice]);
   const latest = useRef({ sessionId, text: "", active: true, selection: 0 });
   latest.current.sessionId = sessionId;
   useEffect(() => {
@@ -668,7 +665,11 @@ export function LinkWorkspace({
                 />
               ) : (
                 <>
-                  {session && <InlineError className="absolute inset-x-5 top-14 z-30 rounded-control bg-surface px-3 py-2 shadow-overlay">{error}</InlineError>}
+                  {session && (
+                    <InlineError variant="floating" className="absolute inset-x-5 top-14 z-30">
+                      {error}
+                    </InlineError>
+                  )}
 
                   <DiffBar
                     open={changes.diffOpen}
@@ -874,21 +875,34 @@ export function LinkWorkspace({
             />
           )}
           {gitChoice !== null && (
-            <dialog
-              ref={memberDialog}
+            <Dialog
               aria-label="Choose Project for Git"
-              onCancel={() => setGitChoice(null)}
-              className="m-auto w-[380px] max-w-[calc(100vw-32px)] rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
-              style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
+              title="Choose a Project"
+              description={
+                state.sessions[gitChoice]?.worktrees.length
+                  ? "Git actions apply to one Worktree."
+                  : "This Chat has no Worktree yet. It creates one when it changes a Project."
+              }
+              width={380}
+              onClose={() => setGitChoice(null)}
+              actions={
+                <>
+                  <Button variant="ghost" onClick={() => setGitChoice(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={!gitMemberId}
+                    onClick={() => {
+                      setGitDialog({ sessionId: gitChoice, member: memberWorktreeForAction(state, gitChoice, gitMemberId) });
+                      setGitChoice(null);
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </>
+              }
             >
-              {/* Not the Dialog primitive: it is opened by this ref and found by its aria-label, which Dialog doesn't forward. */}
-              <div className="p-5" onClick={(event) => event.stopPropagation()}>
-                <h2 className="text-17 font-semibold">Choose a Project</h2>
-                <p className="mt-1 mb-4 text-13 text-ink-2">
-                  {state.sessions[gitChoice]?.worktrees.length
-                    ? "Git actions apply to one Worktree."
-                    : "This Chat has no Worktree yet. It creates one when it changes a Project."}
-                </p>
+              <div className="mt-4">
                 <Select
                   label="Project"
                   value={gitMemberId}
@@ -902,28 +916,14 @@ export function LinkWorkspace({
                     })),
                   ]}
                 />
-                <div className="mt-5 flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setGitChoice(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    disabled={!gitMemberId}
-                    onClick={() => {
-                      setGitDialog({ sessionId: gitChoice, member: memberWorktreeForAction(state, gitChoice, gitMemberId) });
-                      setGitChoice(null);
-                    }}
-                  >
-                    Continue
-                  </Button>
-                </div>
               </div>
-            </dialog>
+            </Dialog>
           )}
           {commandsOpen && (
             <CommandPalette
               commands={[
                 { id: "new", label: "New Chat", group: "Actions", icon: "chat", run: onNewChat ? () => onNewChat() : () => pick(null) },
-                { id: "link", label: "Link projects…", group: "Actions", icon: "folder", run: onLinkProject },
+                { id: "link", label: "Link Projects…", group: "Actions", icon: "folder", run: onLinkProject },
                 { id: "edit-link", label: "Edit Link…", group: "Actions", icon: "folder", run: () => onEditLink(opened.link.id) },
                 ...recents.map((row) => ({ id: row.id, label: row.label, group: "Chats", icon: "chat" as const, run: () => pick(Number(row.id)) })),
                 ...opened.projects.map((project) => ({

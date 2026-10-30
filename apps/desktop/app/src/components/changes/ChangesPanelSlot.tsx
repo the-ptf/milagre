@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
+import { DURATION, EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from "../../lib/ease";
 import { roomToWiden, usePanelWidth } from "../agents/panel-width";
 import { ResizeHandle } from "../primitives/ResizeHandle";
 
@@ -35,7 +35,7 @@ export function ChangesPanelSlot({ open, children }: { open: boolean; children: 
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
-            transition={{ duration: scaled(0.28, scale), ease: EASE_OUT }}
+            transition={{ duration: scaled(DURATION.slow, scale), ease: EASE_OUT }}
           >
             {/* Beside the panel's card only, not the window's top strip above it. */}
             <div className="absolute top-[var(--window-chrome-height)] bottom-3 left-0">

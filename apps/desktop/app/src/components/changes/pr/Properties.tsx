@@ -17,7 +17,9 @@ export type PrSource = { bridge: MilagreBridge["pr"]; cwd: string };
 
 const icon = (glyph: IconSvgElement, size: IconSize = 14) => <Icon icon={glyph} size={size} />;
 
-const addButton = "flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors duration-fast hover:bg-hover hover:text-ink";
+// IconButton's 24 ghost look, for PopoverButton's own trigger: ink-3 at rest, hover-2 and ink while its picker is open.
+const addButton =
+  "flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 transition-[color,background-color,scale] hover:bg-hover hover:text-ink active:scale-press aria-expanded:bg-hover-2 aria-expanded:text-ink";
 
 export function Avatar({ login, size = 18, className = "", team = false }: { login: string; size?: number; className?: string; team?: boolean }) {
   // A team has no picture; it shows as a group.
@@ -69,7 +71,7 @@ function Property({
   return (
     <div {...rest} className="flex min-h-8 items-start gap-2">
       <span className="flex h-8 shrink-0 items-center text-ink-3">{icon(glyph, 14)}</span>
-      <span className="w-19 shrink-0 text-12 leading-8 text-ink-2">{label}</span>
+      <span className="flex h-8 w-19 shrink-0 items-center text-12 text-ink-2">{label}</span>
       <div className="flex min-h-8 min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">{children}</div>
       {action && <span className="flex h-8 shrink-0 items-center">{action}</span>}
     </div>

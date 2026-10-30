@@ -132,11 +132,11 @@ function AddButton({ commenting, hunk, line, side }: { commenting: Commenting; h
   );
 }
 
-// A neutral wash under the text (rows are isolated, so -z-10 sits above the row's tint but below its text) and a
-// black bar on the left edge, as GitHub marks selected lines.
+// A neutral wash under the text (hover-2, a translucent ink; rows are isolated, so -z-10 sits above the row's tint but
+// below its text) and an ink bar on the left edge, as GitHub marks selected lines.
 const Selected = () => (
   <>
-    <span aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-ink/[0.07]" />
+    <span aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-hover-2" />
     <span aria-hidden data-diff-selected-bar className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-ink" />
   </>
 );
@@ -496,13 +496,14 @@ export const DiffFile = memo(function DiffFile({
       <div className={`sticky top-0 z-10 -mx-px -mt-px ${collapsed ? "-mb-px" : ""}`}>
         <span aria-hidden className="absolute inset-x-0 top-0 h-[var(--radius-card)] bg-page" />
         <header className={`relative flex h-9 items-center gap-2 border border-line bg-surface px-3 text-12 ${collapsed ? "rounded-card" : "rounded-t-card"}`}>
+          {/* IconButton's 24 look, hand-built: a disclosure's aria-expanded isn't an open menu, so it takes no pressed fill. */}
           <button
             type="button"
             aria-label={collapsed ? "Expand file" : "Collapse file"}
             aria-expanded={!collapsed}
             data-diff-collapse
             onClick={() => onToggle(file.path)}
-            className="-ml-1 flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press"
+            className="-ml-1 flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 transition-[color,background-color,scale] hover:bg-hover hover:text-ink active:scale-press"
           >
             <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={14} />
           </button>

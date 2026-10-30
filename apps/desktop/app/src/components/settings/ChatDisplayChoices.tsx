@@ -1,24 +1,15 @@
 import type { ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  AiBrain01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  CommandLineIcon,
-  File01Icon,
-  Search01Icon,
-  Tick02Icon,
-  Wrench01Icon,
-} from "@hugeicons/core-free-icons";
+import { AiBrain01Icon, ArrowDown01Icon, ArrowRight01Icon, CommandLineIcon, File01Icon, Search01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { TOOL_CALL_DISPLAYS, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
-import { Icon } from "../primitives/Icon";
+import { CheckboxBox } from "../primitives/Checkbox";
 
 type Choice<T extends string> = { id: T; label: string; description: string; preview: ReactNode };
 
 /**
  * Two side-by-side cards for one setting, each a small picture of what it does, its name and one line. A radio group:
- * arrow keys move between the cards, and the chosen one carries the accent ring and a filled check.
+ * arrow keys move between the cards, and the chosen one carries an ink ring and a filled radio (selection is ink).
  */
 function ChoiceCards<T extends string>({ label, value, onChange, choices }: { label: string; value: T; onChange: (value: T) => void; choices: Choice<T>[] }) {
   return (
@@ -37,19 +28,13 @@ function ChoiceCards<T extends string>({ label, value, onChange, choices }: { la
             value={choice.id}
             aria-label={choice.label}
             data-choice-card={choice.id}
-            className={`flex flex-col gap-2 rounded-card bg-surface p-3 text-left shadow-card transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "ring-2 ring-accent" : ""}`}
+            className={`flex flex-col gap-2 rounded-card bg-surface p-3 text-left shadow-card transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "ring-2 ring-ink" : ""}`}
           >
             <span aria-hidden className="flex h-[112px] w-full flex-col gap-2 overflow-hidden rounded-control bg-inset p-3">
               {choice.preview}
             </span>
             <span className="flex items-center gap-2">
-              {selected ? (
-                <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent text-on-accent">
-                  <Icon icon={Tick02Icon} size={12} />
-                </span>
-              ) : (
-                <span className="size-[18px] shrink-0 rounded-full border-[1.5px] border-ink-3" />
-              )}
+              <CheckboxBox checked={selected} radio />
               <span className="truncate text-13 font-semibold text-ink">{choice.label}</span>
             </span>
             <span className="text-12 text-ink-3">{choice.description}</span>

@@ -120,7 +120,7 @@ function Tile({
       {value ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           {dot ? <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: dot }} /> : null}
-          <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+          <Text numberOfLines={1} style={[styles.footnote, { flex: 1 }]}>
             {value}
           </Text>
         </View>
@@ -137,6 +137,7 @@ function openSite(url: string) {
 /** The first page of the Settings sheet; each row opens a page inside the same sheet. */
 export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void }) {
   const { colors, settings: theme } = useTheme();
+  const styles = useStyles();
   const push = usePush();
   const updates = useAppUpdates();
   const session = useSession();
@@ -205,7 +206,8 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           title="Computers"
           icon={ComputerIcon}
           value={computersValue}
-          dot={online > 0 ? colors.green : colors.lineStrong}
+          // The presence palette (presenceTone): green while one answers, ink4 when none does.
+          dot={online > 0 ? colors.green : colors.ink4}
           onPress={() => onOpen("computers")}
         />
         <Tile title="Routines" icon={RepeatIcon} value={routinesValue} disabled={!routinesAvailable} onPress={() => onOpen("routines")} />
@@ -267,7 +269,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         />
       </Group>
       {/* Version · build · runtime, and the running update's commit: what to quote when reporting a bug. */}
-      <Text selectable style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, textAlign: "center", marginTop: -8 }}>
+      <Text selectable style={[styles.footnote, { textAlign: "center", marginTop: -8 }]}>
         {appVersionLine()}
       </Text>
     </View>

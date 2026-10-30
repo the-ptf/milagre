@@ -14,6 +14,7 @@ import { Markdown } from "../markdown/Markdown";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
+import Tooltip from "../primitives/Tooltip";
 import { useHasStepDetail, useStepDetail } from "./step-details";
 
 function FileLink({ text, title, sweep, onOpen }: { text: string; title: string; sweep: { className?: string }; onOpen: () => void }) {
@@ -22,21 +23,22 @@ function FileLink({ text, title, sweep, onOpen }: { text: string; title: string;
     onOpen();
   };
   return (
-    <code
-      role="link"
-      tabIndex={0}
-      title={title}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          open(event);
-        }
-      }}
-      className={`pointer-events-auto cursor-pointer rounded-inline bg-field px-1 py-px font-mono text-[0.92em] text-ink decoration-ink-3 underline-offset-2 hover:underline ${sweep.className ?? ""}`}
-    >
-      {text}
-    </code>
+    <Tooltip label={title} asChild>
+      <code
+        role="link"
+        tabIndex={0}
+        onClick={open}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            open(event);
+          }
+        }}
+        className={`pointer-events-auto cursor-pointer rounded-inline bg-field px-1 py-px font-mono text-[0.92em] text-ink decoration-ink-3 underline-offset-2 hover:underline ${sweep.className ?? ""}`}
+      >
+        {text}
+      </code>
+    </Tooltip>
   );
 }
 
@@ -60,7 +62,7 @@ export const StepRow = memo(function StepRow({ step, waiting = false }: { step: 
   const sweep = useStepTitleSweep(running && !waiting);
   // A finished tool just stops shimmering; screen readers hear only what isn't obvious.
   const state = waiting ? "Waiting for approval" : step.status === "running" ? "Running" : step.status === "failed" ? "Failed" : "";
-  const rowClass = "flex w-full min-w-0 items-center gap-2 rounded-control px-1.5 py-1 text-left text-12 text-ink-2";
+  const rowClass = "flex h-6 w-full min-w-0 items-center gap-2 rounded-control px-1.5 text-left text-12 text-ink-2";
   const outputStatus = (loading || failed) && (
     <div role="status" className="flex items-center gap-2 py-1 pl-7.5 text-12 text-ink-3">
       {loading ? "Loading output…" : "Could not load tool output."}

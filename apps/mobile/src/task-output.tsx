@@ -7,7 +7,7 @@ import type { BackgroundTaskOutput } from "@milagre/shared/model";
 import { useSession } from "./session";
 import { lineHeight, radius, space, type } from "./design-tokens";
 import { fonts, useTheme } from "./theme";
-import { ErrorNotice } from "./ui";
+import { InlineError } from "./ui";
 
 export function TaskOutput({ chatKey, taskId, running }: { chatKey: string; taskId: string; running: boolean }) {
   const { colors, codeSize } = useTheme();
@@ -25,7 +25,7 @@ export function TaskOutput({ chatKey, taskId, running }: { chatKey: string; task
   const { output, error } = useTaskOutput(read, focused && foreground, running);
   return (
     <View style={{ gap: space.md, padding: space.lg, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.field }}>
-      {!!error && <ErrorNotice message={error} />}
+      <InlineError message={error} />
       {output?.truncated && <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>Showing the latest output.</Text>}
       <Text selectable style={{ color: colors.ink2, fontSize: codeSize, lineHeight: Math.round(codeSize * 1.5), fontFamily: fonts.mono }}>
         {output ? plainTaskOutput(output.output) || "No output yet." : error ? "" : "Loading output…"}

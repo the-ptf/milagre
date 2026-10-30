@@ -3,7 +3,7 @@ import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated
 import { AlertCircleIcon, MicOff01Icon, PauseCircleIcon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
 import type { DictationError, DictationErrorKind } from "@milagre/shared/voice-dictation";
-import { lineHeight, radius, type } from "./design-tokens";
+import { duration, lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { useAnnounce } from "./primitives/announce";
 import { useTheme } from "./theme";
@@ -35,12 +35,13 @@ export function DictationNotice({
 }) {
   const { colors, motionScale } = useTheme();
   const permission = error.kind === "permission";
-  const duration = Math.round(150 * motionScale);
-  useAnnounce(error.message);
+  const ms = Math.round(duration.fast * motionScale);
+  // The notice mounts with its message, so it is read as it shows.
+  useAnnounce(error.message, { onMount: true });
   return (
     <Animated.View
-      entering={motionScale > 0 ? FadeIn.duration(duration).reduceMotion(ReduceMotion.System) : undefined}
-      exiting={motionScale > 0 ? FadeOut.duration(duration).reduceMotion(ReduceMotion.System) : undefined}
+      entering={motionScale > 0 ? FadeIn.duration(ms).reduceMotion(ReduceMotion.System) : undefined}
+      exiting={motionScale > 0 ? FadeOut.duration(ms).reduceMotion(ReduceMotion.System) : undefined}
       pointerEvents="box-none"
       style={{ position: "absolute", right: 0, bottom: micSize + ARROW + 2, width: MAX_WIDTH, alignItems: "flex-end" }}
     >
@@ -60,7 +61,7 @@ export function DictationNotice({
           accessibilityLabel={permission ? error.message : undefined}
           style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}
         >
-          <View style={{ height: 20, justifyContent: "center", opacity: 0.7 }}>
+          <View style={{ height: 20, justifyContent: "center" }}>
             <Icon icon={ICONS[error.kind]} color={colors.onInk} size={16} />
           </View>
           <Text style={{ flexShrink: 1, color: colors.onInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>

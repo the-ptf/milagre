@@ -5,6 +5,7 @@ import { squareRows } from "@milagre/shared/genui";
 import type { GenuiComponentName, GenuiProps } from "@milagre/shared/genui";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Button as ButtonPrimitive } from "../primitives/Button";
+import { ProgressBar } from "../primitives/ProgressBar";
 import { BarChart, LineChart } from "./charts";
 
 export type GenuiRenderer<K extends GenuiComponentName> = (args: ComponentRenderProps<GenuiProps<K>>) => ReactNode;
@@ -77,11 +78,12 @@ const Table: GenuiRenderer<"Table"> = ({ props }) => {
   );
 };
 
+// Info is neutral (accent is for focus and links); a tone is its tint, with no edge.
 const CALLOUT = {
-  info: "border-accent/30 bg-accent-tint text-ink",
-  success: "border-green/30 bg-green-tint text-ink",
-  warning: "border-orange/30 bg-orange-tint text-ink",
-  danger: "border-red/30 bg-red-tint text-ink",
+  info: "border-line-strong bg-field text-ink",
+  success: "border-transparent bg-green-tint text-ink",
+  warning: "border-transparent bg-orange-tint text-ink",
+  danger: "border-transparent bg-red-tint text-ink",
 } as const;
 
 const Callout: GenuiRenderer<"Callout"> = ({ props }) => (
@@ -99,20 +101,12 @@ const Progress: GenuiRenderer<"Progress"> = ({ props }) => {
   const value = Math.min(1, Math.max(0, Number.isFinite(props.value) ? props.value : 0));
   return (
     <div data-slot="genui-progress" className="text-[length:var(--chat-size)]">
-      <div className="mb-1 flex justify-between text-ink-2">
+      {/* The bar reads the label and its value; the row above only shows them. */}
+      <div aria-hidden className="mb-1 flex justify-between text-ink-2">
         <span>{props.label}</span>
-        <span>{Math.round(value * 100)}%</span>
+        <span className="tabular-nums">{Math.round(value * 100)}%</span>
       </div>
-      <div
-        role="progressbar"
-        aria-label={props.label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(value * 100)}
-        className="h-1.5 w-full overflow-hidden rounded-full bg-field"
-      >
-        <div className="h-full rounded-full bg-accent" style={{ width: `${value * 100}%` }} />
-      </div>
+      <ProgressBar value={value} size={6} label={props.label} />
     </div>
   );
 };

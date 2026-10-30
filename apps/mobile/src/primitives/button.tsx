@@ -1,9 +1,9 @@
-import { ActivityIndicator, Platform, View } from "react-native";
-import { Button as NativeButton, Host } from "@expo/ui";
-import { controlSize } from "@expo/ui/swift-ui/modifiers";
-import { useTheme } from "../theme";
-import { tap } from "./tap";
+import { PillButton } from "./pill-button";
 
+/**
+ * @deprecated Use `PillButton`. The old native (@expo/ui) Button's props, drawn as a regular PillButton: filled is
+ * primary, `secondary` and `destructive` are secondary (destructive with a redInk label). Kept until its call sites move.
+ */
 export function Button({
   title,
   onPress,
@@ -19,23 +19,14 @@ export function Button({
   loading?: boolean;
   destructive?: boolean;
 }) {
-  const { colors } = useTheme();
   return (
-    // No fixed height on the native button, so Dynamic Type can grow it; the row keeps 48.
-    <View style={{ minHeight: 48, justifyContent: "center", alignItems: "center" }}>
-      <Host ignoreSafeArea="all" matchContents seedColor={(destructive ? colors.red : colors.ink) as string}>
-        <NativeButton
-          label={title}
-          variant={secondary ? "outlined" : "filled"}
-          disabled={disabled || loading}
-          onPress={() => {
-            tap();
-            onPress();
-          }}
-          modifiers={Platform.OS === "ios" ? [controlSize("large")] : undefined}
-        />
-      </Host>
-      {loading && <ActivityIndicator accessibilityLabel={title} style={{ position: "absolute", right: 12 }} color={colors.ink2} />}
-    </View>
+    <PillButton
+      title={title}
+      onPress={onPress}
+      disabled={disabled}
+      loading={loading}
+      variant={secondary || destructive ? "secondary" : "primary"}
+      destructive={destructive}
+    />
   );
 }

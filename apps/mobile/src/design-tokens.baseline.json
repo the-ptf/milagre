@@ -5,14 +5,29 @@
     "ultracode-fatality.tsx": 1
   },
   "radius": {
-    "app/chat.tsx": 2,
     "chat-display-choices.tsx": 2,
-    "prompt-chip.tsx": 1,
-    "questions.tsx": 1,
-    "side-panels.tsx": 1,
-    "split-layout.tsx": 1,
-    "undo-panel.tsx": 2,
-    "use-skills.ts": 1,
     "viewer-chrome.tsx": 1
-  }
+  },
+  "computedFont": {
+    "prompt-chip.tsx": 1
+  },
+  "swiftFont": {},
+  "icon": {
+    "app/add-computer.tsx": 1,
+    "chat-display-choices.tsx": 2
+  },
+  "duration": {
+    "inbox-motion.tsx": 2,
+    "loading-logo.tsx": 2,
+    "running-logo.tsx": 5,
+    "startup-splash.tsx": 2,
+    "ultracode-fatality.tsx": 5,
+    "ultracode-glow.tsx": 1,
+    "voice-mic-button.tsx": 1
+  },
+  "uppercase": {},
+  "tracking": {
+    "ultracode-fatality.tsx": 1
+  },
+  "bold": {}
 }

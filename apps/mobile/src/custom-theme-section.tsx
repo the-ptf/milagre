@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import {
   customContrast,
@@ -19,7 +19,7 @@ import { showChoiceSheet } from "./choice-store";
 import { presets } from "./custom-theme-presets";
 import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { fonts, useTheme } from "./theme";
-import { ErrorNotice, PillButton, pressStyle, Segmented, useStyles } from "./ui";
+import { Field, InlineError, PillButton, pressStyle, Segmented, useStyles } from "./ui";
 
 const FIELDS: { key: keyof ThemeSeeds; name: string }[] = [
   { key: "background", name: "Background" },
@@ -54,15 +54,13 @@ function ColorRow({ name, value, swatches, onCommit }: { name: string; value: st
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
         <View style={{ width: 28, height: 28, borderRadius: radius.full, backgroundColor: value, borderWidth: 1, borderColor: colors.line }} />
         <Text style={[styles.text, { flex: 1, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }]}>{name}</Text>
-        <TextInput
-          accessibilityLabel={`${name} hex`}
-          autoCapitalize="none"
-          autoCorrect={false}
+        <Field
+          label={`${name} hex`}
+          hideLabel
+          invalid={invalid}
           spellCheck={false}
           maxLength={7}
           value={text}
-          selectionColor={colors.accent}
-          placeholderTextColor={colors.ink3}
           onChangeText={(next) => {
             setDraft({ source: value, text: next });
             setInvalid(false);
@@ -73,18 +71,18 @@ function ColorRow({ name, value, swatches, onCommit }: { name: string; value: st
             if (isHex(text.trim())) commit(text);
             else if (text !== value) setInvalid(true);
           }}
-          style={[styles.input, { width: 110, fontFamily: fonts.mono, fontSize: type.subheadline }]}
+          style={{ width: 110, fontFamily: fonts.mono, fontSize: type.subheadline }}
         />
       </View>
-      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+      <View accessibilityRole="radiogroup" accessibilityLabel={name} style={{ flexDirection: "row", justifyContent: "space-between" }}>
         {swatches.map((hex, index) => {
           const chosen = hex.toLowerCase() === value.toLowerCase();
           return (
             <Pressable
               key={`${hex}-${index}`}
-              accessibilityRole="button"
+              accessibilityRole="radio"
               accessibilityLabel={`${name} ${hex}`}
-              accessibilityState={{ selected: chosen }}
+              accessibilityState={{ checked: chosen }}
               // The 28pt swatch takes a 44pt touch.
               hitSlop={hitSlopFor(28)}
               onPress={() => {
@@ -99,7 +97,7 @@ function ColorRow({ name, value, swatches, onCommit }: { name: string; value: st
                   borderRadius: radius.full,
                   backgroundColor: hex,
                   borderWidth: chosen ? 2 : 1,
-                  borderColor: chosen ? colors.accent : colors.line,
+                  borderColor: chosen ? colors.ink : colors.line,
                 },
                 pressStyle({ pressed }),
               ]}
@@ -107,7 +105,7 @@ function ColorRow({ name, value, swatches, onCommit }: { name: string; value: st
           );
         })}
       </View>
-      {invalid ? <ErrorNotice message={BAD_HEX} /> : null}
+      <InlineError message={invalid ? BAD_HEX : ""} />
     </View>
   );
 }
@@ -202,7 +200,7 @@ export function CustomThemeSection() {
         <PillButton title="Paste JSON" secondary onPress={() => void paste()} />
         <PillButton title="Reset" secondary onPress={() => save(seedsFrom(DEFAULT_THEME_ID))} />
       </View>
-      {error ? <ErrorNotice message={error} /> : null}
+      <InlineError message={error} />
     </View>
   );
 }

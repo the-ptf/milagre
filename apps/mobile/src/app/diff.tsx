@@ -10,6 +10,7 @@ import { LARGE_DIFF_LINES, diffRows, wordSegments, type DiffRow } from "../diff-
 import { Counts, StatusBox } from "../diff-ui";
 import { ErrorNotice, PillButton, useStyles } from "../ui";
 import { fonts, useTheme } from "../theme";
+import { lineHeight, type } from "../design-tokens";
 
 const MARKER = { add: "+", remove: "−", context: "" } as const;
 const codeStyle = (size: number) => ({ fontFamily: fonts.mono, fontSize: size, lineHeight: Math.round(size * 1.5) }) as const;
@@ -123,7 +124,20 @@ const Row = memo(function Row({ row }: { row: DiffRow }) {
   const MARKER_COLOR = { add: colors.add, remove: colors.remove, context: colors.ink3 } as const;
   if (row.type === "hunk")
     return (
-      <Text numberOfLines={1} style={[code, { fontSize: 11, color: colors.ink3, backgroundColor: colors.inset, paddingHorizontal: 12, paddingVertical: 4 }]}>
+      <Text
+        numberOfLines={1}
+        style={[
+          code,
+          {
+            fontSize: type.caption2,
+            lineHeight: lineHeight.caption2,
+            color: colors.ink3,
+            backgroundColor: colors.inset,
+            paddingHorizontal: 12,
+            paddingVertical: 4,
+          },
+        ]}
+      >
         {row.header}
       </Text>
     );

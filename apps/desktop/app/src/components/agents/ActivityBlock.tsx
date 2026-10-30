@@ -93,7 +93,7 @@ export function ActivityBlock({
           if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
           setOpen((value) => !value);
         }}
-        className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-control px-1.5 py-1 text-left text-12 leading-[1.4] text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
+        className="flex h-6 w-fit max-w-full min-w-0 items-center gap-2 rounded-control px-1.5 text-left text-12 text-ink-2 transition-colors hover:bg-hover hover:text-ink"
       >
         <ActivitySources steps={steps} />
         <span role="status" className="min-w-0 truncate">

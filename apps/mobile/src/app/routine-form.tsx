@@ -5,7 +5,6 @@ import { usePreventRemove } from "expo-router/react-navigation";
 import * as Clipboard from "expo-clipboard";
 import {
   Add01Icon,
-  ArrowRight01Icon,
   Calendar01Icon,
   Cancel01Icon,
   Clock01Icon,
@@ -56,11 +55,12 @@ import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
 import { Icon, type IconData } from "../icons";
 import {
-  Button,
   CircleButton,
   ErrorNotice,
   Field,
   Group,
+  InlineError,
+  ListRow,
   PageScroll,
   PillButton,
   PullDown,
@@ -336,7 +336,7 @@ export default function RoutineFormSheet() {
           </View>
           <Problem text={problemFor("name")} />
 
-          {editing ? null : <SectionLabel style={{ paddingHorizontal: 4, marginTop: 4 }}>Starts</SectionLabel>}
+          {editing ? null : <SectionLabel flush>Starts</SectionLabel>}
           {/* A Routine's trigger kind can't change, so Edit shows only its rows. */}
           <View accessibilityRole="radiogroup" style={{ flexDirection: "row", gap: 8, display: editing ? "none" : "flex" }}>
             {TRIGGERS.map((item) => {
@@ -373,7 +373,7 @@ export default function RoutineFormSheet() {
                       color: selected ? colors.onInk : colors.ink2,
                       fontSize: type.footnote,
                       lineHeight: lineHeight.footnote,
-                      fontWeight: selected ? "600" : "500",
+                      fontWeight: "500",
                     }}
                   >
                     {item.label}
@@ -630,7 +630,7 @@ export default function RoutineFormSheet() {
           ) : null}
           <Problem text={problemFor("trigger", "schedule", "timezone", "workspace", "label", "state", "signingSecret")} />
 
-          {commentRoutine ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>Comments go into the Chat linked to the issue.</Text> : null}
+          {commentRoutine ? <Text style={styles.caption}>Comments go into the Chat linked to the issue.</Text> : null}
           <Card>
             {commentRoutine ? null : (
               <PullDown
@@ -731,12 +731,12 @@ export default function RoutineFormSheet() {
           </Card>
           <Problem text={problemFor("project", "runIn", "chat")} />
 
-          <SectionLabel style={{ paddingHorizontal: 4, marginTop: 4 }}>Prompt</SectionLabel>
+          <SectionLabel flush>Prompt</SectionLabel>
           <PlaceholderField value={form.prompt} onChangeText={(prompt) => change({ prompt })} placeholders={placeholders} placeholder={PROMPT_PLACEHOLDER} />
-          <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{promptHint(form.trigger)}</Text>
+          <Text style={styles.caption}>{promptHint(form.trigger)}</Text>
           <Problem text={problemFor("prompt")} />
 
-          <SectionLabel style={{ paddingHorizontal: 4, marginTop: 4 }}>Stop after</SectionLabel>
+          <SectionLabel>Stop after</SectionLabel>
           <Card>
             <PullDown
               label="Stop after"
@@ -794,8 +794,8 @@ export default function RoutineFormSheet() {
 
           {routine && !createdId ? (
             <View style={[styles.card, { gap: 12, marginTop: 12 }]}>
-              <Text style={[styles.caption, { fontSize: type.footnote, lineHeight: lineHeight.footnote, color: colors.ink2 }]}>{deleteWarning(routine)}</Text>
-              <Button title="Delete Routine" secondary destructive onPress={() => void remove()} />
+              <Text style={[styles.footnote, { color: colors.ink2 }]}>{deleteWarning(routine)}</Text>
+              <PillButton title="Delete Routine" secondary destructive onPress={() => void remove()} />
             </View>
           ) : null}
         </View>
@@ -839,7 +839,7 @@ function Card({ children }: { children: React.ReactNode }) {
   return <Group>{Children.toArray(children)}</Group>;
 }
 
-/** One setting: its icon and name, then its value and a chevron, or an inline input in place of both. */
+/** One setting, a ListRow: its icon and name, then its value (ink3) and a chevron, or an inline input in place of both. */
 function FormRow({
   icon,
   label,
@@ -854,36 +854,18 @@ function FormRow({
   readOnly?: boolean;
   children?: React.ReactNode;
 }) {
-  const { colors } = useTheme();
   return (
-    <View
-      accessible={!children}
-      accessibilityLabel={children ? undefined : `${label}: ${value ?? ""}`}
-      style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingVertical: 12 }}
-    >
-      <Icon icon={icon} tone="ink" size={20} />
-      <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>{label}</Text>
-      {children ? (
-        <View style={{ flex: 1, alignItems: "flex-end" }}>{children}</View>
-      ) : (
-        <>
-          <Text numberOfLines={1} style={{ flex: 1, textAlign: "right", color: colors.ink2, fontSize: type.body, lineHeight: lineHeight.body }}>
-            {value}
-          </Text>
-          {readOnly ? null : <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />}
-        </>
-      )}
-    </View>
+    <ListRow
+      title={label}
+      icon={icon}
+      value={value}
+      chevron={!readOnly}
+      trailing={children ? <View style={{ flex: 1, alignItems: "flex-end" }}>{children}</View> : undefined}
+    />
   );
 }
 
 /** A field's problem, under the card it belongs to. */
 function Problem({ text }: { text: string }) {
-  const { colors } = useTheme();
-  if (!text) return null;
-  return (
-    <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, paddingHorizontal: 4 }}>
-      {text}
-    </Text>
-  );
+  return <InlineError message={text} />;
 }

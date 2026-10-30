@@ -1,19 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import type { BotRecord } from "@milagre/shared/bots";
 import type { ModelOption } from "@milagre/shared/model";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { BotTemplate } from "../../electron.d.ts";
 import { bridgeFor } from "../../lib/computer-bridge";
-import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 import { Button } from "../primitives/Button";
-import { FIELD as FIELD_BOX } from "../primitives/Field";
+import { Checkbox } from "../primitives/Checkbox";
+import { Dialog } from "../primitives/Dialog";
+import { FIELD_LABEL, Input } from "../primitives/Field";
 import { InlineError } from "../primitives/InlineError";
 import { BotAvatar } from "./BotAvatar";
 
-const FIELD = `mt-1 outline-none ${FIELD_BOX}`;
-const LABEL = "mt-4 text-12 font-medium text-ink-2";
+const LABEL = `mt-4 ${FIELD_LABEL}`;
 
 /** New bot: a starter template's setup card, then the bot is created on this Mac. */
 export function NewBotSheet({
@@ -28,7 +27,6 @@ export function NewBotSheet({
   onCreated: (bot: BotRecord) => void;
 }) {
   const bridge = bridgeFor(null);
-  const scrim = useRef<HTMLDivElement>(null);
   const [templates, setTemplates] = useState<BotTemplate[] | null>(null);
   const [templateId, setTemplateId] = useState("");
   const [name, setName] = useState("");
@@ -82,38 +80,36 @@ export function NewBotSheet({
     }
   }
 
-  return createPortal(
-    // A full-window scrim rather than a modal <dialog>: the model picker's panel opens in the page, above it.
-    <div
-      ref={scrim}
+  // Nothing closes it while the bot is being created.
+  const close = () => {
+    if (!saving) onClose();
+  };
+  return (
+    <Dialog
+      as="form"
+      onSubmit={() => void create()}
+      title={
+        <span className="flex items-center gap-3">
+          {template && <BotAvatar color={template.color} body={template.body} size={32} />}
+          New bot
+        </span>
+      }
+      description={template?.role}
+      onClose={close}
+      dismissOnScrim={!saving}
       data-new-bot-sheet
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="new-bot-title"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.defaultPrevented && !saving) onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === scrim.current && !saving) onClose();
-      }}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-scrim backdrop-blur-overlay"
+      actions={
+        <>
+          <Button variant="ghost" disabled={saving} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || !ready}>
+            {saving ? "Creating…" : "Create bot"}
+          </Button>
+        </>
+      }
     >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void create();
-        }}
-        className="flex max-h-[calc(100vh-64px)] w-[440px] max-w-[calc(100vw-32px)] flex-col rounded-window bg-surface p-5 text-ink shadow-overlay"
-      >
-        <div className="flex items-center gap-3">
-          {template && <BotAvatar color={template.color} body={template.body} size={44} />}
-          <div className="min-w-0">
-            <h2 id="new-bot-title" className="text-17 font-semibold">
-              New bot
-            </h2>
-            {template && <p className="truncate text-13 text-ink-2">{template.role}</p>}
-          </div>
-        </div>
+      <div className="flex flex-col">
         {templates && templates.length > 1 && (
           <div className="mt-4">
             <Select
@@ -128,80 +124,67 @@ export function NewBotSheet({
             />
           </div>
         )}
-        <ScrollArea className="-mx-1 mt-1 min-h-0 px-1">
-          <div className="flex flex-col">
-            <label className={LABEL} htmlFor="new-bot-name">
-              Name
-            </label>
-            <input id="new-bot-name" autoFocus maxLength={40} value={name} onChange={(event) => setName(event.target.value)} className={FIELD} />
-            {template?.fields.map((field) =>
-              field.kind === "projects" ? (
-                <fieldset key={field.id} data-bot-field={field.id} className="contents">
-                  <legend className={LABEL}>{field.label}</legend>
-                  <div className="mt-1 rounded-control border border-line p-1">
-                    {(field.options ?? []).map((option) => {
-                      const picked = ((answers[field.id] as string[] | undefined) ?? []).includes(option.value);
-                      return (
-                        <label
-                          key={option.value}
-                          className="flex h-9 cursor-pointer items-center gap-2 rounded-control px-2 transition-colors duration-fast hover:bg-hover"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={picked}
-                            disabled={saving}
-                            value={option.value}
-                            onChange={(event) =>
-                              setAnswers((current) => {
-                                const list = (current[field.id] as string[] | undefined) ?? [];
-                                return {
-                                  ...current,
-                                  [field.id]: event.target.checked ? [...list, option.value] : list.filter((value) => value !== option.value),
-                                };
-                              })
-                            }
-                            className="accent-ink"
-                          />
-                          <span className="min-w-0 truncate text-13 font-medium" title={option.value}>
-                            {option.label}
-                          </span>
-                        </label>
-                      );
-                    })}
-                    {!field.options?.length && <p className="p-2 text-13 text-ink-3">Open a Project in Milagre first.</p>}
-                  </div>
-                </fieldset>
-              ) : (
-                <div key={field.id} data-bot-field={field.id} className="flex flex-col">
-                  <label className={LABEL} htmlFor={`new-bot-${field.id}`}>
-                    {field.label}
-                  </label>
-                  <input
-                    id={`new-bot-${field.id}`}
-                    value={(answers[field.id] as string | undefined) ?? ""}
-                    onChange={(event) => setAnswers((current) => ({ ...current, [field.id]: event.target.value }))}
-                    className={FIELD}
-                  />
-                </div>
-              ),
-            )}
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <span className="text-12 font-medium text-ink-2">Model</span>
-              <Select label="Model" value={modelId} width={260} options={models.map((item) => ({ value: item.id, label: item.name }))} onChange={setModelId} />
+        <label className={LABEL} htmlFor="new-bot-name">
+          Name
+        </label>
+        <Input id="new-bot-name" autoFocus maxLength={40} value={name} onChange={(event) => setName(event.target.value)} className="mt-1" />
+        {template?.fields.map((field) =>
+          field.kind === "projects" ? (
+            <fieldset key={field.id} data-bot-field={field.id} className="contents">
+              <legend className={LABEL}>{field.label}</legend>
+              <div className="mt-1 rounded-control border border-line p-1">
+                {(field.options ?? []).map((option) => {
+                  const picked = ((answers[field.id] as string[] | undefined) ?? []).includes(option.value);
+                  return (
+                    <label
+                      key={option.value}
+                      className="flex h-9 cursor-pointer items-center gap-2 rounded-control px-2 transition-colors hover:bg-hover active:bg-hover-2"
+                    >
+                      <Checkbox
+                        checked={picked}
+                        disabled={saving}
+                        value={option.value}
+                        onCheckedChange={(checked) =>
+                          setAnswers((current) => {
+                            const list = (current[field.id] as string[] | undefined) ?? [];
+                            return {
+                              ...current,
+                              [field.id]: checked ? [...list, option.value] : list.filter((value) => value !== option.value),
+                            };
+                          })
+                        }
+                      />
+                      <span className="min-w-0 truncate text-13 font-medium" title={option.value}>
+                        {option.label}
+                      </span>
+                    </label>
+                  );
+                })}
+                {!field.options?.length && <p className="p-2 text-13 text-ink-3">Open a Project in Milagre first.</p>}
+              </div>
+            </fieldset>
+          ) : (
+            <div key={field.id} data-bot-field={field.id} className="flex flex-col">
+              <label className={LABEL} htmlFor={`new-bot-${field.id}`}>
+                {field.label}
+              </label>
+              <Input
+                id={`new-bot-${field.id}`}
+                value={(answers[field.id] as string | undefined) ?? ""}
+                onChange={(event) => setAnswers((current) => ({ ...current, [field.id]: event.target.value }))}
+                className="mt-1"
+              />
             </div>
-          </div>
-        </ScrollArea>
-        <InlineError className="mt-3 whitespace-pre-wrap">{error}</InlineError>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" disabled={saving} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving || !ready}>
-            {saving ? "Creating…" : "Create bot"}
-          </Button>
+          ),
+        )}
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <span className={FIELD_LABEL}>Model</span>
+          <Select label="Model" value={modelId} width={260} options={models.map((item) => ({ value: item.id, label: item.name }))} onChange={setModelId} />
         </div>
-      </form>
-    </div>,
-    document.body,
+        <InlineError size={12} className="mt-3 whitespace-pre-wrap">
+          {error}
+        </InlineError>
+      </div>
+    </Dialog>
   );
 }

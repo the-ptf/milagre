@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, RefreshControl, Text, View } from "react-native";
+import { Platform, RefreshControl, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { Add01Icon, ComputerIcon, LaptopIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,9 +9,10 @@ import { lanRoutes } from "../routes-native";
 import type { SavedHost } from "../hosts-store";
 import { forgetComputer, isDesktopComputer, pingComputer, renameComputer, type Reachability } from "../computer-actions";
 import { Icon } from "../icons";
-import { ErrorNotice, HeaderButton, IconButton, ListRow, PageScroll, showActions, useStyles } from "../ui";
+import { EmptyState, ErrorNotice, Group, HeaderButton, IconButton, ListRow, PageScroll, showActions, useStyles } from "../ui";
 import { useTheme } from "../theme";
 import { radius } from "../design-tokens";
+import { presenceTone } from "@milagre/shared/chat-scopes";
 import { UpdateSettingsBadge, useAppUpdates } from "../update-sheet";
 
 const DEMO = process.env.EXPO_PUBLIC_DEMO === "1";
@@ -92,8 +93,8 @@ export default function ComputersScreen() {
     if (action === "rename") renameComputer(host, { onRenamed: load, onError: setError });
     if (action === "forget") forgetComputer(host, { session, push, onForgotten: load, onError: setError });
   }
-  // Same mapping as Settings › Computers: offline is neutral, not an error.
-  const dot = (state?: Reachability) => (state === "online" ? colors.green : state === "offline" ? colors.lineStrong : colors.orange);
+  // The shared presence palette (desktop's too): offline is neutral, not an error.
+  const dot = (state?: Reachability) => colors[presenceTone(state)];
   const label = (state?: Reachability) => (state === "online" ? "Online" : state === "offline" ? "Offline" : "Checking…");
   return (
     <View style={styles.screen}>
@@ -134,71 +135,65 @@ export default function ComputersScreen() {
         }
       >
         {session.hosts.length > 0 ? (
-          <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-            {session.hosts.map((host, index) => (
-              <View key={host.id}>
-                {index > 0 && <View style={styles.separator} />}
-                <ListRow
-                  onLongPress={() =>
-                    showActions({
-                      title: host.name,
-                      actions: [
-                        { id: "rename", title: "Rename" },
-                        { id: "forget", title: "Forget", destructive: true },
-                      ],
-                      onSelect: (action) => manage(host, action),
-                    })
-                  }
-                  title={host.name}
-                  subtitle={`${label(status[host.id])} · ${
-                    status[host.id] === "online" && lanRoutes.kind(host.id) === "lan"
-                      ? "Local network"
-                      : host.relay
-                        ? host.relay.url.replace(/^wss:\/\//, "")
-                        : host.address.replace(/^https?:\/\//, "")
-                  }`}
-                  disabled={!!busy}
-                  onPress={() => void open(host)}
-                  leading={
+          <Group inset={0}>
+            {session.hosts.map((host) => (
+              <ListRow
+                key={host.id}
+                onLongPress={() =>
+                  showActions({
+                    title: host.name,
+                    actions: [
+                      { id: "rename", title: "Rename" },
+                      { id: "forget", title: "Forget", destructive: true },
+                    ],
+                    onSelect: (action) => manage(host, action),
+                  })
+                }
+                title={host.name}
+                subtitle={`${label(status[host.id])} · ${
+                  status[host.id] === "online" && lanRoutes.kind(host.id) === "lan"
+                    ? "Local network"
+                    : host.relay
+                      ? host.relay.url.replace(/^wss:\/\//, "")
+                      : host.address.replace(/^https?:\/\//, "")
+                }`}
+                disabled={!!busy}
+                onPress={() => void open(host)}
+                leading={
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: radius.control,
+                      borderCurve: "continuous",
+                      backgroundColor: colors.field,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink" size={20} />
                     <View
                       style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 10,
-                        borderCurve: "continuous",
-                        backgroundColor: colors.field,
-                        alignItems: "center",
-                        justifyContent: "center",
+                        position: "absolute",
+                        right: -2,
+                        bottom: -2,
+                        width: 12,
+                        height: 12,
+                        borderRadius: radius.full,
+                        backgroundColor: dot(status[host.id]),
+                        borderWidth: 2,
+                        borderColor: colors.surface,
                       }}
-                    >
-                      <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink" size={20} />
-                      <View
-                        style={{
-                          position: "absolute",
-                          right: -2,
-                          bottom: -2,
-                          width: 12,
-                          height: 12,
-                          borderRadius: radius.full,
-                          backgroundColor: dot(status[host.id]),
-                          borderWidth: 2,
-                          borderColor: colors.surface,
-                        }}
-                      />
-                    </View>
-                  }
-                />
-              </View>
+                    />
+                  </View>
+                }
+              />
             ))}
-          </View>
+          </Group>
         ) : (
-          <View style={{ gap: 16, paddingTop: 48, alignItems: "center" }}>
-            <Icon icon={LaptopIcon} tone="ink3" size={44} />
-            <Text style={[styles.subtitle, { textAlign: "center" }]}>Pair your computer</Text>
-            <Text style={[styles.muted, { textAlign: "center" }]}>
-              Open Settings → Devices in Milagre on your Mac, then scan its pairing code. Your projects and chats will appear here.
-            </Text>
-          </View>
+          <EmptyState icon={LaptopIcon} title="Pair your computer">
+            Open Settings → Devices in Milagre on your Mac, then scan its pairing code. Your Projects and Chats will appear here.
+          </EmptyState>
         )}
         {error ? <ErrorNotice message={error} /> : null}
       </PageScroll>

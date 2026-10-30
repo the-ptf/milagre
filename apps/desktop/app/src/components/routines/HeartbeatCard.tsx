@@ -46,7 +46,7 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
       .finally(() => setStopping(false));
   };
   return (
-    <div data-heartbeat-card={step.routine.id} className="flex w-full items-center gap-3 rounded-window border border-line bg-surface px-3 py-3">
+    <div data-heartbeat-card={step.routine.id} className="flex w-full items-center gap-3 rounded-window border border-line bg-surface p-3">
       <Icon icon={Pulse01Icon} size={18} className="shrink-0 text-ink" />
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="truncate text-13 font-medium text-ink">Heartbeat set: {name}</span>
@@ -55,7 +55,7 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
         )}
       </span>
       {enabled === null ? null : routine ? (
-        <Button variant="secondary" data-heartbeat-stop disabled={stopping} onClick={stop} className="rounded-full">
+        <Button variant="secondary" shape="pill" data-heartbeat-stop disabled={stopping} onClick={stop}>
           Stop
         </Button>
       ) : (

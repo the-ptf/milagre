@@ -24,6 +24,8 @@ import { designDraftCache, type DesignFieldDraft, type DesignHistory } from "./d
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { buttonClass as buttonClassOf } from "../primitives/Button";
+import { FIELD_AREA, fieldClass as fieldClassOf } from "../primitives/Field";
+import { InlineError } from "../primitives/InlineError";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 
@@ -32,11 +34,14 @@ export type DesignSaved = { chatId: string; artifact: Artifact };
 export const DESIGN_DELETED = "milagre:design-deleted";
 export type DesignDeleted = { chatId: string; id: string };
 
-const fieldClass =
-  "min-w-0 w-full rounded-control border border-line bg-canvas px-2 py-1.5 text-12 text-ink outline-none focus:border-accent disabled:opacity-40";
+// The inspector is a compact panel: 28px fields, 28px buttons.
+const fieldClass = `min-w-0 ${fieldClassOf({ size: 28 })}`;
 const buttonClass = buttonClassOf({ variant: "secondary", size: 28 });
-// A choice holds a label over a value that may wrap, so it sizes to its content.
-const choiceClass = "rounded-control border border-line px-2.5 py-1.5 text-12 text-ink transition-colors duration-fast hover:bg-hover disabled:opacity-40";
+const dangerClass = buttonClassOf({ variant: "danger-ghost", size: 28 });
+// A notice floating over the canvas, like the editor's load error.
+const NOTICE = "flex shrink-0 items-center gap-3 rounded-card bg-surface px-3 py-2 text-12 shadow-raised";
+// A choice holds a label over a value that may wrap, so it sizes to its content; the picked one is ink-ringed (selection is ink).
+const choiceClass = "rounded-control border px-2.5 py-1.5 text-12 text-ink transition-colors hover:bg-hover disabled:opacity-40";
 const fingerprint = (document: DesignDocument) => JSON.stringify(document);
 const rounded = (value: number) => Math.round(value * 100) / 100;
 const DraftFields = createContext({ pending: (_value: boolean) => {}, fields: new Map<string, DesignFieldDraft>(), scope: "" });
@@ -112,7 +117,7 @@ function Field({
     <label className="flex min-w-0 flex-col gap-1 text-11 text-ink-3">
       <span>{label}</span>
       {multiline ? (
-        <textarea {...common} rows={3} className={`${fieldClass} resize-y`} />
+        <textarea {...common} rows={3} className={`min-w-0 resize-y ${FIELD_AREA}`} />
       ) : (
         <input
           {...common}
@@ -801,7 +806,7 @@ export function DesignDocumentEditor({
         createPortal(
           <>
             {suspendedDraft && (
-              <div data-slot="design-suspended-draft" className="flex shrink-0 items-center gap-3 border-b border-line bg-accent-tint px-4 py-2 text-12">
+              <div data-slot="design-suspended-draft" className={NOTICE}>
                 <span className="flex-1">An unsaved draft was kept when the editor closed.</span>
                 <button type="button" className={buttonClass} onClick={restoreSuspendedDraft}>
                   Restore unsaved draft
@@ -818,16 +823,11 @@ export function DesignDocumentEditor({
                 </button>
               </div>
             )}
-            {error && (
-              <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-line bg-red-tint px-4 py-2 text-12 text-red-ink">
-                <span className="flex-1">{error}</span>
-              </div>
-            )}
+            <InlineError variant="floating" className="shrink-0">
+              {error}
+            </InlineError>
             {(notice || incoming || recovery) && (
-              <div
-                data-slot="design-version-notice"
-                className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-accent-tint px-4 py-2 text-12"
-              >
+              <div data-slot="design-version-notice" className={`${NOTICE} flex-wrap gap-2`}>
                 <span className="min-w-40 flex-1">{notice}</span>
                 {incoming && !reviewing && (
                   <button
@@ -855,12 +855,12 @@ export function DesignDocumentEditor({
               </div>
             )}
             {incoming && reviewing && merge && (
-              <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col border-b border-line bg-canvas px-4 py-3 text-12">
+              <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col rounded-card bg-surface p-3 text-12 shadow-raised">
                 <p className="mb-2 font-medium">Review version {incoming.version}</p>
                 {merge.error && (
-                  <p role="alert" className="mb-2 text-red-ink">
+                  <InlineError size={12} className="mb-2">
                     These changes cannot be combined: {merge.error}
-                  </p>
+                  </InlineError>
                 )}
                 {merge.structural ? (
                   <>
@@ -879,7 +879,7 @@ export function DesignDocumentEditor({
                     {dirty && (
                       <button
                         type="button"
-                        className={`${buttonClass} mt-3 self-start text-red-ink`}
+                        className={`${dangerClass} mt-3 self-start`}
                         disabled={saving}
                         onClick={() => void persist(state.current.document, incoming, true)}
                       >
@@ -907,7 +907,7 @@ export function DesignDocumentEditor({
                                 type="button"
                                 aria-label={`Use ${side} for ${field.label}`}
                                 aria-pressed={choices[field.key] === side}
-                                className={`${choiceClass} break-words text-left ${choices[field.key] === side ? "border-accent bg-accent-tint" : ""}`}
+                                className={`${choiceClass} break-words text-left ${choices[field.key] === side ? "border-ink bg-hover-2" : "border-line"}`}
                                 onClick={() => setChoices((current) => ({ ...current, [field.key]: side }))}
                               >
                                 <span className="mb-1 block text-ink-3">{side === "latest" ? "Latest" : "Mine"}</span>
@@ -944,7 +944,7 @@ export function DesignDocumentEditor({
         </button>
         <div
           data-slot="design-editor-preview"
-          className={`relative bg-white shadow-raised ${active ? "outline outline-1 outline-accent/40" : ""}`}
+          className={`relative bg-paper shadow-raised ${active ? "outline outline-1 outline-accent/40" : ""}`}
           style={{ width: document.width, height: document.height }}
         >
           {previewError ? (
@@ -975,14 +975,12 @@ export function DesignDocumentEditor({
               <div className="flex flex-col gap-4 p-3" key={`${selectedNode.id}:${fieldRevision}`}>
                 <div>
                   <div className="text-12 font-medium">{selectedNode.name ?? selectedNode.id}</div>
-                  <div className="mt-0.5 text-10 capitalize text-ink-3">{selectedNode.type}</div>
+                  <div className="mt-0.5 text-11 capitalize text-ink-3">{selectedNode.type}</div>
                 </div>
                 <Field label="Layer name" value={selectedNode.name ?? selectedNode.id} disabled={saving} onCommit={(name) => patch({ name })} />
                 {selectedInstance ? (
                   <>
-                    <div className="rounded-control border border-line bg-canvas p-2 text-11 leading-4 text-ink-3">
-                      Linked instance. Edit the main component to update every instance.
-                    </div>
+                    <div className="rounded-control bg-field p-2 text-11 text-ink-3">Linked instance. Edit the main component to update every instance.</div>
                     <div className="grid grid-cols-2 gap-2">
                       <Field label="X" value={rounded(selectedNode.x ?? 0)} number disabled={saving} onCommit={(x) => patch({ x: Number(x) })} />
                       <Field label="Y" value={rounded(selectedNode.y ?? 0)} number disabled={saving} onCommit={(y) => patch({ y: Number(y) })} />
@@ -1031,7 +1029,7 @@ export function DesignDocumentEditor({
                       </div>
                     </div>
                     {((selectedNode.widthMode && selectedNode.widthMode !== "fixed") || (selectedNode.heightMode && selectedNode.heightMode !== "fixed")) && (
-                      <p className="text-11 leading-4 text-ink-3">Hug follows content. Fill uses available space. Width and height are fallback sizes.</p>
+                      <p className="text-11 text-ink-3">Hug follows content. Fill uses available space. Width and height are fallback sizes.</p>
                     )}
                     <div className="grid grid-cols-2 gap-2">
                       {(
@@ -1276,7 +1274,7 @@ export function DesignDocumentEditor({
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
                     Duplicate
                   </button>
-                  <button type="button" className={`${buttonClass} text-red-ink`} disabled={saving} onClick={remove}>
+                  <button type="button" className={dangerClass} disabled={saving} onClick={remove}>
                     Delete
                   </button>
                 </div>
@@ -1284,7 +1282,7 @@ export function DesignDocumentEditor({
             ) : selectedIds.length > 1 ? (
               <div className="flex flex-col gap-4 p-3">
                 <div className="text-12 font-medium">{selectedIds.length} layers selected</div>
-                <p className="text-11 leading-4 text-ink-3">Drag to move them together. Arrow keys move 1 px; Shift + arrows move 10 px.</p>
+                <p className="text-11 text-ink-3">Drag to move them together. Arrow keys move 1 px; Shift + arrows move 10 px.</p>
                 {groupPosition && (
                   <div className="grid grid-cols-2 gap-2">
                     <Field
@@ -1303,14 +1301,12 @@ export function DesignDocumentEditor({
                     />
                   </div>
                 )}
-                {!canMoveSelection && (
-                  <p className="text-11 leading-4 text-ink-3">Unlock layers and select their automatic-layout frame to move this selection.</p>
-                )}
+                {!canMoveSelection && <p className="text-11 text-ink-3">Unlock layers and select their automatic-layout frame to move this selection.</p>}
                 <div className="flex gap-2 border-t border-line pt-3">
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
                     Duplicate
                   </button>
-                  <button type="button" className={`${buttonClass} text-red-ink`} disabled={saving} onClick={remove}>
+                  <button type="button" className={dangerClass} disabled={saving} onClick={remove}>
                     Delete
                   </button>
                 </div>

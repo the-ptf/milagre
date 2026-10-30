@@ -27,11 +27,14 @@ export const lineHeight = {
   largeTitle: 41,
 } as const satisfies Record<keyof typeof type, number>;
 
+/** `sheet` is also the iPad side panels (desktop's window 14 floats like a phone sheet). `composer` is the prompt field;
+ * the tray around it is `composer + 4` (its padding), so the corners run parallel. */
 export const radius = {
   chip: 6,
   control: 10,
   card: 14,
   sheet: 20,
+  composer: 24,
   full: 999,
 } as const;
 
@@ -48,6 +51,20 @@ export const space = {
   gutter: 16,
   section: 24,
 } as const;
+
+/** Motion, as desktop's --duration-* and --ease-*: hover and press `fast`, things appearing `base`, panels and sheets
+ * `slow`. Durations in ms go through scaledTiming/springTo (motion.ts) for the Animations setting; curves are
+ * `Easing.bezier(...easing.enter)`. Artwork (Ultracode, the splash, the fatality) keeps its own timing. */
+export const duration = { fast: 120, base: 180, slow: 280 } as const;
+export const easing = {
+  /** Everything that appears or settles. */
+  enter: [0.23, 1, 0.32, 1],
+  /** Panels and sheets travelling a long way. */
+  slide: [0.32, 0.72, 0, 1],
+} as const;
+
+/** The floating chat header's height under the safe area (6 + 44 + 2). Overlays below it sit at its bottom + 8. */
+export const chrome = { header: 52 } as const;
 
 /** The 44pt touch floor; a smaller visual makes it up with `hitSlop={hitSlopFor(size)}`. */
 export const minTarget = 44;

@@ -8,7 +8,7 @@ import { useChatPorts } from "../ports";
 import { useSession } from "../session";
 import { WholeSubagentDetail } from "../subagent-glance";
 import { TaskOutput } from "../task-output";
-import { CircleButton, ListRow, PageScroll, SheetHeader, useStyles } from "../ui";
+import { CircleButton, EmptyState, ListRow, PageScroll, SheetHeader, useStyles } from "../ui";
 
 /** The phone's counterpart to the expanded background line on desktop. */
 export default function BackgroundSheet() {
@@ -52,7 +52,7 @@ export default function BackgroundSheet() {
           )
         ) : (
           <>
-            {!items.length && <Text style={styles.muted}>No background tasks running.</Text>}
+            {!items.length && <EmptyState title="No background tasks running" />}
             {items.map((item) => (
               <ListRow
                 key={`${item.type}:${item.id}`}

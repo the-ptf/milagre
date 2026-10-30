@@ -36,7 +36,7 @@ function ToolButton({
 }: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
     <Tooltip label={label} side="bottom" align="end">
-      <IconButton label={label} size={28} aria-pressed={active} disabled={disabled} onClick={onClick} {...rest} className={active ? "bg-hover text-ink" : ""}>
+      <IconButton label={label} size={28} aria-pressed={active} disabled={disabled} onClick={onClick} {...rest}>
         {children}
       </IconButton>
     </Tooltip>
@@ -64,7 +64,11 @@ export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: Retur
         {icon(TextWrapIcon)}
       </ToolButton>
       <ToolButton label="Refresh" onClick={spin.refresh} data-diff-refresh-all="" data-busy={spin.busy ? "" : undefined}>
-        <span className={spin.spinning ? "animate-spin" : ""} onAnimationIteration={spin.onAnimationIteration}>
+        <span
+          className={spin.spinning ? "refresh-spin animate-spin" : ""}
+          onAnimationIteration={spin.onAnimationIteration}
+          onAnimationEnd={spin.onAnimationEnd}
+        >
           {icon(RefreshIcon)}
         </span>
       </ToolButton>

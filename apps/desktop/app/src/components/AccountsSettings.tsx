@@ -5,9 +5,10 @@ import { accountType, providerName } from "@milagre/shared/providers";
 import { ProviderLogo } from "./ProviderLogo";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, Delete02Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { Button } from "./primitives/Button";
-import { FIELD } from "./primitives/Field";
+import { FIELD, FIELD_LABEL } from "./primitives/Field";
 import { Icon } from "./primitives/Icon";
 import { InlineError } from "./primitives/InlineError";
+import { ProgressBar } from "./primitives/ProgressBar";
 import Tooltip from "./primitives/Tooltip";
 
 const MB = 1024 * 1024;
@@ -81,9 +82,8 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
         )}
       </div>
       {working && (
-        <div className="h-1 overflow-hidden rounded-full bg-inset" role="progressbar" aria-label="Antigravity download" aria-valuenow={percent ?? undefined}>
-          <div className="h-full bg-ink transition-[width] duration-base ease-enter" style={{ width: `${percent ?? 5}%` }} />
-        </div>
+        // Before the size is known it shows a sliver, so it reads as started.
+        <ProgressBar label="Antigravity download" value={(percent ?? 5) / 100} />
       )}
       <InlineError size={12}>{error}</InlineError>
     </div>
@@ -184,7 +184,7 @@ export function AccountsSettings() {
                 return (
                   <div
                     key={account.id}
-                    className={`flex items-center gap-2 rounded-control border pr-3 transition-colors duration-fast ${selected ? "border-line-strong bg-hover" : "border-line hover:bg-hover"}`}
+                    className={`flex items-center gap-2 rounded-control border pr-3 transition-colors duration-fast hover:bg-hover ${selected ? "border-line-strong" : "border-line"}`}
                   >
                     <button
                       type="button"
@@ -245,7 +245,7 @@ export function AccountsSettings() {
                             align="end"
                             wrap
                           >
-                            <Button variant="ghost" size={28} disabled={busy} onClick={() => void act("remove", group.provider, account.id)}>
+                            <Button variant="danger-ghost" size={28} disabled={busy} onClick={() => void act("remove", group.provider, account.id)}>
                               <Icon icon={Delete02Icon} size={14} />
                               Remove
                             </Button>
@@ -266,7 +266,7 @@ export function AccountsSettings() {
                 void act("add", group.provider, label);
               }}
             >
-              <label className="grid gap-2 text-12 text-ink-2">
+              <label className={`grid gap-1 ${FIELD_LABEL}`}>
                 Account name
                 <input
                   autoFocus

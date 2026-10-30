@@ -19,9 +19,7 @@ import {
 } from "@milagre/shared/local-mcp";
 import { useLocalMcp } from "@milagre/shared/use-local-mcp";
 import { useSession } from "./session";
-import { radius } from "./design-tokens";
-import { Button, CheckboxBox, ErrorNotice, Field, pressStyle, tap, Toggle, useStyles } from "./ui";
-import { useTheme } from "./theme";
+import { CheckRow, ErrorNotice, Field, InlineError, PillButton, pressStyle, Toggle, useStyles } from "./ui";
 
 export function LocalMcpSection() {
   const client = useSession().client;
@@ -83,12 +81,12 @@ export function LocalMcpSection() {
         </Text>
         {!item && <Field label="Connection name" value={draft.label} onChangeText={(label) => setDraft({ ...draft, label })} />}
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
-        <Button
+        <PillButton
           title={local.busy ? "Saving…" : item ? (item.enabled ? "Save access" : `Enable ${item.label}`) : "Create configuration"}
           disabled={local.busy || !localMcpDraftValid(draft)}
           onPress={() => void submit(item)}
         />
-        <Button title="Cancel" secondary disabled={local.busy} onPress={() => setSetup(null)} />
+        <PillButton title="Cancel" secondary disabled={local.busy} onPress={() => setSetup(null)} />
       </View>
     );
   return (
@@ -136,7 +134,7 @@ export function LocalMcpSection() {
           Enabled clients are set up when Milagre starts. Restart a client after enabling it; scope changes apply at once. Access stays on the computer running
           Milagre.
         </Text>
-        <Button title="Refresh" secondary disabled={local.busy} onPress={() => void local.refresh()} />
+        <PillButton title="Refresh" secondary disabled={local.busy} onPress={() => void local.refresh()} />
       </View>
       <View style={styles.separator} />
       <View style={{ gap: 12 }}>
@@ -157,13 +155,13 @@ export function LocalMcpSection() {
           <View style={{ gap: 12 }}>
             <Text style={styles.muted}>For another app, create a scoped connection and copy its configuration.</Text>
             {setup !== "custom" && !local.credential ? (
-              <Button title="Create MCP config" secondary disabled={local.busy || !local.status} onPress={() => open()} />
+              <PillButton title="Create MCP config" secondary disabled={local.busy || !local.status} onPress={() => open()} />
             ) : null}
             {setup === "custom" ? editor() : null}
             {local.credential ? (
               <View style={{ gap: 12 }}>
                 <Text style={styles.muted}>Copy this configuration now. The credential is available only once.</Text>
-                <Button
+                <PillButton
                   title={copied ? "Copied" : "Copy MCP config"}
                   onPress={() =>
                     void Clipboard.setStringAsync(localMcpClientConfig(local.credential!)).then(
@@ -175,12 +173,12 @@ export function LocalMcpSection() {
                     )
                   }
                 />
-                <Button title="Done" secondary onPress={local.dismiss} />
-                {copyError ? <ErrorNotice message="Could not copy. Try again before closing this configuration." /> : null}
+                <PillButton title="Done" secondary onPress={local.dismiss} />
+                <InlineError message={copyError ? "Could not copy. Try again before closing this configuration." : ""} />
               </View>
             ) : null}
             {custom.length > 0 ? (
-              <Button title={`Manage custom connections (${custom.length})`} secondary onPress={() => setShowConnections(!showConnections)} />
+              <PillButton title={`Manage custom connections (${custom.length})`} secondary onPress={() => setShowConnections(!showConnections)} />
             ) : null}
             {showConnections
               ? custom.map((connection) => {
@@ -197,7 +195,7 @@ export function LocalMcpSection() {
                       </Text>
                       {active ? (
                         <>
-                          <Button
+                          <PillButton
                             title="Replace credential"
                             secondary
                             disabled={local.busy}
@@ -208,14 +206,14 @@ export function LocalMcpSection() {
                             }}
                           />
                           {writable ? (
-                            <Button
+                            <PillButton
                               title="Restrict to read"
                               secondary
                               disabled={local.busy}
                               onPress={() => void local.update(connection.id, localMcpReadOnly(connection))}
                             />
                           ) : null}
-                          <Button title="Revoke" secondary disabled={local.busy} onPress={() => void local.revoke(connection.id)} />
+                          <PillButton title="Revoke" secondary destructive disabled={local.busy} onPress={() => void local.revoke(connection.id)} />
                         </>
                       ) : null}
                     </View>
@@ -236,23 +234,20 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
       <Text style={styles.muted}>Allow access to</Text>
       <View accessibilityRole="radiogroup" accessibilityLabel="Allow access to">
         {(["projects", "all-projects", "designs"] as const).map((kind) => (
-          <ScopeChoice
-            key={kind}
-            radio
-            title={scopeKindLabel(kind)}
-            selected={draft.kind === kind}
-            onPress={() => onChange(setLocalMcpDraftKind(draft, kind))}
-          />
+          <CheckRow key={kind} title={scopeKindLabel(kind)} checked={draft.kind === kind} onPress={() => onChange(setLocalMcpDraftKind(draft, kind))} />
         ))}
       </View>
       {draft.kind === "projects" ? (
         <>
           {!status.projects.length ? <Text style={styles.muted}>Open a Project in Milagre to grant access to it.</Text> : null}
           {status.projects.map((project) => (
-            <ScopeChoice
+            <CheckRow
               key={project.path}
-              title={`${project.name} (${project.path})`}
-              selected={draft.projectPaths.includes(project.path)}
+              kind="checkbox"
+              title={project.name}
+              subtitle={project.path}
+              subtitleLines={1}
+              checked={draft.projectPaths.includes(project.path)}
               onPress={() => onChange(toggleLocalMcpDraftProject(draft, project.path))}
             />
           ))}
@@ -269,51 +264,12 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
           ) : null}
         </>
       )}
-      <ScopeChoice
+      <CheckRow
+        kind="checkbox"
         title={draft.kind === "designs" ? "Allow design edits" : "Allow creating Worktrees and Chats and starting tasks"}
-        selected={draft.write}
+        checked={draft.write}
         onPress={() => onChange({ ...draft, write: !draft.write })}
       />
     </>
-  );
-}
-
-function ScopeChoice({ title, selected, onPress, radio = false }: { title: string; selected: boolean; onPress: () => void; radio?: boolean }) {
-  const { colors } = useTheme();
-  const styles = useStyles();
-  return (
-    <Pressable
-      accessibilityRole={radio ? "radio" : "checkbox"}
-      accessibilityLabel={title}
-      accessibilityState={{ checked: selected }}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => [
-        { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
-        pressStyle({ pressed, kind: "row" }),
-      ]}
-    >
-      {radio ? (
-        // ponytail: CheckRow's radio is a trailing tick on one line; these titles wrap, so the radio dot stays here.
-        <View
-          style={{
-            width: 20,
-            height: 20,
-            borderWidth: 1.5,
-            borderRadius: radius.full,
-            borderColor: selected ? colors.ink : colors.ink3,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {selected ? <View style={{ width: 10, height: 10, borderRadius: radius.full, backgroundColor: colors.ink }} /> : null}
-        </View>
-      ) : (
-        <CheckboxBox checked={selected} />
-      )}
-      <Text style={[styles.text, { flex: 1 }]}>{title}</Text>
-    </Pressable>
   );
 }

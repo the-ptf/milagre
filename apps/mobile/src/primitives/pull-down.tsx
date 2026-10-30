@@ -1,5 +1,5 @@
 import React from "react";
-import { Keyboard, Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Keyboard, Platform, Pressable, StyleSheet, View, type Insets, type StyleProp, type ViewStyle } from "react-native";
 import { HStack as IOSHStack, Host as IOSHost, Image as IOSImage, Menu as IOSMenu, Rectangle, Section as IOSSection, Text as IOSText } from "@expo/ui/swift-ui";
 import {
   accessibilityLabel,
@@ -20,12 +20,19 @@ import { MenuView, type MenuAction } from "@expo/ui/community/menu";
 import { useTheme } from "../theme";
 import { showChoiceSheet } from "../choice-store";
 import { tap } from "./tap";
+import { pressStyle } from "./press-style";
 import type { MenuSection, NativeMenuTrigger } from "./menu";
 import { NativeMenuSection } from "./native-menu-section";
 
+/** A hitSlop as its four edges. */
+const edges = (slop: number | Insets = 0) =>
+  typeof slop === "number" ? { top: slop, bottom: slop, left: slop, right: slop } : { top: 0, bottom: 0, left: 0, right: 0, ...slop };
+
 /**
  * A native pull-down menu on its trigger. With `onPress`, a tap runs it and a long press opens the menu (a Chat row);
- * without it, a tap opens the menu (the header switchers, a row's ⋯ button).
+ * without it, a tap opens the menu (the header switchers, a row's ⋯ button). `hitSlop` grows the touch area past the
+ * trigger without moving it (`hitSlopFor(size)` for a small one): the menu's own target is padded by it and pulled back
+ * by negative margins, which take the place of any margins in `style`.
  */
 export function PullDown({
   title,
@@ -38,6 +45,7 @@ export function PullDown({
   nativeTrigger,
   searchable,
   fill = false,
+  hitSlop,
 }: {
   title?: string;
   sections: MenuSection[];
@@ -50,8 +58,12 @@ export function PullDown({
   searchable?: { placeholder: string; emptyLabel: string };
   /** The trigger fills `style`'s box: a row's whole area under its own tap targets (a Chat row's PR links). */
   fill?: boolean;
+  hitSlop?: number | Insets;
 }) {
   const { colors } = useTheme();
+  const slop = edges(hitSlop);
+  const pullBack = hitSlop ? { marginTop: -slop.top, marginBottom: -slop.bottom, marginLeft: -slop.left, marginRight: -slop.right } : null;
+  const padOut = hitSlop ? { paddingTop: slop.top, paddingBottom: slop.bottom, paddingLeft: slop.left, paddingRight: slop.right } : null;
   if (searchable)
     return (
       <Pressable
@@ -59,7 +71,8 @@ export function PullDown({
         accessibilityLabel={`${label}${nativeTrigger?.title ? `: ${nativeTrigger.title}` : ""}`}
         accessibilityState={{ disabled: !!nativeTrigger?.disabled }}
         disabled={nativeTrigger?.disabled}
-        style={style}
+        hitSlop={hitSlop}
+        style={({ pressed }) => [style, pressStyle({ pressed })]}
         onPress={() => {
           Keyboard.dismiss();
           tap();
@@ -76,30 +89,38 @@ export function PullDown({
       setTimeout(() => onSelect(id), 250);
     };
     const body = sections.map((section, index) => <NativeMenuSection key={index} section={section} onSelect={select} />);
+    // The slop pads the SwiftUI view (all of it tappable); the wrapper's negative margins keep its place in the row.
+    const grow = padding({ top: slop.top, bottom: slop.bottom, leading: slop.left, trailing: slop.right });
     const trigger = nativeTrigger.title ? (
       <IOSHStack
         spacing={6}
-        // A 44pt tall frame around the 29pt label, all of it tappable.
+        // A 44pt tall frame around the label (footnote, so it follows Dynamic Type), all of it tappable.
         modifiers={[
-          padding({ horizontal: 10, vertical: 6 }),
-          frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, minHeight: 44, alignment: "leading" }),
+          padding({ horizontal: 12, vertical: 6 }),
+          frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, minHeight: 44 - slop.top - slop.bottom, alignment: "leading" }),
+          grow,
           contentShape(shapes.rectangle()),
         ]}
       >
-        {nativeTrigger.showIcon !== false ? <IOSImage systemName={nativeTrigger.systemImage as never} size={14} color={colors.ink2} /> : null}
-        <IOSText modifiers={[font({ size: 13, weight: "medium" }), foregroundStyle(colors.ink2), lineLimit(1)]}>{nativeTrigger.title}</IOSText>
-        <IOSImage systemName="chevron.up.chevron.down" size={13} color={colors.ink3} />
+        {nativeTrigger.showIcon !== false ? <IOSImage systemName={nativeTrigger.systemImage as never} size={12} color={colors.ink2} /> : null}
+        <IOSText modifiers={[font({ textStyle: "footnote", weight: "medium" }), foregroundStyle(colors.ink2), lineLimit(1)]}>{nativeTrigger.title}</IOSText>
+        <IOSImage systemName="chevron.up.chevron.down" size={12} color={colors.ink3} />
       </IOSHStack>
     ) : (
       <IOSImage
         systemName={nativeTrigger.systemImage as never}
-        size={nativeTrigger.iconSize ?? 21}
+        size={nativeTrigger.iconSize ?? 20}
         color={colors.ink2}
-        modifiers={[...(nativeTrigger.rotation ? [rotationEffect(nativeTrigger.rotation)] : []), frame({ width: 44, height: 44 })]}
+        modifiers={[
+          ...(nativeTrigger.rotation ? [rotationEffect(nativeTrigger.rotation)] : []),
+          frame({ width: 44 - slop.left - slop.right, height: 44 - slop.top - slop.bottom }),
+          grow,
+          contentShape(shapes.rectangle()),
+        ]}
       />
     );
     return (
-      <View style={style} onTouchStart={() => Keyboard.dismiss()}>
+      <View style={[style, pullBack]} onTouchStart={() => Keyboard.dismiss()}>
         <IOSHost matchContents seedColor={nativeTrigger.menuTint ?? colors.ink2} testID={label} ignoreSafeArea="all">
           <IOSMenu
             label={trigger}
@@ -128,7 +149,11 @@ export function PullDown({
         <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.shrink}>
           {children}
         </View>
-        <IOSHost style={StyleSheet.absoluteFill} testID={label} ignoreSafeArea="all">
+        <IOSHost
+          style={hitSlop ? { position: "absolute", top: -slop.top, bottom: -slop.bottom, left: -slop.left, right: -slop.right } : StyleSheet.absoluteFill}
+          testID={label}
+          ignoreSafeArea="all"
+        >
           <IOSMenu
             label={
               <Rectangle
@@ -150,18 +175,19 @@ export function PullDown({
     );
   }
   // The system draws menus below the keyboard, so a touch on the trigger lowers it first.
+  const box = [fill ? { flex: 1 } : styles.shrink, padOut];
   const trigger = onPress ? (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       onTouchStart={() => Keyboard.dismiss()}
-      style={fill ? { flex: 1 } : styles.shrink}
+      style={({ pressed }) => [box, pressStyle({ pressed })]}
     >
       {children}
     </Pressable>
   ) : (
-    <View accessible accessibilityRole="button" accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={fill ? { flex: 1 } : styles.shrink}>
+    <View accessible accessibilityRole="button" accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={box}>
       {children}
     </View>
   );
@@ -186,7 +212,7 @@ export function PullDown({
         tap();
         onSelect(nativeEvent.event);
       }}
-      style={style}
+      style={[style, pullBack]}
       testID={label}
     >
       {trigger}

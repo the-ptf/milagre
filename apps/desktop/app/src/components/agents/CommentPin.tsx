@@ -2,23 +2,24 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import type { DesignPin, PinControls } from "./ArtifactCanvas";
-import { EASE_OUT, useMotionScale } from "../../lib/ease";
+import { DURATION, EASE_OUT, useMotionScale } from "../../lib/ease";
 import { THEME_EVENT } from "../../lib/theme-sheet";
 import { useDismiss } from "../../lib/use-dismiss";
 import { morphFace, useSize, HIDDEN_FACE } from "../motion/morph";
+import { Button } from "../primitives/Button";
 import { Icon } from "../primitives/Icon";
 
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 
-/** A pin's size, in screen pixels: a round bubble whose top-left corner is its point. */
-const PIN = 24;
+/** A pin's size, in screen pixels: a round bubble whose top-left corner is its point (system.md Depth: 20). */
+const PIN = 20;
 const PIN_RADIUS = `0 ${PIN / 2}px ${PIN / 2}px ${PIN / 2}px`;
 const BUBBLE_RADIUS = "3px 10px 10px 10px";
 /** The pin and its bubble are one surface: its size, corners, fill and ring move together; reduced motion jumps. */
 const SURFACE =
   "transition-[width,height,border-radius,background-color,box-shadow] duration-base ease-enter motion-reduce:transition-none motion-reduce:duration-0";
 /** A surface-coloured ring sets the pin off the design under it. */
-const PIN_SHADOW = "0 0 0 1.5px var(--surface), 0 1px 3px rgb(0 0 0 / 0.3)";
+const PIN_SHADOW = "var(--shadow-pin)";
 
 const themeColor = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -34,7 +35,7 @@ export function commentCursor(fill: string, ring = themeColor("--surface") || "w
   return `image-set(${svg(22)} 1x, ${svg(44)} 2x) 2 2, crosshair`;
 }
 
-/** The comment cursor in the current theme's accent, read again when the theme changes. */
+/** The comment cursor in the current theme's accent-ink (the pins' fill), read again when the theme changes. */
 function useCommentCursor(on: boolean) {
   const [theme, setTheme] = useState(0);
   useEffect(() => {
@@ -45,7 +46,7 @@ function useCommentCursor(on: boolean) {
   }, [on]);
   return useMemo(() => {
     if (!on) return undefined;
-    return commentCursor(themeColor("--accent"));
+    return commentCursor(themeColor("--accent-ink"));
     // `theme` is only a signal to read the accent again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, theme]);
@@ -138,7 +139,8 @@ export function CommentPin({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, sent, comments]);
-  const [fill, ink] = pin.resolved !== undefined ? ["bg-green", "text-on-accent"] : sent ? ["bg-ink", "text-on-ink"] : ["bg-accent", "text-on-accent"];
+  // A number on a coloured fill sits on the -ink fill, so it reaches 4.5:1.
+  const [fill, ink] = pin.resolved !== undefined ? ["bg-green-ink", "text-on-green"] : sent ? ["bg-ink", "text-on-ink"] : ["bg-accent-ink", "text-on-accent"];
   return (
     <div
       ref={root}
@@ -173,7 +175,7 @@ export function CommentPin({
         aria-expanded={open}
         onClick={() => comments.onOpen(pin.key)}
         {...morphFace(!open, reduce, motionScale)}
-        className={`absolute top-0 left-0 grid cursor-pointer place-items-center text-11 font-medium ${ink} ${open ? HIDDEN_FACE : "visible"}`}
+        className={`absolute top-0 left-0 grid cursor-pointer place-items-center text-10 font-semibold ${ink} ${open ? HIDDEN_FACE : "visible"}`}
         style={{ width: PIN, height: PIN, borderRadius: PIN_RADIUS }}
       >
         {number}
@@ -186,8 +188,8 @@ export function CommentPin({
             data-slot="artifact-comment-bubble"
             initial={{ opacity: 0 }}
             // The comment fades in once the surface has mostly grown, and out first as it shrinks back.
-            animate={{ opacity: 1, transition: { duration: reduce ? 0 : 0.12, delay: reduce ? 0 : 0.1, ease: EASE_OUT } }}
-            exit={{ opacity: 0, transition: { duration: reduce ? 0 : 0.12, ease: EASE_OUT } }}
+            animate={{ opacity: 1, transition: { duration: reduce ? 0 : DURATION.fast, delay: reduce ? 0 : 0.1, ease: EASE_OUT } }}
+            exit={{ opacity: 0, transition: { duration: reduce ? 0 : DURATION.fast, ease: EASE_OUT } }}
             className="absolute top-0 left-0 flex w-64 cursor-default flex-col gap-2 p-2 text-ink"
           >
             {sent ? (
@@ -226,16 +228,12 @@ export function CommentPin({
                     }
                   }}
                   // Grows with the comment up to eight lines, then scrolls; the surface follows the bubble's size.
-                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 leading-[1.4] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 />
                 <div className="flex items-center justify-between text-11 text-ink-3">
-                  <button
-                    type="button"
-                    onClick={() => comments.onRemove(pin.key)}
-                    className="h-6 rounded-inline px-1.5 transition-colors hover:bg-hover hover:text-ink"
-                  >
+                  <Button variant="danger-ghost" size={24} className="-ml-1" onClick={() => comments.onRemove(pin.key)}>
                     Delete
-                  </button>
+                  </Button>
                   <span>Enter to keep · {SEND_KEYS} to send</span>
                 </div>
               </>

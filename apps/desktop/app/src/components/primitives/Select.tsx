@@ -1,9 +1,11 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
+import { ChipChevron, chipClass } from "./Chip";
+import { Icon } from "./Icon";
 import { PickerPanel, PickerRow } from "./Picker";
+import { MenuLabel } from "./Popover";
 import { useDismiss } from "../../lib/use-dismiss";
 
 export type SelectOption<T extends string> = {
@@ -24,9 +26,9 @@ export type SelectOption<T extends string> = {
 
 const GAP = 6;
 const INSET = 12;
-// The list scrolls inside max-h-64; chrome is the panel padding, border and, with search, the field.
+// The list scrolls inside max-h-64; chrome is the panel padding and, with search, the field and its margins.
 const LIST_MAX = 256;
-const CHROME = 14;
+const CHROME = 12;
 const SEARCH = 52;
 const ROW = 32;
 const ROW_WITH_DESCRIPTION = 48;
@@ -69,8 +71,9 @@ export function Select<T extends string>({
   /** A search field over a long list (e.g. time zones); it filters by label. */
   searchable?: boolean;
   /**
-   * `chip`: a rounded pill on the field fill (the Routine form's chips) instead of a bordered field. `text`: the trigger
-   * reads as plain text with a chevron (a heading that is also a choice), and the panel opens from its left edge.
+   * `field` (default): the secondary Button's look, hover-2 while open. `chip`: the field-filled Chip (the Routine
+   * form's chips). `text`: the trigger reads as plain text with a chevron (a heading that is also a choice), and the
+   * panel opens from its left edge. Each fades to 40% while disabled.
    */
   variant?: "field" | "chip" | "text";
   /** The field at 28px, beside the toolbar's 28px icon buttons. */
@@ -177,10 +180,10 @@ export function Select<T extends string>({
         onKeyDown={onTriggerKeyDown}
         className={
           variant === "chip"
-            ? `flex h-7 items-center gap-1.5 rounded-full pr-2 pl-2.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "bg-field"} ${triggerClassName}`
+            ? `${chipClass({ variant: "field", chevron: true })} ${triggerClassName}`
             : variant === "text"
-              ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-[6px] px-1.5 text-left text-ink transition-colors hover:bg-hover-2 ${open ? "bg-hover-2" : ""} ${triggerClassName}`
-              : `flex ${compact ? "h-7" : "h-8"} items-center gap-2 rounded-control border border-line pr-2.5 pl-3 text-[13px] font-medium text-ink transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-surface"} ${triggerClassName}`
+              ? `-mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-chip px-1.5 text-left text-ink transition-colors disabled:opacity-40 ${open ? "bg-hover-2" : "enabled:hover:bg-hover"} ${triggerClassName}`
+              : `flex ${compact ? "h-7 text-12" : "h-8 text-13"} items-center gap-2 rounded-control pr-2 pl-3 font-medium text-ink shadow-btn transition-colors disabled:opacity-40 ${open ? "bg-hover-2" : "bg-surface enabled:hover:bg-hover"} ${triggerClassName}`
         }
       >
         {variant !== "text" && (selected?.icon ?? leading)}
@@ -189,9 +192,7 @@ export function Select<T extends string>({
             {selected?.label ?? ""}
           </span>
         )}
-        <span className="text-ink-3">
-          <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
-        </span>
+        {variant === "chip" ? <ChipChevron /> : <Icon icon={ArrowDown01Icon} size={14} className="shrink-0 text-ink-3" />}
       </button>
       {open &&
         createPortal(
@@ -212,9 +213,7 @@ export function Select<T extends string>({
             >
               {shown.map((option, index) => (
                 <Fragment key={option.value}>
-                  {option.group && option.group !== shown[index - 1]?.group && (
-                    <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-3">{option.group}</div>
-                  )}
+                  {option.group && option.group !== shown[index - 1]?.group && <MenuLabel>{option.group}</MenuLabel>}
                   <PickerRow
                     disabled={option.disabled}
                     icon={option.icon}

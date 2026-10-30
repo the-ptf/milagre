@@ -7,7 +7,7 @@ import { SETUP_APPROVAL_COPY } from "@milagre/shared/model-copy";
 import { takeActivityDraft } from "./activity-drafts";
 import { Icon } from "./icons";
 import { InboxPage, InboxPager } from "./inbox-motion";
-import { IconButton, PillButton, pressStyle, useStyles } from "./ui";
+import { IconButton, PillButton, pressStyle, Tag, useStyles } from "./ui";
 import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
@@ -167,8 +167,8 @@ export function Questions({
             >
               <View
                 style={{
-                  width: 26,
-                  height: 26,
+                  minWidth: 24,
+                  minHeight: 24,
                   borderRadius: question.multiSelect ? radius.chip : radius.full,
                   borderCurve: "continuous",
                   alignItems: "center",
@@ -179,13 +179,16 @@ export function Questions({
                 }}
               >
                 {on && question.multiSelect ? (
-                  <Icon icon={Tick02Icon} tone="onInk" size={16} strokeWidth={2} />
+                  <Icon icon={Tick02Icon} tone="onInk" size={16} />
                 ) : (
                   <Text
+                    maxFontSizeMultiplier={1.3}
                     style={{
                       color: on ? colors.onInk : colors.ink2,
                       fontSize: type.footnote,
+                      lineHeight: lineHeight.footnote,
                       fontWeight: "600",
+                      fontVariant: ["tabular-nums"],
                     }}
                   >
                     {index + 1}
@@ -211,28 +214,7 @@ export function Questions({
                   >
                     {option.label.replace(RECOMMENDED, "")}
                   </Text>
-                  {recommended && (
-                    <View
-                      style={{
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                        borderRadius: radius.chip,
-                        borderCurve: "continuous",
-                        backgroundColor: colors.accentTint,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: colors.accentInk,
-                          fontSize: type.caption2,
-                          lineHeight: lineHeight.caption2,
-                          fontWeight: "600",
-                        }}
-                      >
-                        Recommended
-                      </Text>
-                    </View>
-                  )}
+                  {recommended && <Tag label="Recommended" />}
                 </View>
                 {!!option.description && (
                   <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{option.description}</Text>
@@ -247,7 +229,7 @@ export function Questions({
               flexDirection: "row",
               alignItems: "center",
               gap: 12,
-              minHeight: 50,
+              minHeight: 48,
               paddingLeft: 12,
               paddingRight: 6,
               borderRadius: radius.card,
@@ -257,9 +239,10 @@ export function Questions({
               backgroundColor: typed[question.id] ? colors.surface : colors.page,
             }}
           >
-            <View style={{ width: 26, alignItems: "center" }}>
+            <View style={{ width: 24, alignItems: "center" }}>
               <Icon icon={PencilEdit02Icon} tone="ink2" size={16} />
             </View>
+            {/* ponytail: a bare TextInput, as Field `bare` would draw it; the bordered row is its field. */}
             <TextInput
               accessibilityLabel={`Your own answer to: ${question.question}`}
               placeholder="Type your answer…"
@@ -277,12 +260,7 @@ export function Questions({
               onSubmitEditing={sendTyped}
               returnKeyType="send"
               editable={!busy}
-              style={{
-                flex: 1,
-                color: colors.ink,
-                fontSize: type.subheadline,
-                paddingVertical: 12,
-              }}
+              style={{ flex: 1, minHeight: 44, color: colors.ink, fontSize: type.subheadline, paddingVertical: 12 }}
             />
             {!!typed[question.id]?.trim() && !question.multiSelect && (
               <IconButton label="Send answer" icon={ArrowUp01Icon} filled size={32} onPress={sendTyped} disabled={busy} />
@@ -309,7 +287,7 @@ export function Questions({
           ? { gap: 12 }
           : {
               backgroundColor: colors.surface,
-              borderRadius: 24,
+              borderRadius: radius.composer,
               borderCurve: "continuous",
               padding: 8,
               gap: 4,
@@ -399,7 +377,7 @@ export function Approval({
       <View style={{ gap: 4 }}>
         {inline && <Text style={styles.caption}>{approval.tool}</Text>}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {!inline && <Icon icon={ShieldAlertIcon} tone="orange" size={16} strokeWidth={2} />}
+          {!inline && <Icon icon={ShieldAlertIcon} tone="orange" size={16} />}
           <Text
             accessibilityRole="header"
             style={{
@@ -413,7 +391,7 @@ export function Approval({
             {approval.title}
           </Text>
         </View>
-        {!!approval.description && <Text style={[styles.muted, { lineHeight: 20 }]}>{approval.description}</Text>}
+        {!!approval.description && <Text style={styles.muted}>{approval.description}</Text>}
         {approval.delegation?.negotiation && <Text style={styles.caption}>Negotiation, up to {NEGOTIATION_ROUNDS} rounds.</Text>}
       </View>
       {parameters.map(([label, text]) => (
@@ -421,7 +399,11 @@ export function Approval({
           <Text style={styles.caption}>{label}</Text>
           <Text
             selectable
-            style={label === "Command" || label === "Changes" || label === "Details" ? [styles.code, { fontSize: 12 }] : [styles.muted, { lineHeight: 20 }]}
+            style={
+              label === "Command" || label === "Changes" || label === "Details"
+                ? [styles.code, { fontSize: type.caption1, lineHeight: lineHeight.caption1 }]
+                : styles.muted
+            }
           >
             {text}
           </Text>

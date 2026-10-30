@@ -120,8 +120,8 @@ async function browserChecks() {
     await click("Full");
     assert.equal(await evaluate(`JSON.parse(localStorage.getItem('milagre-settings')).defaultPermissionMode`), "full");
     await click("main");
-    await waitFor(`!!document.querySelector('input[placeholder="Search worktrees"]')`);
-    await evaluate(`document.querySelector('input[placeholder="Search worktrees"]').focus()`);
+    await waitFor(`!!document.querySelector('input[placeholder="Search Worktrees"]')`);
+    await evaluate(`document.querySelector('input[placeholder="Search Worktrees"]').focus()`);
     const key = (name) =>
       evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(name)}, bubbles: true, cancelable: true }))`);
     await key("ArrowDown");
@@ -134,14 +134,14 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.activeElement.textContent.includes('develop')`), true, "Up wraps to the last worktree");
     async function searchWorktrees(query) {
       await evaluate(`(() => {
-        const input = document.querySelector('input[placeholder="Search worktrees"]');
+        const input = document.querySelector('input[placeholder="Search Worktrees"]');
         input.focus();
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(query)});
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
     }
     await searchWorktrees("no-matching-branch");
-    await waitFor(`document.body.textContent.includes('No worktrees found.')`);
+    await waitFor(`document.body.textContent.includes('No Worktrees found')`);
     await key("ArrowDown");
     await key("ArrowUp");
     await searchWorktrees("dev");
@@ -149,18 +149,18 @@ async function browserChecks() {
     await key("ArrowDown");
     assert.equal(await evaluate(`document.activeElement.textContent.includes('develop')`), true, "Navigation follows the filtered results");
     await key("Enter");
-    await waitFor(`!document.querySelector('input[placeholder="Search worktrees"]')`);
+    await waitFor(`!document.querySelector('input[placeholder="Search Worktrees"]')`);
     await newChat();
     await waitFor(`document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`);
     await click("Local");
-    await click("New worktree");
+    await click("New Worktree");
     await click("develop");
     await click("main");
     await click("main");
     await click("develop");
     await newChat();
     await waitFor(
-      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
+      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
     );
     await new Promise((resolve) => {
       window.webContents.once("did-finish-load", resolve);
@@ -170,7 +170,7 @@ async function browserChecks() {
     await newChat();
     await modelIs("Opus 5.5");
     await waitFor(
-      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
+      `document.querySelector('[data-new-chat-pickers]').textContent.includes('New Worktree') && document.querySelector('[data-new-chat-pickers]').textContent.includes('develop')`,
     );
     await waitFor(`document.querySelector('[aria-label="Agent permissions"]').textContent === "Full"`);
     await evaluate(`(() => {

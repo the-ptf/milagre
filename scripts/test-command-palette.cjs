@@ -207,7 +207,7 @@ async function browserChecks() {
     await search("missing-command-xyz");
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("dialog [role=option]")].map((option) => option.textContent.trim())'),
-      ["Start a new chat with your search"],
+      ["Start a new Chat with your search"],
       "An unmatched search offers only the new-chat row",
     );
     await screenshot("palette-start-chat-dark.png");
@@ -379,7 +379,7 @@ async function browserChecks() {
     await evaluate('document.querySelector("[data-prompt-editor]").focus()');
     await open();
     await search("zebra crossing notes");
-    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Start a new chat with your search")'));
+    assert.ok(await evaluate('document.querySelector("[aria-selected=true]").textContent.includes("Start a new Chat with your search")'));
     await key("Enter");
     await waitFor('!document.querySelector("dialog")');
     await waitFor(

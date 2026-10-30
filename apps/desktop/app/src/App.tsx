@@ -3575,8 +3575,8 @@ function App() {
                   // In the pane the Chat sits under its own header, not under the window's title bar.
                   style={
                     runPaneOpen
-                      ? ({ animation: "fade-in 160ms ease-out", "--window-chrome-height": "0px" } as CSSProperties)
-                      : { animation: "fade-in 160ms ease-out" }
+                      ? ({ animation: "fade-in var(--duration-base) var(--ease-enter)", "--window-chrome-height": "0px" } as CSSProperties)
+                      : { animation: "fade-in var(--duration-base) var(--ease-enter)" }
                   }
                 >
                   {runPaneOpen && focusedChatKey && selectedSession && (

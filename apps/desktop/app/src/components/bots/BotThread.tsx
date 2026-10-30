@@ -219,14 +219,7 @@ export function BotThread({
               <Tooltip label={bot.paused ? "Resume" : "Pause"} side="bottom" align="end">
                 <IconButton label={bot.paused ? "Resume" : "Pause"} icon={bot.paused ? PlayIcon : PauseIcon} size={32} onClick={() => void togglePause()} />
               </Tooltip>
-              <IconButton
-                label="Profile"
-                icon={SidebarRight01Icon}
-                size={32}
-                aria-pressed={profileOpen}
-                onClick={onToggleProfile}
-                className={profileOpen ? "bg-hover-2 text-ink" : ""}
-              />
+              <IconButton label="Profile" icon={SidebarRight01Icon} size={32} aria-pressed={profileOpen} onClick={onToggleProfile} />
             </span>
           </header>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

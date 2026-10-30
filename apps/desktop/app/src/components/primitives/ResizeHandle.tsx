@@ -96,14 +96,16 @@ export function ResizeHandle({
       aria-valuemax={typeof max === "number" ? max : undefined}
       aria-valuenow={width}
       tabIndex={0}
+      // ponytail: a native title, which shows at the pointer; a Tooltip would sit off the ends of this full-height bar.
       title="Drag to resize, double-click to reset"
+      aria-description="Use the left and right arrow keys to resize, Home and End for the limits."
       onPointerDown={start}
       onDoubleClick={() => onCommit(clamp(reset))}
       onKeyDown={keys}
-      className={`group absolute bottom-0 top-0 z-10 flex w-3 cursor-col-resize justify-center outline-none [-webkit-app-region:no-drag] ${side === "right" ? "right-[-6px]" : "left-[-6px]"} ${className}`}
+      className={`no-drag group absolute bottom-0 top-0 z-10 flex w-3 cursor-col-resize justify-center outline-none ${side === "right" ? "right-[-6px]" : "left-[-6px]"} ${className}`}
     >
       <span
-        className={`my-3 w-0.5 rounded-full transition-colors duration-150 group-hover:bg-line-strong group-focus-visible:bg-accent ${resizing ? "bg-line-strong" : "bg-transparent"}`}
+        className={`my-3 w-0.5 rounded-full transition-colors group-hover:bg-line-strong group-focus-visible:bg-accent ${resizing ? "bg-line-strong" : "bg-transparent"}`}
       />
     </div>
   );

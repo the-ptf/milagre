@@ -16,6 +16,7 @@
     "src/pull-request-review.ts",
     "src/model-options.ts",
     "src/model-copy.ts",
+    "src/project-list.ts",
     "src/provider-logos.ts",
     "src/reply-parts.ts",
     "src/streaming-markdown.ts",
@@ -279,6 +280,7 @@
     },
     "./model-options": "./src/model-options.ts",
     "./model-copy": "./src/model-copy.ts",
+    "./project-list": "./src/project-list.ts",
     "./provider-logos": "./src/provider-logos.ts",
     "./reconcile": {
       "types": "./src/reconcile.d.mts",
