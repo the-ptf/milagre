@@ -273,7 +273,10 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     deadline = null,
     active = false,
     claiming = false,
-    mouse = null;
+    mouse = null,
+    sentSize = "",
+    sizeTimer = null,
+    poll = null;
   const pending = new Map(),
     heldKeys = new Set();
   const post = (data) => {
@@ -328,7 +331,22 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     commentPin.hidden = !commentPoint;
     layout();
   };
-  new ResizeObserver(layout).observe(stage);
+  // The page lays out at the stage's size while this viewer controls it, whatever size its own window is.
+  const sendSize = () => {
+    // Older hosts reject unknown input events and may outlive an OTA update of the viewer.
+    // Without an explicit capability, keep their existing viewport and letterboxed input mapping.
+    if (!canInput() || status.supportsViewport !== true) return;
+    const width = Math.min(4096, Math.round(stage.clientWidth)),
+      height = Math.min(4096, Math.round(stage.clientHeight));
+    if (width < 100 || height < 100 || width + "x" + height === sentSize) return;
+    sentSize = width + "x" + height;
+    queue.push({ kind: "viewport", width, height });
+  };
+  new ResizeObserver(() => {
+    layout();
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(sendSize, 150);
+  }).observe(stage);
   const say = (text) => {
     message.textContent = text;
     message.hidden = !text;
@@ -351,6 +369,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       clearTimeout(deadline);
       deadline = null;
     }
+    if (!sentSize) sendSize();
     const next = status ? status.title + "\n" + status.url : "";
     if (next !== page) {
       page = next;
@@ -370,6 +389,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
   const clearInput = () => {
     queue?.dispose();
     queue = null;
+    sentSize = "";
     mouse = null;
     heldKeys.clear();
     gesture.cancel();
@@ -380,7 +400,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
     clearInput();
     clearInterval(heartbeat);
     clearTimeout(deadline);
-    heartbeat = deadline = null;
+    clearTimeout(sizeTimer);
+    heartbeat = deadline = poll = null;
     const old = viewerId;
     viewerId = null;
     status = null;
@@ -633,6 +654,8 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       if (shown && (shown.viewport.width !== frame.viewport.width || shown.viewport.height !== frame.viewport.height)) releaseInput();
       shown = { viewport: frame.viewport, generation: frame.generation };
       render();
+      // A resized page (often by this viewer's own size) refuses input sent for the old one: catch up now, not at the next poll.
+      if (status && frame.generation > status.generation) void poll?.();
     }
   };
   const start = async () => {
@@ -657,7 +680,7 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
       viewerId = opened.viewerId;
       let polling = false,
         triedControl = false;
-      const poll = async () => {
+      poll = async () => {
         if (polling || currentEpoch !== epoch) return;
         polling = true;
         try {

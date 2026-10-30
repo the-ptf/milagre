@@ -39,7 +39,20 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
       if (record.users === 1 && !host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true });
       let released = false;
       return {
-        send: (method, params, sessionId) => debug.sendCommand(method, params, sessionId),
+        send(method, params, sessionId) {
+          // A viewer's size (browsers-cdp.cjs). Emulation would lay the page out at it but leave frames the guest's
+          // size, cut where the window ends, so the parked guest takes the size itself (browser-webviews.ts).
+          if (!sessionId && (method === "Emulation.setDeviceMetricsOverride" || method === "Emulation.clearDeviceMetricsOverride")) {
+            const { width, height } = /** @type {{ width?: unknown; height?: unknown }} */ (params ?? {});
+            const viewport =
+              method === "Emulation.setDeviceMetricsOverride" && Number.isInteger(width) && Number.isInteger(height)
+                ? { width: Number(width), height: Number(height) }
+                : null;
+            if (!host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true, viewport });
+            return Promise.resolve({});
+          }
+          return debug.sendCommand(method, params, sessionId);
+        },
         onEvent(listener) {
           /** @param {unknown} _event @param {string} method @param {unknown} params @param {string} [sessionId] */
           const handler = (_event, method, params, sessionId) => listener(method, params, sessionId);
