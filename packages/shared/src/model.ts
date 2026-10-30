@@ -69,7 +69,10 @@ export interface PullRequest {
   number: number;
   title: string;
   url: string;
-  state: "OPEN" | "MERGED";
+  /** CLOSED: closed without merging. Hosts before it came with OPEN and MERGED only. */
+  state: "OPEN" | "MERGED" | "CLOSED";
+  /** An open draft; absent from hosts that predate it. */
+  isDraft?: boolean;
   readyToMerge: boolean;
   hasConflicts: boolean;
   conflictStatusKnown?: boolean;

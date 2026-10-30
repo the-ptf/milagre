@@ -13,6 +13,8 @@ import {
   Comment01Icon,
   File01Icon,
   GitMergeIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
   LinkSquare02Icon,
   Loading03Icon,
   MinusSignCircleIcon,
@@ -59,11 +61,20 @@ const CHECK_ICON: Record<PullRequestCheck["outcome"], { icon: IconSvgElement; cl
 // Failing checks first, then the ones still running.
 const CHECK_ORDER: Record<PullRequestCheck["outcome"], number> = { fail: 0, running: 1, pass: 2, neutral: 3, skipped: 4 };
 
+/** Draft, Merged or Closed before the author, as GitHub shows it; the phone shows the same pill. An open PR has none. */
 const STATE_PILL = {
-  draft: { label: "Draft", className: "bg-hover text-ink-2" },
-  MERGED: { label: "Merged", className: "bg-purple-tint text-purple-ink" },
-  CLOSED: { label: "Closed", className: "bg-red-tint text-red-ink" },
+  draft: { label: "Draft", icon: GitPullRequestDraftIcon, className: "bg-hover text-ink-2" },
+  MERGED: { label: "Merged", icon: GitMergeIcon, className: "bg-purple-tint text-purple-ink" },
+  CLOSED: { label: "Closed", icon: GitPullRequestClosedIcon, className: "bg-red-tint text-red-ink" },
 } as const;
+
+/** The line under the branch: what stops an open PR, or how a merged or closed one ended. The phone words it the same. */
+const STATUS_LINE: Partial<Record<ReturnType<typeof mergeStatus>["tone"], { icon: IconSvgElement; ink: string; title: string }>> = {
+  blocked: { icon: AlertCircleIcon, ink: "text-red-ink", title: "text-red-ink" },
+  draft: { icon: GitPullRequestDraftIcon, ink: "text-ink-3", title: "text-ink" },
+  merged: { icon: GitMergeIcon, ink: "text-purple-ink", title: "text-purple-ink" },
+  closed: { icon: GitPullRequestClosedIcon, ink: "text-red-ink", title: "text-red-ink" },
+};
 
 const icon = (glyph: IconSvgElement, size = 14) => <HugeiconsIcon icon={glyph} size={size} strokeWidth={1.8} color="currentColor" />;
 
@@ -143,6 +154,7 @@ function Header({
   const pill = pr.state !== "OPEN" ? STATE_PILL[pr.state] : pr.isDraft ? STATE_PILL.draft : null;
   const notInPr = local && open ? notInPrLabel(local.count, pr.localCommits ?? 0) : "";
   const status = mergeStatus(pr);
+  const line = STATUS_LINE[status.tone];
   // GitHub can't merge a conflicting PR, not even later or as an admin.
   const conflicts = pr.mergeStateStatus === "DIRTY";
   const merge = (admin = false) => {
@@ -224,7 +236,6 @@ function Header({
           <span className="shrink-0 text-accent-ink">#{pr.number}</span>
           <span className="flex shrink-0 text-accent-ink">{icon(LinkSquare02Icon, 11)}</span>
         </a>
-        {pill && <span className={`shrink-0 rounded-full px-2 py-px text-[11px] font-semibold ${pill.className}`}>{pill.label}</span>}
         <span className="flex-1" />
         {primary}
         <PopoverButton
@@ -273,6 +284,16 @@ function Header({
                     />
                   ))}
                   <div className="mx-2 my-1 h-px bg-line" />
+                  <PickerRow
+                    label="Convert to draft"
+                    selected={false}
+                    disabled={busy}
+                    onClick={() => {
+                      close();
+                      void review.write("ready", (bridge, cwd, number) => bridge.ready({ cwd, number, draft: true }));
+                    }}
+                  />
+                  <div className="mx-2 my-1 h-px bg-line" />
                 </>
               )}
               <PickerRow
@@ -283,6 +304,14 @@ function Header({
                   window.open(pr.url, "_blank", "noopener,noreferrer");
                 }}
               />
+              <PickerRow
+                label="Copy link"
+                selected={false}
+                onClick={() => {
+                  close();
+                  void navigator.clipboard.writeText(pr.url).catch(() => {});
+                }}
+              />
             </PickerPanel>
           )}
         >
@@ -291,6 +320,15 @@ function Header({
       </div>
       <h2 className="text-[15px] leading-5 font-semibold text-ink">{pr.title}</h2>
       <div className="flex min-w-0 items-center gap-1.5 text-[12px]">
+        {pill && (
+          <span
+            data-pr-state-pill={pill.label}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-[11px] font-semibold ${pill.className}`}
+          >
+            {icon(pill.icon, 11)}
+            {pill.label}
+          </span>
+        )}
         <Avatar login={pr.author} size={18} />
         <span className="shrink-0 text-[12.5px] font-semibold text-ink">{pr.author}</span>
         <span className="min-w-0 truncate text-ink-3">· updated {ago(pr.updatedAt)}</span>
@@ -305,12 +343,12 @@ function Header({
         </span>
         <Counts added={pr.additions} removed={pr.deletions} />
       </div>
-      {open && (status.tone === "blocked" || status.tone === "draft") && (
+      {line && (
         <div data-pr-status={status.title} className="flex min-w-0 items-start gap-1.5 text-[12px] leading-4">
-          <span className={`flex h-4 shrink-0 items-center ${status.tone === "blocked" ? "text-red-ink" : "text-ink-3"}`}>{icon(AlertCircleIcon, 13)}</span>
+          <span className={`flex h-4 shrink-0 items-center ${line.ink}`}>{icon(line.icon, 13)}</span>
           {/* Wraps rather than cutting the base branch off in a narrow panel. */}
           <span className="line-clamp-2 min-w-0 text-ink-2">
-            <span className={`font-semibold ${status.tone === "blocked" ? "text-red-ink" : "text-ink"}`}>{status.title}</span> · {status.detail}
+            <span className={`font-semibold ${line.title}`}>{status.title}</span> · {status.detail}
           </span>
         </div>
       )}

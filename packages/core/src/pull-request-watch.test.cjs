@@ -110,7 +110,7 @@ test("one query answers every Worktree's branch and the Chats' PRs; a second rea
   const [a, b, c, refs] = await read;
   assert.equal(a.number, 1);
   assert.equal(b.state, "MERGED");
-  assert.equal(c, null, "a closed latest PR reads as none, as the per-branch gh query did");
+  assert.equal(c.state, "CLOSED", "a closed latest PR shows as closed, as the per-branch gh query reads it");
   assert.deepEqual(
     refs.map((pr) => pr?.number ?? null),
     [7, 4, null, null],

@@ -4,7 +4,7 @@ const { readPullRequest, readPullRequestState, readPullRequests, createPullReque
 
 const title = "Show pull requests in the chat sidebar";
 const url = "https://github.com/example/project/pull/10213";
-for (const state of ["OPEN", "MERGED"]) {
+for (const state of ["OPEN", "MERGED", "CLOSED"]) {
   test(`reads the current worktree's ${state.toLowerCase()} PR`, async () => {
     const exec = async (command, args, options) => {
       if (command === "git") return { stdout: "feature/sidebar\n" };
@@ -30,6 +30,7 @@ for (const state of ["OPEN", "MERGED"]) {
       url,
       state,
       title,
+      isDraft: false,
       readyToMerge: false,
       hasConflicts: false,
       conflictStatusKnown: false,
@@ -39,13 +40,8 @@ for (const state of ["OPEN", "MERGED"]) {
   });
 }
 
-test("hides closed PRs and invalid metadata", async () => {
-  for (const pr of [
-    { number: 10213, url, state: "CLOSED" },
-    { number: 10213, url: "javascript:alert(1)", state: "OPEN" },
-    { number: 0, url, state: "OPEN" },
-    null,
-  ]) {
+test("hides invalid metadata", async () => {
+  for (const pr of [{ number: 10213, url: "javascript:alert(1)", state: "OPEN" }, { number: 0, url, state: "OPEN" }, null]) {
     assert.equal(await readPullRequest("/project", async () => ({ stdout: JSON.stringify(pr ? [pr] : []) })), null);
   }
 });
@@ -88,6 +84,7 @@ test("uses the checked-out branch for fork PRs instead of its upstream base", as
     url: "https://github.com/example/project/pull/49",
     state: "MERGED",
     title,
+    isDraft: false,
     readyToMerge: false,
     hasConflicts: false,
     conflictStatusKnown: false,
@@ -115,6 +112,18 @@ for (const [name, overrides, ready] of [
     assert.equal(result.readyToMerge, ready);
   });
 }
+
+test("an open draft says so; a merged or closed one no longer counts as a draft", async () => {
+  for (const [state, expected] of [
+    ["OPEN", true],
+    ["MERGED", false],
+    ["CLOSED", false],
+  ]) {
+    const pr = { number: 10213, url, title, state, isDraft: true, mergeStateStatus: "DRAFT" };
+    const result = await readPullRequest("/project", async (command) => ({ stdout: command === "git" ? "feature/sidebar\n" : JSON.stringify([pr]) }));
+    assert.equal(result.isDraft, expected, state);
+  }
+});
 
 for (const [state, mergeStateStatus, expected] of [
   ["OPEN", "DIRTY", true],
@@ -153,6 +162,7 @@ test("reads a PR the chat created or merged by its URL or number", async () => {
       url: "https://github.com/example/project/pull/84",
       state: "MERGED",
       title,
+      isDraft: false,
       readyToMerge: false,
       hasConflicts: false,
       conflictStatusKnown: true,
@@ -164,6 +174,7 @@ test("reads a PR the chat created or merged by its URL or number", async () => {
       url: "https://github.com/example/project/pull/90",
       state: "OPEN",
       title,
+      isDraft: false,
       readyToMerge: false,
       hasConflicts: true,
       conflictStatusKnown: true,
@@ -274,6 +285,7 @@ const shape = (number, state = "OPEN") => ({
   url: `https://github.com/example/project/pull/${number}`,
   state,
   title: `PR ${number}`,
+  isDraft: false,
   readyToMerge: false,
   hasConflicts: false,
   conflictStatusKnown: false,
@@ -329,14 +341,14 @@ test("separate repositories are batched separately", async () => {
   assert.equal(stub.ghCalls().length + other.ghCalls().length, 4);
 });
 
-test("the newest PR for a branch wins, and a closed latest PR hides older ones like the per-branch query", async () => {
+test("the newest PR for a branch wins, a closed one too, like the per-branch query", async () => {
   const { exec } = batchStub({
     branches: { "/a": "feature/a", "/b": "feature/b" },
     prs: [listed(9, "feature/a"), listed(3, "feature/a", "MERGED"), listed(8, "feature/b", "CLOSED"), listed(4, "feature/b", "MERGED")],
   });
   const read = createPullRequestReader({ exec });
   assert.deepEqual(await read("/a"), shape(9));
-  assert.equal(await read("/b"), null);
+  assert.deepEqual(await read("/b"), shape(8, "CLOSED"));
 });
 
 test("a branch missing from a full batch falls back to its own query", async () => {
@@ -407,7 +419,7 @@ test("readPullRequestState reports a CLOSED PR as known, and a failed lookup as 
   const state = await readPullRequestState("/project/worktree", closed);
   assert.equal(state.known, true);
   assert.equal(state.pr.state, "CLOSED");
-  assert.equal(await readPullRequest("/project/worktree", closed), null, "readPullRequest still hides a closed PR");
+  assert.equal((await readPullRequest("/project/worktree", closed)).state, "CLOSED", "readPullRequest shows it closed");
   const down = async () => {
     throw new Error("gh is down");
   };

@@ -248,8 +248,8 @@ async function browserChecks() {
     await waitFor('document.querySelectorAll("[data-chat-card-pr]").length === 3');
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("[data-chat-card-pr]")].map(link => link.textContent)'),
-      ["#84 · Show the to-do pill", "#88 · Find text in the open chat", "#90 · Run a setup command in new worktreesConflicts"],
-      "The card lists every PR in the order the chat made them",
+      ["#84 · Show the to-do pillMerged", "#88 · Find text in the open chat", "#90 · Run a setup command in new worktreesConflicts"],
+      "The card lists every PR in the order the chat made them, a merged one saying so",
     );
     // Moving onto the card keeps it open past the grace period.
     await evaluate(

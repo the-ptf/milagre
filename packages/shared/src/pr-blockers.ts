@@ -46,21 +46,45 @@ export function pullRequestBlockers(pr: BlockerStatus | null | undefined): PullR
   return pr ? ORDER.filter((blocker) => blocks(pr, blocker)) : [];
 }
 
-/** The same PR badge status, color and label in both chat lists. */
-export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boolean }) {
+/**
+ * The same PR badge status, color and label everywhere a PR shows: the chat lists, the Chat header, the PR tabs.
+ * Merged is purple and closed grey; an open PR shows its first blocker, then draft, ready or running CI, else plain open.
+ */
+export function pullRequestPresentation(pr: BlockerStatus & { readyToMerge?: boolean; isDraft?: boolean }) {
   const blocker = pullRequestBlockers(pr)[0];
   const merged = pr.state === "MERGED";
-  const ready = !merged && !blocker && !!pr.readyToMerge;
-  const checking = !merged && !blocker && !ready && pr.checks === "running";
-  const tone = merged ? "purple" : blocker ? BLOCKERS[blocker].tone : checking ? "orange" : "green";
-  const icon = merged ? "merged" : ready ? "ready" : checking ? "checking" : "open";
-  const label = blocker ? BLOCKERS[blocker].short : ready ? "Ready" : checking ? "CI running" : "";
-  return { blocker, ready, checking, tone, icon, label } as const;
+  const closed = pr.state === "CLOSED";
+  const open = !merged && !closed;
+  const draft = open && !blocker && !!pr.isDraft;
+  const ready = open && !blocker && !draft && !!pr.readyToMerge;
+  const checking = open && !blocker && !draft && !ready && pr.checks === "running";
+  const tone = merged ? "purple" : closed || draft ? "ink3" : blocker ? BLOCKERS[blocker].tone : checking ? "orange" : "green";
+  const icon = merged ? "merged" : closed ? "closed" : draft ? "draft" : ready ? "ready" : checking ? "checking" : "open";
+  const label = merged ? "Merged" : closed ? "Closed" : blocker ? BLOCKERS[blocker].short : draft ? "Draft" : ready ? "Ready" : checking ? "CI running" : "";
+  /** The tooltip and spoken words: "Draft pull request #12", "CI checks failed · Pull request #12". */
+  const description = merged
+    ? `Merged pull request #${pr.number ?? ""}`
+    : closed
+      ? `Closed pull request #${pr.number ?? ""}`
+      : blocker
+        ? `${BLOCKERS[blocker].long} · Pull request #${pr.number ?? ""}`
+        : draft
+          ? `Draft pull request #${pr.number ?? ""}`
+          : ready
+            ? `Ready to merge · Pull request #${pr.number ?? ""}`
+            : checking
+              ? `CI checks running · Pull request #${pr.number ?? ""}`
+              : `Open pull request #${pr.number ?? ""}`;
+  /** What a screen reader says after "Open": "merged pull request #12", "pull request #12, ci failed". */
+  const spoken = `${merged ? "merged " : closed ? "closed " : draft ? "draft " : ""}pull request #${pr.number ?? ""}${
+    blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : ready ? ", ready to merge" : checking ? ", CI running" : ""
+  }`;
+  return { blocker, merged, closed, draft, ready, checking, tone, icon, label, description, spoken } as const;
 }
 
-/** Blocked PRs first, then other open PRs, then merged ones; retain creation order within each group. */
+/** Blocked PRs first, then other open PRs, then merged ones, then closed ones; retain creation order within each group. */
 export function rowPullRequests(prs: PullRequest[]): PullRequest[] {
-  const rank = (pr: PullRequest) => (pr.state === "MERGED" ? 2 : pullRequestBlockers(pr).length ? 0 : 1);
+  const rank = (pr: PullRequest) => (pr.state === "CLOSED" ? 3 : pr.state === "MERGED" ? 2 : pullRequestBlockers(pr).length ? 0 : 1);
   return prs
     .map((pr, index) => ({ pr, index }))
     .sort((a, b) => rank(a.pr) - rank(b.pr) || a.index - b.index)

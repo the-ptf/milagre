@@ -15,19 +15,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import {
-  ArrowLeft01Icon,
-  BrowserIcon,
-  Cancel01Icon,
-  CircleDotIcon,
-  File01Icon,
-  FileDiffIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  PaintBoardIcon,
-  SmartphoneIcon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, BrowserIcon, Cancel01Icon, File01Icon, FileDiffIcon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
 import { ClosesLeftContext, hideRevealed } from "./chat-swipe-row";
@@ -49,6 +37,7 @@ import { DesignsSheet } from "./designs-sheet";
 import { ArtifactSheet } from "./artifact";
 import { BrowserSheet } from "./browser";
 import type { BrowserTab, ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
+import { PR_ICONS } from "./pr-look";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
@@ -762,8 +751,12 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
               <PanelTab
                 key={prChoiceKey(choice)}
                 label={`#${choice.number}`}
-                icon={TAB_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : "open")]}
-                tone={choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED") ? "purpleInk" : (choice.look?.tone ?? "green")}
+                icon={PR_ICONS[choice.look?.icon ?? (choice.state === "MERGED" ? "merged" : choice.state === "CLOSED" ? "closed" : "open")]}
+                tone={
+                  choice.look?.tone === "purple" || (!choice.look && choice.state === "MERGED")
+                    ? "purpleInk"
+                    : (choice.look?.tone ?? (choice.state === "CLOSED" ? "ink3" : "green"))
+                }
                 selected={!!pr && choice.number === number && (!choice.cwd || choice.cwd === prCwd)}
                 onPress={() => {
                   onPick(prChoiceKey(choice));
@@ -887,8 +880,6 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
     </View>
   );
 }
-
-const TAB_ICONS = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
 
 /** A tab of the right panel: Changes, one of the Chat's PRs with its state's icon, or the Chat's simulators or designs. */
 function PanelTab({ label, icon, tone, selected, onPress }: { label: string; icon: IconData; tone: Tone; selected: boolean; onPress: () => void }) {
