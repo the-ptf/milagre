@@ -218,20 +218,20 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-pr]") && document.querySelector("aside").dataset.sidebarCollapsed === "false"');
     assert.equal(await evaluate('document.querySelector("[data-row]").getBoundingClientRect().height'), 32);
 
-    // A chat that made three PRs: the row has room for two, the card lists all of them.
+    // A chat that made three PRs: the row shows the first and "+2", the card lists all of them.
     const prUrl = (n) => `https://github.com/example/project/pull/${n}`;
     await evaluate(`window.setMulti([
       { number: 84, url: "${prUrl(84)}", title: "Show the to-do pill", state: "MERGED", readyToMerge: false, hasConflicts: false },
       { number: 88, url: "${prUrl(88)}", title: "Find text in the open chat", state: "OPEN", readyToMerge: false, hasConflicts: false },
       { number: 90, url: "${prUrl(90)}", title: "Run a setup command in new worktrees", state: "OPEN", readyToMerge: false, hasConflicts: true },
     ])`);
-    await waitFor('document.querySelectorAll("[data-chat-prs] [data-chat-pr]").length === 2');
+    await waitFor('document.querySelectorAll("[data-chat-prs] [data-chat-pr]").length === 1');
     assert.deepEqual(
       await evaluate('[...document.querySelectorAll("[data-chat-pr]")].map(link => link.textContent)'),
-      ["#90", "#88"],
-      "Conflicts first, then open PRs; no status words with several PRs",
+      ["#90"],
+      "Conflicts first; one chip and no status words with several PRs",
     );
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr-more]").textContent'), "+1");
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr-more]").textContent'), "+2");
     assert.ok(await evaluate('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("conflicts")'));
     assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-red-ink")'), true);
     const multiGeometry = await evaluate(`(() => {
@@ -275,7 +275,7 @@ async function browserChecks() {
     await waitFor('!document.querySelector("[data-chat-hover-card]")');
     await evaluate("window.setMulti([])");
     await waitFor('!document.querySelector("[data-chat-prs]")');
-    console.log("PASS: several PRs: two chips, +N, card lists all and stays open for clicks");
+    console.log("PASS: several PRs: one chip, +N, card lists all and stays open for clicks");
     console.log(
       "PASS: PR lookup, red conflict state and recovery, out-of-date and changes-requested states, merged purple icon, external link, title alignment, collapsed sidebar, and no-PR row",
     );

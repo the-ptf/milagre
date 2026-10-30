@@ -213,8 +213,8 @@ const HOVER_CARD_DELAY = 500;
 const PREFETCH_DELAY = 90;
 /** Time to cross from the row to the card before it closes, so its PR links can be clicked. */
 const HOVER_CARD_GRACE = 250;
-/** PR chips the row has room for; the rest are a count, and the hover card lists them all. */
-const ROW_PR_LIMIT = 2;
+/** One PR chip, then the rest as a count ("+3"); the hover card lists them all. */
+const ROW_PR_LIMIT = 1;
 const HOVER_CARD_WIDTH = 256;
 const MENU_WIDTH = 240;
 
