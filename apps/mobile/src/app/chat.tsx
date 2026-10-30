@@ -70,6 +70,8 @@ import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
 import { BrowserChip } from "../browser";
+import { useInternalBrowser } from "../browser-setting";
+import { openBrowserLink } from "../browser-link";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
@@ -326,6 +328,7 @@ function ChatPane({
   const styles = useStyles();
   // Navigation can publish setParams after the session's React state. Bridge that commit with the destination's
   // params, so the new snapshot never renders against the old route and briefly unmounts the composer.
+  const [internalBrowser] = useInternalBrowser();
   const [arriving, setArriving] = useState<ChatParams | null>(null);
   const params = arriving ?? routeParams;
   useEffect(() => {
@@ -1032,7 +1035,8 @@ function ChatPane({
   }
   function openChatLink(url: string) {
     const entry = associatedPullRequest(url, rowPrs);
-    return entry ? openPr(entry.number, undefined, placeOf(entry)?.cwd) : false;
+    if (entry && openPr(entry.number, undefined, placeOf(entry)?.cwd)) return true;
+    return internalBrowser && openBrowserLink(client.url, chatId, url, panels.openInPanel);
   }
   prChat.current = {
     send: (body) => send(body, false),

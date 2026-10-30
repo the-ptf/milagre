@@ -7,6 +7,7 @@ import Animated, { Easing, ReduceMotion, useAnimatedReaction, useAnimatedStyle, 
 import { scheduleOnRN } from "react-native-worklets";
 import {
   ArrowLeft01Icon,
+  BrowserIcon,
   Cancel01Icon,
   CircleDotIcon,
   File01Icon,
@@ -35,7 +36,8 @@ import { CARD_MARGIN, CHANGES_WIDTH, SIDEBAR_WIDTH, rightDocks, widthClass } fro
 import { SimulatorSheet } from "./simulator";
 import { DesignsSheet } from "./designs-sheet";
 import { ArtifactSheet } from "./artifact";
-import type { ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
+import { BrowserSheet } from "./browser";
+import type { BrowserTab, ChatTab, DesignsTab, SimulatorTab } from "./panel-tabs";
 
 type Side = "left" | "right";
 /** What the focused screen offers: the left panel always, Changes when it has a Worktree, its PR beside Changes when it has one. */
@@ -44,11 +46,11 @@ type Screen = { token: object; chatId?: number; worktreeId?: number; pullRequest
 type ScreenPullRequest = { number: number; chatKey: string; choices?: PrChoice[]; cwd?: string };
 /**
  * What the right panel shows: the Worktree's Changes, the Chat's PR (when it has one), or on an iPad the Chat's
- * simulators or designs, which open there instead of full screen.
+ * simulators, designs or browser, which open there instead of full screen.
  */
-type RightTab = "changes" | "pr" | "simulator" | "designs";
+type RightTab = "changes" | "pr" | "simulator" | "designs" | "browser";
 /** The tabs a Chat opened in the right panel itself. They belong to that Chat: another Chat on screen doesn't show them. */
-type ChatTabs = { token: object; chatId?: number; simulator?: SimulatorTab; designs?: DesignsTab };
+type ChatTabs = { token: object; chatId?: number; simulator?: SimulatorTab; designs?: DesignsTab; browser?: BrowserTab };
 type Panels = {
   screen: Screen | null;
   open: Side | null;
@@ -380,6 +382,13 @@ export function usePanelNavigation() {
   return usePanels().navigate;
 }
 
+/** A sheet such as Ports can return to its Chat and open a tab beside it. Never take another Chat's panel. */
+export function useChatPanelTabs(hostId?: string, chatId?: string) {
+  const panels = usePanels();
+  const session = useSession();
+  return panels.docks && hostId === session.client?.url && chatId === `${session.snapshot?.project.path}#${panels.screen?.chatId}` ? panels.openTab : null;
+}
+
 /** The focused screen's Chat and Worktree, and the panels it offers, for the pinned sidebar and keyboard shortcuts. */
 export function usePanelScreen() {
   const { screen, open, show, docked, closeRight } = usePanels();
@@ -408,6 +417,7 @@ function rightTabs(screen: Screen, chatTabs: ChatTabs | null): RightTab[] {
   if (screen.pullRequest) tabs.push("pr");
   if (own?.simulator) tabs.push("simulator");
   if (own?.designs) tabs.push("designs");
+  if (own?.browser) tabs.push("browser");
   return tabs;
 }
 
@@ -501,7 +511,7 @@ export function useSidePanels({
     setTab("changes");
     show("right");
   }, [setTab, show]);
-  // On an iPad, this Chat's simulators and designs open in the docked right panel; null where they open full screen.
+  // On an iPad, this Chat's simulators, designs and Browser open in the docked right panel; null where they open full screen.
   const { docks, openTab } = panels;
   const openInPanel = useMemo(() => (docks && !passive ? openTab : null), [docks, passive, openTab]);
   return { gesture, open: ours || passive ? panels.open : null, show, showPullRequest, showChanges, openInPanel };
@@ -737,6 +747,7 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
           {own?.simulator && (
             <PanelTab label="Simulator" icon={SmartphoneIcon} tone="ink2" selected={shownTab === "simulator"} onPress={() => onTab("simulator")} />
           )}
+          {own?.browser && <PanelTab label="Browser" icon={BrowserIcon} tone="ink2" selected={shownTab === "browser"} onPress={() => onTab("browser")} />}
           {designs && (
             <PanelTab
               label={designs.html ? "Artifact" : "Designs"}
@@ -799,6 +810,17 @@ export function RightPanel({ screen, card, visible }: { screen: Screen; card: bo
             hostId={own.simulator.hostId}
             chatId={own.simulator.chatId}
             onClose={() => closeTab("simulator")}
+          />
+        </View>
+      )}
+      {/* Keep the Browser selection while hidden, but stop its live capture. */}
+      {own?.browser && (
+        <View style={{ flex: 1, display: shownTab === "browser" ? "flex" : "none" }}>
+          <BrowserSheet
+            key={`${own.browser.hostId}:${own.browser.chatId}`}
+            {...own.browser}
+            visible={visible && shownTab === "browser"}
+            onClose={() => closeTab("browser")}
           />
         </View>
       )}

@@ -244,7 +244,9 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
     const file = href && !url ? localFileLink(href, t.basePath) : null;
     const onPress = url
       ? () => {
-          if (!t.openChatLink?.(url)) void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."));
+          // The internal Browser runs on the computer, so preserve its original localhost address.
+          if (!t.openChatLink?.(safeLink(written) ?? url))
+            void Linking.openURL(url).catch(() => Alert.alert("Cannot open link", "Try opening this address in your browser."));
         }
       : file
         ? () => router.push({ pathname: "/file-preview", params: { path: file.path } })

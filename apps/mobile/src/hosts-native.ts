@@ -243,3 +243,18 @@ export async function savePermission(mode: string) {
     /* best effort */
   }
 }
+
+const internalBrowserKey = "milagre.internal-browser.v1";
+/** Device-local link preference, matching desktop's default. */
+export async function readInternalBrowser(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(internalBrowserKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveInternalBrowser(on: boolean) {
+  await SecureStore.setItemAsync(internalBrowserKey, on ? "on" : "off", {
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+}
