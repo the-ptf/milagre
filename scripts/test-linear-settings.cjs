@@ -84,7 +84,7 @@ async function browserChecks() {
     await delay(250);
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
-  const toggle = `document.querySelector('[role="switch"][aria-label="Linear"]')`;
+  const toggle = `document.querySelector('[role="checkbox"][aria-label="Linear"]')`;
   const button = (label) => `[...document.querySelectorAll('[data-linear-settings] button')].find(b => b.textContent.trim() === '${label}')`;
   const text = `document.querySelector('[data-linear-settings]').textContent`;
   try {
@@ -139,7 +139,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-linear-connect]').scrollIntoView({ block: 'center' })`);
     await screenshot("two-workspaces");
     // Moving issues is on by default; only the read-only sign-in says it can't, and only while the switch is on.
-    const moveSwitch = `document.querySelector('[role="switch"][aria-label="Move issues to In Progress"]')`;
+    const moveSwitch = `document.querySelector('[role="checkbox"][aria-label="Move issues to In Progress"]')`;
     assert.equal(await evaluate(`${moveSwitch}.getAttribute('aria-checked')`), "true");
     const readOnly = /Beta LabsSigned in as Vic\. Can't move issues yet\. Sign in to this workspace again with Add workspace to allow it\./;
     assert.match(await evaluate(text), readOnly);

@@ -125,7 +125,7 @@ async function browserChecks() {
     fs.mkdirSync(screenshotDir, { recursive: true });
     fs.writeFileSync(path.join(screenshotDir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
   }
-  const toggle = `document.querySelector('[role="switch"][aria-label="Allow devices to connect"]')`;
+  const toggle = `document.querySelector('[role="checkbox"][aria-label="Allow devices to connect"]')`;
   const token = async () => new URL((await host.call("phone:status")).pairingLink).searchParams.get("token");
 
   try {
@@ -165,7 +165,7 @@ async function browserChecks() {
     console.log("PASS: turning it on shows the QR code, the relay status, the pairing window and the warning");
 
     // Local network: on by default with phone access, switchable on its own, and it says where a phone on the same network dials.
-    const lanToggle = `document.querySelector('[role="switch"][aria-label="Allow on local network"]')`;
+    const lanToggle = `document.querySelector('[role="checkbox"][aria-label="Allow on local network"]')`;
     await waitFor(`!!${lanToggle} && document.body.textContent.includes('Reachable at 192.168.1.20')`);
     assert.equal(await evaluate(`${lanToggle}.getAttribute('aria-checked')`), "true");
     await screenshot("lan-on");
