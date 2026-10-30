@@ -3,12 +3,18 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { ChartBarLineIcon } from "@hugeicons/core-free-icons";
+import { ChartBarLineIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Row } from "./settings-list";
 import { Icon } from "./icons";
 import { useSession } from "./session";
 import { ErrorNotice, ListRow, Toggle, useStyles } from "./ui";
+import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
+import { readDoneSettings, saveDoneSettings } from "./done-retention";
 
-/** Settings › General: plan usage, the connected Mac's worktree default and its Auto update (desktop's About). */
+/**
+ * Settings › General: plan usage, the connected Mac's worktree default, how long its Done Chats wait before it archives
+ * them, and its Auto update (desktop's About).
+ */
 export function GeneralSection() {
   const styles = useStyles();
   const session = useSession();
@@ -93,6 +99,7 @@ export function GeneralSection() {
           </View>
         </>
       )}
+      <DoneRetention />
       {session.client && autoUpdate !== null && (
         <>
           <Text style={[styles.section, { marginTop: 12 }]}>Updates</Text>
@@ -104,5 +111,55 @@ export function GeneralSection() {
         </>
       )}
     </View>
+  );
+}
+
+/**
+ * How long a Chat waits in the list's Done section before the connected Mac archives it. Kept by that Mac, so it is
+ * read on every visit; a Mac too old to have it shows nothing.
+ */
+function DoneRetention() {
+  const styles = useStyles();
+  const client = useSession().client;
+  const [hours, setHours] = useState<number | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (!client) return;
+      let live = true;
+      void readDoneSettings(client)
+        .then((value) => live && setHours(value.retentionHours))
+        .catch(() => live && setHours(null));
+      return () => {
+        live = false;
+      };
+    }, [client]),
+  );
+  if (hours === null || !client) return null;
+  const choose = (next: number) => {
+    const previous = hours;
+    setHours(next);
+    void saveDoneSettings(client, { retentionHours: next })
+      .then((value) => setHours(value.retentionHours))
+      .catch(() => setHours(previous ?? DONE_DEFAULTS.retentionHours));
+  };
+  return (
+    <>
+      <Text style={[styles.section, { marginTop: 12 }]}>Archive Done chats after</Text>
+      {/* One choice of six: a checkmark list, as iOS Settings picks one value. */}
+      <View accessibilityRole="radiogroup" style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
+        {DONE_RETENTION_OPTIONS.map((option, index) => (
+          <View key={option}>
+            {index > 0 && <View style={styles.separator} />}
+            <Row
+              title={retentionLabel(option)}
+              chevron={false}
+              selected={hours === option}
+              trailing={hours === option ? <Icon icon={Tick02Icon} tone="accent" size={20} /> : <View style={{ width: 20 }} />}
+              onPress={() => choose(option)}
+            />
+          </View>
+        ))}
+      </View>
+    </>
   );
 }

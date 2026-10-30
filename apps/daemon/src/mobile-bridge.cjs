@@ -58,6 +58,8 @@ const METHODS = new Set([
   "keybindings:reset",
   "babysit:settings:read",
   "babysit:settings:save",
+  "done:settings:read",
+  "done:settings:save",
   "routines:enabled:read",
   "routines:enabled:save",
   "routines:list",

@@ -9,8 +9,6 @@ export type ArchiveMode = "hide" | "remove" | "delete";
 /** Everything the menu needs to offer the right choices for one chat. `terminals` names what its busy Terminals run. */
 export type ArchivePlan = { milagreOwned: boolean; shared: boolean; status: WorktreeStatus | null; terminals?: string[] };
 
-export type ArchiveChoice = { mode: ArchiveMode; label: string; tone: "plain" | "danger" };
-
 /** What `worktree:remove` is sent besides the path: the daemon closes the chat's agent and checks again against `seen`. */
 export type RemoveOptions = { force: boolean; base: string; projectPath: string; chatId: string; seen: WorktreeStatus };
 
@@ -41,12 +39,8 @@ export function worktreeShared(state: CoordinatorState, sessionId: number): bool
 export function lossReason(status: WorktreeStatus): string;
 export function deleteNote(status: WorktreeStatus): string;
 export function homeLossReason(status: WorktreeStatus): string;
-/** `chatsHome`: a Chat without a Project, in plain words. `immediate`: the one choice needs no confirm step. */
-export function archiveChoices(options: { plan: ArchivePlan; running: boolean; chatsHome?: boolean }): {
-  choices: ArchiveChoice[];
-  reason: string | null;
-  immediate: boolean;
-};
+/** Archive without confirmation, preserving work that cannot be safely removed. */
+export function archiveMode(plan: ArchivePlan | null): "hide" | "remove";
 export function terminalNote(busy: string[]): string | null;
 export const CHAT_ARCHIVED_NOTICE: string;
 export function archivedNotice(outcome: "hidden" | "removed" | "kept" | "cancelled" | "busy", options?: { chatsHome?: boolean }): string | null;

@@ -82,6 +82,8 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
+import { useDoneSettings } from "../lib/done-settings";
+import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
@@ -606,6 +608,24 @@ function BotsSettings() {
   );
 }
 
+/** How long a Chat waits in the sidebar's Done list before this Mac archives it. */
+function DoneRetentionSetting() {
+  const { settings, save } = useDoneSettings();
+  return (
+    <Group title="Done">
+      <Row label="Archive Done chats after">
+        <Select
+          label="Archive Done chats after"
+          width={140}
+          value={String(settings.retentionHours)}
+          options={DONE_RETENTION_OPTIONS.map((hours) => ({ value: String(hours), label: retentionLabel(hours) }))}
+          onChange={(value) => void save({ retentionHours: Number(value) }).catch(() => {})}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 function ChatSettings() {
   const settings = useSettings();
   return (
@@ -613,6 +633,7 @@ function ChatSettings() {
       <ChoiceGroup title="Chat list">
         <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
       </ChoiceGroup>
+      <DoneRetentionSetting />
       <ChoiceGroup title="Reasoning">
         <ReasoningChoice expanded={settings.expandReasoning} onChange={(expandReasoning) => updateSettings({ expandReasoning })} />
       </ChoiceGroup>

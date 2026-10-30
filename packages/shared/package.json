@@ -178,6 +178,10 @@
       "types": "./src/babysit.d.mts",
       "default": "./src/babysit.mjs"
     },
+    "./done": {
+      "types": "./src/done.d.mts",
+      "default": "./src/done.mjs"
+    },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
