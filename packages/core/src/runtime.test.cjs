@@ -88,6 +88,27 @@ test("page sharing RPCs validate the existing Chat and preserve the public confi
   await assert.rejects(runtime.invoke("artifact:revoke-saved-page-share", [{ id: "x".repeat(43) }]), /not in this computer/);
 });
 
+test("Done is stamped with the host's clock, reopened, and cleared by a restore, and its retention is a host setting", async (t) => {
+  const { make, project } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const sessionOf = async () => (await runtime.invoke("project:current")).state.sessions[session.id];
+  const before = Date.now();
+  await runtime.invoke("chat:patch", [project, session.id, { done: true, unread: false, done_at: 1 }]);
+  const done = await sessionOf();
+  assert.ok(done.done_at >= before && done.done_at <= Date.now(), "the client's own clock is ignored");
+  await runtime.invoke("chat:patch", [project, session.id, { done: false }]);
+  assert.equal((await sessionOf()).done_at, undefined);
+  await runtime.invoke("chat:patch", [project, session.id, { done: true }]);
+  await runtime.invoke("chat:patch", [project, session.id, { archived: true }]);
+  await runtime.invoke("chat:patch", [project, session.id, { archived: false }]);
+  assert.equal((await sessionOf()).done_at, undefined, "a Chat back from the archive is back in the list");
+  assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 24 });
+  assert.deepEqual(await runtime.invoke("done:settings:save", [{ retentionHours: 8 }]), { retentionHours: 8 });
+  assert.deepEqual(await runtime.invoke("done:settings:read"), { retentionHours: 8 });
+});
+
 test("Node runtime preserves stored Chats and provider IDs across a restart", async (t) => {
   const { project, events, make } = await fixture(t);
   const first = make();

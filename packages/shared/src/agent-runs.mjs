@@ -309,6 +309,8 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     }
     case "message-sent": {
       const next = run ? splitRunForSteer(state, runs, projectPath, chatId) : { state, runs: applyRunEvent(runs, chatId, event), changed: false };
+      // A steered run's first text is likely the answer to that message: see step-started.
+      if (run) next.runs = { ...next.runs, [chatId]: { ...next.runs[chatId], steered: true } };
       return { ...next, changed: next.changed || suggestionChanged };
     }
     case "turn-started":
@@ -316,6 +318,14 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
     // A /compact the user asked for shows its progress on its divider: Claude's own compaction step stays out of the reply.
     case "step-started":
       if (event.step.id.startsWith("compact-") && pendingCompaction(state, sessionId)) return { state, runs, changed: false };
+      // Text written after a steering message, before the agent goes back to its tools, answers the user: it is saved
+      // as its own reply, so it isn't folded into the activity with the text between steps.
+      // ponytail: the first text after the steer, even when the agent wrote it before it read the message.
+      if (run?.steered && run.text.trim()) {
+        const split = splitRunForSteer(state, runs, projectPath, chatId);
+        const { steered: _answered, ...rest } = split.runs[chatId];
+        return { state: split.state, runs: applyRunEvent({ ...split.runs, [chatId]: rest }, chatId, event), changed: split.changed };
+      }
       return { state, runs: applyRunEvent(runs, chatId, event), changed: false };
     case "context-compacting":
       return pendingCompaction(state, sessionId) ? { state, runs, changed: false } : addCompaction(state, runs, projectPath, chatId, "preparing");

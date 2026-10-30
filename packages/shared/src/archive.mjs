@@ -60,55 +60,12 @@ export function homeLossReason(status) {
   return "Its folder has saved work that will be deleted.";
 }
 
-/**
- * The confirm step after "Archive". A chat whose worktree isn't Milagre's, is shared, or can't be checked
- * only hides, and a check that failed never offers deletion. A clean worktree offers removing it. One with unsaved
- * work offers only deleting it, with a line saying what goes and how to keep it. There is no "keep": archive
- * only hides and nothing lists archived chats, so a kept worktree would be invisible and orphaned. Dismissing
- * the menu leaves the chat as it is.
- *
- * `chatsHome`: the Chat has no Project, so its Worktree is only "its folder" to the user. A clean one archives at
- * once (`immediate`, no confirm step) under the plain "Archive"; one with files offers "Delete chat and its files",
- * with what goes said without Git words.
- */
-export function archiveChoices({ plan, running, chatsHome = false }) {
-  const { milagreOwned, shared, status } = plan;
-  const terminals = terminalNote(plan.terminals ?? []);
-  const withTerminals = (reason) => [reason, terminals].filter(Boolean).join(" ") || null;
-  if (!milagreOwned || shared || !status) {
-    return {
-      choices: [{ mode: "hide", label: running ? "Stop and archive" : "Confirm archive", tone: "danger" }],
-      reason: withTerminals(null),
-      immediate: false,
-    };
-  }
-  if (status.removable) {
-    if (chatsHome) {
-      // A busy Terminal still asks: archiving ends it, and the line says so.
-      const reason = withTerminals(null);
-      return { choices: [{ mode: "remove", label: running ? "Stop and archive" : "Archive", tone: "plain" }], reason, immediate: !reason };
-    }
-    return {
-      choices: [{ mode: "remove", label: running ? "Stop, archive and remove worktree" : "Archive and remove worktree", tone: "plain" }],
-      reason: withTerminals(null),
-      immediate: false,
-    };
-  }
-  if (chatsHome) {
-    return {
-      choices: [{ mode: "delete", label: running ? "Stop and delete chat and its files" : "Delete chat and its files", tone: "danger" }],
-      reason: withTerminals(homeLossReason(status)),
-      immediate: false,
-    };
-  }
-  return {
-    choices: [{ mode: "delete", label: running ? "Stop, archive and delete worktree" : "Archive and delete worktree", tone: "danger" }],
-    reason: withTerminals(deleteNote(status)),
-    immediate: false,
-  };
+/** Archive immediately. Only remove a worktree checked as safe; keep unsaved work for restoration. */
+export function archiveMode(plan) {
+  return plan?.milagreOwned && !plan.shared && plan.status?.removable ? "remove" : "hide";
 }
 
-/** What a Chat without a Project says once it is archived. Its folder goes with it, so there is no undo. */
+/** What a Chat without a Project says once it is archived. */
 export const CHAT_ARCHIVED_NOTICE = "Chat archived";
 
 /**

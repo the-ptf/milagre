@@ -1000,21 +1000,24 @@ function ArtifactDock({
     const byId = sentNumbers(hostComments);
     return new Map([...byId].map(([id, number]) => [`sent:${id}`, number] as const));
   }, [hostComments]);
-  // ⌘Enter anywhere in the dock sends the comments and the choice waiting, as Send does. The dock has the focus when an
-  // element in it does, or when the last click landed in it and nothing took the focus since (a comment box that
-  // closes leaves it on the page). A design or artifact with the focus keeps its keys, so it forwards the press.
+  // ⌘Enter sends the comments and the choice waiting, as Send does: anywhere in the dock, and anywhere else while
+  // feedback waits, unless the focus is in another dock or in a field with text of its own (a draft in the composer
+  // keeps the key). A design or artifact with the focus keeps its keys, so it forwards the press.
   const sendFromDock = useEffectEvent(() => void send());
+  const waiting = useEffectEvent(() => feedback > 0);
   useEffect(() => {
     if (!onSend) return;
-    const ownDock = (element: Element | null) => element?.closest("[data-slot=artifact-dock]")?.getAttribute("aria-label") === label;
-    let clickedIn = false;
-    const onPointer = (event: PointerEvent) => {
-      clickedIn = ownDock(event.target instanceof Element ? event.target : null);
-    };
+    const dockOf = (element: Element | null) => element?.closest("[data-slot=artifact-dock]")?.getAttribute("aria-label");
+    const ownDock = (element: Element | null) => dockOf(element) === label;
+    const drafting = (element: Element | null) =>
+      element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? !!element.value.trim()
+        : element instanceof HTMLElement && element.isContentEditable && !!element.textContent?.trim();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.defaultPrevented || event.isComposing) return;
+      if (isModalOpen()) return;
       const focused = document.activeElement;
-      if (!(ownDock(focused) || ((!focused || focused === document.body) && clickedIn)) || isModalOpen()) return;
+      if (!ownDock(focused) && (!waiting() || dockOf(focused) || drafting(focused))) return;
       event.preventDefault();
       sendFromDock();
     };
@@ -1023,11 +1026,9 @@ function ArtifactDock({
       const frame = [...document.querySelectorAll("iframe")].find((element) => element.contentWindow === event.source);
       if (frame && ownDock(frame)) sendFromDock();
     };
-    window.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("keydown", onKey);
     window.addEventListener("message", onMessage);
     return () => {
-      window.removeEventListener("pointerdown", onPointer, true);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("message", onMessage);
     };

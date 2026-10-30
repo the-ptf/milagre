@@ -27,6 +27,7 @@ const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
+const { dbFile: chatDbFile, readChatRows } = require("./chat-db.cjs");
 const { decodeImages } = require("./image-input.cjs");
 const { KeepAwake } = require("./keep-awake.cjs");
 const { ClaudeSession } = require("./agents/claude-provider.cjs");
@@ -90,8 +91,12 @@ const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
+const { createComputerResources } = require("./computer-resources.cjs");
 const { createKeybindings } = require("./keybindings.cjs");
 const { createBabysitSettings } = require("./babysit-settings.cjs");
+const { createDoneSettings } = require("./done-settings.cjs");
+const { createDoneSweep } = require("./done-sweep.cjs");
+const { doneDue } = require("@milagre/shared/done");
 const { createBabysitWatch } = require("./babysit-watch.cjs");
 // Where webhook URLs point unless the daemon says otherwise (its phone's relay).
 const HOOK_RELAY_URL = "wss://relay.milagre.cloud";
@@ -1393,6 +1398,8 @@ function createRuntime(options) {
   const autoUpdate = createAutoUpdate({ file: path.join(dataDir, "app-update.json"), emit });
   commands.handle("app-update:auto:read", () => autoUpdate.read());
   commands.handle("app-update:auto:save", (_event, value) => autoUpdate.save(value === true));
+  const computerResources = createComputerResources({ dataDir, worktreeRoot: worktreeRoot() });
+  commands.handle("computer:resources:read", () => computerResources.read());
   // Keybindings: keybindings.json on this computer, read and edited from Settings on the desktop (this Mac and paired ones) and the phone.
   const keybindings = createKeybindings({ file: path.join(dataDir, "keybindings.json"), emit });
   commands.handle("keybindings:read", () => keybindings.read());
@@ -1404,6 +1411,10 @@ function createRuntime(options) {
   commands.handle("babysit:settings:read", () => babysitSettings.read());
   commands.handle("babysit:settings:save", (_event, patch) => babysitSettings.save(patch));
   babysitWatch = createBabysitWatch({ settings: babysitSettings, routines });
+  // Done: how long a Chat stays in the Done list before the sweep below archives it.
+  const doneSettings = createDoneSettings({ file: path.join(dataDir, "done.json"), emit });
+  commands.handle("done:settings:read", () => doneSettings.read());
+  commands.handle("done:settings:save", (_event, patch) => doneSettings.save(patch));
   commands.handle("app-update:activity", () =>
     hostActivity({
       busy: chats.busyChats(),
@@ -1623,8 +1634,10 @@ function createRuntime(options) {
     // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
     // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
     // directly and never keep one.
-    if (rest.sessionId != null)
+    if (rest.sessionId != null) {
       await keepRunChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't keep a Run Chat:", error.message));
+      await reopenDoneChat(rest.projectPath, sessionId).catch((error) => console.warn("Milagre couldn't reopen a Done Chat:", error.message));
+    }
     return { sessionId };
   }
   // The issue is read again here, so the card and prompt are Linear's copy. If Linear can't answer now, the Chat still
@@ -1699,10 +1712,46 @@ function createRuntime(options) {
     if (!keepable((await scopeStates.get(projectPath)).sessions[sessionId])) return;
     await editProject(projectPath, (state) => withRunChatsHidden(state, { [sessionId]: false }, (routine) => routine.hidden !== false), { chats: [] });
   }
-  async function patchChat(projectPath, sessionId, patch) {
+  // `done` marks a Chat Done with this host's clock, so the countdown and the sweep agree whichever client asked; a phone's
+  // clock may be off. Reopening it, or bringing it back from the archive, takes it out of the Done list.
+  function sessionPatch(patch) {
+    if (!patch || typeof patch !== "object") return {};
+    const { done, done_at: _clientClock, ...rest } = patch;
+    if (done === true) return { ...rest, done_at: Date.now() };
+    if (done === false || rest.archived === false) return { ...rest, done_at: undefined };
+    return rest;
+  }
+  async function patchChat(projectPath, sessionId, raw) {
     if (!scopeStates.has(projectPath)) return;
-    if (patch?.archived) return archiveChat(projectPath, sessionId, patch);
-    await editProject(projectPath, (state) => patchSession(state, sessionId, patch ?? {}), { chats: [] });
+    const patch = sessionPatch(raw);
+    if (patch.archived) return archiveChat(projectPath, sessionId, patch);
+    await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
+  }
+  // Writing to a Done Chat takes it back to the list: the work it was Done with goes on. Only a Done one is written.
+  async function reopenDoneChat(projectPath, sessionId) {
+    if (!scopeStates.has(projectPath) || !heldState(projectPath)?.sessions[sessionId]?.done_at) return;
+    await editProject(projectPath, (state) => patchSession(state, sessionId, { done_at: undefined }), { chats: [] });
+  }
+  // The sweep's archive of one Done Chat: read again and archived only while it is still due, then its worktree goes the
+  // way the archive menu's does (archive.mjs archiveMode): only one Milagre made, no other Chat uses and git says holds
+  // nothing unsaved, never forced. Anything else keeps its worktree, as an archive with unsaved work does.
+  async function archiveDoneChat(scope, sessionId, retentionHours) {
+    if (!scopeStates.has(scope)) return false;
+    const session = (await scopeStates.get(scope)).sessions[sessionId];
+    if (!doneDue(session, retentionHours)) return false;
+    await archiveChat(scope, sessionId, { archived: true, unread: false });
+    if (isLinkScopeKey(scope) || !states.has(scope)) return true;
+    const state = await states.get(scope);
+    const worktree = state.worktrees[session.worktree_id];
+    if (!worktree?.base || worktree.path === scope) return true;
+    if (Object.values(state.sessions).some((other) => other.worktree_id === worktree.id && !other.archived && other.id !== session.id)) return true;
+    await environmentReady;
+    const status = await worktreeStatus(worktree.path, worktree.base).catch(() => null);
+    if (!status?.removable) return true;
+    await handlers
+      .get("worktree:remove")({}, worktree.path, { projectPath: scope, chatId: `${scope}#${sessionId}`, seen: status })
+      .catch((error) => console.warn("Milagre kept a Done Chat's worktree:", error.message));
+    return true;
   }
   // Pinning, naming or restoring a Chat from the archive is the user taking a Run Chat over (a restored one would be
   // hidden, out of every list, and archived again by the next sweep). An agent's chat_update calls patchChat itself and
@@ -2594,8 +2643,20 @@ function createRuntime(options) {
     const read = { withState: options?.withState === true };
     return options?.marks === true ? scopeStates.messageMarks(scope, read) : scopeStates.allMessages(scope, read);
   });
-  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too.
+  // A Chat a client pages through is loaded (see message-store.cjs): it is likely to get the next message too. A Chat of a
+  // Project this host knows but hasn't opened (another computer's window or the phone opening it, a background copy) is
+  // read from its chats.db as it is: opening the Project would hold the read behind Git and resume its stopped turns, and
+  // nothing of an unopened Project is held in memory to miss.
   commands.handle("chat:messages", async (_event, scope, chatId, options) => {
+    if (typeof scope === "string" && !isLinkScopeKey(scope) && !states.has(scope) && Number.isSafeInteger(chatId) && existsSync(chatDbFile(scope))) {
+      const known = chatsHome.isHome(scope) ? await chatsHome.exists() : (await recentProjects().list()).some((item) => item.path === scope);
+      if (known && !states.has(scope))
+        return chatPage(
+          readChatRows(scope, [chatId]).map((row) => row.message),
+          chatId,
+          options ?? {},
+        );
+    }
     checkReadable(scope);
     return chatPage((await scopeStates.load(scope, [chatId])).messages, chatId, options ?? {});
   });
@@ -2835,10 +2896,20 @@ function createRuntime(options) {
   const uploadSweepTimer = setInterval(sweepUploads, 24 * 60 * 60 * 1000);
   uploadSweepTimer.unref();
   void sweepUploads();
+  // Done Chats past their retention are archived once a minute, in every open Project and Link (bots' homes have none).
+  const doneSweep = createDoneSweep({
+    settings: doneSettings,
+    scopes: () => scopeStates.projects().filter((key) => !bots.isHome(key)),
+    heldState,
+    archive: (scope, sessionId, retentionHours) => track(() => archiveDoneChat(scope, sessionId, retentionHours), background),
+    isClosing: () => closing,
+  });
+  doneSweep.start();
 
   function close() {
     clearInterval(uploadSweepTimer);
     chatSecrets?.close();
+    void doneSweep.stop();
     closing = true;
     // A comment already on its way goes back to its queue before the rest closes.
     const routinesStopped = routines.stop();
@@ -2859,6 +2930,7 @@ function createRuntime(options) {
       accounts.close();
       keybindings.close();
       keepAwake.quit();
+      computerResources.close();
       ports.close();
       diffs.close();
       if (!states.closed) {
@@ -2898,6 +2970,8 @@ function createRuntime(options) {
       });
     },
     disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
+    /** Runs the Done sweep now instead of at its next minute (tests); resolves with the Chats it archived. */
+    sweepDone: () => doneSweep.sweep(),
     /** A bot's thread, or a Chat a bot opened and still runs: its completion tells no one but the bot. */
     isQuietChat: (chatId) => isQuietChat(bots.snapshot(), chatId),
     openProject: (projectPath, options) => accept(() => openProject(projectPath, options)),

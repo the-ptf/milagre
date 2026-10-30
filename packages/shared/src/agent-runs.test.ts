@@ -915,3 +915,31 @@ test("suggestions belong only to the last completed Claude turn and clear on eve
     assert.equal(fold(suggestion).changed, false);
   }
 });
+
+const step = (id: string) => ({ type: "step-started" as const, step: { id, kind: "command" as const, title: id } });
+
+test("the agent's answer to a steering message is saved as its own reply, not folded between steps", () => {
+  let applied = applyAgentEvent(
+    base(),
+    { [key(1)]: { text: "", model: "m", approvals: [], steps: [], questions: [], answered: {} } },
+    PROJECT,
+    key(1),
+    step("s1"),
+  );
+  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), { type: "message-sent", model: "m" });
+  assert.equal(applied.runs[key(1)].steered, true);
+  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), { type: "text-delta", messageId: null, text: "Because 27 isn't installed." });
+  const before = applied.state.messages.length;
+  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), step("s2"));
+  assert.equal(applied.state.messages.at(-1)?.body, "Because 27 isn't installed.");
+  assert.equal(applied.state.messages.length, before + 1);
+  assert.equal(applied.runs[key(1)].steered, undefined);
+  assert.deepEqual(
+    applied.runs[key(1)].steps.map((item) => item.id),
+    ["s1", "s2"],
+  );
+  // Later text between steps folds as before.
+  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), { type: "text-delta", messageId: null, text: "Next." });
+  applied = applyAgentEvent(applied.state, applied.runs, PROJECT, key(1), step("s3"));
+  assert.equal(applied.state.messages.length, before + 1);
+});

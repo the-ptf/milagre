@@ -47,13 +47,14 @@ import {
   ShieldAlertIcon,
   SourceCodeIcon,
   Tick02Icon,
+  Undo02Icon,
   Unlink04Icon,
 } from "@hugeicons/core-free-icons";
 import type { LinkedEnd } from "./SidebarLinks";
 import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
 import { ShortcutKeys } from "@/components/primitives/ShortcutKeys";
-import { archiveChoices, type ArchiveMode, type ArchivePlan } from "@/lib/archive";
+import { archiveMode, type ArchiveMode, type ArchivePlan } from "@/lib/archive";
 import { folderName, formatLineCount, type ChatMark } from "@/lib/chat-list";
 import { rowPullRequests } from "@/lib/chat-pull-requests";
 import { useEditors } from "@/lib/editors";
@@ -129,6 +130,8 @@ export type SidebarRecent = {
   /** In the Pinned section, at `pinOrder` among the pinned chats. */
   pinned?: boolean;
   pinOrder?: number;
+  /** When the chat was marked Done: it leaves the list for the Done section at the bottom (done.mjs). */
+  doneAt?: number;
   /** An enabled heartbeat checks back on this Chat: its hover-card line, "Heartbeat · every 15 min · next 10:45". */
   heartbeat?: string;
   details?: ChatDetails;
@@ -141,6 +144,10 @@ export type ChatRowActions = {
   onReload?: (id: string) => void;
   /** Pins the chat at `order` among the pinned chats (the end when left out), or unpins it (null). */
   onPin?: (id: string, order?: number | null) => void;
+  /** Marks the chat Done: the hover "Done" button and E on a hovered or focused row. */
+  onDone?: (id: string) => void;
+  /** Takes a Done chat back to the list. */
+  onReopen?: (id: string) => void;
   onReveal?: (id: string) => void;
   onOpenInEditor?: (id: string) => void;
   /** The chat is on another Mac: the menu leaves out what only acts on this one (Finder, the editor). */
@@ -149,7 +156,7 @@ export type ChatRowActions = {
   onCommit?: (id: string) => void;
   /**
    * The chat has no Project (a Chats home's), so no Git and no folder to the user: the menu leaves out "Copy path",
-   * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveChoices).
+   * "Copy branch name", Finder, the editor and "Commit and open PR…", and archives in plain words (archiveMode).
    */
   gitless?: boolean;
   /** Looks at the chat's worktree when "Archive" is clicked, to decide what the confirm step offers. */
@@ -218,7 +225,6 @@ type MenuEntry = {
   onSelect: () => void;
   disabled?: boolean;
   danger?: boolean;
-  archiveChoice?: boolean;
 };
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
@@ -320,13 +326,49 @@ function RowProjectIcon({ image, initial = "" }: { image?: string | null; initia
   );
 }
 
-/** Line one: pin, title, Link and heartbeat icons, then the time, a spinner while it runs, and the unread dot. */
+/**
+ * The one mark at the end of line one: a spinner while the chat works, the question or approval icon while it waits on
+ * you, a red dot after a failed turn, else the time with the unread dot. Line two says no state, only what the chat is.
+ */
+function InboxMark({ item, lastAt, now }: { item: SidebarRecent; lastAt?: number; now: number }) {
+  const mark = item.mark ?? "idle";
+  if (mark === "running" || mark === "background")
+    return (
+      <span data-slot="chat-mark" data-mark={mark} className="flex">
+        <SpinnerRing size={12} color="var(--accent)" />
+      </span>
+    );
+  if (mark in MARK_ICON)
+    return (
+      <span data-slot="chat-mark" data-mark={mark} className="flex">
+        <MarkIcon mark={mark as keyof typeof MARK_ICON} />
+      </span>
+    );
+  return (
+    <>
+      {lastAt !== undefined && (
+        <span
+          data-chat-ago
+          title={new Date(lastAt).toLocaleString()}
+          className={`text-[length:calc(11.5px+var(--sidebar-delta))] tabular-nums ${item.unread ? "font-semibold text-accent" : "text-ink-3"}`}
+        >
+          {activityAgo(lastAt, now)}
+        </span>
+      )}
+      {item.unread && <span data-slot="chat-mark" data-mark="unread" className="size-2 rounded-full bg-accent" />}
+      {!item.unread && item.details?.failed && <span data-slot="chat-mark" data-mark="failed" className="size-2 rounded-full bg-red" />}
+    </>
+  );
+}
+
+/** Line one: pin, title, Link and heartbeat icons, then the chat's one mark (InboxMark). */
 function InboxTitleLine({
   item,
   linked,
   lastAt,
   now,
   hideTime,
+  doneable,
 }: {
   item: SidebarRecent;
   linked: LinkedEnd[];
@@ -334,13 +376,16 @@ function InboxTitleLine({
   now: number;
   /** The ⌘1–9 hint or the open menu sits where the time goes. */
   hideTime: boolean;
+  /** The hover "Done" button takes the mark's place while the pointer is on the row. */
+  doneable: boolean;
 }) {
-  const mark = item.mark ?? "idle";
-  const running = mark === "running" || mark === "background";
   const status = inboxStatus(item);
   return (
     <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
-      <span className="flex h-[18px] min-w-0 items-center gap-1.5">
+      {/* The hover "Done" button sits over the mark's place: the title stops before it instead of running under it. */}
+      <span
+        className={`flex h-[18px] min-w-0 items-center gap-1.5 ${doneable && !hideTime ? "group-focus-within/row:pr-[48px] group-hover/row:pr-[48px]" : ""}`}
+      >
         {item.pinned && (
           <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-3">
             <HugeiconsIcon icon={PinIcon} size={12} strokeWidth={2} color="currentColor" />
@@ -367,25 +412,11 @@ function InboxTitleLine({
             <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
           </span>
         )}
-        <span data-chat-time className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : ""}`}>
-          {running ? (
-            <span data-slot="chat-mark" data-mark={mark} className="flex">
-              <SpinnerRing size={12} color="var(--accent)" />
-            </span>
-          ) : (
-            <>
-              {lastAt !== undefined && (
-                <span
-                  data-chat-ago
-                  title={new Date(lastAt).toLocaleString()}
-                  className={`text-[length:calc(11.5px+var(--sidebar-delta))] tabular-nums ${item.unread ? "font-semibold text-accent" : "text-ink-3"}`}
-                >
-                  {activityAgo(lastAt, now)}
-                </span>
-              )}
-              {item.unread && <span data-slot="chat-mark" data-mark="unread" className="size-2 rounded-full bg-accent" />}
-            </>
-          )}
+        <span
+          data-chat-time
+          className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : doneable ? "group-focus-within/row:hidden group-hover/row:hidden" : ""}`}
+        >
+          <InboxMark item={item} lastAt={lastAt} now={now} />
         </span>
       </span>
       {/* Read with the row's name; the second line beside it is outside the button and shown, not read. */}
@@ -419,7 +450,6 @@ function InboxLine({
   computer?: RowComputer;
   archiving: boolean;
 }) {
-  const status = inboxStatus(item);
   const shown = pullRequests.slice(0, ROW_PR_LIMIT);
   const hidden = pullRequests.length - shown.length;
   const parts: Array<{ key: string; node: ReactNode; shrink?: boolean }> = [];
@@ -456,16 +486,6 @@ function InboxLine({
       node: (
         <span data-chat-pr-more aria-label={`${hidden} more pull request${hidden === 1 ? "" : "s"}`} className="shrink-0 tabular-nums text-ink-3">
           +{hidden}
-        </span>
-      ),
-    });
-  if (status)
-    parts.push({
-      key: "status",
-      shrink: true,
-      node: (
-        <span data-chat-status className={`truncate ${status.tone}`}>
-          {status.label}
         </span>
       ),
     });
@@ -513,6 +533,26 @@ function InboxLine({
       ))}
     </div>
   );
+}
+
+/*
+ * E marks the chat under the pointer Done, as the row's own key does for a focused row. One listener serves every
+ * row; a row sets `hoveredDone` while the pointer is on it. Typing in a field never reaches it.
+ */
+let hoveredDone: (() => void) | null = null;
+let doneKeyListening = false;
+const isDoneKey = (event: KeyboardEvent | ReactKeyboardEvent) =>
+  event.key.toLowerCase() === "e" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.repeat;
+function listenForDoneKey() {
+  if (doneKeyListening) return;
+  doneKeyListening = true;
+  window.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || !hoveredDone || !isDoneKey(event)) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
+    event.preventDefault();
+    hoveredDone();
+  });
 }
 
 // memo: the sidebar rebuilds on streamed batches, and a row only needs to render when its own item changes.
@@ -643,6 +683,21 @@ export const ChatRow = memo(function ChatRow({
   // The issue picker opened from the menu's "Link issue…", at the menu's place.
   const [linking, setLinking] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const doneable = Boolean(actions.onDone) && !item.pending && !collapsed && !item.doneAt;
+  const markDone = () => {
+    if (!doneable || archivePending.current) return;
+    hideCard();
+    actions.onDone?.(item.id);
+  };
+  const markDoneRef = useRef(markDone);
+  markDoneRef.current = markDone;
+  const ownDone = useRef(() => markDoneRef.current());
+  useEffect(() => {
+    if (doneable) listenForDoneKey();
+    return () => {
+      if (hoveredDone === ownDone.current) hoveredDone = null;
+    };
+  }, [doneable]);
 
   const clearHover = () => {
     if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
@@ -702,10 +757,19 @@ export const ChatRow = memo(function ChatRow({
         ref={rowRef}
         data-chat-id={item.id}
         className={`group/row relative ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
-        onPointerEnter={showCardSoon}
+        onPointerEnter={() => {
+          if (doneable) hoveredDone = ownDone.current;
+          showCardSoon();
+        }}
         onPointerLeave={() => {
+          if (hoveredDone === ownDone.current) hoveredDone = null;
           clearPrefetch();
           hideCardSoon();
+        }}
+        onKeyDown={(event) => {
+          if (!doneable || renaming || !isDoneKey(event) || (event.target as HTMLElement).closest("input, textarea")) return;
+          event.preventDefault();
+          markDone();
         }}
         onPointerDown={hideCard}
         onContextMenu={(event) => {
@@ -758,7 +822,14 @@ export const ChatRow = memo(function ChatRow({
             } ${archiving ? "opacity-30" : ""}`}
           >
             <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
-            <InboxTitleLine item={item} linked={linked} lastAt={lastAt} now={now} hideTime={Boolean(shortcutHint) || Boolean(menu)} />
+            <InboxTitleLine
+              item={item}
+              linked={linked}
+              lastAt={lastAt}
+              now={now}
+              hideTime={Boolean(shortcutHint) || Boolean(menu)}
+              doneable={doneable && !archiving}
+            />
           </button>
         ) : (
           <button
@@ -790,7 +861,7 @@ export const ChatRow = memo(function ChatRow({
             </span>
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
-              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
+              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : doneable ? "group-hover/row:pr-[76px]" : "group-hover/row:pr-6"} ${menu ? (doneable ? "pr-[76px]" : "pr-6") : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
               }`}
             >
@@ -877,6 +948,28 @@ export const ChatRow = memo(function ChatRow({
           </div>
         )}
 
+        {doneable && !renaming && !shortcutHint && !archiving && (
+          <Tooltip
+            label="Mark Done"
+            keyHint="E"
+            align="end"
+            className={`absolute z-30 ${inbox ? "right-4 top-[7px]" : `${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} right-10`} opacity-0 transition-opacity duration-100 focus-within:opacity-100 group-hover/row:opacity-100 ${menu ? "opacity-100" : ""}`}
+          >
+            <button
+              type="button"
+              data-chat-done
+              aria-label={`Mark ${item.label} Done`}
+              onClick={(event) => {
+                event.stopPropagation();
+                markDone();
+              }}
+              className="flex h-5 items-center gap-1 rounded-inline px-1 text-[length:calc(11.5px+var(--sidebar-delta))] font-semibold text-ink-2 hover:text-ink focus-visible:text-ink"
+            >
+              <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2.5} color="currentColor" />
+              Done
+            </button>
+          </Tooltip>
+        )}
         {shortcutHint && !renaming && !menu && (
           <ShortcutKeys
             shortcut={shortcutHint}
@@ -1298,7 +1391,7 @@ function CardLine({ icon, children }: { icon: ReactNode; children: ReactNode }) 
 /* ─────────────────────────────────────────────────────────
  * ACTIONS MENU
  * From the row's ⋮ button or a right-click. Archive hides the
- * chat for good (there is no archived list), so it asks twice.
+ * chat immediately, preserving any work that cannot be safely removed.
  * ───────────────────────────────────────────────────────── */
 /** The issue list over the menu's place, for "Link issue…". Picking an issue hands its key up and closes. */
 function LinkIssuePopover({ position, onPick, onClose }: { position: { x: number; y: number }; onPick: (issue: LinearIssue) => void; onClose: () => void }) {
@@ -1349,29 +1442,26 @@ function ChatMenu({
   actions: ChatRowActions;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [archiveArmed, setArchiveArmed] = useState(false);
-  // What the confirm step offers: null until the worktree has been looked at.
+  // Removal is available only after the worktree has been checked.
   const [plan, setPlan] = useState<ArchivePlan | null>(actions.onArchiveCheck ? null : HIDE_ONLY);
   const [top, setTop] = useState(position.y);
   const { details = {} } = item;
-  const running = item.mark === "running" || item.mark === "waiting" || item.mark === "question";
 
   useLayoutEffect(() => {
     menuRef.current?.querySelector<HTMLElement>("[data-menu-row]")?.focus();
   }, []);
 
-  // The confirm step can add items and a line, so the height is measured again with it.
+  // Keep the menu inside the window.
   useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
     // Opens upwards when there isn't room below.
     const height = menu.getBoundingClientRect().height;
     setTop(position.y + height > window.innerHeight - 8 ? Math.max(8, position.y - height - 8) : position.y);
-    if (archiveArmed) menu.querySelector<HTMLElement>("[data-archive-choice]:not(:disabled)")?.focus();
-  }, [position.y, archiveArmed, plan]);
+  }, [position.y]);
 
-  // The worktree is checked as the menu opens, so "Archive" goes straight to its choice instead of
-  // flashing a checking row. Archive stays disabled until the check is back.
+  // Check while the menu opens so Archive can run immediately after the click.
+  // Archive stays disabled until the check is back.
   useEffect(() => {
     if (!actions.onArchiveCheck || !actions.onArchive) return;
     let live = true;
@@ -1396,47 +1486,22 @@ function ChatMenu({
   const { editor } = useEditors();
   const copy = (text: string) => run(() => void navigator.clipboard.writeText(text).catch(() => {}));
 
-  // A Chat without a Project says what goes in plain words, and a clean one archives on the first click.
-  const choices = plan ? archiveChoices({ plan, running, chatsHome: actions.gitless }) : null;
-  const confirm = archiveArmed ? choices : null;
-  const archiveAtOnce = choices?.immediate && choices.choices.length === 1 ? choices.choices[0] : undefined;
-  const archiveItems: Array<MenuEntry> =
-    !confirm || !plan
-      ? [
-          {
-            key: "archive",
-            label: archiveAtOnce?.label ?? "Archive",
-            icon: Archive02Icon,
-            onSelect: archiveAtOnce && plan ? run(() => actions.onArchive?.(item.id, archiveAtOnce.mode, plan)) : () => setArchiveArmed(true),
-            disabled: !actions.onArchive || !plan,
-          },
-        ]
-      : confirm.choices.map((choice) => ({
-          key: `archive-${choice.mode}`,
-          label: choice.label,
-          icon: Archive02Icon,
-          onSelect: run(() => actions.onArchive?.(item.id, choice.mode, plan)),
-          danger: choice.tone === "danger",
-          archiveChoice: true,
-        }));
-
-  // Enter confirms the armed archive wherever focus is, since a mouse click on "Archive" leaves it on the page.
-  // A row focused with the arrow keys keeps Enter for itself.
-  const firstArchiveItem = archiveItems[0];
-  const confirmEntry = archiveItems.length === 1 && firstArchiveItem?.archiveChoice && !firstArchiveItem.disabled ? firstArchiveItem : null;
-  useEffect(() => {
-    if (!confirmEntry) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || event.isComposing) return;
-      const active = document.activeElement as HTMLElement | null;
-      if (active?.matches("[data-menu-row]") && !active.matches("[data-archive-choice]")) return;
-      event.preventDefault();
-      event.stopPropagation();
-      confirmEntry.onSelect();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [confirmEntry]);
+  const archiveItems: Array<MenuEntry> = [
+    ...(actions.onDone && !item.doneAt
+      ? [{ key: "done", label: "Mark Done", icon: Tick02Icon, onSelect: run(() => actions.onDone?.(item.id)) }]
+      : actions.onReopen && item.doneAt
+        ? [{ key: "reopen", label: "Reopen", icon: Undo02Icon, onSelect: run(() => actions.onReopen?.(item.id)) }]
+        : []),
+    {
+      key: "archive",
+      label: "Archive",
+      icon: Archive02Icon,
+      onSelect: run(() => {
+        if (plan) actions.onArchive?.(item.id, archiveMode(plan), plan);
+      }),
+      disabled: !actions.onArchive || !plan,
+    },
+  ];
 
   const items: Array<MenuEntry | "divider"> = [
     ...(actions.gitless
@@ -1571,22 +1636,16 @@ function ChatMenu({
               disabled={entry.disabled}
               title={entry.hint}
               onClick={entry.onSelect}
-              {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
-              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red-ink" : "text-ink"}`}
+              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 h-8 ${entry.danger ? "text-red-ink" : "text-ink"}`}
             >
               <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
                 {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
               </span>
-              <span className={`min-w-0 flex-1 text-[13px] ${entry.archiveChoice ? "leading-snug" : "truncate"}`}>{entry.label}</span>
+              <span className="min-w-0 flex-1 truncate text-[13px]">{entry.label}</span>
             </button>
           ),
         )}
       </GlideMenu>
-      {confirm?.reason && (
-        <p data-archive-reason className="px-2 pb-1 pt-1.5 text-[12px] leading-snug text-ink-3">
-          {confirm.reason}
-        </p>
-      )}
     </div>,
     document.body,
   );
