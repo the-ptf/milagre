@@ -3,7 +3,7 @@ import { pullRequestPresentation } from "./pr-blockers";
 
 // The glyph and colour of a PR's badge (pullRequestPresentation's icon and tone), the same in the sidebar and the PR tabs.
 
-export const PR_ICONS = {
+const PR_ICONS = {
   merged: GitMergeIcon,
   closed: GitPullRequestClosedIcon,
   draft: GitPullRequestDraftIcon,
@@ -12,7 +12,7 @@ export const PR_ICONS = {
   open: GitPullRequestIcon,
 } as const;
 
-export const PR_TONES = {
+const PR_TONES = {
   purple: "text-purple-500",
   red: "text-red-ink",
   orange: "text-orange-ink",
