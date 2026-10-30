@@ -228,8 +228,8 @@ function simpleRisk(words, { cwd, roots }) {
   if (outside) return "writes outside the worktree";
   if (SHELLS.has(name) || INTERPRETERS.has(name) || name === "source" || name === ".") {
     // Shell -c strings are inspected recursively by commandsOf. Other interpreters' inline programs are opaque.
-    if (SHELLS.has(name) && args.some((word) => /^-[a-z]*c$/.test(word))) return null;
-    if (args.some((word) => word.startsWith("-")) || !args.length) return "runs code whose effects cannot be determined";
+    if (SHELLS.has(name) && /^-[a-z]*c$/.test(args[0] ?? "") && args[1]) return null;
+    if (!args.length || args[0].startsWith("-")) return "runs code whose effects cannot be determined";
     const script = pathOf(args[0], cwd);
     if (!script || !inside(roots, script)) return "runs a script outside the worktree";
   }
