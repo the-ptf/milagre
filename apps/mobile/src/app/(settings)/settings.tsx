@@ -5,6 +5,7 @@ import {
   Archive02Icon,
   BookOpen01Icon,
   BubbleChatIcon,
+  BrowserIcon,
   Cancel01Icon,
   ComputerIcon,
   ConnectIcon,
@@ -29,6 +30,7 @@ import { Icon, type IconData } from "../../icons";
 import { MilagreMark } from "../../milagre-mark";
 import { useSession } from "../../session";
 import { ProjectIcon } from "../../project-icon";
+import { useInternalBrowser } from "../../browser-setting";
 import { useChatList } from "../../chat-display-setting";
 import { useArchivedCount } from "../../all-computers";
 import { useComputerStatus } from "../../use-computer-status";
@@ -42,6 +44,7 @@ type SettingsPage =
   | "computers"
   | "routines"
   | "general"
+  | "browser-settings"
   | "accounts"
   | "project-accounts"
   | "appearance"
@@ -139,6 +142,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
   const push = usePush();
   const updates = useAppUpdates();
   const session = useSession();
+  const [internalBrowser] = useInternalBrowser();
   const [chatList] = useChatList();
   const archived = useArchivedCount();
   const client = session.client;
@@ -209,7 +213,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
         />
         <Tile title="Routines" icon={RepeatIcon} value={routinesValue} disabled={!routinesAvailable} onPress={() => onOpen("routines")} />
       </View>
-      <Group title="This iPhone" footer="Saved on this phone. Your other devices keep their own.">
+      <Group title="This device" footer="Saved on this device. Your other devices keep their own.">
         <Row
           title="Notifications"
           icon={Notification01Icon}
@@ -217,6 +221,7 @@ export function SettingsView({ onOpen }: { onOpen: (page: SettingsPage) => void 
           onPress={() => onOpen("notifications")}
         />
         <Row title="Appearance" icon={PaintBoardIcon} value={MODE_LABEL[theme.mode]} onPress={() => onOpen("appearance")} />
+        <Row title="Browser" icon={BrowserIcon} value={internalBrowser ? "Milagre" : "Default browser"} onPress={() => onOpen("browser-settings")} />
         <Row title="Chat" icon={BubbleChatIcon} value={chatListLabel(chatList)} onPress={() => onOpen("chat-display")} />
         <Row title="Archived Chats" icon={Archive02Icon} value={archived === null ? undefined : String(archived)} onPress={() => onOpen("archived")} />
         <Row title="Experimental" icon={FlaskConicalIcon} onPress={() => onOpen("experimental")} />

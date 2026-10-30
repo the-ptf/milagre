@@ -212,6 +212,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Where the phone reaches the Chat's computer: none unless a test says so, so localhost links stay as written.
       if (base === "reachable-host" && !(id in modules)) return { ReachableHostContext: "ReachableHostContext" };
       if (base === "chat-link-context" && !(id in modules)) return { ChatLinkContext: "ChatLinkContext", ChatLinkProvider: "ChatLinkProvider" };
+      if (base === "browser-link" && !(id in modules)) return load("browser-link.ts", modules, "", cache);
       if (base === "routes-native") return { useReachableHost: () => null, ...modules[id] };
       if (id === "@milagre/shared/loopback-url" && !(id in modules)) return require(id);
       // A Chat's activity (chat-activity.mjs) is a pure derivation many screens read; tests get the real one.
@@ -275,6 +276,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "panel-width" && !(id in modules)) return { usePanelWidth: () => 420, setPanelWidth() {} };
       // A phone's width: simulators and designs open full screen, never in the panel docked beside the Chat (panel-tabs.tsx).
       if (base === "panel-tabs" && !(id in modules)) return { PanelTabsContext: ({ children }) => children, usePanelTabs: () => null };
+      if (base === "side-panels" && !(id in modules)) return { useChatPanelTabs: () => null };
+      if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
@@ -1963,7 +1966,7 @@ test("plain URLs in mobile replies render as links and open the exact address", 
   }
 });
 
-test("mobile reply links open an associated PR in the Chat and leave unrelated links external", async () => {
+test("mobile reply links honor the Chat destination and retain an external fallback without one", async () => {
   const { associatedPullRequest } = require("../packages/shared/src/chats.mjs");
   const prs = [
     { url: "https://github.com/team/first/pull/12", cwd: "/first" },
@@ -1986,6 +1989,22 @@ test("mobile reply links open an associated PR in the Chat and leave unrelated l
     assert.deepEqual(screen.links, []);
     await find(screen.render("https://github.com/other/project/pull/12", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
     assert.deepEqual(screen.links, ["https://github.com/other/project/pull/12"]);
+  }
+});
+
+test("mobile reply links preserve localhost for the internal Browser instead of rewriting it to the phone's LAN route", async () => {
+  for (const streaming of [false, true]) {
+    const opened = [];
+    const screen = markdownHost({
+      reachable: { host: "100.69.206.111", loopbackOnly: new Set() },
+      openChatLink: (url) => {
+        opened.push(url);
+        return true;
+      },
+    });
+    find(screen.render("[App](http://localhost:5173/path?q=1)", streaming), (node) => node.props?.accessibilityRole === "link").props.onPress();
+    assert.deepEqual(opened, ["http://localhost:5173/path?q=1"]);
+    assert.deepEqual(screen.links, []);
   }
 });
 
@@ -2801,7 +2820,7 @@ function chatHost({
     "../context-ring": { ContextRing: "ContextRing" },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
-    "../browser": { useBrowserShortcut: () => browserShortcut },
+    "../browser": { useBrowserShortcut: (options) => (typeof browserShortcut === "function" ? browserShortcut(options) : browserShortcut) },
     "../ports": { PortsChip: "PortsChip", useChatPorts: () => noPorts },
     "../terminal": { TerminalChip: "TerminalChip", terminalPlaces: () => undefined },
     react,
@@ -3202,7 +3221,9 @@ test("a Link Chat's PRs are its Projects' branch PRs, each opened in its own Wor
     const links = find(tree, (node) => node.type === "ChatLinkProvider").props;
     assert.equal(links.openLink("https://github.com/o/api/pull/12/files#diff-123"), true);
     assert.equal(JSON.stringify(globalThis.openedPullRequests.at(-1)), JSON.stringify({ worktreeId: "42", number: "12", chat: key, cwd: "/wt/api" }));
-    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), false);
+    assert.equal(links.openLink("https://github.com/o/unrelated/pull/12"), true);
+    assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
+    assert.equal(chat.router.pushed.at(-1).params.url, "https://github.com/o/unrelated/pull/12");
     assert.equal(globalThis.openedPullRequests.length, 2);
   } finally {
     delete globalThis.branchPullRequests;
@@ -7959,6 +7980,34 @@ function browserHost(client) {
 }
 const BROWSER_PAGE = { id: "browser-1:" + "A".repeat(32), title: "Login", url: "https://example.com/login", browser: "Chrome 141", source: "agent" };
 
+test("mobile browser link selects the requested page among several and retries without leaving the app", async (t) => {
+  const requested = { ...BROWSER_PAGE, id: "requested-page", source: "panel", url: "http://localhost:5173/" };
+  const calls = [];
+  let attempt = 0;
+  const h = browserHost({
+    url: "mac",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      if (method === "browser:open-page") {
+        if (++attempt === 1) throw new Error("Open Milagre on your computer and retry.");
+        return requested;
+      }
+      return { supported: true, targets: [BROWSER_PAGE, requested], others: [] };
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("BrowserSheet", { hostId: "mac", chatId: "/p#1", url: "http://localhost:5173" });
+  assert.match(JSON.stringify(render()), /Opening page/);
+  await settle();
+  assert.match(JSON.stringify(render()), /Open Milagre on your computer/);
+  find(render(), (node) => node.props.title === "Retry").props.onPress();
+  render();
+  await settle();
+  assert.equal(find(render(), (node) => node.props.targetId === requested.id).props.targetId, requested.id);
+  assert.equal(calls.filter(([method]) => method === "browser:open-page").length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([method]) => method === "browser:open-page")[1])), [{ chatId: "/p#1", url: "http://localhost:5173" }]);
+});
+
 test("mobile browser shortcut lists only this Chat and hides until the Chat has a page", async (t) => {
   for (const [list, visible] of [
     [{ supported: true, targets: [], others: [] }, false],
@@ -7994,6 +8043,21 @@ test("mobile browser shortcut lists only this Chat and hides until the Chat has 
   });
   assert.equal(h.render("useBrowserShortcut", {}), null, "a new Chat has no agent yet");
   h.cleanup();
+});
+
+test("mobile browser shortcut opens in the Chat's iPad panel when available", async (t) => {
+  const tabs = [];
+  const h = browserHost({
+    url: "mac",
+    call: async () => ({ supported: true, targets: [BROWSER_PAGE], others: [] }),
+  });
+  t.after(() => h.cleanup());
+  const props = { chatId: "/p#1", openInPanel: (tab) => tabs.push(tab) };
+  h.render("useBrowserShortcut", props);
+  await settle();
+  h.render("useBrowserShortcut", props).onPress();
+  assert.deepEqual(JSON.parse(JSON.stringify(tabs)), [{ kind: "browser", target: { hostId: "mac", chatId: "/p#1" } }]);
+  assert.deepEqual(h.pushed, [], "a docked Browser does not also open a phone sheet");
 });
 
 test("mobile browser sheet opens a sole page directly, lists several, and attaches explicitly", async (t) => {
@@ -9732,7 +9796,7 @@ test("mobile Ports sheet stops only this Chat's process and refuses another host
   assert.deepEqual(calls, []);
 });
 
-test("mobile Ports sheet opens and copies a server at the computer's LAN address, and says when it listens on localhost only", async (t) => {
+test("mobile Ports sheet opens both LAN and loopback servers internally and copies a reachable address", async (t) => {
   const opened = [],
     copied = [];
   const ports = [
@@ -9743,6 +9807,7 @@ test("mobile Ports sheet opens and copies a server at the computer's LAN address
   const h = simulatorHost(client, "ports.tsx", {
     native: { Linking: { openURL: async (url) => opened.push(url) } },
     modules: {
+      "./browser-link": { openBrowserLink: (...args) => opened.push(args) },
       "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
       "./routes-native": { useReachableHost: (id) => (id === "mac" ? "100.69.206.111" : null) },
     },
@@ -9751,13 +9816,12 @@ test("mobile Ports sheet opens and copies a server at the computer's LAN address
   const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
   render();
   await settle();
-  find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:5173").props.onPress();
-  assert.deepEqual(opened, ["http://100.69.206.111:5173"]);
-  assert.equal(
-    find(render(), (n) => n.props.accessibilityLabel === "Open http://100.69.206.111:3000"),
-    undefined,
-    "a server on the computer's loopback isn't reachable from the phone",
-  );
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://localhost:5173").props.onPress();
+  find(render(), (n) => n.props.accessibilityLabel === "Open http://localhost:3000").props.onPress();
+  assert.deepEqual(opened, [
+    ["mac", "/p#7", "http://localhost:5173", null],
+    ["mac", "/p#7", "http://localhost:3000", null],
+  ]);
   assert.match(JSON.stringify(render()), /localhost only/);
   await find(render(), (n) => n.props.accessibilityLabel === "Copy address for port 5173").props.onPress();
   assert.deepEqual(copied, ["http://100.69.206.111:5173"]);
@@ -11016,14 +11080,14 @@ function settingsGroups(tree) {
   return groups;
 }
 
-test("mobile Settings splits this iPhone from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
+test("mobile Settings splits this device from the connected Mac, lists Connections only when the Mac can change Linear, and ends with the version", async () => {
   const state = {};
   const { SettingsView } = loadSettings(state);
   // No Mac: the phone's own settings and About only; Routines waits for a computer and Computers says none is paired.
   const alone = SettingsView({ onOpen() {} });
   assert.deepEqual(
     settingsGroups(alone).map((group) => group.title),
-    ["This iPhone", "About"],
+    ["This device", "About"],
   );
   const tile = (tree, title) => find(tree, (n) => typeof n.type === "function" && n.type.name === "Tile" && n.props.title === title);
   assert.equal(tile(alone, "Computers").props.value, "None paired");
@@ -11053,10 +11117,11 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
     groups.map(({ title, rows }) => [title, rows]),
     [
       [
-        "This iPhone",
+        "This device",
         [
           ["Notifications", "On"],
           ["Appearance", "System"],
+          ["Browser", "Milagre"],
           ["Chat", "One list"],
           ["Archived Chats", ""],
           ["Experimental", ""],
@@ -11089,6 +11154,7 @@ test("mobile Settings splits this iPhone from the connected Mac, lists Connectio
   assert.deepEqual(opened, [
     "notifications",
     "appearance",
+    "browser-settings",
     "chat-display",
     "archived",
     "experimental",
@@ -16131,14 +16197,23 @@ test("older hosts without git history keep phone file diffs usable; network erro
 
 test("Chat header promotes only Browser and PR, with working actions and no duplicate overflow entries", () => {
   let opened = 0;
+  let shortcutOptions;
   const shortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress: () => opened++ };
-  const screen = chatHost({ browserShortcut: shortcut, routines: [heartbeatFor("/p#7")] });
+  const screen = chatHost({
+    browserShortcut: (options) => {
+      shortcutOptions = options;
+      return shortcut;
+    },
+    routines: [heartbeatFor("/p#7")],
+  });
+  screen.panels.openInPanel = () => {};
   screen.params.id = "7";
   screen.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
   globalThis.chatPullRequest = { number: 90, state: "OPEN", url: "https://github.com/o/r/pull/90" };
   globalThis.openedPullRequests = [];
   try {
     const tree = screen.render();
+    assert.equal(shortcutOptions.openInPanel, screen.panels.openInPanel, "the header passes its own panel opener, outside the child context provider");
     const buttons = allNodes(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel !== "Show sidebar");
     assert.deepEqual(
       buttons.map((node) => node.props.accessibilityLabel).filter((label) => label !== "Hide sidebar"),
@@ -16156,6 +16231,91 @@ test("Chat header promotes only Browser and PR, with working actions and no dupl
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
   }
+});
+
+test("browser preference defaults on, persists changes, ignores a late read and reports failed saves", async () => {
+  let read;
+  const saves = [];
+  let fail = false;
+  const { useInternalBrowser } = load("browser-setting.ts", {
+    react: { useSyncExternalStore: (_subscribe, get) => get() },
+    "./hosts-native": {
+      readInternalBrowser: () =>
+        new Promise((resolve) => {
+          read = resolve;
+        }),
+      saveInternalBrowser: async (on) => {
+        saves.push(on);
+        if (fail) throw new Error("storage failed");
+      },
+    },
+  });
+  assert.equal(useInternalBrowser()[0], true);
+  await useInternalBrowser()[1](false);
+  read(true);
+  await settle();
+  assert.equal(useInternalBrowser()[0], false, "a slow initial read cannot undo the user's choice");
+  fail = true;
+  await assert.rejects(useInternalBrowser()[1](true), /storage failed/);
+  assert.equal(useInternalBrowser()[0], false);
+  fail = false;
+  await useInternalBrowser()[1](true);
+  assert.equal(useInternalBrowser()[0], true);
+  assert.deepEqual(saves, [false, true, true]);
+});
+
+test("Chat web links use the iPad panel or phone sheet, and respect this device's external preference", () => {
+  for (const docked of [false, true]) {
+    const chat = chatHost({ screenWidth: docked ? 1194 : 402 });
+    const tabs = [];
+    chat.panels.openInPanel = docked ? (tab) => tabs.push(tab) : null;
+    chat.params.id = "2";
+    const link = () => find(chat.render(), (node) => node.type === "ChatLinkProvider").props.openLink;
+    try {
+      assert.equal(link()("http://localhost:5173"), true);
+      if (docked) {
+        assert.equal(tabs[0].kind, "browser");
+        assert.equal(tabs[0].target.url, "http://localhost:5173");
+        assert.equal((chat.router.pushed ?? []).length, 0);
+      } else assert.equal(chat.router.pushed.at(-1).pathname, "/browser-sheet");
+      globalThis.internalBrowser = false;
+      const before = (chat.router.pushed ?? []).length + tabs.length;
+      assert.equal(link()("https://example.com"), false, "Markdown delegates to Linking when the Chat declines the link");
+      assert.equal((chat.router.pushed ?? []).length + tabs.length, before);
+    } finally {
+      delete globalThis.internalBrowser;
+    }
+  }
+});
+
+test("mobile Ports obey the external preference and explain a loopback-only server", async (t) => {
+  const urls = [];
+  const ports = [
+    { port: 5173, pid: 22, command: "node", address: "*" },
+    { port: 3000, pid: 23, command: "node", address: "127.0.0.1" },
+  ];
+  const h = simulatorHost({ url: "mac", call: async () => ({ chatId: "/p#7", ports }) }, "ports.tsx", {
+    native: {
+      Linking: {
+        openURL: async (url) => {
+          urls.push(url);
+        },
+      },
+    },
+    modules: {
+      "./browser-setting": { useInternalBrowser: () => [false] },
+      "./routes-native": { useReachableHost: () => "192.168.1.2" },
+    },
+  });
+  t.after(() => h.cleanup());
+  const render = () => h.render("PortsSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (node) => node.props.accessibilityLabel === "Open http://localhost:5173").props.onPress();
+  assert.deepEqual(urls, ["http://192.168.1.2:5173"]);
+  find(render(), (node) => node.props.accessibilityLabel === "Open http://localhost:3000").props.onPress();
+  assert.equal(urls.length, 1);
+  assert.match(JSON.stringify(render()), /Enable Open links in Milagre in Settings > Browser/);
 });
 
 test("phone dictation pastes by default, sends the completed draft once, and preserves blocked drafts", () => {
