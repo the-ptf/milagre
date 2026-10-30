@@ -1,5 +1,11 @@
 const pad = (value: number) => String(value).padStart(2, "0");
 
+/** Remaining time, rounded up so a live request never reads 0:00 before its deadline. */
+export function formatCountdown(ms: number): string {
+  const seconds = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(seconds / 60)}:${pad(seconds % 60)}`;
+}
+
 /** Whole seconds for live elapsed labels; finished durations keep their own rounding rules. */
 export function formatElapsed(ms: number): string {
   const seconds = Math.floor(Math.max(0, ms) / 1000);

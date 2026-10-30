@@ -296,7 +296,7 @@ function SettingTile({
   const ink = tone === "purple" ? colors.purpleInk : colors.orange;
   return (
     <Pressable
-      accessibilityRole="switch"
+      accessibilityRole="checkbox"
       accessibilityLabel={label}
       accessibilityHint={detail}
       accessibilityState={{ checked: value }}
