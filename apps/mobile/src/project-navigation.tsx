@@ -1628,14 +1628,13 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           >
             <View style={[s.doneRow, { paddingRight: 0 }]}>
               <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
-              <Text numberOfLines={1} style={{ flex: 1, minWidth: item.many ? "50%" : 0, fontSize: 16, color: colors.ink3 }}>
-                {item.title}
-              </Text>
-              {item.many && (
-                <View style={{ flexShrink: 1, maxWidth: "30%" }}>
-                  <ComputerTag name={item.hostName} offline={offline} />
-                </View>
-              )}
+              {/* With two or more computers, the one the Chat lives on goes under its title, so both stay readable. */}
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Text numberOfLines={1} style={{ fontSize: 16, color: colors.ink3 }}>
+                  {item.title}
+                </Text>
+                {item.many && <ComputerTag name={item.hostName} offline={offline} />}
+              </View>
               {countdown && (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Icon icon={HourglassIcon} tone="ink3" size={13} />

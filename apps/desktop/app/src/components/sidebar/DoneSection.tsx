@@ -71,26 +71,26 @@ function DoneRow({ entry, countdown }: { entry: DoneEntry; countdown: string | n
       <button
         type="button"
         onClick={() => onPick(item)}
-        className="sidebar-copy flex h-[30px] w-full items-center gap-2.5 rounded-control px-2 text-left hover:bg-hover-2"
+        className={`sidebar-copy flex w-full items-center gap-2.5 rounded-control px-2 text-left hover:bg-hover-2 ${computer ? "h-[42px]" : "h-[30px]"}`}
       >
         <span className="flex shrink-0 text-ink-4">
           <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={2} color="currentColor" />
         </span>
-        <span
-          className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] text-ink-3 group-hover/done:text-ink-2 ${computer ? "min-w-[50%]" : ""}`}
-        >
-          <ChatTitle label={item.label} />
-        </span>
-        {computer && (
-          <span
-            data-done-computer
-            title={computer.offline ? `On ${computer.name}, offline` : `On ${computer.name}`}
-            className={`flex min-w-0 max-w-[30%] shrink items-center gap-1 text-[length:calc(11px+var(--sidebar-delta))] ${computer.offline ? "text-orange-ink" : "text-ink-4"} ${onReopen && !countdown ? "group-focus-within/done:opacity-0 group-hover/done:opacity-0" : ""}`}
-          >
-            <HugeiconsIcon icon={computerIcon(computer)} size={11} strokeWidth={2} color="currentColor" className="shrink-0" />
-            <span className="truncate">{computer.name}</span>
+        {/* With two or more computers, the one the chat lives on goes under its title, so both stay readable. */}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-[length:calc(13px+var(--sidebar-delta))] text-ink-3 group-hover/done:text-ink-2">
+            <ChatTitle label={item.label} />
           </span>
-        )}
+          {computer && (
+            <span
+              data-done-computer
+              className={`flex min-w-0 items-center gap-1 text-[length:calc(11px+var(--sidebar-delta))] ${computer.offline ? "text-orange-ink" : "text-ink-4"}`}
+            >
+              <HugeiconsIcon icon={computerIcon(computer)} size={11} strokeWidth={2} color="currentColor" className="shrink-0" />
+              <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
+            </span>
+          )}
+        </span>
         {countdown && (
           <span
             data-done-countdown
