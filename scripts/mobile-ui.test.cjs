@@ -151,6 +151,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
             flush: async () => {},
           },
           outboxAttachments: (items) => items,
+          useOutbox: () => ({ loaded: true, items: [], error: "" }),
         };
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
