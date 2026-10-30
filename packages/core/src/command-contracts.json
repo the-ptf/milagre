@@ -1121,6 +1121,15 @@
         }
       ]
     },
+    "app-update:state": {
+      "parameters": []
+    },
+    "app-update:check": {
+      "parameters": []
+    },
+    "app-update:install": {
+      "parameters": []
+    },
     "computer:resources:read": {
       "parameters": []
     },

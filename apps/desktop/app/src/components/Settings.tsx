@@ -108,6 +108,7 @@ import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { ChatListChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
 import { KeybindingsSettings } from "./settings/KeybindingsSettings";
+import { HostUpdateRow } from "./settings/HostUpdateRow";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
@@ -117,6 +118,7 @@ import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/pro
 import type { RecentProject } from "../lib/project-list";
 import { setProjectImage, useProjectImages } from "../lib/project-images";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
+import { updateDescription } from "@milagre/shared/app-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
 
@@ -426,6 +428,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
           )}
         </div>
         <ComputerResourceList computers={[resourceComputer(computer, now)]} initiallyOpen={computer.id} />
+        {computer.state === "online" && <HostUpdateRow key={`update-${id}`} bridge={bridgeFor(id)} name={computer.name} />}
         {computer.state === "online" && (
           <div data-computer-auto-update>
             <AutoUpdateRow key={id} bridge={bridgeFor(id)} />
@@ -1632,27 +1635,6 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
       )}
     </>
   );
-}
-
-function updateDescription(update: UpdateState | null): string {
-  switch (update?.status) {
-    case "checking":
-      return "Checking for updates…";
-    case "up-to-date":
-      return "Milagre is up to date.";
-    case "downloading":
-      return `Downloading ${update.version ? `Milagre ${update.version}` : "update"}… ${Math.round(update.progress)}%`;
-    case "downloaded":
-      return `${update.version ? `Milagre ${update.version}` : "The update"} is ready to install.${update.auto ? " Auto update installs it once nothing is running." : ""}`;
-    case "installing":
-      return "Saving your work and restarting Milagre.";
-    case "error":
-      return update.error ?? "Couldn't check for updates. Try again.";
-    case "unavailable":
-      return "Update checks are available in the installed app.";
-    default:
-      return "Check for the latest Milagre release.";
-  }
 }
 
 /**

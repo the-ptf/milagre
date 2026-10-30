@@ -1,3 +1,4 @@
+import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
@@ -141,14 +142,7 @@ export type WorktreeSetupSource = "repo" | "setting" | "none";
 export type WorktreeSetupSettings = { setupCommand: string; source: WorktreeSetupSource; command: string | null; note?: string };
 
 export type ReleaseChannel = "stable" | "beta";
-export type UpdateState = {
-  status: "idle" | "checking" | "up-to-date" | "downloading" | "downloaded" | "installing" | "error" | "unavailable";
-  version: string | null;
-  progress: number;
-  error?: string;
-  /** Auto update is on: a downloaded update installs by itself once nothing runs (Settings › About). */
-  auto?: boolean;
-};
+export type UpdateState = AppUpdateState;
 
 /** The Phone setting as the host runs it. The link and QR (an SVG) are there only while it is on; both carry the access token. */
 export type PhoneStatus = {
@@ -402,6 +396,15 @@ export type MilagreBridge = {
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
   /** The switch changed, here or from another device. */
   onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
+  /**
+   * A paired computer's Computer page (and the phone): the update of the desktop app open on that computer and the
+   * version it runs, through its host; null while no desktop app is open there. This Mac's own window uses getUpdateState.
+   */
+  readHostUpdate: () => Promise<HostUpdate>;
+  /** Starts a check there and answers at once with the check begun; readHostUpdate follows it. */
+  checkHostUpdate: () => Promise<HostUpdate>;
+  /** Restarts Milagre there to install a downloaded update; rejects when none is ready. Running Chats resume after the restart. */
+  installHostUpdate: () => Promise<HostUpdate>;
   /** Settings › Devices: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
   readComputerResources: () => Promise<ComputerResources>;
   /** Settings › Keybindings: the rules of keybindings.json on this computer (a paired computer's bridge reads that computer's). A missing file is created with the defaults. */
