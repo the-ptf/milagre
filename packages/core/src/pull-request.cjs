@@ -3,7 +3,8 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { scheduled } = require("./process-lanes.cjs");
 
-const execFileAsync = scheduled(promisify(execFile));
+// createGit owns Git scheduling. Keep its executor raw; schedule only gh at the call sites below.
+const execFileAsync = promisify(execFile);
 
 const FIELDS = "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
 // What a chat's commands can name: a PR URL or a number in the chat's repository. Nothing gh reads as a flag.
@@ -29,7 +30,7 @@ async function readPullRequestState(cwd, exec = execFileAsync) {
     const { stdout: branchOutput } = await git.checked(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
     const branch = branchOutput.trim();
     if (!branch) return { known: false, pr: null };
-    const { stdout } = await exec("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
+    const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
     return { known: true, pr: JSON.parse(stdout)[0] ?? null };
   } catch {
     // No PR, offline, or gh unavailable: this optional metadata never blocks a chat.
@@ -44,7 +45,7 @@ async function readPullRequest(cwd, exec = execFileAsync) {
 
 // `pr view` can infer the wrong head repository for a fork or a branch tracking main.
 async function readBranchPullRequest(cwd, branch, exec) {
-  const { stdout } = await exec("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
+  const { stdout } = await scheduled(exec)("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", FIELDS], execOptions(cwd));
   return toPullRequest(JSON.parse(stdout)[0]);
 }
 
@@ -69,11 +70,13 @@ function createPullRequestReader({ exec = execFileAsync, now = Date.now, ttlMs =
     const hit = batches.get(repo);
     if (hit && now() - hit.at < ttlMs) return hit.read;
     const list = (state, fields) =>
-      exec("gh", ["pr", "list", "--state", state, "--limit", String(BATCH_LIMIT), "--json", `${fields},headRefName`], batchOptions(cwd)).then(({ stdout }) => {
-        const parsed = JSON.parse(stdout);
-        if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
-        return parsed;
-      });
+      scheduled(exec)("gh", ["pr", "list", "--state", state, "--limit", String(BATCH_LIMIT), "--json", `${fields},headRefName`], batchOptions(cwd)).then(
+        ({ stdout }) => {
+          const parsed = JSON.parse(stdout);
+          if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
+          return parsed;
+        },
+      );
     const read = Promise.all([list("all", BATCH_FIELDS), list("open", FIELDS)]).then(([all, open]) => {
       const checks = new Map(open.map((pr) => [pr?.number, pr?.statusCheckRollup]));
       // Newest first, so the first PR seen for a branch is its latest, as `--head <branch> --limit 1` returns.
@@ -122,7 +125,7 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
     refs.slice(0, MAX_REFS).map(async (ref) => {
       if (typeof ref !== "string" || !PR_REF.test(ref)) return null;
       try {
-        const { stdout } = await exec("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
+        const { stdout } = await scheduled(exec)("gh", ["pr", "view", ref, "--json", FIELDS], execOptions(cwd));
         return toPullRequest(JSON.parse(stdout));
       } catch {
         return null;
