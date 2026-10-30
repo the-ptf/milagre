@@ -9916,7 +9916,7 @@ function viewerChrome(react) {
   });
 }
 
-function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn) {
+function artifactHost(client, pushes = [], router = { back() {} }, feature = designsOn, openTab = null) {
   const react = hookHost({ effects: true }),
     files = new Map(),
     share = load("share-availability.ts", {});
@@ -9961,6 +9961,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
       "./design-page-share": { DesignPageShareSheet: "DesignPageShareSheet" },
+      "./panel-tabs": { usePanelTabs: () => openTab },
       "./session": { useSession: () => ({ client, designs: feature }) },
       "./use-design-catalog": load("use-design-catalog.ts", {
         react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
@@ -16729,4 +16730,150 @@ test("secret form masks input, preserves bytes, clears drafts and declines witho
   assert.equal(find(tree, (n) => n.type === "TextInput").props.editable, false);
   assert.equal(find(tree, (n) => n.props?.title === "Save securely").props.disabled, true);
   assert.ok(find(tree, (n) => n.type === "Text" && n.props.children === "Request expired"));
+});
+
+test("artifact feedback carries the comment and tab through phone and dock navigation", async () => {
+  const page = { id: "page", title: "HTTP", format: "html", version: 1 };
+  const comment = { id: "12345678", design: page, tab: { id: "headers", title: "Headers" }, text: "Explain caching", x: 0.2, y: 0.3 };
+  for (const docked of [false, true]) {
+    const pushes = [],
+      tabs = [];
+    const client = { url: `feedback-${docked}`, call: async (method) => (method === "artifact:list" ? [page] : []) };
+    const h = artifactHost(client, pushes, undefined, designsOn, docked ? (tab) => tabs.push(tab) : null);
+    const props = { chatId: "/p#7", feedback: { choice: null, comments: [comment] } };
+    h.render("DesignFeedbackCard", props);
+    await settle();
+    const tree = h.render("DesignFeedbackCard", props);
+    const action = find(tree, (node) => node.type === "Pressable" && node.props.accessibilityRole === "button");
+    assert.ok(action, "a feedback comment opens its artifact");
+    action.props.onPress();
+    action.props.onPress();
+    const targets = docked ? tabs.map((tab) => tab.target) : pushes.map((route) => route.params);
+    assert.equal(targets.length, 2);
+    assert.notEqual(targets[0].requestId, targets[1].requestId, "reopening the same comment makes a fresh request");
+    assert.equal(targets[0].tab, "headers");
+    assert.equal(targets[0].comment, "12345678");
+    assert.equal(targets[0].id, "page");
+    assert.equal(targets[0].hostId, client.url);
+    assert.equal(targets[0].chatId, "/p#7");
+    if (docked) assert.equal(targets[0].html, true);
+    else assert.equal(pushes[0].pathname, "/artifact-sheet");
+    h.cleanup();
+  }
+});
+
+test("artifact feedback opens its tab and reveals after ready, including a repeated dock request", async () => {
+  const page = {
+    id: "page",
+    title: "HTTP",
+    format: "html",
+    version: 1,
+    latest: 1,
+    html: "Overview",
+    tabs: [
+      { id: "overview", title: "Overview", html: "Overview" },
+      { id: "headers", title: "Headers", html: "Headers" },
+    ],
+  };
+  const comment = {
+    id: "12345678",
+    design: { id: page.id, title: page.title, version: 1 },
+    tab: { id: "headers", title: "Headers" },
+    text: "Explain caching",
+    x: 0.2,
+    y: 0.3,
+  };
+  const client = {
+    url: "reveal-host",
+    call: async (method) => (method === "artifact:comments" ? [comment] : method === "artifact:sharing-status" ? { available: false } : page),
+  };
+  const h = artifactHost(client);
+  let props = { hostId: client.url, chatId: "/p#7", id: page.id, tab: "headers", comment: comment.id, requestId: "1" };
+  let tree = await h.open(props);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(
+    find(tree, (node) => node.props?.html === "Headers"),
+    "the non-first tab opens",
+  );
+  assert.ok(
+    h.commands().some((cmd) => cmd.t === "reveal" && cmd.k === "sent:12345678"),
+    "the comment is revealed after readiness",
+  );
+  find(tree, (node) => node.props?.accessibilityLabel === "Close the comment").props.onPress();
+  tree = h.render("ArtifactSheet", props);
+  find(tree, (node) => node.type === "PullDown" && node.props.sections.some((section) => section.items.some((item) => item.id === "overview"))).props.onSelect(
+    "overview",
+  );
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(find(tree, (node) => node.props?.html === "Overview"));
+  const before = h.commands().filter((cmd) => cmd.t === "reveal").length;
+  props = { ...props, requestId: "2" };
+  h.render("ArtifactSheet", props);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(
+    find(tree, (node) => node.props?.html === "Headers"),
+    "the mounted dock turns back to the target tab",
+  );
+  assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before, "waits for the new tab's helper");
+  h.say(tree, { t: "ready" });
+  h.render("ArtifactSheet", props);
+  tree = h.render("ArtifactSheet", props);
+  assert.equal(h.commands().filter((cmd) => cmd.t === "reveal").length, before + 1);
+  h.cleanup();
+});
+
+test("artifact route forwards a feedback target to the native viewer", () => {
+  const params = { hostId: "mac", chatId: "/p#7", id: "page", kind: "html", tab: "headers", comment: "12345678", requestId: "2" };
+  const { default: Screen } = load("app/artifact-sheet.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "expo-router": { useLocalSearchParams: () => params },
+    "../artifact": { ArtifactSheet: "ArtifactSheet" },
+    "../designs-sheet": { DesignsSheet: "DesignsSheet" },
+  });
+  const tree = Screen();
+  assert.equal(tree.type, "ArtifactSheet");
+  for (const field of ["tab", "comment", "requestId", "hostId", "chatId", "id"]) assert.equal(tree.props[field], params[field]);
+});
+
+test("artifact feedback refreshes comments received after a dock was opened", async () => {
+  const page = {
+    id: "page",
+    title: "HTTP",
+    format: "html",
+    version: 1,
+    latest: 1,
+    html: "Overview",
+    tabs: [
+      { id: "overview", title: "Overview", html: "Overview" },
+      { id: "headers", title: "Headers", html: "Headers" },
+    ],
+  };
+  let comments = [];
+  const later = deferred();
+  const client = {
+    url: "later-feedback-host",
+    call: async (method) => (method === "artifact:comments" ? comments : method === "artifact:sharing-status" ? { available: false } : page),
+  };
+  const h = artifactHost(client);
+  let props = { hostId: client.url, chatId: "/p#7", id: page.id };
+  await h.open(props);
+  comments = later.promise;
+  props = { ...props, tab: "headers", comment: "12345678", requestId: "2" };
+  h.render("ArtifactSheet", props);
+  let tree = h.render("ArtifactSheet", props);
+  h.say(tree, { t: "ready" });
+  h.render("ArtifactSheet", props);
+  assert.equal(
+    h.commands().some((command) => command.t === "reveal"),
+    false,
+    "no reveal before the comment loads",
+  );
+  later.resolve([
+    { id: "12345678", design: { id: page.id, version: 1, title: page.title }, tab: { id: "headers", title: "Headers" }, x: 0.2, y: 0.3, text: "New feedback" },
+  ]);
+  await settle();
+  h.render("ArtifactSheet", props);
+  tree = h.render("ArtifactSheet", props);
+  assert.ok(h.commands().some((command) => command.t === "reveal" && command.k === "sent:12345678"));
+  h.cleanup();
 });
