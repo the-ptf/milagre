@@ -256,7 +256,7 @@ export function PrOverview({ client, cwd, number, chatKey, onOpen, onChat, onClo
             }}
           />
         }
-        contentContainerStyle={{ gap: 12, paddingBottom: 40 }}
+        contentContainerStyle={{ gap: 12, paddingTop: 0, paddingBottom: 40 }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
