@@ -257,8 +257,9 @@ function batchStub({ branches, prs, repo = require("node:os").tmpdir() }) {
     }
     assert.equal(command, "gh");
     if (args.includes("--head")) return { stdout: JSON.stringify(prs.filter((pr) => pr.headRefName === args[args.indexOf("--head") + 1]).slice(0, 1)) };
-    return { stdout: JSON.stringify(prs) };
+    return { stdout: JSON.stringify(args[args.indexOf("--state") + 1] === "open" ? prs.filter((pr) => pr.state === "OPEN") : prs) };
   };
+  // Each batch is two lists: every PR without checks, and the open ones with them.
   return { exec, ghCalls: () => calls.filter(([command]) => command === "gh") };
 }
 const listed = (number, headRefName, state = "OPEN") => ({
@@ -280,24 +281,29 @@ const shape = (number, state = "OPEN") => ({
   changesRequested: false,
 });
 
-test("worktrees of one repository share a single batched gh pr list", async () => {
+test("worktrees of one repository share one batch: every PR without checks, the open ones with them", async () => {
   const { exec, ghCalls } = batchStub({
     branches: { "/a": "feature/a", "/b": "feature/b", "/c": "no-pr" },
     prs: [listed(2, "feature/b", "MERGED"), listed(1, "feature/a")],
   });
   const read = createPullRequestReader({ exec });
   assert.deepEqual(await Promise.all(["/a", "/b", "/c"].map((path) => read(path))), [shape(1), shape(2, "MERGED"), null]);
-  assert.equal(ghCalls().length, 1);
-  assert.deepEqual(ghCalls()[0][1], [
-    "pr",
-    "list",
-    "--state",
-    "all",
-    "--limit",
-    "100",
-    "--json",
-    "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,headRefName",
-  ]);
+  assert.deepEqual(
+    ghCalls().map(([, args]) => args),
+    [
+      ["pr", "list", "--state", "all", "--limit", "100", "--json", "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,headRefName"],
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,url,state,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,headRefName",
+      ],
+    ],
+  );
   assert.ok(["/a", "/b", "/c"].includes(ghCalls()[0][2].cwd), "gh runs from one of the repository's worktrees");
 });
 
@@ -308,10 +314,10 @@ test("the batch is reused within the TTL and read again after it", async () => {
   await read("/a");
   clock = 1999;
   await read("/a");
-  assert.equal(ghCalls().length, 1);
+  assert.equal(ghCalls().length, 2);
   clock = 2000;
   await read("/a");
-  assert.equal(ghCalls().length, 2);
+  assert.equal(ghCalls().length, 4);
 });
 
 test("separate repositories are batched separately", async () => {
@@ -320,7 +326,7 @@ test("separate repositories are batched separately", async () => {
   const exec = (command, args, options) => (options.cwd === "/b" ? other.exec : stub.exec)(command, args, options);
   const read = createPullRequestReader({ exec });
   assert.deepEqual([await read("/a"), await read("/b")], [shape(1), shape(7)]);
-  assert.equal(stub.ghCalls().length + other.ghCalls().length, 2);
+  assert.equal(stub.ghCalls().length + other.ghCalls().length, 4);
 });
 
 test("the newest PR for a branch wins, and a closed latest PR hides older ones like the per-branch query", async () => {
@@ -342,7 +348,7 @@ test("a branch missing from a full batch falls back to its own query", async () 
   const read = createPullRequestReader({ exec: stub });
   assert.deepEqual(await read("/a"), shape(4));
   assert.deepEqual(await read("/b"), shape(500, "MERGED"));
-  assert.equal(ghCalls().length, 1, "only the counted batch call; the fallback went through the stub");
+  assert.equal(ghCalls().length, 2, "only the counted batch calls; the fallback went through the stub");
 });
 
 test("a failed batch falls back to the per-branch query and is retried next time", async () => {
@@ -358,7 +364,24 @@ test("a failed batch falls back to the per-branch query and is retried next time
   assert.deepEqual(await read("/a"), shape(1));
   failing = false;
   assert.deepEqual(await read("/a"), shape(1));
-  assert.deepEqual(calls, ["batch", "branch", "batch"]);
+  assert.deepEqual(calls, ["batch", "batch", "branch", "batch", "batch"]);
+});
+
+test("an open PR takes its checks from the open list; one the open list missed falls back to its own query", async () => {
+  const rollup = [checkRun("COMPLETED", "FAILURE")];
+  const prs = [{ ...listed(3, "feature/a"), statusCheckRollup: rollup }, listed(2, "feature/b"), listed(1, "feature/b", "MERGED")];
+  const { exec } = batchStub({ branches: { "/a": "feature/a", "/b": "feature/b" }, prs });
+  const branchQueries = [];
+  const stub = async (command, args, options) => {
+    if (command === "gh" && args.includes("--head")) branchQueries.push(args[args.indexOf("--head") + 1]);
+    // The open list lost #2, as when it opens between the two reads.
+    if (command === "gh" && args.includes("open")) return { stdout: JSON.stringify([prs[0]]) };
+    return exec(command, args, options);
+  };
+  const read = createPullRequestReader({ exec: stub });
+  assert.equal((await read("/a")).checks, "failed");
+  assert.equal((await read("/b")).number, 2);
+  assert.deepEqual(branchQueries, ["feature/b"]);
 });
 
 test("no branch, no gh and bad output are null", async () => {

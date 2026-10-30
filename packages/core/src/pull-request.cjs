@@ -47,10 +47,14 @@ async function readBranchPullRequest(cwd, branch, exec) {
   return toPullRequest(JSON.parse(stdout)[0]);
 }
 
-// One `gh pr list` per repository answers every worktree's branch, instead of one query per worktree
-// every refresh. Calls arriving together (the renderer asks for each worktree at once) share it; the
+// Two `gh pr list` per repository answer every worktree's branch, instead of one query per worktree
+// every refresh. Calls arriving together (the renderer asks for each worktree at once) share them; the
 // short TTL keeps a turn-end refresh, which exists to catch a just-created PR, from reading stale data.
+// Checks come only with the open PRs: a hundred PRs' check rollups take GitHub ~7 s, and only an open PR shows them.
 const BATCH_LIMIT = 100;
+const BATCH_FIELDS = FIELDS.split(",")
+  .filter((field) => field !== "statusCheckRollup")
+  .join(",");
 const BATCH_TTL = 2000;
 const batchOptions = (cwd) => ({ ...execOptions(cwd), timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
 
@@ -63,16 +67,25 @@ function createPullRequestReader({ exec = execFileAsync, now = Date.now, ttlMs =
   function batchFor(cwd, repo) {
     const hit = batches.get(repo);
     if (hit && now() - hit.at < ttlMs) return hit.read;
-    const read = exec("gh", ["pr", "list", "--state", "all", "--limit", String(BATCH_LIMIT), "--json", `${FIELDS},headRefName`], batchOptions(cwd)).then(
-      ({ stdout }) => {
-        const list = JSON.parse(stdout);
-        if (!Array.isArray(list)) throw new Error("Unexpected gh output");
-        // Newest first, so the first PR seen for a branch is its latest, as `--head <branch> --limit 1` returns.
-        const byBranch = new Map();
-        for (const pr of list) if (typeof pr?.headRefName === "string" && !byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, pr);
-        return { byBranch, truncated: list.length >= BATCH_LIMIT };
-      },
-    );
+    const list = (state, fields) =>
+      exec("gh", ["pr", "list", "--state", state, "--limit", String(BATCH_LIMIT), "--json", `${fields},headRefName`], batchOptions(cwd)).then(({ stdout }) => {
+        const parsed = JSON.parse(stdout);
+        if (!Array.isArray(parsed)) throw new Error("Unexpected gh output");
+        return parsed;
+      });
+    const read = Promise.all([list("all", BATCH_FIELDS), list("open", FIELDS)]).then(([all, open]) => {
+      const checks = new Map(open.map((pr) => [pr?.number, pr?.statusCheckRollup]));
+      // Newest first, so the first PR seen for a branch is its latest, as `--head <branch> --limit 1` returns.
+      const byBranch = new Map();
+      for (const pr of all) {
+        if (typeof pr?.headRefName !== "string" || byBranch.has(pr.headRefName)) continue;
+        // An open PR the open list missed (past its limit, or opened between the two reads) has no checks here:
+        // null leaves its branch to the per-branch query.
+        if (pr.state !== "OPEN") byBranch.set(pr.headRefName, pr);
+        else byBranch.set(pr.headRefName, checks.has(pr.number) ? { ...pr, statusCheckRollup: checks.get(pr.number) } : null);
+      }
+      return { byBranch, truncated: all.length >= BATCH_LIMIT };
+    });
     batches.set(repo, { at: now(), read });
     if (batches.size > 50) batches.delete(batches.keys().next().value);
     // A failed read isn't kept: the next call retries rather than serving the failure.
@@ -92,7 +105,7 @@ function createPullRequestReader({ exec = execFileAsync, now = Date.now, ttlMs =
       if (batch) {
         const pr = batch.byBranch.get(branch);
         if (pr) return toPullRequest(pr);
-        if (!batch.truncated) return null;
+        if (!batch.truncated && !batch.byBranch.has(branch)) return null;
       }
       return await readBranchPullRequest(cwd, branch, exec);
     } catch {
