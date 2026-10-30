@@ -42,6 +42,7 @@ function registerGitHandlers(
     models,
     knownFolders,
     review = createPullRequestReview({ env }),
+    pullRequestChanged = () => {},
   } = {},
 ) {
   const command = (name, cwd) => async () => {
@@ -66,6 +67,18 @@ function registerGitHandlers(
     return cwd;
   }
 
+  // A write that changes what a PR's summary shows (state, review decision, checks): its folder's PRs are read again.
+  const changing =
+    (run) =>
+    async (_event, request = {}) => {
+      const cwd = await folder(request?.cwd);
+      try {
+        return await run(cwd, request);
+      } finally {
+        pullRequestChanged(cwd);
+      }
+    };
+
   ipcMain.handle("git:changes", async (_event, { cwd, base } = {}) => actions.readChanges({ cwd: await folder(cwd), base }));
   ipcMain.handle("git:history", async (_event, { cwd, base, recordedBase, branchesVersion, limit } = {}) =>
     diff.history({ cwd: await folder(cwd), base, recordedBase, branchesVersion, limit }),
@@ -85,12 +98,19 @@ function registerGitHandlers(
   );
   ipcMain.handle("pr:reply", async (_event, { cwd, number, threadId, body } = {}) => review.reply({ cwd: await folder(cwd), number, threadId, body }));
   ipcMain.handle("pr:delete-comment", async (_event, { cwd, commentId } = {}) => review.deleteComment({ cwd: await folder(cwd), commentId }));
-  ipcMain.handle("pr:submit-review", async (_event, { cwd, number, event, body } = {}) => review.submit({ cwd: await folder(cwd), number, event, body }));
-  ipcMain.handle("pr:resolve-thread", async (_event, { cwd, threadId, resolved } = {}) => review.resolve({ cwd: await folder(cwd), threadId, resolved }));
-  ipcMain.handle("pr:merge", async (_event, { cwd, number, method, auto, admin, disableAuto } = {}) =>
-    review.merge({ cwd: await folder(cwd), number, method, auto, admin, disableAuto }),
+  ipcMain.handle(
+    "pr:submit-review",
+    changing((cwd, { number, event, body }) => review.submit({ cwd, number, event, body })),
   );
-  ipcMain.handle("pr:ready", async (_event, { cwd, number, draft } = {}) => review.ready({ cwd: await folder(cwd), number, draft }));
+  ipcMain.handle("pr:resolve-thread", async (_event, { cwd, threadId, resolved } = {}) => review.resolve({ cwd: await folder(cwd), threadId, resolved }));
+  ipcMain.handle(
+    "pr:merge",
+    changing((cwd, { number, method, auto, admin, disableAuto }) => review.merge({ cwd, number, method, auto, admin, disableAuto })),
+  );
+  ipcMain.handle(
+    "pr:ready",
+    changing((cwd, { number, draft }) => review.ready({ cwd, number, draft })),
+  );
   ipcMain.handle("pr:image", async (_event, { cwd, url } = {}) => review.image({ cwd: await folder(cwd), url }));
   ipcMain.handle("pr:labels", async (_event, { cwd } = {}) => review.labels({ cwd: await folder(cwd) }));
   ipcMain.handle("pr:set-labels", async (_event, { cwd, number, add, remove } = {}) => review.setLabels({ cwd: await folder(cwd), number, add, remove }));
@@ -111,8 +131,14 @@ function registerGitHandlers(
     }
   });
   ipcMain.handle("git:commit", async (_event, { cwd, message } = {}) => actions.commit({ cwd: await folder(cwd), message }));
-  ipcMain.handle("git:push", async (_event, { cwd } = {}) => actions.push({ cwd: await folder(cwd) }));
-  ipcMain.handle("git:open-pr", async (_event, { cwd, base, title, body } = {}) => actions.openPr({ cwd: await folder(cwd), base, title, body }));
+  ipcMain.handle(
+    "git:push",
+    changing((cwd) => actions.push({ cwd })),
+  );
+  ipcMain.handle(
+    "git:open-pr",
+    changing((cwd, { base, title, body }) => actions.openPr({ cwd, base, title, body })),
+  );
 }
 
 module.exports = { NOT_A_CHAT_FOLDER, registerGitHandlers };
