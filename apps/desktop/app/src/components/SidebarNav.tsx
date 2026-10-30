@@ -508,6 +508,8 @@ function ScopeMenuButton({ name, items }: { name: string; items: ScopeMenuItem[]
 }
 
 const NO_PATHS: string[] = [];
+// Project and Link workspaces draw the same list in separate DOM trees.
+const scrollPositions = new Map<string, number>();
 // The last lists and group order any sidebar loaded. A switch between a Project and a Link mounts the other sidebar,
 // which starts from these instead of empty, so its Links and groups don't blink while it reads them again.
 const lastLists = {
@@ -701,6 +703,29 @@ export default memo(function SidebarNav({
     if (!made) rowComputers.current.set(cacheKey, (made = { name, offline, local: id === LOCAL_COMPUTER }));
     return made;
   };
+  const scrollRef = useRef<HTMLElement>(null);
+  const scrollKey = `${chatList}:${sidebarMode}`;
+  const restoreScroll = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    restoreScroll.current = scrollPositions.get(scrollKey) ?? 0;
+  }, [scrollKey]);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    const top = restoreScroll.current;
+    if (!node || top === null) return;
+    // The scope-state hooks can still be restoring their rows in this layout pass. Keep the target until they fit.
+    node.scrollTop = top;
+    if (node.scrollTop === top) {
+      restoreScroll.current = null;
+      return;
+    }
+    // If Chats were removed while this workspace was hidden, accept the new end after the layout settles.
+    const frame = window.requestAnimationFrame(() => {
+      restoreScroll.current = null;
+      scrollPositions.set(scrollKey, node.scrollTop);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  });
   const [listsChanged, setListsChanged] = useState(0);
   const [collapsed, setCollapsed] = useState(() => window.matchMedia(AUTO_COLLAPSE_QUERY).matches);
   // True only while the sidebar is collapsed because the window got narrow, so widening it brings the sidebar back.
@@ -740,11 +765,13 @@ export default memo(function SidebarNav({
   const readBefore = useRef(false);
   useLayoutEffect(() => {
     // Taken now: this sidebar's own effect below writes its stale lists over the cache right after.
-    const { links, registered, recent } = lastLists;
+    const { links, registered, recent, recentLoaded, order } = lastLists;
     if (readBefore.current) {
       setNamedLinks(links);
       setRegisteredProjects(registered);
       setRecentProjects(recent);
+      setRecentLoaded(recentLoaded);
+      if (order) scopeOrder.current = order;
     }
     readBefore.current = true;
   }, []);
@@ -1629,7 +1656,13 @@ export default memo(function SidebarNav({
               <SidebarModeSwitch mode={botsMode ? "bots" : "projects"} onMode={(mode) => onSidebarMode?.(mode)} collapsed={collapsed} />
             </div>
           )}
-          <ScrollArea className={`sidebar-scroll flex-1 overflow-x-hidden ${botsOn ? "" : "pt-2"}`}>
+          <ScrollArea
+            ref={scrollRef}
+            onScroll={(event) => {
+              if (event.currentTarget.isConnected && restoreScroll.current === null) scrollPositions.set(scrollKey, event.currentTarget.scrollTop);
+            }}
+            className={`sidebar-scroll flex-1 overflow-x-hidden ${botsOn ? "" : "pt-2"}`}
+          >
             {botsMode ? (
               <BotList snapshot={bots.snapshot} selectedBotId={selectedBotId} onPickBot={(id) => onPickBot?.(id)} collapsed={collapsed} />
             ) : (

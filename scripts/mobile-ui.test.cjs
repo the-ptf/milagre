@@ -3664,6 +3664,7 @@ function navigationHost(
 ) {
   const react = hookHost({ effects });
   const linkRequests = [];
+  const prRequests = [];
   const choiceRequests = [];
   const storeCalls = [];
   const routes = [];
@@ -3785,7 +3786,7 @@ function navigationHost(
     "./turn-options": require("../apps/mobile/src/turn-options.ts"),
     "./indicators": require("../apps/mobile/src/indicators.ts"),
     "./status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
-    "./use-chat-pull-requests": { useChatPullRequests: () => ({}) },
+    "./use-chat-pull-requests": { useComputerChatPullRequests: (targets) => (prRequests.push(targets), extra.prStatus ?? {}) },
     "./use-linear": { useLinear: () => ({ active: false }) },
     "./use-routines": { useRoutinesAvailable: () => routinesAvailable },
     "./use-worktree-linear-issues": { useWorktreeLinearIssues: () => ({}) },
@@ -3872,6 +3873,7 @@ function navigationHost(
     open,
     more,
     linkRequests,
+    prRequests,
     choiceRequests,
     storeCalls,
     unmount: react.unmount,
@@ -3957,6 +3959,56 @@ test("One list shows Chats from every computer in one list, each row naming its 
   assert.equal(nav.session.openNotificationTargetCalls?.[0]?.[0].id, "studio");
   assert.equal(JSON.stringify(nav.routes), JSON.stringify([{ pathname: "/chat", params: { projectPath: "/web", hostId: "studio", id: "1" } }]));
   assert.deepEqual(nav.calls, [], "nothing went through the open computer's client");
+});
+
+test("the sidebar keeps every computer's PR chips and routes each row's lookups after a computer switch", () => {
+  const pr = (number) => ({ number, url: `https://github.com/x/y/pull/${number}`, state: "OPEN" });
+  const copy = (title) => ({
+    project: {
+      path: "/same",
+      state: {
+        sessions: { 1: { id: 1, worktree_id: 1, title, summary: { count: 1, firstAt: 100 } } },
+        worktrees: { 1: { id: 1, path: "/same/w" } },
+        messages: [],
+      },
+    },
+    runs: { runs: {} },
+  });
+  const mac = { url: "mac" },
+    studio = { url: "studio" };
+  const computers = [
+    { hostId: "mac", client: mac, name: "Mac", state: "online", projects: [{ path: "/same" }], copies: { "/same": copy("Mac Chat") } },
+    { hostId: "studio", client: studio, name: "Studio", state: "offline", projects: [{ path: "/same" }], copies: { "/same": copy("Studio Chat") } },
+  ];
+  const nav = navigationHost(Promise.resolve(), {
+    chatList: "list",
+    computers,
+    session: {
+      client: mac,
+      snapshot: copy("Mac Chat"),
+      prStatus: {
+        mac: { "/same/w": { branch: pr(101), found: {} } },
+        studio: { "/same/w": { branch: pr(202), found: {} } },
+      },
+    },
+  });
+  const chips = () =>
+    nav
+      .rows()
+      .props.data.filter((row) => row.kind === "chat")
+      .map((row) => [row.hostId, row.pullRequests.map((pr) => pr.number)]);
+  same(chips(), [
+    ["mac", [101]],
+    ["studio", [202]],
+  ]);
+  assert.equal(nav.prRequests.at(-1).find((target) => target.hostId === "studio").client, studio);
+  nav.session.client = studio;
+  nav.session.snapshot = copy("Studio Chat");
+  same(chips(), [
+    ["mac", [101]],
+    ["studio", [202]],
+  ]);
+  assert.equal(nav.prRequests.at(-1).find((target) => target.hostId === "mac").client, mac);
 });
 
 test("a cached Chat on another computer routes synchronously without the sidebar's loading state", () => {
@@ -4158,6 +4210,7 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   let listener;
   const called = [];
   const client = {
+    url: "mac",
     call: async (method, args) => {
       called.push([method, args]);
       const pr = { number: method === "worktree:pull-request" ? 248 : 246, state: method === "worktree:pull-request" ? "OPEN" : "MERGED" };
@@ -4165,7 +4218,7 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
     },
   };
   const { useChatPullRequests } = load("use-chat-pull-requests.ts", {
-    react,
+    react: { ...react, useSyncExternalStore: (_subscribe, read) => read() },
     "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
     "react-native": { AppState: app },
     "./pr-status": require("../apps/mobile/src/pr-status.ts"),
@@ -4195,6 +4248,71 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(render()["/next"].branch.number, 248, "foreground resumes PR lookup");
   react.cleanup();
+});
+
+test("PRs stay scoped to each computer through switches, delayed reads, offline failures and remounts", async () => {
+  let react = hookHost();
+  let offline = false;
+  const pending = deferred();
+  const calls = [];
+  const client = (url, number) => ({
+    url,
+    call: async (method, args) => {
+      calls.push([url, method, args]);
+      if (url === "two" && offline) throw new Error("Offline");
+      if (url === "two") return pending.promise;
+      return { number, state: "OPEN" };
+    },
+  });
+  const one = client("one", 101),
+    two = client("two", 202);
+  const modules = {
+    react: {
+      useCallback: (...args) => react.useCallback(...args),
+      useMemo: (...args) => react.useMemo(...args),
+      useSyncExternalStore: (_subscribe, read) => read(),
+    },
+    "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "./pr-status": require("../apps/mobile/src/pr-status.ts"),
+  };
+  const hooks = load("use-chat-pull-requests.ts", modules);
+  const targets = [{ path: "/same", refs: [] }];
+  let computers = [
+    { hostId: "one", client: one, targets },
+    { hostId: "two", client: two, targets },
+  ];
+  const render = () => {
+    react.begin();
+    return hooks.useComputerChatPullRequests(computers);
+  };
+  render();
+  react.flush();
+  await settle();
+  assert.equal(render().one["/same"].branch.number, 101);
+  assert.equal(render().two, undefined, "another Mac never borrows the PR from an identical path");
+  pending.resolve({ number: 202, state: "OPEN" });
+  await settle();
+  assert.equal(render().two["/same"].branch.number, 202);
+  computers = [
+    { hostId: "two", client: two, targets },
+    { hostId: "one", client: null, targets },
+  ];
+  assert.equal(render().one["/same"].branch.number, 101, "an offline computer keeps its chip immediately on a switch");
+  react.flush();
+  await settle();
+  offline = true;
+  require("../apps/mobile/src/pr-status.ts").pullRequestsChanged(two);
+  await settle();
+  assert.equal(render().two["/same"].branch.number, 202, "a failed refresh keeps the last answer");
+  react.cleanup();
+  react = hookHost();
+  // A new screen reads the same hook module, like the actual drawer and Chat.
+  const original = hooks.useChatPullRequests;
+  react.begin();
+  assert.equal(original(one, targets)["/same"].branch.number, 101);
+  react.cleanup();
+  assert.equal(calls.length, 3, "each request is routed through its own client's bounded pool");
 });
 
 test("the phone reads the Chat on screen: on opening, on coming back to it, and when a reply lands there", () => {

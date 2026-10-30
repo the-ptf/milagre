@@ -71,7 +71,7 @@ import { clearArchiveNotice, deletionKey, showArchiveNotice } from "./archive";
 import { ToastPill } from "./primitives/toast";
 import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
-import { useChatPullRequests } from "./use-chat-pull-requests";
+import { useComputerChatPullRequests, type ComputerPullRequestTargets } from "./use-chat-pull-requests";
 import { ChatPullRequestChips, InlinePullRequestLinks } from "./chat-pull-request-chips";
 import { requestPullRequest } from "./pr-chat";
 import { useLinear } from "./use-linear";
@@ -840,18 +840,24 @@ const NavigationBody = memo(function NavigationBody({
     return unreadRunRoutines(states).size > 0;
   }, [builds, currentHostId]);
 
-  // Pull requests and Linear issues are read from the open computer only.
+  // Every computer keeps its PR chips when the open Chat moves to another one.
   const prTargets = useMemo(() => {
-    const byPath = new Map<string, Set<string>>();
+    const byHost = new Map<string, Map<string, Set<string>>>();
     for (const row of listRows) {
-      if (row.kind !== "chat" || row.hostId !== currentHostId || !row.prPath) continue;
+      if (row.kind !== "chat" || !row.prPath || !visible) continue;
+      let byPath = byHost.get(row.hostId);
+      if (!byPath) byHost.set(row.hostId, (byPath = new Map()));
       const refs = byPath.get(row.prPath) || new Set<string>();
       for (const ref of row.prRefs || []) refs.add(ref);
       byPath.set(row.prPath, refs);
     }
-    return [...byPath].map(([path, refs]) => ({ path, refs: [...refs] }));
-  }, [listRows, currentHostId]);
-  const prStatus = useChatPullRequests(session.client, prTargets);
+    return [...byHost].map(([hostId, paths]): ComputerPullRequestTargets => ({
+      hostId,
+      client: hostId === currentHostId ? session.client : allComputers.clientFor(hostId),
+      targets: [...paths].map(([path, refs]) => ({ path, refs: [...refs] })),
+    }));
+  }, [listRows, currentHostId, session.client, visible]);
+  const prStatus = useComputerChatPullRequests(prTargets);
   // A Worktree's Linear issue shows its chip on the Chat row, with or without pull requests, while Linear is on.
   const { active: linearActive } = useLinear(session.client);
   const linearPaths = useMemo(
@@ -880,13 +886,14 @@ const NavigationBody = memo(function NavigationBody({
   const displayedRows = useMemo(
     () =>
       listRows.map((row) => {
-        if (row.kind !== "chat" || row.hostId !== currentHostId) return row;
-        const status = row.prPath ? prStatus[row.prPath] : undefined;
+        if (row.kind !== "chat") return row;
+        const status = row.prPath ? prStatus[row.hostId]?.[row.prPath] : undefined;
+        const current = row.hostId === currentHostId;
         return {
           ...row,
           pullRequests: chatPullRequests(row.prRefs || [], status?.found || {}, status?.branch),
-          linearIssue: row.prPath ? linearIssues[row.prPath] : undefined,
-          linked: linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label),
+          linearIssue: current && row.prPath ? linearIssues[row.prPath] : undefined,
+          linked: current ? linkedLabels(links.links, worktreeForLinks(row.path, row.prPath), endNames).map((end) => end.label) : row.linked,
         };
       }),
     [listRows, currentHostId, prStatus, linearIssues, links.links, worktreeForLinks, endNames],

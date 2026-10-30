@@ -570,12 +570,7 @@ export function LinkWorkspace({
   }
   // The same rows the sidebar builds for this Link while a Project is open: its Chat order, pins and times, so the
   // one-list sidebar keeps every row where it was when the window switches between the Link and a Project.
-  const recents = scopeChats(owner, state, chatOrder, runMarks)
-    .filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))))
-    .map((row) => ({
-      ...row,
-      details: { ...row.details, path: state.sessions[Number(row.id)]?.workspacePath },
-    }));
+  const recents = scopeChats(owner, state, chatOrder, runMarks).filter((row) => !archivingChats?.has(chatKeyForScope(scope, Number(row.id))));
   const approval = run?.approvals[0],
     question = approval ? undefined : run?.questions[0];
   async function refreshChanges() {
