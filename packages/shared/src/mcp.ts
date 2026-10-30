@@ -1,6 +1,6 @@
 // MCP servers as Settings › MCP shows them, shared by desktop and phone (docs/superpowers/specs/2026-10-15-mcp-connect-design.md).
 
-export type McpProvider = "claude" | "codex" | "antigravity";
+export type McpProvider = "claude" | "codex" | "antigravity" | "kiro";
 export type McpChipState = "connected" | "failed" | "needs-sign-in" | "pending" | "disabled" | "unchecked";
 export type McpTransport = "command" | "url" | "connector";
 export type McpScope = "user" | "project" | "local" | "plugin" | "claude.ai" | "built-in" | "everywhere";
@@ -54,7 +54,7 @@ export type McpChangedEvent = {
 /** Header and env values leave the Mac as this; a save that sends it back keeps the stored value. */
 export const MCP_SECRET_MASK = "••••••";
 
-const PROVIDER_NAMES: Record<McpProvider, string> = { claude: "Claude", codex: "Codex", antigravity: "Antigravity" };
+const PROVIDER_NAMES: Record<McpProvider, string> = { claude: "Claude", codex: "Codex", antigravity: "Antigravity", kiro: "Kiro" };
 
 function sourceOf(name: string, scope: McpScope): string {
   if (scope === "project") return "Project";

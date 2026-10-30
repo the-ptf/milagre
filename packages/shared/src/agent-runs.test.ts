@@ -650,6 +650,13 @@ test("answers to a question join the chat as the user's message, after the reply
   }
 });
 
+test("a completed turn's credits are saved on its reply", () => {
+  const { state } = applyAgentEvent(base(), startRun({}, key(1), "kiro"), PROJECT, key(1), { type: "turn-completed", credits: 0.04 });
+  assert.equal(state.messages.at(-1).credits, 0.04);
+  const failed = applyAgentEvent(base(), startRun({}, key(1), "kiro"), PROJECT, key(1), { type: "turn-failed", message: "x" });
+  assert.equal(failed.state.messages.at(-1).credits, undefined);
+});
+
 test("context-usage follows the run and is saved on the chat when the turn ends", () => {
   let { state, runs, changed } = applyAgentEvent(base(), startRun({}, key(1), "codex"), PROJECT, key(1), { type: "context-usage", used: 1000, size: 4000 });
   assert.equal(changed, false);

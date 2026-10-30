@@ -113,14 +113,15 @@ const RESUME_FAILED_MESSAGE =
   "Couldn't resume this chat's earlier agent session; it may have been deleted. Send your message again to continue in a fresh session.";
 
 // What a turn fails with when an agent's CLI can't run it. Each names the fix; the next message checks again.
-// Claude and Codex are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
-// instructions point at Settings, not at a shell command.
+// Claude, Codex and Kiro are fixed in a terminal. Antigravity is installed and signed in by Milagre itself, so its
+// instructions point at Settings, not at a shell command. Kiro's installer outside macOS is on kiro.dev.
 const INSTALL_COMMANDS =
   process.platform === "win32"
     ? { claude: "irm https://claude.ai/install.ps1 | iex", codex: "irm https://chatgpt.com/codex/install.ps1 | iex" }
     : { claude: "curl -fsSL https://claude.ai/install.sh | bash", codex: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" };
-const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update" };
-const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login" };
+if (process.platform === "darwin") INSTALL_COMMANDS.kiro = "brew install --cask kiro-cli";
+const UPDATE_COMMANDS = { claude: "claude update", codex: "codex update", kiro: "kiro-cli update" };
+const LOGIN_COMMANDS = { claude: "claude auth login", codex: "codex login", kiro: "kiro-cli login" };
 const SETTINGS_ACCOUNTS = "Milagre Settings \u2192 Accounts";
 
 // A tracing log line: "2026-10-02T00:59:00.724526Z ERROR codex_core::tools::router: error=…". The prefix says
@@ -149,6 +150,7 @@ const withoutPeriod = (text) => text.replace(/\.$/, "");
 
 function missingCliMessage(name) {
   if (name === "antigravity") return `Milagre couldn't find ${cliName(name)}. Install it from ${SETTINGS_ACCOUNTS}, then send your message again.`;
+  if (!INSTALL_COMMANDS[name]) return `Milagre couldn't find ${cliName(name)}. Install it from kiro.dev/cli, then send your message again.`;
   return `Milagre couldn't find ${cliName(name)}. Install it with \`${INSTALL_COMMANDS[name]}\`, then send your message again.`;
 }
 

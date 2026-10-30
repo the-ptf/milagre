@@ -2,7 +2,7 @@ import type { GateMeta } from "./bots.mjs";
 import type { ProjectKind } from "./chats-home.mjs";
 
 export type SessionStatus = "Created" | "Running" | "Stopped";
-export type ModelProvider = "codex" | "claude" | "antigravity";
+export type ModelProvider = "codex" | "claude" | "antigravity" | "kiro";
 export type PermissionMode = "ask" | "auto" | "full" | "bot";
 /** Where a new chat runs: the selected checkout, or a fresh git worktree. */
 export type Isolation = "local" | "worktree";
@@ -28,6 +28,8 @@ export interface ModelOption {
   provider: ModelProvider;
   description: string;
   recommended?: boolean;
+  /** Kiro only: the model's credit multiplier, relative to Auto (2 means a turn costs twice what Auto would). */
+  credits?: number;
 }
 
 /** A model as its agent's CLI reports it (agent:models), with what it accepts. */
@@ -36,6 +38,8 @@ export interface ReportedModel extends ModelCapability {
   name: string;
   description: string;
   recommended: boolean;
+  /** Kiro only: the model's credit multiplier, relative to Auto. */
+  credits?: number;
 }
 
 /** Each agent's reported models; null when its CLI is missing, too old, or couldn't be asked. */
@@ -324,6 +328,8 @@ export interface ChatMessage {
   outcome?: "completed" | "failed" | "cancelled";
   /** The tool calls the agent made in this reply, and its thinking, in the order they started. */
   steps?: ChatStep[];
+  /** Kiro only: what the turn cost, in credits, as the agent reported it. */
+  credits?: number;
   /** The host's sidecar with the long details of these steps (each marked `hasDetail`); read with the chat:message command. */
   detailFile?: string;
   operationId?: string;
@@ -931,7 +937,7 @@ export type AgentEvent =
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
-  | { type: "turn-completed"; quiet?: boolean }
+  | { type: "turn-completed"; quiet?: boolean; credits?: number }
   | { type: "turn-cancelled"; quit?: boolean }
   /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };
@@ -1083,6 +1089,8 @@ export interface UsageWindow {
   shortLabel: string;
   usedPercent: number;
   resetsAt: string | null;
+  /** The amounts behind the percent, when the provider gives them: "453 of 10,000 credits". */
+  detail?: string;
 }
 
 export interface ProviderUsage {

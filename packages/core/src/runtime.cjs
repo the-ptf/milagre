@@ -35,6 +35,8 @@ const { ClaudeSession } = require("./agents/claude-provider.cjs");
 const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider.cjs");
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
+const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { createKiroUsage } = require("./kiro-usage.cjs");
 const { createCliCache } = require("./agents/cli.cjs");
 const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
 const { runCliUpdate } = require("./agents/cli-update.cjs");
@@ -376,6 +378,8 @@ function createRuntime(options) {
       (error) => console.warn("Milagre couldn't read your login shell's environment:", error.message),
     );
   const usageStore = createUsageStore({ file: path.join(dataDir, "usage-cache.json") });
+  // Kiro's month of credits, read from kiro-cli at most every few minutes and shared by every Account selection.
+  const kiroUsage = createKiroUsage({ cli: () => baseCli("kiro") });
   // A host may bring its own usage, models and CLI status (the review demo, which runs no real agent).
   const accountUsage = new Map();
   // Tests replace single readers. Claude's and Codex's are called with no arguments; Antigravity's gets the Account's environment.
@@ -393,7 +397,8 @@ function createRuntime(options) {
           : createUsageStore({ file: path.join(dataDir, `usage-${key}.json`) });
       accountUsage.set(key, {
         key,
-        accountIds: { claude, codex, antigravity },
+        // Kiro has only the account kiro-cli is signed in to, so it never splits the cache.
+        accountIds: { claude, codex, antigravity, kiro: "default" },
         store,
         read: createUsageReader({
           ready: () => environmentReady,
@@ -406,6 +411,7 @@ function createRuntime(options) {
             }),
           readCodex: readers.codex ?? (() => readCodexUsage({ env: accounts.environment("codex", codex) })),
           readAntigravity: () => (readers.antigravity ?? readAntigravityUsage)({ env: accounts.environment("antigravity", antigravity) }),
+          readKiro: readers.kiro ?? kiroUsage,
         }),
       });
     }
@@ -1208,7 +1214,9 @@ function createRuntime(options) {
           ? new CodexSession({ ...withMcp, clientVersion: version })
           : provider === "antigravity"
             ? new AcpSession({ ...withMcp, clientVersion: version, config: antigravityAcp })
-            : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
+            : provider === "kiro"
+              ? new AcpSession({ ...withMcp, clientVersion: version, config: kiroAcp })
+              : new ClaudeSession({ ...withMcp, defaultConfigDir: accounts.directory("claude", "default") });
       }),
     linkedFor: (chatId) => linked.forChat(chatId),
     // Bot rules answers for a bot's thread and the Chats it opened (bots is created further down).

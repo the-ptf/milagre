@@ -47,10 +47,10 @@ export function selectedModel(provider: ModelProvider, wanted: string, reported?
   }
   const known = models.find((model) => model.id === wanted);
   if (known) return known;
-  // Antigravity availability belongs to the assigned Account. A stale choice follows that Account's list,
-  // as desktop does, instead of becoming an unsupported extra row in the picker.
+  // Antigravity's and Kiro's availability belongs to the signed-in Account. A stale choice follows that Account's
+  // list, as desktop does, instead of becoming an unsupported extra row in the picker.
   const available = models.find((model) => model.recommended) ?? models[0];
-  if (provider === "antigravity" && available) return available;
+  if ((provider === "antigravity" || provider === "kiro") && available) return available;
   const saved = { provider, id: wanted, name: wanted, description: "Previously used in this Chat" };
   return { ...saved, ...capabilityFor(saved, null) };
 }

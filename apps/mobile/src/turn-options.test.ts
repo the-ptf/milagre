@@ -6,6 +6,7 @@ import { afterSend, afterSheet, chatPreferences, defaultPreferences, modelsFor, 
 const reported: AgentModels = {
   claude: null,
   antigravity: null,
+  kiro: null,
   codex: [
     {
       id: "reported-model",

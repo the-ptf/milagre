@@ -18,15 +18,20 @@ export const DEFAULT_CAPABILITIES = flags({
   advisor: false,
   // false: the user installs the CLI; Milagre only offers an update once it is outdated.
   managedInstall: false,
+  // false: the only Account is the one the CLI is signed in to; Milagre adds none and signs none in.
+  addAccounts: false,
 });
 
 const table = {
   // Claude Code steers at the next tool boundary, takes /compact, and runs background Agents.
-  claude: flags({ ...DEFAULT_CAPABILITIES, steer: true, compact: true, backgroundSubagents: true, advisor: true }),
+  claude: flags({ ...DEFAULT_CAPABILITIES, steer: true, compact: true, backgroundSubagents: true, advisor: true, addAccounts: true }),
   // Codex steers through turn/steer; its children are read back from its rollout history.
-  codex: flags({ ...DEFAULT_CAPABILITIES, steer: true, subagentRecovery: true, advisor: true }),
+  codex: flags({ ...DEFAULT_CAPABILITIES, steer: true, subagentRecovery: true, advisor: true, addAccounts: true }),
   // ACP has no steering; Antigravity's children are read back from its transcripts, and Milagre installs its CLI.
-  antigravity: flags({ ...DEFAULT_CAPABILITIES, subagentRecovery: true, managedInstall: true }),
+  antigravity: flags({ ...DEFAULT_CAPABILITIES, subagentRecovery: true, managedInstall: true, addAccounts: true }),
+  // ACP has no steering; Kiro's children aren't read back yet. The user installs kiro-cli and signs in with it
+  // (an Identity Center sign-in needs the organization's start URL), so its one Account is kiro-cli's.
+  kiro: flags({ ...DEFAULT_CAPABILITIES }),
 };
 
 /** The provider's capabilities, frozen; an unknown provider gets DEFAULT_CAPABILITIES. */

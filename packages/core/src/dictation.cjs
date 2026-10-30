@@ -1,7 +1,7 @@
 const path = require("node:path");
 const { PROVIDERS } = require("@milagre/shared/providers");
 const { dictationTerms } = require("@milagre/shared/dictation");
-const { claudeModel, codexModel, antigravityModel, withTimeout } = require("./git-text.cjs");
+const { claudeModel, codexModel, antigravityModel, kiroModel, withTimeout } = require("./git-text.cjs");
 const { extractJson } = require("./agents/antigravity-text.cjs");
 const { createGit } = require("./git/client.cjs");
 
@@ -84,6 +84,7 @@ function createDictationModels({ cli, clientVersion }) {
     claude: claudeModel({ getCommand: getCommand("claude") }),
     codex: codexModel({ getCommand: getCommand("codex"), clientVersion, outputSchema: SCHEMA }),
     antigravity: antigravityModel({ getCommand: getCommand("antigravity"), clientVersion, outputSchema: SCHEMA }),
+    kiro: kiroModel({ getCommand: getCommand("kiro"), clientVersion, outputSchema: SCHEMA }),
   };
 }
 

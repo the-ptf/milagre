@@ -231,6 +231,10 @@
       "types": "./src/antigravity-models.d.mts",
       "default": "./src/antigravity-models.mjs"
     },
+    "./kiro-models": {
+      "types": "./src/kiro-models.d.mts",
+      "default": "./src/kiro-models.mjs"
+    },
     "./host-computer": {
       "types": "./src/host-computer.d.mts",
       "default": "./src/host-computer.mjs"

@@ -1389,7 +1389,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -1521,7 +1521,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -2596,7 +2596,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -2896,7 +2896,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -2946,7 +2946,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -3194,7 +3194,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -3212,7 +3212,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -3230,7 +3230,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -3248,7 +3248,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -3266,7 +3266,7 @@
           "name": "provider",
           "optional": false,
           "schema": {
-            "enum": ["codex", "claude", "antigravity"]
+            "enum": ["codex", "claude", "antigravity", "kiro"]
           }
         },
         {
@@ -5582,6 +5582,9 @@
             },
             {
               "const": "antigravity"
+            },
+            {
+              "const": "kiro"
             }
           ]
         },
@@ -5764,7 +5767,7 @@
           ]
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+          "enum": ["codex", "claude", "antigravity", "kiro"]
         },
         "model": {
           "type": "string"
@@ -5875,7 +5878,7 @@
       "type": "object",
       "properties": {
         "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+          "enum": ["codex", "claude", "antigravity", "kiro"]
         },
         "accountId": {
           "type": "string"
@@ -6127,7 +6130,7 @@
           "type": "string"
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+          "enum": ["codex", "claude", "antigravity", "kiro"]
         },
         "chat": {
           "$ref": "#/$defs/T116"
@@ -6595,7 +6598,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+          "enum": ["codex", "claude", "antigravity", "kiro"]
         },
         "model": {
           "type": "string"
@@ -6882,7 +6885,7 @@
           "description": "What the agent is sent: the body with the attached files listed."
         },
         "provider": {
-          "enum": ["codex", "claude", "antigravity"]
+          "enum": ["codex", "claude", "antigravity", "kiro"]
         },
         "model": {
           "type": "string"

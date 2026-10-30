@@ -1,10 +1,11 @@
 const { CodexRpc } = require("./codex-rpc.cjs");
 const { hasToken } = require("./antigravity-install.cjs");
 const { queryAntigravityModels } = require("./antigravity-model-list.cjs");
+const { listKiroModels } = require("./kiro-model-list.cjs");
 const { ANTIGRAVITY_AGENT_OPTIONS, ANTIGRAVITY_FAMILY_COPY, antigravityFamilies } = require("@milagre/shared/antigravity-models");
 
-// The models each agent offers, asked from its CLI once per app run: Claude's supportedModels() and
-// Codex's model/list. A model is { id, name, description, recommended, efforts, defaultEffort?, ultracode, fastMode },
+// The models each agent offers, asked from its CLI once per app run: Claude's supportedModels(), Codex's
+// model/list and Kiro's `model` option (kiro-model-list.cjs, which adds each model's `credits`). A model is { id, name, description, recommended, efforts, defaultEffort?, ultracode, fastMode },
 // where `efforts` are the levels it accepts, lightest first (none when it has no effort control) and `fastMode`
 // says whether it has a faster, costlier tier: Claude Code's fast mode, or Codex's "priority" service tier.
 
@@ -167,7 +168,12 @@ async function listAntigravityModels({ accountId, command, args, harness, env, c
  * fails or comes back empty reports null, and is asked again on the next call. Antigravity discovers per account
  * and uses its last session report or the catalog when unavailable, so it is always present.
  */
-function createModelCache({ cli, cwd, clientVersion, list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels } }) {
+function createModelCache({
+  cli,
+  cwd,
+  clientVersion,
+  list = { claude: listClaudeModels, codex: listCodexModels, antigravity: listAntigravityModels, kiro: listKiroModels },
+}) {
   const cache = new Map();
   function lookup(provider) {
     if (!cache.has(provider)) {
@@ -195,8 +201,8 @@ function createModelCache({ cli, cwd, clientVersion, list = { claude: listClaude
     });
   };
   const read = async () => {
-    const [claude, codex, antigravityList] = await Promise.all([lookup("claude"), lookup("codex"), antigravity()]);
-    return { claude, codex, antigravity: antigravityList };
+    const [claude, codex, antigravityList, kiro] = await Promise.all([lookup("claude"), lookup("codex"), antigravity(), list.kiro ? lookup("kiro") : null]);
+    return { claude, codex, antigravity: antigravityList, kiro };
   };
   read.invalidate = (provider) => {
     cache.delete(provider);

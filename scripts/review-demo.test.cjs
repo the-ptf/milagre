@@ -43,7 +43,7 @@ test("the review demo seeds a project, runs only the demo agent, and confines th
   assert.equal(demo.runtimeOptions.createSession.name, demoSession.name);
   assert.match((await demo.runtimeOptions.agentCli("claude")).command, /^\/nonexistent\//);
   assert.match((await demo.runtimeOptions.agentCli("codex")).command, /^\/nonexistent\//);
-  assert.deepEqual(await demo.client.call("agent:models"), { codex: [DEMO_MODEL], claude: null, antigravity: null });
+  assert.deepEqual(await demo.client.call("agent:models"), { codex: [DEMO_MODEL], claude: null, antigravity: null, kiro: null });
   assert.equal((await demo.client.call("agent:cli-status")).claude.state, "missing");
   assert.deepEqual(await demo.client.call("usage:read"), { providers: [] });
 
