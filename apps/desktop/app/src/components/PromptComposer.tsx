@@ -217,10 +217,10 @@ export function PromptComposer({
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
   const effortName = effort ? effortCopy(effort).name : "";
   // Ultracode (Claude) and Codex's ultra level both hand work to parallel agents: they share Ultracode's purple.
-  const orchestrating = ultracode || effort === "ultra";
-  // With Ultracode on, the composer itself turns purple.
+  // With Ultracode on, the composer itself turns purple. It only counts for a model that has it.
   const ultracodeOn = capability.ultracode && ultracode;
-  const effortLabel = ultracode ? "Ultra" : effortName;
+  const orchestrating = ultracodeOn || effort === "ultra";
+  const effortLabel = ultracodeOn ? "Ultra" : effortName;
   const canUseFastMode = capability.fastMode;
   const [provider, setProvider] = useState<ModelProvider>(selectedModel.provider);
   // The provider tab follows the selected model, which follows the open chat.
