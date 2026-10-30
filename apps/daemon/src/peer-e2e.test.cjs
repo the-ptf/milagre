@@ -296,3 +296,45 @@ test("a paired desktop receives live usage while provider account changes are re
   for (const method of ["accounts:add", "accounts:select", "accounts:login", "accounts:cancel", "accounts:remove", "accounts:assign", "chat:limit-switch"])
     assert.equal((await desktop.call(method, [mac.project, "claude", "default"])).error?.code, "NOT_AVAILABLE_REMOTELY", method);
 });
+
+test("a paired desktop opens TCP streams from the computer, over the relay and the LAN, and reaches its localhost", async (t) => {
+  const http = require("node:http");
+  const { boxKeyPair } = require("@milagre/shared/relay-crypto");
+  const { connectPeer } = require("./peer-client.cjs");
+  const { random, listen } = require("./relay-test-kit.cjs");
+  // A dev server on the computer's loopback only, as `npm run dev` binds it.
+  const page = "<!doctype html><title>Checkout</title>".padEnd(300_000, "x");
+  const server = http.createServer((_request, response) => response.end(page));
+  const port = await listen(server);
+  t.after(() => server.close());
+  const mac = await startTestMac(t);
+  const key = boxKeyPair(random);
+  const peer = (url) =>
+    connectPeer({ url, hostId: mac.identity.hostId, hostKey: b64url(mac.identity.box.publicKey), token: mac.token, identity: key, name: "studio" });
+  const fetchThrough = async (client) => {
+    const stream = await client.openStream("127.0.0.1", port);
+    const chunks = [];
+    const done = new Promise((resolve, reject) => {
+      stream.on("data", (chunk) => chunks.push(chunk));
+      stream.on("end", resolve);
+      stream.on("error", reject);
+    });
+    stream.end("GET / HTTP/1.0\r\nHost: localhost\r\n\r\n");
+    await within(done, "the page through the stream");
+    return Buffer.concat(chunks).toString();
+  };
+  const relayed = await within(peer(mac.relay.url), "the desktop over the relay");
+  t.after(() => relayed.close());
+  assert.ok(relayed.status.capabilities.includes("peer-tcp-v1"));
+  const overRelay = await fetchThrough(relayed);
+  assert.match(overRelay, /^HTTP\/1\.1 200/);
+  assert.ok(overRelay.endsWith(page), "the whole page, in order");
+  await assert.rejects(relayed.openStream("127.0.0.1", 1), { code: "refused" });
+  // Daemon calls keep working beside the streams.
+  assert.equal((await relayed.call("daemon:status")).version, "9.8.7");
+
+  const routes = await relayed.call("peer:routes");
+  const lan = await within(peer(routes.lan[0]), "the desktop on the LAN");
+  t.after(() => lan.close());
+  assert.ok((await fetchThrough(lan)).endsWith(page));
+});
