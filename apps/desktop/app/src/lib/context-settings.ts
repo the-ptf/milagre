@@ -3,7 +3,7 @@ import { CONTEXT_DEFAULTS, type ContextSettings } from "@milagre/shared/context-
 import { useBridge } from "./computer-bridge";
 export function useContextSettings() {
   const bridge = useBridge();
-  const [state, setState] = useState<{ bridge: typeof bridge; value: ContextSettings } | null>(null);
+  const [state, setState] = useState<{ bridge: typeof bridge; value: ContextSettings | null } | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -26,9 +26,11 @@ export function useContextSettings() {
       off?.();
     };
   }, [bridge]);
-  const ready = state?.bridge === bridge;
+  // Older hosts and optional bridge implementations can return no settings.
+  // Keep defaults visible and host controls disabled, as on mobile.
+  const ready = state?.bridge === bridge && state.value != null;
   return {
-    settings: ready ? state.value : CONTEXT_DEFAULTS,
+    settings: (ready ? state.value : null) ?? CONTEXT_DEFAULTS,
     ready,
     saving,
     error,

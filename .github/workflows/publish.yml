@@ -5,7 +5,7 @@
 #   stable  the newest beta's commit rebuilt as vX.Y.Z, marked latest, with the changes since the previous stable;
 #           then packages.milagre.cloud is redeployed from it. Dispatch only.
 # macOS and Linux always build. Windows builds only once the RELEASE_WINDOWS repository variable is "true", which
-# needs the WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD secrets first. A stable release needs every platform it builds;
+# needs Windows certificate credentials or Azure Artifact Signing first. A stable release needs every platform it builds;
 # a beta needs only macOS and ships without a platform whose build failed.
 name: Publish
 on:
@@ -60,7 +60,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
       # A scheduled run has no inputs, so it is a beta. electron-builder calls the stable channel "latest".
       - id: channel
         env:
@@ -130,7 +130,7 @@ jobs:
         name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - name: Require Linux signing credentials
         if: env.CHANNEL == 'stable'
@@ -213,10 +213,19 @@ jobs:
     if: needs.prepare.outputs.changed == 'true' && needs.prepare.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 90
+    environment: windows-signing
+    permissions:
+      contents: read
+      id-token: write
     env:
       CHANNEL: ${{ needs.prepare.outputs.channel }}
       FEED_CHANNEL: ${{ needs.prepare.outputs.feed_channel }}
       VERSION: ${{ needs.prepare.outputs.version }}
+      WINDOWS_SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER || 'certificate' }}
+      AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+      AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+      AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+      AZURE_SIGNING_PUBLISHER: ${{ vars.AZURE_SIGNING_PUBLISHER }}
     steps:
       - *checkout-release
       - *setup-node
@@ -225,7 +234,20 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: if (!$env:CSC_LINK -or !$env:CSC_KEY_PASSWORD) { throw 'Configure WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD before publishing Windows installers' }
+        run: |-
+          if ($env:WINDOWS_SIGNING_PROVIDER -eq 'azure') {
+            node -e 'require("./scripts/windows-azure-signing.cjs")();'
+            if ($LASTEXITCODE -ne 0) { throw 'Invalid Azure signing configuration' }
+          } elseif ($env:WINDOWS_SIGNING_PROVIDER -eq 'certificate') {
+            if (!$env:CSC_LINK -or !$env:CSC_KEY_PASSWORD) { throw 'Configure WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD before publishing Windows installers' }
+          } else { throw 'Unknown Windows signing provider' }
+      - name: Authenticate Azure signing identity
+        if: env.WINDOWS_SIGNING_PROVIDER == 'azure'
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Install dependencies
         run: npm ci
       - name: Test Windows agent protocol
@@ -239,13 +261,20 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: npm run package:win -- --config.extraMetadata.version="${VERSION}" --config.publish.channel="${FEED_CHANNEL}" --config.forceCodeSigning=true
+        run: |-
+          signing=()
+          if [ "$WINDOWS_SIGNING_PROVIDER" = azure ]; then signing=(--config scripts/windows-azure-signing.cjs); fi
+          npm run package:win -- "${signing[@]}" --config.extraMetadata.version="${VERSION}" --config.publish.channel="${FEED_CHANNEL}" --config.forceCodeSigning=true
       - name: Verify installer Authenticode
         shell: pwsh
         run: |-
           Get-ChildItem release/Milagre-Setup-*-x64.exe | ForEach-Object {
             $signature = Get-AuthenticodeSignature $_.FullName
             if ($signature.Status -ne 'Valid') { throw "Invalid installer signature: $($signature.Status)" }
+            if ($env:WINDOWS_SIGNING_PROVIDER -eq 'azure') {
+              $publisher = $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+              if ($publisher -cne $env:AZURE_SIGNING_PUBLISHER) { throw 'Signed publisher differs from updater configuration' }
+            }
           }
       - name: Install and exercise Windows NSIS
         shell: pwsh
@@ -291,7 +320,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
       - name: Install metadata dependencies
         run: npm ci --ignore-scripts

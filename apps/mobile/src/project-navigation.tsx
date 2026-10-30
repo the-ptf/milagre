@@ -1874,7 +1874,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     const running = item.mark === "running" || item.mark === "background";
     const word = item.mark === "unread" ? "" : markLabel;
     const unreadColor = colors[chatMarkTone("unread")];
-    const otherComputer = item.many && (item.hostId !== currentHostId || offline);
+    const otherComputer = item.many;
     const separator = <Text style={s.inboxSeparator}>·</Text>;
     // What VoiceOver reads for the row: what it shows, without the branch.
     const inboxLabel = [

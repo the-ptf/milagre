@@ -775,3 +775,68 @@ test("page snapshots capture every design beyond the former 20-design cap", asyn
   assert.equal(new Set(snapshot.designs.map((design) => design.title)).size, 21);
   assert.ok(snapshot.designs.some((design) => design.title === "Design 21"));
 });
+
+test("a page split into tabs keeps each tab, changes one tab at a time and is published with its tab bar", async (t) => {
+  const { api, directory } = await fixture(t);
+  const tools = Object.fromEntries(htmlArtifactToolDefinitions(CHAT, api).map((tool) => [tool.name, tool]));
+  const tabs = [
+    { id: "overview", title: "Overview", html: "<p>Overview</p>" },
+    { id: "data", title: "Data", html: "<p>Data</p>" },
+  ];
+  const first = JSON.parse(await tools.artifact_show.run({ title: "Report", tabs }));
+  const page = await api.get({ chatId: CHAT, id: first.id });
+  assert.deepEqual(page.tabs, tabs);
+  assert.equal(page.html, "<p>Overview</p>", "viewers from before tabs see the first tab");
+  // A tab without html keeps what it has; the agent reads one tab at a time.
+  await tools.artifact_show.run({
+    title: "Report",
+    tabs: [
+      { id: "overview", title: "Summary" },
+      { ...tabs[1], html: "<p>More data</p>" },
+    ],
+  });
+  const one = JSON.parse(await tools.artifact_read.run({ id: first.id, tab: "data" }));
+  assert.deepEqual(one.tabs, [
+    { id: "overview", title: "Summary" },
+    { id: "data", title: "Data" },
+  ]);
+  assert.deepEqual(one.tab, { id: "data", title: "Data", html: "<p>More data</p>" });
+  assert.equal(one.html, undefined);
+  assert.equal(JSON.parse(await tools.artifact_read.run({ id: first.id })).tabs[0].html, "<p>Overview</p>");
+  await assert.rejects(tools.artifact_read.run({ id: first.id, tab: "gone" }), /no tab gone/);
+  const folder = path.join(directory, require("node:crypto").createHash("sha256").update(CHAT).digest("hex").slice(0, 32), first.id);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v2.html", "v2.tabs.json"], "only the current page is kept");
+
+  const [shared] = (await api.pageSnapshot({ chatId: CHAT, title: "Report", kind: "artifacts" })).artifacts;
+  assert.match(shared.html, /role="tablist"/);
+  assert.match(shared.html, />Summary<\/button><button type="button" role="tab">Data</);
+  assert.ok(shared.html.includes("\\u003cp>More data\\u003c/p>"), "tab pages can't close the script that carries them");
+
+  // New tabs need their HTML; ids are unique; the page is html or tabs.
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", tabs: [{ id: "new", title: "New" }] }), /needs its HTML/);
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", tabs: [tabs[0], tabs[0]] }), /Two tabs/);
+  await assert.rejects(api.show({ chatId: CHAT, title: "Report", html: "<p>x</p>", tabs }), /not both/);
+  await assert.rejects(
+    api.show({
+      chatId: CHAT,
+      title: "Report",
+      tabs: [
+        { ...tabs[0], html: "a".repeat(600_000) },
+        { ...tabs[1], html: "a".repeat(600_000) },
+      ],
+    }),
+    /together/,
+  );
+
+  // A comment names its tab; html again drops the tabs.
+  const [comment] = await api.addComments({
+    chatId: CHAT,
+    comments: [{ design: page, x: 0.1, y: 0.2, tab: { id: "data", title: 'The "data"' }, text: "More" }],
+  });
+  assert.deepEqual(comment.tab, { id: "data", title: 'The "data"' });
+  const [bad] = await api.addComments({ chatId: CHAT, comments: [{ design: page, tab: { id: "../x", title: "X" }, text: "Dropped" }] });
+  assert.equal(bad.tab, undefined);
+  await api.show({ chatId: CHAT, title: "Report", html: "<p>One page</p>" });
+  assert.equal((await api.get({ chatId: CHAT, id: first.id })).tabs, undefined);
+  assert.deepEqual((await fs.readdir(folder)).sort(), ["meta.json", "v3.html"]);
+});

@@ -1,6 +1,7 @@
 import { themes } from "@milagre/shared/themes";
 import type { Command } from "./commands";
 import type { AppSettings } from "./settings";
+import { computerNoun } from "./shortcut-hints.ts";
 
 /** Explicit values make commands searchable and safe to run more than once. */
 export function settingsCommands(settings: AppSettings, update: (patch: Partial<AppSettings>) => void): Command[] {
@@ -55,7 +56,7 @@ export function settingsCommands(settings: AppSettings, update: (patch: Partial<
         ["showDockBadge", "Dock badge", "unread count"],
         ["showAttentionButton", "Attention button", "other projects waiting approval questions"],
         ["floatingInbox", "Floating inbox", "experimental notification bar"],
-        ["keepAwake", "Keep the Mac awake", "sleep reachable lock screen saver"],
+        ["keepAwake", `Keep the ${computerNoun} awake`, "sleep reachable lock screen saver"],
       ] as const
     ).flatMap(([key, label, keywords]) => [
       choice(key, true, `${label}: On`, `${keywords} enable`),

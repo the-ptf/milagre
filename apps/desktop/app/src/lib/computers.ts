@@ -1,18 +1,52 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ComputersSnapshot, ComputerView } from "../electron.d.ts";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
-import { useSettings } from "./settings.ts";
+import { getSettings, updateSettings, useSettings } from "./settings.ts";
 import { computersSnapshot, subscribeComputers } from "./computers-store.ts";
 import { readHiddenComputers, subscribeHiddenComputers } from "./hidden-projects.ts";
 
-/**
- * Tells main whether to connect the saved computers: at launch, and each time Settings › Devices › Other computers
- * flips. A window without the API (a check's fixture) is left alone.
- */
+/** Read the daemon's saved choice before applying window preferences. Opening a window must not disconnect peers. */
 export function useApplyOtherComputers() {
   const { otherComputers } = useSettings();
+  const initialized = useRef(false);
   useEffect(() => {
-    void Promise.resolve(window.milagre?.computers?.setEnabled?.(otherComputers)).catch(() => {});
+    const sync = () => {
+      const { enabled } = computersSnapshot();
+      if (typeof enabled === "boolean" && getSettings().otherComputers !== enabled) updateSettings({ otherComputers: enabled });
+    };
+    const stop = subscribeComputers(sync);
+    sync();
+    return stop;
+  }, []);
+  useEffect(() => {
+    const api = window.milagre?.computers;
+    if (!api?.list || !api.setEnabled) return;
+    let live = true;
+    const before = computersSnapshot();
+    void api
+      .list()
+      .then(async (next) => {
+        if (!live) return;
+        // A pushed snapshot is newer than the read that was already in flight.
+        if (computersSnapshot() !== before && typeof computersSnapshot().enabled === "boolean") {
+          initialized.current = true;
+          return;
+        }
+        if (!initialized.current) {
+          initialized.current = true;
+          if (typeof next?.enabled === "boolean") {
+            updateSettings({ otherComputers: next.enabled });
+            return;
+          }
+        }
+        // Older hosts have no saved flag. They still take the window's choice.
+        if (next?.enabled !== otherComputers) await api.setEnabled(otherComputers);
+        return;
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, [otherComputers]);
 }
 

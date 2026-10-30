@@ -36,6 +36,8 @@ export type DesignPin = {
   /** On an Artifact page: the element it was pinned on (ARTIFACT_PAGE_SCRIPT's anchor) and the text near it. */
   anchor?: string;
   near?: string;
+  /** On an Artifact page split into tabs: the tab it was pinned on. */
+  tab?: { id: string; title: string };
   resolved?: string;
   /** A sent comment's id, as the host and the agent know it. */
   commentId?: string;
@@ -47,7 +49,13 @@ export type PinControls = {
   sent: DesignPin[];
   open: string | null;
   /** Pins a new comment, its bubble open; returns its key. */
-  onPin: (design: ArtifactRef, x: number, y: number, nodeId?: string, page?: { anchor?: string; near?: string }) => string | void;
+  onPin: (
+    design: ArtifactRef,
+    x: number,
+    y: number,
+    nodeId?: string,
+    page?: { anchor?: string; near?: string; tab?: { id: string; title: string } },
+  ) => string | void;
   onOpen: (key: string | null) => void;
   onText: (key: string, text: string) => void;
   onRemove: (key: string) => void;

@@ -26,6 +26,7 @@ const { acquireOwnership } = require("./ownership.cjs");
 const { mkdirSync, realpathSync, existsSync } = require("node:fs");
 const path = require("node:path");
 const { migrateImages, withDetails } = require("./project-content.cjs");
+const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { chatPage, chatSearch } = require("./chat-pages.cjs");
 const { dbFile: chatDbFile, readChatRows } = require("./chat-db.cjs");
 const { decodeImages } = require("./image-input.cjs");
@@ -83,7 +84,7 @@ const { saveProjectState, readProjectState, compactProjectState, stateFile } = r
 const { createRecentProjects, launchProject, plainFolder, rememberProject, switchTarget } = require("./recent-projects.cjs");
 const { agentFolders } = require("./agent-folders.cjs");
 const { createOnboardingProjects } = require("./onboarding-projects.cjs");
-const { activeWorktrees, inspectProject, mainCheckoutWorktrees, resolveProject } = require("./project-identity.cjs");
+const { activeWorktrees, inspectProject, mainCheckoutWorktrees, outsideGit, resolveProject } = require("./project-identity.cjs");
 const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
@@ -110,6 +111,7 @@ const { createBots, unavailableBots } = require("./bots/index.cjs");
 const { PERMISSION_MODES, isBotRulesTool } = require("./agents/permissions.cjs");
 const { createBotStore } = require("./bots/store.cjs");
 const { createChatsHome } = require("./chats-home.cjs");
+const { isFolderChatsHome, createFolderChat } = require("./chats-home-folders.cjs");
 const { isQuietChat } = require("@milagre/shared/bots");
 const git = createGit().read;
 
@@ -173,7 +175,7 @@ function createRuntime(options) {
     try {
       common = await git.commonDir(real);
     } catch (error) {
-      if (error.code !== 128 || !/not a git repository/i.test(error.stderr ?? "")) throw error;
+      if (!(error.code === 128 && /not a git repository/i.test(error.stderr ?? "")) && !(error.missing && (await outsideGit(real)))) throw error;
     }
     // Another open of this path may have finished while git was running.
     if (projectOwners.has(real)) {
@@ -182,12 +184,18 @@ function createRuntime(options) {
     }
     let repositoryOwner;
     if (common && !repositoryOwners.has(common)) repositoryOwner = acquireOwnership(path.join(common, "milagre-runtime.lock"));
+    let owner;
     try {
-      const owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      owner = acquireOwnership(path.join(real, ".milagre", "runtime.lock"));
+      if (common) ensureProjectIgnore(real);
       projectOwners.set(real, { openedAs: projectPath, owner });
       if (repositoryOwner) repositoryOwners.set(common, repositoryOwner);
     } catch (error) {
-      repositoryOwner?.release();
+      try {
+        owner?.release();
+      } finally {
+        repositoryOwner?.release();
+      }
       throw error;
     }
   }
@@ -583,7 +591,11 @@ function createRuntime(options) {
     let state = await updateProject(
       projectPath,
       async (current) => {
-        if (!git && Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath))
+        if (
+          !git &&
+          !(chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) &&
+          Object.values(current?.worktrees ?? {}).some((worktree) => worktree.path !== projectPath)
+        )
           throw new Error(`${projectName(projectPath)} is no longer a Git repository, so its Worktree Chats can't open. Restore its .git folder.`);
         const next = reconcileState(current, projectName(projectPath), discovered, owned);
         return migrateImages(projectPath, markDisconnectedSubagents(next, new Set(Object.keys(next.sessions).map(Number).filter(live))));
@@ -945,6 +957,14 @@ function createRuntime(options) {
     await ownProject(projectPath);
     await environmentReady;
     // A Chat started from a Linear issue reads the issue again, never the renderer's copy. A missing issue creates nothing.
+    if (chatsHome.isHome(projectPath) && (await isFolderChatsHome(projectPath))) {
+      if (issueKey) throw new Error("A Chat without a Project cannot be linked to a Linear issue.");
+      event?.localMcp?.assertActive();
+      const folder = await createFolderChat(projectPath);
+      const project = await readProject(projectPath);
+      const worktree = Object.values(project.state.worktrees).find((item) => item.path === folder);
+      return { project, worktreeId: worktree.id };
+    }
     const issue = typeof issueKey === "string" ? await readLinearIssue(issueKey, issueWorkspace) : null;
     const suffix = newSuffix();
     const branch = issue ? await issueBranch({ projectPath, issue, suffix }) : undefined;
@@ -1838,6 +1858,8 @@ function createRuntime(options) {
   commands.handle("agent:cli-status", async (_event, scope) => agentCliStatus(await validateAccountScope(scope, true)));
   commands.handle("agent:update-cli", async (_event, provider, targetVersion) => {
     if (!PROVIDERS.includes(provider)) throw new Error("Unknown provider.");
+    // Optional array arguments arrive as null after the daemon's JSON transport.
+    targetVersion ??= undefined;
     if (targetVersion !== undefined && !releaseVersion(targetVersion)) throw new Error("Invalid provider version.");
     if (cliUpdates.has(provider)) return cliUpdates.get(provider);
     const pending = (async () => {
@@ -2402,7 +2424,9 @@ function createRuntime(options) {
 
   commands.handle("project:current", async () => {
     const target = await launchProject(recentProjects(), cwd);
-    return target ? openProject(target) : null;
+    if (target) return openProject(target);
+    // Onboarding skipped to a Chat without a Project: that Chat opens again, instead of onboarding.
+    return (await chatsHome.exists()) ? openProject(chatsHome.path, { remember: false, register: false }) : null;
   });
 
   // Chats a quit stopped continue on launch in every recent project, not only the one on screen.

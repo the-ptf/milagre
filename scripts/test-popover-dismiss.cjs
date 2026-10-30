@@ -64,11 +64,17 @@ async function browserChecks() {
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
   // A real mouse press and release at the centre of the first element matching the selector, or `inset` px from
-  // its left edge when the centre may sit under an open picker.
-  const click = async (selector, { inset } = {}) => {
+  // an edge when the centre may sit under an open picker. Confirm the edge is not obscured.
+  const click = async (selector, { inset, fromRight = false } = {}) => {
     const point = await evaluate(
-      `(() => { const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(${inset === undefined ? "rect.x + rect.width / 2" : `rect.x + ${Number(inset)}`}), y: Math.round(rect.y + rect.height / 2) }; })()`,
+      `(() => { const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(${inset === undefined ? "rect.x + rect.width / 2" : fromRight ? `rect.right - ${Number(inset)}` : `rect.x + ${Number(inset)}`}), y: Math.round(rect.y + rect.height / 2) }; })()`,
     );
+    if (inset !== undefined)
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x}, ${point.y}))`),
+        true,
+        "The click lands on the intended outside surface",
+      );
     window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
     window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
     await delay(150);
@@ -127,7 +133,7 @@ async function browserChecks() {
 
     await click(model);
     // The open picker covers the transcript's centre; press the transcript beside it, not a model row.
-    await click('[data-testid="transcript"]', { inset: 24 });
+    await click('[data-testid="transcript"]', { inset: 24, fromRight: true });
     assert.equal(await panels(), 0, "Pressing the transcript closes the picker");
 
     await click('button[aria-label="Theme"]');

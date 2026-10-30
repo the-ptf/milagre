@@ -246,7 +246,7 @@ window.milagre = {
       if (chatId !== "milagre-link:fixture#1") throw new Error("Open an existing Chat before showing a design.");
       if (window.designsEnabled === false && id !== "legacy" && id !== "current-artifact") throw new Error("Designs is disabled.");
       if (id === "home") return { id, version: 1, title: "Home", versions: 1, latest: 1, width: 390, height: 844, format: "design", document: home, html: designHtml(home) };
-      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
+      if (id === "legacy" || id === "current-artifact") return { id: window.htmlId ?? "legacy", version: window.htmlVersion ?? 1, title: "Explanation", format: "html", versions: 1, latest: window.htmlVersion ?? 1, width: 1280, height: 800, ...(window.htmlTabs ? { tabs: window.htmlTabs } : {}), html: "<!doctype html><h1>How this works " + (window.htmlVersion ?? 1) + "</h1>" };
       const latest = window.latest;
       const shown = version ?? latest;
       return { id, version: shown, title: shown === 1 ? "Login screen" : "Login screen, warmer", versions: latest, latest, width: 1280, height: 800, format: "design", document: designs[shown], html: designHtml(designs[shown]) };
@@ -1207,6 +1207,24 @@ async function browserChecks() {
       "the Artifact page gets its own link, not the Designs one",
     );
     await screenshot("artifact-share");
+    await evaluate(`[...${shareDialog}.querySelectorAll("button")].find((button) => button.textContent === "Close").click()`);
+    await evaluate(`(() => {
+      window.htmlTabs = [
+        { id: "overview", title: "Overview", html: "<h1>How this works 2</h1>" },
+        { id: "headers", title: "Headers", html: "<h1>Cache headers</h1>" },
+      ];
+      const comment = { id: "ab123456", design: { id: "current-artifact", title: "Explanation", version: 2, format: "html" }, tab: { id: "headers", title: "Headers" }, x: 0.2, y: 0.2, text: "Explain cache headers" };
+      window.kept.push(comment);
+      window.appendFeedback({ comments: [comment] });
+    })()`);
+    const tabFeedback =
+      '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].find(node => node.textContent.includes("Explain cache headers"))';
+    await waitFor(`!!${tabFeedback}`);
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await waitFor(`!${dock}`);
+    await evaluate(`${tabFeedback}.click()`);
+    await waitFor('document.querySelector("[data-slot=artifact-page] iframe")?.srcdoc.includes("Cache headers")');
+    assert.match(await evaluate(`${dock}.querySelector("header").textContent`), /Headers/);
     if (keepOpen) {
       await evaluate("window.designsEnabled=true; window.designsChanged({enabled:true})");
       await waitForPanel('!!document.querySelector("[data-panel-toggle=designs]")');

@@ -11,6 +11,12 @@ Each Chat has one live HTML page. Every `artifact_show` call updates that page i
 
 Supply a title and one self-contained HTML document with inline styles and scripts. Use a width and height appropriate to the content (defaults 1280 by 800). Keep source below 1,000,000 characters. Embed assets and keep styles and scripts inline. Shared Artifacts block all external resources, including remote images, fonts and scripts. No secret, local file or private Chat content belongs in an artifact unless the user requested it.
 
+## Tabs
+
+When a page covers parts the reader takes one at a time (an overview and its details, one section per component, a report and its raw data), split it into tabs: send `tabs` instead of `html`, each with an id, a short title and its own self-contained HTML document. Milagre draws the tab bar above the page, on desktop, phone and shared pages; don't draw one in the HTML. Keep one page without tabs when it reads top to bottom, and at most 20 tabs. Each tab is a page of its own: repeat the styles it needs.
+
+To change one tab, read it with `artifact_read` and its `tab` id, then send every tab in order with `html` only on the ones you changed: a tab without `html` keeps what it has. Leaving a tab out removes it. A comment on a tab names its id ("on the tab data ..."); read that tab before changing it.
+
 ## Diagrams
 
 For a flowchart, sequence, state, class or ER diagram, a timeline, a Gantt or pie chart, a mind map or any other Mermaid diagram, put its Mermaid text in a `<pre class="mermaid">` block. Milagre draws it in place with Pele, offline and on shared pages, in the colours of the text and background around it, fitted to the page's width (a left-to-right flowchart turns top-down on a phone). Do not load mermaid.js or any other script for it: remote scripts are blocked. Escape `<`, `>` and `&` in the diagram text. To set the colours yourself, set `--pele-bg`, `--pele-fg`, `--pele-line`, `--pele-surface`, `--pele-border` and `--pele-accent` on the block.

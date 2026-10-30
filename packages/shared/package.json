@@ -229,6 +229,10 @@
       "types": "./src/antigravity-models.d.mts",
       "default": "./src/antigravity-models.mjs"
     },
+    "./host-computer": {
+      "types": "./src/host-computer.d.mts",
+      "default": "./src/host-computer.mjs"
+    },
     "./providers": {
       "types": "./src/providers.d.mts",
       "default": "./src/providers.mjs"

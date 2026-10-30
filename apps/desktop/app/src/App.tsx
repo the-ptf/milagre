@@ -509,7 +509,7 @@ function App() {
   const surfaces = projectSurfaces(project);
   // Git controls stay wherever they are today, a plain folder included (the places that need a repository check `noGit`
   // themselves); only a Chat without a Project, whose repository is internal, loses them.
-  const showGit = surfaces.git || noGit;
+  const showGit = !isChatsHomeProject(project) && (surfaces.git || noGit);
   // The open Project's branches, from the last read of them (branchLists); a read that changes them renders again.
   const [, setBranchesRead] = useState(0);
   const branches = (project ? branchLists.get(project.path)?.branches : undefined) ?? NO_BRANCHES;
@@ -2937,6 +2937,10 @@ function App() {
         onOpened={(opened) => {
           setFirstChat(opened.path);
           adoptProject(opened);
+        }}
+        onSkip={() => {
+          setOnboarding(false);
+          void newChatWithoutProject();
         }}
       />
     );

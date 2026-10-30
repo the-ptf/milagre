@@ -21,6 +21,7 @@ import { LinearLogo } from "../ProviderLogo";
 import { WorkspaceIcon } from "../WorkspaceIcon";
 import { useDismiss } from "../../lib/use-dismiss";
 import { bySection, type ComputerSection } from "../../lib/computer-scopes";
+import { ThisComputer } from "../../lib/shortcut-hints";
 
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -271,7 +272,7 @@ export function FiltersButton({
                                   data-project-section-header
                                   className={`flex h-7 items-center px-2 text-[11.5px] font-medium text-ink-3 ${index > 0 ? "mt-1.5" : ""}`}
                                 >
-                                  <span className="min-w-0 truncate">{section.local ? `${section.name} · This Mac` : section.name}</span>
+                                  <span className="min-w-0 truncate">{section.local ? `${section.name} · ${ThisComputer}` : section.name}</span>
                                 </div>
                               )}
                               {section.rows.map(projectRow)}

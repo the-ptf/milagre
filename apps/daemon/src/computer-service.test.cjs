@@ -33,7 +33,14 @@ test("the daemon owns computer management with no desktop and persists headless 
     assert.deepEqual((await client.call("computers:list")).computers, []);
     await client.call("computers:setup-key", [{ file: path.join(root, "private-key") }]);
     assert.equal((await client.call("computers:vault-status")).configuredFile, true);
+    const snapshots = [];
+    client.on("event", ({ channel, payload }) => {
+      if (channel === "computers:changed") snapshots.push(payload);
+    });
     await client.call("computers:set-enabled", [true]);
+    await until(() => snapshots.some((snapshot) => snapshot.enabled === true), "enabled snapshot reaches open windows");
+    await client.call("computers:set-enabled", [false]);
+    await until(() => snapshots.some((snapshot) => snapshot.enabled === false), "disabled snapshot reaches open windows");
     await Promise.all([client.call("computers:set-enabled", [false]), client.call("computers:set-enabled", [true])]);
   } finally {
     client.close();

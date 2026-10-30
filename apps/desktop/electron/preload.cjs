@@ -172,7 +172,6 @@ function makeBridge(invoke, listen, send) {
     onMainSyncStatus: (callback) => listen("main-sync:status", callback),
     readLinearStatus: () => invoke("linear:status"),
     connectLinear: (options) => invoke("linear:connect", { window: options?.window === true }),
-    cancelLinearSignIn: () => invoke("linear:cancel"),
     disconnectLinear: (workspace) => invoke("linear:disconnect", { workspace }),
     readLinearEnabled: () => invoke("linear:enabled:read"),
     saveLinearEnabled: (value) => invoke("linear:enabled:save", value),

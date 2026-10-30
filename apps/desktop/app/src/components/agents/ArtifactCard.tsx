@@ -14,6 +14,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import {
   ARTIFACT_SEND,
+  artifactTab,
   chosenDesign,
   designActivity,
   designFeedbackMessage,
@@ -34,6 +35,7 @@ import { ResizableDockSlide } from "./DockSlide";
 import { MIN_CHAT_WIDTH, usePanelWidth } from "./panel-width";
 import { ArtifactCanvas, ArtifactFrame, useArtifact, type CanvasHandle, type CanvasView, type DesignPin, type PinControls } from "./ArtifactCanvas";
 import { ArtifactPage, type PageHandle } from "./ArtifactPage";
+import { Select } from "../primitives/Select";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { useDesignSharingAvailable } from "../../lib/design-sharing-available";
 import { bridgeForKey } from "../../lib/computer-bridge";
@@ -859,6 +861,8 @@ function ArtifactDock({
   const pageView = useRef<PageHandle>(null);
   const [view, setView] = useState<CanvasView | null>(null);
   const [pageScale, setPageScale] = useState<number | null>(null);
+  // The tab of the Artifact page shown, chosen in the title's menu.
+  const [pageTab, setPageTab] = useState<string | null>(null);
   const [commenting, setCommenting] = useState(false);
   // Feedback waits here until Send: comments pinned on designs or on the page, and the design the user chose. Closed
   // meanwhile, the dock opens again with it (an empty comment was never written).
@@ -937,7 +941,7 @@ function ArtifactDock({
     try {
       // Each pin's key is its comment's id, which the agent resolves it by. The host records the comments once the
       // message went, so a send that fails records none.
-      const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId, anchor, near }) => ({
+      const comments: DesignComment[] = written.map(({ key, design, x, y, text, nodeId, anchor, near, tab }) => ({
         id: key,
         design,
         x,
@@ -946,6 +950,7 @@ function ArtifactDock({
         ...(nodeId ? { nodeId } : {}),
         ...(anchor ? { anchor } : {}),
         ...(near ? { near } : {}),
+        ...(tab ? { tab } : {}),
       }));
       if (await onSend(designFeedbackMessage({ choice, comments }))) {
         if (comments.length)
@@ -983,6 +988,7 @@ function ArtifactDock({
           ...(nodeId ? { nodeId } : {}),
           ...(onPage?.anchor ? { anchor: onPage.anchor } : {}),
           ...(onPage?.near ? { near: onPage.near } : {}),
+          ...(onPage?.tab ? { tab: onPage.tab } : {}),
         },
       ]);
       setOpenPin(key);
@@ -1071,9 +1077,30 @@ function ArtifactDock({
         <HugeiconsIcon icon={kind === "artifacts" ? File01Icon : PaintBoardIcon} size={16} aria-hidden />
         <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
           {/* The page names itself; the Designs keep their name. */}
-          <span data-slot="artifact-dock-title" className="truncate text-[13px]">
-            {kind === "artifacts" ? (page?.title ?? htmlRef?.title ?? "Artifact") : label}
-          </span>
+          {kind === "artifacts" && page?.format === "html" && page.tabs && page.tabs.length > 1 ? (
+            // A page split into tabs: its title opens the menu of its tabs, and names the one shown.
+            <Select
+              label={`${page.title}, ${artifactTab(page, pageTab).title} tab. Choose a tab`}
+              variant="text"
+              width={220}
+              value={artifactTab(page, pageTab).id}
+              options={page.tabs.map((tab) => ({
+                value: tab.id,
+                label: tab.title,
+                display: (
+                  <span data-slot="artifact-dock-title" className="min-w-0 truncate text-13">
+                    {page.title}
+                    <span className="text-ink-3"> · {tab.title}</span>
+                  </span>
+                ),
+              }))}
+              onChange={setPageTab}
+            />
+          ) : (
+            <span data-slot="artifact-dock-title" className="truncate text-[13px]">
+              {kind === "artifacts" ? (page?.title ?? htmlRef?.title ?? "Artifact") : label}
+            </span>
+          )}
         </div>
         {feedback > 0 && (
           <button
@@ -1136,6 +1163,8 @@ function ArtifactDock({
             <ArtifactPage
               ref={pageView}
               page={page}
+              tabId={pageTab}
+              onTab={setPageTab}
               commenting={commenting && !!onSend}
               comments={comments}
               numbers={numbers}
@@ -1223,6 +1252,7 @@ function htmlSentPins(comments: ArtifactComment[], page: { id: string; version: 
             text: comment.text,
             ...(comment.anchor ? { anchor: comment.anchor } : {}),
             ...(comment.near ? { near: comment.near } : {}),
+            ...(comment.tab ? { tab: comment.tab } : {}),
             ...(comment.resolved ? { resolved: comment.resolved.note } : {}),
           },
         ]
