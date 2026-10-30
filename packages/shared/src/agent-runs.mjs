@@ -181,13 +181,22 @@ export function applyRunEvent(runs, chatId, event, model = "") {
       return run ? { ...runs, [chatId]: { ...run, text: run.text + event.text, ...(run.waitingForSubagents ? { waitingForSubagents: false } : {}) } } : runs;
     case "step-started": {
       if (!run) return runs;
+      const viewed = event.step.kind === "image" && event.step.imageOrigin === "viewed";
+      const existing = run.steps.findIndex((step) => step.id === event.step.id);
+      const admitted = existing !== -1 && run.steps[existing].kind === "image" && run.steps[existing].imageOrigin === "viewed";
+      // Count the reply after steering splits, not the provider turn. Replays keep their slot.
+      if (viewed && !admitted && run.steps.filter((step) => step.kind === "image" && step.imageOrigin === "viewed").length >= 16) return runs;
       const step = {
         ...event.step,
         ...(event.step.detail === undefined ? {} : { detail: capOutput(event.step.detail) }),
         status: "running",
         offset: run.text.length,
       };
-      return { ...runs, [chatId]: { ...run, steps: [...run.steps.filter((item) => item.id !== step.id), step] } };
+      const steps =
+        viewed && existing !== -1
+          ? run.steps.map((item, index) => (index === existing ? step : item))
+          : [...run.steps.filter((item) => item.id !== step.id), step];
+      return { ...runs, [chatId]: { ...run, steps } };
     }
     case "step-output": {
       const next =

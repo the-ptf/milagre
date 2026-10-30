@@ -664,6 +664,7 @@ export interface ArtifactRef {
 
 /** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */
 export interface ChatStep {
+  /** Identifies one step across start, output and completion. A viewed snapshot needs a distinct ID from its source Read step. */
   id: string;
   kind: StepKind;
   /** Host time when this step first started. Older hosts omit it; clients show no duration for the running step. */
@@ -690,8 +691,12 @@ export interface ChatStep {
    * fetch until the turn ends.
    */
   hasDetail?: boolean;
-  /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, the generated image. */
+  /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, its generated image or snapshot. */
   file?: string;
+  /** An image snapshot of a file the agent viewed, rather than an image it generated. */
+  imageOrigin?: "viewed";
+  /** Provenance of a viewed snapshot only; never grants access to this file. */
+  sourceFile?: string;
   /** Muted text after the title, e.g. "3s" or "exited with code 1 after 4s". */
   note?: string;
   /** How long the step took, measured by the host or reported by the provider. */
@@ -910,7 +915,7 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool" | "agent" | "startedAt"> }
+  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt"> }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to
