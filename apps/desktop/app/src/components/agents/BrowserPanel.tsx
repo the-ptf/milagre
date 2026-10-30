@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -7,6 +7,7 @@ import {
   ArrowRight01Icon,
   BrowserIcon,
   Cancel01Icon,
+  CommentAdd01Icon,
   Globe02Icon,
   Link01Icon,
   LinkSquare02Icon,
@@ -39,11 +40,14 @@ import {
   type BrowserTab,
 } from "../../lib/browser-panel";
 import { browserWebview, focusBrowserPage, listenToBrowserPages, showBrowserPage, syncBrowserPages } from "../../lib/browser-webviews";
-import { portUrl } from "../../lib/ports";
-import { CommentControls, PageCommenting, useSentPageComments, type SendPageComments } from "./BrowserComments";
+import { LoopbackPortsContext, portUrl } from "../../lib/ports";
+import { useComputers } from "../../lib/computers";
+import { computerOfKey } from "@milagre/shared/chat-scopes";
+import { openablePageUrl } from "@milagre/shared/loopback-url";
+import { CommentControls, PageCommenting, StreamedPageComment, useSentPageComments, type SendPageComments } from "./BrowserComments";
 import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
 import { isRemoteKey } from "../../lib/computer-bridge";
-import { BrowserViewerFrame, targetBrowserId, useChatBrowserTargets, type ChatBrowserTargets } from "./BrowserViewer";
+import { BrowserViewerFrame, targetBrowserId, useChatBrowserTargets, type ChatBrowserTargets, type StreamedPoint } from "./BrowserViewer";
 
 /** Sent with a Chat key when ⌘L is pressed in one of its pages: its address bar takes the focus. */
 const FOCUS_BROWSER_ADDRESS = "milagre:browser-address";
@@ -141,6 +145,17 @@ export function BrowserPanel({
   useEffect(() => registerBrowserHost(chatKey), [chatKey]);
   useSentPageComments(chatKey);
   const active = viewer ? null : own;
+  // Comment mode on the streamed page on show (another computer's panel page), and the point picked on it. Another page
+  // or address ends it.
+  const [streamComment, setStreamComment] = useState<{ target: string; url: string; point: StreamedPoint | null } | null>(null);
+  const viewerUrl = viewer ? pages[viewer.id]?.url || viewer.url : "";
+  const commenting = !!viewer && streamComment?.target === viewer.id && streamComment.url === viewerUrl ? streamComment : null;
+  const [sentNote, setSentNote] = useState(false);
+  useEffect(() => {
+    if (!sentNote) return;
+    const timer = setTimeout(() => setSentNote(false), 2500);
+    return () => clearTimeout(timer);
+  }, [sentNote]);
   return createPortal(
     <AnimatePresence>
       {chat.open && (active || viewer) && (
@@ -185,7 +200,13 @@ export function BrowserPanel({
             streamed.api &&
             viewerChatId && (
               <>
-                <ViewerToolbar target={viewer} page={pages[viewer.id]} />
+                <ViewerToolbar
+                  chatKey={chatKey}
+                  target={viewer}
+                  page={pages[viewer.id]}
+                  commenting={!!commenting}
+                  onComment={() => setStreamComment(commenting ? null : { target: viewer.id, url: viewerUrl, point: null })}
+                />
                 <div data-slot="browser-page" className="relative min-h-0 flex-1 bg-surface">
                   <BrowserViewerFrame
                     key={viewer.id}
@@ -193,7 +214,33 @@ export function BrowserPanel({
                     chatId={viewerChatId}
                     targetId={viewer.id}
                     onPage={(page) => onPage(viewer.id, page)}
+                    commenting={!!commenting}
+                    picked={commenting?.point ?? null}
+                    onPick={(point) => setStreamComment((current) => (current ? { ...current, point } : current))}
+                    onEscape={() => setStreamComment(null)}
                   />
+                  {commenting && (
+                    <StreamedPageComment
+                      key={`${commenting.point?.x}:${commenting.point?.y}`}
+                      chatId={viewerChatId}
+                      targetId={viewer.id}
+                      picked={commenting.point}
+                      onCancel={() => setStreamComment(null)}
+                      onSent={() => {
+                        setStreamComment(null);
+                        setSentNote(true);
+                      }}
+                    />
+                  )}
+                  {sentNote && !commenting && (
+                    <div
+                      role="status"
+                      data-slot="browser-comment-sent"
+                      className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-ink/90 px-3 py-1.5 text-12 whitespace-nowrap text-surface shadow-md"
+                    >
+                      Sent to the agent
+                    </div>
+                  )}
                 </div>
               </>
             )
@@ -352,19 +399,71 @@ function StreamedTab({
   );
 }
 
-/** A streamed page's address, read only: the page's own controls are under it, in the stream. */
-function ViewerToolbar({ target, page }: { target: BrowserTarget; page?: { title: string; url: string } }) {
+/**
+ * A streamed page's address, read only (the page's own controls are under it, in the stream), with the actions a page of
+ * the panel's own has: comments on another computer's panel page, and opening the page in this Mac's browser.
+ */
+function ViewerToolbar({
+  chatKey,
+  target,
+  page,
+  commenting,
+  onComment,
+}: {
+  chatKey: string;
+  target: BrowserTarget;
+  page?: { title: string; url: string };
+  commenting: boolean;
+  onComment: () => void;
+}) {
   const url = page?.url || target.url;
+  const { computers } = useComputers();
+  const loopbackOnly = useContext(LoopbackPortsContext);
+  const external = openablePageUrl(url, {
+    remote: isRemoteKey(chatKey),
+    host: computers.find((computer) => computer.id === computerOfKey(chatKey))?.address,
+    loopbackOnly,
+  });
+  const commentLabel = commenting ? "Stop commenting" : "Comment on the page";
+  const openLabel = external.href ? "Open in your default browser" : external.reason;
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line px-2">
+    <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
       <div
         data-slot="browser-viewer-address"
-        title={url}
-        className="h-7 min-w-0 flex-1 truncate rounded-control border border-transparent bg-hover px-2.5 text-12 leading-7 text-ink-2"
+        title={`${target.source === "agent" ? target.browser : SOURCE_LABEL[target.source]} · ${url}`}
+        className="mr-1 h-7 min-w-0 flex-1 truncate rounded-control border border-transparent bg-hover px-2.5 text-12 leading-7 text-ink-2"
       >
         {addressText(url)}
       </div>
-      <span className="shrink-0 pr-1 text-11 text-ink-3">{target.source === "agent" ? target.browser : SOURCE_LABEL[target.source]}</span>
+      {target.source !== "panel" && (
+        <span className="shrink-0 pr-1 text-11 text-ink-3">{target.source === "agent" ? target.browser : SOURCE_LABEL[target.source]}</span>
+      )}
+      {target.source === "panel" && (
+        <Tooltip label={commentLabel} side="bottom" align="end">
+          <button
+            type="button"
+            aria-label={commentLabel}
+            aria-pressed={commenting}
+            data-slot="browser-comment-toggle"
+            onClick={onComment}
+            className={`flex size-7 shrink-0 items-center justify-center rounded-control ${commenting ? "bg-accent/10 text-accent" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+          >
+            <HugeiconsIcon icon={CommentAdd01Icon} size={16} aria-hidden />
+          </button>
+        </Tooltip>
+      )}
+      <Tooltip label={openLabel} side="bottom" align="end">
+        <button
+          type="button"
+          aria-label="Open in your default browser"
+          data-slot="browser-viewer-open"
+          disabled={!external.href}
+          onClick={() => external.href && window.open(external.href, "_blank")}
+          className={ICON_BUTTON}
+        >
+          <HugeiconsIcon icon={LinkSquare02Icon} size={15} aria-hidden />
+        </button>
+      </Tooltip>
     </div>
   );
 }

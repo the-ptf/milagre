@@ -84,6 +84,7 @@ function makeBridge(invoke, listen, send) {
     pageComments: {
       add: (request) => invoke("browser-comments:add", request),
       list: (request) => invoke("browser-comments:list", request),
+      sendFromPage: (request) => invoke("browser-comments:send-from-page", request),
     },
     browsers: {
       list: (request) => invoke("browser:list", request),
