@@ -1054,9 +1054,6 @@
         }
       ]
     },
-    "linear:cancel": {
-      "parameters": []
-    },
     "linear:disconnect": {
       "parameters": [
         {

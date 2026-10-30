@@ -383,7 +383,6 @@ export type MilagreBridge = {
   /** Opens Linear in the browser and resolves once the Mac is connected. A second call replaces a waiting one. */
   /** `window`: sign in from a window of its own with an empty session (Add workspace), not the browser. */
   connectLinear: (options?: { window?: boolean }) => Promise<LinearStatus>;
-  cancelLinearSignIn: () => Promise<void>;
   disconnectLinear: (workspace: string) => Promise<LinearStatus>;
   /** `moveToStarted`: a Chat started from an issue moves it to In Progress. A Mac that predates it sends none (on). */
   readLinearEnabled: () => Promise<{ enabled: boolean; moveToStarted?: boolean }>;
