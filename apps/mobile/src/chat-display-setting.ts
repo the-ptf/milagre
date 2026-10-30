@@ -1,7 +1,11 @@
 import { useSyncExternalStore } from "react";
-import type { ChatList, ToolCallDisplay } from "@milagre/shared/chat-display";
+import type { ChatList, CompactButtonDisplay, ToolCallDisplay } from "@milagre/shared/chat-display";
 import {
   readChatList,
+  readShowContextSize,
+  readCompactButtonDisplay,
+  saveShowContextSize,
+  saveCompactButtonDisplay,
   readDictationLanguage,
   readExpandReasoning,
   readToolCallDisplay,
@@ -49,6 +53,8 @@ export const useToolCallDisplay = phoneSetting<ToolCallDisplay>("compact", readT
 
 /** Desktop's Always expand reasoning: thinking rows start open in the Activity sheet. */
 export const useExpandReasoning = phoneSetting(false, readExpandReasoning, saveExpandReasoning);
+export const useShowContextSize = phoneSetting(true, readShowContextSize, saveShowContextSize);
+export const useCompactButtonDisplay = phoneSetting<CompactButtonDisplay>("threshold", readCompactButtonDisplay, saveCompactButtonDisplay);
 
 /** Settings › Chat › Chat list: the sidebar's One list, or a group per Project that folds. */
 export const useChatList = phoneSetting<ChatList>("list", readChatList, saveChatList);

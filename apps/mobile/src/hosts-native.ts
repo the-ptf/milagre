@@ -1,5 +1,12 @@
 import * as SecureStore from "expo-secure-store";
-import { parseChatList, parseToolCallDisplay, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import {
+  parseChatList,
+  parseCompactButtonDisplay,
+  parseToolCallDisplay,
+  type ChatList,
+  type CompactButtonDisplay,
+  type ToolCallDisplay,
+} from "@milagre/shared/chat-display";
 import { dictationLanguage } from "@milagre/shared/dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
@@ -140,6 +147,36 @@ export async function saveChatList(mode: ChatList) {
   }
 }
 const expandReasoningKey = "milagre.expand-reasoning.v1";
+const showContextSizeKey = "milagre.show-context-size.v1";
+const compactButtonDisplayKey = "milagre.compact-button-display.v1";
+export async function readShowContextSize(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(showContextSizeKey)) !== "off";
+  } catch {
+    return true;
+  }
+}
+export async function saveShowContextSize(on: boolean) {
+  try {
+    await SecureStore.setItemAsync(showContextSizeKey, on ? "on" : "off");
+  } catch {
+    /* best effort */
+  }
+}
+export async function readCompactButtonDisplay(): Promise<CompactButtonDisplay> {
+  try {
+    return parseCompactButtonDisplay(await SecureStore.getItemAsync(compactButtonDisplayKey));
+  } catch {
+    return "threshold";
+  }
+}
+export async function saveCompactButtonDisplay(value: CompactButtonDisplay) {
+  try {
+    await SecureStore.setItemAsync(compactButtonDisplayKey, value);
+  } catch {
+    /* best effort */
+  }
+}
 /** Settings › Chat › Always expand reasoning; off unless turned on. */
 export async function readExpandReasoning(): Promise<boolean> {
   try {

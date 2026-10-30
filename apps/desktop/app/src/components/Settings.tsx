@@ -1,3 +1,4 @@
+import { ContextSettings } from "./ContextSettings";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useBots } from "../lib/bots-store";
@@ -607,6 +608,7 @@ function ChatSettings() {
   const settings = useSettings();
   return (
     <>
+      <ContextSettings />
       <ChoiceGroup title="Chat list">
         <ChatListChoice value={settings.chatList} onChange={(chatList) => updateSettings({ chatList })} />
       </ChoiceGroup>

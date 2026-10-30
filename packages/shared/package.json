@@ -53,7 +53,8 @@
     "src/advisor-result.ts",
     "src/themes/*.ts",
     "src/themes/palettes/*.ts",
-    "src/genui-renderer.tsx"
+    "src/genui-renderer.tsx",
+    "src/use-compaction-feedback.ts"
   ],
   "type": "module",
   "exports": {
@@ -407,7 +408,12 @@
     "./page-picker": {
       "types": "./src/page-picker.d.mts",
       "default": "./src/page-picker.mjs"
-    }
+    },
+    "./context-settings": {
+      "types": "./src/context-settings.d.mts",
+      "default": "./src/context-settings.mjs"
+    },
+    "./use-compaction-feedback": "./src/use-compaction-feedback.ts"
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

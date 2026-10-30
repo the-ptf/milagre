@@ -151,6 +151,8 @@ const PATHS = Object.freeze({
   "keybindings:reset": denied,
   // Babysit PRs settings name no folder, but their level and instructions go into every future babysit Run in every Chat
   // on the Mac: a confined phone only reads them.
+  "context:settings:read": none,
+  "context:settings:save": denied,
   "babysit:settings:read": none,
   "babysit:settings:save": denied,
   // Routines send prompts into any Chat on the Mac: a confined phone sees its own Project's (filterResult) and the switch,

@@ -2630,6 +2630,8 @@ function chatHost({
   routinesOn = true,
   computers,
   screenWidth = 402,
+  contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" },
+  contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false },
   now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
   // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
@@ -2757,6 +2759,11 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "../chat-display-setting": {
+      useShowContextSize: () => [contextPreferences.showContextSize],
+      useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
+    },
+    "@milagre/shared/chat-display": require("@milagre/shared/chat-display"),
     ...(computers ? { "../all-computers": computers } : {}),
     "react-native-reanimated": { default: { View: "AnimatedView" }, useAnimatedStyle: (style) => style() },
     "../hosts-native": { savedChatDefaults: chatDefaults },
@@ -2785,6 +2792,8 @@ function chatHost({
     "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },
+    "../context-settings": { useContextSettings: () => ({ settings: contextSettings }) },
+    "@milagre/shared/use-compaction-feedback": { useCompactionFeedback: () => null },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
     "../browser": { BrowserChip: "BrowserChip" },
@@ -5308,6 +5317,47 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
   }
+});
+
+test("context size and the direct compact button are independent, follow the threshold and preserve the draft", async () => {
+  const contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" };
+  const screen = chatHost({ effects: true, contextPreferences, call: async () => ({ sessionId: 42 }) });
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 69, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const compact = (tree) => find(tree, (node) => node.props?.accessibilityLabel === "Compact context");
+  const ring = (tree) => find(tree, (node) => node.type === "ContextRing");
+  let tree = screen.render();
+  assert.ok(ring(tree));
+  assert.ok(!compact(tree));
+  chat.contextUsage.used = 70;
+  tree = screen.render();
+  assert.ok(compact(tree));
+  assert.equal(compact(tree).props.disabled, false);
+  contextPreferences.showContextSize = false;
+  tree = screen.render();
+  assert.equal(ring(tree).props.showSize, false, "a chevron replaces the size");
+  assert.ok(compact(tree));
+  chat.contextUsage.used = 20;
+  assert.ok(!compact(screen.render()));
+  contextPreferences.compactButtonDisplay = "always";
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.drafts[chatId] = "Keep this draft";
+  tree = screen.render();
+  compact(tree).props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.archived = true;
+  assert.equal(compact(screen.render()).props.disabled, true);
+  chat.archived = false;
+  screen.session.error = "Disconnected";
+  assert.equal(compact(screen.render()).props.disabled, true);
+  screen.session.error = "";
+  chat.provider = "codex";
+  assert.ok(!compact(screen.render()));
 });
 
 test("Compact now from the context sheet sends /compact to the open Chat with the compact flag and no preview", async () => {

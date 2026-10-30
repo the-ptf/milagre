@@ -1,3 +1,4 @@
+import { useContextSettings } from "../lib/context-settings";
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -6,6 +7,8 @@ import { flushSync } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  ShrinkIcon,
+  Cancel01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
   Attachment01Icon,
@@ -36,6 +39,7 @@ import { ScrollArea } from "./primitives/ScrollArea";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import { useKnownFiles } from "./useKnownFiles";
 import { ContextRing } from "./ContextRing";
+import { compactButtonState } from "@milagre/shared/chat-display";
 import { matchingMentionChats } from "@milagre/shared/prompt-mentions";
 import { useChatMentions } from "./ChatMentions";
 import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
@@ -87,6 +91,10 @@ interface PromptComposerProps {
   suggestion?: string;
   /** Sends `/compact` to the chat (Claude only); the context card offers it as Compact now. */
   onCompact?: () => void;
+  compactionFeedback?: { percent: number; freed: string } | null;
+  compacting?: boolean;
+  compactQueued?: boolean;
+  onCancelCompact?: () => void;
   /** The models each agent offers, or the maintained list until it reports them. */
   models: ModelOption[];
   /** How each agent's CLI stands; a problem is flagged on its tab and in a notice above the models. */
@@ -165,6 +173,10 @@ export function PromptComposer({
   running = false,
   suggestion,
   onCompact,
+  compactionFeedback,
+  compacting = false,
+  compactQueued = false,
+  onCancelCompact,
   models,
   cliStatus,
   onModelPickerOpen,
@@ -194,7 +206,12 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance } = useSettings();
+  const { ultracodeFatality, appearance, showContextSize, compactButtonDisplay } = useSettings();
+  const { settings: contextSettings } = useContextSettings();
+  const quiet = contextSettings.autoCompact && Boolean(onCompact);
+  const compactButton = compactButtonState(compactButtonDisplay, contextUsage, Boolean(onCompact), contextSettings.buttonThreshold, quiet);
+  const compactLabel = compacting ? "Compacting…" : compactQueued ? "Queued for after turn" : running ? "Compact after turn" : "Compact";
+  const compactBlocked = compacting ? "Compacting context." : sendBlocked ? "Not available right now." : null;
   const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
@@ -400,7 +417,7 @@ export function PromptComposer({
     });
     overflowRef.current = next.overflow;
     if (next.expanded !== expanded) setExpanded(next.expanded);
-  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize]);
+  }, [draft, expanded, selectedModel.name, effortLabel, fastMode, alwaysExpanded, chatSize, showContextSize, compactButton.visible]);
 
   // Any press outside the open picker closes it, including the prompt field and the rest of the composer.
   useDismiss(
@@ -638,7 +655,7 @@ export function PromptComposer({
   }
 
   return (
-    <div data-promptbar className="w-full" onKeyDown={handleEscape}>
+    <div data-promptbar className="@container w-full" onKeyDown={handleEscape}>
       <div ref={popoverRootRef} className="relative">
         {menu && (
           <div
@@ -853,9 +870,11 @@ export function PromptComposer({
           )}
 
           <div
-            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"}`}
+            className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
           >
-            <div className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"}`}>
+            <div
+              className={`relative min-w-0 w-full ${expanded ? "col-span-full col-start-1 row-start-1" : "col-start-2 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-span-full @max-[520px]:col-start-1 @max-[520px]:row-start-1" : ""}`}
+            >
               <PromptEditor
                 ref={inputRef}
                 resetKey={imageDraft.scope}
@@ -901,11 +920,13 @@ export function PromptComposer({
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
             >
               <Icon icon={Add01Icon} size={16} />
             </button>
-            <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
+            <div
+              className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"} ${compactButton.visible ? "@max-[520px]:contents" : ""}`}
+            >
               <button
                 type="button"
                 aria-expanded={modelOpen}
@@ -916,14 +937,17 @@ export function PromptComposer({
                   setPermissionOpen(false);
                   setModelOpen((current) => !current);
                 }}
-                className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink ${compactButton.visible ? "@max-[520px]:col-start-2 @max-[520px]:row-start-2" : ""}`}
               >
                 <ProviderLogo provider={selectedModel.provider} size={13} />
-                <span data-model-name className="max-w-28 truncate">
+                <span data-model-name className={`max-w-28 truncate ${compactButton.visible ? "@max-[520px]:max-w-20" : ""}`}>
                   {selectedModel.name}
                 </span>
                 {effortLabel && (
-                  <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                  <span
+                    data-effort-label
+                    className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""} ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}
+                  >
                     <span className="text-ink-3">·</span>
                     <span className="hidden min-[900px]:inline">{effortLabel}</span>
                     <span className="min-[900px]:hidden">
@@ -951,18 +975,51 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"} ${compactButton.visible ? "@max-[520px]:col-start-3 @max-[520px]:row-start-2 @max-[520px]:justify-self-start" : ""}`}
             >
               <Icon icon={SecurityCheckIcon} size={14} />
-              <span className="hidden min-[900px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
+              <span className={`hidden min-[900px]:inline ${compactButton.visible ? "@max-[520px]:hidden" : ""}`}>{PERMISSION_MODE_LABEL[permissionMode]}</span>
             </button>
-            <div className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"}`}>
-              {contextUsage && contextUsage.size > 0 && (
-                <ContextRing
-                  {...contextUsage}
-                  onCompact={onCompact}
-                  compactBlocked={running ? "Wait for the agent to finish." : sendBlocked ? "Not available right now." : null}
-                />
+            <div
+              className={`flex shrink-0 items-center gap-1.5 ${expanded ? "col-start-5 row-start-2" : "col-start-5 row-start-1"} ${compactButton.visible ? "@max-[520px]:row-start-2" : ""}`}
+            >
+              {!quiet && compactionFeedback ? (
+                <span role="status" className="flex h-7 items-center gap-1 rounded-control bg-green/10 px-2 text-12 text-green-ink">
+                  ✓ {compactionFeedback.percent}%<span className="@max-[700px]:hidden"> · {compactionFeedback.freed} freed</span>
+                </span>
+              ) : (
+                !quiet &&
+                (compactButton.visible || compactQueued || compacting || (showContextSize && contextUsage && contextUsage.size > 0)) && (
+                  <div
+                    data-context-capsule
+                    className={`flex shrink-0 items-center overflow-hidden rounded-control ${compactButton.warning ? "bg-orange/15 text-orange-ink" : "text-ink-2"}`}
+                  >
+                    {(compactButton.visible || compactQueued || compacting) && (
+                      <button
+                        type="button"
+                        data-compact-context
+                        aria-label={compactQueued ? "Cancel queued compaction" : "Compact context"}
+                        disabled={Boolean(compactBlocked)}
+                        title={compactLabel}
+                        onClick={compactQueued ? onCancelCompact : onCompact}
+                        className="flex h-7 items-center gap-1 px-2 text-12 font-medium disabled:opacity-40"
+                      >
+                        <Icon icon={compactQueued ? Cancel01Icon : ShrinkIcon} size={14} />
+                        <span className="@max-[700px]:hidden">{compactLabel}</span>
+                      </button>
+                    )}
+                    {contextUsage && contextUsage.size > 0 && (
+                      <ContextRing
+                        {...contextUsage}
+                        onCompact={onCompact}
+                        compactBlocked={compactBlocked}
+                        compactLabel={running ? "Compact after turn" : "Compact now"}
+                        settings={contextSettings}
+                        showSize={showContextSize}
+                      />
+                    )}
+                  </div>
+                )
               )}
               <span className="relative flex shrink-0">
                 {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}

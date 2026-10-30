@@ -55,6 +55,8 @@ const METHODS = new Set([
   "keybindings:set-command",
   "keybindings:reset-command",
   "keybindings:reset",
+  "context:settings:read",
+  "context:settings:save",
   "babysit:settings:read",
   "babysit:settings:save",
   "routines:enabled:read",
