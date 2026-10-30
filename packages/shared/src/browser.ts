@@ -4,7 +4,17 @@ export type BrowserTarget = { id: string; title: string; url: string; browser: s
 export type BrowserCandidate = { id: string; browser: string; pages: number; title: string };
 export type BrowserList = { supported: boolean; targets: BrowserTarget[]; others: BrowserCandidate[]; error?: string };
 export type BrowserOpen = { viewerId: string; target: BrowserTarget };
-export type BrowserStatus = { generation: number; controlling: boolean; ready: boolean; title: string; url: string; canGoBack: boolean; canGoForward: boolean };
+export type BrowserStatus = {
+  generation: number;
+  controlling: boolean;
+  ready: boolean;
+  title: string;
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  /** Absent on older hosts. Only send viewport input when explicitly supported. */
+  supportsViewport?: boolean;
+};
 /** `data` is a base64 JPEG on the wire; the mobile wrapper swaps it for a local `uri` before the receiver sees it. */
 export type BrowserFrame = { sequence: number; data: string; uri?: string; viewport: { width: number; height: number }; generation: number };
 export type BrowserInput =

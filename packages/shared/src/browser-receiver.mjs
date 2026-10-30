@@ -333,7 +333,9 @@ function receiver(config, geometryFor, pointFor, inputQueue, touchGesture, keyFo
   };
   // The page lays out at the stage's size while this viewer controls it, whatever size its own window is.
   const sendSize = () => {
-    if (!canInput()) return;
+    // Older hosts reject unknown input events and may outlive an OTA update of the viewer.
+    // Without an explicit capability, keep their existing viewport and letterboxed input mapping.
+    if (!canInput() || status.supportsViewport !== true) return;
     const width = Math.min(4096, Math.round(stage.clientWidth)),
       height = Math.min(4096, Math.round(stage.clientHeight));
     if (width < 100 || height < 100 || width + "x" + height === sentSize) return;

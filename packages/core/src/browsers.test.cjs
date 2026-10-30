@@ -320,6 +320,26 @@ test("takeover releases held input and invalidates the old controller and genera
   assert.deepEqual(await input(f, bv), { accepted: true });
 });
 
+test("status and control advertise resize support while legacy clients keep their viewport and input", async (t) => {
+  const f = fixture(t),
+    a = await controller(f);
+  assert.equal(a.supportsViewport, true);
+  assert.equal((await f.service.status({ viewerId: a.viewerId }, a.owner)).supportsViewport, true);
+  // A pre-resize client ignores unknown status fields and sends its original input protocol.
+  assert.deepEqual(await input(f, a), { accepted: true });
+  assert.deepEqual(await input(f, a, { ...DOWN, phase: "up" }, 2), { accepted: true });
+  const b = await f.service.open({ chatId: "chat-a", targetId: target(PAGE) }, "legacy-phone");
+  const taken = await f.service.control({ viewerId: b.viewerId, takeOver: true }, "legacy-phone");
+  assert.equal(taken.supportsViewport, true);
+  assert.deepEqual(await input(f, { ...b, ...taken, owner: "legacy-phone" }, { kind: "text", text: "hello" }), { accepted: true });
+  f.channels[0].push();
+  assert.deepEqual((await f.service.frame({ viewerId: b.viewerId, after: 0 }, "legacy-phone")).viewport, { width: 800, height: 600 });
+  assert.equal(
+    f.events.some((event) => event.kind === "viewport"),
+    false,
+  );
+});
+
 test("input rejects malformed events, replays, unmatched buttons and stale viewports", async (t) => {
   const f = fixture(t),
     v = await controller(f);

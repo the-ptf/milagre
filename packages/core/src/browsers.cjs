@@ -306,6 +306,7 @@ function createBrowsers(options = {}) {
       url: state.url ?? "",
       canGoBack: !!state.canGoBack,
       canGoForward: !!state.canGoForward,
+      supportsViewport: true,
     };
   }
   async function remove(v) {
