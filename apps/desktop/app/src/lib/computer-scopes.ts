@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { NamedProjectLink } from "@milagre/shared/model";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import type { ComputerView } from "../electron";
@@ -62,6 +62,20 @@ export function withoutLocal<T extends { key: string }>(remote: T[], local: { ke
 /** Another computer's Project as the project chooser lists it, hidden ones included. */
 export type ComputerProject = RecentProject & { computerId: string };
 
+// Both workspaces keep a sidebar. A newly shown one takes the lists the other read, before paint.
+type ComputerLists = Record<string, { recent: RecentProject[]; links: NamedProjectLink[] }>;
+let lastComputerLists: ComputerLists = {};
+const listListeners = new Set<() => void>();
+const computerListsSnapshot = () => lastComputerLists;
+const subscribeComputerLists = (listener: () => void) => {
+  listListeners.add(listener);
+  return () => listListeners.delete(listener);
+};
+function keepComputerLists(next: ComputerLists) {
+  lastComputerLists = next;
+  for (const listener of listListeners) listener();
+}
+
 /**
  * Each paired computer's Projects and Links, read from it (from its cache in main while it is away), again when its
  * state changes, and with this Mac's own visibility choices applied. A failed read keeps the last list. `scopes` are what
@@ -72,7 +86,7 @@ export function useComputerScopes(computers: ComputerView[]): {
   projects: ComputerProject[];
   setHidden: (key: string, hidden: boolean) => void;
 } {
-  const [byComputer, setByComputer] = useState<Record<string, { recent: RecentProject[]; links: NamedProjectLink[] }>>({});
+  const byComputer = useSyncExternalStore(subscribeComputerLists, computerListsSnapshot);
   const [hiddenRemote, setHiddenRemote] = useState(readHiddenRemoteScopes);
   const [changed, setChanged] = useState(0);
   const states = computers.map((computer) => `${computer.id}:${computer.state}`).join("\n");
@@ -95,10 +109,9 @@ export function useComputerScopes(computers: ComputerView[]): {
     let live = true;
     // A computer turned off keeps no scopes.
     const off = computers.filter((computer) => computer.state === "off").map((computer) => computer.id);
-    if (off.length > 0)
-      setByComputer((previous) =>
-        off.some((id) => id in previous) ? Object.fromEntries(Object.entries(previous).filter(([id]) => !off.includes(id))) : previous,
-      );
+    if (off.some((id) => id in lastComputerLists)) {
+      keepComputerLists(Object.fromEntries(Object.entries(lastComputerLists).filter(([id]) => !off.includes(id))));
+    }
     const stops: Array<(() => void) | undefined> = [];
     for (const computer of computers) {
       if (computer.state === "off") continue;
@@ -106,7 +119,10 @@ export function useComputerScopes(computers: ComputerView[]): {
       const reload = () => {
         void Promise.all([bridge.listRecentProjects().catch(() => null), bridge.listNamedLinks().catch(() => null)]).then(([recent, links]) => {
           if (!live || !Array.isArray(recent)) return;
-          setByComputer((previous) => ({ ...previous, [computer.id]: { recent, links: Array.isArray(links) ? links : [] } }));
+          keepComputerLists({
+            ...lastComputerLists,
+            [computer.id]: { recent, links: Array.isArray(links) ? links : (lastComputerLists[computer.id]?.links ?? []) },
+          });
         });
       };
       reload();
