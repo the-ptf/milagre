@@ -36,6 +36,7 @@ const { CodexSession, recoverCodexSubagents } = require("./agents/codex-provider
 const { AcpSession } = require("./agents/acp-session.cjs");
 const { antigravityAcp, sweepTempDirs } = require("./agents/antigravity-acp.cjs");
 const { kiroAcp } = require("./agents/kiro-acp.cjs");
+const { createKiroUsage } = require("./kiro-usage.cjs");
 const { createCliCache } = require("./agents/cli.cjs");
 const { createProviderUpdates, releaseVersion } = require("./agents/provider-updates.cjs");
 const { runCliUpdate } = require("./agents/cli-update.cjs");
@@ -375,6 +376,8 @@ function createRuntime(options) {
       (error) => console.warn("Milagre couldn't read your login shell's environment:", error.message),
     );
   const usageStore = createUsageStore({ file: path.join(dataDir, "usage-cache.json") });
+  // Kiro's month of credits, read from kiro-cli at most every few minutes and shared by every Account selection.
+  const kiroUsage = createKiroUsage({ cli: () => baseCli("kiro") });
   // A host may bring its own usage, models and CLI status (the review demo, which runs no real agent).
   const accountUsage = new Map();
   // Tests replace single readers. Claude's and Codex's are called with no arguments; Antigravity's gets the Account's environment.
@@ -406,7 +409,7 @@ function createRuntime(options) {
             }),
           readCodex: readers.codex ?? (() => readCodexUsage({ env: accounts.environment("codex", codex) })),
           readAntigravity: () => (readers.antigravity ?? readAntigravityUsage)({ env: accounts.environment("antigravity", antigravity) }),
-          ...(readers.kiro ? { readKiro: readers.kiro } : {}),
+          readKiro: readers.kiro ?? kiroUsage,
         }),
       });
     }

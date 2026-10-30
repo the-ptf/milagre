@@ -317,6 +317,8 @@ export interface ChatMessage {
   outcome?: "completed" | "failed" | "cancelled";
   /** The tool calls the agent made in this reply, and its thinking, in the order they started. */
   steps?: ChatStep[];
+  /** Kiro only: what the turn cost, in credits, as the agent reported it. */
+  credits?: number;
   /** The host's sidecar with the long details of these steps (each marked `hasDetail`); read with the chat:message command. */
   detailFile?: string;
   operationId?: string;
@@ -924,7 +926,7 @@ export type AgentEvent =
   | { type: "permission-resolved"; requestId: string; decision: PermissionDecision | "cancelled" }
   | ({ type: "question-request" } & QuestionRequest)
   | { type: "question-resolved"; requestId: string; outcome: QuestionOutcome }
-  | { type: "turn-completed"; quiet?: boolean }
+  | { type: "turn-completed"; quiet?: boolean; credits?: number }
   | { type: "turn-cancelled"; quit?: boolean }
   /** `notice`: a message Milagre wrote (it names the CLI and the fix), shown as it is; otherwise it is the agent's own error. */
   | { type: "turn-failed"; message: string; notice?: boolean; login?: boolean; limit?: UsageLimit };
@@ -1076,6 +1078,8 @@ export interface UsageWindow {
   shortLabel: string;
   usedPercent: number;
   resetsAt: string | null;
+  /** The amounts behind the percent, when the provider gives them: "453 of 10,000 credits". */
+  detail?: string;
 }
 
 export interface ProviderUsage {

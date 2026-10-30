@@ -95,11 +95,18 @@ export function formatDuration(ms: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+/** What a turn cost, as the summary says it: "0.04 credits", "1 credit", "<0.01 credits". */
+export function creditsText(credits: number): string {
+  if (credits > 0 && credits < 0.01) return "<0.01 credits";
+  const value = Number(credits.toFixed(2));
+  return `${value} ${value === 1 ? "credit" : "credits"}`;
+}
+
 /**
- * What a reply's activity did, in one line: "Thought for 12s · read 2 files · ran 3 commands".
- * Files count once however often they were read or edited; failed is how many steps failed.
+ * What a reply's activity did, in one line: "Thought for 12s · read 2 files · ran 3 commands", and what it cost when the
+ * agent said (Kiro: "· 0.04 credits"). Files count once however often they were read or edited; failed is how many steps failed.
  */
-export function activitySummary(all: ChatStep[]): { text: string; failed: number } {
+export function activitySummary(all: ChatStep[], { credits }: { credits?: number } = {}): { text: string; failed: number } {
   const steps = all.filter((step) => step.kind !== "setup");
   const of = (kind: ChatStep["kind"]) => steps.filter((step) => step.kind === kind);
   const files = (kind: ChatStep["kind"]) => new Set(of(kind).map((step) => step.title)).size;
@@ -112,6 +119,7 @@ export function activitySummary(all: ChatStep[]): { text: string; failed: number
     files("edit") ? count(files("edit"), "edited 1 file", "edited # files") : "",
     of("shell").length ? count(of("shell").length, "ran 1 command", "ran # commands") : "",
     of("other").length ? count(of("other").length, "used 1 tool", "used # tools") : "",
+    credits !== undefined && Number.isFinite(credits) ? creditsText(credits) : "",
   ].filter(Boolean);
   const text = parts.join(" · ");
   return { text: text.charAt(0).toUpperCase() + text.slice(1), failed: steps.filter((step) => step.status === "failed").length };

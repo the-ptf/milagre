@@ -273,6 +273,14 @@ function mapAcpUpdate(update, state) {
     case "config_option_update":
       readConfigOptions(update.configOptions, state);
       return [];
+    case "session_info_update": {
+      // Kiro's turn summary, just before the turn ends: what its prompts cost, in credits.
+      const { _meta: meta } = update;
+      const summaries = meta?.kiro?.kind === "turn_completion" ? meta.kiro.promptTurnSummaries : null;
+      const credits = Array.isArray(summaries) ? summaries.filter((item) => item?.unit === "credit" && Number.isFinite(item.usage)) : [];
+      if (credits.length) state.turnCredits = credits.reduce((sum, item) => sum + item.usage, 0);
+      return [];
+    }
     default:
       return [];
   }

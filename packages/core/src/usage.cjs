@@ -264,8 +264,8 @@ function createUsageReader(deps = {}) {
     readClaude = readClaudeUsage,
     readCodex = readCodexUsage,
     readAntigravity = () => readAntigravityUsage({ now }),
-    // Kiro's credits come in a later change (docs/adr/0007-kiro-over-acp.md); until then the sidebar leaves it out.
-    readKiro = () => providerResult("kiro", now, "unavailable", [], "Kiro credits aren't shown yet."),
+    // The runtime reads Kiro's credits from kiro-cli (kiro-usage.cjs); without that reader the sidebar leaves Kiro out.
+    readKiro = () => providerResult("kiro", now, "unavailable", [], "Kiro credits aren't read here."),
     now = Date.now,
     store = createUsageStore(),
     ready = () => undefined,

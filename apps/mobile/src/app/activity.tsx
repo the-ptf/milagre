@@ -61,7 +61,7 @@ export default function ActivitySheet() {
   const steps = run?.steps ?? (full && full.id === savedId ? full.steps : saved?.steps) ?? [];
   const { setup, activity, images } = replyActivity(run?.text ?? saved?.body ?? (full && full.id === savedId ? full.body : "") ?? "", steps);
   const waiting = waitingStepIds(run?.approvals);
-  const summary = activitySummary(steps);
+  const summary = activitySummary(steps, { credits: run ? undefined : saved?.credits });
   const selected = stepId ? steps.find((step) => step.id === stepId) : undefined;
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: 40, flexGrow: 1 }}>

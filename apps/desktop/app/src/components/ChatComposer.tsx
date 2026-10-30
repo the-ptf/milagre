@@ -253,12 +253,14 @@ function ReplyContent({
   streaming,
   asking = false,
   waitingStepIds,
+  credits,
 }: {
   body: string;
   steps: ChatStep[];
   streaming: boolean;
   asking?: boolean;
   waitingStepIds: string[];
+  credits?: number;
 }) {
   const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
@@ -267,7 +269,7 @@ function ReplyContent({
       {setup.map((step) => (
         <StepRow key={step.id} step={step} />
       ))}
-      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} />
+      <ActivityBlock entries={activity} streaming={streaming} waitingStepIds={waitingStepIds} credits={credits} />
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
       ))}
@@ -468,7 +470,7 @@ const MessageSection = memo(function MessageSection({
           </>
         ) : (
           <StepDetailsMessage id={message.id}>
-            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
+            <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} credits={message.credits} />
           </StepDetailsMessage>
         )}
         {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-xs text-ink-3">Turn stopped</p>}

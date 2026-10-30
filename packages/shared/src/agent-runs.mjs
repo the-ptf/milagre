@@ -381,6 +381,8 @@ export function applyAgentEvent(state, runs, projectPath, chatId, event) {
         role: "assistant",
         model: run.model,
         outcome: event.type === "turn-completed" ? "completed" : event.type === "turn-cancelled" ? "cancelled" : "failed",
+        // What the turn cost, when the agent reports it (Kiro's credits).
+        ...(event.type === "turn-completed" && Number.isFinite(event.credits) ? { credits: event.credits } : {}),
         // Codex sends no end for a command still running when a turn stops, so the turn's end closes it.
         ...savedSteps(run.text, run.steps, event.type === "turn-completed" ? "done" : "failed"),
       };

@@ -29,11 +29,13 @@
 const { createInterface } = require("node:readline");
 
 const scenario = process.env.FAKE_SCENARIO || "reply";
+// Kiro's shapes: "kiro" replies, "kiro-tools" asks for an edit and two commands like kiro-cli's v3 engine.
+const kiro = scenario.startsWith("kiro");
 const received = [];
 let sessions = 0;
-let model = scenario === "kiro" ? "auto" : "gemini-3.8-flash-high";
-let mode = scenario === "kiro" ? "vibe" : "default";
-// Kiro (scenario "kiro"): models carry their credits and efforts, `effortLevel` follows the model at its default,
+let model = kiro ? "auto" : "gemini-3.8-flash-high";
+let mode = kiro ? "vibe" : "default";
+// Kiro: models carry their credits and efforts, `effortLevel` follows the model at its default,
 // and approvals are the `autopilot` option.
 const KIRO_MODELS = [
   { value: "auto", name: "Auto", description: "Models chosen by task", _meta: { kiro: { rateMultiplier: 1, rateUnit: "Credit" } } },
@@ -49,7 +51,7 @@ const kiroDefaultEffort = (value) => {
   return meta?.kiro.defaultEffortLevel ?? null;
 };
 let effortLevel = null;
-let autopilot = "on";
+let autopilot = "off";
 let promptWaiter = null;
 let waiting = null;
 let nextServerId = 0;
@@ -67,7 +69,7 @@ const kiroConfigOptions = () => [
   ...(effortLevel ? [{ id: "effortLevel", name: "Effort", type: "select", currentValue: effortLevel, options: [] }] : []),
   { id: "autopilot", name: "Autopilot", type: "select", currentValue: autopilot, options: ["on", "off"].map((value) => ({ value, name: value })) },
 ];
-const configOptions = () => (scenario === "kiro" ? kiroConfigOptions() : antigravityConfigOptions());
+const configOptions = () => (kiro ? kiroConfigOptions() : antigravityConfigOptions());
 const antigravityConfigOptions = () => [
   {
     id: "model",
@@ -187,6 +189,37 @@ async function runPrompt(id, sessionId) {
       text(sessionId, `picked:${picked(result)}`);
       return end();
     }
+    case "kiro-tools": {
+      // A tool call reports its command first; the permission request that follows names only its title.
+      const edit = { type: "diff", path: `${process.cwd()}/notes.txt`, oldText: null, newText: "hello\n" };
+      const results = [];
+      update(sessionId, {
+        sessionUpdate: "tool_call",
+        toolCallId: "edit-1",
+        title: "Edit notes.txt",
+        kind: "edit",
+        status: "pending",
+        content: [edit],
+        locations: [{ path: edit.path }],
+      });
+      results.push(picked(await ask({ sessionId, toolCall: { toolCallId: "edit-1", title: "Edit notes.txt" }, options: OPTIONS })));
+      for (const [toolCallId, command] of [
+        ["run-1", "git status --short"],
+        ["run-2", "git push origin main"],
+      ]) {
+        update(sessionId, {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title: "Run Command",
+          kind: "execute",
+          status: "pending",
+          rawInput: { command, cwd: process.cwd() },
+        });
+        results.push(picked(await ask({ sessionId, toolCall: { toolCallId, title: command }, options: OPTIONS })));
+      }
+      text(sessionId, `picked:${results.join(",")}`);
+      return end();
+    }
     case "edit": {
       const diff = { type: "diff", path: `${process.cwd()}/notes.txt`, oldText: "a\nb\n", newText: "a\nc\n", _meta: { kind: "modify" } };
       const call = { toolCallId: "ask-1", title: "Run create_file?", kind: "edit", status: "pending", content: [diff], locations: [{ path: diff.path }] };
@@ -262,6 +295,20 @@ async function runPrompt(id, sessionId) {
     default:
       text(sessionId, "Hel");
       text(sessionId, "lo");
+      // Kiro says what the turn cost just before it ends.
+      if (kiro)
+        update(sessionId, {
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: {
+              kind: "turn_completion",
+              promptTurnSummaries: [
+                { unit: "credit", unitPlural: "credits", usage: 0.03 },
+                { unit: "credit", usage: 0.01 },
+              ],
+            },
+          },
+        });
       return end();
   }
 }
@@ -318,7 +365,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       if (params.configId === "model") {
         if (params.value === "nope") return send({ id, error: { code: -32602, message: "Unknown model" } });
         model = params.value;
-        if (scenario === "kiro") effortLevel = kiroDefaultEffort(model);
+        if (kiro) effortLevel = kiroDefaultEffort(model);
       }
       if (params.configId === "mode") mode = params.value;
       if (params.configId === "effortLevel") effortLevel = params.value;

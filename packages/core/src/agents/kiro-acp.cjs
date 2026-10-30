@@ -9,10 +9,11 @@ const { resolveKiroModel } = require("@milagre/shared/kiro-models");
 // follows the model. v2 asks for every command, `git status` included, and reports neither.
 const ACP_ARGS = ["acp", "--agent-engine", "v3"];
 
-// Kiro's own approvals are its `autopilot` option: off, it asks before it edits; on, only risky commands ask. Its
-// `mode` option is something else (its agents: Default, Spec, Plan…), so Milagre never sets it. Ask and Bot rules
-// keep autopilot off so every edit reaches Milagre's card or the bot; Full answers what still asks without a card.
-const MODES = { ask: "off", auto: "on", full: "on", bot: "off" };
+// Kiro's `autopilot` option stays on in every mode. On, Kiro asks before each edit and each command it doesn't
+// consider read-only; off (supervised), it also asks for every command and asks again to review each edit after it
+// is made, a second card for what Ask already approved. Its `mode` option is something else (its agents: Default,
+// Spec, Plan…), so Milagre never sets it. Milagre's own modes decide the cards (see AcpSession.askPermission).
+const MODES = { ask: "on", auto: "on", full: "on", bot: "on" };
 
 // The app the Homebrew cask (and Kiro's installer) puts in /Applications holds the agent beside the `kiro-cli` launcher.
 const APP_AGENT = "/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli-chat";
@@ -101,6 +102,8 @@ const kiroAcp = {
   resolveEffort,
   // Kiro keeps every session in its history; a throwaway one (a chat title, a commit message) is deleted after use.
   deleteThrowawaySessions: true,
+  // Kiro asks before most commands; in Auto, Milagre lets the ones that stay inside the worktree run (command-risk.cjs).
+  riskFilter: true,
 };
 
 module.exports = { kiroAcp, kiroAgentFor, kiroSpawn, crashDetail, isLoginError, resolveEffort, KIRO_ACP_ARGS: ACP_ARGS, KIRO_MODES: MODES };

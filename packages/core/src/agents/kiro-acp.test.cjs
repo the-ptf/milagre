@@ -11,7 +11,7 @@ const { waitUntil } = require("./test-helpers.cjs");
 
 const FAKE = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
 
-function kiro(t) {
+function kiro(t, scenario = "kiro") {
   const events = [];
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "milagre-kiro-cwd-"));
   const spawned = [];
@@ -23,14 +23,14 @@ function kiro(t) {
     emit: (event) => events.push(event),
     createRpc: (options) => {
       spawned.push(options);
-      return new AcpRpc({ ...options, command: process.execPath, args: [FAKE], env: { ...options.env, FAKE_SCENARIO: "kiro" } });
+      return new AcpRpc({ ...options, command: process.execPath, args: [FAKE], env: { ...options.env, FAKE_SCENARIO: scenario } });
     },
   });
   t.after(async () => {
     await session.close();
     fs.rmSync(cwd, { recursive: true, force: true });
   });
-  return { session, events, spawned };
+  return { session, events, spawned, cwd };
 }
 const ended = (events, count = 1) => waitUntil(() => events.filter(isTerminal).length >= count);
 const configSent = async (session) =>
@@ -47,22 +47,21 @@ test("Kiro runs the agent binary on the v3 engine", async (t) => {
   assert.deepEqual(KIRO_ACP_ARGS, ["acp", "--agent-engine", "v3"]);
 });
 
-test("Kiro gets its own model id, the effort its model takes, and autopilot for the permission mode; never its agent mode", async (t) => {
+test("Kiro gets its own model id and the effort its model takes; autopilot stays on and its agent mode is never set", async (t) => {
   const { session, events } = kiro(t);
   await session.startTurn({ prompt: "Hi", images: [], model: "kiro:claude-opus-5.5", effort: "high", permissionMode: "ask" });
   await ended(events);
   // Nothing changed: nothing is sent.
   await session.startTurn({ prompt: "Again", images: [], model: "kiro:claude-opus-5.5", effort: "high", permissionMode: "ask" });
   await ended(events, 2);
-  // Auto takes no effort; Auto mode turns autopilot on.
+  // Auto takes no effort.
   await session.startTurn({ prompt: "Cheaper", images: [], model: "kiro:auto", effort: "high", permissionMode: "auto" });
   await ended(events, 3);
   assert.deepEqual(await configSent(session), [
     ["model", "claude-opus-5.5"],
     ["effortLevel", "high"],
-    ["autopilot", "off"],
-    ["model", "auto"],
     ["autopilot", "on"],
+    ["model", "auto"],
   ]);
   // The session keeps Kiro's options as they came, credits included, for the picker.
   const { _meta: meta } = session.models.find((model) => model.value === "claude-opus-5.5");
@@ -108,4 +107,43 @@ test("a crash names the agent's last error line without its log prefix", () => {
   assert.equal(crashDetail("starting\n2026-10-30T14:49:46.060Z ERROR kiro::acp: token refresh failed\nbye"), "token refresh failed");
   assert.equal(crashDetail("error: failed to launch /Users/me/.local/bin/kiro-cli-chat"), "failed to launch /Users/me/.local/bin/kiro-cli-chat");
   assert.equal(crashDetail(""), "");
+});
+
+test("in Auto, edits inside the worktree and safe commands run; a risky command gets a card that says why", async (t) => {
+  const { session, events } = kiro(t, "kiro-tools");
+  await session.startTurn({ prompt: "Go", images: [], model: "kiro:auto", permissionMode: "auto" });
+  await waitUntil(() => events.some((event) => event.type === "permission-request"));
+  const cards = events.filter((event) => event.type === "permission-request");
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].command, "git push origin main");
+  assert.equal(cards[0].reason, "Writes to GitHub.");
+  session.respondToPermission(cards[0].requestId, "deny");
+  await ended(events);
+  assert.match(
+    events
+      .filter((event) => event.type === "text-delta")
+      .map((event) => event.text)
+      .join(""),
+    /picked:allow,allow,deny/,
+  );
+});
+
+test("in Ask, every request Kiro makes gets a card", async (t) => {
+  const { session, events } = kiro(t, "kiro-tools");
+  await session.startTurn({ prompt: "Go", images: [], model: "kiro:auto", permissionMode: "ask" });
+  for (let count = 1; count <= 3; count += 1) {
+    await waitUntil(() => events.filter((event) => event.type === "permission-request").length === count);
+    const card = events.findLast((event) => event.type === "permission-request");
+    assert.equal(card.reason, undefined);
+    session.respondToPermission(card.requestId, "allow");
+  }
+  await ended(events);
+});
+
+test("a Kiro turn ends with what it cost, in credits", async (t) => {
+  const { session, events } = kiro(t);
+  await session.startTurn({ prompt: "Hi", images: [], model: "kiro:auto", permissionMode: "auto" });
+  await ended(events);
+  const end = events.find((event) => event.type === "turn-completed");
+  assert.equal(Math.round(end.credits * 100) / 100, 0.04);
 });

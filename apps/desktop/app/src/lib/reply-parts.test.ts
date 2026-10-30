@@ -131,6 +131,13 @@ test("the summary counts thinking time, files, searches, commands and tools", ()
   });
 });
 
+test("a turn's credits close the summary when the agent reported them", () => {
+  assert.deepEqual(activitySummary([step("a")], { credits: 0.0416 }), { text: "Ran 1 command · 0.04 credits", failed: 0 });
+  assert.equal(activitySummary([step("a")], { credits: 1 }).text, "Ran 1 command · 1 credit");
+  assert.equal(activitySummary([step("a")], { credits: 0.004 }).text, "Ran 1 command · <0.01 credits");
+  assert.equal(activitySummary([step("a")], {}).text, "Ran 1 command");
+});
+
 test("the summary starts with a capital and leaves out what didn't happen", () => {
   assert.deepEqual(activitySummary([step("a"), step("b")]), { text: "Ran 2 commands", failed: 0 });
   assert.deepEqual(activitySummary([thought("t", 0)]), { text: "Thought", failed: 0 });

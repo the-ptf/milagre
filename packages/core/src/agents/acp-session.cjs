@@ -22,6 +22,7 @@ const { sessionInstructions, RESUME_FAILED_MESSAGE, crashMessage, failedWith, lo
 const { PendingPermissions, WorkspaceAccess, capText, insideWorkspace, isAcpPlanToolPermission, unwrapShell, writesRemote } = require("./permissions.cjs");
 const { PendingQuestions } = require("./questions.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { commandRisk } = require("./command-risk.cjs");
 const { antigravityAcp, makeTempDir } = require("./antigravity-acp.cjs");
 const { promptImageBlocks } = require("@milagre/shared/prompt-parts");
 
@@ -244,7 +245,7 @@ class AcpSession {
 
   async beginTurn({ prompt, images = [], model: wanted, effort, permissionMode }) {
     const turnId = randomUUID();
-    Object.assign(this.state, { turnId, hasText: false, textBreak: false });
+    Object.assign(this.state, { turnId, hasText: false, textBreak: false, turnCredits: undefined });
     if (permissionMode) this.permissions.setMode(permissionMode);
     try {
       this.starting ??= this.start();
@@ -317,7 +318,10 @@ class AcpSession {
 
   promptEnded(turnId, result) {
     if (this.state.turnId !== turnId || !this.turnActive) return;
-    void this.finishTurn([this.cancelRequested ? { type: "turn-cancelled" } : stopReasonEvent(result?.stopReason, this.config.name)]);
+    const end = this.cancelRequested ? { type: "turn-cancelled" } : stopReasonEvent(result?.stopReason, this.config.name);
+    // What the turn cost, when the agent said (Kiro's credits).
+    const credits = this.state.turnCredits;
+    void this.finishTurn([end.type === "turn-completed" && Number.isFinite(credits) ? { ...end, credits } : end]);
   }
 
   promptFailed(turnId, error) {
@@ -535,6 +539,21 @@ class AcpSession {
     const roots = [this.cwd, ...(this.access.roots ?? [])];
     // Resolved through symlinks: the agent names files by their real path (/private/var/… on macOS).
     const inWorkspace = request.kind === "edit" && request.files.length > 0 && insideWorkspace(roots, request.files, this.cwd);
+    // Auto allows changes inside the worktree. An agent whose own mode can't say so (Kiro asks before every edit)
+    // gets that answer here, without a card.
+    if (inWorkspace && this.permissions.mode === "auto") {
+      this.reply(id, outcome(pickOption(options, "allow", once)));
+      return;
+    }
+    // Auto's risk filter (Kiro): a command that stays inside the worktree runs; a risky one gets a card that says why.
+    if (this.config.riskFilter && this.permissions.mode === "auto" && request.kind === "command") {
+      const risk = commandRisk(request.command, { cwd: request.cwd ?? this.cwd, roots });
+      if (!risk) {
+        this.reply(id, outcome(pickOption(options, "allow", once)));
+        return;
+      }
+      request.reason = `${risk[0].toUpperCase()}${risk.slice(1)}.`;
+    }
     this.permissions.add(request, (decision) => this.reply(id, outcome(pickOption(options, decision, once))), { inWorkspace });
   }
 
