@@ -16873,3 +16873,139 @@ test("artifact feedback refreshes comments received after a dock was opened", as
   assert.ok(h.commands().some((command) => command.t === "reveal" && command.k === "sent:12345678"));
   h.cleanup();
 });
+
+function panelHandoffHost() {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const painted = new Set();
+  const routes = [];
+  const session = { cancelNavigation() {} };
+  const { SidePanelsProvider } = load("side-panels.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/after-paint": {
+      afterPaint: (work) => {
+        painted.add(work);
+        return () => painted.delete(work);
+      },
+    },
+    "react-native": {
+      useWindowDimensions: () => ({ width: 390 }),
+      Keyboard: { dismiss() {} },
+      BackHandler: { addEventListener: () => ({ remove() {} }) },
+    },
+    "expo-router": { router: { canDismiss: () => false, replace: (href) => routes.push(href), push: (href) => routes.push(href) } },
+    "react-native-safe-area-context": {},
+    "react-native-gesture-handler": {},
+    "react-native-reanimated": {
+      ReduceMotion: { System: "system" },
+      Easing: { out: (value) => value, cubic: "cubic" },
+      useSharedValue: (initial) =>
+        react.useState(() => ({
+          value: initial,
+          set(value) {
+            this.value = value;
+          },
+        }))[0],
+      withTiming: (value, _options, complete) => {
+        complete?.();
+        return value;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (work) => work() },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => session },
+    "./project-navigation": {},
+    "./app/changes": {},
+    "./change-tree": {},
+    "./app/diff": {},
+    "./ui": {},
+    "./icons": {},
+    "./pr-overview": {},
+    "./pr-chat": {},
+    "./motion": { springTo: (value) => value, scaledTiming: (value) => value },
+    "./theme": { getMotionScale: () => 1 },
+    "./panel-motion": {},
+    "./simulator": {},
+    "./designs-sheet": {},
+    "./artifact": {},
+    "./browser": {},
+  });
+  const render = () => {
+    react.begin();
+    const value = SidePanelsProvider({ children: null }).props.value;
+    react.flush();
+    return value;
+  };
+  const old = { token: {}, chatId: 1 };
+  render().attach(old);
+  render().show("left");
+  render();
+  return {
+    render,
+    old,
+    routes,
+    painted,
+    cleanup: () => react.cleanup(),
+    paint: () => {
+      for (const work of painted) {
+        painted.delete(work);
+        work();
+      }
+    },
+  };
+}
+
+test("a Chat committed under the sidebar is revealed without a native transition event or the one-second watchdog", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    assert.equal(host.routes.length, 1);
+    host.render().detach(host.old.token);
+    const next = { token: {}, chatId: 2 };
+    host.render().attach(next);
+    assert.equal(host.render().open, "left", "keep the old Chat covered until the destination paints");
+    host.paint();
+    assert.equal(host.render().open, null, "no transitionEnd is needed to reveal the committed destination");
+    assert.equal(host.render().screen.chatId, 2);
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a superseded sidebar handoff cannot close the navigation on the next Chat", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    const second = { token: {}, chatId: 2 };
+    host.render().attach(second);
+    const stale = [...host.painted][0];
+    host.render().navigate({ pathname: "/chat", params: { id: "3" } });
+    const third = { token: {}, chatId: 3 };
+    host.render().attach(third);
+    stale();
+    assert.equal(host.render().open, "left");
+    host.paint();
+    assert.equal(host.render().open, null);
+    assert.equal(host.render().screen.chatId, 3);
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a native transition ending first cancels the queued sidebar arrival", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    const next = { token: {}, chatId: 2 };
+    host.render().attach(next);
+    host.render().arrived(next.token);
+    assert.equal(host.render().open, null);
+    assert.equal(host.painted.size, 0);
+    host.render().show("left");
+    host.paint();
+    assert.equal(host.render().open, "left", "a completed arrival cannot dismiss a reopened sidebar");
+  } finally {
+    host.cleanup();
+  }
+});
