@@ -10,14 +10,19 @@ import { useSession } from "./session";
 import { ErrorNotice, ListRow, Toggle, useStyles } from "./ui";
 import { DONE_DEFAULTS, DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { readDoneSettings, saveDoneSettings } from "./done-retention";
+import { MacUpdateRows, useMacUpdate } from "./mac-update";
 
 /**
  * Settings › General: plan usage, the connected Mac's worktree default, how long its Done Chats wait before it archives
- * them, and its Auto update (desktop's About).
+ * them, and its Milagre update and Auto update (desktop's About).
  */
 export function GeneralSection() {
   const styles = useStyles();
   const session = useSession();
+  const host = session.client ? session.hosts.find((saved) => saved.id === session.client?.url) : undefined;
+  const macName = host?.name || session.hostName || "your Mac";
+  // The Mac's desktop app update, checked and installed from here; hidden on a Mac too old to answer.
+  const macUpdate = useMacUpdate(session.client);
   // The Mac's Auto update (desktop Settings › About); null until it answers (an older Mac never does).
   const [autoUpdate, setAutoUpdate] = useState<boolean | null>(null);
   const [autoUpdateError, setAutoUpdateError] = useState("");
@@ -100,13 +105,19 @@ export function GeneralSection() {
         </>
       )}
       <DoneRetention />
-      {session.client && autoUpdate !== null && (
+      {session.client && (autoUpdate !== null || macUpdate.update !== undefined || macUpdate.restarting) && (
         <>
           <Text style={[styles.section, { marginTop: 12 }]}>Updates</Text>
           <View style={[styles.card, { gap: 4 }]}>
-            <Toggle title={AUTO_UPDATE_TITLE} selected={autoUpdate} onPress={() => void changeAutoUpdate(!autoUpdate)} />
-            <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
-            {autoUpdateError ? <ErrorNotice message={autoUpdateError} /> : null}
+            <MacUpdateRows state={macUpdate} macName={macName} />
+            {autoUpdate !== null && (
+              <>
+                {(macUpdate.update !== undefined || macUpdate.restarting) && <View style={styles.separator} />}
+                <Toggle title={AUTO_UPDATE_TITLE} selected={autoUpdate} onPress={() => void changeAutoUpdate(!autoUpdate)} />
+                <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
+                {autoUpdateError ? <ErrorNotice message={autoUpdateError} /> : null}
+              </>
+            )}
           </View>
         </>
       )}
