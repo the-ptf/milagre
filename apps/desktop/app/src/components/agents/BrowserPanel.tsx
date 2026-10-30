@@ -65,7 +65,8 @@ export function BrowserPanel({ chatKey, ports, onSendComments }: { chatKey: stri
   const close = useCallback(() => setBrowserOpen(chatKey, false), [chatKey]);
   useCloseWhenDesignsExpand(close);
   useSidePanelRoom("browser", chat.open, width + 12, close);
-  useSidePanel("browser", { open: chat.open, toggle: () => setBrowserOpen(chatKey, !chatBrowser(chatKey).open) });
+  // Keep opening a blank page available in the menu and by shortcut; promote it once a page exists.
+  useSidePanel("browser", { open: chat.open, promoted: chat.tabs.length > 0, toggle: () => setBrowserOpen(chatKey, !chatBrowser(chatKey).open) });
   // Localhost links in this Chat's replies open here while it is on screen.
   useEffect(() => registerBrowserHost(chatKey), [chatKey]);
   useSentPageComments(chatKey);

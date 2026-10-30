@@ -14,15 +14,15 @@ import {
   ArrowDown01Icon,
   ArrowUp01Icon,
   BubbleChatIcon,
+  BrowserIcon,
+  GitPullRequestIcon,
   Cancel01Icon,
   File01Icon,
   GitBranchIcon,
   GitForkIcon,
   ComputerIcon,
   LaptopIcon,
-  Pulse01Icon,
   MoreHorizontalIcon,
-  RepeatIcon,
   SidebarLeftIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
@@ -46,7 +46,7 @@ import { LINK_PR_HINT, issueChipLabel, issueFirstMessage, type LinearIssue, type
 import { worktreeShared } from "@milagre/shared/archive";
 import type { Client, OpenProject, Snapshot } from "../client";
 import { answeredQuestions, lastUserModel, projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
-import { pullRequestAction, pullRequestBlockers, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
+import { pullRequestAction, pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { pullRequestActionBody, pullRequestActionContext, pullRequestActionPrompt } from "@milagre/shared/pr-action";
 import { linearIssueContext, linearIssueRequest } from "@milagre/shared/linear-issue";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
@@ -67,7 +67,7 @@ import { widthClass } from "../split-width";
 import { backgroundItems, chatActivity } from "@milagre/shared/chat-activity";
 import { useChatPullRequests } from "../use-chat-pull-requests";
 import { SimulatorChip } from "../simulator";
-import { BrowserChip } from "../browser";
+import { useBrowserShortcut } from "../browser";
 import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
@@ -105,6 +105,7 @@ import { AgentControls, PermissionChip } from "../agent-controls";
 import { afterSend, chatPreferences, modelsFor, selectedModel, sendOptions, turnTarget } from "../turn-options";
 // Linear's mark as a template image, so iOS tints it like the SF Symbols beside it in menus.
 import LINEAR_MARK from "../../assets/linear-mark.png";
+import PR_TOOLBAR_ICON from "../../assets/pr-toolbar.png";
 import { Icon, LinearLogo } from "../icons";
 import { PanelSwipe, useSidePanels } from "../side-panels";
 import { useSplit, useSplitLayout } from "../split-context";
@@ -178,24 +179,24 @@ const NO_CHECKPOINTS: CheckpointApi = {
 
 // The native header lays its title out between the sidebar button and the toolbar group, and lets a title wider than that run
 // under the group. These are the pieces of that room, in points: the header's inset from the screen edge, one round button,
-// the Routine and ⋯ buttons sharing a pill, and the clear space kept beside the title. The title is never wider than 230.
+// the Browser, PR and ⋯ buttons sharing a pill, and the clear space beside the title. The title is never wider than 230.
 const HEADER_EDGE = 16;
 const HEADER_BUTTON = 44;
-const HEADER_PILL = 104;
+const HEADER_BUTTON_PITCH = 60;
 const HEADER_GAP = 12;
 const HEADER_TITLE_MAX = 230;
 /** The widest the header title may be on a screen `screenWidth` wide: what is left between the sidebar button and the toolbar group. */
-function headerTitleWidth(screenWidth: number, routineButton: boolean) {
+function headerTitleWidth(screenWidth: number, actionCount: number) {
   const left = HEADER_EDGE + HEADER_BUTTON + HEADER_GAP;
-  const right = HEADER_EDGE + (routineButton ? HEADER_PILL : HEADER_BUTTON) + HEADER_GAP;
+  const right = HEADER_EDGE + (HEADER_BUTTON + (actionCount - 1) * HEADER_BUTTON_PITCH) + HEADER_GAP;
   return Math.max(0, Math.min(HEADER_TITLE_MAX, screenWidth - left - right));
 }
 
 /** The header title's box, as wide as the room the pinned sidebar leaves. */
-function HeaderTitleBox({ routineButton, children }: { routineButton: boolean; children: ReactNode }) {
+function HeaderTitleBox({ actionCount, children }: { actionCount: number; children: ReactNode }) {
   const window = useWindowDimensions();
   const { pinned } = useSplit();
-  return <View style={{ alignItems: "center", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), routineButton) }}>{children}</View>;
+  return <View style={{ alignItems: "center", width: "100%", maxWidth: headerTitleWidth(chatAreaWidth(window.width, pinned), actionCount) }}>{children}</View>;
 }
 
 /** The native header's sidebar button: shows or hides the pinned sidebar, or slides the navigation over on a narrower window. */
@@ -814,6 +815,9 @@ function ChatPane({
       unsubscribe();
     };
   }, [savedChatKey]);
+  const browserShortcut = useBrowserShortcut({
+    chatId: savedChatKey ?? undefined,
+  });
   // Only the routed Chat clears its Unread mark: the one beside is read when it is opened on its own.
   useReadOpenChat(
     connected,
@@ -1544,6 +1548,7 @@ function ChatPane({
     touchPane(secondary ? "beside" : "routed");
     if (id === "changes" && secondary) router.push({ pathname: "/changes", params: { worktreeId: String(worktreeId) } });
     else if (id === "changes") panels.showChanges();
+    else if (id === "routine") openRoutine();
     else if (id === "linear" && linearIssue) openLinearIssue(linearIssue.url);
     else if (id === "link-issue") linkIssue();
     else if (id === "unlink-issue") void unlinkWorktreeIssue();
@@ -1631,7 +1636,6 @@ function ChatPane({
       archiveRequest.current = false;
     }
   }
-  const blockers = pullRequestBlockers(pr);
   const prAction = pullRequestAction(chatPrs);
   // The pill's action, checked here too: a PR without a number yet shows no pill instead of sending a broken one.
   const prActionRequest = prAction ? pullRequestActionContext({ action: prAction.blocker, pr: prAction.pr.number, url: prAction.pr.url }) : null;
@@ -1686,7 +1690,7 @@ function ChatPane({
   }
   const header = (
     <>
-      <HeaderTitleBox routineButton={!!ownRoutine}>
+      <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr)}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
           <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
             {title}
@@ -1726,31 +1730,43 @@ function ChatPane({
       </HeaderTitleBox>
     </>
   );
-  const prSubtitle = pr
-    ? blockers.length
-      ? blockers.join(", ").replace(/-/g, " ")
-      : pr.state === "MERGED"
-        ? "Merged"
-        : pr.readyToMerge
-          ? "Ready to merge"
-          : "Open"
-    : undefined;
   const more = (
     <Stack.Toolbar placement="right">
-      {/* Shown for a Run Chat and while this Chat has a Heartbeat on; it opens that Routine's page. */}
-      {ownRoutine ? (
-        Platform.OS === "ios" ? (
+      {browserShortcut &&
+        (Platform.OS === "ios" ? (
           <Stack.Toolbar.Button
-            icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"}
-            accessibilityLabel={ownHeartbeat ? "Heartbeat" : "Routine"}
-            onPress={openRoutine}
+            icon="globe"
+            accessibilityLabel={browserShortcut.accessibilityLabel}
+            onPress={() => {
+              touchPane(secondary ? "beside" : "routed");
+              browserShortcut.onPress();
+            }}
           />
         ) : (
           <Stack.Toolbar.View>
-            <HeaderButton label={ownHeartbeat ? "Heartbeat" : "Routine"} icon={ownHeartbeat ? Pulse01Icon : RepeatIcon} onPress={openRoutine} />
+            <HeaderButton
+              label={browserShortcut.accessibilityLabel}
+              icon={BrowserIcon}
+              onPress={() => {
+                touchPane(secondary ? "beside" : "routed");
+                browserShortcut.onPress();
+              }}
+            />
           </Stack.Toolbar.View>
-        )
-      ) : null}
+        ))}
+      {pr &&
+        (Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button
+            icon={PR_TOOLBAR_ICON}
+            iconRenderingMode="template"
+            accessibilityLabel={`Pull request #${pr.number}`}
+            onPress={() => headerAction("pr")}
+          />
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label={`Pull request #${pr.number}`} icon={GitPullRequestIcon} iconSize={28} onPress={() => headerAction("pr")} />
+          </Stack.Toolbar.View>
+        ))}
       <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="Chat actions">
         {/* A Chat without a Project has no Git changes to review, as on desktop. */}
         {!chatsHomeOpen && (
@@ -1767,12 +1783,10 @@ function ChatPane({
             Undo changes
           </Stack.Toolbar.MenuAction>
         )}
-        {pr && (
-          <Stack.Toolbar.MenuAction
-            icon="arrow.triangle.pull"
-            subtitle={prSubtitle}
-            onPress={() => headerAction("pr")}
-          >{`Pull request #${pr.number}`}</Stack.Toolbar.MenuAction>
+        {ownRoutine && (
+          <Stack.Toolbar.MenuAction icon={ownHeartbeat ? "waveform.path.ecg" : "repeat"} onPress={() => headerAction("routine")}>
+            {ownHeartbeat ? "Heartbeat" : "Routine"}
+          </Stack.Toolbar.MenuAction>
         )}
         {linearIssue && (
           <Stack.Toolbar.MenuAction icon={LINEAR_MARK} iconRenderingMode="template" onPress={() => openLinearIssue(linearIssue.url)}>
@@ -1826,7 +1840,7 @@ function ChatPane({
               { id: "changes", title: "View changes", systemImage: "doc.text.magnifyingglass", subtitle: diff ? `+${diff.added} −${diff.removed}` : undefined },
             ]),
         ...(chat ? [{ id: "undo", title: "Undo changes", systemImage: "arrow.uturn.backward", disabled: !!run }] : []),
-        ...(pr ? [{ id: "pr", title: `Pull request #${pr.number}`, systemImage: "arrow.triangle.pull", subtitle: prSubtitle }] : []),
+        ...(ownRoutine ? [{ id: "routine", title: ownHeartbeat ? "Heartbeat" : "Routine", systemImage: ownHeartbeat ? "waveform.path.ecg" : "repeat" }] : []),
         ...(linearIssue ? [{ id: "linear", title: issueChipLabel(linearIssue), systemImage: "link" }] : []),
         ...(agents.length > 0 ? [{ id: "agents", title: "Subagents", systemImage: "person.2", subtitle: String(agents.length) }] : []),
       ],
@@ -1874,9 +1888,29 @@ function ChatPane({
       }}
     >
       {!secondary && <SidebarButton />}
-      <View pointerEvents="box-none" style={{ flex: 1, alignItems: "center" }}>
+      <View pointerEvents="box-none" style={{ flex: 1, minWidth: 0, alignItems: "center" }}>
         {startingChat ? null : header}
       </View>
+      {browserShortcut && (
+        <GlassIconButton
+          label={browserShortcut.accessibilityLabel}
+          systemImage="globe"
+          icon={BrowserIcon}
+          onPress={() => {
+            touchPane(secondary ? "beside" : "routed");
+            browserShortcut.onPress();
+          }}
+        />
+      )}
+      {pr && (
+        <GlassIconButton
+          label={`Pull request #${pr.number}`}
+          systemImage="arrow.triangle.pull"
+          icon={GitPullRequestIcon}
+          iconSize={28}
+          onPress={() => headerAction("pr")}
+        />
+      )}
       <PullDown label="Chat actions" sections={paneMenu} onSelect={headerAction}>
         <GlassIconButton label="Chat actions" systemImage="ellipsis" icon={MoreHorizontalIcon} onPress={() => {}} />
       </PullDown>
@@ -2299,7 +2333,6 @@ function ChatPane({
                           <PullRequestReview count={prOpenThreads} onOpen={() => openPr(pr.number, "threads")} />
                         )}
                         <View style={{ flex: 1 }} />
-                        <BrowserChip chatId={params.id ? chatId : undefined} />
                         {params.id && Number(params.id) > 0 && chat && !chat.archived && (
                           <TerminalChip
                             key={`terminal-${chatId}`}

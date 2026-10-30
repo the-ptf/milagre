@@ -76,9 +76,9 @@ import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
 import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
-import { CORNER_PITCH, PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
+import { PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { AttentionButton, ChangesToggle, DiffBar, LayoutToggle } from "./components/changes/ChangesChrome";
+import { AttentionButton, DiffBar, LayoutToggle } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -3415,10 +3415,33 @@ function App() {
             )}
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
-          {changesAvailable && !botsShown && <ChangesToggle open={changes.open} onToggle={changes.toggleDefault} />}
-          {!botsShown && <PanelToggles right={changesAvailable ? 12 + CORNER_PITCH : 12} />}
+          {!botsShown && (
+            <PanelToggles
+              right={12}
+              changes={
+                changesAvailable
+                  ? {
+                      open: changes.open && !prShown,
+                      toggle: () => {
+                        if (!changes.open || prShown) changes.setMode(firstSection(changes.lists));
+                        if (!prShown) changes.toggle();
+                      },
+                    }
+                  : undefined
+              }
+              pullRequest={
+                changesAvailable && prNumber
+                  ? { number: prNumber, open: prShown, toggle: () => (prShown ? changes.toggle() : changes.showPullRequest()) }
+                  : undefined
+              }
+            />
+          )}
           {view === "chat" && !botsShown && (
-            <LayoutToggle grid={layout === "grid"} offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels)} onToggle={toggleLayout} />
+            <LayoutToggle
+              grid={layout === "grid"}
+              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber)}
+              onToggle={toggleLayout}
+            />
           )}
           {showAttentionButton && !floatingInbox && !botsShown && attentionTitles[0] && (
             <AttentionButton
@@ -3428,7 +3451,7 @@ function App() {
                 asking: !agentRuns.runs[item.key]?.approvals.length,
                 waitingFor: waitingFor(agentRuns.runs[item.key]),
               }))}
-              offset={(changesAvailable ? 1 : 0) + sidePanelCount(sidePanels) + (view === "chat" ? 1 : 0)}
+              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" ? 1 : 0)}
               onOpen={openChatByKey}
             />
           )}
