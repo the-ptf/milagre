@@ -156,6 +156,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
+      if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",
@@ -256,6 +257,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "expo-font" && !(id in modules)) return { isLoaded: () => false, loadAsync: async () => {} };
       if (id.endsWith(".ttf") && !(id in modules)) return { uri: id };
       // Dictation is not available in a test: no microphone, no on-device transcriber.
+      if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
           useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
@@ -5028,7 +5030,7 @@ test("an older Mac's rows offer no Done, and their left swipe archives as before
   }
 });
 
-test("a sidebar Chat archives immediately and stops the turn while preserving unsaved work", async () => {
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -5045,14 +5047,14 @@ test("a sidebar Chat archives immediately and stops the turn while preserving un
   });
   const more = nav.more(nav.row("chat"));
   const archiveItem = more.props.sections.at(-1).items.find((item) => item.id === "archive");
-  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Archive");
+  assert.equal(more.props.sections.at(-1).items[0].id, "done", "Mark Done comes before Delete");
   assert.equal(archiveItem.disabled, undefined, "a running Chat can be archived: it is stopped first");
   more.props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(alerts, []);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     project.calls.map(([method]) => method),
-    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "refresh"],
+    ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
   );
   assert.equal(
     project.calls.some(([method]) => method === "worktree:remove"),
@@ -5074,13 +5076,13 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.params.id = "5";
   delete screen.params.worktreeId;
   screen.render();
-  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   archive.props.onPress();
   await settleAll();
-  assert.deepEqual(alerts, []);
+  assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
-    ["worktree:roots", "chat:patch"],
+    ["worktree:roots", "chat:patch", "chat:delete"],
   );
   assert.deepEqual(screen.calls[1].args, ["/p", 5, { archived: true, unread: false }]);
   assert.equal(screen.panels.open, "left");
@@ -6120,6 +6122,7 @@ test("late Chat rename cannot pop another screen after its form loses focus", as
   };
   const { default: Form } = load("app/chat-details.tsx", {
     "../archive-progress": archiveProgress,
+    "../chat-actions": { runChatAction: async () => {} },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Text: "Text" },
@@ -9633,7 +9636,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
     undefined,
   );
   const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Archiving Fix", "archive feedback sits on the row and survives closing the action sheet");
+  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Deleting Fix", "archive feedback sits on the row and survives closing the action sheet");
   assert.ok(
     find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
     "the row's pill spins desktop's ring",
@@ -9648,7 +9651,7 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   await settleAll();
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
-  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not archive Chat: disk full");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
@@ -9683,7 +9686,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   screen.session.client.snapshot = async () => project.snapshot;
   screen.params.id = "5";
   delete screen.params.worktreeId;
-  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Archive");
+  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   menuAction().props.onPress();
   await settleAll();
   assert.equal(screen.panels.open, "left", "shows the sidebar before the archive ends");
@@ -14052,7 +14055,7 @@ function routinesHost({
     "../chat-row-store": { useActivityClock: () => Date.UTC(2026, 9, 17, 10, 30) },
     "../status-indicators": { ChatMarkIcon: "ChatMarkIcon" },
     "../icons": { Icon: "Icon" },
-    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name])),
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name])),
   });
   const render = () => {
     react.begin();
@@ -14083,7 +14086,7 @@ test("the phone Routines screen groups heartbeats and triggers, says why a trigg
   assert.match(textOf(heartbeat), /Babysit PR #473/);
   assert.match(textOf(heartbeat), /Every 15 min · next \d\d:\d\d · 3 Runs left/);
   assert.match(textOf(trigger), /Paused: 3 failed runs in a row: no worktree/);
-  assert.equal(find(trigger, (node) => node.type === "RowSwitch").props.selected, false);
+  assert.equal(find(trigger, (node) => node.type === "RowCheckbox").props.selected, false);
   const menu = find(trigger, (node) => node.type === "PullDown");
   // A Linear trigger only runs on its event, so it has no Run now; the heartbeat (a schedule) does.
   // Copy VM-owned arrays into this realm for deepStrictEqual.
@@ -14154,12 +14157,12 @@ test("flipping a Routine's switch on the phone writes routines:update with the n
   await host.settle();
   const [heartbeat] = host.rows(host.render());
   host.calls.length = 0;
-  find(heartbeat, (node) => node.type === "RowSwitch").props.onPress();
-  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false, "the switch moves at once");
+  find(heartbeat, (node) => node.type === "RowCheckbox").props.onPress();
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false, "the switch moves at once");
   await host.settle();
   assert.deepEqual(JSON.parse(JSON.stringify(host.calls[0])), ["routines:update", ["hb", { enabled: false }]]);
   assert.ok(host.calls.some(([method]) => method === "routines:list"));
-  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowSwitch").props.selected, false);
+  assert.equal(find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox").props.selected, false);
 });
 
 test("an older Mac that says its Routines are off still lists them, with nothing to allow", async () => {
@@ -14235,7 +14238,7 @@ function routineHost({ id = "tr", routines = routineFixtures(), states = {}, ena
     "@milagre/shared/model-copy": require("../packages/shared/src/model-copy.ts"),
     "../run-list": { RunList },
     "../icons": { Icon: "Icon" },
-    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "RowSwitch", "Segmented"].map((name) => [name, name])),
+    "../ui": Object.fromEntries(["ErrorNotice", "HeaderButton", "PageScroll", "RowCheckbox", "Segmented"].map((name) => [name, name])),
   });
   const render = () => {
     react.begin();
@@ -14331,7 +14334,7 @@ test("the phone Routine screen shows On with its switch, its settings as chips, 
   });
   const tree = host.render();
   assert.equal(find(tree, (node) => typeof node.type === "function" && node.type.name === "StatusPill").props.on, true);
-  assert.equal(find(tree, (node) => node.type === "RowSwitch").props.selected, true);
+  assert.equal(find(tree, (node) => node.type === "RowCheckbox").props.selected, true);
   const chips = find(tree, (node) => node.type === "ScrollView" && node.props.horizontal);
   assert.deepEqual(
     allNodes(chips, (node) => typeof node.type === "function" && node.type.name === "Chip").map((node) => node.props.text),
@@ -14555,7 +14558,7 @@ function routineFormHost({ params = {}, routines = [], answers = {}, created } =
     "../confirm-store": { confirm: async () => true },
     "../icons": { Icon: "Icon" },
     "../ui": Object.fromEntries(
-      ["Button", "CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowSwitch"].map((name) => [name, name]),
+      ["Button", "CircleButton", "ErrorNotice", "Field", "PageScroll", "PillButton", "PullDown", "RowCheckbox"].map((name) => [name, name]),
     ),
   });
   const render = () => {
@@ -14737,7 +14740,7 @@ test("two quick flips of one Routine on the phone keep the second value until it
   const host = routinesHost({ slowUpdates: true });
   host.render();
   await host.settle();
-  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowSwitch");
+  const switchOf = () => find(host.rows(host.render())[0], (node) => node.type === "RowCheckbox");
   switchOf().props.onPress();
   assert.equal(switchOf().props.selected, false);
   switchOf().props.onPress();
@@ -15861,7 +15864,7 @@ test("Add computer can remove the public fallback before pairing a pasted invita
       Field: "Field",
       PageScroll: "PageScroll",
       PillButton: "PillButton",
-      RowSwitch: "RowSwitch",
+      RowCheckbox: "RowCheckbox",
       useStyles: () => ({}),
     },
   });
@@ -16235,6 +16238,123 @@ test("a send after restart waits for the saved queue before choosing direct deli
     ["older message", "first message"],
   );
   assert.equal(host.calls.filter((call) => call.method === "chat:send").length, 0);
+});
+
+test("phone dictation pastes by default, sends the completed draft once, and preserves blocked drafts", () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  let draft = "fix";
+  let action = "paste";
+  let deliver;
+  let blocked = false;
+  const sent = [];
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./chat-display-setting": { useDictationAction: () => [action] },
+    "./voice-dictation-hook": {
+      useVoiceDictation: (callback) => {
+        deliver = callback;
+        return { available: false, error: null, dismiss() {} };
+      },
+    },
+  });
+  const render = () => {
+    react.begin();
+    const renderedDraft = draft;
+    PromptField({
+      client: { call: async () => [] },
+      projectPath: "/project",
+      draft,
+      onChangeText: (value) => {
+        draft = value;
+      },
+      onSubmit: () => {
+        if (blocked) return;
+        sent.push(renderedDraft);
+        draft = "";
+      },
+    });
+    react.flush();
+  };
+  const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } });
+  render();
+  hear("this");
+  render();
+  assert.equal(draft, "fix this");
+  assert.deepEqual(sent, []);
+  action = "send";
+  render();
+  hear("please");
+  assert.deepEqual(sent, [], "wait for the updated parent render");
+  render();
+  render();
+  assert.deepEqual(sent, ["fix this please"]);
+  assert.equal(draft, "");
+  hear("  ");
+  render();
+  assert.equal(sent.length, 1);
+  blocked = true;
+  hear("keep this");
+  render();
+  assert.equal(draft, "keep this");
+  assert.equal(sent.length, 1);
+  blocked = false;
+  render();
+  assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+  react.cleanup();
+});
+
+test("phone checkboxes expose their state and let the entire labeled row toggle", () => {
+  let toggles = 0;
+  const { Checkbox } = load("primitives/checkbox.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", Text: "Text", View: "View" },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "../icons": { Icon: "Icon" },
+  });
+  const tree = Checkbox({ label: "Keep awake", selected: true, onPress: () => toggles++ });
+  assert.equal(tree.props.accessibilityRole, "checkbox");
+  assert.equal(tree.props.accessibilityState.checked, true);
+  assert.equal(tree.props.style({ pressed: false }).minHeight, 44);
+  tree.props.onPress();
+  assert.equal(toggles, 1);
+  const disabled = Checkbox({ label: "Keep awake", selected: false, disabled: true, onPress() {} });
+  assert.equal(disabled.props.disabled, true);
+  assert.equal(disabled.props.accessibilityState.disabled, true);
+});
+
+test("phone dictation language opens a checked list and saves the chosen language", () => {
+  let language = "auto";
+  const { default: Screen } = load("app/(settings)/dictation-language.tsx", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Platform: { OS: "ios" }, View: "View", Pressable: "Pressable", Text: "Text" },
+    "expo-router": { Stack: { Screen: "Screen" } },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "../chat-display-setting": {
+      useDictationLanguage: () => [
+        language,
+        (next) => {
+          language = next;
+        },
+      ],
+    },
+    "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
+    "../icons": { Icon: "Icon" },
+    "../ui": { PageScroll: "PageScroll" },
+  });
+  const row = (name) => find(Screen(), (node) => node.props.title === name);
+  assert.equal(row("Phone language").props.selected, true);
+  row("Portuguese").props.onPress();
+  assert.equal(language, "pt");
+  assert.equal(row("Portuguese").props.selected, true);
+  assert.equal(row("Phone language").props.selected, false);
 });
 
 test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {

@@ -117,7 +117,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                     Set up
                   </button>
                 )}
-                <McpSwitch
+                <McpCheckbox
                   label={`Enable ${client.label}`}
                   checked={client.enabled}
                   expanded={setup === client.id}
@@ -153,7 +153,7 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
       <div className="space-y-3 border-t border-line pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-[13px] font-medium text-ink">Custom MCP</h3>
-          <McpSwitch
+          <McpCheckbox
             label="Custom MCP"
             checked={customOpen}
             expanded={customOpen}
@@ -338,7 +338,7 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
   );
 }
 
-function McpSwitch({
+function McpCheckbox({
   label,
   checked,
   expanded,
@@ -354,22 +354,14 @@ function McpSwitch({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
+    <Checkbox
       aria-label={label}
-      aria-checked={checked}
+      checked={checked}
       aria-expanded={expanded}
       aria-controls={controls}
       disabled={disabled}
-      onClick={onClick}
-      className="relative flex h-8 w-11 shrink-0 items-center rounded-lg px-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:opacity-50"
-    >
-      <span className={`relative block h-5 w-9 rounded-full transition-colors motion-reduce:transition-none ${checked ? "bg-green" : "bg-line-strong"}`}>
-        <span
-          className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-surface transition-transform motion-reduce:transition-none ${checked ? "translate-x-4" : ""}`}
-        />
-      </span>
-    </button>
+      onCheckedChange={onClick}
+      className="size-6"
+    />
   );
 }

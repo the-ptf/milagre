@@ -1288,9 +1288,8 @@ function App() {
   const latest = useRef({ patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat });
   latest.current = { patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat };
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
-  function patchChat(sessionId: number, patch: SessionPatch) {
-    const current = projectRef.current;
-    if (current) void reportChatAction(bridgeForKey(current.path).patchChat(current.path, sessionId, patch), "Could not update Chat", setNotice);
+  function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
+    if (path) void reportChatAction(bridgeForKey(path).patchChat(path, sessionId, patch), "Could not update Chat", setNotice);
   }
 
   function controlAdvisor(action: "stop" | "retry", id: string) {
@@ -1414,10 +1413,10 @@ function App() {
         currentProjectPath: () => projectRef.current?.path,
         stop: () => (agentRuns.runs[key] ? agentRuns.interrupt(key).catch(() => {}) : undefined),
         hide: () => bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: true, unread: false }),
+        destroy: () => bridgeForKey(projectPath).deleteChat(projectPath, sessionId),
         // The worktree stays, so the chat comes back with it; it is reopened only if it was open and nothing else has been since.
-        restore: () => {
-          if (projectRef.current?.path === projectPath) patchChat(sessionId, { archived: false });
-          else void reportChatAction(bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: false }), "Could not update Chat", setNotice);
+        restore: async () => {
+          await bridgeForKey(projectPath).patchChat(projectPath, sessionId, { archived: false });
           if (wasOpen && selectedSessionRef.current === null) openChat(sessionId);
         },
         remove: (worktree, options) => bridgeForKey(options.projectPath).removeWorktree(worktree.path, options),
@@ -1444,9 +1443,9 @@ function App() {
         // A confirmation, not a problem: a brief toast over the page, so it neither lingers nor moves the layout.
         if (archived) showNotice(archived, { ms: BRIEF_NOTICE_MS, leaveOnNavigate: true });
       })
-      // A call that timed out may still have landed: a chat the host shows archived by now needs no notice.
+      // A call that timed out may still have landed: only a conversation that is still saved needs an error.
       .catch((error) => {
-        if (!archiveState(projectPath)?.sessions[sessionId]?.archived) setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`);
+        if (archiveState(projectPath)?.sessions[sessionId]) setNotice(`Could not delete Chat: ${ipcErrorMessage(error)}`);
       })
       .finally(() =>
         setArchivingChats((current) => {
@@ -1464,7 +1463,7 @@ function App() {
     setArchivingChats((current) => new Set(current).add(key));
     void work
       .catch((error) => {
-        if (!selectedLinkRef.current) setNotice(`Could not archive Chat: ${ipcErrorMessage(error)}`);
+        if (!selectedLinkRef.current) setNotice(`Could not delete Chat: ${ipcErrorMessage(error)}`);
       })
       .finally(() =>
         setArchivingChats((current) => {
@@ -1502,20 +1501,25 @@ function App() {
   }
 
   // "Commit and open PR…" opens the chat, with the dialog over it.
-  async function openGitDialog(sessionId: number) {
-    const latest = openState();
-    const session = latest?.sessions[sessionId];
-    const worktree = session ? latest.worktrees[session.worktree_id] : undefined;
-    if (!latest || !session || !worktree) return;
+  async function openGitDialog(sessionId: number, path = projectRef.current?.path): Promise<void> {
+    if (path && (path !== projectRef.current?.path || selectedLinkRef.current)) {
+      await openCanvasChat(path, sessionId);
+      if (projectRef.current?.path !== path) return;
+      return latest.current.openGitDialog(sessionId);
+    }
+    const currentState = openState();
+    const session = currentState?.sessions[sessionId];
+    const worktree = session ? currentState.worktrees[session.worktree_id] : undefined;
+    if (!currentState || !session || !worktree) return;
     // The dialog reads the Chat's recent turns (its test commands, what was asked); a lean state has them on the host.
     const sessionMessages =
-      isLean(latest) && project
+      isLean(currentState) && project
         ? (
             await bridgeForKey(project.path)
               .readChatMessages(project.path, sessionId, { turns: 30 })
               .catch(() => ({ messages: [] as ChatMessage[] }))
           ).messages
-        : latest.messages.filter((message) => message.session_id === sessionId);
+        : currentState.messages.filter((message) => message.session_id === sessionId);
     openChat(sessionId);
     setGitDialog({
       sessionId,
@@ -1537,13 +1541,13 @@ function App() {
         .catch(() => {});
   }
 
-  function revealChat(sessionId: number) {
-    if (!project || isRemoteKey(project.path)) return;
-    void window.milagre.revealInFolder(chatRevealPath(openState() ?? null, sessionId, project.path)).catch(() => {});
+  function revealChat(sessionId: number, path = projectRef.current?.path) {
+    if (!path || isRemoteKey(path)) return;
+    void window.milagre.revealInFolder(chatRevealPath(archiveState(path) ?? null, sessionId, path)).catch(() => {});
   }
 
-  function openChatInEditor(sessionId: number) {
-    const latest = openState();
+  function openChatInEditor(sessionId: number, path = projectRef.current?.path) {
+    const latest = path ? archiveState(path) : undefined;
     const worktree = latest?.worktrees[latest.sessions[sessionId]?.worktree_id ?? -1];
     if (worktree) void openInEditor(worktree.path);
   }
@@ -2353,9 +2357,8 @@ function App() {
   }
 
   // The chat's Worktree gets the issue (its branch is renamed when the branch is still a milagre/ one with no open PR).
-  async function linkChatIssue(sessionId: number, key: string, workspace?: string) {
-    const path = project?.path;
-    const worktreeId = openState()?.sessions[sessionId]?.worktree_id;
+  async function linkChatIssue(sessionId: number, key: string, workspace?: string, path = projectRef.current?.path) {
+    const worktreeId = path ? archiveState(path)?.sessions[sessionId]?.worktree_id : undefined;
     if (!path || worktreeId === undefined) return;
     const linked = async () => {
       const result = await bridgeForKey(path).linkWorktreeIssue({ projectPath: path, worktreeId, key, ...(workspace ? { workspace } : {}) });
@@ -2369,8 +2372,7 @@ function App() {
 
   // Reload chat: a running turn stops and the agent's process ends; the next message resumes the session in a new
   // one, which reads MCP servers, skills and the sign-in again.
-  async function reloadChat(sessionId: number) {
-    const path = project?.path;
+  async function reloadChat(sessionId: number, path = projectRef.current?.path) {
     if (!path) return;
     const reloaded = async () => {
       await bridgeForKey(path).reloadChat(chatKey(path, sessionId));
@@ -2379,9 +2381,8 @@ function App() {
     await reportChatAction(reloaded(), "Could not reload chat", setNotice);
   }
 
-  async function unlinkChatIssue(sessionId: number) {
-    const path = project?.path;
-    const worktreeId = openState()?.sessions[sessionId]?.worktree_id;
+  async function unlinkChatIssue(sessionId: number, path = projectRef.current?.path) {
+    const worktreeId = path ? archiveState(path)?.sessions[sessionId]?.worktree_id : undefined;
     if (!path || worktreeId === undefined) return;
     const unlinked = async () => {
       const result = await bridgeForKey(path).unlinkWorktreeIssue({ projectPath: path, worktreeId });
@@ -2626,6 +2627,22 @@ function App() {
   // batch or another pane's state change doesn't re-render it.
   const pickChat = useEvent((id: string) => openChat(Number(id)));
   const remoteProject = isRemoteKey(project?.path);
+  const scopeChatActions = useEvent((path: string, gitless: boolean): ChatRowActions => ({
+    onRename: (id, title) => latest.current.patchChat(Number(id), { title }, path),
+    onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }, path),
+    onReload: (id) => void latest.current.reloadChat(Number(id), path),
+    onArchiveCheck: (id) => latest.current.checkArchive(Number(id), path),
+    onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan, path, gitless),
+    ...(isRemoteKey(path)
+      ? { remote: true }
+      : {
+          onReveal: (id) => latest.current.revealChat(Number(id), path),
+          onOpenInEditor: (id) => latest.current.openChatInEditor(Number(id), path),
+        }),
+    ...(gitless ? { gitless: true } : { onCommit: (id) => void latest.current.openGitDialog(Number(id), path) }),
+    onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace, path),
+    onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id), path),
+  }));
   const chatActions = useMemo<ChatRowActions>(
     () => ({
       onRename: (id, title) => latest.current.patchChat(Number(id), { title }),
@@ -3111,6 +3128,7 @@ function App() {
       onNewChat={startNewChatOnThisMac}
       archivingChats={archivingChats}
       onArchiving={trackLinkArchive}
+      scopeChatActions={scopeChatActions}
     />
   );
   const linkDialogs = (
@@ -3524,6 +3542,7 @@ function App() {
                   }
                   onPick={pickChat}
                   chatActions={chatActions}
+                  scopeChatActions={scopeChatActions}
                   onNewChat={startNewChatFromSidebar}
                   onOpenSettings={openSettings}
                   onOpenCanvas={openCanvas}

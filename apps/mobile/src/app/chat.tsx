@@ -1692,7 +1692,7 @@ function ChatPane({
           refresh,
         });
     } catch (e) {
-      if (left) showArchiveNotice(`Could not archive Chat: ${(e as Error).message}`);
+      if (left) showArchiveNotice(`Could not delete Chat: ${(e as Error).message}`);
       else setError((e as Error).message);
     } finally {
       archiveRequest.current = false;
@@ -1874,8 +1874,8 @@ function ChatPane({
                   Link issue…
                 </Stack.Toolbar.MenuAction>
               ))}
-            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "archivebox"} disabled={busy} onPress={() => headerAction("archive")}>
-              {chat.archived ? "Restore" : "Archive"}
+            <Stack.Toolbar.MenuAction icon={chat.archived ? "tray.and.arrow.up" : "trash"} disabled={busy} onPress={() => headerAction("archive")}>
+              {chat.archived ? "Restore" : "Delete"}
             </Stack.Toolbar.MenuAction>
           </Stack.Toolbar.Menu>
         )}
@@ -1916,8 +1916,9 @@ function ChatPane({
                 : []),
               {
                 id: "archive",
-                title: chat.archived ? "Restore" : "Archive",
-                systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox",
+                title: chat.archived ? "Restore" : "Delete",
+                systemImage: chat.archived ? "tray.and.arrow.up" : "trash",
+                destructive: !chat.archived,
                 disabled: busy,
               },
             ],

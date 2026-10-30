@@ -199,7 +199,7 @@ async function browserChecks(base) {
     // Accounts > Usage limits: the Mac-owned switch reads off, saves through the bridge.
     await window.loadURL(`${base}?scenario=settings`);
     const toggle =
-      'document.querySelector(\'[role="switch"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
+      'document.querySelector(\'[role="checkbox"][aria-label="Switch accounts at usage limits"], button[aria-label="Switch accounts at usage limits"]\')';
     await waitFor(`!!${toggle}`);
     assert.match(await evaluate("document.body.textContent"), /move its Project to the next signed-in account and continue/);
     await evaluate(`${toggle}.click()`);

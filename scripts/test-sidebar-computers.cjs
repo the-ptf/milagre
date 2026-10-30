@@ -196,7 +196,7 @@ async function browserChecks() {
 
     await evaluate(`document.querySelector('[data-computer-row="c-atlas"] [data-computer-gear]').click()`);
     await waitFor(`document.querySelector('h1')?.textContent === 'atlas' && !!document.querySelector('[data-computer-settings]')`);
-    const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="switch"]')`;
+    const sidebarSwitch = `document.querySelector('[data-computer-show-in-sidebar] [role="checkbox"]')`;
     assert.equal(await evaluate(`${sidebarSwitch}.getAttribute('aria-checked')`), "true");
     await evaluate(`${sidebarSwitch}.click()`);
     await waitFor(`${sidebarSwitch}.getAttribute('aria-checked') === 'false'`);

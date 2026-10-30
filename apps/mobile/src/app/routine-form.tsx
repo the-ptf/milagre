@@ -56,7 +56,7 @@ import { modelsFor } from "../turn-options";
 import { PlaceholderField } from "../placeholder-field";
 import { confirm } from "../confirm-store";
 import { Icon, type IconData } from "../icons";
-import { Button, CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, RowSwitch, useStyles } from "../ui";
+import { Button, CircleButton, ErrorNotice, Field, PageScroll, PillButton, PullDown, RowCheckbox, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 type Targets = { projects: { path: string; name: string; chats: { chatId: string; title: string; lastAt?: number }[] }[] };
@@ -588,7 +588,7 @@ export default function RoutineFormSheet() {
                 </View>
               ) : null}
               <FormRow icon={Shield01Icon} label="Check signature">
-                <RowSwitch
+                <RowCheckbox
                   label="Check signature"
                   selected={signed}
                   onPress={() => change({ webhook: signed ? { signed: false, signingHeader: "", signingSecret: "" } : { ...form.webhook, signed: true } })}

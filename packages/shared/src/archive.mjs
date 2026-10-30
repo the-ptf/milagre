@@ -1,5 +1,5 @@
-// Archiving a Chat, shared by the desktop sidebar and the phone: what the confirm step offers, and the steps an
-// archive takes. Nothing here touches a window or a network; each app passes in what it does. Types: archive.d.mts.
+// Chat deletion shared by desktop and mobile. Internal archive names preserve the cleanup API.
+// Each app supplies its own persistence and network operations. Types: archive.d.mts.
 import { GIT_CODES, gitMessage } from "./git-codes.mjs";
 import { ipcErrorCode, ipcErrorMessage } from "./result.mjs";
 
@@ -65,11 +65,17 @@ export function archiveMode(plan) {
   return plan?.milagreOwned && !plan.shared && plan.status?.removable ? "remove" : "hide";
 }
 
-/** What a Chat without a Project says once it is archived. */
-export const CHAT_ARCHIVED_NOTICE = "Chat archived";
+/** The immediate deletion mode; shared, external and unchecked Worktrees stay. */
+export function archiveChoices({ plan }) {
+  const mode = archiveMode(plan);
+  return { choices: [{ mode, label: "Delete", tone: "danger" }], reason: null, immediate: true };
+}
+
+/** What a Chat without a Project says after deletion. */
+export const CHAT_ARCHIVED_NOTICE = "Chat deleted";
 
 /**
- * The notice after an archive: only a Chat without a Project says it went ("Chat archived"), since its folder goes
+ * The notice after an archive: only a Chat without a Project says it went ("Chat deleted"), since its folder goes
  * with it and nothing lists it any more. A kept one ("kept": its folder stayed) already says why it came back.
  */
 export function archivedNotice(outcome, { chatsHome = false } = {}) {
@@ -79,8 +85,8 @@ export function archivedNotice(outcome, { chatsHome = false } = {}) {
 /** What archiving ends among the chat's Terminals: those running a command, by its name. */
 export function terminalNote(busy) {
   if (!busy.length) return null;
-  if (busy.length === 1) return `Archiving ends the Terminal running ${busy[0]}.`;
-  return `Archiving ends ${busy.length} Terminals running ${[...new Set(busy)].join(", ")}.`;
+  if (busy.length === 1) return `Deleting ends the Terminal running ${busy[0]}.`;
+  return `Deleting ends ${busy.length} Terminals running ${[...new Set(busy)].join(", ")}.`;
 }
 
 /**
@@ -98,9 +104,9 @@ export function removeFailureNotice(error) {
 }
 
 /**
- * Archives a chat. The chat is hidden first, so a worktree that won't go never keeps the archive from happening.
+ * Deletes a Chat. It is hidden temporarily while the checked Worktree cleanup runs.
  * The worktree is removed only when the chosen mode asks for it, the menu's status is at hand, and no other chat
- * uses it by now. A refusal or an error becomes a notice, the worktree stays, and the chat is restored.
+ * uses it by now. A refusal restores the Chat. With its Worktree kept, destroy removes the conversation.
  */
 export async function archiveChat(deps, sessionId, mode, plan) {
   const latest = deps.getState();
@@ -110,7 +116,15 @@ export async function archiveChat(deps, sessionId, mode, plan) {
   const removing = wantsRemoval && latest && worktree?.base && plan?.status && !worktreeShared(latest, sessionId) ? worktree : null;
   const stopped = deps.stop();
   await deps.hide();
-  if (!removing || !plan?.status) return "hidden";
+  if (!removing || !plan?.status) {
+    try {
+      await deps.destroy();
+    } catch (error) {
+      await deps.restore();
+      throw error;
+    }
+    return "hidden";
+  }
   const sessionIds = Object.values(latest.sessions)
     .filter((session) => session.worktree_id === removing.id)
     .map((session) => session.id);
