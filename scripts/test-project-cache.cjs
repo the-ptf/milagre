@@ -133,6 +133,7 @@ const stubs = {
   "./chat-actions": "export const chatMenu = () => []; export const runChatAction = async () => {};",
   // The swipe row is Reanimated and the gesture handler, native-only: a row here renders without it.
   "./chat-swipe-row": "export const ChatSwipeRow = ({ children }) => children;",
+  "./offline-tray": "export const WaitingLabel = () => null;",
   "./split-context": "export const useSplit = () => ({ widthClass: 'compact' }); export const useSplitLayout = () => ({ widthClass: 'compact' });",
   "./confirm-store": "export const confirm = async () => true; export const confirmSheet = () => {};",
   "./attention": "export const AttentionDot = () => null; export const useAttention = () => [];",

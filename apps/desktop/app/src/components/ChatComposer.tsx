@@ -761,6 +761,8 @@ interface ChatComposerProps {
   offlineName?: string | null;
   /** The connection to the chat's computer is coming back: the draft stays writable, and Send waits for it. */
   reconnectingName?: string | null;
+  /** Above the prompt, inside a tray like a new Chat's: messages waiting on this Mac and the offline computer's chip. */
+  offlineTray?: ReactNode;
   /** The Chat is mounted but not on screen (Settings, the canvas, Routines): its Browser panel and button go away. */
   offScreen?: boolean;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
@@ -1188,6 +1190,7 @@ export function ChatComposer({
   mentionContext = EMPTY_CHAT_MENTIONS,
   offlineName,
   reconnectingName,
+  offlineTray,
   offScreen = false,
   scopeKind,
   imageDraft,
@@ -1689,7 +1692,13 @@ export function ChatComposer({
           {saveNotice}
           {notice && <Notice onDismiss={onDismissNotice}>{notice}</Notice>}
           {/* A new Chat's tray holds where it runs (computer, isolation, branch) and the composer as one piece. */}
-          <div data-composer-tray={projectNewChat || undefined} className={projectNewChat ? "rounded-[28px] border border-line bg-inset p-1.5 pt-1" : ""}>
+          <div
+            data-composer-tray={projectNewChat || undefined}
+            data-offline-composer={(!projectNewChat && offlineTray) || undefined}
+            className={
+              projectNewChat || offlineTray ? `rounded-[28px] border bg-inset p-1.5 pt-1 ${projectNewChat ? "border-line" : "border-line-strong"}` : ""
+            }
+          >
             {projectNewChat && (
               <NewChatHeader
                 worktrees={worktrees}
@@ -1709,13 +1718,14 @@ export function ChatComposer({
                 onComputerChange={changeComputer}
               />
             )}
+            {offlineTray}
             {queue && !isNewChat && <QueuedMessages {...queue} disabled={sendBlocked} />}
             {/* In a short grid tile (a size container) the cards scroll instead of pushing their buttons and the prompt out of it. */}
             {approval && <ScrollArea className={`mb-2 max-h-[60cqh] w-full ${approvalHidden ? "hidden" : ""}`}>{approval}</ScrollArea>}
             {review.view !== "closed" && !isNewChat && (
               <UndoPanel review={review} intent={undoIntent} onHighlight={setHighlightId} onOpenFile={onOpenDiff} onClosed={focusPrompt} />
             )}
-            <div className={`${offlineName ? "pointer-events-none opacity-60" : ""} ${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
+            <div className={`${review.view === "preview" && !isNewChat ? "hidden" : ""}`}>
               <PromptComposer
                 offlineName={offlineName}
                 reconnectingName={reconnectingName}

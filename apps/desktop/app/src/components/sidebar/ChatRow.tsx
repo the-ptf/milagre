@@ -71,6 +71,7 @@ import { useDisplayNow } from "../../lib/display-clock";
 import type { BotMark } from "@/lib/bot-marks";
 import { BotAvatar } from "../bots/BotAvatar";
 import { WorkspaceIcon } from "../WorkspaceIcon";
+import { useOutboxWaiting } from "../../lib/outbox";
 
 /** Now, to the minute, while `on`; 0 otherwise, so rows that don't show the time never re-render for it. */
 function useMinute(on: boolean) {
@@ -439,6 +440,7 @@ function InboxLine({
   diff,
   computer,
   archiving,
+  waiting = 0,
 }: {
   item: SidebarRecent;
   project: string;
@@ -449,6 +451,8 @@ function InboxLine({
   diff?: DiffStat;
   computer?: RowComputer;
   archiving: boolean;
+  /** Messages waiting on this Mac for the chat's offline computer. */
+  waiting?: number;
 }) {
   const shown = pullRequests.slice(0, ROW_PR_LIMIT);
   const hidden = pullRequests.length - shown.length;
@@ -515,6 +519,15 @@ function InboxLine({
         </span>
       ),
     });
+  if (waiting > 0)
+    parts.push({
+      key: "waiting",
+      node: (
+        <span data-chat-waiting className="shrink-0 text-orange-ink">
+          {waiting} waiting
+        </span>
+      ),
+    });
   return (
     <div
       data-chat-prs
@@ -574,6 +587,7 @@ export const ChatRow = memo(function ChatRow({
   projectImage,
   projectInitial,
   linkProjects,
+  chatKey,
 }: {
   item: SidebarRecent;
   active: boolean;
@@ -604,6 +618,8 @@ export const ChatRow = memo(function ChatRow({
   projectInitial?: string;
   /** A shared Link Chat's Projects: "3 Projects" stands in for the Project's name. */
   linkProjects?: number;
+  /** The row's chat key (scope#id): messages waiting on this Mac for it show as "· 2 waiting". */
+  chatKey?: string;
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -620,6 +636,7 @@ export const ChatRow = memo(function ChatRow({
   const diff = show.diff && item.details?.diff && (item.details.diff.added > 0 || item.details.diff.removed > 0) ? item.details.diff : undefined;
   const lastAt = show.lastActivity ? item.details?.lastAt : undefined;
   const now = useMinute(lastAt !== undefined);
+  const waiting = useOutboxWaiting(chatKey ?? "");
   // Each shown fact, in order, joined by dots; the chips follow.
   const facts: ReactNode[] = [];
   if (bot && !collapsed)
@@ -634,6 +651,12 @@ export const ChatRow = memo(function ChatRow({
       <span key="computer" data-chat-computer className="flex min-w-0 shrink items-center gap-1 truncate">
         <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
         {rowComputer.offline ? `${rowComputer.name}, offline` : rowComputer.name}
+      </span>,
+    );
+  if (waiting > 0 && !collapsed)
+    facts.push(
+      <span key="waiting" data-chat-waiting className="shrink-0 text-orange-ink">
+        {waiting} waiting
       </span>,
     );
   const projectName = collapsed ? undefined : project;
@@ -909,6 +932,7 @@ export const ChatRow = memo(function ChatRow({
             diff={diff}
             computer={rowComputer && (!rowComputer.local || rowComputer.offline) ? rowComputer : undefined}
             archiving={archiving}
+            waiting={waiting}
           />
         )}
 

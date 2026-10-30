@@ -329,6 +329,7 @@ function makeBridge(invoke, listen, send) {
       restore: (request) => invoke("checkpoint:restore", request),
     },
     sendMessage: (request) => invoke("chat:send", request),
+    sendStatus: (owner, id) => invoke("chat:send-status", owner, id),
     resumeChat: (projectPath, sessionId) => invoke("chat:resume", projectPath, sessionId),
     reloadChat: (chatId) => invoke("chat:reload", chatId),
     sendQueuedNow: (chatId, id) => invoke("chat:queue-send", chatId, id),

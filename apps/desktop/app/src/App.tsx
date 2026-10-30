@@ -1,6 +1,8 @@
+import { outbox, outboxAttachments, queueForComputer, hasQueuedChat, startOutbox } from "./lib/outbox";
+import { OfflineTray, useOfflineTray } from "./components/OfflineTray";
 import { preferenceStorage as localStorage } from "./lib/preference-storage.ts";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
-import { prepareImageUploads } from "./lib/attachment-uploads";
+import { prepareImageUploads, prepareLocalFileUploads } from "./lib/attachment-uploads";
 import { ProviderUpdateNotice } from "./components/ProviderUpdateNotice";
 import { PersistenceNotices, SaveFailure, type UnsavedScope } from "./components/PersistenceNotice";
 import { UpdateShell, useAppUpdates } from "./components/UpdateNotice";
@@ -130,7 +132,7 @@ import { useComposerPreferences } from "./lib/use-composer-preferences";
 import { noteComputer, startOfflineCache } from "./lib/offline-cache";
 import { useDisplayNow } from "./lib/display-clock";
 import { computerTone, isDimmed, isReadOnly, offlineBanner, useApplyOtherComputers, useComputers } from "./lib/computers";
-import { OfflineBanner } from "./components/OfflineBanner";
+import { OfflineEmpty } from "./components/OfflineEmpty";
 import { settingsCommands } from "./lib/settings-commands";
 import type { Command } from "./lib/commands";
 import { messageCommands, messageCommandsFrom } from "./lib/message-commands";
@@ -602,6 +604,7 @@ function App() {
   useApplyTheme();
   useApplyOtherComputers();
   useEffect(() => startOfflineCache(), []);
+  useEffect(() => startOutbox(), []);
   useEffect(() => {
     const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1000));
     idle(() => {
@@ -717,6 +720,8 @@ function App() {
   const worktrees = useMemo(() => (state ? sortedWorktrees(state) : []), [state]);
   const firstWorktree = worktrees[0];
   const selectedSession = state && selectedSessionId !== null ? state.sessions[selectedSessionId] : undefined;
+  // Messages waiting on this Mac for the open Chat (or its New Chat), in the composer's tray while its computer is away.
+  const offlineTray = useOfflineTray(project?.path, selectedSession?.id ?? null, readOnly);
   const subagents = useMemo(
     () => selectedSession?.subagents?.filter((agent) => agent.id !== selectedSession.native_session_id),
     // oxlint-disable-next-line react/preserve-manual-memoization -- the callback reads selectedSession.subagents and selectedSession.native_session_id, both listed; the compiler infers the whole selectedSession object from the property access
@@ -724,7 +729,7 @@ function App() {
   );
   const selectedWorktree = worktrees.find((worktree) => worktree.id === (selectedSession?.worktree_id ?? selectedWorktreeId)) ?? firstWorktree;
   // Assigning a new Chat its persisted id keeps attachments for the next message; navigating away clears them.
-  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path);
+  const imageDraft = usePastedImages(`${project?.path ?? ""}:${chatView.current}`, project?.path, !!project && queueForComputer(project.path));
   useEffect(() => {
     if (!restoringSend) return;
     imageDraft.restore(restoringSend.message.images ?? [], restoringSend.message.files ?? []);
@@ -2056,10 +2061,6 @@ function App() {
   ): Promise<boolean> {
     if ((!body && !images.length && !files.length) || !state || !selectedWorktree || !project || preparingHere || imageDraft.loading) return false;
     if (movingDraft.current) return false;
-    if (readOnly) {
-      setNotice(`${openComputer?.name ?? "That computer"} is offline.`);
-      return false;
-    }
     const view = chatView.current;
     const sendKey = `${project.path}#${selectedSession?.id ?? `new${view}`}`;
     if (sendsInFlight.current.has(sendKey)) return false;
@@ -2070,6 +2071,62 @@ function App() {
     const model = selectedModel;
     const firstMessage = chatCount === 0;
     const submittedDraft = draftStore.get();
+    // Load the saved queue before deciding whether this Chat already has a pending message after restart.
+    if (!outbox.getSnapshot().loaded) await outbox.ready.catch(() => {});
+    if (queueForComputer(project.path) || hasQueuedChat(project.path, selectedSession?.id ?? null)) {
+      try {
+        const id = crypto.randomUUID();
+        await outbox.enqueue({
+          id,
+          computerId: computerOfKey(project.path),
+          computerName: openComputer?.name ?? "This computer",
+          owner: project.path,
+          conversation: selectedSession ? `chat:${selectedSession.id}` : id,
+          request: {
+            projectPath: project.path,
+            sessionId: selectedSession?.id ?? null,
+            worktreeId: selectedWorktree.id,
+            body,
+            images: [],
+            files: [],
+            prompt: prAction ? pullRequestActionPrompt(prAction) : body,
+            provider: model.provider,
+            model: model.id,
+            permissionMode: mode,
+            effort: effortFor(capabilityFor(model, capabilities), effort),
+            ultracode: capabilityFor(model, capabilities).ultracode && ultracode,
+            fastMode: capabilityFor(model, capabilities).fastMode && fastMode,
+            replies: getSettings().claudeReplies,
+            tldrEnabled: getSettings().tldrEnabled,
+            ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
+            ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: submittedDraft })! } : {}),
+          },
+          ...(!selectedSession && (isolation !== "local" || issue)
+            ? {
+                createWorktree: {
+                  projectPath: project.path,
+                  baseBranch: effectiveBaseBranch,
+                  prompt: body,
+                  ...(issue ? { issueKey: issue.key, issueWorkspace: issue.workspace } : {}),
+                },
+              }
+            : {}),
+          attachments: await outboxAttachments(images, files, imageDraft.localFiles),
+        });
+        if (!preserveComposer && stillHere()) {
+          if (draftStore.get() === submittedDraft) setDraft("");
+          for (const image of images) imageDraft.remove(image.id);
+          for (const file of files) imageDraft.removeFile(file);
+        }
+        void outbox.flush().catch(() => {});
+        return true;
+      } catch (error) {
+        setNewChatError(ipcErrorMessage(error));
+        return false;
+      } finally {
+        sendsInFlight.current.delete(sendKey);
+      }
+    }
     // A chat bound for a worktree that doesn't exist yet shows no worktree (and none of its PRs) until it does.
     const prepared = preparedTarget.current?.view === view && preparedTarget.current.projectPath === project.path ? preparedTarget.current : null;
     const previewWorktreeId = prepared?.worktreeId ?? (selectedSession || (isolation === "local" && !issue) ? selectedWorktree.id : NO_WORKTREE);
@@ -2118,6 +2175,7 @@ function App() {
     let sent = false;
     let uploading = true;
     try {
+      const uploadedFiles = await prepareLocalFileUploads(project.path, files, images, imageDraft.localFiles);
       const uploadedImages = await prepareImageUploads(project.path, images);
       uploading = false;
       target = await resolveSendTarget(body, issue, view);
@@ -2142,9 +2200,9 @@ function App() {
             worktreeId: sendTarget.worktreeId,
             body,
             images: uploadedImages,
-            files,
+            files: uploadedFiles,
             // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
-            prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, files),
+            prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(body, uploadedFiles),
             ...options,
             ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
             // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
@@ -3650,9 +3708,7 @@ function App() {
                       onClose={closeRunPane}
                     />
                   )}
-                  {awayBanner && (
-                    <OfflineBanner text={awayBanner} empty={Boolean(lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0)} />
-                  )}
+                  {awayBanner && lean && selectedSession && !chatWindow.loading && chatWindow.messages.length === 0 && <OfflineEmpty />}
                   <ChatGrid
                     keys={shownTiles}
                     focused={gridFocusKey}
@@ -3716,8 +3772,20 @@ function App() {
                           showGit && selectedSession && prOpenThreads && !prShown ? { count: prOpenThreads, onOpen: changes.showPullRequest } : undefined
                         }
                         isSending={isSending}
-                        sendBlocked={preparingHere || readOnly}
+                        sendBlocked={preparingHere}
                         offlineName={readOnly ? (openComputer?.name ?? "That computer") : null}
+                        offlineTray={
+                          offlineTray.shown && project ? (
+                            <OfflineTray
+                              owner={project.path}
+                              sessionId={selectedSession?.id ?? null}
+                              computerName={openComputer?.name ?? "That computer"}
+                              offline={readOnly}
+                              chip={Boolean(selectedSession)}
+                              detail={awayBanner ?? undefined}
+                            />
+                          ) : undefined
+                        }
                         reconnectingName={reconnecting ? (openComputer?.name ?? "That computer") : null}
                         runStartedAt={run?.startedAt ?? (pendingHere ? pendingSend?.startedAt : undefined)}
                         statusLabel={pendingHere && pendingSend && !run ? sendStatusLabel(pendingSend) : undefined}

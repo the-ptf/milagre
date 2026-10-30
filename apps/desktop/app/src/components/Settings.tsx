@@ -1,3 +1,4 @@
+import { outbox, useOutbox } from "../lib/outbox";
 import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useBots } from "../lib/bots-store";
@@ -331,6 +332,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       live = false;
     };
   }, [id, computer?.state]);
+  const waiting = useOutbox().items.filter((item) => item.computerId === id && item.status !== "sent");
   if (!computer) return <p className="mt-6 text-[13px] text-ink-3">This computer was removed.</p>;
 
   const paired = computer.addedAt ? `paired ${new Date(computer.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : null;
@@ -357,6 +359,8 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
     setBusy(true);
     try {
       await window.milagre.computers.remove(computer.id);
+      // Nothing can deliver them now; the confirmation said they go.
+      await Promise.allSettled(waiting.map((item) => outbox.remove(item.id)));
       // A computer paired again comes back shown.
       setComputerHidden(computer.id, false);
       onRemoved();
@@ -447,7 +451,9 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
-          description={`Its chats leave this sidebar and this Mac forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.`}
+          description={`Its chats leave this sidebar and this Mac forgets its keys. Nothing changes on ${computer.name}; pair again with a new link.${
+            waiting.length ? ` ${waiting.length === 1 ? "1 message" : `${waiting.length} messages`} waiting on this Mac for it will be discarded.` : ""
+          }`}
         >
           {confirming ? (
             <span className="flex gap-2">
