@@ -1,3 +1,4 @@
+import type { ContextSettings } from "@milagre/shared/context-settings";
 import type { AppUpdateState, HostUpdate } from "@milagre/shared/app-update";
 import type { BabysitSettings } from "@milagre/shared/babysit";
 import type { DoneSettings } from "@milagre/shared/done";
@@ -418,6 +419,9 @@ export type MilagreBridge = {
   /** Opens this Mac's keybindings.json in the default editor. Only on this Mac's own bridge: a paired computer's refuses. */
   openKeybindingsFile: () => Promise<void>;
   /** Settings › Babysit PRs: the one global configuration every Chat's babysitting follows. Kept by the host, so a paired desktop or the phone edits it too. */
+  readContextSettings: () => Promise<ContextSettings>;
+  saveContextSettings: (patch: Partial<ContextSettings>) => Promise<ContextSettings>;
+  onContextSettings: (callback: (value: ContextSettings) => void) => () => void;
   readBabysitSettings: () => Promise<BabysitSettings>;
   /** Merges the patch over the stored settings and returns the normalized result. */
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
