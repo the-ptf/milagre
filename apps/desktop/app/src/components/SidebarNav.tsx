@@ -98,6 +98,7 @@ import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
 import { useDoneSettings } from "../lib/done-settings";
+import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
 
 type HugeIconProps = { size?: number; className?: string };
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -652,7 +653,7 @@ export default memo(function SidebarNav({
   onNewChatWithoutProject,
   onOpenProjectSettings,
   attentionPaths = NO_PATHS,
-  recents: listedRecents = DEFAULT_RECENTS,
+  recents: hostRecents = DEFAULT_RECENTS,
   chatActions = NO_CHAT_ACTIONS,
   scopeChatActions,
   usage,
@@ -668,6 +669,10 @@ export default memo(function SidebarNav({
   onAskChat,
 }: SidebarNavProps) {
   const keys = useSidebarKeys();
+  const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
+  // A Chat marked Done or reopened moves at once; its host's rows catch up (done-pending.ts).
+  const donePending = useDonePending();
+  const listedRecents = useMemo(() => withDonePending(currentKey, hostRecents, donePending), [currentKey, hostRecents, donePending]);
   // Done chats leave the open scope's list for the Done section at the bottom (DoneSection).
   const recents = useMemo(() => (listedRecents.some((row) => row.doneAt) ? listedRecents.filter((row) => !row.doneAt) : listedRecents), [listedRecents]);
   const { settings: doneSettings } = useDoneSettings();
@@ -795,7 +800,6 @@ export default memo(function SidebarNav({
   }, []);
 
   // Every recent Project the user didn't hide, then every Link, like the phone's list. The open one is always there.
-  const currentKey = selectedLink ? `milagre-link:${selectedLink.id}` : (projectPath ?? "");
   const projectScopes = projects
     .filter((row) => !isHome(row.path))
     .filter((row) => row.current || (!recentProjects.find((project) => project.path === row.path)?.hidden && !hiddenComputers.has(computerOfKey(row.path))))
@@ -905,14 +909,8 @@ export default memo(function SidebarNav({
           void bridgeForKey(key)
             .patchChat(key, Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order })
             .catch(() => {}),
-        onDone: (id) =>
-          void bridgeForKey(key)
-            .patchChat(key, Number(id), { done: true, unread: false })
-            .catch(() => {}),
-        onReopen: (id) =>
-          void bridgeForKey(key)
-            .patchChat(key, Number(id), { done: false })
-            .catch(() => {}),
+        onDone: (id) => void patchChatShowingDone(key, Number(id), { done: true, unread: false }).catch(() => {}),
+        onReopen: (id) => void patchChatShowingDone(key, Number(id), { done: false }).catch(() => {}),
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
@@ -946,6 +944,15 @@ export default memo(function SidebarNav({
     }
     return hover;
   };
+  // Each scope's rows as its host sent them, so the pending Done marks they already agree with are dropped after render.
+  const hostRows: [string, SidebarRecent[]][] = [[currentKey, hostRecents]];
+  const pendingDone = (key: string, rows: SidebarRecent[]) => {
+    hostRows.push([key, rows]);
+    return withDonePending(key, rows, donePending);
+  };
+  useEffect(() => {
+    if (donePending.size) for (const [key, rows] of hostRows) settleDonePending(key, rows);
+  });
   const unarchived = (key: string, rows: SidebarRecent[]) => (archivingChats?.size ? rows.filter((row) => !archivingChats.has(`${key}#${row.id}`)) : rows);
   const withoutDone = (rows: SidebarRecent[]) => (rows.some((row) => row.doneAt) ? rows.filter((row) => !row.doneAt) : rows);
   // Canvas Links join this Mac's Projects: a Named Link's shared chats and another computer's take none.
@@ -956,7 +963,10 @@ export default memo(function SidebarNav({
         const current = scope.key === currentKey;
         // The Project just left has no read of its own yet; the copy it was shown from fills in until one arrives.
         const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-        const all = withBeats(scope.key, current ? listedRecents : state ? unarchived(scope.key, scopeChats(scope.key, state, chatOrder, marks)) : []);
+        const all = withBeats(
+          scope.key,
+          current ? listedRecents : state ? unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks))) : [],
+        );
         const rows = withoutDone(all);
         const list = current
           ? {
@@ -998,7 +1008,10 @@ export default memo(function SidebarNav({
     ? homeScopes.map((key) => {
         const current = key === currentKey;
         const state = scopeStates[key] ?? cachedProjectCopy(key)?.state;
-        const all = withBeats(key, current ? listedRecents : state ? unarchived(key, scopeChats(key, state, chatOrder, marks, { gitless: true })) : []);
+        const all = withBeats(
+          key,
+          current ? listedRecents : state ? unarchived(key, pendingDone(key, scopeChats(key, state, chatOrder, marks, { gitless: true }))) : [],
+        );
         const rows = withoutDone(all);
         const list = {
           isActive: current ? (item: SidebarRecent) => (activeId !== undefined ? item.id === activeId : item.label === selectedTitle) : NEVER_ACTIVE,
@@ -1087,7 +1100,11 @@ export default memo(function SidebarNav({
       ? scopes.map((scope) => {
           const current = scope.key === currentKey;
           const state = scopeStates[scope.key] ?? (scope.link ? undefined : cachedProjectCopy(scope.key)?.state);
-          const rows = current ? recents : state ? withoutDone(unarchived(scope.key, scopeChats(scope.key, state, chatOrder, marks))) : [];
+          const rows = current
+            ? recents
+            : state
+              ? withoutDone(unarchived(scope.key, pendingDone(scope.key, scopeChats(scope.key, state, chatOrder, marks))))
+              : [];
           const { status, chats } = railLive(rows);
           return { key: scope.key, name: scope.name, icon: scopeIcon(scope, current), current, status, chats };
         })
@@ -1117,9 +1134,15 @@ export default memo(function SidebarNav({
   const doneEntries: DoneEntry[] = (
     showAll
       ? [...homeGroups.map(({ key, list, done }) => ({ key, list, done })), ...groups.map(({ scope, list, done }) => ({ key: scope.key, list, done }))]
-      : [{ key: currentKey, list: { onPick: pickChat, actions: chatActions }, done: listedRecents.filter((row) => row.doneAt) }]
+      : [
+          {
+            key: currentKey,
+            list: { onPick: pickChat, actions: chatActions, computer: rowComputer(currentKey) },
+            done: listedRecents.filter((row) => row.doneAt),
+          },
+        ]
   )
-    .flatMap(({ key, list, done }) => done.map((item) => ({ key, item, onPick: list.onPick, onReopen: list.actions.onReopen })))
+    .flatMap(({ key, list, done }) => done.map((item) => ({ key, item, onPick: list.onPick, onReopen: list.actions.onReopen, computer: list.computer })))
     .sort((a, b) => (b.item.doneAt ?? 0) - (a.item.doneAt ?? 0));
   // Each group's slot in the Pinned section, for its list's portal; one ref callback per key, so slots don't remount.
   const [pinSlots, setPinSlots] = useState<Record<string, HTMLElement | null>>({});

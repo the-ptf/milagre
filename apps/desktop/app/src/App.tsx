@@ -73,6 +73,7 @@ import { COMPACT_COMMAND } from "@milagre/shared/compaction";
 import { capabilitiesFrom, keepIfSame, mergeModels, nextSelection, providerForId, resolveModel } from "./lib/models";
 import { chatMark, chatTitle, isChatListed, orderChats } from "./lib/chat-list";
 import type { SessionPatch } from "@milagre/shared/project-edits";
+import { patchChatShowingDone } from "./lib/done-pending.ts";
 import { deleteUndoWindow, isMilagreWorktree, undoDelete, worktreeShared } from "./lib/archive";
 import { archiveChat as runArchive } from "./lib/archive-flow";
 import type { ArchiveMode, ArchivePlan } from "./lib/archive";
@@ -1289,7 +1290,7 @@ function App() {
   latest.current = { patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat };
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
   function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
-    if (path) void reportChatAction(bridgeForKey(path).patchChat(path, sessionId, patch), "Could not update Chat", setNotice);
+    if (path) void reportChatAction(patchChatShowingDone(path, sessionId, patch), "Could not update Chat", setNotice);
   }
 
   function controlAdvisor(action: "stop" | "retry", id: string) {
