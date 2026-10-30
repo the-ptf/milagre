@@ -384,6 +384,12 @@ function SimulatorWebView({
       (method, result) => {
         if (method !== "frame" || !result) return result;
         const frame = result as SimulatorFrame;
+        // Simlock video is a small H.264 batch the page decodes itself; it goes in as JSON data, never as code.
+        if (frame.mimeType === "video/avcc") {
+          if (!Number.isSafeInteger(frame.sequence) || frame.sequence < 1 || typeof frame.data !== "string" || frame.data.length > 2796204)
+            throw new Error("Invalid simulator frame.");
+          return frame;
+        }
         if (
           !Number.isSafeInteger(frame.sequence) ||
           frame.sequence < 1 ||
