@@ -754,6 +754,8 @@ export interface AgentQuestion {
 /** Questions a turn waits on, asked together. */
 export interface QuestionRequest {
   requestId: string;
+  /** Host-owned request: values go to a private file, never a provider question response. */
+  secretRequest?: { description: string; expiresAt?: number };
   questions: AgentQuestion[];
 }
 

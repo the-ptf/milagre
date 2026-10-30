@@ -1783,3 +1783,41 @@ test("worktree:remove of a Chats home worktree holding files needs delete, and d
   assert.equal(state.worktrees[worktree.id], undefined);
   assert.equal(state.sessions[sessionId], undefined);
 });
+
+test("secret submissions bypass provider answers, summaries, persistence and replay", async (t) => {
+  const { project, make, events, dataDir } = await fixture(t);
+  const fake = reloadAgents();
+  fake.running();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: fake.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "Connect service", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !fake.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = fake.sessions[0];
+  session.answerQuestion = () => {
+    throw new Error("Secret reached provider answers");
+  };
+  const tool = session.options.linked.tools.find((item) => item.name === "request_secret");
+  assert.ok(tool);
+  const result = tool.run({ title: "Service token", description: "Connect the service." });
+  let question;
+  for (let i = 0; i < 200 && !question; i++) {
+    question = events.find((item) => item.payload?.event?.secretRequest)?.payload.event;
+    if (!question) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(question);
+  const sentinel = "SECRET_SENTINEL_never_in_history";
+  const args = { chatId, requestId: question.requestId, answers: { secret: [sentinel] }, summary: sentinel };
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), true);
+  const saved = JSON.parse(await result);
+  assert.equal(await fs.readFile(saved.path, "utf8"), sentinel);
+  assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
+  await runtime.invoke("agent:interrupt", [chatId]);
+  const snapshot = await runtime.invoke("project:snapshot", [project]);
+  assert.ok(!JSON.stringify(snapshot).includes(sentinel));
+  assert.ok(!JSON.stringify(events).includes(sentinel));
+  await runtime.close();
+  assert.ok(!JSON.stringify(await readSavedState(project)).includes(sentinel));
+  assert.equal((await fs.readdir(path.join(dataDir, "chat-secrets"))).length, 1);
+});
