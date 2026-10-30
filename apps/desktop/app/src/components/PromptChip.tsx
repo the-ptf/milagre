@@ -9,9 +9,12 @@ import { TOOLTIP_SHOW_DELAY, TooltipBubble } from "./primitives/Tooltip";
 // (`LABEL`), so every chip's text sits on the line's baseline and the chip is centred on the line whatever comes first
 // (an icon has no baseline, a badge a smaller one); icons and badges are sized in em, centred, and never set the height.
 const CHIP =
-  "inline-flex max-w-full items-center gap-1 rounded-[6px] border px-1.5 align-baseline text-[length:inherit] leading-[1.35] font-[inherit] whitespace-nowrap";
+  "inline-flex max-w-full items-center gap-1 rounded-chip border px-1.5 align-baseline text-[length:inherit] leading-[1.35] font-[inherit] whitespace-nowrap";
 const LABEL = "truncate self-baseline";
 const ICON_SIZE = "0.95em";
+// A chip that opens something: a stronger border on hover; focus is the base accent outline. File and image chips keep
+// a native title: it reveals the full path or name the chip truncates.
+const OPENABLE = "cursor-pointer transition-colors duration-fast hover:border-ink-3";
 
 /** A file's type: letters for common languages, an icon for the rest, in the type's color (tinted so it reads in light and dark). */
 export function FileKindIcon({ path }: { path: string }) {
@@ -21,7 +24,7 @@ export function FileKindIcon({ path }: { path: string }) {
       <span
         aria-hidden
         data-file-badge={kind.badge}
-        className="inline-block shrink-0 rounded-[3px] px-[3px] text-[0.62em] leading-[1.4] font-bold tracking-tight"
+        className="inline-block shrink-0 rounded-inline px-0.5 text-[0.62em] leading-[1.4] font-semibold"
         style={{ color: kind.color, background: `color-mix(in srgb, ${kind.color} 16%, transparent)` }}
       >
         {kind.badge}
@@ -78,13 +81,7 @@ export function FileChip({ path, onOpen }: { path: string; onOpen?: () => void }
       </span>
     );
   return (
-    <button
-      type="button"
-      data-chip="file"
-      title={path}
-      onClick={onOpen}
-      className={`${className} cursor-pointer hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-accent-ink`}
-    >
+    <button type="button" data-chip="file" title={path} onClick={onOpen} className={`${className} ${OPENABLE}`}>
       {content}
     </button>
   );
@@ -96,7 +93,7 @@ export function ImageChip({ index, name, onOpen }: { index: number; name?: strin
   const className = `${CHIP} border-line-strong bg-hover text-ink`;
   const content = (
     <>
-      <HugeiconsIcon icon={Image01Icon} size={ICON_SIZE} strokeWidth={1.8} color="#26a69a" aria-hidden className="shrink-0" />
+      <HugeiconsIcon icon={Image01Icon} size={ICON_SIZE} strokeWidth={1.8} color="var(--green)" aria-hidden className="shrink-0" />
       <span className={LABEL}>{label}</span>
     </>
   );
@@ -107,13 +104,7 @@ export function ImageChip({ index, name, onOpen }: { index: number; name?: strin
       </span>
     );
   return (
-    <button
-      type="button"
-      data-chip="image"
-      title={name || label}
-      onClick={onOpen}
-      className={`${className} cursor-pointer hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-accent-ink`}
-    >
+    <button type="button" data-chip="image" title={name || label} onClick={onOpen} className={`${className} ${OPENABLE}`}>
       {content}
     </button>
   );
@@ -132,7 +123,7 @@ export function ChatChip({ title, onOpen }: { title: string; onOpen?: () => void
     <button
       type="button"
       data-chip="chat"
-      className={`${className} cursor-pointer hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-accent-ink`}
+      className={`${className} ${OPENABLE}`}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();

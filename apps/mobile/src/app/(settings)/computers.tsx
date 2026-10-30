@@ -8,7 +8,8 @@ import { phoneName } from "../../phone-name-native";
 import { statusLine, isDesktopComputer } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Icon } from "../../icons";
-import { ErrorNotice, HeaderButton, PageScroll, RowSwitch, useStyles } from "../../ui";
+import { ErrorNotice, Group, HeaderButton, ListRow, PageScroll, RowSwitch, pressStyle, useStyles } from "../../ui";
+import { lineHeight, radius, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 
 const add = () => router.push("/add-computer");
@@ -48,17 +49,23 @@ export default function ComputersScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`${host.name}. ${statusLine(host, state)}`}
                     onPress={() => router.push({ pathname: "/computer", params: { id: host.id } })}
-                    style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, padding: 14, minHeight: 78, opacity: pressed ? 0.5 : 1 })}
+                    style={({ pressed }) => [
+                      { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, minHeight: 56 },
+                      pressStyle({ pressed, kind: "row" }),
+                    ]}
                   >
                     <View style={{ flex: 1, gap: 2 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot(state) }} />
-                        <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink2" size={15} />
-                        <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 16, fontWeight: "600" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: dot(state) }} />
+                        <Icon icon={isDesktopComputer(host.name) ? ComputerIcon : LaptopIcon} tone="ink2" size={16} />
+                        <Text
+                          numberOfLines={1}
+                          style={{ flexShrink: 1, color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}
+                        >
                           {host.name}
                         </Text>
                       </View>
-                      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 13 }}>
+                      <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                         {statusLine(host, state)}
                       </Text>
                     </View>
@@ -83,23 +90,14 @@ export default function ComputersScreen() {
           </View>
         ) : (
           <View style={[styles.card, { gap: 6 }]}>
-            <Text style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}>No computers paired</Text>
+            <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}>No computers paired</Text>
             <Text style={styles.muted}>Open Settings → Devices in Milagre on your Mac, then scan its pairing code with +.</Text>
           </View>
         )}
         {error ? <ErrorNotice message={error} /> : null}
-        <View style={{ gap: 8 }}>
-          <Text style={{ color: colors.ink2, fontSize: 13, paddingHorizontal: 16 }}>This iPhone</Text>
-          <View style={[styles.card, { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 }]}>
-            <Icon icon={SmartPhone01Icon} tone="ink" size={20} />
-            <Text style={{ color: colors.ink, fontSize: 16 }}>Name on computers</Text>
-            {phoneName ? (
-              <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: 15, textAlign: "right" }}>
-                {phoneName}
-              </Text>
-            ) : null}
-          </View>
-        </View>
+        <Group title="This iPhone">
+          {[<ListRow key="name" title="Name on computers" icon={SmartPhone01Icon} value={phoneName || undefined} chevron={false} />]}
+        </Group>
       </PageScroll>
     </>
   );

@@ -1,9 +1,9 @@
 import { cliName, pickerProviders, providerName } from "@milagre/shared/providers";
 import { providerCapabilities } from "@milagre/shared/provider-capabilities";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ComponentProps, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
   ArrowDown01Icon,
@@ -42,16 +42,15 @@ import { offlinePlaceholder, reconnectingPlaceholder } from "../lib/computers";
 import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
-
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
-
-function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { SpinnerRing } from "./primitives/SpinnerRing";
+import Tooltip from "./primitives/Tooltip";
 
 type MenuRow = { key: string; name: string; desc: string; group?: string; source?: string; path?: string; chatId?: number };
 
-type Source = { key: string; name: string; desc: string; icon: IconData };
+type Source = { key: string; name: string; desc: string; icon: IconSvgElement };
 
 const SOURCES: Source[] = [
   { key: "attach", name: "Add files", desc: "Choose files from your computer", icon: Attachment01Icon },
@@ -139,11 +138,11 @@ const POPOVER_MIN_BELOW = 220;
 /** Rising bars, one per level the model offers; the filled ones show how hard the agent will think. */
 function EffortMeter({ level, total }: { level: number; total: number }) {
   return (
-    <span aria-hidden className="flex h-3 items-end gap-[2px]">
+    <span aria-hidden className="flex h-3 items-end gap-0.5">
       {Array.from({ length: total }, (_, index) => (
         <span
           key={index}
-          className="w-[2.5px] rounded-full transition-[background-color,height] duration-200 ease-out motion-reduce:transition-none"
+          className="w-[2.5px] rounded-full transition-[background-color,height] duration-base ease-enter motion-reduce:transition-none"
           style={{ height: `${4 + (index * 8) / Math.max(1, total - 1)}px`, background: index <= level ? "currentColor" : "var(--line-strong)" }}
         />
       ))}
@@ -327,7 +326,7 @@ export function PromptComposer({
   onSendLatest.current = onSend;
   const inputTextClass = expanded
     ? "min-h-[68px] px-2 py-2 text-[length:calc(var(--chat-size)+1px)] leading-5"
-    : "min-h-7 px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px]";
+    : "min-h-7 px-1 py-1 text-[length:var(--chat-size)] leading-5";
   const rows: MenuRow[] =
     menu === "at"
       ? plusOpen
@@ -644,18 +643,19 @@ export function PromptComposer({
           <div
             data-picker-panel
             onMouseLeave={() => setEngaged(false)}
-            className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-[10px] border border-line bg-surface p-1 shadow-raised"
-            style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "bottom center" }}
+            className="absolute inset-x-0 bottom-full z-20 mb-2 rounded-card bg-surface p-1 shadow-raised"
+            style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "bottom center" }}
           >
             <ScrollArea className="relative max-h-64" aria-label={menu === "slash" ? "Commands and skills" : plusOpen ? "Sources" : "Project files and Chats"}>
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-x-1 rounded-[6px] bg-hover"
+                className="pointer-events-none absolute inset-x-1 rounded-chip bg-hover"
                 style={{
                   top: rowBox?.top ?? 0,
                   height: rowBox?.height ?? 0,
                   opacity: rowBox && engaged ? 1 : 0,
-                  transition: "top 220ms cubic-bezier(0.23,1,0.32,1), height 220ms cubic-bezier(0.23,1,0.32,1), opacity 150ms ease",
+                  transition:
+                    "top var(--duration-base) var(--ease-slide), height var(--duration-base) var(--ease-slide), opacity var(--duration-fast) var(--ease-enter)",
                 }}
               />
               {rows.map((row, index) => {
@@ -665,7 +665,7 @@ export function PromptComposer({
                 return (
                   <Fragment key={row.key}>
                     {showGroup && (
-                      <div data-skill-group={row.group} className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-3">
+                      <div data-skill-group={row.group} className="px-2 pt-2 pb-1 text-11 font-medium text-ink-3">
                         {row.group}
                       </div>
                     )}
@@ -681,37 +681,40 @@ export function PromptComposer({
                       }}
                       onClick={() => pick(row)}
                       title={row.path ?? row.desc}
-                      className="relative z-10 flex h-9 w-full items-center gap-2.5 rounded-[6px] px-2 text-left"
+                      className="relative z-10 flex h-9 w-full items-center gap-2 rounded-chip px-2 text-left focus-visible:-outline-offset-2"
                     >
                       {source && (
-                        <span className="flex size-5.5 shrink-0 items-center justify-center text-ink-2">
-                          <Icon icon={source.icon} size={15} />
+                        <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
+                          <Icon icon={source.icon} size={14} />
                         </span>
                       )}
-                      <span className="max-w-[45%] shrink-0 truncate text-[12.5px] font-medium text-ink">{row.name}</span>
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3">{row.desc}</span>
-                      {row.source && <span className="shrink-0 text-[10px] text-ink-3">{row.source}</span>}
+                      <span className="max-w-[45%] shrink-0 truncate text-13 font-medium text-ink">{row.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-12 text-ink-3">{row.desc}</span>
+                      {row.source && <span className="shrink-0 text-11 text-ink-3">{row.source}</span>}
                     </button>
                   </Fragment>
                 );
               })}
               {menu === "at" && !plusOpen && fileSearch.error && (
-                <div role="status" className="px-2 text-xs text-red-ink">
+                <InlineError size={12} className="px-2">
                   {fileSearch.error}
-                </div>
+                </InlineError>
               )}
               {rows.length === 0 && (
-                <div className="flex h-9 items-center px-2 text-[12px] text-ink-3">
-                  {fileSearch.loading && menu === "at" ? "Searching files..." : `No matches for "${tokenQuery}"`}
+                <div className="flex h-9 items-center px-2 text-12 text-ink-3">
+                  {fileSearch.loading && menu === "at" ? "Searching files…" : `No matches for “${tokenQuery}”`}
                 </div>
               )}
             </ScrollArea>
             {menu === "slash" && skillWarnings.length > 0 && (
-              <div role="status" title={skillWarnings.join("\n")} className="px-2 py-1 text-[11px] text-ink-3">
-                {skillWarnings.length === 1 ? skillWarnings[0] : `${skillWarnings.length} skills could not be loaded. Hover for details.`}
-              </div>
+              // Focusable, so the details open from the keyboard as well as on hover.
+              <Tooltip label={skillWarnings.join(" · ")} wrap className="px-2 py-1">
+                <div role="status" tabIndex={0} className="rounded-inline text-11 text-ink-3">
+                  {skillWarnings.length === 1 ? skillWarnings[0] : `${skillWarnings.length} skills could not be loaded. Hover for details.`}
+                </div>
+              </Tooltip>
             )}
-            <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-[11px] text-ink-3">
+            <div className="mt-1 border-t border-line px-2 pt-1.5 pb-1 text-11 text-ink-3">
               {menu === "at" ? "Type to search files and Chats" : skillsLoading ? "Loading skills…" : "Type to search commands & skills"}
             </div>
           </div>
@@ -730,11 +733,11 @@ export function PromptComposer({
             cliStatus={cliStatus}
             notice={
               providerNotice ? (
-                <div role="status" className="mx-1 mb-1 flex flex-col gap-2 rounded-control bg-inset px-2.5 py-2 text-[12px] text-ink-2">
+                <div role="status" className="mx-1 mb-1 flex flex-col gap-2 rounded-control bg-inset px-2.5 py-2 text-12 text-ink-2">
                   <p className="leading-snug">
                     {messageParts(providerNotice).map((part, index) =>
                       part.code ? (
-                        <code key={index} className="rounded-chip bg-surface px-1 py-px font-mono text-[11px] text-ink">
+                        <code key={index} className="rounded-chip bg-surface px-1 py-px font-mono text-11 text-ink">
                           {part.text}
                         </code>
                       ) : (
@@ -746,15 +749,10 @@ export function PromptComposer({
                     (cliStatus?.[provider]?.state === "outdated" ||
                       (providerCapabilities(provider).managedInstall && ["missing", "broken"].includes(cliStatus?.[provider]?.state ?? ""))) && (
                       <div className="flex items-center justify-end pt-0.5">
-                        <button
-                          type="button"
-                          disabled={updatingCli === provider}
-                          onClick={() => onUpdateCli(provider)}
-                          className="flex items-center gap-1.5 rounded-chip border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink shadow-xs transition-colors hover:bg-hover active:scale-[0.98] disabled:opacity-50"
-                        >
+                        <Button variant="secondary" size={28} disabled={updatingCli === provider} onClick={() => onUpdateCli(provider)}>
                           {updatingCli === provider ? (
                             <>
-                              <span className="size-3 animate-spin rounded-full border-2 border-ink border-t-transparent" />
+                              <SpinnerRing size={12} />
                               <span>{cliStatus?.[provider]?.state === "outdated" ? "Updating…" : "Installing…"}</span>
                             </>
                           ) : (
@@ -763,7 +761,7 @@ export function PromptComposer({
                               {provider === "antigravity" ? cliName(provider) : providerName(provider)}
                             </span>
                           )}
-                        </button>
+                        </Button>
                       </div>
                     )}
                 </div>
@@ -810,7 +808,7 @@ export function PromptComposer({
 
         <div
           data-ultracode={ultracodeOn || undefined}
-          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-150 focus-within:border-line-strong ${expanded ? "gap-2.5 rounded-[22px] p-3.5" : "gap-1.5 rounded-[14px] p-1.5"}`}
+          className={`promptbar-surface relative isolate flex flex-col overflow-visible border border-line transition-[border-color,border-radius] duration-fast focus-within:border-accent ${expanded ? "gap-2 rounded-window p-3" : "gap-1.5 rounded-window p-1.5"}`}
         >
           <input
             ref={fileInputRef}
@@ -836,17 +834,15 @@ export function PromptComposer({
             cancelUpload={imageDraft.cancelUpload}
           />
           {imageDraft.loading && !imageDraft.uploads.length && (
-            <div role="status" className="px-2 text-xs text-ink-3">
+            <div role="status" className="px-2 text-12 text-ink-3">
               Loading images…
             </div>
           )}
-          {imageDraft.error && (
-            <div role="alert" className="px-2 text-xs text-red-ink">
-              {imageDraft.error}
-            </div>
-          )}
+          <InlineError size={12} className="px-2">
+            {imageDraft.error}
+          </InlineError>
           {dictation.download && (
-            <div role="status" className="px-2 text-xs text-ink-3">
+            <div role="status" className="px-2 text-12 text-ink-3">
               Downloading the speech model, once: {Math.round((dictation.download.received / dictation.download.total) * 100)}% of{" "}
               {Math.round(dictation.download.total / 1e6)} MB
             </div>
@@ -892,19 +888,18 @@ export function PromptComposer({
                 placeholderClassName={expanded ? "" : "truncate whitespace-nowrap"}
               />
             </div>
-            <button
-              type="button"
-              aria-label="Add attachments and sources"
+            <IconButton
+              label="Add attachments and sources"
+              icon={Add01Icon}
+              size={28}
               aria-expanded={plusOpen}
               onClick={() => {
                 setModelOpen(false);
                 setPlusOpen((current) => !current);
                 inputRef.current?.focus();
               }}
-              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink ${plusOpen ? "bg-hover" : ""}`}
-            >
-              <Icon icon={Add01Icon} size={16} />
-            </button>
+              className={`col-start-1 ${expanded ? "row-start-2" : "row-start-1"} rounded-full ${plusOpen ? "bg-hover" : ""}`}
+            />
             <div className={`flex shrink-0 items-center gap-0.5 ${expanded ? "col-start-2 row-start-2 justify-self-start" : "col-start-3 row-start-1"}`}>
               <button
                 type="button"
@@ -916,9 +911,9 @@ export function PromptComposer({
                   setPermissionOpen(false);
                   setModelOpen((current) => !current);
                 }}
-                className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+                className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
               >
-                <ProviderLogo provider={selectedModel.provider} size={13} />
+                <ProviderLogo provider={selectedModel.provider} size={14} />
                 <span data-model-name className="max-w-28 truncate">
                   {selectedModel.name}
                 </span>
@@ -933,7 +928,7 @@ export function PromptComposer({
                 )}
                 {canUseFastMode && fastMode && (
                   <span data-fast-mode className="text-orange-ink">
-                    <Icon icon={FlashIcon} size={13} />
+                    <Icon icon={FlashIcon} size={14} />
                   </span>
                 )}
                 <Icon icon={ArrowDown01Icon} size={12} />
@@ -951,7 +946,7 @@ export function PromptComposer({
                 setModelOpen(false);
                 setPermissionOpen((current) => !current);
               }}
-              className={`flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium transition-colors hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
+              className={`flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium transition-colors duration-fast hover:bg-hover disabled:cursor-default disabled:hover:bg-transparent ${permissionMode === "full" ? "text-ink" : permissionMode === "auto" ? "text-green-ink" : "text-ink-2"} ${expanded ? "col-start-3 row-start-2 justify-self-start" : "col-start-4 row-start-1"}`}
             >
               <Icon icon={SecurityCheckIcon} size={14} />
               <span className="hidden min-[900px]:inline">{PERMISSION_MODE_LABEL[permissionMode]}</span>
@@ -966,53 +961,54 @@ export function PromptComposer({
               )}
               <span className="relative flex shrink-0">
                 {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                <button
-                  ref={(node) => {
-                    dictation.meter.current = node;
-                  }}
-                  type="button"
-                  aria-label={DICTATION_LABELS[dictation.phase]}
-                  title={DICTATION_LABELS[dictation.phase]}
-                  aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                  disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
-                  onClick={() => {
-                    if (dictation.phase === "recording") return void dictation.stop();
-                    void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
-                  }}
-                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-default ${dictation.phase === "recording" ? "text-surface" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
-                >
-                  {(dictation.phase === "preparing" || dictation.phase === "transcribing") && (
-                    // An arc turning around the mic while dictation starts or the take is transcribed.
-                    <span aria-hidden className="pointer-events-none absolute -inset-0.5 rounded-full border-2 border-line">
-                      <span className="absolute -inset-0.5 rounded-full border-2 border-transparent border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                    </span>
-                  )}
-                  {dictation.phase === "recording" && (
-                    <>
-                      {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
-                      <span
-                        aria-hidden
-                        className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
-                        style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
-                      />
-                      <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
-                    </>
-                  )}
-                  <span className="relative">
-                    {dictation.phase === "recording" ? (
-                      <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
-                    ) : (
-                      <Icon icon={Mic01Icon} size={16} />
+                <Tooltip label={DICTATION_LABELS[dictation.phase]} align="end">
+                  <button
+                    ref={(node) => {
+                      dictation.meter.current = node;
+                    }}
+                    type="button"
+                    aria-label={DICTATION_LABELS[dictation.phase]}
+                    aria-busy={dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                    disabled={Boolean(offlineName) || dictation.phase === "preparing" || dictation.phase === "transcribing"}
+                    onClick={() => {
+                      if (dictation.phase === "recording") return void dictation.stop();
+                      void dictation.start({ selection: inputRef.current?.getSelection() ?? { start: caret, end: caret } });
+                    }}
+                    className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-fast disabled:cursor-default ${dictation.phase === "recording" ? "text-on-red" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                  >
+                    {(dictation.phase === "preparing" || dictation.phase === "transcribing") && (
+                      // An arc turning around the mic while dictation starts or the take is transcribed.
+                      <span aria-hidden className="pointer-events-none absolute -inset-0.5 flex">
+                        <SpinnerRing size={32} color="var(--ink-2)" />
+                      </span>
                     )}
-                  </span>
-                </button>
+                    {dictation.phase === "recording" && (
+                      <>
+                        {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
+                        <span
+                          aria-hidden
+                          className="absolute inset-0 rounded-full bg-red/30 motion-safe:transition-transform motion-safe:duration-75"
+                          style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
+                        />
+                        <span aria-hidden className="absolute inset-0.5 rounded-full bg-red" />
+                      </>
+                    )}
+                    <span className="relative">
+                      {dictation.phase === "recording" ? (
+                        <span aria-hidden="true" className="block size-2.5 rounded-[2px] bg-current" />
+                      ) : (
+                        <Icon icon={Mic01Icon} size={16} />
+                      )}
+                    </span>
+                  </button>
+                </Tooltip>
               </span>
               <button
                 type="button"
                 aria-label={canStop ? "Stop agent" : "Send"}
                 disabled={!canStop && (!canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
-                className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
+                className={`flex size-7 shrink-0 items-center justify-center rounded-full text-on-ink transition-[background-color,color,scale] duration-fast enabled:active:scale-press disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
                 style={{ background: canStop || (canSend && !sendBlocked) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)" }}
               >
                 {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}

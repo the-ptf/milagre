@@ -1,11 +1,12 @@
-import { Animated, StyleSheet, View, useColorScheme } from "react-native";
+import { Animated, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { LEFT, RIGHT, STAR, STAR_BOX } from "./logo";
 import { hold, twinkleCurve, useKeyframes } from "./running-logo";
+import { useTheme } from "./theme";
 
 /** The splash mark, shared with full-screen loading states. */
 export function LoadingLogo({ size = 64 }: { size?: number }) {
-  const mark = useColorScheme() === "dark" ? "#ffffff" : "#0a0a0a";
+  const mark = useTheme().colors.ink;
   const scale = size / 154;
   // splash-star-twinkle: 0%, 55% rest; 75% { scale(0.82) rotate(45deg) }; 100% { rotate(90deg) }, 2400ms.
   const twinkle = useKeyframes([hold(1320), { to: 1, duration: 480, easing: twinkleCurve }, { to: 2, duration: 600, easing: twinkleCurve }], 300);

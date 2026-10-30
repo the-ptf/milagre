@@ -1,8 +1,8 @@
 import { useReducedMotion } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import { type ComponentPropsWithRef, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PreviewRail, type PreviewRailItem } from "../motion/PreviewRail";
+import { Icon } from "../primitives/Icon";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 
@@ -514,7 +514,7 @@ export function MessageScroller({
         if (["ArrowUp", "PageUp", "Home"].includes(event.key)) leaveLiveEdge();
         onViewportKeyDown?.(event);
       }}
-      className={`h-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain outline-none [overflow-anchor:none] ${navigation === "rail" ? "message-scroller-viewport [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" : "[scrollbar-gutter:stable]"} ${viewportClassName}`}
+      className={`h-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain focus-visible:-outline-offset-2 [overflow-anchor:none] ${navigation === "rail" ? "message-scroller-viewport [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" : "[scrollbar-gutter:stable]"} ${viewportClassName}`}
     >
       <div
         ref={contentRef}
@@ -561,9 +561,9 @@ export function MessageScroller({
               setFollowing(true);
               scrollToEnd(reduce || !smooth ? "auto" : "smooth");
             }}
-            className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-line-strong/50 bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-colors hover:bg-surface/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
+            className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-surface/60 text-ink shadow-overlay backdrop-blur-chip transition-[background-color,scale] duration-fast hover:bg-surface/80 active:scale-press"
           >
-            <HugeiconsIcon icon={ArrowDown01Icon} size={20} aria-hidden="true" />
+            <Icon icon={ArrowDown01Icon} size={18} />
           </button>
         </div>
       )}

@@ -5,7 +5,7 @@ import { useSession } from "../session";
 import { ArchiveProgress } from "../archive-progress";
 import { useLinks } from "../use-links";
 import { endNamer, linkedLabels } from "../chat-links";
-import { Button, ErrorNotice, Field, PageScroll, useStyles } from "../ui";
+import { Button, ErrorNotice, Field, PageScroll, SectionLabel, useStyles } from "../ui";
 
 export default function ChatDetails() {
   const styles = useStyles();
@@ -67,9 +67,7 @@ export default function ChatDetails() {
       <Button title="Save name" disabled={busy || !title.trim()} onPress={() => void save({ title: title.trim() })} />
       {linked.length > 0 && (
         <View style={{ gap: 6 }}>
-          <Text accessibilityRole="header" style={styles.label}>
-            Linked
-          </Text>
+          <SectionLabel>Linked</SectionLabel>
           {linked.map(({ link, label }) => (
             <Text key={link.id} style={styles.text}>
               {label}

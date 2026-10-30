@@ -113,7 +113,22 @@ import { useReadOpenChat } from "../read-open-chat";
 import { LoadingLogo } from "../loading-logo";
 import { useOpenProject } from "../use-open-project";
 import { PersistenceNotice } from "../persistence-notice";
-import { ErrorNotice, GlassIconButton, HeaderButton, IconButton, PageScroll, PillButton, PullDown, useStyles, type MenuSection } from "../ui";
+import {
+  DISABLED_OPACITY,
+  ErrorNotice,
+  GlassIconButton,
+  HeaderButton,
+  IconButton,
+  PageScroll,
+  PillButton,
+  PullDown,
+  Toast,
+  pressStyle,
+  useStyles,
+  type MenuSection,
+} from "../ui";
+import { Counts } from "../diff-ui";
+import { radius } from "../design-tokens";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -1692,7 +1707,7 @@ function ChatPane({
           </Text>
         </View>
         {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
             {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
             {paired && (
               <Text
@@ -1705,16 +1720,12 @@ function ChatPane({
               </Text>
             )}
             {!project.link && !chatsHomeOpen && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
-                <Icon icon={GitBranchIcon} tone="ink3" size={11} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, opacity: worktree ? 1 : 0 }}>
+                <Icon icon={GitBranchIcon} tone="ink3" size={12} />
                 <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink2, fontSize: 12, flexShrink: 1 }}>
                   {worktree?.name ?? ""}
                 </Text>
-                <Text style={{ fontSize: 12 }}>
-                  <Text style={{ color: colors.add }}>{diff && (diff.added > 0 || diff.removed > 0) ? `+${diff.added}` : ""}</Text>
-                  {diff && (diff.added > 0 || diff.removed > 0) ? " " : ""}
-                  <Text style={{ color: colors.remove }}>{diff && (diff.added > 0 || diff.removed > 0) ? `−${diff.removed}` : ""}</Text>
-                </Text>
+                {diff && (diff.added > 0 || diff.removed > 0) ? <Counts added={diff.added} removed={diff.removed} /> : null}
                 {pr && chat && <HeaderPullRequestChip pr={pr} onPress={() => openPr(pr.number)} />}
               </View>
             )}
@@ -2035,7 +2046,7 @@ function ChatPane({
                     <PillButton
                       title={
                         historyState.key === scrollKey && historyState.loading
-                          ? "Loading earlier messages..."
+                          ? "Loading earlier messages…"
                           : `Show earlier messages (${messages.length + remote - visible})`
                       }
                       secondary
@@ -2180,18 +2191,14 @@ function ChatPane({
                           accessibilityLabel={`${JUST_CHAT_HEADING} on ${chatsComputer}. Change computer`}
                           disabled={busy}
                           onPress={chooseChatsComputer}
-                          style={({ pressed }) => ({
-                            flexDirection: "row",
-                            flexWrap: "wrap",
-                            justifyContent: "center",
-                            alignItems: "center",
-                            columnGap: 6,
-                            opacity: pressed ? 0.6 : 1,
-                          })}
+                          style={({ pressed }) => [
+                            { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", columnGap: 6 },
+                            pressStyle({ pressed, disabled: busy }),
+                          ]}
                         >
                           <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>{JUST_CHAT_HEADING} on</Text>
                           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                            <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}>
                               {chatsComputer}
                             </Text>
                             <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2203,7 +2210,7 @@ function ChatPane({
                           disabled={busy}
                           onPress={chooseProject}
                           hitSlop={8}
-                          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                          style={({ pressed }) => pressStyle({ pressed, disabled: busy })}
                         >
                           <Text style={{ fontSize: 15, color: colors.ink3, textAlign: "center" }}>{NO_PROJECT_LINE}</Text>
                         </Pressable>
@@ -2214,18 +2221,14 @@ function ChatPane({
                         accessibilityLabel={`Start building in ${projectName}. Change project`}
                         disabled={busy}
                         onPress={chooseProject}
-                        style={({ pressed }) => ({
-                          flexDirection: "row",
-                          flexWrap: "wrap",
-                          justifyContent: "center",
-                          alignItems: "center",
-                          columnGap: 6,
-                          opacity: pressed ? 0.6 : 1,
-                        })}
+                        style={({ pressed }) => [
+                          { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", columnGap: 6 },
+                          pressStyle({ pressed, disabled: busy }),
+                        ]}
                       >
                         <Text style={{ fontSize: 20, fontWeight: "600", color: colors.ink }}>Start building in</Text>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-                          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accent, flexShrink: 1 }}>
+                          <Text numberOfLines={1} style={{ fontSize: 20, fontWeight: "600", color: colors.accentInk, flexShrink: 1 }}>
                             {projectName}
                           </Text>
                           <Icon icon={ArrowDown01Icon} tone="accent" size={18} />
@@ -2235,16 +2238,7 @@ function ChatPane({
                   </Animated.View>
                 )}
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
-                {toast ? (
-                  <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
-                    <View
-                      accessibilityLiveRegion="polite"
-                      style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
-                    >
-                      <Text style={{ color: colors.surface, fontSize: 14 }}>{toast}</Text>
-                    </View>
-                  </View>
-                ) : null}
+                {toast ? <Toast key={toast} text={toast} placement="top" /> : null}
                 <MessageNavigation
                   items={navigationItems}
                   onSelect={navigateToMessage}
@@ -2370,22 +2364,19 @@ function ChatPane({
                             startTray
                               ? {
                                   backgroundColor: colors.inset,
-                                  borderWidth: 1,
-                                  borderColor: colors.line,
                                   borderRadius: 28,
                                   borderCurve: "continuous",
-                                  padding: 5,
-                                  paddingTop: 3,
+                                  padding: 4,
                                   gap: 2,
-                                  boxShadow: "0 4px 20px #0000000f",
+                                  boxShadow: colors.shadowRaised,
                                 }
                               : undefined
                           }
                         >
                           {startTray && chatsHomeOpen ? (
                             // A Chat without a Project has no isolation, branch or issue to pick: the tray only says what it is.
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
-                              <Icon icon={BubbleChatIcon} tone="ink2" size={14} />
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, minHeight: 32 }}>
+                              <Icon icon={BubbleChatIcon} tone="ink2" size={16} />
                               <Text style={styles.label}>{CHATS_TRAY_LABEL}</Text>
                             </View>
                           ) : (
@@ -2435,12 +2426,13 @@ function ChatPane({
                                         flexDirection: "row",
                                         alignItems: "center",
                                         gap: 6,
-                                        paddingHorizontal: 10,
+                                        paddingHorizontal: 12,
                                         paddingVertical: 6,
-                                        opacity: targetDisabled ? 0.35 : 1,
+                                        minHeight: 32,
+                                        opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
                                       }}
                                     >
-                                      <Icon icon={ComputerIcon} tone="ink2" size={14} />
+                                      <Icon icon={ComputerIcon} tone="ink2" size={16} />
                                       <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                         {computerName}
                                       </Text>
@@ -2489,12 +2481,13 @@ function ChatPane({
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
-                                      paddingHorizontal: 10,
+                                      paddingHorizontal: 12,
                                       paddingVertical: 6,
-                                      opacity: targetDisabled ? 0.35 : 1,
+                                      minHeight: 32,
+                                      opacity: targetDisabled ? DISABLED_OPACITY.control : 1,
                                     }}
                                   >
-                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={14} />
+                                    <Icon icon={isolation === "local" ? LaptopIcon : GitForkIcon} tone="ink2" size={16} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                       {isolation === "local" ? "Local" : "New worktree"}
                                     </Text>
@@ -2544,12 +2537,13 @@ function ChatPane({
                                       flexDirection: "row",
                                       alignItems: "center",
                                       gap: 6,
-                                      paddingHorizontal: 10,
+                                      paddingHorizontal: 12,
                                       paddingVertical: 6,
-                                      opacity: branchDisabled ? 0.35 : 1,
+                                      minHeight: 32,
+                                      opacity: branchDisabled ? DISABLED_OPACITY.control : 1,
                                     }}
                                   >
-                                    <Icon icon={GitBranchIcon} tone="ink2" size={14} />
+                                    <Icon icon={GitBranchIcon} tone="ink2" size={16} />
                                     <Text numberOfLines={1} style={[styles.label, { flexShrink: 1 }]}>
                                       {branchName}
                                     </Text>
@@ -2560,18 +2554,16 @@ function ChatPane({
                                   <Pressable
                                     accessibilityRole="button"
                                     accessibilityLabel="Start from a Linear issue"
+                                    accessibilityState={{ disabled: targetDisabled }}
                                     disabled={targetDisabled}
+                                    hitSlop={6}
                                     onPress={() => void chooseIssue()}
-                                    style={({ pressed }) => ({
-                                      flexDirection: "row",
-                                      alignItems: "center",
-                                      gap: 6,
-                                      paddingHorizontal: 10,
-                                      paddingVertical: 6,
-                                      opacity: targetDisabled ? 0.35 : pressed ? 0.6 : 1,
-                                    })}
+                                    style={({ pressed }) => [
+                                      { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, minHeight: 32 },
+                                      pressStyle({ pressed, disabled: targetDisabled }),
+                                    ]}
                                   >
-                                    <LinearLogo size={13} />
+                                    <LinearLogo size={16} />
                                     {trayRowWidth >= COMPACT_TRAY_ROW_WIDTH && <Text style={styles.label}>Linear issue</Text>}
                                   </Pressable>
                                 )}
@@ -2581,20 +2573,21 @@ function ChatPane({
                           <View
                             style={{
                               backgroundColor: colors.surface,
-                              borderWidth: 1,
+                              // A floating composer is elevated: its shadow token paints the ring. Inside the new-Chat tray it stays bordered.
+                              borderWidth: startTray || ultracodeOn ? 1 : 0,
                               borderColor: colors.lineStrong,
-                              borderRadius: startTray ? 23 : 24,
+                              borderRadius: 24,
                               borderCurve: "continuous",
                               // Not clipped: a dictation message floats over the mic, past the card's top edge.
                               paddingTop: 8,
                               paddingHorizontal: 8,
                               paddingBottom: 6,
                               gap: 4,
-                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : "0 4px 20px #0000000f",
+                              boxShadow: ultracodeOn ? `0 4px 22px ${colors.purple}47` : startTray ? undefined : colors.shadowRaised,
                             }}
                           >
                             {/* With Ultracode on, the composer takes its purple: a breathing tint and border, and a glow. */}
-                            {ultracodeOn && <UltracodeGlow radius={startTray ? 23 : 24} />}
+                            {ultracodeOn && <UltracodeGlow radius={24} />}
                             {!!attachments.length && (
                               <PageScroll horizontal contentContainerStyle={{ padding: 4, paddingBottom: 4, gap: 8 }}>
                                 {attachments.map((item) => {
@@ -2604,16 +2597,20 @@ function ChatPane({
                                       key={item.id}
                                       style={{
                                         backgroundColor: colors.field,
-                                        borderRadius: 12,
+                                        borderRadius: radius.control,
                                         borderCurve: "continuous",
-                                        paddingLeft: item.image ? 4 : 10,
+                                        paddingLeft: item.image ? 4 : 12,
                                         flexDirection: "row",
                                         alignItems: "center",
                                         maxWidth: 220,
                                       }}
                                     >
                                       {item.image ? (
-                                        <Image source={{ uri: item.uri }} accessibilityLabel={item.name} style={{ width: 44, height: 44, borderRadius: 8 }} />
+                                        <Image
+                                          source={{ uri: item.uri }}
+                                          accessibilityLabel={item.name}
+                                          style={{ width: 44, height: 44, borderRadius: radius.chip }}
+                                        />
                                       ) : (
                                         <Pressable
                                           accessibilityRole="button"
@@ -2727,8 +2724,16 @@ function ChatPane({
                                 ]}
                                 onSelect={(kind) => void pick(kind as "photos" | "camera" | "files" | "paste")}
                               >
-                                <View style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: attachmentDisabled ? 0.35 : 1 }}>
-                                  <Icon icon={Add01Icon} tone="ink2" size={21} />
+                                <View
+                                  style={{
+                                    width: 36,
+                                    height: 36,
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    opacity: attachmentDisabled ? DISABLED_OPACITY.control : 1,
+                                  }}
+                                >
+                                  <Icon icon={Add01Icon} tone="ink2" size={20} />
                                 </View>
                               </PullDown>
                               <AgentControls
@@ -2776,7 +2781,7 @@ function ChatPane({
                                 <IconButton
                                   label={
                                     busy
-                                      ? "Sending..."
+                                      ? "Sending…"
                                       : run
                                         ? providerCapabilities(chat?.provider ?? actualProvider).steer
                                           ? "Send follow-up"

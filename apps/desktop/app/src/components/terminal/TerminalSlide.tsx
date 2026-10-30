@@ -72,7 +72,7 @@ export function TerminalSlide({ height, children }: { height: number; children: 
         style={moving ? { height: card, flexShrink: 0 } : { flex: "1 1 0%" }}
         initial={reduced ? false : { opacity: 0 }}
         animate={{ opacity: isPresent ? 1 : 0 }}
-        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? 0.24 : 0.16, scale) }}
+        transition={reduced ? { duration: 0 } : { duration: scaled(isPresent ? 0.28 : 0.18, scale) }}
       >
         {children}
       </motion.div>

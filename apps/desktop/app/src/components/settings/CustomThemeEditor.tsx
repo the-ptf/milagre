@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { customContrast, DEFAULT_THEME_ID, parseCustomTheme, resolvePalette, seedsFrom, serializeCustomTheme, themes } from "@milagre/shared/themes";
 import type { CustomTheme, Scheme, ThemeId, ThemeSeeds } from "@milagre/shared/themes";
 import { updateSettings, useResolvedScheme, useSettings } from "../../lib/settings";
+import { Button } from "../primitives/Button";
+import { InlineError } from "../primitives/InlineError";
+import { Segmented } from "../primitives/Segmented";
 import { Select } from "../primitives/Select";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -14,26 +17,13 @@ const save = (next: CustomTheme) => updateSettings({ customTheme: next, colorThe
 const NO_CLIPBOARD = "Could not read the clipboard.";
 const BAD_PASTE = "That isn't a Milagre theme. It needs light and dark, each with background, text and accent hex colors.";
 
+const SCHEMES = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+] as const;
+
 function Segment({ value, onChange }: { value: Scheme; onChange: (scheme: Scheme) => void }) {
-  return (
-    <div role="radiogroup" aria-label="Editing" className="flex gap-0.5 rounded-[9px] bg-field p-0.5">
-      {(["light", "dark"] as const).map((scheme) => (
-        <button
-          key={scheme}
-          type="button"
-          role="radio"
-          aria-checked={value === scheme}
-          aria-label={scheme === "light" ? "Light" : "Dark"}
-          onClick={() => onChange(scheme)}
-          className={`rounded-[7px] px-3 py-1 text-[12.5px] font-medium transition-colors ${
-            value === scheme ? "bg-surface text-ink shadow-card" : "text-ink-3 hover:text-ink"
-          }`}
-        >
-          {scheme === "light" ? "Light" : "Dark"}
-        </button>
-      ))}
-    </div>
-  );
+  return <Segmented<Scheme> label="Editing" size="large" value={value} options={SCHEMES} onChange={onChange} />;
 }
 
 function ColorRow({ name, value, onCommit }: { name: string; value: string; onCommit: (hex: string) => void }) {
@@ -58,8 +48,8 @@ function ColorRow({ name, value, onCommit }: { name: string; value: string; onCo
     [],
   );
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-      <span className="text-[13.5px] font-medium text-ink">{name}</span>
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <span className="text-13 font-medium text-ink">{name}</span>
       <div className="flex shrink-0 items-center gap-2">
         <input
           type="color"
@@ -75,7 +65,7 @@ function ColorRow({ name, value, onCommit }: { name: string; value: string; onCo
               commit.current(latest.current);
             });
           }}
-          className="size-7 cursor-pointer rounded-[7px] border-0 bg-transparent p-0"
+          className="size-7 cursor-pointer rounded-control border-0 bg-transparent p-0"
         />
         <input
           type="text"
@@ -89,7 +79,7 @@ function ColorRow({ name, value, onCommit }: { name: string; value: string; onCo
             if (HEX.test(next)) onCommit(next.toLowerCase());
           }}
           onBlur={() => setDraft(null)}
-          className="w-20 rounded-[7px] bg-field px-2 py-1 font-mono text-[12.5px] text-ink outline-none focus:ring-2 focus:ring-accent"
+          className="w-20 rounded-control bg-field px-2 py-1 font-mono text-13 text-ink outline-none focus:ring-2 focus:ring-accent"
         />
       </div>
     </div>
@@ -99,23 +89,23 @@ function ColorRow({ name, value, onCommit }: { name: string; value: string; onCo
 function Preview({ theme, scheme }: { theme: CustomTheme; scheme: Scheme }) {
   const p = resolvePalette("custom", scheme, theme);
   return (
-    <div className="flex h-44 w-64 shrink-0 overflow-hidden rounded-[10px]" style={{ background: p.page, boxShadow: `0 0 0 1px ${p.line}` }} aria-hidden>
+    <div className="flex h-44 w-64 shrink-0 overflow-hidden rounded-card" style={{ background: p.page, boxShadow: `0 0 0 1px ${p.line}` }} aria-hidden>
       <div className="grid w-20 shrink-0 content-start gap-1.5 p-2.5" style={{ background: p.canvas, borderRight: `1px solid ${p.line}` }}>
         <div className="h-1.5 w-10 rounded-full" style={{ background: p.ink3 }} />
-        <div className="h-5 rounded-[5px]" style={{ background: p.hover }} />
+        <div className="h-5 rounded-chip" style={{ background: p.hover }} />
         <div className="h-1.5 w-12 rounded-full" style={{ background: p.ink3 }} />
         <div className="h-1.5 w-9 rounded-full" style={{ background: p.ink3 }} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col justify-between p-3">
         <div className="grid gap-2">
-          <div className="rounded-[8px] px-2.5 py-1.5 text-[11.5px]" style={{ background: p.surface, color: p.ink }}>
+          <div className="rounded-control px-2.5 py-1.5 text-12" style={{ background: p.surface, color: p.ink }}>
             Done. The tests pass.
           </div>
-          <div className="rounded-[6px] px-2 py-1 font-mono text-[10.5px]" style={{ background: p.inset, color: p.ink2 }}>
+          <div className="rounded-chip px-2 py-1 font-mono text-11" style={{ background: p.inset, color: p.ink2 }}>
             <span style={{ color: p.accent }}>const</span> theme = custom
           </div>
         </div>
-        <div className="self-end rounded-[7px] px-3 py-1 text-[11.5px] font-medium" style={{ background: p.accent, color: p.onAccent }}>
+        <div className="self-end rounded-control px-3 py-1 text-12 font-medium" style={{ background: p.accent, color: p.onAccent }}>
           Send
         </div>
       </div>
@@ -142,22 +132,22 @@ export function CustomThemeEditor() {
   return (
     <div className="grid gap-3 p-4">
       <div className="flex items-center justify-between">
-        <span className="text-[13.5px] font-medium text-ink">Editing</span>
+        <span className="text-13 font-medium text-ink">Editing</span>
         <Segment value={editing} onChange={setEditing} />
       </div>
       <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1 divide-y divide-line rounded-[10px] bg-field/50">
+        <div className="min-w-0 flex-1 divide-y divide-line rounded-card bg-field/50">
           {FIELDS.map((field) => (
             <ColorRow key={field.key} name={field.name} value={seeds[field.key]} onCommit={(hex) => edit(field.key, hex)} />
           ))}
         </div>
         <Preview theme={theme} scheme={editing} />
       </div>
-      <p data-contrast className={`text-[12px] ${weak ? "text-orange-ink" : "text-ink-3"}`}>
+      <p data-contrast className={`text-12 ${weak ? "text-orange-ink" : "text-ink-3"}`}>
         Text on background: {contrast.text.toFixed(1)}:1. Accent on background: {contrast.accent.toFixed(1)}:1.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[12.5px] text-ink-3">Start from</span>
+        <span className="text-13 text-ink-3">Start from</span>
         <Select<ThemeId>
           label="Start from"
           width={220}
@@ -198,17 +188,12 @@ export function CustomThemeEditor() {
             ],
           ] as const
         ).map(([label, run]) => (
-          <button
-            key={label}
-            type="button"
-            onClick={run}
-            className="rounded-[8px] bg-field px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover"
-          >
+          <Button key={label} variant="secondary" onClick={run}>
             {label}
-          </button>
+          </Button>
         ))}
       </div>
-      {pasteError && <p className="text-[12px] text-red-ink">{pasteError}</p>}
+      <InlineError size={12}>{pasteError}</InlineError>
     </div>
   );
 }

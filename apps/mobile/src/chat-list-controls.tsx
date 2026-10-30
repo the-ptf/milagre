@@ -20,6 +20,7 @@ import { Icon } from "./icons";
 import { scaledTiming, useMotionScale } from "./motion";
 import { GlassIconButton, PullDown } from "./ui";
 import type { MenuSection } from "./primitives/menu";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
 import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
@@ -150,13 +151,13 @@ export function ChatListControls({
         </Animated.View>
         <Animated.View pointerEvents="box-none" style={[s.row, { paddingBottom: bottom }, slide]}>
           <PullDown label={filters.active ? "Filters, on" : "Filters"} title="Filters" sections={filters.sections} onSelect={filters.onSelect} style={s.circle}>
-            <View style={[s.circle, filters.active && { borderWidth: 1.5, borderColor: colors.accent, borderRadius: CONTROLS_HEIGHT / 2 }]}>
+            <View style={[s.circle, filters.active && { borderWidth: 1.5, borderColor: colors.accent, borderRadius: radius.full }]}>
               <LiquidGlassView
                 pointerEvents="none"
                 glassType="regular"
                 isInteractive={false}
                 reducedTransparencyFallbackColor={colors.surface}
-                style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
+                style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
               />
               <Icon icon={FilterHorizontalIcon} tone={filters.active ? "accent" : "ink"} size={20} />
             </View>
@@ -167,7 +168,7 @@ export function ChatListControls({
               glassType="regular"
               isInteractive={false}
               reducedTransparencyFallbackColor={colors.surface}
-              style={[StyleSheet.absoluteFill, { borderRadius: CONTROLS_HEIGHT / 2, borderCurve: "continuous" }]}
+              style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
             />
             <Icon icon={Search01Icon} tone="ink3" size={18} />
             <TextInput
@@ -228,7 +229,7 @@ export function ChatListControls({
 }
 
 const s = StyleSheet.create({
-  row: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },
+  row: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16 },
   circle: { width: CONTROLS_HEIGHT, height: CONTROLS_HEIGHT, alignItems: "center", justifyContent: "center" },
   search: {
     flex: 1,
@@ -237,7 +238,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
-    borderRadius: CONTROLS_HEIGHT / 2,
+    borderRadius: radius.full,
     borderCurve: "continuous",
   },
 });

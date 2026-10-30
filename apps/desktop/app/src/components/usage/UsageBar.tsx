@@ -9,7 +9,7 @@ export function UsageBar({ usedPercent, display, className }: { usedPercent: num
   return (
     <span aria-hidden className={`relative block shrink-0 overflow-hidden rounded-full bg-line-strong ${className}`}>
       <span
-        className={`absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-300 ease-out motion-reduce:transition-none ${FILL[usageTone(usedPercent)]}`}
+        className={`absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-slow ease-enter motion-reduce:transition-none ${FILL[usageTone(usedPercent)]}`}
         style={{ width: `${shownPercent(usedPercent, display)}%` }}
       />
     </span>

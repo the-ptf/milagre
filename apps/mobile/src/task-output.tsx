@@ -5,6 +5,7 @@ import { plainTaskOutput } from "@milagre/shared/chat-activity";
 import { useTaskOutput } from "@milagre/shared/use-task-output";
 import type { BackgroundTaskOutput } from "@milagre/shared/model";
 import { useSession } from "./session";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { fonts, useTheme } from "./theme";
 import { ErrorNotice } from "./ui";
 
@@ -23,11 +24,11 @@ export function TaskOutput({ chatKey, taskId, running }: { chatKey: string; task
   }, [client, chatKey, taskId]);
   const { output, error } = useTaskOutput(read, focused && foreground, running);
   return (
-    <View style={{ gap: 8, padding: 12, borderRadius: 12, backgroundColor: colors.field }}>
+    <View style={{ gap: space.md, padding: space.lg, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.field }}>
       {!!error && <ErrorNotice message={error} />}
-      {output?.truncated && <Text style={{ color: colors.ink3, fontSize: 12 }}>Showing the latest output.</Text>}
+      {output?.truncated && <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>Showing the latest output.</Text>}
       <Text selectable style={{ color: colors.ink2, fontSize: codeSize, lineHeight: Math.round(codeSize * 1.5), fontFamily: fonts.mono }}>
-        {output ? plainTaskOutput(output.output) || "No output yet." : error ? "" : "Loading output..."}
+        {output ? plainTaskOutput(output.output) || "No output yet." : error ? "" : "Loading output…"}
       </Text>
     </View>
   );

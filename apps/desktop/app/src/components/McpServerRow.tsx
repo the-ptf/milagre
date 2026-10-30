@@ -1,15 +1,14 @@
 import { useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon, ArrowUp01Icon, CommandLineIcon, FolderGitIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { mcpChipLine, mcpSummary, mcpTransportLine, type McpChip, type McpRow } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
 import { Switch } from "./primitives/Switch";
+import { Button } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
 
 const keyOf = (chip: Pick<McpChip, "provider" | "accountId">) => `${chip.provider}:${chip.accountId}`;
-const outlineButton =
-  "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
-const solidButton = "rounded-lg bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-surface transition-opacity hover:opacity-90 disabled:opacity-40";
-const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red-ink transition-colors hover:bg-red-tint";
+/** Remove before it is confirmed: quiet red text; the confirm is the red-filled danger Button. */
+const QUIET_DANGER = "text-red-ink enabled:hover:bg-red-tint";
 
 /** The name without the group it already sits under: "notion" for plugin:engineering:notion, "Gmail" for claude.ai Gmail. */
 const shortName = (row: McpRow) => (row.source ? row.name.replace(/^plugin:[^:]+:/, "").replace(/^claude\.ai /, "") : row.name);
@@ -20,14 +19,18 @@ const accountName = (chip: McpChip) =>
 function Tile({ row, warn = false }: { row: McpRow; warn?: boolean }) {
   const icon = row.transport === "command" ? CommandLineIcon : Globe02Icon;
   return (
-    <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${warn ? "bg-orange-tint text-orange-ink" : "bg-hover text-ink-2"}`}>
-      <HugeiconsIcon icon={icon} size={16} strokeWidth={1.75} color="currentColor" />
+    <span className={`flex size-8 shrink-0 items-center justify-center rounded-control ${warn ? "bg-orange-tint text-orange-ink" : "bg-hover text-ink-2"}`}>
+      <Icon icon={icon} size={16} />
     </span>
   );
 }
 
 function Failed() {
-  return <HugeiconsIcon data-mcp-failed icon={Alert02Icon} size={14} strokeWidth={2} className="shrink-0 text-red-ink" color="currentColor" />;
+  return (
+    <span data-mcp-failed className="flex shrink-0 text-red-ink">
+      <Icon icon={Alert02Icon} size={14} />
+    </span>
+  );
 }
 
 /** A row that needs sign-in: Sign in, or Cancel while the browser is open. Compact inside a group. */
@@ -50,19 +53,19 @@ export function McpSignInRow({
     <div data-mcp-attention={row.name} className={`flex items-center gap-3 ${compact ? "min-h-12 px-3 py-2" : "min-h-15 px-4 py-3"}`}>
       {!compact && <Tile row={row} warn />}
       <div className="grid min-w-0 flex-1 gap-0.5">
-        <span className={`truncate font-semibold text-ink ${compact ? "text-[13px]" : "text-[13.5px]"}`}>{shortName(row)}</span>
-        <span className="truncate text-[12px] text-ink-3">{signingIn ? "Finish in your browser, then come back." : mcpTransportLine(row)}</span>
+        <span className={`truncate font-semibold text-ink ${"text-13"}`}>{shortName(row)}</span>
+        <span className="truncate text-12 text-ink-3">{signingIn ? "Finish in your browser, then come back." : mcpTransportLine(row)}</span>
       </div>
       {remote ? (
-        <span className="text-[12px] text-ink-3">On the Mac</span>
+        <span className="text-12 text-ink-3">On the Mac</span>
       ) : signingIn ? (
-        <button type="button" data-mcp-cancel={row.name} className={outlineButton} onClick={onCancel}>
+        <Button variant="secondary" data-mcp-cancel={row.name} onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       ) : (
-        <button type="button" data-mcp-sign-in={row.name} className={solidButton} onClick={onSignIn}>
+        <Button data-mcp-sign-in={row.name} onClick={onSignIn}>
           Sign in
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -71,8 +74,8 @@ export function McpSignInRow({
 function AccountLines({ row, onSwitch }: { row: McpRow; onSwitch: (chip: McpChip, on: boolean) => void }) {
   return row.chips.map((chip) => (
     <div key={keyOf(chip)} className="flex min-h-10 items-center gap-3">
-      <span className="w-64 shrink-0 truncate text-[13px] text-ink">{accountName(chip)}</span>
-      <span className={`min-w-0 flex-1 truncate text-[12px] ${chip.state === "failed" ? "text-red-ink" : "text-ink-3"}`}>{mcpChipLine(chip)}</span>
+      <span className="w-64 shrink-0 truncate text-13 text-ink">{accountName(chip)}</span>
+      <span className={`min-w-0 flex-1 truncate text-12 ${chip.state === "failed" ? "text-red-ink" : "text-ink-3"}`}>{mcpChipLine(chip)}</span>
       <span data-mcp-switch={`${keyOf(chip)}:${row.name}`} className="flex">
         <Switch
           label={`${row.name} for ${accountName(chip)}`}
@@ -112,52 +115,51 @@ export function McpServerRow({
       <button type="button" aria-expanded={open} onClick={onToggleOpen} className="flex min-h-15 w-full items-center gap-3 px-4 py-3 text-left">
         <Tile row={row} />
         <span className="grid min-w-0 flex-1 gap-0.5">
-          <span className="truncate text-[13.5px] font-semibold text-ink">{row.name}</span>
-          <span className={`truncate text-[12px] ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
+          <span className="truncate text-13 font-semibold text-ink">{row.name}</span>
+          <span className={`truncate text-12 ${failed ? "text-red-ink" : "text-ink-3"}`}>{subtitle}</span>
         </span>
-        {row.everywhere && <span className="rounded-md bg-hover px-2 py-0.5 text-[11.5px] font-medium text-ink">Everywhere</span>}
-        <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+        {row.everywhere && <span className="rounded-chip bg-hover px-2 py-0.5 text-11 font-medium text-ink">Everywhere</span>}
+        <span className="flex items-center gap-1.5 text-12 text-ink-3">
           {failed && <Failed />}
           {mcpSummary(row)}
         </span>
-        <HugeiconsIcon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} strokeWidth={1.75} className="shrink-0 text-ink-3" color="currentColor" />
+        <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
       </button>
       {open && (
         <div className="px-4 pt-1 pb-3">
           <AccountLines row={row} onSwitch={onSwitch} />
           {confirming && onRemove ? (
             <div data-mcp-remove-question className="mt-1 flex min-h-11 items-center gap-2">
-              <span className="min-w-0 flex-1 text-[12px] text-ink">
+              <span className="min-w-0 flex-1 text-12 text-ink">
                 Remove {row.name} from {removePlaces}? Chats stop loading it.
               </span>
-              <button type="button" className={outlineButton} onClick={() => setConfirming(false)}>
+              <Button variant="secondary" onClick={() => setConfirming(false)}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="danger"
                 data-mcp-remove-confirm
-                className={removeButton}
                 onClick={() => {
                   setConfirming(false);
                   onRemove();
                 }}
               >
                 Remove
-              </button>
+              </Button>
             </div>
           ) : (
             (onEdit || onRemove) && (
               <div className="mt-1 flex min-h-11 items-center gap-2">
-                <span className="min-w-0 flex-1 text-[12px] text-ink-3">{row.everywhere ? "Everywhere adds it to providers whose config lacks it." : ""}</span>
+                <span className="min-w-0 flex-1 text-12 text-ink-3">{row.everywhere ? "Everywhere adds it to providers whose config lacks it." : ""}</span>
                 {onEdit && (
-                  <button type="button" data-mcp-edit className={outlineButton} onClick={onEdit}>
+                  <Button variant="secondary" data-mcp-edit onClick={onEdit}>
                     Edit
-                  </button>
+                  </Button>
                 )}
                 {onRemove && (
-                  <button type="button" data-mcp-remove className={removeButton} onClick={() => setConfirming(true)}>
+                  <Button variant="ghost" data-mcp-remove className={QUIET_DANGER} onClick={() => setConfirming(true)}>
                     Remove
-                  </button>
+                  </Button>
                 )}
               </div>
             )
@@ -184,8 +186,8 @@ export function McpOutsideRow({
   const failed = row.chips.some((chip) => chip.state === "failed");
   const name = (
     <span className="grid min-w-0 flex-1 gap-0.5">
-      <span className="truncate text-[13px] font-semibold text-ink">{shortName(row)}</span>
-      <span className="truncate text-[12px] text-ink-3">{mcpTransportLine(row)}</span>
+      <span className="truncate text-13 font-semibold text-ink">{shortName(row)}</span>
+      <span className="truncate text-12 text-ink-3">{mcpTransportLine(row)}</span>
     </span>
   );
   if (only && row.chips.length === 1) {
@@ -193,7 +195,7 @@ export function McpOutsideRow({
     return (
       <div data-mcp-row={row.name} data-open={false} className="flex min-h-12 items-center gap-3 px-3 py-2">
         {name}
-        <span className={`flex min-w-0 items-center gap-1.5 truncate text-[12px] ${failed ? "text-red-ink" : "text-ink-3"}`}>
+        <span className={`flex min-w-0 items-center gap-1.5 truncate text-12 ${failed ? "text-red-ink" : "text-ink-3"}`}>
           {failed && <Failed />}
           {line}
         </span>
@@ -212,11 +214,11 @@ export function McpOutsideRow({
     <div data-mcp-row={row.name} data-open={open}>
       <button type="button" aria-expanded={open} onClick={onToggleOpen} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left">
         {name}
-        <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+        <span className="flex items-center gap-1.5 text-12 text-ink-3">
           {failed && <Failed />}
           {mcpSummary(row)}
         </span>
-        <HugeiconsIcon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} strokeWidth={1.75} className="shrink-0 text-ink-3" color="currentColor" />
+        <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
       </button>
       {open && (
         <div className="px-3 pb-2">
@@ -230,10 +232,10 @@ export function McpOutsideRow({
 export function McpOtherHeader({ open, count, attention, onToggle }: { open: boolean; count: number; attention: number; onToggle: () => void }) {
   return (
     <button type="button" data-mcp-other aria-expanded={open} onClick={onToggle} className="flex min-h-13 w-full items-center gap-3 px-4 text-left">
-      <HugeiconsIcon icon={FolderGitIcon} size={16} strokeWidth={1.75} className="shrink-0 text-ink-2" color="currentColor" />
-      <span className="flex-1 text-[13px] font-medium text-ink">From projects, plugins and claude.ai</span>
-      <span className="text-[12px] text-ink-3">{attention ? `${count} · ${attention} needs sign-in` : count}</span>
-      <HugeiconsIcon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} strokeWidth={1.75} className="shrink-0 text-ink-3" color="currentColor" />
+      <Icon icon={FolderGitIcon} size={16} className="shrink-0 text-ink-2" />
+      <span className="flex-1 text-13 font-medium text-ink">From projects, plugins and claude.ai</span>
+      <span className="text-12 text-ink-3">{attention ? `${count} · ${attention} needs sign-in` : count}</span>
+      <Icon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={16} className="shrink-0 text-ink-3" />
     </button>
   );
 }

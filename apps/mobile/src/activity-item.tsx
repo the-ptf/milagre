@@ -6,10 +6,11 @@ import { Icon, type IconData } from "./icons";
 import { ShimmerText, useShimmerReducedMotion } from "./running-logo";
 import { useScreenActive } from "./display-clock";
 import { fonts, useTheme } from "./theme";
-import { PageScroll, useStyles } from "./ui";
+import { PageScroll, pressStyle, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 
 type ActivityState = "idle" | "running" | "waiting" | "failed";
-const TITLE_LINE = 20;
+const TITLE_LINE = lineHeight.subheadline;
 
 /** Activity titles share code chips and the running shimmer, including reduced-motion handling. */
 export function ActivityTitle({
@@ -27,7 +28,7 @@ export function ActivityTitle({
   const active = useScreenActive();
   const reduced = useShimmerReducedMotion(active && shimmer);
   const sweeping = shimmer && active && !reduced;
-  const style = styleProp ?? { color: colors.ink2, fontSize: 14 };
+  const style = styleProp ?? { color: colors.ink2, fontSize: type.subheadline };
   const spans = (moving: boolean) =>
     titleSpans(title).map((span, index) =>
       span.code ? (
@@ -35,7 +36,7 @@ export function ActivityTitle({
           key={index}
           style={{
             fontFamily: fonts.mono,
-            fontSize: (style.fontSize || 14) * 0.92,
+            fontSize: (style.fontSize || type.subheadline) * 0.92,
             backgroundColor: moving ? undefined : colors.field,
             color: shimmer ? colors.ink3 : colors.ink,
           }}
@@ -100,10 +101,10 @@ export function ActivityItem({
   const label = [title.replace(/`/g, ""), stateLabel, note].filter(Boolean).join(", ");
   const action = () => (onPress ? onPress() : setToggled(!expanded));
   const accessibilityState = expandable ? { expanded } : undefined;
-  const headerStyle: ViewStyle = { minHeight: 44, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 10 };
+  const headerStyle: ViewStyle = { minHeight: 44, paddingVertical: disclosureOnly ? 0 : 8, flexDirection: "row", alignItems: "center", gap: 12 };
   // The icon sits in a box one title line tall, so it centers on the first line whether the title wraps or not.
   const heading = (
-    <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
       <View style={{ height: TITLE_LINE, justifyContent: "center" }}>
         {leading ?? <Icon icon={failed ? Alert02Icon : icon} tone={failed ? "red" : "ink2"} size={16} />}
       </View>
@@ -112,7 +113,7 @@ export function ActivityItem({
           title={title}
           shimmer={state === "running"}
           numberOfLines={disclosureOnly && expanded ? 0 : 1}
-          style={{ color: colors.ink2, fontSize: 14, lineHeight: TITLE_LINE }}
+          style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: TITLE_LINE }}
         />
         {!!note && <Text style={styles.label}>{note}</Text>}
       </View>
@@ -121,11 +122,24 @@ export function ActivityItem({
   const trailing = (
     <>
       {!!summary && (
-        <Text numberOfLines={1} style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.redInk : colors.ink3, fontSize: 12 }}>
+        <Text
+          numberOfLines={1}
+          style={{ maxWidth: 120, flexShrink: 1, color: failed ? colors.redInk : colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}
+        >
           {summary}
         </Text>
       )}
-      {!!status && <Text style={{ color: failed ? colors.redInk : state === "waiting" ? colors.orangeInk : colors.ink3, fontSize: 12 }}>{status}</Text>}
+      {!!status && (
+        <Text
+          style={{
+            color: failed ? colors.redInk : state === "waiting" ? colors.orangeInk : colors.ink3,
+            fontSize: type.caption1,
+            lineHeight: lineHeight.caption1,
+          }}
+        >
+          {status}
+        </Text>
+      )}
       {(onPress || expandable) &&
         (onPress ? (
           <Icon icon={ArrowRight01Icon} tone="ink3" size={12} />
@@ -134,7 +148,9 @@ export function ActivityItem({
             <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
           </View>
         ))}
-      {!!duration && <Text style={{ color: colors.ink3, fontSize: 12, fontVariant: ["tabular-nums"] }}>{duration}</Text>}
+      {!!duration && (
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}>{duration}</Text>
+      )}
     </>
   );
   return (
@@ -149,16 +165,18 @@ export function ActivityItem({
             disabled={!expandable}
             onPress={action}
             hitSlop={4}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              gap: 4,
-              paddingLeft: 4,
-              minWidth: 44,
-              minHeight: 36,
-              alignItems: "center",
-              justifyContent: "flex-end",
-              opacity: pressed ? 0.5 : 1,
-            })}
+            style={({ pressed }) => [
+              {
+                flexDirection: "row",
+                gap: 4,
+                paddingLeft: 4,
+                minWidth: 44,
+                minHeight: 36,
+                alignItems: "center",
+                justifyContent: "flex-end",
+              },
+              pressStyle({ pressed }),
+            ]}
           >
             {trailing}
           </Pressable>
@@ -170,7 +188,7 @@ export function ActivityItem({
           accessibilityState={accessibilityState}
           disabled={!onPress && !expandable}
           onPress={action}
-          style={({ pressed }) => [headerStyle, { opacity: pressed ? 0.5 : 1 }]}
+          style={({ pressed }) => [headerStyle, pressStyle({ pressed })]}
         >
           {heading}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>{trailing}</View>
@@ -179,7 +197,18 @@ export function ActivityItem({
       {!!error && (
         <Text
           selectable
-          style={[styles.code, { marginLeft: 26, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: colors.red, color: colors.ink2, fontSize: 12 }]}
+          style={[
+            styles.code,
+            {
+              marginLeft: 28,
+              paddingLeft: 8,
+              borderLeftWidth: 2,
+              borderLeftColor: colors.red,
+              color: colors.ink2,
+              fontSize: type.caption1,
+              lineHeight: lineHeight.caption1,
+            },
+          ]}
         >
           {error}
         </Text>
@@ -187,7 +216,7 @@ export function ActivityItem({
       {!onPress && expanded && expandable && (
         <PageScroll
           nestedScrollEnabled
-          style={{ maxHeight: 320, backgroundColor: colors.field, borderRadius: 12, marginBottom: 8 }}
+          style={{ maxHeight: 320, backgroundColor: colors.field, borderRadius: radius.control, borderCurve: "continuous", marginBottom: 8 }}
           contentContainerStyle={{ padding: 12, paddingBottom: 12, gap: 8 }}
         >
           {children ?? <Text style={styles.muted}>Loading output…</Text>}

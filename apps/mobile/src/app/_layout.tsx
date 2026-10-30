@@ -9,6 +9,7 @@ import { SessionProvider, useSession } from "../session";
 import { ActivityProvider } from "../live-activity";
 import { PushProvider } from "../push";
 import { StartupSplash } from "../startup-splash";
+import { radius } from "../design-tokens";
 import { useTheme } from "../theme";
 import { UpdateShell } from "../update-sheet";
 import { stackScreenOptions } from "../stack-options";
@@ -38,7 +39,7 @@ export default function Layout() {
   const sheet = {
     presentation: "formSheet",
     sheetGrabberVisible: true,
-    sheetCornerRadius: 28,
+    sheetCornerRadius: radius.sheet,
     headerShown: false,
     contentStyle: { backgroundColor: palette.page },
   } as const;

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft02Icon,
   BubbleChatIcon,
@@ -28,6 +27,9 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Switch } from "../primitives/Switch";
 import Tooltip from "../primitives/Tooltip";
+import { Icon } from "../primitives/Icon";
+import { Button, IconButton } from "../primitives/Button";
+import { InlineError } from "../primitives/InlineError";
 import { routineProblem } from "./RoutineRow";
 import { Chip, Segmented } from "./RoutineChips";
 import { HookUrl } from "./RoutineEditor";
@@ -37,17 +39,14 @@ import { computerOfRoutine, refreshRoutines, type RoutineWithRuns } from "../../
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { localZone } from "./use-routine-form";
 
-const toolButton =
-  "flex size-[26px] shrink-0 items-center justify-center rounded-[7px] text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent";
-
 /** "On" in green, or "Paused" in grey, beside the Routine's name. */
 function RoutineStatusPill({ on }: { on: boolean }) {
   return (
     <span
       data-routine-status-pill={on ? "on" : "paused"}
-      className={`inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2 text-[11.5px] font-semibold ${on ? "bg-green-tint text-green-ink" : "bg-field text-ink-3"}`}
+      className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full px-2 text-11 font-semibold ${on ? "bg-green-tint text-green-ink" : "bg-field text-ink-3"}`}
     >
-      <span aria-hidden="true" className={`size-1.5 rounded-full ${on ? "bg-green" : "bg-ink-3"}`} />
+      <span aria-hidden="true" className={`size-1.5 rounded-full ${on ? "bg-green" : "bg-ink-4"}`} />
       {on ? "On" : "Paused"}
     </span>
   );
@@ -140,25 +139,17 @@ export function RoutinePage({
     <ScrollArea className="flex h-full flex-col">
       <div data-routine-page={routine.id} className={`flex w-full flex-1 flex-col pb-10 ${narrow ? "px-3 pt-4" : "mx-auto max-w-[680px] px-6 pt-14"}`}>
         <div>
-          <button
-            ref={back}
-            type="button"
-            data-routine-back
-            onClick={onBack}
-            className="-ml-2 inline-flex h-7 items-center gap-1.5 rounded-[7px] pr-2.5 pl-1.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink"
-          >
-            <HugeiconsIcon icon={ArrowLeft02Icon} size={15} strokeWidth={1.8} color="currentColor" />
+          <Button ref={back} variant="ghost" size={28} data-routine-back onClick={onBack} className="-ml-2 pl-1.5 text-ink-2 enabled:hover:text-ink">
+            <Icon icon={ArrowLeft02Icon} size={16} />
             Routines
-          </button>
+          </Button>
         </div>
         <div className="mt-3 flex items-center gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <h1 className={`truncate text-[20px] leading-[26px] font-semibold tracking-[-0.01em] ${routine.enabled ? "text-ink" : "text-ink-2"}`}>
-              {routine.name}
-            </h1>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <h1 className={`truncate text-22 font-semibold tracking-[-0.02em] ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</h1>
             <RoutineStatusPill on={routine.enabled} />
           </div>
-          <div data-routine-toolbar className="flex h-[34px] shrink-0 items-center gap-1 rounded-[10px] border border-line bg-surface pr-1 pl-2">
+          <div data-routine-toolbar className="flex h-8 shrink-0 items-center gap-1 rounded-card border border-line bg-surface pr-0.5 pl-2">
             <Switch
               label={`${routine.name} on`}
               checked={routine.enabled}
@@ -167,24 +158,19 @@ export function RoutinePage({
             <span aria-hidden="true" className="mx-1 h-4 w-px bg-line" />
             {canRunNow(routine) && (
               <Tooltip label="Run now" side="bottom">
-                <button
-                  type="button"
-                  aria-label="Run now"
+                <IconButton
+                  label="Run now"
+                  icon={PlayIcon}
                   data-routine-run-now
                   disabled={!routine.enabled}
-                  className={toolButton}
                   onClick={() => act(() => bridgeForKey(routine.id).runRoutineNow(routine.id))}
-                >
-                  <HugeiconsIcon icon={PlayIcon} size={15} strokeWidth={1.8} color="currentColor" />
-                </button>
+                />
               </Tooltip>
             )}
             {/* A babysit Heartbeat follows the Babysit PRs settings: no form edits it (the list's menu still deletes it). */}
             {canEditRoutine(routine) && (
               <Tooltip label="Edit" side="bottom">
-                <button type="button" aria-label="Edit" data-routine-edit className={toolButton} onClick={onEdit}>
-                  <HugeiconsIcon icon={PencilEdit02Icon} size={15} strokeWidth={1.8} color="currentColor" />
-                </button>
+                <IconButton label="Edit" icon={PencilEdit02Icon} data-routine-edit onClick={onEdit} />
               </Tooltip>
             )}
           </div>
@@ -204,41 +190,30 @@ export function RoutinePage({
           </Chip>
         </div>
         {times && (
-          <p data-routine-times className="mt-2.5 text-[12.5px] text-ink-3">
+          <p data-routine-times className="mt-2 text-12 text-ink-3">
             {times}
           </p>
         )}
         {problem && (
-          <p data-routine-problem className="mt-2 text-[12.5px] break-words text-red-ink">
+          <p data-routine-problem className="mt-2 text-12 break-words text-red-ink">
             {problem}
           </p>
         )}
-        {error && (
-          <p role="alert" className="mt-2 text-[13px] break-words text-red-ink">
-            {error}
-          </p>
-        )}
+        <InlineError className="mt-2">{error}</InlineError>
         {createdHookUrl && (
-          <div data-routine-created className="mt-4 space-y-2 rounded-xl border border-line px-4 py-3">
+          <div data-routine-created className="mt-4 space-y-2 rounded-card border border-line px-4 py-3">
             <div className="flex items-start gap-2">
-              <p className="min-w-0 flex-1 text-[12.5px] text-ink-2">
+              <p className="min-w-0 flex-1 text-12 text-ink-2">
                 Routine created. Send POST requests to this URL. While this Mac is away, the relay holds them for up to 24 hours.
               </p>
-              <button
-                type="button"
-                aria-label="Dismiss"
-                className="flex size-6 shrink-0 items-center justify-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"
-                onClick={onDismissHook}
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.8} color="currentColor" />
-              </button>
+              <IconButton label="Dismiss" icon={Cancel01Icon} size={24} onClick={onDismissHook} />
             </div>
             <HookUrl url={createdHookUrl} editing={false} />
           </div>
         )}
         <section data-routine-runs className="mt-7">
           <div className="mb-2 flex items-center gap-3">
-            <h2 className="flex-1 text-[13px] font-semibold text-ink">Runs</h2>
+            <h2 className="flex-1 text-15 font-semibold text-ink">Runs</h2>
             {routine.runs.length > 0 && (
               <Segmented<RunFilter>
                 label="Show"
@@ -265,8 +240,8 @@ export function RoutinePage({
             />
           ) : (
             <div data-routine-runs-empty className="space-y-0.5">
-              <p className="text-[13px] text-ink-2">No Runs yet</p>
-              {routine.enabled && typeof routine.nextRunAt === "number" && <p className="text-[12.5px] text-ink-3">Next Run {clock(routine.nextRunAt)}</p>}
+              <p className="text-13 text-ink-2">No Runs yet</p>
+              {routine.enabled && typeof routine.nextRunAt === "number" && <p className="text-12 text-ink-3">Next Run {clock(routine.nextRunAt)}</p>}
             </div>
           )}
         </section>

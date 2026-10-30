@@ -1,16 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { LOCAL_COMPUTER, computerOfKey } from "@milagre/shared/chat-scopes";
 import { CHATS_GROUP_KEY, NO_PROJECT_LABEL, type ChatsHome, type ProjectKind } from "@milagre/shared/chats-home";
 import { PickerPanel, PickerRow } from "./primitives/Picker";
-import { WorkspaceIcon } from "./WorkspaceIcon";
+import { Icon } from "./primitives/Icon";
+import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import { useDismiss } from "../lib/use-dismiss";
 import { useComputers } from "../lib/computers";
 import { pickedProjectKey, projectPickerRows, type ProjectGroup } from "../lib/project-copies";
 import { newChatLook } from "../lib/new-chat-look";
 import { useProjectImages } from "../lib/project-images";
-import { projectInitial } from "../lib/project-list";
 
 /**
  * "Start building in [Computer / Project ▾]" over a new Chat. The Project is a dropdown listing every Project this window
@@ -68,7 +67,7 @@ export function NewChatHeading({
     trigger.current?.focus();
   };
   return (
-    <div data-new-chat-heading className="relative flex flex-wrap items-center justify-center gap-1.5 text-[17px] font-medium text-ink">
+    <div data-new-chat-heading className="relative flex flex-wrap items-center justify-center gap-1.5 text-17 font-medium text-ink">
       <h1 className="font-medium">{newChatLook(projectKind).heading}</h1>
       {onProjectChange ? (
         <span className="relative">
@@ -86,11 +85,11 @@ export function NewChatHeading({
                 setOpen(true);
               }
             }}
-            className={`flex h-8 max-w-[480px] items-center gap-1 rounded-[8px] px-2 transition-colors hover:bg-hover ${open ? "bg-hover" : "bg-field"}`}
+            className={`flex h-8 max-w-[480px] items-center gap-1 rounded-control px-2 transition-colors duration-fast hover:bg-hover ${open ? "bg-hover" : "bg-field"}`}
           >
             {place}
             <span className="shrink-0 text-ink-3">
-              <HugeiconsIcon icon={ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
+              <Icon icon={ArrowDown01Icon} size={14} />
             </span>
           </button>
           {open && (
@@ -107,7 +106,7 @@ export function NewChatHeading({
           )}
         </span>
       ) : (
-        <span className="flex h-8 max-w-[480px] items-center gap-1 rounded-[8px] bg-field px-2">{place}</span>
+        <span className="flex h-8 max-w-[480px] items-center gap-1 rounded-control bg-field px-2">{place}</span>
       )}
     </div>
   );
@@ -153,8 +152,8 @@ function ProjectPicker({
             <Fragment key={group.key}>
               <PickerRow
                 icon={
-                  <span className="flex size-4 items-center justify-center rounded-[5px] bg-ink text-surface">
-                    <HugeiconsIcon icon={BubbleChatIcon} size={11} strokeWidth={2} color="currentColor" />
+                  <span className="flex size-4 items-center justify-center rounded-inline bg-ink text-on-ink">
+                    <Icon icon={BubbleChatIcon} size={12} />
                   </span>
                 }
                 label={group.name}
@@ -171,11 +170,7 @@ function ProjectPicker({
         return (
           <PickerRow
             key={group.key}
-            icon={
-              <span className="flex size-4 items-center justify-center overflow-hidden rounded-[4px] bg-ink text-[9px] font-semibold text-surface">
-                <WorkspaceIcon src={image(group.key)} fallback={projectInitial(group.name)} />
-              </span>
-            }
+            icon={<ProjectAvatar name={group.name} src={image(group.key)} size={16} />}
             label={group.name}
             trailing={group.copies.length > 1 ? `${group.copies.length} computers` : group.computerId === LOCAL_COMPUTER ? undefined : group.computer}
             selected={current}

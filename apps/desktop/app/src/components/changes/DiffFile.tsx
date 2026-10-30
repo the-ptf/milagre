@@ -1,7 +1,6 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MutableRefObject, ReactNode } from "react";
 import type { ThemedToken } from "shiki/core";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import type { DiffFileEntry } from "../../electron";
 import { resolveCodeLanguage } from "../../lib/code-languages";
@@ -15,6 +14,8 @@ import { Counts, StatusBox } from "./ChangesPanel";
 import { CommentCard, CommentEditor, CommentSlot } from "./DiffComments";
 import type { CommentActions, CommentView, Draft } from "./useDiffComments";
 import { hunksOf, isLarge, type PatchState } from "./useDiffFiles";
+import { Button } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 
 export type DiffLayout = "unified" | "split";
 
@@ -84,7 +85,7 @@ function Gutter({ value }: { value?: number }) {
 
 function HunkHeader({ hunk }: { hunk: DiffHunk }) {
   return (
-    <div data-diff-hunk className="h-6 select-none truncate bg-inset px-3 text-[11px] leading-6 text-ink-3">
+    <div data-diff-hunk className="h-6 select-none truncate bg-inset px-3 text-11 leading-6 text-ink-3">
       {hunk.header}
     </div>
   );
@@ -124,9 +125,9 @@ function AddButton({ commenting, hunk, line, side }: { commenting: Commenting; h
       onClick={(event) => {
         if (event.detail === 0) commenting.actions.start(target, event.shiftKey, false);
       }}
-      className="absolute top-0.5 left-1 flex size-4 items-center justify-center rounded-chip bg-ink text-surface opacity-0 before:absolute before:-inset-x-1 before:-inset-y-0.5 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+      className="absolute top-0.5 left-1 flex size-4 items-center justify-center rounded-chip bg-ink text-on-ink opacity-0 before:absolute before:-inset-x-1 before:-inset-y-0.5 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
     >
-      <HugeiconsIcon icon={Add01Icon} size={11} strokeWidth={2.4} color="currentColor" />
+      <Icon icon={Add01Icon} size={12} />
     </button>
   );
 }
@@ -276,7 +277,7 @@ function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorati
 
 function Message({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex items-center justify-center gap-3 px-4 py-6 font-sans text-[12px] text-ink-3">
+    <div className="flex items-center justify-center gap-3 px-4 py-6 font-sans text-12 text-ink-3">
       {children}
       {action}
     </div>
@@ -455,14 +456,9 @@ export const DiffFile = memo(function DiffFile({
     body = (
       <Message
         action={
-          <button
-            type="button"
-            data-diff-show
-            onClick={() => onShowLarge(file)}
-            className="rounded-control border border-line px-2.5 py-1 text-[12px] font-medium text-ink hover:bg-hover"
-          >
+          <Button variant="secondary" size={28} data-diff-show onClick={() => onShowLarge(file)}>
             Show diff
-          </button>
+          </Button>
         }
       >
         This diff is large
@@ -499,18 +495,16 @@ export const DiffFile = memo(function DiffFile({
           wrapper, under the header; inside the header it would paint over the header's own background and border. */}
       <div className={`sticky top-0 z-10 -mx-px -mt-px ${collapsed ? "-mb-px" : ""}`}>
         <span aria-hidden className="absolute inset-x-0 top-0 h-[var(--radius-card)] bg-page" />
-        <header
-          className={`relative flex h-9 items-center gap-2 border border-line bg-surface px-3 text-[12.5px] ${collapsed ? "rounded-card" : "rounded-t-card"}`}
-        >
+        <header className={`relative flex h-9 items-center gap-2 border border-line bg-surface px-3 text-12 ${collapsed ? "rounded-card" : "rounded-t-card"}`}>
           <button
             type="button"
             aria-label={collapsed ? "Expand file" : "Collapse file"}
             aria-expanded={!collapsed}
             data-diff-collapse
             onClick={() => onToggle(file.path)}
-            className="-ml-1 flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 hover:bg-hover hover:text-ink"
+            className="-ml-1 flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press"
           >
-            <HugeiconsIcon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={14} strokeWidth={1.8} color="currentColor" />
+            <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={14} />
           </button>
           <span className="shrink-0 font-medium text-ink">{name}</span>
           {folder && (

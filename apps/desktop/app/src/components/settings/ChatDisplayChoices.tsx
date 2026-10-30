@@ -12,6 +12,7 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { TOOL_CALL_DISPLAYS, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
+import { Icon } from "../primitives/Icon";
 
 type Choice<T extends string> = { id: T; label: string; description: string; preview: ReactNode };
 
@@ -36,22 +37,22 @@ function ChoiceCards<T extends string>({ label, value, onChange, choices }: { la
             value={choice.id}
             aria-label={choice.label}
             data-choice-card={choice.id}
-            className={`flex flex-col gap-2.5 rounded-[12px] bg-surface p-3 text-left shadow-card outline-none transition-[box-shadow,background-color] hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 ${selected ? "ring-2 ring-accent" : ""}`}
+            className={`flex flex-col gap-2 rounded-card bg-surface p-3 text-left shadow-card transition-[box-shadow,background-color] duration-fast hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 ${selected ? "ring-2 ring-accent" : ""}`}
           >
-            <span aria-hidden className="flex h-[112px] w-full flex-col gap-2 overflow-hidden rounded-[8px] bg-inset p-3">
+            <span aria-hidden className="flex h-[112px] w-full flex-col gap-2 overflow-hidden rounded-control bg-inset p-3">
               {choice.preview}
             </span>
             <span className="flex items-center gap-2">
               {selected ? (
-                <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent text-white">
-                  <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2.6} color="currentColor" />
+                <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-accent text-on-accent">
+                  <Icon icon={Tick02Icon} size={12} />
                 </span>
               ) : (
                 <span className="size-[18px] shrink-0 rounded-full border-[1.5px] border-ink-3" />
               )}
-              <span className="truncate text-[13.5px] font-semibold text-ink">{choice.label}</span>
+              <span className="truncate text-13 font-semibold text-ink">{choice.label}</span>
             </span>
-            <span className="text-[12px] leading-snug text-ink-3">{choice.description}</span>
+            <span className="text-12 text-ink-3">{choice.description}</span>
           </RadioGroupPrimitive.Item>
         );
       })}
@@ -72,7 +73,7 @@ const AVATARS = ["#565f89", "#9e7b5a", "#bb9af7"];
 /** A line of small type with an icon, the way a reply's activity row reads. */
 function Line({ icon, text, chevron }: { icon: Parameters<typeof HugeiconsIcon>[0]["icon"]; text: string; chevron?: "right" | "down" }) {
   return (
-    <span className="flex shrink-0 items-center gap-1.5 text-[10px] leading-3 text-ink-3">
+    <span className="flex shrink-0 items-center gap-1.5 text-10 leading-3 text-ink-3">
       <HugeiconsIcon icon={icon} size={11} strokeWidth={1.8} color="currentColor" />
       <span className="truncate">{text}</span>
       {chevron && <HugeiconsIcon icon={chevron === "right" ? ArrowRight01Icon : ArrowDown01Icon} size={10} strokeWidth={1.8} color="currentColor" />}

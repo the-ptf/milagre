@@ -38,7 +38,7 @@ export function PersistenceNotice({
     <ErrorNotice
       message={`Changes to ${name} haven't been saved on your computer. ${offline ? "Computer disconnected. Reconnect to check saving." : `Changes are kept in memory. Keep your computer running until saving succeeds.\n${detail}`}`}
       retry={() => void retry()}
-      retryTitle={saving && !offline ? "Saving..." : "Retry saving"}
+      retryTitle={saving && !offline ? "Saving…" : "Retry saving"}
       disabled={offline || saving}
       loading={saving && !offline}
     />

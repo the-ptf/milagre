@@ -195,7 +195,7 @@ async function browserChecks() {
     await waitFor('document.querySelector("[data-chat-pr]").getAttribute("aria-label").includes("merged")');
     const mergedColor = await evaluate('getComputedStyle(document.querySelector("[data-chat-pr] > span")).color');
     assert.notEqual(openColor, mergedColor);
-    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-purple-500")'), true);
+    assert.equal(await evaluate('document.querySelector("[data-chat-pr] > span").classList.contains("text-purple")'), true);
     await window.webContents.capturePage().then((image) => require("node:fs").writeFileSync("/tmp/milagre-sidebar-pr.png", image.toPNG()));
     await evaluate("window.setCollapsed(true)");
     await waitFor('!document.querySelector("[data-chat-pr]")');
@@ -235,7 +235,7 @@ async function browserChecks() {
       const chips = document.querySelector('[data-chat-prs]').getBoundingClientRect();
       return { rowHeight: row.height, rowRight: row.right, chipsRight: chips.right, chipsBottom: chips.bottom, rowBottom: row.bottom };
     })()`);
-    assert.equal(multiGeometry.rowHeight, 46);
+    assert.equal(multiGeometry.rowHeight, 48);
     assert.ok(multiGeometry.chipsRight <= multiGeometry.rowRight && multiGeometry.chipsBottom <= multiGeometry.rowBottom, "Chips fit inside the row");
     const thirdRow = 'document.querySelectorAll("[data-row]")[2]';
     await waitFor('!document.querySelector("[data-chat-hover-card]")');

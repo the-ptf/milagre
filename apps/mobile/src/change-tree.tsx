@@ -35,7 +35,8 @@ import { useScreenActive } from "./display-clock";
 import { useRpc } from "./use-rpc";
 import { Icon } from "./icons";
 import { Counts, StatusBox } from "./diff-ui";
-import { ErrorNotice, useStyles } from "./ui";
+import { announce, ErrorNotice, pressStyle, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 function ChangeTree({ nodes, depth, onOpen }: { nodes: DiffTreeNode<DiffFileEntry>[]; depth: number; onOpen: (file: DiffFileEntry) => void }) {
@@ -52,7 +53,7 @@ function TreeRow({ node, depth, onOpen }: { node: DiffTreeNode<DiffFileEntry>; d
   const { colors } = useTheme();
   const styles = useStyles();
   const [collapsed, setCollapsed] = useState(false);
-  const row = { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingLeft: 12 + depth * 14, paddingRight: 14 } as const;
+  const row = { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingLeft: 12 + depth * 16, paddingRight: 12 } as const;
   if (node.type === "file")
     return (
       <Pressable
@@ -62,7 +63,7 @@ function TreeRow({ node, depth, onOpen }: { node: DiffTreeNode<DiffFileEntry>; d
         style={({ pressed }) => [row, { backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
         <Icon icon={File01Icon} tone="ink3" size={16} strokeWidth={1.6} />
-        <Text numberOfLines={1} ellipsizeMode="middle" style={[styles.text, { flex: 1, fontSize: 15 }]}>
+        <Text numberOfLines={1} ellipsizeMode="middle" style={[styles.text, { flex: 1, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }]}>
           {node.name}
         </Text>
         {!node.file.binary && <Counts added={node.file.added} removed={node.file.removed} />}
@@ -78,8 +79,8 @@ function TreeRow({ node, depth, onOpen }: { node: DiffTreeNode<DiffFileEntry>; d
         onPress={() => setCollapsed((value) => !value)}
         style={({ pressed }) => [row, { backgroundColor: pressed ? colors.hover : "transparent" }]}
       >
-        <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} tone="ink3" size={15} />
-        <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: colors.ink2, fontSize: 15 }}>
+        <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} tone="ink3" size={16} />
+        <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           {node.name}
         </Text>
         <Counts added={node.added} removed={node.removed} />
@@ -199,27 +200,31 @@ export function ChangeSections({
               },
             })
           }
-          style={{
-            minHeight: 44,
-            maxWidth: "50%",
-            flexShrink: 1,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 5,
-            paddingHorizontal: 10,
-            borderRadius: 8,
-            backgroundColor: colors.hover,
-          }}
+          style={({ pressed }) => [
+            {
+              minHeight: 44,
+              maxWidth: "50%",
+              flexShrink: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 12,
+              borderRadius: radius.control,
+              borderCurve: "continuous",
+              backgroundColor: colors.hover,
+            },
+            pressStyle({ pressed }),
+          ]}
         >
-          <Icon icon={(data?.comparisonRef ?? selected).startsWith("refs/remotes/") ? CloudIcon : GitBranchIcon} size={15} tone="ink3" />
+          <Icon icon={(data?.comparisonRef ?? selected).startsWith("refs/remotes/") ? CloudIcon : GitBranchIcon} size={16} tone="ink3" />
           <Text numberOfLines={1} ellipsizeMode="middle" style={[styles.label, { flexShrink: 1 }]}>
             {baseLabel}
           </Text>
-          <Icon icon={ArrowDown01Icon} size={13} tone="ink3" />
+          <Icon icon={ArrowDown01Icon} size={12} tone="ink3" />
         </Pressable>
-        {!narrow && <Icon icon={ArrowLeft01Icon} size={14} tone="ink3" />}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
-          {!narrow && <Icon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={15} tone="ink3" />}
+        {!narrow && <Icon icon={ArrowLeft01Icon} size={16} tone="ink3" />}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+          {!narrow && <Icon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={16} tone="ink3" />}
           <Text
             accessibilityLabel={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}
             numberOfLines={1}
@@ -265,7 +270,7 @@ export function ChangeSections({
             accessibilityRole="button"
             accessibilityLabel="Dismiss missing branch notice"
             onPress={() => setMissing(undefined)}
-            style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
+            style={({ pressed }) => [{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
           >
             <Icon icon={Cancel01Icon} size={16} tone="ink3" />
           </Pressable>
@@ -282,7 +287,7 @@ export function ChangeSections({
                 setChoices((previous) => ({ ...previous, [cwd]: data.projectDefault!.ref! }));
                 setLimit(view === "commits" ? 30 : 0);
               }}
-              style={{ minHeight: 44, justifyContent: "center" }}
+              style={({ pressed }) => [{ minHeight: 44, justifyContent: "center" }, pressStyle({ pressed })]}
             >
               <Text style={styles.label}>Compare with {data.projectDefault.name} instead</Text>
             </Pressable>
@@ -307,9 +312,10 @@ export function ChangeSections({
         {data?.hasMore && limit < 300 && (
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ disabled: history.loading }}
             disabled={history.loading}
             onPress={() => setLimit((value) => Math.min(value + 30, 300))}
-            style={{ minHeight: 44, justifyContent: "center" }}
+            style={({ pressed }) => [{ minHeight: 44, justifyContent: "center" }, pressStyle({ pressed, disabled: history.loading })]}
           >
             <Text style={styles.label}>Show more commits</Text>
           </Pressable>
@@ -375,13 +381,17 @@ function CommitCard({ commit }: { commit: GitCommit }) {
   const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
   const [copy, setCopy] = useState("Copy SHA");
+  const copied = (ok: boolean) => {
+    setCopy(ok ? "SHA copied" : "Copy failed. Retry");
+    announce(ok ? "SHA copied" : "Copy failed");
+  };
   return (
-    <View style={{ borderBottomWidth: 1, borderColor: colors.line, paddingVertical: 10, gap: 8 }}>
+    <View style={{ borderBottomWidth: 1, borderColor: colors.line, paddingVertical: 12, gap: 8 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
         onPress={() => setExpanded((value) => !value)}
-        style={{ minHeight: 44, justifyContent: "center", gap: 6 }}
+        style={({ pressed }) => [{ minHeight: 44, justifyContent: "center", gap: 6 }, pressStyle({ pressed })]}
       >
         <Text numberOfLines={expanded ? undefined : 2} style={styles.label}>
           {commit.message.split("\n")[0]}
@@ -389,9 +399,9 @@ function CommitCard({ commit }: { commit: GitCommit }) {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <View
             accessible={false}
-            style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: colors.hover, alignItems: "center", justifyContent: "center" }}
+            style={{ width: 20, height: 20, borderRadius: radius.full, backgroundColor: colors.hover, alignItems: "center", justifyContent: "center" }}
           >
-            <Text style={[styles.caption, { fontSize: 9 }]}>{commitInitials(commit.author)}</Text>
+            <Text style={[styles.caption, { fontSize: type.caption2, lineHeight: lineHeight.caption2 }]}>{commitInitials(commit.author)}</Text>
           </View>
           <Text numberOfLines={1} style={[styles.caption, { flexShrink: 1 }]}>
             {commit.author}
@@ -410,7 +420,7 @@ function CommitCard({ commit }: { commit: GitCommit }) {
         </View>
       </Pressable>
       {expanded && (
-        <View style={{ borderLeftWidth: 2, borderColor: colors.line, paddingLeft: 10, gap: 8 }}>
+        <View style={{ borderLeftWidth: 2, borderColor: colors.line, paddingLeft: 12, gap: 8 }}>
           {commit.statsUnavailable && <Text style={styles.caption}>{commitStatsNotice(commit.statsUnavailable)}</Text>}
           <Text selectable style={styles.text}>
             {commit.message}
@@ -423,16 +433,16 @@ function CommitCard({ commit }: { commit: GitCommit }) {
             accessibilityLabel={copy}
             onPress={() =>
               void Clipboard.setStringAsync(commit.sha).then(
-                (ok) => setCopy(ok ? "SHA copied" : "Copy failed. Retry"),
-                () => setCopy("Copy failed. Retry"),
+                (ok) => copied(ok),
+                () => copied(false),
               )
             }
-            style={{ minHeight: 44, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8 }}
+            style={({ pressed }) => [{ minHeight: 44, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8 }, pressStyle({ pressed })]}
           >
             <Text selectable style={styles.caption}>
               {commit.sha.slice(0, 8)}
             </Text>
-            <Icon icon={Copy01Icon} size={14} tone="ink3" />
+            <Icon icon={Copy01Icon} size={16} tone="ink3" />
             <Text style={styles.caption}>{copy}</Text>
           </Pressable>
         </View>

@@ -20,10 +20,10 @@ export function Switch({
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-150 disabled:opacity-40 ${checked ? (tone === "accent" ? "bg-accent" : "bg-ink") : "bg-line-strong"}`}
+      className={`relative flex h-5 w-8 items-center rounded-full transition-colors duration-fast before:absolute before:-inset-y-0.5 before:inset-x-0 disabled:opacity-40 ${checked ? (tone === "accent" ? "bg-accent" : "bg-ink") : "bg-line-strong"}`}
     >
       <span
-        className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-150 ${checked ? "translate-x-3" : "translate-x-0"}`}
+        className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-fast ${checked ? "translate-x-3" : "translate-x-0"}`}
       />
     </button>
   );

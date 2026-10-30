@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
 import {
   canLinkProjects,
@@ -15,7 +14,11 @@ import {
 } from "@milagre/shared/chat-links";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { ProjectLink } from "@/electron";
+import { Button } from "../primitives/Button";
+import { FIELD_AREA } from "../primitives/Field";
+import { Icon } from "../primitives/Icon";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { SectionLabel } from "../primitives/SectionLabel";
 import { useDismiss } from "../../lib/use-dismiss";
 import type { SidebarRecent } from "./ChatRow";
 
@@ -75,10 +78,6 @@ export const useSidebarLinks = () => useContext(SidebarLinksContext);
 
 const worktreeOf = (projectId: string, item: SidebarRecent) => (item.details?.path ? { project_id: projectId, worktree_path: item.details.path } : null);
 const sideName = (item: SidebarRecent) => item.details?.branch ?? item.label;
-
-function HugeIcon({ icon, size = 16 }: { icon: Parameters<typeof HugeiconsIcon>[0]["icon"]; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
 
 export function SidebarLinksProvider({
   scopes,
@@ -333,8 +332,8 @@ export function SidebarLinksProvider({
           <div
             role="status"
             data-chat-toast
-            className="fixed bottom-4 z-[80] flex max-w-[min(520px,calc(100vw-2rem))] items-center gap-3 rounded-[10px] bg-surface px-3 py-2 text-[13px] text-ink shadow-overlay"
-            style={{ left: toast.left, animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
+            className="fixed bottom-4 z-[80] flex max-w-[min(520px,calc(100vw-2rem))] items-center gap-3 rounded-card bg-surface px-3 py-2 text-13 text-ink shadow-overlay"
+            style={{ left: toast.left, animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
           >
             <span>{toast.text}</span>
             {toast.undo && (
@@ -453,25 +452,25 @@ function LinkPopover({
           confirm();
         }
       }}
-      className="fixed z-[70] rounded-[12px] bg-surface p-3 shadow-overlay"
+      className="fixed z-[70] rounded-card bg-surface p-3 shadow-raised"
       style={{
         top,
         left: Math.min(anchor.left, window.innerWidth - POPOVER_WIDTH - 8),
         width: POPOVER_WIDTH,
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        animation: "pop-in var(--duration-base) var(--ease-enter) both",
         transformOrigin: "top left",
       }}
     >
-      <p className="text-[13.5px] font-semibold text-ink">{wholeProjects ? "Link these Projects?" : "Link these Worktrees?"}</p>
-      <p data-link-sides className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-2">
+      <p className="text-13 font-semibold text-ink">{wholeProjects ? "Link these Projects?" : "Link these Worktrees?"}</p>
+      <p data-link-sides className="mt-1.5 flex min-w-0 items-center gap-1.5 text-13 text-ink-2">
         <span className="truncate">{wholeProjects ? sourceProject : sideName(source.item)}</span>
         <span className="shrink-0 text-ink-3">
-          <HugeIcon icon={Link04Icon} size={13} />
+          <Icon icon={Link04Icon} size={14} />
         </span>
         <span className="truncate">{wholeProjects ? targetProject : sideName(target.item)}</span>
       </p>
       {projects && (
-        <div role="radiogroup" aria-label="What the Link joins" data-link-scope className="mt-2.5 flex flex-col gap-px">
+        <div role="radiogroup" aria-label="What the Link joins" data-link-scope className="mt-3 flex flex-col gap-px">
           {choices.map((choice) => (
             <button
               key={choice.key}
@@ -480,49 +479,49 @@ function LinkPopover({
               aria-checked={scope === choice.key}
               data-link-scope-choice={choice.key}
               onClick={() => setScope(choice.key)}
-              className={`flex w-full items-start gap-2 rounded-[8px] px-2 py-1.5 text-left outline-none focus-visible:bg-hover-2 ${scope === choice.key ? "bg-hover-2" : "hover:bg-hover"}`}
+              className={`flex w-full items-start gap-2 rounded-control px-2 py-1.5 text-left transition-colors duration-fast focus-visible:bg-hover-2 focus-visible:-outline-offset-2 ${scope === choice.key ? "bg-hover-2" : "hover:bg-hover"}`}
             >
               <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center ${scope === choice.key ? "text-ink" : "text-transparent"}`}>
-                <HugeIcon icon={Tick02Icon} size={14} />
+                <Icon icon={Tick02Icon} size={14} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] text-ink">{choice.label}</span>
-                <span className="block text-[11.5px] leading-snug text-ink-3">{choice.detail}</span>
+                <span className="block text-13 text-ink">{choice.label}</span>
+                <span className="block text-12 leading-snug text-ink-3">{choice.detail}</span>
               </span>
             </button>
           ))}
         </div>
       )}
-      <p className="mt-2 text-[12.5px] leading-snug text-ink-3">
+      <p className="mt-2 text-13 leading-snug text-ink-3">
         Every Chat on either side can read the other side and make Delegations to it, so “{source.item.label}” can ask “{target.item.label}” for changes.
       </p>
-      <label data-link-always-allow className="mt-2.5 flex cursor-pointer items-start gap-2 text-[13px] text-ink">
+      <label data-link-always-allow className="mt-3 flex cursor-pointer items-start gap-2 text-13 text-ink">
         <input type="checkbox" checked={allow} onChange={(event) => setAllow(event.target.checked)} className="mt-0.5 accent-ink" />
         <span className="min-w-0">
           <span className="block">Always allow Delegations from “{source.item.label}”</span>
-          <span className="block text-[11.5px] leading-snug text-ink-3">Same as “Always allow for this Link in this chat” on the approval card.</span>
+          <span className="block text-12 leading-snug text-ink-3">Same as “Always allow for this Link in this chat” on the approval card.</span>
         </span>
       </label>
       {canAsk && (
-        <label className="mt-2.5 block">
-          <span className="block text-[12px] font-medium text-ink-2">Ask “{source.item.label}” (optional)</span>
+        <label className="mt-3 block">
+          <span className="block text-12 font-medium text-ink-2">Ask “{source.item.label}” (optional)</span>
           <textarea
             data-link-ask
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={3}
             placeholder={`What should it ask “${target.item.label}” to do?`}
-            className="mt-1 block max-h-40 w-full resize-none rounded-[8px] border border-line bg-field px-2 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent"
+            className={`${FIELD_AREA} mt-1 block max-h-40 resize-none outline-none`}
           />
         </label>
       )}
       <div className="mt-3 flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className="rounded-[8px] px-3 py-1.5 text-[13px] text-ink-2 hover:bg-hover-2">
+        <Button variant="ghost" onClick={onCancel}>
           Cancel
-        </button>
-        <button type="button" data-link-confirm onClick={confirm} className="rounded-[8px] bg-ink px-3 py-1.5 text-[13px] font-medium text-surface">
+        </Button>
+        <Button data-link-confirm onClick={confirm}>
           {text.trim() && canAsk ? "Create Link and ask" : "Create Link"}
-        </button>
+        </Button>
       </div>
     </div>,
     document.body,
@@ -594,16 +593,18 @@ function LinkPicker({
           pickActive();
         }
       }}
-      className="fixed z-[70] flex max-h-[360px] flex-col overflow-hidden rounded-[12px] bg-surface p-1.5 shadow-overlay"
+      className="fixed z-[70] flex max-h-[360px] flex-col overflow-hidden rounded-card bg-surface p-1.5 shadow-raised"
       style={{
         top,
         left: Math.min(anchor.left, window.innerWidth - PICKER_WIDTH - 8),
         width: PICKER_WIDTH,
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        animation: "pop-in var(--duration-base) var(--ease-enter) both",
         transformOrigin: "top left",
       }}
     >
-      <p className="truncate px-2 pb-1 pt-1 text-[12px] font-medium text-ink-3">{title}</p>
+      <SectionLabel as="p" variant="menu" className="truncate px-2 pt-1 pb-1">
+        {title}
+      </SectionLabel>
       {mode === "link" && (
         <input
           data-link-search
@@ -611,7 +612,7 @@ function LinkPicker({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search chats"
           aria-label="Search chats"
-          className="mx-1 mb-1 h-8 shrink-0 rounded-[8px] border border-line bg-field px-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent"
+          className="mx-1 mb-1 h-8 shrink-0 rounded-control border border-line bg-field px-2 text-13 text-ink outline-none placeholder:text-ink-3 focus:border-accent"
         />
       )}
       <ScrollArea as="ul" chainScroll className="flex min-h-0 flex-col gap-px">
@@ -624,24 +625,22 @@ function LinkPicker({
                 data-link-entry={entry.key}
                 disabled={Boolean(entry.problem)}
                 onClick={() => onPick(entry.key)}
-                className={`flex w-full items-center gap-2 rounded-[8px] px-2 py-1.5 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-50 ${highlighted ? "bg-hover-2" : "enabled:hover:bg-hover-2"}`}
+                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition-colors duration-fast focus-visible:bg-hover-2 focus-visible:-outline-offset-2 disabled:opacity-40 ${highlighted ? "bg-hover-2" : "enabled:hover:bg-hover"}`}
               >
                 <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                  <HugeIcon icon={mode === "link" ? Link04Icon : Unlink04Icon} size={15} />
+                  <Icon icon={mode === "link" ? Link04Icon : Unlink04Icon} size={16} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-ink">{entry.title}</span>
-                  {entry.detail && <span className="block truncate text-[11.5px] text-ink-3">{entry.detail}</span>}
+                  <span className="block truncate text-13 text-ink">{entry.title}</span>
+                  {entry.detail && <span className="block truncate text-12 text-ink-3">{entry.detail}</span>}
                 </span>
-                {entry.problem && <span className="shrink-0 text-[11.5px] text-ink-3">{entry.problem}</span>}
+                {entry.problem && <span className="shrink-0 text-12 text-ink-3">{entry.problem}</span>}
               </button>
             </li>
           );
         })}
         {!shown.length && (
-          <li className="px-2 py-2 text-[12.5px] text-ink-3">
-            {entries.length ? "No chats match." : mode === "link" ? "No other chats to link." : "No Links."}
-          </li>
+          <li className="px-2 py-2 text-13 text-ink-3">{entries.length ? "No chats match." : mode === "link" ? "No other chats to link." : "No Links."}</li>
         )}
       </ScrollArea>
     </div>,

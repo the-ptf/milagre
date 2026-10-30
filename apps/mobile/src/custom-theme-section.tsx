@@ -17,8 +17,9 @@ import {
 } from "@milagre/shared/themes";
 import { showChoiceSheet } from "./choice-store";
 import { presets } from "./custom-theme-presets";
-import { useTheme } from "./theme";
-import { ErrorNotice, PillButton, Segmented, useStyles } from "./ui";
+import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
+import { fonts, useTheme } from "./theme";
+import { ErrorNotice, PillButton, pressStyle, Segmented, useStyles } from "./ui";
 
 const FIELDS: { key: keyof ThemeSeeds; name: string }[] = [
   { key: "background", name: "Background" },
@@ -49,10 +50,10 @@ function ColorRow({ name, value, swatches, onCommit }: { name: string; value: st
     } else setInvalid(true);
   }
   return (
-    <View style={{ gap: 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: value, borderWidth: 1, borderColor: colors.line }} />
-        <Text style={[styles.text, { flex: 1, fontSize: 15, fontWeight: "500" }]}>{name}</Text>
+    <View style={{ gap: space.md }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
+        <View style={{ width: 28, height: 28, borderRadius: radius.full, backgroundColor: value, borderWidth: 1, borderColor: colors.line }} />
+        <Text style={[styles.text, { flex: 1, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }]}>{name}</Text>
         <TextInput
           accessibilityLabel={`${name} hex`}
           autoCapitalize="none"
@@ -72,30 +73,39 @@ function ColorRow({ name, value, swatches, onCommit }: { name: string; value: st
             if (isHex(text.trim())) commit(text);
             else if (text !== value) setInvalid(true);
           }}
-          style={[styles.input, { width: 110, fontFamily: "Menlo", fontSize: 15 }]}
+          style={[styles.input, { width: 110, fontFamily: fonts.mono, fontSize: type.subheadline }]}
         />
       </View>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        {swatches.map((hex, index) => (
-          <Pressable
-            key={`${hex}-${index}`}
-            accessibilityRole="button"
-            accessibilityLabel={`${name} ${hex}`}
-            onPress={() => {
-              setInvalid(false);
-              setDraft(null);
-              onCommit(hex);
-            }}
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 14,
-              backgroundColor: hex,
-              borderWidth: hex.toLowerCase() === value.toLowerCase() ? 2 : 1,
-              borderColor: hex.toLowerCase() === value.toLowerCase() ? colors.accent : colors.line,
-            }}
-          />
-        ))}
+        {swatches.map((hex, index) => {
+          const chosen = hex.toLowerCase() === value.toLowerCase();
+          return (
+            <Pressable
+              key={`${hex}-${index}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${name} ${hex}`}
+              accessibilityState={{ selected: chosen }}
+              // The 28pt swatch takes a 44pt touch.
+              hitSlop={hitSlopFor(28)}
+              onPress={() => {
+                setInvalid(false);
+                setDraft(null);
+                onCommit(hex);
+              }}
+              style={({ pressed }) => [
+                {
+                  width: 28,
+                  height: 28,
+                  borderRadius: radius.full,
+                  backgroundColor: hex,
+                  borderWidth: chosen ? 2 : 1,
+                  borderColor: chosen ? colors.accent : colors.line,
+                },
+                pressStyle({ pressed }),
+              ]}
+            />
+          );
+        })}
       </View>
       {invalid ? <ErrorNotice message={BAD_HEX} /> : null}
     </View>
@@ -108,18 +118,26 @@ function Preview({ theme, scheme }: { theme: CustomTheme; scheme: Scheme }) {
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{ borderRadius: 12, borderCurve: "continuous", padding: 12, gap: 8, backgroundColor: p.page, borderWidth: 1, borderColor: p.line }}
+      style={{
+        borderRadius: radius.card,
+        borderCurve: "continuous",
+        padding: space.lg,
+        gap: space.md,
+        backgroundColor: p.page,
+        borderWidth: 1,
+        borderColor: p.line,
+      }}
     >
-      <View style={{ borderRadius: 8, padding: 10, backgroundColor: p.surface }}>
-        <Text style={{ color: p.ink, fontSize: 14 }}>Done. The tests pass.</Text>
+      <View style={{ borderRadius: radius.control, borderCurve: "continuous", padding: space.lg, backgroundColor: p.surface }}>
+        <Text style={{ color: p.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Done. The tests pass.</Text>
       </View>
-      <View style={{ borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: p.inset }}>
-        <Text style={{ color: p.ink2, fontSize: 12, fontFamily: "Menlo" }}>
+      <View style={{ borderRadius: radius.chip, borderCurve: "continuous", paddingHorizontal: space.md, paddingVertical: space.xs, backgroundColor: p.inset }}>
+        <Text style={{ color: p.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}>
           <Text style={{ color: p.accent }}>const</Text> theme = custom
         </Text>
       </View>
-      <View style={{ alignSelf: "flex-end", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: p.accent }}>
-        <Text style={{ color: p.onAccent, fontSize: 13, fontWeight: "600" }}>Send</Text>
+      <View style={{ alignSelf: "flex-end", borderRadius: radius.full, paddingHorizontal: space.xl, paddingVertical: space.sm, backgroundColor: p.accent }}>
+        <Text style={{ color: p.onAccent, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>Send</Text>
       </View>
     </View>
   );
@@ -162,7 +180,7 @@ export function CustomThemeSection() {
     else setError(BAD_PASTE);
   }
   return (
-    <View style={[styles.card, { gap: 14 }]}>
+    <View style={[styles.card, { gap: space.xl }]}>
       <Text style={styles.label}>Editing</Text>
       <Segmented label="Editing" value={editing} options={SCHEMES} onChange={(value) => setEditing(value as Scheme)} />
       {FIELDS.map((field) => (
@@ -178,7 +196,7 @@ export function CustomThemeSection() {
       <Text style={[styles.caption, weak && { color: colors.orangeInk }]}>
         Text on background: {contrast.text.toFixed(1)}:1. Accent on background: {contrast.accent.toFixed(1)}:1.
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
         <PillButton title="Start from" secondary onPress={startFrom} />
         <PillButton title="Copy JSON" secondary onPress={() => void Clipboard.setStringAsync(serializeCustomTheme(theme))} />
         <PillButton title="Paste JSON" secondary onPress={() => void paste()} />

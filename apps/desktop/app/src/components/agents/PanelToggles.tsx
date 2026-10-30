@@ -1,9 +1,9 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { shortcutCommand, shortcutLabel, useKeybindings } from "../../lib/keybindings";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { File01Icon, ComputerTerminal01Icon, Globe02Icon, PaintBoardIcon, SmartphoneIcon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
+import { Icon } from "../primitives/Icon";
 import { isModalOpen } from "../../lib/modal";
 import { useWindowChrome } from "../../lib/window-chrome";
 
@@ -96,11 +96,7 @@ export function PanelToggles({ right }: { right: number }) {
   const { rules } = useKeybindings();
   if (!buttons.length) return null;
   return (
-    <div
-      data-slot="panel-toggles"
-      className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 [-webkit-app-region:no-drag]"
-      style={{ right: right + chrome.rightInset }}
-    >
+    <div data-slot="panel-toggles" className="fixed top-[var(--window-chrome-top)] z-[60] no-drag flex gap-2" style={{ right: right + chrome.rightInset }}>
       {buttons.map(({ name, label, title = label, icon, command }) => {
         const panel = shown[name]!;
         return (
@@ -118,9 +114,9 @@ export function PanelToggles({ right }: { right: number }) {
               aria-pressed={panel.open}
               data-panel-toggle={name}
               onClick={panel.toggle}
-              className={`flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${panel.open ? "bg-hover text-ink" : "text-ink-3"}`}
+              className={`flex size-8 items-center justify-center rounded-control transition-[color,background-color,scale] duration-fast ease-enter hover:text-ink active:scale-press ${panel.open ? "bg-hover-2 text-ink" : "text-ink-3 hover:bg-hover"}`}
             >
-              <HugeiconsIcon icon={icon} size={18} strokeWidth={1.8} color="currentColor" />
+              <Icon icon={icon} size={18} />
             </button>
           </Tooltip>
         );

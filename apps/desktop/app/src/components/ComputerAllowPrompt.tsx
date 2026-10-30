@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import type { PendingComputer } from "../electron";
 import { ALLOW_DETAIL, allowQuestion } from "../lib/pending-computers";
+import { Button } from "./primitives/Button";
+import { InlineError } from "./primitives/InlineError";
 
 /**
  * Asks this Mac's owner whether a computer pairing for the first time may drive it (spec "Allowing a new computer").
@@ -85,36 +87,23 @@ export function ComputerAllowPrompt() {
         event.preventDefault();
         void answer(false);
       }}
-      className="m-auto w-[400px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[16px] bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+      className="m-auto w-[400px] max-w-[calc(100vw-32px)] overflow-hidden rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
     >
       {request && (
         <div key={request.key} className="flex flex-col p-5">
-          <h2 id="computer-allow-title" className="text-[17px] font-semibold">
+          <h2 id="computer-allow-title" className="text-17 font-semibold">
             {allowQuestion(request)}
           </h2>
-          <p className="mt-1 text-[13px] text-ink-2">{ALLOW_DETAIL}</p>
-          {error && (
-            <p role="alert" className="mt-3 text-[13px] text-red-ink">
-              {error}
-            </p>
-          )}
+          <p className="mt-1 text-13 text-ink-2">{ALLOW_DETAIL}</p>
+          <InlineError className="mt-3">{error}</InlineError>
           <div className="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              disabled={busy || !armed}
-              onClick={() => void answer(false)}
-              className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2"
-            >
+            <Button variant="ghost" disabled={busy || !armed} onClick={() => void answer(false)}>
               Deny
-            </button>
-            <button
-              type="button"
-              disabled={busy || !armed}
-              onClick={() => void answer(true)}
-              className="rounded-control bg-ink px-3 py-2 text-[13px] font-medium text-surface disabled:opacity-40"
-            >
+            </Button>
+            <Button disabled={busy || !armed} onClick={() => void answer(true)}>
               Allow
-            </button>
+            </Button>
           </div>
         </div>
       )}

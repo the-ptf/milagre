@@ -19,11 +19,13 @@ import type { MilagreBridge } from "../electron";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { Checkbox } from "./primitives/Checkbox";
 import { RadioGroup, RadioGroupItem } from "./primitives/RadioGroup";
+import { Button } from "./primitives/Button";
+import { FIELD } from "./primitives/Field";
+import { InlineError } from "./primitives/InlineError";
 
-const buttonBase =
-  "rounded-lg border border-line px-3 py-2 text-[12px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:opacity-50 disabled:cursor-default";
-const button = `${buttonBase} text-ink hover:bg-hover`;
-const input = "mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink focus-visible:outline-2 focus-visible:outline-green";
+const input = `${FIELD} mt-1`;
+/** A quiet text action beside a row (Set up, Refresh): 24px tall, ink-2 until hovered. */
+const textAction = "h-6 shrink-0 rounded-control px-1 text-12 text-ink-2 transition-colors duration-fast hover:text-ink disabled:opacity-40";
 
 export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
   const local = useLocalMcp(bridge.localMcp);
@@ -55,9 +57,9 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
           void submit(client);
         }}
       >
-        <h3 className="text-[13px] font-medium text-ink">{client ? `Access for ${client.label}` : "Custom connection"}</h3>
+        <h3 className="text-13 font-medium text-ink">{client ? `Access for ${client.label}` : "Custom connection"}</h3>
         {!client && (
-          <label className="block text-[12px] text-ink-2">
+          <label className="block text-12 text-ink-2">
             Connection name
             <input
               autoFocus
@@ -70,28 +72,24 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         )}
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
         <div className="flex gap-2">
-          <button type="submit" className={`${buttonBase} bg-ink text-surface hover:opacity-90`} disabled={local.busy || !localMcpDraftValid(draft)}>
-            {local.busy ? "Saving..." : client ? (client.enabled ? "Save access" : `Enable ${client.label}`) : "Create configuration"}
-          </button>
-          <button type="button" className={button} disabled={local.busy} onClick={() => setSetup(null)}>
+          <Button type="submit" disabled={local.busy || !localMcpDraftValid(draft)}>
+            {local.busy ? "Saving…" : client ? (client.enabled ? "Save access" : `Enable ${client.label}`) : "Create configuration"}
+          </Button>
+          <Button variant="secondary" disabled={local.busy} onClick={() => setSetup(null)}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     );
   return (
     <section data-local-mcp className="mt-5 space-y-6">
-      <p className="max-w-prose text-[13px] leading-relaxed text-ink-2">
+      <p className="max-w-prose text-13 leading-relaxed text-ink-2">
         Connect your local tools to Milagre. Choose which Projects or Designs each app can access when you enable it.
       </p>
-      {local.error && (
-        <p role="alert" className="text-[13px] text-red-ink">
-          {local.error}
-        </p>
-      )}
+      <InlineError>{local.error}</InlineError>
       {!local.status && !local.error && (
-        <p role="status" className="text-[13px] text-ink-2">
-          Loading client settings...
+        <p role="status" className="text-13 text-ink-2">
+          Loading client settings…
         </p>
       )}
       <div className="divide-y divide-line" aria-busy={local.busy}>
@@ -99,21 +97,14 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
           <Fragment key={client.id}>
             <div data-local-client={client.id} className="flex min-h-14 items-center justify-between gap-4 py-3">
               <div className="min-w-0">
-                <p className="text-[13px] font-medium text-ink">{client.label}</p>
+                <p className="text-13 font-medium text-ink">{client.label}</p>
                 {localMcpClientDetail(client) && (
-                  <p className={`mt-1 break-words text-[12px] leading-relaxed ${client.problem ? "text-red-ink" : "text-ink-2"}`}>
-                    {localMcpClientDetail(client)}
-                  </p>
+                  <p className={`mt-1 break-words text-12 leading-relaxed ${client.problem ? "text-red-ink" : "text-ink-2"}`}>{localMcpClientDetail(client)}</p>
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 {(client.enabled || client.state === "error") && (
-                  <button
-                    type="button"
-                    className="rounded px-1 py-2 text-[12px] text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-green"
-                    disabled={local.busy}
-                    onClick={() => open(client)}
-                  >
+                  <button type="button" className={textAction} disabled={local.busy} onClick={() => open(client)}>
                     Set up
                   </button>
                 )}
@@ -137,22 +128,17 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         ))}
       </div>
       <div className="flex items-start justify-between gap-4">
-        <p className="max-w-prose text-[12px] leading-relaxed text-ink-2">
+        <p className="max-w-prose text-12 leading-relaxed text-ink-2">
           Enabled clients are set up when Milagre starts. Restart a client after enabling it; scope changes apply at once. Access stays on the computer running
           Milagre.
         </p>
-        <button
-          type="button"
-          className="shrink-0 rounded py-1 text-[12px] text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-green"
-          disabled={local.busy}
-          onClick={() => void local.refresh()}
-        >
+        <button type="button" className={textAction} disabled={local.busy} onClick={() => void local.refresh()}>
           Refresh
         </button>
       </div>
       <div className="space-y-3 border-t border-line pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-[13px] font-medium text-ink">Custom MCP</h3>
+          <h3 className="text-13 font-medium text-ink">Custom MCP</h3>
           <McpSwitch
             label="Custom MCP"
             checked={customOpen}
@@ -170,20 +156,19 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
         </div>
         {customOpen && (
           <div id="custom-mcp-settings" className="space-y-3">
-            <p className="text-[12px] leading-relaxed text-ink-2">For another app, create a scoped connection and copy its configuration.</p>
+            <p className="text-12 leading-relaxed text-ink-2">For another app, create a scoped connection and copy its configuration.</p>
             {setup !== "custom" && !local.credential && (
-              <button type="button" className={button} disabled={local.busy || !local.status} onClick={() => open()}>
+              <Button variant="secondary" disabled={local.busy || !local.status} onClick={() => open()}>
                 Create MCP config
-              </button>
+              </Button>
             )}
             {setup === "custom" && editor()}
             {local.credential && (
               <div data-local-credential className="space-y-3 py-2">
-                <p className="text-[12px] text-ink-2">Copy this configuration now. The credential is available only once.</p>
+                <p className="text-12 text-ink-2">Copy this configuration now. The credential is available only once.</p>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className={button}
+                  <Button
+                    variant="secondary"
                     onClick={() =>
                       void navigator.clipboard.writeText(localMcpClientConfig(local.credential!)).then(
                         () => {
@@ -195,37 +180,32 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                     }
                   >
                     {copied ? "Copied" : "Copy MCP config"}
-                  </button>
-                  <button type="button" className={button} onClick={local.dismiss}>
+                  </Button>
+                  <Button variant="secondary" onClick={local.dismiss}>
                     Done
-                  </button>
+                  </Button>
                 </div>
-                {copyError && (
-                  <p role="alert" className="text-[12px] text-red-ink">
-                    Could not copy. Try again before closing this configuration.
-                  </p>
-                )}
+                <InlineError size={12}>{copyError && "Could not copy. Try again before closing this configuration."}</InlineError>
               </div>
             )}
             {custom.length > 0 && (
               <details>
-                <summary className="cursor-pointer py-2 text-[12px] text-ink-2">Manage custom connections ({custom.length})</summary>
+                <summary className="cursor-pointer py-2 text-12 text-ink-2">Manage custom connections ({custom.length})</summary>
                 <ScrollArea chainScroll className="max-h-64 divide-y divide-line">
                   {custom.map((connection) => {
                     const active = !connection.revokedAt && !(connection.expiresAt && Date.parse(connection.expiresAt) <= local.checkedAt);
                     const writable = Object.values(connection.grants).some((scope) => scope.capabilities.some((cap) => cap !== "read"));
                     return (
                       <div key={connection.id} data-local-connection className="space-y-2 py-3">
-                        <p className="text-[13px] text-ink">
+                        <p className="text-13 text-ink">
                           {connection.label}
                           {connection.revokedAt ? " (Revoked)" : !active ? " (Expired)" : ""}
                         </p>
-                        <p className="break-words text-[12px] text-ink-2">{localMcpDescription(connection)}</p>
+                        <p className="break-words text-12 text-ink-2">{localMcpDescription(connection)}</p>
                         {active && (
                           <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              className={button}
+                            <Button
+                              variant="secondary"
                               disabled={local.busy}
                               onClick={() => {
                                 setCopied(false);
@@ -234,20 +214,15 @@ export function LocalMcpSettings({ bridge }: { bridge: MilagreBridge }) {
                               }}
                             >
                               Replace credential
-                            </button>
+                            </Button>
                             {writable && (
-                              <button
-                                type="button"
-                                className={button}
-                                disabled={local.busy}
-                                onClick={() => void local.update(connection.id, localMcpReadOnly(connection))}
-                              >
+                              <Button variant="secondary" disabled={local.busy} onClick={() => void local.update(connection.id, localMcpReadOnly(connection))}>
                                 Restrict to read
-                              </button>
+                              </Button>
                             )}
-                            <button type="button" className={button} disabled={local.busy} onClick={() => void local.revoke(connection.id)}>
+                            <Button variant="secondary" disabled={local.busy} onClick={() => void local.revoke(connection.id)}>
                               Revoke
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -267,13 +242,13 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
   return (
     <>
       <fieldset className="space-y-2">
-        <legend className="text-[12px] text-ink-2">Allow access to</legend>
+        <legend className="text-12 text-ink-2">Allow access to</legend>
         <RadioGroup
           aria-label="Allow access to"
           orientation="horizontal"
           value={draft.kind}
           onValueChange={(kind) => onChange(setLocalMcpDraftKind(draft, kind as LocalMcpDraft["kind"]))}
-          className="grid-cols-[auto_auto_auto] justify-start gap-4 text-[13px] text-ink"
+          className="grid-cols-[auto_auto_auto] justify-start gap-4 text-13 text-ink"
         >
           {(["projects", "all-projects", "designs"] as const).map((kind) => (
             <label key={kind} className="flex items-center gap-2">
@@ -285,9 +260,9 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
       </fieldset>
       {draft.kind === "projects" ? (
         <ScrollArea chainScroll className="max-h-44 space-y-2">
-          {!status.projects.length && <p className="text-[12px] text-ink-2">Open a Project in Milagre to grant access to it.</p>}
+          {!status.projects.length && <p className="text-12 text-ink-2">Open a Project in Milagre to grant access to it.</p>}
           {status.projects.map((project) => (
-            <label key={project.path} className="flex items-start gap-2 text-[13px] text-ink">
+            <label key={project.path} className="flex items-start gap-2 text-13 text-ink">
               <Checkbox
                 aria-label={project.name}
                 className="mt-1"
@@ -296,16 +271,16 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
               />
               <span className="min-w-0">
                 {project.name}
-                <span className="block break-all text-[12px] text-ink-2">{project.path}</span>
+                <span className="block break-all text-12 text-ink-2">{project.path}</span>
               </span>
             </label>
           ))}
         </ScrollArea>
       ) : draft.kind === "all-projects" ? (
-        <p className="text-[12px] text-ink-2">Includes every Project open in Milagre now and any Project added later.</p>
+        <p className="text-12 text-ink-2">Includes every Project open in Milagre now and any Project added later.</p>
       ) : (
         <>
-          <label className="block text-[12px] text-ink-2">
+          <label className="block text-12 text-ink-2">
             Chat reference
             <input
               aria-label="Chat reference"
@@ -315,17 +290,17 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
               onChange={(e) => onChange({ ...draft, chatId: e.target.value })}
             />
           </label>
-          <label className="block text-[12px] text-ink-2">
+          <label className="block text-12 text-ink-2">
             Design IDs
             <input aria-label="Design IDs" className={input} value={draft.designIds} onChange={(e) => onChange({ ...draft, designIds: e.target.value })} />
           </label>
-          <p className="text-[12px] text-ink-2">Use * for all designs in this Chat, or separate IDs with commas. Public sharing is separate.</p>
+          <p className="text-12 text-ink-2">Use * for all designs in this Chat, or separate IDs with commas. Public sharing is separate.</p>
           {!status.groups.some((g) => g.id === "designs" && g.enabled) && (
-            <p className="text-[12px] text-ink-2">Design tools are unavailable while Designs is off.</p>
+            <p className="text-12 text-ink-2">Design tools are unavailable while Designs is off.</p>
           )}
         </>
       )}
-      <label className="flex items-start gap-2 text-[12px] text-ink">
+      <label className="flex items-start gap-2 text-12 text-ink">
         <Checkbox
           aria-label={draft.kind === "designs" ? "Allow design edits" : "Allow creating Worktrees and Chats and starting tasks"}
           className="mt-0.5"
@@ -338,6 +313,7 @@ function ScopeFields({ draft, onChange, status }: { draft: LocalMcpDraft; onChan
   );
 }
 
+// ponytail: drawn as primitives/Switch, which has no aria-expanded/aria-controls; this switch also opens the setup form.
 function McpSwitch({
   label,
   checked,
@@ -363,13 +339,11 @@ function McpSwitch({
       aria-controls={controls}
       disabled={disabled}
       onClick={onClick}
-      className="relative flex h-8 w-11 shrink-0 items-center rounded-lg px-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:opacity-50"
+      className={`relative flex h-5 w-8 shrink-0 items-center rounded-full transition-colors duration-fast before:absolute before:-inset-y-0.5 before:inset-x-0 disabled:opacity-40 ${checked ? "bg-ink" : "bg-line-strong"}`}
     >
-      <span className={`relative block h-5 w-9 rounded-full transition-colors motion-reduce:transition-none ${checked ? "bg-green" : "bg-line-strong"}`}>
-        <span
-          className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-surface transition-transform motion-reduce:transition-none ${checked ? "translate-x-4" : ""}`}
-        />
-      </span>
+      <span
+        className={`absolute left-0.5 size-4 rounded-full bg-surface shadow-card transition-transform duration-fast ${checked ? "translate-x-3" : "translate-x-0"}`}
+      />
     </button>
   );
 }

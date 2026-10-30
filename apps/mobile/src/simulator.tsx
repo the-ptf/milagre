@@ -15,10 +15,11 @@ import {
 } from "@milagre/shared/simulator-receiver";
 import type { Client } from "./client";
 import { useSession } from "./session";
+import { lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
+import { CircleButton, ErrorNotice, PageScroll, PillButton, pressStyle, useStyles } from "./ui";
 import { usePanelTabs } from "./panel-tabs";
 
 /** Poll discovery only while this screen is visible. Discovery never starts a video session. */
@@ -181,23 +182,24 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                   setChoosing(true);
                   setSelected(null);
                 }}
-                hitSlop={8}
-                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                hitSlop={12}
+                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
               >
                 <Text
                   numberOfLines={1}
                   style={{
                     flexShrink: 1,
                     color: colors.ink,
-                    fontSize: 15,
+                    fontSize: type.subheadline,
+                    lineHeight: lineHeight.subheadline,
                     fontWeight: "600",
                   }}
                 >
                   {selected.name}
                 </Text>
-                <Icon icon={ArrowDown01Icon} tone="ink3" size={14} />
+                <Icon icon={ArrowDown01Icon} tone="ink3" size={16} />
               </Pressable>
-              <Text style={{ color: colors.ink3, fontSize: 11 }}>
+              <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
                 {selected.platform === "android" ? "Android" : "iOS"} {selected.version}
               </Text>
             </View>
@@ -206,11 +208,13 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                 style={{
                   width: 6,
                   height: 6,
-                  borderRadius: 3,
-                  backgroundColor: connectionState === "live" ? colors.green : connectionState === "error" ? colors.red : colors.ink3,
+                  borderRadius: radius.full,
+                  backgroundColor: connectionState === "live" ? colors.green : connectionState === "error" ? colors.red : colors.ink4,
                 }}
               />
-              <Text style={{ color: colors.ink2, fontSize: 11 }}>{SIMULATOR_CONNECTION_LABELS[connectionState]}</Text>
+              <Text style={{ color: colors.ink2, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
+                {SIMULATOR_CONNECTION_LABELS[connectionState]}
+              </Text>
             </View>
           </>
         ) : (
@@ -231,10 +235,18 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
               </View>
             )}
             <View style={{ flex: 1, alignItems: "center" }}>
-              <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+              <Text
+                accessibilityRole="header"
+                numberOfLines={1}
+                style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}
+              >
                 {attaching ? "Attach simulator" : selected ? "Simulator" : "Simulators"}
               </Text>
-              {!selected && <Text style={{ color: colors.ink3, fontSize: 11 }}>{attaching ? "Other devices on this Mac" : "This Chat"}</Text>}
+              {!selected && (
+                <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
+                  {attaching ? "Other devices on this Mac" : "This Chat"}
+                </Text>
+              )}
             </View>
           </>
         )}
@@ -243,9 +255,9 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source ? (
-          <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open its simulators.</Text>
+          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this Mac to open its simulators.</Text>
         ) : paused ? (
-          <View style={{ padding: 20, gap: 16 }}>
+          <View style={{ padding: 16, gap: 16 }}>
             <Text style={styles.muted}>Viewer paused while the app was hidden.</Text>
             <PillButton title="Retry" onPress={resume} />
           </View>
@@ -264,14 +276,10 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
             style={{ flex: 1 }}
             contentInsetAdjustmentBehavior="never"
             automaticallyAdjustContentInsets={false}
-            contentContainerStyle={{ padding: 20, gap: 12 }}
+            contentContainerStyle={{ padding: 16, gap: 12 }}
           >
-            {!list && <Text style={styles.muted}>Finding running simulators...</Text>}
-            {!!list?.error && (
-              <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-                {list.error}
-              </Text>
-            )}
+            {!list && <Text style={styles.muted}>Finding running simulators…</Text>}
+            {!!list?.error && <ErrorNotice message={list.error} />}
             {list?.supported === false && <Text style={styles.muted}>Simulators are unavailable on this computer.</Text>}
             {list?.supported && !list.error && !(attaching ? list.available : list.attached)?.length && (
               <Text style={styles.muted}>{attaching ? "No other devices are running on this Mac." : "No simulators attached to this Chat."}</Text>
@@ -292,27 +300,27 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                     accessibilityLabel={`${attaching ? "Attach " : ""}${device.name}`}
                     disabled={busy || !running}
                     onPress={() => (attaching ? void mutate("attach", device) : setSelected(device))}
-                    style={({ pressed }) => ({
-                      flex: 1,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      padding: 14,
-                      gap: 10,
-                      borderRadius: 12,
-                      opacity: running ? 1 : 0.5,
-                      backgroundColor: pressed ? colors.hover : docked ? colors.page : colors.surface,
-                    })}
+                    style={({ pressed }) => [
+                      {
+                        flex: 1,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        minHeight: 48,
+                        padding: 12,
+                        gap: 12,
+                        borderRadius: radius.control,
+                        borderCurve: "continuous",
+                        backgroundColor: docked ? colors.page : colors.surface,
+                      },
+                      pressStyle({ pressed, disabled: !running, kind: "row" }),
+                    ]}
                   >
                     <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
-                    <Text style={{ flex: 1, color: colors.ink, fontSize: 15 }}>{device.name}</Text>
+                    <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{device.name}</Text>
                     <Text style={styles.muted}>{running ? `${device.platform === "android" ? "Android" : "iOS"} ${device.version}` : "Stopped"}</Text>
                   </Pressable>
                   {!attaching && (
-                    <CircleButton
-                      label={`Detach ${device.name} from Chat`}
-                      icon={Cancel01Icon}
-                      onPress={busy ? undefined : () => void mutate("detach", device)}
-                    />
+                    <CircleButton label={`Detach ${device.name} from Chat`} icon={Cancel01Icon} disabled={busy} onPress={() => void mutate("detach", device)} />
                   )}
                 </View>
               );
@@ -446,10 +454,8 @@ function SimulatorWebView({
   };
   if (error)
     return (
-      <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-          {error}
-        </Text>
+      <View style={{ padding: 16, gap: 16 }}>
+        <ErrorNotice message={error} />
         <PillButton
           title="Retry"
           onPress={() => {
@@ -460,7 +466,7 @@ function SimulatorWebView({
         />
       </View>
     );
-  if (!uri) return <Text style={[styles.muted, { padding: 20 }]}>Preparing viewer...</Text>;
+  if (!uri) return <Text style={[styles.muted, { padding: 16 }]}>Preparing viewer…</Text>;
   return (
     <DomWebView
       key={uri}

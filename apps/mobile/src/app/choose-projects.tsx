@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
+import { Tick02Icon } from "@hugeicons/core-free-icons";
+import { lineHeight, radius, type } from "../design-tokens";
 import { useSession } from "../session";
 import { allComputers, setOtherComputerProjectHidden, useComputerViews } from "../all-computers";
 import type { HostView } from "../all-computers-store";
 import { ProjectIcon, ProjectIcons } from "../project-icon";
 import type { RecentProject } from "../client";
-import { ErrorNotice, PageScroll, useStyles } from "../ui";
+import { CheckboxBox, CircleButton, ErrorNotice, PageScroll, SectionLabel, SheetHeader, pressStyle, useStyles } from "../ui";
 import { useTheme } from "../theme";
 
 // By name, not by recency: opening a Project reorders the recent list, and a row must not move under the finger.
@@ -77,33 +79,18 @@ export default function ChooseProjects() {
         accessibilityState={{ checked, disabled: key in pending }}
         disabled={key in pending}
         onPress={() => toggle(hostId, project, !checked)}
-        style={({ pressed }) => ({
-          height: 64,
-          paddingHorizontal: 12,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
-          borderRadius: 8,
-          backgroundColor: pressed ? colors.hover : "transparent",
-        })}
+        style={({ pressed }) => [
+          { minHeight: 56, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 12 },
+          pressStyle({ pressed, disabled: key in pending, kind: "row" }),
+        ]}
       >
-        <View
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: 5,
-            borderWidth: checked ? 0 : 1.5,
-            borderColor: colors.ink3,
-            backgroundColor: checked ? colors.ink : "transparent",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {checked && <Text style={{ color: colors.surface, fontSize: 15, fontWeight: "600" }}>✓</Text>}
-        </View>
+        <CheckboxBox checked={checked} />
         {project.link ? <ProjectIcons client={client} projects={project.projects ?? []} /> : <ProjectIcon client={client} path={project.path} />}
         <View style={{ flex: 1, gap: 4 }}>
-          <Text numberOfLines={1} style={[styles.text, { fontSize: 15, color: checked ? colors.ink : colors.ink3 }]}>
+          <Text
+            numberOfLines={1}
+            style={{ fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500", color: checked ? colors.ink : colors.ink3 }}
+          >
             {name}
           </Text>
           <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
@@ -122,40 +109,28 @@ export default function ChooseProjects() {
           ? "No Projects on this computer yet."
           : "Open a Project on your Mac to list it here.";
   const list = (projects: Computer) => (
-    <View key={projects.hostId} style={{ borderRadius: 12, backgroundColor: colors.surface, padding: 4 }}>
+    <View key={projects.hostId} style={{ borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.surface, padding: 4 }}>
       {projects.projects.map((project) => row(projects.hostId, project))}
       {!projects.projects.length && <Text style={[styles.muted, { padding: 16 }]}>{empty(projects)}</Text>}
     </View>
   );
   return (
-    <PageScroll style={styles.screen} contentContainerStyle={{ gap: 16, padding: 20 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <View style={{ width: 52 }} />
-        <Text accessibilityRole="header" style={{ flex: 1, textAlign: "center", color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-          Choose projects
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.back()}
-          style={{ minWidth: 52, minHeight: 44, alignItems: "flex-end", justifyContent: "center" }}
-        >
-          <Text style={[styles.text, { fontWeight: "600" }]}>Done</Text>
-        </Pressable>
+    <PageScroll style={styles.screen} contentContainerStyle={{ gap: 0, padding: 0 }}>
+      <SheetHeader title="Choose projects" trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => router.back()} />} />
+      <View style={{ gap: 16, padding: 16, paddingTop: 8 }}>
+        <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
+        {/* With two or more computers, each one's Projects sit under its name, as in desktop's Filters › Projects. */}
+        {grouped
+          ? computers.map((computer) => (
+              <View key={computer.hostId} style={{ gap: 8 }}>
+                <SectionLabel>{computer.name}</SectionLabel>
+                {list(computer)}
+              </View>
+            ))
+          : computers.map((computer) => list(computer))}
+        {all.length > 0 && <Text style={styles.caption}>{hiddenCount ? `${hiddenCount} hidden.` : "All Projects and Links are shown."}</Text>}
+        {error ? <ErrorNotice message={error} /> : null}
       </View>
-      <Text style={styles.muted}>Checked Projects and Links show in your Projects list on this phone.</Text>
-      {/* With two or more computers, each one's Projects sit under its name, as in desktop's Filters › Projects. */}
-      {grouped
-        ? computers.map((computer) => (
-            <View key={computer.hostId} style={{ gap: 8 }}>
-              <Text accessibilityRole="header" numberOfLines={1} style={styles.section}>
-                {computer.name}
-              </Text>
-              {list(computer)}
-            </View>
-          ))
-        : computers.map((computer) => list(computer))}
-      {all.length > 0 && <Text style={styles.caption}>{hiddenCount ? `${hiddenCount} hidden.` : "All Projects and Links are shown."}</Text>}
-      {error ? <ErrorNotice message={error} /> : null}
     </PageScroll>
   );
 }

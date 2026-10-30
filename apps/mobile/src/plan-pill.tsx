@@ -26,7 +26,8 @@ import { morphRect, planPanelFrame } from "./plan-panel-frame";
 import { PlanPhaseGraph, PlanTree } from "./plan-view";
 import { useMotionScale, useReducedMotion } from "./motion";
 import { useTheme } from "./theme";
-import { IconButton, PageScroll } from "./ui";
+import { lineHeight, type } from "./design-tokens";
+import { IconButton, PageScroll, useStyles } from "./ui";
 
 // Desktop's morph: 300 ms on this curve, the hidden face fading in 100 ms and the shown one in 180 ms after 60 ms.
 const EASE = Easing.bezier(0.16, 1, 0.3, 1);
@@ -140,8 +141,8 @@ function PillFace({ label }: { label: string }) {
   const { colors } = useTheme();
   return (
     <View style={{ minHeight: 34, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 4 }}>
-      <Icon icon={ListTodoIcon} tone="ink2" size={15} />
-      <Text style={{ color: colors.ink2, fontSize: 13, fontVariant: ["tabular-nums"] }}>{label}</Text>
+      <Icon icon={ListTodoIcon} tone="ink2" size={16} />
+      <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontVariant: ["tabular-nums"] }}>{label}</Text>
     </View>
   );
 }
@@ -164,6 +165,8 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
       accessibilityElementsHidden={away}
       importantForAccessibility={away ? "no-hide-descendants" : "auto"}
       disabled={away}
+      // A 34pt pill in the composer tray; the slop makes up the 44pt touch.
+      hitSlop={5}
       onPress={show}
       // A new label (1/2 to 2/2) resizes the pill; an open panel keeps growing from its new frame.
       onLayout={relayout}
@@ -174,9 +177,9 @@ export const PlanPill = memo(function PlanPill({ panel }: { panel: PlanPanelStat
   );
 });
 
+/** The primitive SectionLabel's look (sentence case, no tracking), with a count and a ref for focus. */
 function SectionLabel({ title, count, textRef }: { title: string; count?: number; textRef?: Ref<TextInstance> }) {
-  const { colors } = useTheme();
-  const text = { color: colors.ink3, fontSize: 11, fontWeight: "500", letterSpacing: 0.9, textTransform: "uppercase" } as const;
+  const text = useStyles().section;
   return (
     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
       <Text ref={textRef} accessibilityRole="header" style={text}>
@@ -294,10 +297,8 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
           {
             position: "absolute",
             backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.lineStrong,
             borderCurve: "continuous",
-            boxShadow: "0 8px 32px #0000002e",
+            boxShadow: colors.shadowOverlay,
           },
           surfaceStyle,
           fillStyle,
@@ -332,11 +333,11 @@ export const PlanPanel = memo(function PlanPanel({ panel }: { panel: PlanPanelSt
               if (nativeEvent.contentOffset.y < -PULL_CLOSE) close();
             }}
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 16, gap: 20 }}
+            contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 4, paddingBottom: 16, gap: 24 }}
           >
             {tasks && <PlanTree plan={plan} />}
             {plan.phases.length > 0 && (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: 8 }}>
                 {tasks && (
                   <View style={{ flexDirection: "row", paddingHorizontal: 4 }}>
                     <SectionLabel title="Phase graph" />

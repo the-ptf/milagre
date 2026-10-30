@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, Text, TextInput, View } from "react-native";
+import { AppState, Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
@@ -12,8 +12,8 @@ import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
-import { radius, type } from "./design-tokens";
+import { announce, CircleButton, ErrorNotice, Field, PageScroll, PillButton, SectionLabel, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 
 /** Poll this Chat's browser pages only while the screen is visible. Listing never starts a capture. */
 function useBrowsers(client: Client | null, chatId: string | undefined) {
@@ -164,10 +164,10 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
           <View style={{ width: 40 }} />
         )}
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
             {shown?.title || "Browser"}
           </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 11 }}>
+          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>
             {shown?.url || "This Chat"}
           </Text>
         </View>
@@ -175,9 +175,9 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
       </View>
       <View collapsable={false} style={{ flex: 1, minHeight: 0 }}>
         {!source || !chatId ? (
-          <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this computer to open its browsers.</Text>
+          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this computer to open its browsers.</Text>
         ) : paused ? (
-          <View style={{ padding: 20, gap: 16 }}>
+          <View style={{ padding: 16, gap: 16 }}>
             <Text style={styles.muted}>Viewer paused while the app was hidden.</Text>
             <PillButton
               title="Retry"
@@ -217,14 +217,10 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
             style={{ flex: 1 }}
             contentInsetAdjustmentBehavior="never"
             automaticallyAdjustContentInsets={false}
-            contentContainerStyle={{ padding: 20, gap: 12 }}
+            contentContainerStyle={{ padding: 16, gap: 12 }}
           >
-            {!list && <Text style={styles.muted}>Finding browser pages...</Text>}
-            {!!list?.error && (
-              <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-                {list.error}
-              </Text>
-            )}
+            {!list && <Text style={styles.muted}>Finding browser pages…</Text>}
+            {!!list?.error && <ErrorNotice message={list.error} />}
             {list?.supported === false && <Text style={styles.muted}>Browsers are unavailable on this computer.</Text>}
             {list?.supported && !list.error && !list.targets.length && (
               <Text style={styles.muted}>{"This Chat's agent has no open pages. Attach a browser below to view it here."}</Text>
@@ -241,15 +237,16 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "center",
-                  padding: 14,
-                  gap: 10,
-                  borderRadius: 12,
+                  padding: 12,
+                  gap: 12,
+                  borderRadius: radius.control,
+                  borderCurve: "continuous",
                   backgroundColor: pressed ? colors.hover : colors.surface,
                 })}
               >
                 <Icon icon={BrowserIcon} size={18} tone="ink2" />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
                     {target.title || target.url}
                   </Text>
                   <Text numberOfLines={1} style={styles.muted}>
@@ -270,19 +267,23 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
                 )}
               </Pressable>
             ))}
-            {!!list?.others.length && (
-              <Text accessibilityRole="header" style={[styles.muted, { paddingTop: 8 }]}>
-                Other browsers on this computer
-              </Text>
-            )}
+            {!!list?.others.length && <SectionLabel style={{ paddingTop: 8 }}>Other browsers on this computer</SectionLabel>}
             {list?.others.map((other) => (
               <View
                 key={other.id}
-                style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 10, borderRadius: 12, backgroundColor: colors.surface }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  padding: 12,
+                  gap: 12,
+                  borderRadius: radius.control,
+                  borderCurve: "continuous",
+                  backgroundColor: colors.surface,
+                }}
               >
                 <Icon icon={BrowserIcon} size={18} tone="ink3" />
                 <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15 }}>
+                  <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
                     {other.title || other.browser}
                   </Text>
                   <Text numberOfLines={1} style={styles.muted}>
@@ -340,6 +341,7 @@ function PageComment({
       await client.call("browser-comments:send-from-page", [{ chatId, targetId, x: picked.x, y: picked.y, text: text.trim() }]);
       setText("");
       setSent(true);
+      announce("Sent to the agent.");
       onCommenting(false);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The comment didn't send.");
@@ -349,7 +351,7 @@ function PageComment({
   };
   if (!commenting)
     return (
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 }}>
         <PillButton
           title="Comment"
           icon={CommentAdd01Icon}
@@ -365,7 +367,7 @@ function PageComment({
   return (
     <View
       style={{
-        gap: 10,
+        gap: 12,
         paddingHorizontal: 16,
         paddingVertical: 12,
         backgroundColor: colors.surface,
@@ -374,32 +376,27 @@ function PageComment({
       }}
     >
       {!picked ? (
-        <Text style={{ color: colors.ink2, fontSize: type.subheadline }}>Tap the element you want to comment on.</Text>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Tap the element you want to comment on.</Text>
       ) : (
-        <TextInput
+        <Field
+          label="Comment"
+          hideLabel
           autoFocus
           multiline
+          autoCapitalize="sentences"
+          autoCorrect
           value={text}
           onChangeText={setText}
           placeholder="What should change here?"
-          placeholderTextColor={colors.ink3}
-          accessibilityLabel="Comment"
-          style={{
-            minHeight: 64,
-            color: colors.ink,
-            fontSize: type.body,
-            padding: 10,
-            borderRadius: radius.control,
-            backgroundColor: colors.page,
-          }}
+          style={{ minHeight: 64, backgroundColor: colors.page }}
         />
       )}
       {!!error && (
-        <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote }}>
+        <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
           {error}
         </Text>
       )}
-      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
+      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12 }}>
         <PillButton title="Cancel" secondary disabled={sending} onPress={() => onCommenting(false)} />
         {picked && <PillButton title="Send" loading={sending} disabled={!text.trim() || sending} onPress={() => void send()} />}
       </View>
@@ -519,13 +516,11 @@ function BrowserWebView({
   };
   if (error)
     return (
-      <View style={{ padding: 20, gap: 16 }}>
-        <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
-          {error}
-        </Text>
-        <PillButton
-          title="Retry"
-          onPress={() => {
+      <View style={{ padding: 16 }}>
+        <ErrorNotice
+          message={error}
+          retryTitle="Retry"
+          retry={() => {
             setError("");
             setUri(null);
             setRevision((value) => value + 1);
@@ -533,7 +528,7 @@ function BrowserWebView({
         />
       </View>
     );
-  if (!uri) return <Text style={[styles.muted, { padding: 20 }]}>Preparing viewer...</Text>;
+  if (!uri) return <Text style={[styles.muted, { padding: 16 }]}>Preparing viewer…</Text>;
   return (
     <DomWebView
       key={uri}

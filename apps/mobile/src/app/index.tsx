@@ -11,6 +11,7 @@ import { forgetComputer, isDesktopComputer, pingComputer, renameComputer, type R
 import { Icon } from "../icons";
 import { ErrorNotice, HeaderButton, IconButton, ListRow, PageScroll, showActions, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { radius } from "../design-tokens";
 import { UpdateSettingsBadge, useAppUpdates } from "../update-sheet";
 
 const DEMO = process.env.EXPO_PUBLIC_DEMO === "1";
@@ -91,7 +92,8 @@ export default function ComputersScreen() {
     if (action === "rename") renameComputer(host, { onRenamed: load, onError: setError });
     if (action === "forget") forgetComputer(host, { session, push, onForgotten: load, onError: setError });
   }
-  const dot = (state?: Reachability) => (state === "online" ? colors.green : state === "offline" ? colors.red : colors.orange);
+  // Same mapping as Settings › Computers: offline is neutral, not an error.
+  const dot = (state?: Reachability) => (state === "online" ? colors.green : state === "offline" ? colors.lineStrong : colors.orange);
   const label = (state?: Reachability) => (state === "online" ? "Online" : state === "offline" ? "Offline" : "Checking…");
   return (
     <View style={styles.screen}>
@@ -175,9 +177,9 @@ export default function ComputersScreen() {
                           position: "absolute",
                           right: -2,
                           bottom: -2,
-                          width: 11,
-                          height: 11,
-                          borderRadius: 6,
+                          width: 12,
+                          height: 12,
+                          borderRadius: radius.full,
                           backgroundColor: dot(status[host.id]),
                           borderWidth: 2,
                           borderColor: colors.surface,
@@ -201,7 +203,7 @@ export default function ComputersScreen() {
         {error ? <ErrorNotice message={error} /> : null}
       </PageScroll>
       {Platform.OS !== "ios" && (
-        <View style={{ alignItems: "flex-end", paddingHorizontal: 20, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) }}>
+        <View style={{ alignItems: "flex-end", paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) }}>
           <IconButton label="Add computer" icon={Add01Icon} filled size={48} onPress={() => router.push("/add-computer")} />
         </View>
       )}

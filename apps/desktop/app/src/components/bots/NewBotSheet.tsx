@@ -7,10 +7,13 @@ import type { BotTemplate } from "../../electron.d.ts";
 import { bridgeFor } from "../../lib/computer-bridge";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
+import { Button } from "../primitives/Button";
+import { FIELD as FIELD_BOX } from "../primitives/Field";
+import { InlineError } from "../primitives/InlineError";
 import { BotAvatar } from "./BotAvatar";
 
-const FIELD = "mt-1 rounded-control border border-line bg-field px-3 py-2 text-[13px] outline-none focus:border-accent";
-const LABEL = "mt-4 text-[12px] font-medium text-ink-2";
+const FIELD = `mt-1 outline-none ${FIELD_BOX}`;
+const LABEL = "mt-4 text-12 font-medium text-ink-2";
 
 /** New bot: a starter template's setup card, then the bot is created on this Mac. */
 export function NewBotSheet({
@@ -93,22 +96,22 @@ export function NewBotSheet({
       onClick={(event) => {
         if (event.target === scrim.current && !saving) onClose();
       }}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-overlay"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-scrim backdrop-blur-overlay"
     >
       <form
         onSubmit={(event) => {
           event.preventDefault();
           void create();
         }}
-        className="flex max-h-[calc(100vh-64px)] w-[440px] max-w-[calc(100vw-32px)] flex-col rounded-[16px] bg-surface p-5 text-ink shadow-overlay"
+        className="flex max-h-[calc(100vh-64px)] w-[440px] max-w-[calc(100vw-32px)] flex-col rounded-window bg-surface p-5 text-ink shadow-overlay"
       >
         <div className="flex items-center gap-3">
           {template && <BotAvatar color={template.color} body={template.body} size={44} />}
           <div className="min-w-0">
-            <h2 id="new-bot-title" className="text-[17px] font-semibold">
+            <h2 id="new-bot-title" className="text-17 font-semibold">
               New bot
             </h2>
-            {template && <p className="truncate text-[13px] text-ink-2">{template.role}</p>}
+            {template && <p className="truncate text-13 text-ink-2">{template.role}</p>}
           </div>
         </div>
         {templates && templates.length > 1 && (
@@ -139,7 +142,10 @@ export function NewBotSheet({
                     {(field.options ?? []).map((option) => {
                       const picked = ((answers[field.id] as string[] | undefined) ?? []).includes(option.value);
                       return (
-                        <label key={option.value} className="flex h-9 cursor-pointer items-center gap-2 rounded-control px-2 hover:bg-hover-2">
+                        <label
+                          key={option.value}
+                          className="flex h-9 cursor-pointer items-center gap-2 rounded-control px-2 transition-colors duration-fast hover:bg-hover"
+                        >
                           <input
                             type="checkbox"
                             checked={picked}
@@ -156,13 +162,13 @@ export function NewBotSheet({
                             }
                             className="accent-ink"
                           />
-                          <span className="min-w-0 truncate text-[13px] font-medium" title={option.value}>
+                          <span className="min-w-0 truncate text-13 font-medium" title={option.value}>
                             {option.label}
                           </span>
                         </label>
                       );
                     })}
-                    {!field.options?.length && <p className="p-2 text-[13px] text-ink-3">Open a Project in Milagre first.</p>}
+                    {!field.options?.length && <p className="p-2 text-13 text-ink-3">Open a Project in Milagre first.</p>}
                   </div>
                 </fieldset>
               ) : (
@@ -180,27 +186,19 @@ export function NewBotSheet({
               ),
             )}
             <div className="mt-4 flex items-center justify-between gap-3">
-              <span className="text-[12px] font-medium text-ink-2">Model</span>
+              <span className="text-12 font-medium text-ink-2">Model</span>
               <Select label="Model" value={modelId} width={260} options={models.map((item) => ({ value: item.id, label: item.name }))} onChange={setModelId} />
             </div>
           </div>
         </ScrollArea>
-        {error && (
-          <p role="alert" className="mt-3 whitespace-pre-wrap text-[13px] text-red-ink">
-            {error}
-          </p>
-        )}
+        <InlineError className="mt-3 whitespace-pre-wrap">{error}</InlineError>
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" disabled={saving} onClick={onClose} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
+          <Button variant="ghost" disabled={saving} onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={saving || !ready}
-            className="rounded-control bg-ink px-3 py-2 text-[13px] font-medium text-surface disabled:opacity-40"
-          >
+          </Button>
+          <Button type="submit" disabled={saving || !ready}>
             {saving ? "Creating…" : "Create bot"}
-          </button>
+          </Button>
         </div>
       </form>
     </div>,

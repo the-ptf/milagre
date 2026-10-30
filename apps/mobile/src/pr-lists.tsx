@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Linking from "expo-linking";
 import {
   BubbleChatIcon,
@@ -24,9 +24,10 @@ import type {
   ReviewerCandidatesResult,
 } from "@milagre/shared/pull-request-review";
 import type { Client } from "./client";
-import { Icon, type Tone } from "./icons";
+import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
+import { Icon } from "./icons";
 import { PrMarkdown } from "./pr-markdown";
-import { ErrorNotice, PageScroll, Segmented, tap, useStyles } from "./ui";
+import { ErrorNotice, Field, PageScroll, PillButton, pressStyle, Segmented, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { useRpc } from "./use-rpc";
 import { usePrDetail, writePr, patchDetail } from "./pr-store";
@@ -38,7 +39,7 @@ type Base = { client: Client; cwd: string; number: number };
 function Waiting({ error, retry }: { error: string; retry: () => void }) {
   const { colors } = useTheme();
   return error ? (
-    <View style={{ padding: 20 }}>
+    <View style={{ padding: space.xl }}>
       <ErrorNotice message={error} retry={retry} retryTitle="Try again" />
     </View>
   ) : (
@@ -68,7 +69,7 @@ export function Avatar({ login, size = 18, ring, team = false }: { login: string
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
+        borderRadius: radius.full,
         backgroundColor: hue,
         alignItems: "center",
         justifyContent: "center",
@@ -80,7 +81,7 @@ export function Avatar({ login, size = 18, ring, team = false }: { login: string
       {team ? (
         <Icon icon={UserGroupIcon} color={colors.page} size={size * 0.6} />
       ) : failed ? (
-        <Text style={{ color: colors.page, fontSize: size * 0.55, fontWeight: "700" }}>{login.slice(0, 1).toUpperCase()}</Text>
+        <Text style={{ color: colors.page, fontSize: size * 0.55, fontWeight: "600" }}>{login.slice(0, 1).toUpperCase()}</Text>
       ) : (
         <Image
           accessibilityIgnoresInvertColors
@@ -94,8 +95,8 @@ export function Avatar({ login, size = 18, ring, team = false }: { login: string
 }
 
 export function Separator({ inset = 16 }: { inset?: number }) {
-  const { colors } = useTheme();
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: inset }} />;
+  const styles = useStyles();
+  return <View style={[styles.separator, { marginLeft: inset }]} />;
 }
 
 const OUTCOME = {
@@ -123,19 +124,21 @@ export function CheckList({ checks }: { checks: PullRequestCheck[] }) {
               accessibilityLabel={`${check.name}, ${outcome.label}`}
               disabled={!check.url}
               onPress={() => check.url && void Linking.openURL(check.url).catch(() => {})}
-              style={({ pressed }) => ({
-                minHeight: 52,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                opacity: pressed ? 0.55 : 1,
-              })}
+              style={({ pressed }) => [
+                {
+                  minHeight: check.workflow ? 56 : 52,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: space.lg,
+                  paddingHorizontal: space.xl,
+                  paddingVertical: space.md,
+                },
+                pressStyle({ pressed, kind: "row" }),
+              ]}
             >
               <Icon icon={outcome.icon} tone={outcome.tone} size={20} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16 }}>
+              <View style={{ flex: 1, gap: space.xxs }}>
+                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout }}>
                   {check.name}
                 </Text>
                 {!!check.workflow && <Text style={styles.caption}>{check.workflow}</Text>}
@@ -152,15 +155,15 @@ export function CheckList({ checks }: { checks: PullRequestCheck[] }) {
 function CommentHeader({ comment, trailing }: { comment: PullRequestComment; trailing?: React.ReactNode }) {
   const { colors } = useTheme();
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
       <Avatar login={comment.author} />
-      <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: 14, fontWeight: "600" }}>
+      <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
         {comment.author}
       </Text>
-      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: 13 }}>
+      <Text numberOfLines={1} style={{ flex: 1, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
         {comment.pending ? "" : agoLabel(comment.createdAt)}
       </Text>
-      {comment.pending && <Text style={{ color: colors.accentInk, fontSize: 12, fontWeight: "600" }}>Pending</Text>}
+      {comment.pending && <Text style={{ color: colors.accentInk, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontWeight: "600" }}>Pending</Text>}
       {trailing}
     </View>
   );
@@ -168,13 +171,13 @@ function CommentHeader({ comment, trailing }: { comment: PullRequestComment; tra
 
 function cardStyle(colors: ReturnType<typeof useTheme>["colors"], accent = false) {
   return {
-    borderRadius: 14,
+    borderRadius: radius.card,
     borderCurve: "continuous",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: accent ? colors.accent : colors.lineStrong,
     backgroundColor: colors.surface,
-    padding: 12,
-    gap: 10,
+    padding: space.lg,
+    gap: space.lg,
   } as const;
 }
 
@@ -224,12 +227,12 @@ export function ThreadCard({
   return (
     <View style={[cardStyle(colors, drafts), { opacity: thread.resolved ? 0.7 : 1 }]}>
       {thread.comments.map((comment, index) => (
-        <View key={comment.id} style={{ gap: 6 }}>
+        <View key={comment.id} style={{ gap: space.sm }}>
           <CommentHeader
             comment={comment}
             trailing={
               comment.pending ? (
-                <SmallButton title="Delete" tone="red" onPress={() => void write("pr:delete-comment", { commentId: comment.id })} />
+                <PillButton size="small" secondary title="Delete" onPress={() => void write("pr:delete-comment", { commentId: comment.id })} />
               ) : index === 0 && thread.resolved ? (
                 <Text style={styles.caption}>Resolved</Text>
               ) : index === 0 && thread.outdated ? (
@@ -240,7 +243,11 @@ export function ThreadCard({
           {/* The place goes under the first comment's author, as on desktop. */}
           {index === 0 && showPath && (
             <Pressable accessibilityRole="button" accessibilityLabel={`Open ${thread.path}`} disabled={!onOpenFile} onPress={onOpenFile}>
-              <Text numberOfLines={1} ellipsizeMode="middle" style={{ color: colors.accentInk, fontSize: 12, fontFamily: fonts.mono }}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="middle"
+                style={{ color: colors.accentInk, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontFamily: fonts.mono }}
+              >
                 {thread.path}
                 {thread.line ? `:${thread.line}` : ""}
               </Text>
@@ -250,22 +257,25 @@ export function ThreadCard({
         </View>
       ))}
       {replying && (
-        <View style={{ gap: 8 }}>
-          <TextInput
+        <View style={{ gap: space.md }}>
+          <Field
+            label="Reply"
+            hideLabel
             autoFocus
             multiline
+            autoCapitalize="sentences"
+            autoCorrect
             value={reply}
             onChangeText={setReply}
             placeholder="Reply…"
-            placeholderTextColor={colors.ink3}
-            style={[styles.input, { minHeight: 64, fontSize: 15 }]}
+            style={{ minHeight: 64, fontSize: type.subheadline }}
           />
-          <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
-            <SmallButton title="Cancel" tone="ink2" onPress={() => setReplying(false)} />
-            <SmallButton
+          <View style={{ flexDirection: "row", gap: space.md, justifyContent: "flex-end" }}>
+            <PillButton size="small" secondary title="Cancel" onPress={() => setReplying(false)} />
+            <PillButton
+              size="small"
               title="Add to review"
-              filled
-              busy={busy}
+              loading={busy}
               disabled={!reply.trim()}
               onPress={() =>
                 void write("pr:reply", { threadId: thread.id, body: reply }).then((ok) => {
@@ -281,11 +291,12 @@ export function ThreadCard({
         </View>
       )}
       {!replying && !drafts && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <SmallButton title="Reply" tone="ink" onPress={() => setReplying(true)} />
-          <SmallButton
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, flexWrap: "wrap" }}>
+          <PillButton size="small" secondary title="Reply" onPress={() => setReplying(true)} />
+          <PillButton
+            size="small"
+            secondary
             title={thread.resolved ? "Unresolve" : "Resolve"}
-            tone="ink"
             onPress={() =>
               void write("pr:resolve-thread", { threadId: thread.id, resolved: !thread.resolved }, (current) =>
                 withResolved(current, thread.id, !thread.resolved),
@@ -298,21 +309,21 @@ export function ThreadCard({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Fix in Chat"
-                hitSlop={6}
+                hitSlop={hitSlopFor(32)}
                 onPress={() => {
                   tap();
                   onFix();
                 }}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 5, height: 34, opacity: pressed ? 0.6 : 1 })}
+                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 32 }, pressStyle({ pressed })]}
               >
-                <Icon icon={SparklesIcon} tone="accentInk" size={13} />
-                <Text style={{ color: colors.accentInk, fontSize: 14, fontWeight: "600" }}>Fix in Chat</Text>
+                <Icon icon={SparklesIcon} tone="accentInk" size={12} />
+                <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>Fix in Chat</Text>
               </Pressable>
             </>
           )}
         </View>
       )}
-      {!!error && <Text style={{ color: colors.redInk, fontSize: 13 }}>{error}</Text>}
+      {!!error && <ErrorNotice message={error} />}
     </View>
   );
 }
@@ -333,14 +344,19 @@ export function PrComments({
     <ThreadCard key={entry.id} client={client} cwd={cwd} pr={pr} thread={entry} showPath onOpenFile={() => onOpenFile(entry.path)} />
   );
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: space.lg }}>
       {!items.length && !resolved.length && <Text style={[styles.muted, { paddingHorizontal: 4 }]}>No comments yet.</Text>}
       {items.map((item) =>
         item.type === "comment" ? <CommentCard key={item.comment.id} comment={item.comment} client={client} cwd={cwd} /> : thread(item.thread),
       )}
       {resolved.length > 0 && (
-        <Pressable accessibilityRole="button" onPress={() => setShowResolved((value) => !value)} style={{ paddingVertical: 8, paddingHorizontal: 4 }}>
-          <Text style={{ color: colors.accentInk, fontSize: 14, fontWeight: "600" }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showResolved }}
+          onPress={() => setShowResolved((value) => !value)}
+          style={({ pressed }) => [{ minHeight: 44, justifyContent: "center", paddingHorizontal: space.xs }, pressStyle({ pressed })]}
+        >
+          <Text style={{ color: colors.accentInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
             {showResolved ? "Hide" : "Show"} {resolved.length} resolved
           </Text>
         </Pressable>
@@ -370,7 +386,7 @@ export function FileList({ pr, onOpenFile }: { pr: PullRequestDetail; onOpenFile
   return (
     <View style={{ gap: 12 }}>
       {filesByFolder(pr.files).map(({ folder, files }) => (
-        <View key={folder} style={{ gap: 6 }}>
+        <View key={folder} style={{ gap: space.sm }}>
           {!!folder && (
             <Text numberOfLines={1} ellipsizeMode="middle" style={[styles.caption, { paddingHorizontal: 4, fontFamily: fonts.mono }]}>
               {folder}
@@ -387,26 +403,32 @@ export function FileList({ pr, onOpenFile }: { pr: PullRequestDetail; onOpenFile
                     tap();
                     onOpenFile(file);
                   }}
-                  style={({ pressed }) => ({
-                    minHeight: 48,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    opacity: pressed ? 0.55 : 1,
-                  })}
+                  style={({ pressed }) => [
+                    {
+                      minHeight: 48,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: space.md,
+                      paddingHorizontal: space.xl,
+                      paddingVertical: space.lg,
+                    },
+                    pressStyle({ pressed, kind: "row" }),
+                  ]}
                 >
-                  <Text numberOfLines={1} ellipsizeMode="middle" style={{ flex: 1, color: colors.ink, fontSize: 15 }}>
+                  <Text
+                    numberOfLines={1}
+                    ellipsizeMode="middle"
+                    style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}
+                  >
                     {fileName(file.path)}
                   </Text>
                   {threads.has(file.path) && (
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                      <Icon icon={BubbleChatIcon} tone="orange" size={13} />
-                      <Text style={{ color: colors.orangeInk, fontSize: 12 }}>{threads.get(file.path)}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                      <Icon icon={BubbleChatIcon} tone="orange" size={12} />
+                      <Text style={{ color: colors.orangeInk, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>{threads.get(file.path)}</Text>
                     </View>
                   )}
-                  <Text style={{ fontFamily: fonts.mono, fontSize: 12 }}>
+                  <Text style={{ fontFamily: fonts.mono, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                     <Text style={{ color: colors.add }}>+{file.additions}</Text> <Text style={{ color: colors.remove }}>−{file.deletions}</Text>
                   </Text>
                 </Pressable>
@@ -490,17 +512,14 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
       keyboardDismissMode="on-drag"
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
       ListHeaderComponent={
-        <View style={{ paddingTop: 12, paddingBottom: 8, gap: 10 }}>
-          <TextInput
+        <View style={{ paddingTop: space.lg, paddingBottom: space.md, gap: space.lg }}>
+          <Field
+            label={kind === "labels" ? "Search labels" : "Search people"}
+            hideLabel
             value={query}
             onChangeText={setQuery}
             placeholder={kind === "labels" ? "Search labels" : "Search people"}
-            placeholderTextColor={colors.ink3}
-            autoCapitalize="none"
-            autoCorrect={false}
             clearButtonMode="while-editing"
-            accessibilityLabel={kind === "labels" ? "Search labels" : "Search people"}
-            style={styles.input}
           />
           {!!(error || failure) && <ErrorNotice message={error || failure} retry={error ? undefined : list.refresh} retryTitle="Try again" />}
           {list.loading && <ActivityIndicator color={colors.ink3} />}
@@ -519,28 +538,30 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
           accessibilityState={{ checked: item.checked, disabled: item.disabled }}
           disabled={item.disabled}
           onPress={() => void toggle(item)}
-          style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 12,
-            minHeight: 52,
-            paddingHorizontal: 6,
-            paddingVertical: 10,
-            borderRadius: 10,
-            borderCurve: "continuous",
-            backgroundColor: pressed ? colors.hover : "transparent",
-            opacity: item.disabled ? 0.5 : 1,
-          })}
+          style={({ pressed }) => [
+            {
+              flexDirection: "row",
+              alignItems: "center",
+              gap: space.lg,
+              minHeight: item.subtitle ? 56 : 52,
+              paddingHorizontal: space.sm,
+              paddingVertical: space.lg,
+              borderRadius: radius.control,
+              borderCurve: "continuous",
+              backgroundColor: pressed ? colors.hover : "transparent",
+            },
+            pressStyle({ pressed: false, disabled: item.disabled, kind: "row" }),
+          ]}
         >
           <View style={{ width: 22, alignItems: "center" }}>
             {kind === "labels" ? (
-              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: `#${item.color}` }} />
+              <View style={{ width: 10, height: 10, borderRadius: radius.full, backgroundColor: `#${item.color}` }} />
             ) : (
               <Avatar login={item.id} size={22} team={item.team} />
             )}
           </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: colors.ink, fontSize: 15 }}>{item.title}</Text>
+          <View style={{ flex: 1, gap: space.xxs }}>
+            <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{item.title}</Text>
             {!!item.subtitle && (
               <Text numberOfLines={1} style={styles.caption}>
                 {item.subtitle}
@@ -557,7 +578,6 @@ export function PrPicker({ client, cwd, number, kind }: Base & { kind: "labels" 
 /** Submit the review: a verdict (the author can only comment), a summary, and the draft comments already added. */
 export function PrReviewForm({ client, cwd, number, onDone }: Base & { onDone: () => void }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { pr, error: readError, refresh } = usePrDetail(client, cwd, number);
   const [event, setEvent] = useState<ReviewEvent>("COMMENT");
   const [body, setBody] = useState("");
@@ -585,13 +605,16 @@ export function PrReviewForm({ client, cwd, number, onDone }: Base & { onDone: (
   return (
     <PageScroll contentContainerStyle={{ gap: 16 }}>
       {options.length > 1 && <Segmented label="Review verdict" value={event} options={options} onChange={(value) => setEvent(value as ReviewEvent)} />}
-      <TextInput
+      <Field
+        label="Review comment"
+        hideLabel
         multiline
+        autoCapitalize="sentences"
+        autoCorrect
         value={body}
         onChangeText={setBody}
         placeholder={event === "APPROVE" ? "Add a note (optional)" : "Leave a comment"}
-        placeholderTextColor={colors.ink3}
-        style={[styles.input, { minHeight: 120, textAlignVertical: "top" }]}
+        style={{ minHeight: 120, textAlignVertical: "top" }}
       />
       <Text style={styles.caption}>
         {pending
@@ -600,88 +623,14 @@ export function PrReviewForm({ client, cwd, number, onDone }: Base & { onDone: (
             ? "You opened this PR, so GitHub only lets you comment on it."
             : "Long-press a line in a diff to add comments to this review."}
       </Text>
-      {!!error && <Text style={{ color: colors.redInk, fontSize: 14 }}>{error}</Text>}
-      <WideButton
+      {!!error && <ErrorNotice message={error} />}
+      <PillButton
+        size="large"
         title={event === "APPROVE" ? "Approve" : event === "REQUEST_CHANGES" ? "Request changes" : "Submit review"}
-        busy={busy}
+        loading={busy}
         disabled={event !== "APPROVE" && !pending && !body.trim()}
         onPress={() => void submit()}
       />
     </PageScroll>
-  );
-}
-
-export function SmallButton({
-  title,
-  onPress,
-  tone = "accentInk",
-  filled = false,
-  disabled = false,
-  busy = false,
-}: {
-  title: string;
-  onPress: () => void;
-  tone?: Tone;
-  filled?: boolean;
-  disabled?: boolean;
-  busy?: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityState={{ disabled: disabled || busy, busy }}
-      disabled={disabled || busy}
-      hitSlop={6}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        height: 34,
-        paddingHorizontal: 14,
-        borderRadius: 17,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        backgroundColor: filled ? colors.ink : colors.hover,
-        opacity: disabled ? 0.4 : pressed ? 0.6 : 1,
-      })}
-    >
-      {busy && <ActivityIndicator size="small" color={filled ? colors.onInk : colors.ink2} />}
-      <Text style={{ color: filled ? colors.onInk : colors[tone], fontSize: 14, fontWeight: "600" }}>{title}</Text>
-    </Pressable>
-  );
-}
-
-function WideButton({ title, onPress, disabled = false, busy = false }: { title: string; onPress: () => void; disabled?: boolean; busy?: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityState={{ disabled: disabled || busy, busy }}
-      disabled={disabled || busy}
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        flex: 1,
-        height: 48,
-        borderRadius: 24,
-        borderCurve: "continuous",
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        backgroundColor: colors.ink,
-        opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
-      })}
-    >
-      {busy && <ActivityIndicator color={colors.onInk} />}
-      <Text style={{ color: colors.onInk, fontSize: 17, fontWeight: "600" }}>{title}</Text>
-    </Pressable>
   );
 }

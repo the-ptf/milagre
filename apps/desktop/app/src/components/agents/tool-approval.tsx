@@ -1,17 +1,13 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert02Icon, ArrowDown01Icon, Cancel01Icon, Loading03Icon, SecurityCheckIcon, Tick02Icon } from "@hugeicons/core-free-icons";
-import type { ComponentProps } from "react";
-import { SPRING_PRESS, SPRING_SWAP } from "../../lib/ease";
+import { Alert02Icon, ArrowDown01Icon, Cancel01Icon, SecurityCheckIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { SPRING_SWAP } from "../../lib/ease";
 import { ScrollArea } from "../primitives/ScrollArea";
-
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
-
-function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
+import { Icon } from "../primitives/Icon";
+import { Button } from "../primitives/Button";
+import { SectionLabel } from "../primitives/SectionLabel";
+import { SpinnerRing } from "../primitives/SpinnerRing";
 
 export type ToolApprovalStatus = "pending" | "approving" | "approved" | "denied" | "running" | "complete" | "error";
 
@@ -69,16 +65,12 @@ function statusTone(status: ToolApprovalStatus) {
   return "border-orange/30 bg-orange-tint text-orange-ink";
 }
 
-function StatusIcon({ status, reduce }: { status: ToolApprovalStatus; reduce: boolean }) {
+function StatusIcon({ status }: { status: ToolApprovalStatus }) {
   if (status === "error") return <Icon icon={Alert02Icon} size={14} />;
   if (status === "denied") return <Icon icon={Cancel01Icon} size={14} />;
   if (status === "approved" || status === "complete") return <Icon icon={Tick02Icon} size={14} />;
   if (status === "approving" || status === "running") {
-    return (
-      <span className={reduce ? undefined : "animate-spin"}>
-        <Icon icon={Loading03Icon} size={14} />
-      </span>
-    );
+    return <SpinnerRing size={14} stroke={1.8} color="currentColor" />;
   }
   return <Icon icon={SecurityCheckIcon} size={14} />;
 }
@@ -86,14 +78,16 @@ function StatusIcon({ status, reduce }: { status: ToolApprovalStatus; reduce: bo
 export function ToolApprovalCode({ code, language = "bash", className = "", plain = false }: ToolApprovalCodeProps) {
   if (plain)
     return (
-      <pre className={`min-w-0 whitespace-pre-wrap break-words text-xs leading-5 text-ink-2 ${className}`}>
+      <pre className={`min-w-0 whitespace-pre-wrap break-words text-12 leading-5 text-ink-2 ${className}`}>
         <code>{code}</code>
       </pre>
     );
   return (
     <div className={`min-w-0 overflow-hidden rounded-control border border-line bg-inset ${className}`}>
-      <div className="border-b border-line px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-3">{language}</div>
-      <pre className="max-h-44 overflow-auto px-2.5 py-2 text-[11px] leading-5 text-ink-2">
+      <SectionLabel as="div" variant="menu" className="border-b border-line px-3 py-1">
+        {language}
+      </SectionLabel>
+      <pre className="max-h-44 overflow-auto px-3 py-2 text-11 leading-5 text-ink-2">
         <code className="whitespace-pre-wrap break-words">{code}</code>
       </pre>
     </div>
@@ -146,25 +140,25 @@ export function ToolApproval({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduce ? undefined : { opacity: 0, y: 6, scale: 0.985 }}
       transition={reduce ? { duration: 0 } : SPRING_SWAP}
-      className={`${inline ? "flex w-full flex-col gap-4" : "flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay"} ${className}`}
+      className={`${inline ? "flex w-full flex-col gap-4" : "flex max-h-[min(72vh,620px)] w-full flex-col overflow-hidden rounded-card bg-surface shadow-overlay"} ${className}`}
     >
       <div className={`flex items-start gap-3 ${inline ? "" : "p-4"}`}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium text-ink-3">{tool}</p>
-              <h2 className="mt-0.5 text-sm font-semibold text-ink">{title}</h2>
+              <p className="truncate text-11 font-medium text-ink-3">{tool}</p>
+              <h2 className={`mt-0.5 ${inline ? "text-13" : "text-15"} font-semibold text-ink`}>{title}</h2>
             </div>
             {!inline && (
-              <span className={`inline-flex shrink-0 items-center gap-1 rounded-chip border px-2 py-1 text-[10px] font-semibold ${statusTone(status)}`}>
-                <StatusIcon status={status} reduce={Boolean(reduce)} />
+              <span className={`inline-flex shrink-0 items-center gap-1 rounded-chip border px-2 py-1 text-10 font-semibold ${statusTone(status)}`}>
+                <StatusIcon status={status} />
                 {STATUS_COPY[status]}
               </span>
             )}
           </div>
-          {description && <p className="mt-2 text-xs leading-5 text-ink-2">{description}</p>}
+          {description && <p className="mt-2 text-12 leading-5 text-ink-2">{description}</p>}
           {inline && isBusy && (
-            <p role="status" className="mt-2 text-xs text-ink-3">
+            <p role="status" className="mt-2 text-12 text-ink-3">
               Sending decision…
             </p>
           )}
@@ -174,7 +168,7 @@ export function ToolApproval({
       {inline && parameters.length > 0 && (
         <div className="grid gap-3">
           {parameters.map((parameter) => (
-            <div key={parameter.id} className="grid gap-1 text-xs">
+            <div key={parameter.id} className="grid gap-1 text-12">
               <span className="font-medium text-ink-3">{parameter.label}</span>
               <div className="min-w-0 break-words text-ink-2">{parameter.value}</div>
             </div>
@@ -187,7 +181,7 @@ export function ToolApproval({
             type="button"
             aria-expanded={detailsOpen}
             onClick={() => setDetailsOpen(!detailsOpen)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-xs font-medium text-ink-2 transition-colors hover:bg-hover"
+            className="flex h-9 w-full items-center justify-between gap-3 px-4 text-left text-12 font-medium text-ink-2 transition-colors duration-fast hover:bg-hover"
           >
             <span>{detailsOpen ? "Hide details" : "View details"}</span>
             <motion.span animate={{ rotate: detailsOpen ? 180 : 0 }} transition={reduce ? { duration: 0 } : SPRING_SWAP}>
@@ -206,7 +200,7 @@ export function ToolApproval({
                 <ScrollArea className="[scrollbar-gutter:stable]">
                   <div className="grid gap-2 border-t border-line bg-inset px-4 py-3">
                     {parameters.map((parameter) => (
-                      <div key={parameter.id} className="grid gap-1 text-xs">
+                      <div key={parameter.id} className="grid gap-1 text-12">
                         <span className="font-medium text-ink-3">{parameter.label}</span>
                         <div className="min-w-0 break-words text-ink-2">{parameter.value}</div>
                       </div>
@@ -228,35 +222,17 @@ export function ToolApproval({
             transition={reduce ? { duration: 0 } : SPRING_SWAP}
             className={inline ? "flex flex-wrap justify-end gap-2" : "flex flex-wrap justify-end gap-2 border-t border-line bg-inset px-4 py-3"}
           >
-            <motion.button
-              type="button"
-              onClick={onDeny}
-              whileTap={reduce ? undefined : { scale: 0.97 }}
-              transition={SPRING_PRESS}
-              className="rounded-control border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:border-line-strong hover:bg-hover"
-            >
+            <Button variant="secondary" onClick={onDeny} className="enabled:active:scale-press">
               {denyLabel}
-            </motion.button>
+            </Button>
             {onAlwaysAllow && (
-              <motion.button
-                type="button"
-                onClick={onAlwaysAllow}
-                whileTap={reduce ? undefined : { scale: 0.97 }}
-                transition={SPRING_PRESS}
-                className="rounded-control border border-line bg-surface px-3 py-2 text-xs font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover"
-              >
+              <Button variant="secondary" onClick={onAlwaysAllow} className="enabled:active:scale-press">
                 {alwaysAllowLabel}
-              </motion.button>
+              </Button>
             )}
-            <motion.button
-              type="button"
-              onClick={onApprove}
-              whileTap={reduce ? undefined : { scale: 0.97 }}
-              transition={SPRING_PRESS}
-              className="rounded-control bg-ink px-3 py-2 text-xs font-medium text-surface transition-opacity hover:opacity-85"
-            >
+            <Button onClick={onApprove} className="enabled:active:scale-press">
               {approveLabel}
-            </motion.button>
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>

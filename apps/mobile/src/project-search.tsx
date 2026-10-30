@@ -4,7 +4,8 @@ import { Search01Icon } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { ProjectIcon } from "./project-icon";
-import { Field, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
+import { Field, pressStyle, useStyles } from "./ui";
 import { createStylesHook, useTheme, type Palette } from "./theme";
 
 type Found = { path: string; name: string };
@@ -60,7 +61,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
   const current = results?.query === query ? results : null;
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 10 }}>
+      <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 12 }}>
         <View style={s.search}>
           <Icon icon={Search01Icon} tone="ink3" size={18} />
           <View style={{ flex: 1 }}>
@@ -92,7 +93,7 @@ export function ProjectSearch({ onOpen }: { onOpen: (path: string) => void }) {
         keyExtractor={(item) => item.path}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 24 }}
         ListHeaderComponent={path ? <Row title={`Open ${shortPath(path)}`} detail="Full path" onPress={() => onOpen(path)} /> : undefined}
         ListEmptyComponent={
           path ? undefined : (
@@ -128,14 +129,14 @@ function Row({ icon, title, detail, onPress }: { icon?: React.ReactNode; title: 
       accessibilityRole="button"
       accessibilityLabel={`${title}, ${detail}`}
       onPress={onPress}
-      style={({ pressed }) => [s.row, { backgroundColor: pressed ? colors.hover : "transparent" }]}
+      style={({ pressed }) => [s.row, pressStyle({ pressed, kind: "row" })]}
     >
       {icon}
-      <View style={{ flex: 1, gap: 3 }}>
-        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }}>
           {title}
         </Text>
-        <Text numberOfLines={1} ellipsizeMode="head" style={{ color: colors.ink2, fontSize: 12 }}>
+        <Text numberOfLines={1} ellipsizeMode="head" style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {detail}
         </Text>
       </View>
@@ -150,7 +151,7 @@ const makeS = (colors: Palette) =>
       alignItems: "center",
       gap: 8,
       paddingHorizontal: 12,
-      borderRadius: 10,
+      borderRadius: radius.control,
       borderCurve: "continuous",
       backgroundColor: colors.field,
     },
@@ -161,7 +162,7 @@ const makeS = (colors: Palette) =>
       minHeight: 56,
       paddingHorizontal: 12,
       paddingVertical: 8,
-      borderRadius: 8,
+      borderRadius: radius.control,
       borderCurve: "continuous",
     },
   });

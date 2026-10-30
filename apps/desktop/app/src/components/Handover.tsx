@@ -1,13 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { HandoffContext, ModelOption } from "../model";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDataTransferHorizontalIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { handoffLabel } from "../lib/handover";
 import { ProviderLogo } from "./ProviderLogo";
 import { Markdown } from "./markdown/Markdown";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { SpinnerRing } from "./primitives/SpinnerRing";
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
+import { TranscriptDivider } from "./primitives/TranscriptDivider";
 
 /**
  * A provider switch inside the chat: a hairline with "Context handoff  Opus 5.5 → GPT-6" centred on it. It spins while
@@ -18,47 +20,38 @@ export function HandoffDivider({ context, models }: { context: HandoffContext; m
   const label = handoffLabel(context, models);
   const canOpen = context.status === "done" && Boolean(context.brief);
   return (
-    <div
+    <TranscriptDivider
       data-handoff-divider
       data-status={context.status}
-      className="flex w-full items-center gap-3 py-1 text-[12px] text-ink-3"
-      role="group"
-      aria-label={label.restored ? `Context restored to ${label.to}` : `Context handoff from ${label.from} to ${label.to}`}
+      label={label.restored ? `Context restored to ${label.to}` : `Context handoff from ${label.from} to ${label.to}`}
     >
-      <span className="h-px flex-1 bg-line" />
+      {/* The visible text is the button's name; the ::before brings its hit area to 24px without growing the hairline row. */}
       <button
         type="button"
         disabled={!canOpen}
         onClick={() => setOpen(true)}
-        aria-label={canOpen ? "Open the handoff brief" : undefined}
-        className="flex items-center gap-1.5 rounded-control px-2 py-0.5 enabled:hover:bg-hover enabled:hover:text-ink disabled:cursor-default"
+        aria-haspopup={canOpen ? "dialog" : undefined}
+        className="relative -mx-2 flex items-center gap-1.5 rounded-control px-2 py-0.5 transition-colors duration-fast before:absolute before:-inset-y-1 before:inset-x-0 enabled:hover:bg-hover enabled:hover:text-ink disabled:cursor-default"
       >
-        {context.status === "preparing" ? (
-          <SpinnerRing size={12} />
-        ) : (
-          <HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} size={13} strokeWidth={1.8} color="currentColor" />
-        )}
+        {context.status === "preparing" ? <SpinnerRing size={12} /> : <Icon icon={ArrowDataTransferHorizontalIcon} size={12} />}
         <span>{label.restored ? "Context restored" : "Context handoff"}</span>
         {!label.restored && (
           <>
-            <ProviderLogo provider={context.from.provider} size={13} />
+            <ProviderLogo provider={context.from.provider} size={12} />
             <span>{label.from}</span>
             <span aria-hidden="true">→</span>
           </>
         )}
-        <ProviderLogo provider={context.to.provider} size={13} />
+        <ProviderLogo provider={context.to.provider} size={12} />
         <span className="font-medium text-ink-2">{label.to}</span>
         {context.status === "failed" && <span className="text-orange-ink">· Handoff failed</span>}
       </button>
-      <span className="h-px flex-1 bg-line" />
       {open && context.brief && <HandoffBriefDialog title="Handoff brief" brief={context.brief} onClose={() => setOpen(false)} />}
-    </div>
+    </TranscriptDivider>
   );
 }
 
 const FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
-const BUTTON_PRIMARY =
-  "inline-flex h-8 items-center gap-1.5 rounded-control bg-ink px-3 text-[12.5px] font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40";
 
 /**
  * The brief the new provider was sent, or the linked summary a Link gave a Chat, in a modal as the GitActionsDialog is
@@ -112,8 +105,8 @@ export function HandoffBriefDialog({ title, brief, onClose }: { title: string; b
   return createPortal(
     <div
       data-brief-dialog-overlay
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-[oklch(0.2_0.01_260/0.32)] p-4 [-webkit-app-region:no-drag]"
-      style={{ animation: "fade-in 140ms ease-out both" }}
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-4 backdrop-blur-overlay no-drag"
+      style={{ animation: "fade-in var(--duration-fast) var(--ease-enter) both" }}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -126,31 +119,24 @@ export function HandoffBriefDialog({ title, brief, onClose }: { title: string; b
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         data-brief-dialog
-        className="flex h-[min(88vh,760px)] w-[680px] max-w-full flex-col overflow-hidden rounded-[14px] bg-surface text-ink shadow-overlay outline-none"
-        style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both" }}
+        className="flex h-[min(88vh,760px)] w-[680px] max-w-full flex-col overflow-hidden rounded-window bg-surface text-ink shadow-overlay outline-none"
+        style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
       >
-        <header className="flex items-center gap-3 px-4 pb-2 pt-3.5">
-          <h2 id="brief-dialog-title" className="min-w-0 flex-1 truncate text-[15px] font-semibold">
+        <header className="flex items-center gap-3 px-4 pt-4 pb-2">
+          <h2 id="brief-dialog-title" className="min-w-0 flex-1 truncate text-17 font-semibold">
             {title}
           </h2>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.8} color="currentColor" />
-          </button>
+          <IconButton label="Close" icon={Cancel01Icon} size={28} onClick={onClose} />
         </header>
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-1">
-          <ScrollArea data-brief-preview className="flex-1 text-[13px] leading-[1.55]">
+          <ScrollArea data-brief-preview className="flex-1 text-13 leading-[1.55]">
             <Markdown text={brief} />
           </ScrollArea>
         </div>
         <footer className="flex items-center justify-end gap-2 border-t border-line bg-inset px-4 py-3">
-          <button type="button" data-brief-close className={BUTTON_PRIMARY} onClick={onClose}>
+          <Button data-brief-close onClick={onClose}>
             Close
-          </button>
+          </Button>
         </footer>
       </div>
     </div>,

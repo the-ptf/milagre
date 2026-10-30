@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AiBrain01Icon,
   CommandLineIcon,
@@ -12,6 +11,8 @@ import {
 import type { StepKind, ChatStep } from "../../model";
 import { activitySources, stepSource, type ActivitySource as Source } from "@milagre/shared/tool-activity";
 import { LinearLogo } from "../ProviderLogo";
+import { Icon, type IconSize } from "../primitives/Icon";
+import Tooltip from "../primitives/Tooltip";
 
 const ICONS = {
   shell: CommandLineIcon,
@@ -25,15 +26,11 @@ const ICONS = {
   other: Wrench01Icon,
 };
 
-function ActivityIcon({ source, size = 14 }: { source: Source; size?: number }) {
-  return source.linear ? (
-    <LinearLogo size={size} />
-  ) : (
-    <HugeiconsIcon icon={ICONS[source.kind as StepKind] ?? Wrench01Icon} size={size} strokeWidth={1.8} color="currentColor" />
-  );
+function ActivityIcon({ source, size = 14 }: { source: Source; size?: IconSize }) {
+  return source.linear ? <LinearLogo size={size} /> : <Icon icon={ICONS[source.kind as StepKind] ?? Wrench01Icon} size={size} />;
 }
 
-export function StepIcon({ step, size = 14 }: { step: ChatStep; size?: number }) {
+export function StepIcon({ step, size = 14 }: { step: ChatStep; size?: IconSize }) {
   return <ActivityIcon source={stepSource(step)} size={size} />;
 }
 
@@ -42,13 +39,13 @@ export function ActivitySources({ steps }: { steps: ChatStep[] }) {
   return (
     <span data-slot="activity-sources" aria-hidden className="isolate flex shrink-0 items-center pl-1.5">
       {activitySources(steps).map((source) => (
-        <span
+        <Tooltip
           key={source.id}
-          title={source.label}
-          className="-ml-1.5 flex size-[22px] items-center justify-center rounded-full bg-field text-ink-2 ring-2 ring-page"
+          label={source.label}
+          className="-ml-1.5 size-[22px] items-center justify-center rounded-full bg-field text-ink-2 ring-2 ring-page"
         >
-          <ActivityIcon source={source} size={13} />
-        </span>
+          <ActivityIcon source={source} size={12} />
+        </Tooltip>
       ))}
     </span>
   );

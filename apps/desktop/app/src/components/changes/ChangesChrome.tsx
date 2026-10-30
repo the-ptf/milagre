@@ -1,9 +1,10 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { useShortcutLabel } from "../../lib/keybindings";
 import { ArrowDown01Icon, ArrowLeft02Icon, ArrowRight02Icon, GitBranchIcon, GridViewIcon } from "@hugeicons/core-free-icons";
 import { useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Tooltip from "../primitives/Tooltip";
+import { Button, buttonClass } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 import GlideMenu from "../primitives/GlideMenu";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
@@ -42,18 +43,13 @@ export function DiffBar({
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
-          transition={reduced ? { duration: 0 } : { duration: 0.2, ease: EASE_OUT }}
+          transition={reduced ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT }}
         >
-          <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
-            <button
-              type="button"
-              data-diff-back
-              onClick={onBack}
-              className="flex h-8 items-center gap-1.5 rounded-control bg-surface pr-3 pl-2 text-[12.5px] font-medium text-ink-2 shadow-card transition-colors hover:text-ink"
-            >
-              <HugeiconsIcon icon={ArrowLeft02Icon} size={15} strokeWidth={1.8} color="currentColor" />
+          <div className="no-drag flex items-center gap-2">
+            <Button variant="secondary" data-diff-back onClick={onBack} className="pl-2">
+              <Icon icon={ArrowLeft02Icon} size={16} />
               Back
-            </button>
+            </Button>
             <AnimatePresence initial={false}>
               {send && send.count > 0 && (
                 <motion.button
@@ -64,8 +60,8 @@ export function DiffBar({
                   initial={{ opacity: 0, scale: 0.96 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.96 }}
-                  transition={reduced ? { duration: 0 } : { duration: 0.16, ease: EASE_OUT }}
-                  className="h-8 rounded-control bg-ink px-3 text-[12.5px] font-medium text-surface shadow-card transition-opacity hover:opacity-85"
+                  transition={reduced ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT }}
+                  className={buttonClass()}
                 >
                   {send.count === 1 ? "Send 1 comment" : `Send ${send.count} comments`}
                 </motion.button>
@@ -84,7 +80,7 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("changes.toggle");
   return (
-    <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset }}>
       <Tooltip label={open ? "Hide changes" : "Show changes"} shortcut={shortcut} compactHint side="bottom" align="end">
         <button
           type="button"
@@ -92,9 +88,9 @@ export function ChangesToggle({ open, onToggle }: { open: boolean; onToggle: () 
           aria-pressed={open}
           data-changes-toggle
           onClick={onToggle}
-          className={`flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-3"}`}
+          className={`flex size-8 items-center justify-center rounded-control transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press ${open ? "bg-hover text-ink" : "text-ink-3"}`}
         >
-          <HugeiconsIcon icon={GitBranchIcon} size={18} strokeWidth={1.8} color="currentColor" />
+          <Icon icon={GitBranchIcon} size={18} />
         </button>
       </Tooltip>
     </div>
@@ -106,7 +102,7 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
   const chrome = useWindowChrome();
   const shortcut = useShortcutLabel("grid.toggle");
   return (
-    <div className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
+    <div className="no-drag fixed top-[var(--window-chrome-top)] z-[60]" style={{ right: 12 + chrome.rightInset + offset * 40 }}>
       <Tooltip label={grid ? "Show one Chat" : "Show active Chats as a grid"} shortcut={shortcut} compactHint side="bottom" align="end">
         <button
           type="button"
@@ -114,9 +110,9 @@ export function LayoutToggle({ grid, offset, onToggle }: { grid: boolean; offset
           aria-pressed={grid}
           data-layout-toggle
           onClick={onToggle}
-          className={`flex size-8 items-center justify-center rounded-control transition-colors hover:bg-hover hover:text-ink ${grid ? "bg-hover text-ink" : "text-ink-3"}`}
+          className={`flex size-8 items-center justify-center rounded-control transition-colors duration-fast hover:bg-hover hover:text-ink active:scale-press ${grid ? "bg-hover text-ink" : "text-ink-3"}`}
         >
-          <HugeiconsIcon icon={GridViewIcon} size={18} strokeWidth={1.8} color="currentColor" />
+          <Icon icon={GridViewIcon} size={18} />
         </button>
       </Tooltip>
     </div>
@@ -148,12 +144,12 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
   return (
     <div
       data-attention
-      className="fixed top-[var(--window-chrome-top)] z-[60] [-webkit-app-region:no-drag]"
+      className="no-drag fixed top-[var(--window-chrome-top)] z-[60]"
       // Left of the buttons in the corner: `offset` is how many there are, 40px each (PanelToggles' CORNER_PITCH).
       style={{
         right: 12 + chrome.rightInset + offset * 40,
         maxWidth: `max(0px, calc(100vw - ${chrome.controlsEnd + 12 + chrome.rightInset + offset * 40}px))`,
-        animation: "fade-in 160ms ease-out",
+        animation: "fade-in var(--duration-fast) var(--ease-enter)",
       }}
     >
       <button
@@ -164,10 +160,10 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
         aria-haspopup={many ? "menu" : undefined}
         aria-expanded={many ? open : undefined}
         onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-[13px] font-medium text-orange-ink transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
+        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-13 font-medium text-orange-ink transition-colors duration-fast hover:bg-hover ${open ? "bg-hover" : ""}`}
       >
         <span className="min-w-0 max-w-80 truncate">{label}</span>
-        <HugeiconsIcon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />
+        <Icon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={14} />
       </button>
       {open && many && (
         <div
@@ -186,11 +182,11 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
               rows[(index + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length]?.focus();
             }
           }}
-          className="absolute top-full right-0 mt-1.5 flex w-72 flex-col overflow-hidden rounded-[14px] bg-surface shadow-overlay"
-          style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top right" }}
+          className="absolute top-full right-0 mt-1.5 flex w-72 flex-col overflow-hidden rounded-card bg-surface shadow-raised"
+          style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "top right" }}
         >
           <ScrollArea className="max-h-80 p-1.5">
-            <GlideMenu className="flex flex-col gap-px" rowSelector="[role=menuitem]" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
+            <GlideMenu className="flex flex-col gap-px" rowSelector="[role=menuitem]" highlightClassName="inset-x-0 rounded-control bg-hover-2">
               {items.map((item, index) => (
                 <button
                   key={item.key}
@@ -199,10 +195,10 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
                   data-attention-chat={item.key}
                   autoFocus={index === 0}
                   onClick={() => go(item.key)}
-                  className="relative z-10 flex min-h-11 w-full flex-col justify-center rounded-[8px] px-2.5 py-1.5 text-left outline-none focus-visible:bg-hover-2"
+                  className="relative z-10 flex min-h-11 w-full flex-col justify-center rounded-control px-2.5 py-1.5 text-left focus-visible:bg-hover-2 focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
-                  <span className="w-full truncate text-[13.5px] text-ink">{item.title || item.waitingFor || "Chat"}</span>
-                  <span className="w-full truncate text-[11.5px] text-ink-3">
+                  <span className="w-full truncate text-13 text-ink">{item.title || item.waitingFor || "Chat"}</span>
+                  <span className="w-full truncate text-11 text-ink-3">
                     {item.project} ·{" "}
                     <span className={item.asking ? "text-accent-ink" : "text-orange-ink"}>{item.asking ? "Asking you" : "Waiting for approval"}</span>
                   </span>

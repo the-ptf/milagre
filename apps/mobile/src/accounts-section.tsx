@@ -5,7 +5,8 @@ import type { AccountsSnapshot, ModelProvider } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { Icon, ProviderLogo } from "./icons";
-import { IconButton, PullDown, useStyles } from "./ui";
+import { lineHeight, radius, type as typeScale } from "./design-tokens";
+import { ErrorNotice, IconButton, pressStyle, PullDown, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 export function AccountsSection() {
@@ -73,12 +74,8 @@ export function AccountsForComputer() {
           }}
         />
       </View>
-      {error ? (
-        <Text accessibilityRole="alert" selectable style={styles.text}>
-          {error}
-        </Text>
-      ) : null}
-      {!snapshot && !error ? <Text style={styles.muted}>Checking accounts...</Text> : null}
+      {error ? <ErrorNotice message={error} /> : null}
+      {!snapshot && !error ? <Text style={styles.muted}>Checking accounts…</Text> : null}
       {providers?.map((group) => (
         <View key={group.provider} style={{ gap: 8 }}>
           <View
@@ -97,7 +94,7 @@ export function AccountsForComputer() {
           <View
             style={{
               backgroundColor: colors.surface,
-              borderRadius: 14,
+              borderRadius: radius.card,
               borderCurve: "continuous",
               overflow: "hidden",
               borderWidth: 1,
@@ -143,20 +140,22 @@ export function AccountsForComputer() {
                       onPress={() => {
                         if (!selected) void act("select", group.provider, account.id);
                       }}
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        minWidth: 0,
-                        minHeight: 66,
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        opacity: pressed ? 0.6 : 1,
-                      })}
+                      style={({ pressed }) => [
+                        {
+                          flex: 1,
+                          minWidth: 0,
+                          minHeight: 56,
+                          paddingVertical: 12,
+                          paddingHorizontal: 12,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 12,
+                        },
+                        pressStyle({ pressed, disabled: busy || account.state !== "ready", kind: "row" }),
+                      ]}
                     >
                       <Icon icon={selected ? CheckmarkCircle02Icon : CircleIcon} tone={selected ? "ink" : "ink3"} size={20} />
-                      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                         <View
                           style={{
                             flexDirection: "row",
@@ -170,14 +169,15 @@ export function AccountsForComputer() {
                               styles.text,
                               {
                                 flexShrink: 1,
-                                fontSize: 15,
+                                fontSize: typeScale.subheadline,
+                                lineHeight: lineHeight.subheadline,
                                 fontWeight: selected ? "600" : "400",
                               },
                             ]}
                           >
                             {name}
                           </Text>
-                          {type ? <Icon icon={typeIcon} tone="ink3" size={15} /> : null}
+                          {type ? <Icon icon={typeIcon} tone="ink3" size={16} /> : null}
                         </View>
                         {details ? (
                           <Text numberOfLines={1} style={styles.caption}>
@@ -193,7 +193,7 @@ export function AccountsForComputer() {
                         style={{ padding: 4 }}
                         nativeTrigger={{
                           systemImage: "ellipsis",
-                          iconSize: 14,
+                          iconSize: 16,
                           menuTint: colors.ink,
                           rotation: 90,
                           disabled: busy,
@@ -240,7 +240,7 @@ export function AccountsForComputer() {
                             justifyContent: "center",
                           }}
                         >
-                          <Icon icon={MoreVerticalIcon} tone="ink2" size={14} />
+                          <Icon icon={MoreVerticalIcon} tone="ink2" size={16} />
                         </View>
                       </PullDown>
                     )}
@@ -248,7 +248,7 @@ export function AccountsForComputer() {
                   {account.message && account.state !== "signing-in" ? (
                     <Text
                       accessibilityRole={account.state === "error" ? "alert" : undefined}
-                      style={[styles.caption, { paddingHorizontal: 12, paddingBottom: 10 }]}
+                      style={[styles.caption, { paddingHorizontal: 12, paddingBottom: 12 }]}
                     >
                       {account.message}
                     </Text>

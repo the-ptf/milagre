@@ -28,7 +28,7 @@ export function BotProfileSlot({ open, children }: { open: boolean; children: Re
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.24, ease: EASE_OUT }}
+            transition={reduced ? { duration: 0 } : { duration: 0.28, ease: EASE_OUT }}
           >
             <div className="absolute top-[var(--window-chrome-height)] bottom-3 left-0">
               <ResizeHandle

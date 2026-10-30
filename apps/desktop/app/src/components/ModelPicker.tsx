@@ -1,5 +1,4 @@
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { FlashIcon, Search01Icon, Tick02Icon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { providerName } from "@milagre/shared/providers";
 import type { AgentCliStatus, EffortLevel, ModelCapability, ModelOption, ModelProvider } from "../model";
@@ -10,6 +9,9 @@ import { formatTokens } from "./usage/format";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
+import { Icon } from "./primitives/Icon";
+import { SectionLabel } from "./primitives/SectionLabel";
+import Tooltip from "./primitives/Tooltip";
 
 /** The model's context window as the picker shows it: "1M", "272k". */
 function contextLabel(model: ModelOption) {
@@ -91,8 +93,8 @@ export function ModelPicker({
     <div
       data-picker-panel
       data-model-picker
-      className={`absolute z-20 flex h-[340px] overflow-hidden rounded-[12px] border border-line bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
-      style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", ...style }}
+      className={`absolute z-20 flex h-[340px] overflow-hidden rounded-card bg-surface shadow-raised ${hasSettings ? "w-[580px]" : "w-[300px]"}`}
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", ...style }}
     >
       <ScrollArea data-provider-tabs aria-label="Providers" className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-line bg-inset py-2">
         {providers.map((item) => {
@@ -104,9 +106,11 @@ export function ModelPicker({
               type="button"
               aria-label={providerName(item)}
               aria-pressed={on}
+              aria-description={cliMessage(cliStatus?.[item]) ?? undefined}
+              // Native title: the tabs must stay the rail's direct children, which a Tooltip wrapper would break.
               title={cliMessage(cliStatus?.[item]) ?? providerName(item)}
               onClick={() => onProviderChange(item)}
-              className={`relative flex size-8 shrink-0 items-center justify-center rounded-[8px] transition-colors ${on ? "bg-surface shadow-xs" : "hover:bg-hover"}`}
+              className={`relative flex size-8 shrink-0 items-center justify-center rounded-control transition-colors duration-fast ${on ? "bg-surface shadow-card" : "hover:bg-hover"}`}
             >
               {on && <span aria-hidden className="absolute top-2 bottom-2 -left-1.5 w-[3px] rounded-r-full bg-accent-ink" />}
               <span className={on ? "" : "opacity-60 grayscale-[0.4]"}>
@@ -119,16 +123,16 @@ export function ModelPicker({
       </ScrollArea>
 
       <div onKeyDown={handleKeyDown} className={`flex min-w-0 flex-col pt-2 pl-2 ${hasSettings ? "w-[240px] shrink-0 border-r border-line" : "flex-1"}`}>
-        <div className="flex items-baseline justify-between px-1.5 pr-3.5 pb-1.5">
-          <strong className="text-sm text-ink">{providerName(provider)}</strong>
-          <span className="text-[10.5px] text-ink-3">
+        <div className="flex items-baseline justify-between px-1.5 pr-3 pb-1.5">
+          <strong className="text-13 font-semibold text-ink">{providerName(provider)}</strong>
+          <span className="text-11 text-ink-3">
             {totalModels} {totalModels === 1 ? "model" : "models"}
           </span>
         </div>
-        <label className="mr-2 mb-1 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-1.5 text-ink-3">
-          <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} color="currentColor" />
+        <label className="mr-2 mb-1 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-1.5 text-ink-3 transition-colors duration-fast focus-within:border-accent">
+          <Icon icon={Search01Icon} size={14} />
           <input
-            className="w-full border-0 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3"
+            className="w-full border-0 bg-transparent text-12 text-ink outline-none placeholder:text-ink-3"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search models…"
@@ -141,34 +145,31 @@ export function ModelPicker({
             const selected = model.id === selectedModel.id && model.provider === selectedModel.provider;
             const meta = contextLabel(model);
             return (
-              <button
-                key={model.id}
-                type="button"
-                data-picker-row
-                title={model.description || undefined}
-                aria-current={selected || undefined}
-                onClick={() => onModelChange(model)}
-                className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition-colors focus-visible:bg-hover focus-visible:outline-2 focus-visible:outline-ink-3 focus-visible:-outline-offset-2 ${selected ? "bg-hover" : "hover:bg-inset"}`}
-              >
-                <ProviderLogo provider={model.provider} size={14} />
-                <strong className="truncate text-xs font-medium text-ink">{model.name}</strong>
-                {meta && (
-                  <span
-                    data-picker-meta
-                    className="shrink-0 rounded-chip border border-line px-1 text-[10px] leading-[14px] font-medium tabular-nums text-ink-3"
-                  >
-                    {meta}
-                  </span>
-                )}
-                {selected && (
-                  <span className="ml-auto shrink-0 text-ink">
-                    <HugeiconsIcon icon={Tick02Icon} size={14} strokeWidth={1.8} color="currentColor" />
-                  </span>
-                )}
-              </button>
+              <ModelTip key={model.id} description={model.description}>
+                <button
+                  type="button"
+                  data-picker-row
+                  aria-current={selected || undefined}
+                  onClick={() => onModelChange(model)}
+                  className={`flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition-colors duration-fast focus-visible:bg-hover focus-visible:-outline-offset-2 ${selected ? "bg-hover-2" : "hover:bg-hover"}`}
+                >
+                  <ProviderLogo provider={model.provider} size={14} />
+                  <strong className="truncate text-12 font-medium text-ink">{model.name}</strong>
+                  {meta && (
+                    <span data-picker-meta className="shrink-0 rounded-chip border border-line px-1 text-10 font-medium tabular-nums text-ink-3">
+                      {meta}
+                    </span>
+                  )}
+                  {selected && (
+                    <span className="ml-auto shrink-0 text-ink">
+                      <Icon icon={Tick02Icon} size={14} />
+                    </span>
+                  )}
+                </button>
+              </ModelTip>
             );
           })}
-          {models.length === 0 && <div className="px-2 py-5 text-center text-xs text-ink-3">No models found.</div>}
+          {models.length === 0 && <div className="px-2 py-5 text-center text-12 text-ink-3">No models found.</div>}
         </ScrollArea>
       </div>
 
@@ -176,7 +177,9 @@ export function ModelPicker({
         <div data-model-settings className="flex min-w-0 flex-1 flex-col gap-3 p-3">
           {levels.length > 0 && current && (
             <div className="flex flex-col">
-              <span className="pb-2.5 text-[10.5px] font-semibold tracking-[0.02em] text-ink-3 uppercase">Thinking effort</span>
+              <SectionLabel as="span" variant="menu" className="pb-2">
+                Thinking effort
+              </SectionLabel>
               {levels.length > 1 && lowest !== undefined && highest !== undefined ? (
                 <>
                   <RangeSlider
@@ -191,13 +194,13 @@ export function ModelPicker({
                     }}
                     formatValueText={(value) => (levels[value] === undefined ? "" : effortCopy(levels[value]).name)}
                   />
-                  <div className="flex justify-between pt-1.5 text-[10px] text-ink-3">
+                  <div className="flex justify-between pt-1.5 text-11 text-ink-3">
                     <span>{effortCopy(lowest).name}</span>
                     <span>{effortCopy(highest).name}</span>
                   </div>
                 </>
               ) : null}
-              <p data-effort-caption className="pt-1.5 text-[11px] leading-snug text-ink-3">
+              <p data-effort-caption className="pt-1.5 text-11 leading-snug text-ink-3">
                 <strong className={`font-semibold ${current === "ultra" ? "text-purple-ink" : "text-ink"}`}>{effortCopy(current).name}</strong>
                 {effortCopy(current).description ? ` · ${effortCopy(current).description}` : ""}
               </p>
@@ -253,15 +256,26 @@ function SettingRow({
       aria-label={label}
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className={`flex w-full items-center gap-2.5 rounded-control border px-2.5 py-2 text-left transition-colors ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-inset"}`}
+      className={`flex w-full items-center gap-2 rounded-control border px-2.5 py-2 text-left transition-colors duration-fast ${on ? `border-transparent ${tone === "purple" ? "bg-purple-tint" : "bg-orange-tint"}` : "border-line hover:bg-hover"}`}
     >
       <span className={on ? ink : "text-ink-2"}>
-        <HugeiconsIcon icon={icon} size={15} strokeWidth={1.8} color="currentColor" />
+        <Icon icon={icon} size={16} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
-        <strong className={`text-xs font-semibold ${on ? ink : "text-ink"}`}>{title}</strong>
-        <span className="truncate text-[10.5px] text-ink-3">{detail}</span>
+        <strong className={`text-12 font-semibold ${on ? ink : "text-ink"}`}>{title}</strong>
+        <span className="truncate text-11 text-ink-3">{detail}</span>
       </span>
     </button>
+  );
+}
+
+/** A model row's description in a tooltip; a row without one is left bare. */
+function ModelTip({ description, children }: { description?: string; children: ReactNode }) {
+  return description ? (
+    <Tooltip label={description} wrap className="w-full">
+      {children}
+    </Tooltip>
+  ) : (
+    children
   );
 }

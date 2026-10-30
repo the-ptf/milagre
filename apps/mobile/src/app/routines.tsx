@@ -1,5 +1,5 @@
-import { Children, useMemo, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Platform, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { Add01Icon, RepeatIcon } from "@hugeicons/core-free-icons";
 import { projectOfKey, sessionIdFromKey } from "@milagre/shared/agent-runs";
@@ -12,7 +12,8 @@ import { isHeartbeat, routineDeleteMessage, routineIcon, routineMeta } from "../
 import { ChatMarkIcon } from "../status-indicators";
 import { confirm } from "../confirm-store";
 import { Icon } from "../icons";
-import { ErrorNotice, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
+import { Chip, ErrorNotice, Group, HeaderButton, PageScroll, PullDown, RowSwitch, useStyles } from "../ui";
+import { lineHeight, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 type Filter = "all" | "heartbeats" | "triggers" | "paused";
@@ -42,7 +43,6 @@ function chatOf(routine: RoutineWithRuns) {
 /** The connected Mac's Routines: heartbeats and triggers, each with its switch and actions. */
 export default function RoutinesScreen() {
   const styles = useStyles();
-  const { colors } = useTheme();
   const { client } = useSession();
   const routines = useRoutines(client);
   const [filter, setFilter] = useState<Filter>("all");
@@ -119,8 +119,8 @@ export default function RoutinesScreen() {
         )}
       </Stack.Toolbar>
       {empty ? (
-        <View style={[styles.screen, { padding: 20, paddingBottom: 36 }]}>
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 14 }}>
+        <View style={[styles.screen, { padding: 16, paddingBottom: 32 }]}>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
             <Icon icon={RepeatIcon} tone="ink3" size={40} />
             <Text style={[styles.muted, { textAlign: "center" }]}>No Routines yet.</Text>
           </View>
@@ -138,33 +138,15 @@ export default function RoutinesScreen() {
           ) : null}
           {all.length ? (
             <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-              {FILTERS.map((item) => {
-                const selected = filter === item.id;
-                return (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: selected }}
-                    accessibilityLabel={`${item.label}, ${counts[item.id]}`}
-                    onPress={() => setFilter(item.id)}
-                    style={({ pressed }) => ({
-                      height: 32,
-                      paddingHorizontal: 12,
-                      borderRadius: 16,
-                      borderCurve: "continuous",
-                      justifyContent: "center",
-                      backgroundColor: selected ? colors.ink : colors.surface,
-                      borderWidth: selected ? 0 : 1,
-                      borderColor: colors.lineStrong,
-                      opacity: pressed ? 0.7 : 1,
-                    })}
-                  >
-                    <Text style={{ color: selected ? colors.onInk : colors.ink2, fontSize: 13, fontWeight: selected ? "600" : "500" }}>
-                      {item.label} {counts[item.id]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              {FILTERS.map((item) => (
+                <Chip
+                  key={item.id}
+                  label={`${item.label} ${counts[item.id]}`}
+                  accessibilityLabel={`${item.label}, ${counts[item.id]}`}
+                  selected={filter === item.id}
+                  onPress={() => setFilter(item.id)}
+                />
+              ))}
             </View>
           ) : null}
           {groups.map((group) => (
@@ -183,31 +165,10 @@ export default function RoutinesScreen() {
               ))}
             </Group>
           ))}
-          {client && !routines.unavailable ? <Text style={[styles.caption, { paddingHorizontal: 4 }]}>{LID_HELP}</Text> : null}
+          {client && !routines.unavailable ? <Text style={[styles.caption, { paddingHorizontal: 16 }]}>{LID_HELP}</Text> : null}
         </PageScroll>
       )}
     </>
-  );
-}
-
-/** A section label over a card of rows split by hairlines. */
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  return (
-    <View style={{ gap: 8 }}>
-      <Text accessibilityRole="header" style={[styles.label, { paddingHorizontal: 4 }]}>
-        {title}
-      </Text>
-      <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
-        {Children.toArray(children).map((child, index) => (
-          <View key={(child as { key?: string }).key ?? String(index)}>
-            {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} /> : null}
-            {child}
-          </View>
-        ))}
-      </View>
-    </View>
   );
 }
 
@@ -261,13 +222,17 @@ function RoutineRow({
         ]}
         onSelect={onSelect}
       >
-        <View accessible accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 68, paddingVertical: 13 }}>
+        <View accessible accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 12 }}>
           <Icon icon={routineIcon(routine)} tone={routine.enabled ? "ink" : "ink2"} size={20} />
-          <View style={{ flex: 1, gap: 3 }}>
+          <View style={{ flex: 1, gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
               <Text
                 numberOfLines={1}
-                style={[styles.text, { flexShrink: 1, fontSize: 15, lineHeight: 20, fontWeight: "500" }, !routine.enabled && { color: colors.ink2 }]}
+                style={[
+                  styles.text,
+                  { flexShrink: 1, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" },
+                  !routine.enabled && { color: colors.ink2 },
+                ]}
               >
                 {routine.name}
               </Text>

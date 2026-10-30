@@ -8,12 +8,10 @@ import { useChatPorts } from "../ports";
 import { useSession } from "../session";
 import { WholeSubagentDetail } from "../subagent-glance";
 import { TaskOutput } from "../task-output";
-import { CircleButton, ListRow, PageScroll, useStyles } from "../ui";
-import { useTheme } from "../theme";
+import { CircleButton, ListRow, PageScroll, SheetHeader, useStyles } from "../ui";
 
 /** The phone's counterpart to the expanded background line on desktop. */
 export default function BackgroundSheet() {
-  const { colors } = useTheme();
   const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const session = useSession();
@@ -29,18 +27,17 @@ export default function BackgroundSheet() {
   const child = current ?? (selected?.type === "command" ? selected : undefined);
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0, paddingBottom: 40 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
-        <CircleButton
-          label={child ? "Back to tasks" : "Close"}
-          icon={child ? ArrowLeft01Icon : Cancel01Icon}
-          onPress={() => (child ? setSelected(null) : router.back())}
-        />
-        <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600", textAlign: "center" }}>
-          {child?.title ?? "Background tasks"}
-        </Text>
-        <View style={{ width: 40 }} />
-      </View>
-      <View style={{ paddingHorizontal: 20, paddingTop: 8, gap: 8 }}>
+      <SheetHeader
+        title={child?.title ?? "Background tasks"}
+        leading={
+          <CircleButton
+            label={child ? "Back to tasks" : "Close"}
+            icon={child ? ArrowLeft01Icon : Cancel01Icon}
+            onPress={() => (child ? setSelected(null) : router.back())}
+          />
+        }
+      />
+      <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 8 }}>
         {child && !current && <Text style={styles.muted}>No longer running</Text>}
         {child ? (
           child.agent ? (

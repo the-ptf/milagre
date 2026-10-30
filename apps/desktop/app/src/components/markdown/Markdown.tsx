@@ -32,7 +32,7 @@ import { MediaLightbox } from "../motion/LazyMediaLightbox";
 
 const AttachmentPreview = lazyView(() => import("../AttachmentPreview").then((module) => module.AttachmentPreview));
 
-const CODE_CLASS = "rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink";
+const CODE_CLASS = "rounded-inline bg-field px-1 py-px font-mono text-[0.92em] text-ink";
 const MarkdownImages = createContext<ImageAttachment[] | undefined>(undefined);
 /** Reads a remote image the text shows inline, as a data URL; null for an image it doesn't read, which stays a link. */
 export type MarkdownImageLoader = (src: string) => Promise<string> | null;
@@ -58,25 +58,25 @@ function LoadedImage({ load, src, alt, width }: { load: Promise<string>; src: st
     return (
       <span
         data-markdown-image-loading=""
-        className="inline-block h-24 max-w-full animate-pulse rounded-[6px] bg-field align-middle"
+        className="inline-block h-24 max-w-full animate-pulse rounded-chip bg-field align-middle"
         style={size ?? { width: 160 }}
       />
     );
   const name = alt || "Image";
   return (
     <>
-      <img
-        src={current.url}
-        alt={alt}
-        title={alt}
-        style={size}
+      <button
+        type="button"
+        aria-label={`Open ${name}`}
         onClick={(event) => {
           // An image inside a link opens here, not in the browser, which couldn't read a private repository's image.
           event.preventDefault();
           setOpen(true);
         }}
-        className="inline-block h-auto max-w-full cursor-zoom-in rounded-[6px] align-middle"
-      />
+        className="inline-block max-w-full cursor-zoom-in rounded-chip align-middle"
+      >
+        <img src={current.url} alt={alt} title={alt} style={size} className="block h-auto max-w-full rounded-chip" />
+      </button>
       {open && (
         <MediaLightbox
           items={[{ id: src, name, src: current.url, kind: "image", file: current.url }]}

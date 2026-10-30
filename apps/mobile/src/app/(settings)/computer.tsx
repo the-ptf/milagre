@@ -10,6 +10,7 @@ import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Group, Row } from "../../settings-list";
 import { ErrorNotice, PageScroll, RowSwitch } from "../../ui";
 import { useTheme } from "../../theme";
+import { radius } from "../../design-tokens";
 
 type MacPage = "general" | "accounts" | "connections" | "skills" | "mcp";
 
@@ -68,7 +69,7 @@ export default function ComputerScreen() {
         <Group>
           <Row
             title={state === "online" ? "Connected" : state === "checking" ? "Checking…" : "Offline"}
-            leading={<View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dot, marginHorizontal: 6 }} />}
+            leading={<View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: dot, marginHorizontal: 6 }} />}
             value={routeLabel(host, state)}
             chevron={false}
           />

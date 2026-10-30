@@ -1,10 +1,11 @@
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdit02Icon, PlayIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { Routine } from "@milagre/shared/model";
 import { canEditRoutine, canRunNow } from "@milagre/shared/routines";
+import { Button, IconButton } from "../primitives/Button";
 import GlideMenu from "../primitives/GlideMenu";
+import { Icon } from "../primitives/Icon";
 import { Switch } from "../primitives/Switch";
 import { useDismiss } from "../../lib/use-dismiss";
 import { isHeartbeat, routineDeleteQuestion, type RoutineWithRuns } from "../../lib/routines";
@@ -12,8 +13,6 @@ import { routineIcon } from "./routine-icon";
 
 type HugeIconData = typeof PlayIcon;
 const MENU_WIDTH = 200;
-const outlineButton = "rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover";
-const removeButton = "rounded-lg border border-red/30 bg-surface px-3 py-1.5 text-[12.5px] font-medium text-red-ink transition-colors hover:bg-red-tint";
 
 /** What is wrong with the Routine, in red under its meta: why it paused itself while off, else its latest error. */
 export function routineProblem(routine: Routine): string | undefined {
@@ -30,14 +29,8 @@ type MenuEntry = { key: string; label: string; icon: HugeIconData; danger?: bool
 /** A Routine's icon tile, dimmed while it is switched off. `large` is the Routine page's header. */
 function RoutineTile({ routine, large = false }: { routine: Routine; large?: boolean }) {
   return (
-    <span className={`flex shrink-0 items-center justify-center bg-field ${large ? "size-10 rounded-xl" : "size-8 rounded-lg"}`}>
-      <HugeiconsIcon
-        icon={routineIcon(routine)}
-        size={large ? 20 : 16}
-        strokeWidth={1.8}
-        color="currentColor"
-        className={routine.enabled ? "text-ink-2" : "text-ink-3"}
-      />
+    <span className={`flex shrink-0 items-center justify-center bg-field ${large ? "size-10 rounded-card" : "size-8 rounded-control"}`}>
+      <Icon icon={routineIcon(routine)} size={large ? 18 : 16} className={routine.enabled ? "text-ink-2" : "text-ink-3"} />
     </span>
   );
 }
@@ -80,18 +73,16 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
 
   return (
     <>
-      <button
+      <IconButton
         ref={buttonRef}
-        type="button"
-        aria-label={`Actions for ${routine.name}`}
+        label={`Actions for ${routine.name}`}
+        icon={MoreHorizontalIcon}
         aria-haspopup="menu"
         aria-expanded={menu !== null}
         data-routine-more
         onClick={() => (menu ? close(false) : open())}
-        className={`flex size-7 shrink-0 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink ${menu ? "bg-hover-2 text-ink" : ""}`}
-      >
-        <HugeiconsIcon icon={MoreHorizontalIcon} size={16} strokeWidth={1.8} color="currentColor" />
-      </button>
+        className="aria-expanded:bg-hover-2 aria-expanded:text-ink"
+      />
       {menu &&
         createPortal(
           <div
@@ -100,16 +91,16 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
             aria-label={`Actions for ${routine.name}`}
             data-routine-menu
             onKeyDown={moveFocus}
-            className="fixed z-[70] rounded-[12px] bg-surface p-1.5 shadow-overlay"
+            className="fixed z-[70] rounded-card bg-surface p-1.5 shadow-raised"
             style={{
               top: menu.top,
               left: menu.left,
               width: MENU_WIDTH,
-              animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+              animation: "pop-in var(--duration-base) var(--ease-enter) both",
               transformOrigin: "top right",
             }}
           >
-            <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
+            <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]" highlightClassName="inset-x-0 rounded-control bg-hover-2">
               {entries.map((entry) => (
                 <button
                   key={entry.key}
@@ -121,12 +112,12 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
                     close(false);
                     entry.onSelect();
                   }}
-                  className={`relative z-10 flex h-8 w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 ${entry.danger ? "text-red-ink" : "text-ink"}`}
+                  className={`relative z-10 flex h-8 w-full items-center gap-2 rounded-control px-2 text-left focus-visible:-outline-offset-2 ${entry.danger ? "text-red-ink" : "text-ink"}`}
                 >
                   <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-                    <HugeiconsIcon icon={entry.icon} size={16} strokeWidth={1.8} color="currentColor" />
+                    <Icon icon={entry.icon} size={16} />
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px]">{entry.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-13">{entry.label}</span>
                 </button>
               ))}
             </GlideMenu>
@@ -141,13 +132,13 @@ function RoutineMenu({ routine, entries }: { routine: Routine; entries: MenuEntr
 function DeleteQuestion({ routine, onCancel, onDelete, className = "" }: { routine: Routine; onCancel: () => void; onDelete: () => void; className?: string }) {
   return (
     <div data-routine-delete-question className={`flex min-h-11 items-center gap-2 ${className}`}>
-      <span className="min-w-0 flex-1 text-[12px] text-ink">{routineDeleteQuestion(routine)}</span>
-      <button type="button" className={outlineButton} onClick={onCancel}>
+      <span className="min-w-0 flex-1 text-12 text-ink">{routineDeleteQuestion(routine)}</span>
+      <Button variant="secondary" onClick={onCancel}>
         Cancel
-      </button>
-      <button type="button" data-routine-delete-confirm className={removeButton} onClick={onDelete}>
+      </Button>
+      <Button variant="danger" data-routine-delete-confirm onClick={onDelete}>
         Delete
-      </button>
+      </Button>
     </div>
   );
 }
@@ -202,23 +193,23 @@ export function RoutineRow({
   return (
     <div data-routine-row={routine.id} data-paused={!routine.enabled || undefined}>
       {/* The tile, name, meta and status open the page; the switch and the ⋯ menu beside them do only their own thing. */}
-      <div className="flex min-h-16 items-stretch gap-3 pr-4 transition-colors has-[[data-routine-open]:hover]:bg-hover">
+      <div className="flex min-h-16 items-stretch gap-3 pr-4 transition-colors duration-fast has-[[data-routine-open]:hover]:bg-hover">
         <button
           type="button"
           data-routine-open
           onClick={onOpen}
-          className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left outline-none focus-visible:bg-hover"
+          className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left focus-visible:bg-hover focus-visible:-outline-offset-2"
         >
           <RoutineTile routine={routine} />
           <span className="grid min-w-0 flex-1 gap-0.5">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className={`truncate text-[13.5px] font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
+              <span className={`truncate text-13 font-medium ${routine.enabled ? "text-ink" : "text-ink-2"}`}>{routine.name}</span>
               {unread && <span role="img" aria-label="Unread Runs" data-routine-unread className="size-2 shrink-0 rounded-full bg-accent" />}
             </span>
-            <span data-routine-meta className="flex min-w-0 items-center gap-1 text-[12px] text-ink-3">
+            <span data-routine-meta className="flex min-w-0 items-center gap-1 text-12 text-ink-3">
               {computer && (
                 <span data-routine-computer className="flex max-w-[45%] shrink-0 items-center gap-1">
-                  <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+                  <Icon icon={LaptopIcon} size={12} className="shrink-0" />
                   <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
                   <span aria-hidden>·</span>
                 </span>
@@ -226,12 +217,12 @@ export function RoutineRow({
               <span className="truncate">{meta}</span>
             </span>
             {problem && (
-              <span data-routine-problem className="truncate text-[12px] text-red-ink" title={problem}>
+              <span data-routine-problem className="truncate text-12 text-red-ink" title={problem}>
                 {problem}
               </span>
             )}
           </span>
-          <span data-routine-status className={`shrink-0 text-right text-[12px] ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>
+          <span data-routine-status className={`shrink-0 text-right text-12 ${routine.enabled ? "text-ink-2" : "text-ink-3"}`}>
             {status}
           </span>
         </button>

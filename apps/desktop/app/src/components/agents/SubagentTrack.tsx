@@ -1,7 +1,6 @@
 import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useDisplayNow } from "../../lib/display-clock";
 import { formatElapsed } from "@milagre/shared/display-clock";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
   Archive02Icon,
@@ -27,6 +26,11 @@ import { ProviderLogo } from "../ProviderLogo";
 import { SpinnerRing } from "../primitives/SpinnerRing";
 import { ScrollArea } from "../primitives/ScrollArea";
 import Tooltip from "../primitives/Tooltip";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { SectionLabel } from "../primitives/SectionLabel";
+import { EmptyState } from "../primitives/EmptyState";
+import { InlineError } from "../primitives/InlineError";
 import { PillMorph } from "../motion/PillMorph";
 
 const labels: Record<Subagent["status"], string> = {
@@ -48,7 +52,6 @@ const chipIcons: Record<ToolCategory, typeof CommandLineIcon> = {
 };
 // What the panel calls "now" when the latest activity is only a phase, not a tool call.
 const PHASES = new Set(["Responding", "Thinking", "Finished"]);
-const sectionLabel = "text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase";
 
 const entries = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
 
@@ -60,16 +63,16 @@ function AdvisorControls({ agent, onStop, onRetry }: { agent: Subagent; onStop?:
   const action = advisorAction(agent);
   if (!action || !(action === "stop" ? onStop : onRetry)) return null;
   return (
-    <button
-      type="button"
+    <Button
+      variant="secondary"
+      size={24}
       data-advisor-stop={action === "stop" || undefined}
       data-advisor-retry={action === "retry" || undefined}
       aria-label={`${action === "stop" ? "Stop" : "Retry"} ${agent.title}`}
       onClick={() => (action === "stop" ? onStop : onRetry)?.(agent.id)}
-      className="shrink-0 rounded-md bg-hover px-2 py-1 text-[11px] text-ink-2 hover:bg-hover-2 focus-visible:outline-2"
     >
       {action === "stop" ? "Stop" : "Retry"}
-    </button>
+    </Button>
   );
 }
 
@@ -93,7 +96,7 @@ function PersonaAvatar({ persona, size, overlap }: { persona: QaPersona; size: n
 
 function QaTag({ persona }: { persona: QaPersona }) {
   return (
-    <span className="shrink-0 rounded px-1 py-px text-[9px] font-bold" style={{ background: persona.tint, color: persona.ink }}>
+    <span className="shrink-0 rounded-inline px-1 py-px text-10 font-semibold" style={{ background: persona.tint, color: persona.ink }}>
       QA
     </span>
   );
@@ -102,18 +105,18 @@ function QaTag({ persona }: { persona: QaPersona }) {
 /** Who the persona plays, above its plan: on its own colour, so it reads the same in light and dark. */
 function PersonaCard({ persona }: { persona: QaPersona }) {
   return (
-    <section data-qa-persona-card className="flex flex-col gap-2.5 rounded-xl p-3.5" style={{ background: persona.tint, color: persona.ink }}>
+    <section data-qa-persona-card className="flex flex-col gap-2 rounded-card p-3" style={{ background: persona.tint, color: persona.ink }}>
       <span className="flex items-center gap-3">
         <PersonaAvatar persona={persona} size={40} />
         <span className="flex min-w-0 flex-col">
-          <span className="text-[15px] font-semibold">{persona.title}</span>
-          <span className="text-[12px] opacity-80">{persona.tagline}</span>
+          <span className="text-15 font-semibold">{persona.title}</span>
+          <span className="text-12 opacity-80">{persona.tagline}</span>
         </span>
       </span>
       {persona.chips && (
         <span className="flex flex-wrap gap-1.5">
           {persona.chips.map((chip) => (
-            <span key={chip} className="rounded-md bg-white/60 px-2 py-0.5 text-[11px]">
+            <span key={chip} className="rounded-chip bg-white/60 px-2 py-0.5 text-11">
               {chip}
             </span>
           ))}
@@ -125,7 +128,7 @@ function PersonaCard({ persona }: { persona: QaPersona }) {
 
 function StatusIcon({ agent, provider }: { agent: Subagent; provider: ModelProvider }) {
   if (subagentActive(agent)) return <SpinnerRing size={12} />;
-  if (agent.status === "failed") return <HugeiconsIcon icon={AlertCircleIcon} size={14} aria-hidden />;
+  if (agent.status === "failed") return <Icon icon={AlertCircleIcon} size={14} />;
   // A finished one shows whose it is: a Chat's subagents can run on another provider (advisors, Antigravity).
   return <ProviderLogo provider={agent.provider ?? provider} size={14} />;
 }
@@ -134,7 +137,7 @@ function StepNumber({ value, current }: { value: number; current?: boolean }) {
   return (
     <span
       aria-hidden
-      className={`mt-0.5 min-w-4 shrink-0 rounded px-1 text-center text-[11px] tabular-nums ${current ? "bg-hover-2 text-ink-2" : "bg-hover text-ink-3"}`}
+      className={`mt-0.5 min-w-4 shrink-0 rounded-inline px-1 text-center text-11 tabular-nums ${current ? "bg-hover-2 text-ink-2" : "bg-hover text-ink-3"}`}
     >
       {value}
     </span>
@@ -147,8 +150,8 @@ function ToolChips({ counts }: { counts?: SubagentStep["tools"] }) {
   return (
     <span className="flex flex-wrap gap-1">
       {chips.map((chip) => (
-        <span key={chip.category} className="flex items-center gap-1 rounded bg-hover px-1 py-0.5 text-[10px] text-ink-3">
-          <HugeiconsIcon icon={chipIcons[chip.category]} size={11} aria-hidden />
+        <span key={chip.category} className="flex items-center gap-1 rounded-inline bg-hover px-1 py-0.5 text-10 text-ink-3">
+          <Icon icon={chipIcons[chip.category]} size={12} />
           {chip.label}
         </span>
       ))}
@@ -161,11 +164,11 @@ function NowLines({ said, tool }: { said?: string; tool?: string }) {
   return (
     <>
       {said && (
-        <p className="line-clamp-2 text-[13px] text-ink-2" title={said}>
+        <p className="line-clamp-2 text-13 text-ink-2" title={said}>
           {said}
         </p>
       )}
-      {tool && <p className="truncate text-[11px] text-ink-3">{tool}</p>}
+      {tool && <p className="truncate text-11 text-ink-3">{tool}</p>}
     </>
   );
 }
@@ -175,12 +178,12 @@ function PlanList({ tasks, said, tool }: { tasks: AgentTask[]; said?: string; to
   const counts = planCounts(tasks)!;
   return (
     <section data-subagent-plan className="-mx-1.5 flex flex-col gap-0.5">
-      <h3 className={`flex justify-between px-1.5 pb-1 ${sectionLabel}`}>
+      <SectionLabel as="h3" className="flex justify-between px-1.5 pb-1">
         <span>Plan</span>
-        <span className="tabular-nums tracking-normal normal-case">
+        <span className="tabular-nums">
           {counts.done} of {counts.total} done
         </span>
-      </h3>
+      </SectionLabel>
       <ul className="flex flex-col gap-0.5">
         {tasks.map((task, index) => {
           const current = task.status === "in_progress";
@@ -188,7 +191,7 @@ function PlanList({ tasks, said, tool }: { tasks: AgentTask[]; said?: string; to
             <li
               key={task.id}
               data-status={task.status}
-              className={`flex flex-col gap-1.5 rounded-lg p-1.5 text-[13px] ${current ? "bg-hover ring-1 ring-line-strong" : ""}`}
+              className={`flex flex-col gap-1.5 rounded-control p-1.5 text-13 ${current ? "bg-hover ring-1 ring-line-strong" : ""}`}
             >
               <span className="flex items-start gap-2">
                 <StepNumber value={index + 1} current={current} />
@@ -199,7 +202,7 @@ function PlanList({ tasks, said, tool }: { tasks: AgentTask[]; said?: string; to
                   {current ? (
                     <SpinnerRing size={12} />
                   ) : task.status === "completed" ? (
-                    <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden />
+                    <Icon icon={Tick02Icon} size={14} />
                   ) : (
                     <span aria-hidden className="size-3 rounded-full border-[1.5px] border-line-strong" />
                   )}
@@ -223,10 +226,12 @@ function StepList({ steps, title }: { steps: SubagentStep[]; title: string }) {
   if (!steps.length) return null;
   return (
     <section data-subagent-steps className="-mx-1.5 flex flex-col gap-0.5">
-      <h3 className={`px-1.5 pb-1 ${sectionLabel}`}>{title}</h3>
+      <SectionLabel as="h3" className="px-1.5 pb-1">
+        {title}
+      </SectionLabel>
       <ol className="flex flex-col gap-0.5">
         {steps.map((step, index) => (
-          <li key={step.id} className="flex items-start gap-2 p-1.5 text-[13px]">
+          <li key={step.id} className="flex items-start gap-2 p-1.5 text-13">
             <StepNumber value={index + 1} />
             <span className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="line-clamp-2 break-words text-ink-3" title={step.text || undefined}>
@@ -265,7 +270,7 @@ function Clamped({ children, lines, label }: { children: ReactNode; lines: 2 | 6
           type="button"
           aria-label={`${open ? "Show less of" : "Show all of"} ${label}`}
           onClick={() => setOpen(!open)}
-          className="text-[11px] text-ink-3 hover:text-ink"
+          className="relative text-11 text-ink-3 transition-colors duration-fast before:absolute before:-inset-x-1 before:-inset-y-1.5 hover:text-ink"
         >
           {open ? "Show less" : "Show all"}
         </button>
@@ -312,7 +317,7 @@ export const SubagentDetail = memo(function SubagentDetail({
   return (
     <div className="flex flex-col gap-4 p-3" data-slot="subagent-transcript">
       {persona && <PersonaCard persona={persona} />}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-12 text-ink-3">
         <span className="text-ink-2">{subagentActivityLabel(agent)}</span>
         <span className="tabular-nums">{elapsed(agent, now)}</span>
         {subagentRoleLabel(agent) && <span>{subagentRoleLabel(agent)}</span>}
@@ -325,15 +330,15 @@ export const SubagentDetail = memo(function SubagentDetail({
       ) : (
         <>
           {running && current && (
-            <section data-subagent-now className="flex flex-col gap-1.5 rounded-xl bg-hover p-3 ring-1 ring-line-strong">
-              <h3 className={`flex items-center gap-1.5 ${sectionLabel}`}>
-                <SpinnerRing size={10} />
+            <section data-subagent-now className="flex flex-col gap-1.5 rounded-card bg-hover p-3 ring-1 ring-line-strong">
+              <SectionLabel as="h3" className="flex items-center gap-1.5">
+                <SpinnerRing size={12} />
                 Now · step {steps.length}
-              </h3>
-              <p className="line-clamp-2 text-[15px] font-medium break-words text-ink" title={current.text || undefined}>
+              </SectionLabel>
+              <p className="line-clamp-2 text-15 font-medium break-words text-ink" title={current.text || undefined}>
                 {current.said || subagentActivityLabel(agent)}
               </p>
-              {tool && <p className="truncate text-[12px] text-ink-3">{tool}</p>}
+              {tool && <p className="truncate text-12 text-ink-3">{tool}</p>}
             </section>
           )}
           <StepList steps={running ? steps.slice(0, -1) : steps} title={running ? "Earlier" : "Steps"} />
@@ -341,9 +346,9 @@ export const SubagentDetail = memo(function SubagentDetail({
       )}
       {!running && result && (
         <section data-subagent-result className="flex flex-col gap-1">
-          <h3 className={sectionLabel}>Result</h3>
+          <SectionLabel as="h3">Result</SectionLabel>
           <Clamped lines={6} label="the result">
-            <div className="text-[13px]">
+            <div className="text-13">
               <Markdown text={result} />
             </div>
           </Clamped>
@@ -351,23 +356,24 @@ export const SubagentDetail = memo(function SubagentDetail({
       )}
       {agent.prompt && (
         <section className="flex flex-col gap-1">
-          <h3 className={sectionLabel}>Task</h3>
+          <SectionLabel as="h3">Task</SectionLabel>
           <Clamped lines={2} label="the task">
-            <p className="text-[13px] whitespace-pre-wrap text-ink-2">{agent.prompt}</p>
+            <p className="text-13 whitespace-pre-wrap text-ink-2">{agent.prompt}</p>
           </Clamped>
         </section>
       )}
       {status === "loading" && (
-        <p data-subagent-loading className="py-6 text-[13px] text-ink-3">
+        <p data-subagent-loading role="status" className="flex items-center gap-2 py-6 text-13 text-ink-3">
+          <SpinnerRing size={12} />
           Loading activity…
         </p>
       )}
       {status === "failed" && (
-        <p data-subagent-failed className="py-6 text-[13px] text-ink-3">
+        <InlineError data-subagent-failed className="py-6">
           Couldn't load this subagent's activity. Open it again to retry.
-        </p>
+        </InlineError>
       )}
-      {status === "ready" && !transcript.length && !plan && <p className="py-6 text-[13px] text-ink-3">No child output received yet.</p>}
+      {status === "ready" && !transcript.length && !plan && <EmptyState className="py-6">No child output received yet.</EmptyState>}
       {transcript.length > 0 && (
         <section className="flex flex-col gap-3">
           <button
@@ -375,16 +381,16 @@ export const SubagentDetail = memo(function SubagentDetail({
             data-subagent-log-toggle
             aria-expanded={log}
             onClick={() => setLog(!log)}
-            className="flex items-center gap-1.5 self-start text-[11px] text-ink-3 hover:text-ink"
+            className="relative flex items-center gap-1.5 self-start text-11 text-ink-3 transition-colors duration-fast before:absolute before:-inset-x-1 before:-inset-y-1.5 hover:text-ink"
           >
-            <HugeiconsIcon icon={ScrollIcon} size={12} aria-hidden />
+            <Icon icon={ScrollIcon} size={12} />
             {log ? "Hide full log" : `Full log (${entries(agent.transcriptLength ?? transcript.length)})`}
           </button>
           {log &&
             transcript.map((entry) => (
-              <div key={entry.id} data-subagent-log-entry className="min-w-0 break-words text-[13px]">
+              <div key={entry.id} data-subagent-log-entry className="min-w-0 break-words text-13">
                 {entry.kind === "tool" ? (
-                  <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line p-3 font-mono text-[12px]">{entry.text}</pre>
+                  <pre className="overflow-x-auto whitespace-pre-wrap rounded-control border border-line p-3 font-mono text-12">{entry.text}</pre>
                 ) : (
                   <Markdown text={entry.text} />
                 )}
@@ -429,17 +435,17 @@ function SubagentRow({ agent, provider, now }: { agent: Subagent; provider: Mode
             <>
               <QaTag persona={persona} />
               <span className="flex-1" />
-              {running ? <SpinnerRing size={11} /> : agent.status === "failed" && <HugeiconsIcon icon={AlertCircleIcon} size={12} aria-hidden />}
+              {running ? <SpinnerRing size={12} /> : agent.status === "failed" && <Icon icon={AlertCircleIcon} size={12} />}
             </>
           )}
-          <span className="shrink-0 text-[11px] text-ink-3 tabular-nums">{elapsed(agent, now)}</span>
+          <span className="shrink-0 text-11 text-ink-3 tabular-nums">{elapsed(agent, now)}</span>
         </span>
         {line && (
           <span className={`line-clamp-2 break-words ${running ? "text-ink-2" : "text-ink-3"}`} title={line}>
             {line}
           </span>
         )}
-        {meta && <span className="truncate text-[11px] text-ink-3">{meta}</span>}
+        {meta && <span className="truncate text-11 text-ink-3">{meta}</span>}
       </span>
     </span>
   );
@@ -473,19 +479,22 @@ export function SubagentTrack({
   const running = visible.filter(subagentActive).length;
   const done = visible.filter(subagentFinished).length;
   const now = useDisplayNow(1000, opened && rows.some(subagentActive));
-  const actionClass = "flex size-6 items-center justify-center rounded text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40";
   const footerClass =
-    "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-ink-3 hover:bg-hover hover:text-ink focus-visible:outline-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-3";
+    "flex h-6 items-center gap-1.5 rounded-control px-2 text-12 text-ink-3 transition-colors duration-fast enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-40";
   // The QA fleet's personas come first, under their own header (qa-personas.ts).
   const { fleet, others } = qaFleetFirst(rows);
   const row = (agent: Subagent) => (
-    <li key={agent.id} data-subagent-row className="group flex items-start gap-1 rounded-lg px-1 hover:bg-hover focus-within:bg-hover">
+    <li
+      key={agent.id}
+      data-subagent-row
+      className="group flex items-start gap-1 rounded-control px-1 transition-colors duration-fast hover:bg-hover focus-within:bg-hover"
+    >
       <button
         type="button"
         data-subagent-open
         onClick={() => setSelected(agent.id)}
         title={`${agent.title} (${labels[agent.status]})`}
-        className="flex min-w-0 flex-1 py-2 pl-1 text-left text-[13px] focus-visible:outline-2"
+        className="flex min-w-0 flex-1 py-2 pl-1 text-left text-13"
       >
         <SubagentRow agent={agent} provider={provider} now={now} />
       </button>
@@ -493,15 +502,13 @@ export function SubagentTrack({
         <AdvisorControls agent={agent} onStop={onStop} onRetry={onRetry} />
         <span className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <Tooltip label={archived ? "Restore subagent" : "Archive subagent"}>
-            <button
-              type="button"
-              aria-label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
+            <IconButton
+              label={`${archived ? "Restore" : "Archive"} ${agent.title}`}
+              icon={Archive02Icon}
+              size={24}
               disabled={!onArchive || (agent.source === "milagre-advisor" && subagentActive(agent))}
               onClick={() => onArchive?.(agent.id, !archived)}
-              className={actionClass}
-            >
-              <HugeiconsIcon icon={Archive02Icon} size={14} />
-            </button>
+            />
           </Tooltip>
         </span>
       </span>
@@ -554,13 +561,9 @@ export function SubagentTrack({
           {child ? (
             <>
               <header className="flex shrink-0 items-center gap-2 border-b border-line px-1.5 py-1.5">
-                <button type="button" aria-label="Back to subagents" onClick={() => setSelected(null)} className={actionClass}>
-                  <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
-                </button>
-                <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{qaPersona(child)?.name ?? child.title}</h2>
-                <button type="button" aria-label="Collapse subagents" onClick={close} className={actionClass}>
-                  <HugeiconsIcon icon={ArrowShrink02Icon} size={14} aria-hidden />
-                </button>
+                <IconButton label="Back to subagents" icon={ArrowLeft01Icon} size={24} onClick={() => setSelected(null)} />
+                <h2 className="min-w-0 flex-1 truncate text-13 font-medium">{qaPersona(child)?.name ?? child.title}</h2>
+                <IconButton label="Collapse subagents" icon={ArrowShrink02Icon} size={24} onClick={close} />
               </header>
               <ScrollArea>
                 <SubagentDetail chatKey={chatKey} agent={child} onStop={onStop} onRetry={onRetry} />
@@ -569,28 +572,22 @@ export function SubagentTrack({
           ) : (
             <>
               <div className="flex shrink-0 items-center gap-2 px-2 pt-1 pb-1">
-                <h3 className={`flex flex-1 items-center justify-between ${sectionLabel}`}>
+                <SectionLabel as="h3" className="flex flex-1 items-center justify-between">
                   <span>{archived ? "Archived" : "Subagents"}</span>
-                  {!archived && (
-                    <span className="tracking-normal normal-case tabular-nums">
-                      {[running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}
-                    </span>
-                  )}
-                </h3>
-                <button type="button" aria-label="Collapse subagents" onClick={close} className={`-my-1 ${actionClass}`}>
-                  <HugeiconsIcon icon={ArrowShrink02Icon} size={14} aria-hidden />
-                </button>
+                  {!archived && <span className="tabular-nums">{[running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}</span>}
+                </SectionLabel>
+                <IconButton label="Collapse subagents" icon={ArrowShrink02Icon} size={24} onClick={close} className="-my-1" />
               </div>
               <ScrollArea as="ul" className="flex flex-col gap-0.5">
                 {fleet.length > 0 && (
-                  <li data-qa-fleet className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-[12px]">
+                  <li data-qa-fleet className="flex items-center gap-2 px-2 pt-1 pb-0.5 text-12">
                     <span className="flex pl-1.5">
                       {fleet.slice(0, 5).map((agent) => (
                         <PersonaAvatar key={agent.id} persona={qaPersona(agent)!} size={18} overlap />
                       ))}
                     </span>
                     <span className="flex-1 font-semibold text-ink-2">QA fleet</span>
-                    <span className="text-[11px] text-ink-3">
+                    <span className="text-11 text-ink-3">
                       {fleet.length} {fleet.length === 1 ? "persona" : "personas"}
                     </span>
                   </li>
@@ -599,11 +596,11 @@ export function SubagentTrack({
                 {fleet.length > 0 && others.length > 0 && <li aria-hidden className="mx-2 my-1 border-t border-line" />}
                 {others.map(row)}
               </ScrollArea>
-              {!rows.length && <p className="px-3 py-5 text-[12px] text-ink-3">{archived ? "No archived subagents." : "No subagents to show."}</p>}
+              {!rows.length && <EmptyState className="px-3 py-6">{archived ? "No archived subagents." : "No subagents to show."}</EmptyState>}
               <footer className="mt-1 flex shrink-0 items-center gap-1 border-t border-line pt-1">
                 {archived ? (
                   <button type="button" data-subagent-archived-toggle onClick={() => setArchived(false)} className={footerClass}>
-                    <HugeiconsIcon icon={ArrowLeft01Icon} size={13} aria-hidden />
+                    <Icon icon={ArrowLeft01Icon} size={12} />
                     Back to subagents
                   </button>
                 ) : (
@@ -615,7 +612,7 @@ export function SubagentTrack({
                       onClick={onArchiveFinished}
                       className={footerClass}
                     >
-                      <HugeiconsIcon icon={Archive02Icon} size={13} aria-hidden />
+                      <Icon icon={Archive02Icon} size={12} />
                       Archive finished
                     </button>
                     {archivedCount > 0 && (

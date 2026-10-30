@@ -4,13 +4,20 @@ import { fileKind } from "@milagre/shared/file-kinds";
 import { imageLabel, skillLabel } from "@milagre/shared/prompt-parts";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 
 // An inline View in Text sits with its bottom on the text baseline, so every chip shares one box (`chipBox`) and one
 // shift down (`chipShift`) that centres it on the line, however the label or icon inside it is made. The box stays
 // inside the bubble's line (1.47em) and its label a step smaller than the prose, so a chip reads as a token in the
 // sentence rather than a button pushing the lines apart.
-const chipBox = (px: number) => ({ height: Math.round(px * 1.2), paddingHorizontal: 5, borderRadius: 5, borderWidth: 1 });
+const chipBox = (px: number) => ({
+  height: Math.round(px * 1.2),
+  paddingHorizontal: 6,
+  borderRadius: radius.chip,
+  borderCurve: "continuous" as const,
+  borderWidth: 1,
+});
 const chipShift = (px: number) => Math.round(px * 0.22);
 const chipLabel = (px: number) => ({ fontSize: Math.round(px * 0.875), lineHeight: Math.round(px * 1.05) });
 const chipIcon = (px: number) => Math.round(px * 0.85);
@@ -34,7 +41,7 @@ function Box({
     ...chipBox(px),
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    gap: 3,
+    gap: 4,
     borderColor: color,
     backgroundColor: fill,
     transform: [{ translateY: chipShift(px) }],
@@ -66,8 +73,8 @@ function KindIcon({ path, size }: { path: string; size: number }) {
   const kind = fileKind(path);
   if (kind.badge)
     return (
-      <View style={{ borderRadius: 3, paddingHorizontal: 3, backgroundColor: withAlpha(kind.color, 0.16) }}>
-        <Text style={{ color: kind.color, fontSize: Math.round(size * 0.62), lineHeight: Math.round(size * 0.9), fontWeight: "700" }}>{kind.badge}</Text>
+      <View style={{ borderRadius: 2, paddingHorizontal: 4, backgroundColor: withAlpha(kind.color, 0.16) }}>
+        <Text style={{ color: kind.color, fontSize: Math.round(size * 0.62), lineHeight: Math.round(size * 0.9), fontWeight: "600" }}>{kind.badge}</Text>
       </View>
     );
   const icon = kind.icon === "react" ? ReactIcon : kind.icon === "image" ? Image01Icon : kind.icon === "folder" ? Folder01Icon : File01Icon;

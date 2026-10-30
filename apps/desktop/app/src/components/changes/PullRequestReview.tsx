@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import type { PullRequestThread, ReviewEvent } from "@milagre/shared/pull-request-review";
 import { age, threadState } from "../../lib/pull-request-view";
+import { Button, IconButton } from "../primitives/Button";
+import { FIELD_AREA } from "../primitives/Field";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
 import { Select } from "../primitives/Select";
 import { useDismiss } from "../../lib/use-dismiss";
 
@@ -18,12 +21,9 @@ export type ThreadActions = {
   fixInChat: (thread: PullRequestThread) => void;
 };
 
-const button =
-  "h-7 rounded-control border border-line px-2.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40";
-
 function Avatar({ login }: { login: string }) {
   return (
-    <span aria-hidden className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-hover text-[10px] font-semibold text-ink-2 uppercase">
+    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-hover text-10 font-semibold text-ink-2 uppercase">
       {login.slice(0, 1)}
     </span>
   );
@@ -53,8 +53,8 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
   };
 
   return (
-    <div data-pr-thread={thread.id} data-pr-thread-state={state} className="flex flex-col gap-2 rounded-control border border-line bg-inset p-2.5">
-      <button type="button" onClick={() => setCollapsed((value) => !value)} className="flex items-center gap-2 text-left text-[11.5px]">
+    <div data-pr-thread={thread.id} data-pr-thread-state={state} className="flex flex-col gap-2 rounded-control border border-line bg-inset p-3">
+      <button type="button" onClick={() => setCollapsed((value) => !value)} className="flex items-center gap-2 text-left text-12">
         {first && <Avatar login={first.author} />}
         <span className="font-medium text-ink">{first?.author}</span>
         <span className="text-ink-3">{first ? age(first.createdAt) : ""}</span>
@@ -70,7 +70,7 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
             <div key={comment.id} data-pr-comment={comment.id} className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 {comment !== first && (
-                  <div className="mb-0.5 flex items-center gap-2 text-[11px] text-ink-3">
+                  <div className="mb-0.5 flex items-center gap-2 text-11 text-ink-3">
                     <span className="font-medium text-ink-2">{comment.author}</span>
                     {age(comment.createdAt)}
                     {comment.pending && <span className="text-accent-ink">Pending</span>}
@@ -79,15 +79,13 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
                 <p className="break-words whitespace-pre-wrap text-ink">{comment.body}</p>
               </div>
               {comment.pending && (
-                <button
-                  type="button"
-                  aria-label="Delete pending comment"
+                <IconButton
+                  label="Delete pending comment"
+                  icon={Delete02Icon}
+                  size={24}
                   data-pr-comment-delete
                   onClick={() => actions.deleteComment(comment.id)}
-                  className="flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 hover:bg-hover hover:text-ink"
-                >
-                  <HugeiconsIcon icon={Delete02Icon} size={13} strokeWidth={1.8} color="currentColor" />
-                </button>
+                />
               )}
             </div>
           ))}
@@ -111,24 +109,24 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
                   void send();
                 }
               }}
-              className="block w-full resize-none rounded-control border border-line bg-page px-2.5 py-2 text-[12.5px] leading-[18px] text-ink outline-none placeholder:text-ink-3 focus:border-ink"
+              className={`${FIELD_AREA} block resize-none outline-none`}
             />
           )}
           <div className="flex items-center gap-2">
             {state !== "pending" &&
               (replying ? (
-                <button type="button" data-pr-reply-send disabled={!text.trim() || sending} onClick={() => void send()} className={button}>
+                <Button variant="secondary" size={28} data-pr-reply-send disabled={!text.trim() || sending} onClick={() => void send()}>
                   Add to review
-                </button>
+                </Button>
               ) : (
-                <button type="button" data-pr-reply onClick={() => setReplying(true)} className={button}>
+                <Button variant="secondary" size={28} data-pr-reply onClick={() => setReplying(true)}>
                   Reply
-                </button>
+                </Button>
               ))}
             {state !== "pending" && (
-              <button type="button" data-pr-resolve onClick={() => actions.resolve(thread, !thread.resolved)} className={button}>
+              <Button variant="secondary" size={28} data-pr-resolve onClick={() => actions.resolve(thread, !thread.resolved)}>
                 {thread.resolved ? "Unresolve" : "Resolve"}
-              </button>
+              </Button>
             )}
             <span className="flex-1" />
             {state === "open" && (
@@ -136,9 +134,9 @@ export function ThreadCard({ thread, actions }: { thread: PullRequestThread; act
                 type="button"
                 data-pr-fix
                 onClick={() => actions.fixInChat(thread)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-control px-2 text-[12px] font-semibold text-accent-ink transition-colors hover:bg-hover"
+                className="inline-flex h-7 items-center gap-1.5 rounded-control px-2 text-12 font-medium text-accent-ink transition-colors duration-fast hover:bg-hover"
               >
-                <HugeiconsIcon icon={SparklesIcon} size={13} strokeWidth={1.8} color="currentColor" />
+                <Icon icon={SparklesIcon} size={14} />
                 Fix in Chat
               </button>
             )}
@@ -191,7 +189,7 @@ export function ReviewBar({
   const summary = pending ? `${pending} pending` : "Nothing pending";
   return (
     <div ref={root} data-pr-review-bar className="pointer-events-auto absolute bottom-4 left-1/2 z-20 w-[min(440px,calc(100%-24px))] -translate-x-1/2">
-      <div className="overflow-hidden rounded-[22px] border border-line bg-surface shadow-card">
+      <div className="overflow-hidden rounded-[22px] bg-surface shadow-card">
         {open && (
           <div data-pr-review-form className="flex flex-col gap-2 border-b border-line p-3">
             <textarea
@@ -207,38 +205,26 @@ export function ReviewBar({
                   setOpen(false);
                 }
               }}
-              className="block w-full resize-none rounded-control border border-line bg-page px-2.5 py-2 text-[12.5px] leading-[18px] text-ink outline-none placeholder:text-ink-3 focus:border-ink"
+              className={`${FIELD_AREA} block resize-none outline-none`}
             />
             <div className="flex items-center gap-2">
               <Select label="Review verdict" value={event} options={verdicts} onChange={setEvent} width={180} />
               <span className="flex-1" />
-              <button
-                type="button"
-                data-pr-review-submit
-                disabled={sending || (event === "COMMENT" && !pending && !body.trim())}
-                onClick={() => void submit()}
-                className="h-8 rounded-control bg-ink px-3 text-[12.5px] font-medium text-surface transition-opacity hover:opacity-85 disabled:opacity-40"
-              >
+              <Button data-pr-review-submit disabled={sending || (event === "COMMENT" && !pending && !body.trim())} onClick={() => void submit()}>
                 Submit
-              </button>
+              </Button>
             </div>
-            {error && <p className="text-[12px] text-red-ink">{error}</p>}
+            <InlineError size={12}>{error}</InlineError>
           </div>
         )}
-        <div className="flex h-11 items-center gap-2.5 pr-1.5 pl-4">
+        <div className="flex h-11 items-center gap-2 pr-1.5 pl-4">
           {pending > 0 && <span aria-hidden className="size-2 shrink-0 rounded-full bg-accent" />}
-          <span data-pr-review-summary className="min-w-0 flex-1 truncate text-[12.5px] text-ink-2">
+          <span data-pr-review-summary className="min-w-0 flex-1 truncate text-13 text-ink-2">
             {summary}
           </span>
-          <button
-            type="button"
-            data-pr-review-open
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-            className="h-8 rounded-full bg-accent px-3.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90"
-          >
+          <Button data-pr-review-open aria-expanded={open} onClick={() => setOpen((value) => !value)} className="rounded-full active:scale-press">
             Submit review
-          </button>
+          </Button>
         </div>
       </div>
     </div>

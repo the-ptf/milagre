@@ -7,7 +7,8 @@ import { SETUP_APPROVAL_COPY } from "@milagre/shared/model-copy";
 import { takeActivityDraft } from "./activity-drafts";
 import { Icon } from "./icons";
 import { InboxPage, InboxPager } from "./inbox-motion";
-import { IconButton, PillButton, useStyles } from "./ui";
+import { IconButton, PillButton, pressStyle, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 export type InboxQuestionDraft = {
@@ -122,15 +123,15 @@ export function Questions({
   }
   const count = answerOf(question).length;
   const body = (
-    <View style={{ gap: inline ? 10 : 4 }}>
-      <View style={{ paddingHorizontal: inline ? 0 : 10, paddingBottom: 8, gap: 3 }}>
+    <View style={{ gap: inline ? 12 : 4 }}>
+      <View style={{ paddingHorizontal: inline ? 0 : 8, paddingBottom: 8, gap: 4 }}>
         <Text
           accessibilityRole="header"
           style={{
             color: colors.ink,
-            fontSize: 17,
+            fontSize: type.body,
             fontWeight: "600",
-            lineHeight: 22,
+            lineHeight: lineHeight.body,
           }}
         >
           {question.question}
@@ -148,25 +149,28 @@ export function Questions({
               accessibilityState={{ checked: on, disabled: busy }}
               disabled={busy}
               onPress={() => choose(option.label)}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingVertical: 11,
-                paddingHorizontal: 12,
-                borderRadius: 14,
-                borderCurve: "continuous",
-                borderWidth: on ? 1.5 : 1,
-                borderColor: on ? colors.ink : colors.line,
-                backgroundColor: on ? colors.surface : colors.page,
-                opacity: pressed ? 0.6 : 1,
-              })}
+              style={({ pressed }) => [
+                {
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  borderRadius: radius.card,
+                  borderCurve: "continuous",
+                  borderWidth: on ? 1.5 : 1,
+                  borderColor: on ? colors.ink : colors.line,
+                  backgroundColor: on ? colors.surface : colors.page,
+                },
+                pressStyle({ pressed, disabled: busy, kind: "row" }),
+              ]}
             >
               <View
                 style={{
                   width: 26,
                   height: 26,
-                  borderRadius: question.multiSelect ? 7 : 13,
+                  borderRadius: question.multiSelect ? radius.chip : radius.full,
+                  borderCurve: "continuous",
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: on ? colors.ink : colors.surface,
@@ -175,12 +179,12 @@ export function Questions({
                 }}
               >
                 {on && question.multiSelect ? (
-                  <Icon icon={Tick02Icon} tone="onInk" size={15} strokeWidth={2.4} />
+                  <Icon icon={Tick02Icon} tone="onInk" size={16} strokeWidth={2} />
                 ) : (
                   <Text
                     style={{
                       color: on ? colors.onInk : colors.ink2,
-                      fontSize: 13,
+                      fontSize: type.footnote,
                       fontWeight: "600",
                     }}
                   >
@@ -200,7 +204,8 @@ export function Questions({
                   <Text
                     style={{
                       color: colors.ink,
-                      fontSize: 15,
+                      fontSize: type.subheadline,
+                      lineHeight: lineHeight.subheadline,
                       fontWeight: "500",
                     }}
                   >
@@ -210,15 +215,17 @@ export function Questions({
                     <View
                       style={{
                         paddingHorizontal: 6,
-                        paddingVertical: 1,
-                        borderRadius: 6,
+                        paddingVertical: 2,
+                        borderRadius: radius.chip,
+                        borderCurve: "continuous",
                         backgroundColor: colors.accentTint,
                       }}
                     >
                       <Text
                         style={{
                           color: colors.accentInk,
-                          fontSize: 10,
+                          fontSize: type.caption2,
+                          lineHeight: lineHeight.caption2,
                           fontWeight: "600",
                         }}
                       >
@@ -227,7 +234,9 @@ export function Questions({
                     </View>
                   )}
                 </View>
-                {!!option.description && <Text style={{ color: colors.ink2, fontSize: 13, lineHeight: 18 }}>{option.description}</Text>}
+                {!!option.description && (
+                  <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{option.description}</Text>
+                )}
               </View>
             </Pressable>
           );
@@ -241,7 +250,7 @@ export function Questions({
               minHeight: 50,
               paddingLeft: 12,
               paddingRight: 6,
-              borderRadius: 14,
+              borderRadius: radius.card,
               borderCurve: "continuous",
               borderWidth: typed[question.id] ? 1.5 : 1,
               borderColor: typed[question.id] ? colors.ink : colors.line,
@@ -255,6 +264,7 @@ export function Questions({
               accessibilityLabel={`Your own answer to: ${question.question}`}
               placeholder="Type your answer…"
               placeholderTextColor={colors.ink3}
+              selectionColor={colors.accent}
               autoCorrect={!inline}
               secureTextEntry={question.secret}
               value={typed[question.id] || ""}
@@ -270,7 +280,7 @@ export function Questions({
               style={{
                 flex: 1,
                 color: colors.ink,
-                fontSize: 15,
+                fontSize: type.subheadline,
                 paddingVertical: 12,
               }}
             />
@@ -296,17 +306,14 @@ export function Questions({
       accessibilityLabel="Agent question"
       style={
         inline
-          ? { gap: 10 }
+          ? { gap: 12 }
           : {
               backgroundColor: colors.surface,
               borderRadius: 24,
               borderCurve: "continuous",
-              borderWidth: 1,
-              borderColor: colors.lineStrong,
               padding: 8,
-              paddingTop: 8,
               gap: 4,
-              boxShadow: "0 8px 28px #00000017",
+              boxShadow: colors.shadowOverlay,
             }
       }
     >
@@ -318,7 +325,7 @@ export function Questions({
             ) : (
               <>
                 <IconButton label="Previous question" icon={ArrowLeft01Icon} size={32} disabled={page === 0} onPress={() => setPage(page - 1)} />
-                <Text style={{ color: colors.ink2, fontSize: 13 }}>
+                <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                   {page + 1} of {questions.length}
                 </Text>
                 <IconButton
@@ -380,16 +387,16 @@ export function Approval({
           ? { gap: 16 }
           : {
               backgroundColor: colors.surface,
-              borderRadius: 18,
+              borderRadius: radius.sheet,
               borderCurve: "continuous",
               borderWidth: 1,
               borderColor: colors.lineStrong,
-              padding: 14,
-              gap: 10,
+              padding: 16,
+              gap: 12,
             }
       }
     >
-      <View style={{ gap: 5 }}>
+      <View style={{ gap: 4 }}>
         {inline && <Text style={styles.caption}>{approval.tool}</Text>}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {!inline && <Icon icon={ShieldAlertIcon} tone="orange" size={16} strokeWidth={2} />}
@@ -397,7 +404,8 @@ export function Approval({
             accessibilityRole="header"
             style={{
               color: colors.ink,
-              fontSize: 17,
+              fontSize: type.body,
+              lineHeight: lineHeight.body,
               fontWeight: "600",
               flex: 1,
             }}
@@ -409,7 +417,7 @@ export function Approval({
         {approval.delegation?.negotiation && <Text style={styles.caption}>Negotiation, up to {NEGOTIATION_ROUNDS} rounds.</Text>}
       </View>
       {parameters.map(([label, text]) => (
-        <View key={label} style={{ gap: 5 }}>
+        <View key={label} style={{ gap: 4 }}>
           <Text style={styles.caption}>{label}</Text>
           <Text
             selectable
@@ -425,27 +433,31 @@ export function Approval({
           secondary
           disabled={busy}
           onPress={() => respond("deny")}
-          style={{ flex: 1, height: 44 }}
+          style={{ flex: 1 }}
         />
         <PillButton
           title={approval.kind === "setup" ? SETUP_APPROVAL_COPY.allow : "Allow once"}
           disabled={busy}
           onPress={() => respond("allow")}
-          style={{ flex: 1, height: 44 }}
+          style={{ flex: 1 }}
         />
       </View>
       {approval.allowForChat && (
         <Pressable
           accessibilityRole="button"
+          accessibilityState={{ disabled: busy }}
           disabled={busy}
           onPress={() => respond("allow-for-chat")}
-          style={{
-            alignSelf: "center",
-            minHeight: 44,
-            justifyContent: "center",
-          }}
+          style={({ pressed }) => [
+            {
+              alignSelf: "center",
+              minHeight: 44,
+              justifyContent: "center",
+            },
+            pressStyle({ pressed, disabled: busy }),
+          ]}
         >
-          <Text style={{ color: colors.ink2, fontSize: 13, fontWeight: "500" }}>
+          <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "500" }}>
             {approval.kind === "setup"
               ? SETUP_APPROVAL_COPY.always
               : approval.delegation?.computer

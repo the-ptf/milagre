@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
 import { Icon } from "../icons";
 import { mcpHeadersPayload, renameHeader, type McpHeaderRow } from "../mcp-headers";
 import { useMcp } from "../use-mcp";
-import { CircleButton, Field, PageScroll, useStyles } from "../ui";
+import { CheckRow, CircleButton, ErrorNotice, Field, PageScroll, SheetHeader, pressStyle, useStyles } from "../ui";
+import { hitSlopFor, lineHeight, radius, type as typeScale } from "../design-tokens";
 import { useTheme } from "../theme";
 
 const TARGETS: { value: McpTarget; title: string }[] = [
@@ -89,63 +90,16 @@ export default function McpAddSheet() {
   return (
     <PageScroll style={styles.screen} contentContainerStyle={{ padding: 0, gap: 0 }} stickyHeaderIndices={[0]} automaticallyAdjustKeyboardInsets>
       <View style={{ backgroundColor: colors.page }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            minHeight: 60,
-            paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 6,
-          }}
-        >
-          <Text
-            accessibilityRole="header"
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: 72,
-              right: 72,
-              top: 14,
-              bottom: 6,
-              textAlign: "center",
-              textAlignVertical: "center",
-              lineHeight: 40,
-              color: colors.ink,
-              fontSize: 17,
-              fontWeight: "600",
-            }}
-            numberOfLines={1}
-          >
-            {editing ? "Edit MCP server" : "Add MCP server"}
-          </Text>
-          <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Save"
-            accessibilityState={{ disabled: !canSave, busy: saving }}
-            disabled={!canSave}
-            hitSlop={8}
-            onPress={() => void save()}
-            style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: "flex-end", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
-          >
-            {saving ? (
-              <ActivityIndicator color={colors.ink3} />
-            ) : (
-              <Text style={{ color: canSave ? colors.ink : colors.ink3, fontSize: 17, fontWeight: "600" }}>Save</Text>
-            )}
-          </Pressable>
-        </View>
+        <SheetHeader
+          title={editing ? "Edit MCP server" : "Add MCP server"}
+          leading={<CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />}
+          trailing={<CircleButton label={saving ? "Saving…" : "Save"} icon={Tick02Icon} filled disabled={!canSave} onPress={() => void save()} />}
+        />
       </View>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={{ padding: 20, paddingTop: 8, gap: 18 }}>
+      <View style={{ padding: 16, paddingTop: 8, gap: 16 }}>
         {/* Next to Save, so a refused save is seen without scrolling. */}
-        {error ? (
-          <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
-            {error}
-          </Text>
-        ) : null}
+        {error ? <ErrorNotice message={error} /> : null}
         {loading ? (
           <Text style={styles.muted}>Loading…</Text>
         ) : (
@@ -180,8 +134,9 @@ export default function McpAddSheet() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Remove header"
-                    hitSlop={8}
+                    hitSlop={hitSlopFor(18)}
                     onPress={() => setHeaders((rows) => rows.filter((item) => item.id !== row.id))}
+                    style={({ pressed }) => pressStyle({ pressed })}
                   >
                     <Icon icon={Cancel01Icon} tone="ink3" size={18} />
                   </Pressable>
@@ -190,29 +145,21 @@ export default function McpAddSheet() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setHeaders((rows) => [...rows, { id: nextId.current++, key: "", value: "", masked: false }])}
-                style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 36, justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+                style={({ pressed }) => [{ alignSelf: "flex-start", minHeight: 44, justifyContent: "center" }, pressStyle({ pressed })]}
               >
-                <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "600" }}>Add header</Text>
+                <Text style={{ color: colors.ink, fontSize: typeScale.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Add header</Text>
               </Pressable>
             </View>
             <View style={{ gap: 8 }}>
               <Text style={styles.label}>Load it in</Text>
               <View
                 accessibilityRole="radiogroup"
-                style={{ backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous", paddingHorizontal: 16 }}
+                style={{ backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous", paddingHorizontal: 16 }}
               >
                 {TARGETS.map((item, index) => (
                   <View key={item.value}>
                     {index > 0 && <View style={styles.separator} />}
-                    <Pressable
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: target === item.value }}
-                      onPress={() => setTarget(item.value)}
-                      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", minHeight: 48, opacity: pressed ? 0.5 : 1 })}
-                    >
-                      <Text style={[styles.text, { flex: 1 }]}>{item.title}</Text>
-                      {target === item.value ? <Icon icon={Tick02Icon} tone="ink" size={20} /> : null}
-                    </Pressable>
+                    <CheckRow title={item.title} checked={target === item.value} onPress={() => setTarget(item.value)} />
                   </View>
                 ))}
               </View>

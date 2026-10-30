@@ -99,7 +99,7 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
           if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-context-card]"))) hide();
         }}
         onClick={() => (position ? hide() : show())}
-        className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-[background-color] duration-150 hover:bg-hover-2 ${position ? "bg-hover-2" : ""}`}
+        className={`relative flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-fast hover:bg-hover ${position ? "bg-hover-2" : ""}`}
       >
         <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" className="-rotate-90">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--line-strong)" strokeWidth="2" />
@@ -113,7 +113,7 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={circumference * (1 - ratio)}
-            className="transition-[stroke-dashoffset] duration-300 ease-out motion-reduce:transition-none"
+            className="transition-[stroke-dashoffset] duration-slow ease-enter motion-reduce:transition-none"
           />
         </svg>
         {attention && (
@@ -135,25 +135,25 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
             data-context-card
             onPointerEnter={clearTimer}
             onPointerLeave={() => schedule(hide, CLOSE_DELAY_MS)}
-            className="fixed z-50 rounded-[14px] bg-surface text-ink shadow-overlay"
+            className="fixed z-50 rounded-window bg-surface text-ink shadow-overlay"
             style={{
               width: CARD_WIDTH,
               left: position.left,
               bottom: position.bottom,
-              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+              animation: "pop-in var(--duration-base) var(--ease-enter) both",
               transformOrigin: "bottom right",
             }}
           >
-            <div className="flex flex-col gap-1.5 px-4 pb-3 pt-3.5">
-              <p className="text-[14px] font-semibold leading-5">Context</p>
+            <div className="flex flex-col gap-1.5 px-4 py-3">
+              <p className="text-15 font-semibold">Context</p>
               <UsageBar usedPercent={percent} display="used" className="h-1.5 w-full" />
-              <div className="flex items-center justify-between text-[12px] tabular-nums text-ink-2">
+              <div className="flex items-center justify-between text-12 tabular-nums text-ink-2">
                 <span>{percent}% used</span>
                 <span>{tokens}</span>
               </div>
             </div>
             {(hint || onCompact) && (
-              <div className="flex flex-col gap-2.5 border-t border-line px-4 py-3 text-[12px] leading-[1.45] text-ink-2">
+              <div className="flex flex-col gap-2 border-t border-line px-4 py-3 text-12 leading-[1.45] text-ink-2">
                 {hint && <p>{hint}</p>}
                 {onCompact && (
                   <Tooltip label={compactBlocked || "Summarize this Chat to free up context."} className="w-full" wrap>
@@ -167,7 +167,8 @@ export function ContextRing({ onCompact, compactBlocked = null, ...usage }: Cont
                         hide();
                         onCompact();
                       }}
-                      className={`inline-flex h-8 w-full items-center justify-center rounded-control bg-ink px-2.5 text-[12px] font-medium text-surface transition-opacity ${compactBlocked ? "cursor-default opacity-40" : "hover:opacity-85"}`}
+                      // Not Button: aria-disabled keeps it focusable for its tooltip, and Button's hover only knows `disabled`.
+                      className={`inline-flex h-8 w-full items-center justify-center rounded-control bg-ink px-2.5 text-12 font-medium text-on-ink transition-opacity duration-fast ${compactBlocked ? "cursor-default opacity-40" : "hover:opacity-90"}`}
                     >
                       Compact now
                     </button>

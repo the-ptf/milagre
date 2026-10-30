@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type SyntheticEvent, type PointerEvent, useEffectEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion, useIsPresent } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, InboxIcon, Settings01Icon, SentIcon } from "@hugeicons/core-free-icons";
 import type { InboxItem, InboxStatus } from "@milagre/shared/attention";
 import { visibleInbox } from "@milagre/shared/attention";
@@ -18,6 +17,11 @@ import { useDismiss } from "../lib/use-dismiss";
 import { answerSummary, draftAnswers, draftOf, pickOption, typeAnswer, type QuestionDrafts } from "../lib/question-answers";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { RangeSlider } from "./primitives/RangeSlider";
+import { SpinnerRing } from "./primitives/SpinnerRing";
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
+import { EmptyState } from "./primitives/EmptyState";
+import { InlineError } from "./primitives/InlineError";
 import { ProviderLogo } from "./ProviderLogo";
 import { PermissionCard } from "./agents/PermissionCard";
 
@@ -75,8 +79,8 @@ export function FloatingDragTargets() {
     };
   }, []);
   return (
-    <div data-floating-drag-overlay className="pointer-events-none fixed inset-0 bg-black/30">
-      <p className="absolute top-12 left-1/2 -translate-x-1/2 rounded-full bg-black/45 px-5 py-2.5 text-[13px] text-white/90">
+    <div data-floating-drag-overlay className="pointer-events-none fixed inset-0 bg-scrim">
+      <p className="absolute top-12 left-1/2 -translate-x-1/2 rounded-full bg-ink px-5 py-2 text-13 text-on-ink shadow-overlay">
         Drop on a highlighted edge to dock. Release elsewhere to return.
       </p>
       {state?.targets.map((target) => (
@@ -291,7 +295,7 @@ export function FloatingBar({
         if (!event.currentTarget.contains(event.relatedTarget)) leave();
       }}
       aria-label="Milagre floating bar"
-      className={`floating-inbox-tab floating-inbox-tab-${placement} flex items-center gap-1 bg-black text-white shadow-sm ${dragging ? "m-2 w-[38px] flex-col px-1 py-1.5" : horizontal ? `mx-6 ${expanded ? "mt-2 h-[46px]" : "mt-[26px] h-[28px]"} w-max flex-row px-1.5 pt-1 pb-3` : placement === "left" ? `my-6 mr-2 ${expanded ? "w-[46px]" : "w-[28px]"} flex-col py-1.5 pr-1 pl-3` : `my-6 ${expanded ? "ml-2 w-[46px]" : "ml-[26px] w-[28px]"} flex-col py-1.5 pr-3 pl-1`}`}
+      className={`floating-inbox-tab floating-inbox-tab-${placement} flex items-center gap-1 bg-surface text-ink shadow-card ${dragging ? "m-2 w-[38px] flex-col px-1 py-1.5" : horizontal ? `mx-6 ${expanded ? "mt-2 h-[46px]" : "mt-[26px] h-[28px]"} w-max flex-row px-1.5 pt-1 pb-3` : placement === "left" ? `my-6 mr-2 ${expanded ? "w-[46px]" : "w-[28px]"} flex-col py-1.5 pr-1 pl-3` : `my-6 ${expanded ? "ml-2 w-[46px]" : "ml-[26px] w-[28px]"} flex-col py-1.5 pr-3 pl-1`}`}
     >
       <div className="floating-inbox-reveal floating-inbox-leading" inert={!expanded} aria-hidden={!expanded}>
         <div
@@ -310,9 +314,9 @@ export function FloatingBar({
           aria-label="Open Milagre inbox"
           title="Milagre inbox"
           onClick={toggleInbox}
-          className="flex h-[26px] w-7 shrink-0 items-center justify-center rounded-[9px] text-white/70 hover:bg-white/10 hover:text-white"
+          className="flex h-[26px] w-7 shrink-0 items-center justify-center rounded-control text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
         >
-          <img src="./logo-milagre-image.png" alt="" className="size-[19px] rounded-[5px]" />
+          <img src="./logo-milagre-image.png" alt="" className="size-[19px] rounded-chip" />
         </button>
         {!dragging && shown.length > 0 && <div className={divider} />}
       </div>
@@ -332,16 +336,15 @@ export function FloatingBar({
                 hidePreview();
                 void window.milagre.selectInboxItem(item.key);
               }}
-              className="flex size-[27px] shrink-0 items-center justify-center rounded-[9px] hover:bg-hover"
+              className="flex size-[27px] shrink-0 items-center justify-center rounded-control transition-colors duration-fast hover:bg-hover"
             >
               {item.status === "working" ? (
-                <span
-                  data-inbox-loading
-                  aria-label="Working"
-                  className="size-[10px] animate-spin rounded-full border-[1.5px] border-accent/25 border-t-accent motion-reduce:animate-none"
-                />
+                // SpinnerRing keeps a stepped fade under reduced motion, where a CSS spin would freeze.
+                <span data-inbox-loading className="flex">
+                  <SpinnerRing size={10} stroke={1.5} color="var(--accent)" />
+                </span>
               ) : (
-                <span className={`size-[7px] rounded-full ${statusColor(item.status)}`} />
+                <span className={`size-2 rounded-full ${statusColor(item.status)}`} />
               )}
             </button>
           ))}
@@ -350,14 +353,14 @@ export function FloatingBar({
               type="button"
               onClick={toggleInbox}
               aria-label={`${agents.length - 5} more Chats. Open inbox`}
-              className="flex h-[27px] w-7 shrink-0 items-center justify-center text-[9px] text-white/70 hover:text-white"
+              className="flex h-[27px] w-7 shrink-0 items-center justify-center text-10 text-ink-2 transition-colors duration-fast hover:text-ink"
             >
               +{agents.length - 5}
             </button>
           )}
           {shown.length === 0 && !expanded && (
             <button type="button" aria-label="Open inbox" onClick={toggleInbox} className="flex size-[27px] items-center justify-center">
-              <span className="size-[7px] rounded-full bg-white/40" />
+              <span className="size-2 rounded-full bg-ink-3" />
             </button>
           )}
           <div className="floating-inbox-reveal floating-inbox-trailing" inert={!expanded} aria-hidden={!expanded}>
@@ -368,13 +371,13 @@ export function FloatingBar({
               aria-label={`Open inbox${pending ? `, ${pending} Chats need you` : ""}`}
               title={error || "Open inbox"}
               onClick={toggleInbox}
-              className="relative flex h-[30px] w-7 shrink-0 items-center justify-center rounded-[9px] bg-hover-2 text-ink"
+              className="relative flex h-[30px] w-7 shrink-0 items-center justify-center rounded-control bg-hover-2 text-ink"
             >
-              <HugeiconsIcon icon={InboxIcon} size={16} strokeWidth={1.8} />
+              <Icon icon={InboxIcon} size={16} />
               {pending > 0 && (
                 <span
                   data-inbox-badge
-                  className="absolute -top-[3px] -right-0.5 flex min-w-[14px] items-center justify-center rounded-[5px] border-[1.5px] border-surface bg-orange px-0.5 text-[9px] leading-[11px] font-semibold text-page"
+                  className="absolute -top-[3px] -right-0.5 flex min-w-[14px] items-center justify-center rounded-chip border-[1.5px] border-surface bg-orange px-0.5 text-10 leading-[11px] font-semibold text-page"
                 >
                   {pending > 99 ? "99+" : pending}
                 </span>
@@ -390,8 +393,8 @@ export function FloatingBar({
 export function InboxPreview({ item }: { item?: InboxItem }) {
   if (!item) return null;
   return (
-    <section role="tooltip" data-inbox-preview className="m-2 rounded-[14px] bg-surface p-3 text-ink shadow-sm">
-      <div className="flex items-center gap-1.5 text-[10px] text-ink-3">
+    <section role="tooltip" data-inbox-preview className="m-2 rounded-window bg-surface p-3 text-ink shadow-card">
+      <div className="flex items-center gap-1.5 text-11 text-ink-3">
         <span className={`size-1.5 shrink-0 rounded-full ${statusColor(item.status)}`} />
         <span className="truncate">
           {item.project}
@@ -399,8 +402,8 @@ export function InboxPreview({ item }: { item?: InboxItem }) {
         </span>
         <span className="ml-auto shrink-0">{statusWords[item.status]}</span>
       </div>
-      <p className="mt-1.5 line-clamp-2 text-[12px] leading-4 font-medium">{item.title}</p>
-      {item.preview && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-ink-2">{item.preview}</p>}
+      <p className="mt-1.5 line-clamp-2 text-12 font-medium">{item.title}</p>
+      {item.preview && <p className="mt-1 line-clamp-2 text-11 text-ink-2">{item.preview}</p>}
     </section>
   );
 }
@@ -499,7 +502,7 @@ export function InboxPanel({
   const shortcutOptions = selected?.question?.questions.length === 1 ? (selected.question.questions[0]?.options.slice(0, 9) ?? []) : [];
   return (
     <div data-inbox-panel aria-label="Inbox" className="floating-inbox-panel m-3 flex h-[calc(100vh-24px)] flex-col gap-2 text-ink">
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line-strong bg-surface shadow-sm">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-window bg-surface shadow-card">
         <header ref={header} className="flex items-center justify-end gap-2 px-4 pt-2">
           {shown.length > 0 && (
             <nav data-inbox-pagination aria-label="Inbox pages" className="flex items-center">
@@ -511,7 +514,7 @@ export function InboxPanel({
                 data-inbox-arrow="left"
                 disabled={index === 0}
                 onClick={() => select(index - 1)}
-                className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-hover disabled:opacity-25"
+                className="flex size-6 items-center justify-center rounded-full text-ink-3 transition-colors duration-fast hover:bg-hover disabled:opacity-40"
               >
                 <motion.span
                   key={arrowPulse.direction === -1 ? arrowPulse.revision : 0}
@@ -521,10 +524,10 @@ export function InboxPanel({
                       ? { opacity: [0.45, 1, 0.45], x: reduce ? 0 : [0, -4, 0], scale: reduce ? 1 : [1, 1.3, 1] }
                       : { opacity: 0.45, x: 0, scale: 1 }
                   }
-                  transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
+                  transition={{ duration: 0.12, ease: [0.23, 1, 0.32, 1] }}
                   className="flex text-black dark:text-white"
                 >
-                  <HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
+                  <Icon icon={ArrowLeft01Icon} size={14} />
                 </motion.span>
               </button>
               <RangeSlider
@@ -539,7 +542,7 @@ export function InboxPanel({
                 onValueChange={select}
                 className="mx-2 w-[100px] shrink-0"
               />
-              <span data-inbox-count aria-live="polite" className="min-w-[49px] text-center text-[11px] text-ink-3 tabular-nums">
+              <span data-inbox-count aria-live="polite" className="min-w-[49px] text-center text-11 text-ink-3 tabular-nums">
                 {index + 1} of {shown.length}
               </span>
               <button
@@ -550,7 +553,7 @@ export function InboxPanel({
                 data-inbox-arrow="right"
                 disabled={index === shown.length - 1}
                 onClick={() => select(index + 1)}
-                className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-hover disabled:opacity-25"
+                className="flex size-6 items-center justify-center rounded-full text-ink-3 transition-colors duration-fast hover:bg-hover disabled:opacity-40"
               >
                 <motion.span
                   key={arrowPulse.direction === 1 ? arrowPulse.revision : 0}
@@ -560,42 +563,33 @@ export function InboxPanel({
                       ? { opacity: [0.45, 1, 0.45], x: reduce ? 0 : [0, 4, 0], scale: reduce ? 1 : [1, 1.3, 1] }
                       : { opacity: 0.45, x: 0, scale: 1 }
                   }
-                  transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}
+                  transition={{ duration: 0.12, ease: [0.23, 1, 0.32, 1] }}
                   className="flex text-black dark:text-white"
                 >
-                  <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+                  <Icon icon={ArrowRight01Icon} size={14} />
                 </motion.span>
               </button>
             </nav>
           )}
-          <button
-            type="button"
-            aria-label="Close inbox"
-            title="Close inbox (Esc or Cmd/Ctrl+D)"
-            onClick={closeInbox}
-            className="flex size-7 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={15} />
-          </button>
+          <IconButton label="Close inbox" title="Close inbox (Esc or Cmd/Ctrl+D)" icon={Cancel01Icon} onClick={closeInbox} />
         </header>
         <ScrollArea ref={scroller} data-inbox-scroller className="flex-1 px-4 pt-1 pb-3">
           <div ref={content} className="relative">
             {error ? (
-              <div role="alert" className="rounded-control bg-red-tint p-3 text-xs text-red-ink">
+              <div role="alert" className="rounded-control bg-red-tint p-3 text-12 text-red-ink">
                 {error}
-                <button type="button" className="mt-2 block underline" onClick={refresh}>
+                <button type="button" className="mt-1 block h-6 underline" onClick={refresh}>
                   Retry
                 </button>
               </div>
             ) : loading ? (
-              <p role="status" className="py-10 text-center text-xs text-ink-3">
+              <p role="status" className="py-10 text-center text-12 text-ink-3">
                 Loading inbox…
               </p>
             ) : !selected ? (
-              <div data-inbox-empty className="px-3 py-12 text-center">
-                <p className="text-[15px] font-medium">All caught up</p>
-                <p className="mt-2 text-xs leading-5 text-ink-3">Questions and finished work will appear here.</p>
-              </div>
+              <EmptyState data-inbox-empty icon={InboxIcon} title="All caught up" className="py-12">
+                Questions and finished work will appear here.
+              </EmptyState>
             ) : (
               <AnimatePresence initial={false} mode="popLayout" custom={direction}>
                 <motion.div
@@ -609,7 +603,7 @@ export function InboxPanel({
                   initial={reduce ? false : "enter"}
                   animate="center"
                   exit={reduce ? undefined : "exit"}
-                  transition={{ duration: reduce ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  transition={{ duration: reduce ? 0 : 0.18, ease: [0.23, 1, 0.32, 1] }}
                 >
                   <InboxCard
                     item={selected}
@@ -625,10 +619,10 @@ export function InboxPanel({
       </section>
       <footer ref={footer} className="flex shrink-0 items-center justify-center gap-2">
         {(selected || shortcutOptions.length > 0 || shown.length > 1) && (
-          <p data-inbox-shortcuts className="rounded-full border border-line-strong bg-surface px-3 py-1.5 text-[11px] text-ink-2">
+          <p data-inbox-shortcuts className="rounded-full border border-line-strong bg-surface px-3 py-1.5 text-11 text-ink-2">
             {selected && !selected.question && (
               <>
-                Press <kbd className="rounded bg-hover-2 px-1 py-0.5 font-sans">Enter</kbd> {selected.permission ? "to allow once" : "to open Chat"}
+                Press <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">Enter</kbd> {selected.permission ? "to allow once" : "to open Chat"}
               </>
             )}
             {shortcutOptions.length > 0 && (
@@ -637,7 +631,7 @@ export function InboxPanel({
                 {shortcutOptions.map((option, optionIndex) => (
                   <span key={option.label}>
                     {optionIndex ? " / " : ""}
-                    <kbd className="rounded bg-hover-2 px-1 py-0.5 font-sans">{optionIndex + 1}</kbd>
+                    <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">{optionIndex + 1}</kbd>
                   </span>
                 ))}{" "}
                 {selected?.question?.questions[0]?.multiSelect ? "to select · Enter to send" : "to answer"}
@@ -646,7 +640,8 @@ export function InboxPanel({
             {shown.length > 1 && (
               <span data-inbox-navigation-hint>
                 {(selected && !selected.question) || shortcutOptions.length > 0 ? " · " : ""}
-                <kbd className="rounded bg-hover-2 px-1 py-0.5 font-sans">←</kbd> <kbd className="rounded bg-hover-2 px-1 py-0.5 font-sans">→</kbd> to move
+                <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">←</kbd>{" "}
+                <kbd className="rounded-inline bg-hover-2 px-1 py-0.5 font-sans">→</kbd> to move
               </span>
             )}
           </p>
@@ -658,9 +653,9 @@ export function InboxPanel({
           onClick={() => {
             void window.milagre.openInboxSettings();
           }}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-ink-3 hover:text-ink-2"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface text-ink-3 transition-colors duration-fast hover:text-ink"
         >
-          <HugeiconsIcon icon={Settings01Icon} size={12} />
+          <Icon icon={Settings01Icon} size={12} />
         </button>
       </footer>
     </div>
@@ -739,8 +734,8 @@ function InboxCard({
           />
         </span>
         <span className="min-w-0">
-          <span className="block text-[14px] font-semibold">{providerName(item.provider ?? "claude")}</span>
-          <span className="block truncate text-[12px] text-ink-3">
+          <span className="block text-13 font-semibold">{providerName(item.provider ?? "claude")}</span>
+          <span className="block truncate text-12 text-ink-3">
             {item.status === "question" ? "Waiting for your answer" : item.status === "approval" ? "Waiting for approval" : statusWords[item.status]} ·{" "}
             {item.project}
             {item.computer ? ` · ${item.computer}` : ""}
@@ -777,36 +772,28 @@ function InboxCard({
         </div>
       ) : (
         <>
-          <h2 className={`mt-3 text-[15px] font-medium ${item.status === "failed" ? "text-red-ink" : ""}`}>
+          <h2 className={`mt-3 text-15 font-semibold ${item.status === "failed" ? "text-red-ink" : ""}`}>
             {item.status === "failed" ? "Turn failed" : item.status === "working" ? item.title : "Ready to review"}
           </h2>
-          <p className="mt-2 text-xs leading-5 text-ink-2">{item.preview}</p>
+          <p className="mt-2 text-12 leading-5 text-ink-2">{item.preview}</p>
         </>
       )}
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-red-ink">
-          {error}
-        </p>
-      )}
+      <InlineError size={12} className="mt-2">
+        {error}
+      </InlineError>
       {!needsYou(item) && item.status !== "working" && (
         <div className="mt-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={open}
-            aria-keyshortcuts="Enter"
-            title="Open Chat (Enter)"
-            className="rounded-control bg-ink px-3 py-2 text-xs font-medium text-surface"
-          >
+          <Button size={28} onClick={open} aria-keyshortcuts="Enter" title="Open Chat (Enter)">
             Open Chat
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size={28}
             disabled={busy}
             onClick={() => void action(() => bridgeForKey(item.key).patchChat(item.projectPath, sessionIdFromKey(item.key), { unread: false }))}
-            className="rounded-control px-2 py-2 text-xs text-ink-2 disabled:opacity-40"
           >
             Clear
-          </button>
+          </Button>
         </div>
       )}
     </article>
@@ -869,15 +856,7 @@ function InboxQuestion({
   }, [answers, busy, drafts, request, send, setDrafts, present]);
   const label = request.questions.length > 1 ? "Send answers" : "Send answer";
   const sendButton = (
-    <button
-      type="submit"
-      aria-label={label}
-      title={busy ? "Sending…" : label}
-      disabled={busy || !answers}
-      className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-ink-2 hover:bg-hover-2 disabled:opacity-30"
-    >
-      <HugeiconsIcon icon={SentIcon} size={18} strokeWidth={1.5} />
-    </button>
+    <IconButton type="submit" label={label} title={busy ? "Sending…" : label} disabled={busy || !answers} icon={SentIcon} iconSize={18} size={32} />
   );
   return (
     <form
@@ -893,7 +872,7 @@ function InboxQuestion({
         const last = questionIndex === request.questions.length - 1;
         return (
           <fieldset key={question.id} className="min-w-0">
-            <legend className="mb-3 text-[14px] leading-5 font-semibold">{question.question}</legend>
+            <legend className="mb-3 text-13 font-semibold">{question.question}</legend>
             <div className="grid gap-1.5">
               {question.options.map((option, optionIndex) => {
                 const recommended = /\s*\(Recommended\)\s*$/i.test(option.label);
@@ -905,29 +884,26 @@ function InboxQuestion({
                     aria-label={option.label}
                     aria-checked={draft.picked.includes(option.label)}
                     disabled={busy}
-                    title={option.description}
                     onClick={(event) => {
                       event.currentTarget.focus();
                       setDrafts(pickOption(drafts, question, option.label));
                     }}
-                    className={`flex min-h-8 w-full items-center gap-2 rounded-[11px] border px-2.5 py-2 text-left text-[12px] disabled:opacity-50 ${draft.picked.includes(option.label) ? "border-accent-ink bg-accent-tint text-ink" : "border-line bg-field text-ink-2 hover:bg-hover-2"}`}
+                    className={`flex min-h-8 w-full items-center gap-2 rounded-control border px-2 py-2 text-left text-12 transition-colors duration-fast disabled:opacity-40 ${draft.picked.includes(option.label) ? "border-accent-ink bg-accent-tint text-ink" : "border-line bg-field text-ink-2 enabled:hover:bg-hover"}`}
                   >
-                    <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded-[4px] bg-hover-2 text-[11px] text-ink-2">
+                    <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded-inline bg-hover-2 text-11 text-ink-2">
                       {optionIndex + 1}
                     </span>
                     <span className="min-w-0 flex-1">
                       {option.label.replace(/\s*\(Recommended\)\s*$/i, "")}
-                      {option.description && <span className="mt-0.5 block text-[10px] leading-4 text-ink-3">{option.description}</span>}
+                      {option.description && <span className="mt-0.5 block text-11 text-ink-3">{option.description}</span>}
                     </span>
-                    {recommended && (
-                      <span className="shrink-0 rounded-full bg-orange/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-ink">Recommended</span>
-                    )}
+                    {recommended && <span className="shrink-0 rounded-full bg-orange-tint px-1.5 py-0.5 text-10 font-medium text-orange-ink">Recommended</span>}
                   </button>
                 );
               })}
             </div>
             {question.allowOther && (
-              <div className="mt-2 flex min-h-9 items-center gap-1 rounded-[11px] border border-line bg-field px-2">
+              <div className="mt-2 flex min-h-9 items-center gap-1 rounded-control border border-line bg-field px-2 transition-colors duration-fast focus-within:border-accent">
                 <input
                   type={question.secret ? "password" : "text"}
                   aria-label={`Your own answer to: ${question.question}`}
@@ -936,21 +912,26 @@ function InboxQuestion({
                   disabled={busy}
                   value={draft.typed}
                   onChange={(event) => setDrafts(typeAnswer(drafts, question, event.target.value))}
-                  className="min-w-0 flex-1 bg-transparent px-0.5 py-2 text-[12px] text-ink outline-none placeholder:text-ink-3"
+                  className="min-w-0 flex-1 bg-transparent px-0.5 py-2 text-12 text-ink outline-none placeholder:text-ink-3"
                 />
                 {last && sendButton}
               </div>
             )}
             {!question.allowOther && last && (
-              <div className="mt-2 flex min-h-9 items-center justify-between rounded-[11px] border border-line bg-field px-2">
-                <span className="px-0.5 text-[12px] text-ink-3">{answers ? "Send your selection" : "Choose an answer"}</span>
+              <div className="mt-2 flex min-h-9 items-center justify-between rounded-control border border-line bg-field px-2">
+                <span className="px-0.5 text-12 text-ink-3">{answers ? "Send your selection" : "Choose an answer"}</span>
                 {sendButton}
               </div>
             )}
           </fieldset>
         );
       })}
-      <button type="button" disabled={busy} onClick={() => send(null)} className="justify-self-end text-[10px] text-ink-3 hover:text-ink-2 disabled:opacity-40">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => send(null)}
+        className="h-6 justify-self-end rounded-control px-1.5 text-11 text-ink-3 transition-colors duration-fast hover:text-ink-2 disabled:opacity-40"
+      >
         Dismiss
       </button>
     </form>

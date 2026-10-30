@@ -5,12 +5,20 @@ import type { ComponentRenderProps } from "@milagre/shared/genui-renderer";
 import type { GenuiComponentName, GenuiProps } from "@milagre/shared/genui";
 import { squareRows } from "@milagre/shared/genui";
 import { useTheme } from "../theme";
+import { radius } from "../design-tokens";
 import { Button as UiButton, PageScroll } from "../ui";
 import { BarChart, LineChart } from "./charts";
 
 export type GenuiRenderer<K extends GenuiComponentName> = (args: ComponentRenderProps<GenuiProps<K>>) => ReactNode;
 
 const GAP = { s: 4, m: 8, l: 16 } as const;
+
+/** Generated UI sits in the transcript, so its text follows the chat text size (Settings › Appearance), as markdown does. */
+function useChatText() {
+  const { textPx, typeScale } = useTheme();
+  const at = (size: number) => ({ fontSize: size, lineHeight: Math.round(size * 1.4667) });
+  return { body: at(textPx), scaled: (size: number) => at(Math.round(size * typeScale)) };
+}
 
 const Stack: GenuiRenderer<"Stack"> = ({ props, renderNode }) => (
   <View
@@ -22,14 +30,15 @@ const Stack: GenuiRenderer<"Stack"> = ({ props, renderNode }) => (
 
 const Heading: GenuiRenderer<"Heading"> = ({ props }) => {
   const { colors } = useTheme();
+  const text = useChatText();
   const level = props.level ?? 2;
   return (
     <Text
+      accessibilityRole="header"
       style={{
         color: level === 3 ? colors.ink2 : colors.ink,
-        fontSize: level === 1 ? 17 : level === 2 ? 16 : 15,
+        ...(level === 1 ? text.scaled(17) : level === 2 ? text.scaled(16) : text.body),
         fontWeight: level === 3 ? "500" : "600",
-        lineHeight: 23,
       }}
     >
       {props.text}
@@ -39,22 +48,20 @@ const Heading: GenuiRenderer<"Heading"> = ({ props }) => {
 
 const TextBlock: GenuiRenderer<"Text"> = ({ props }) => {
   const { colors } = useTheme();
+  const text = useChatText();
   const tone = props.tone ?? "default";
-  return (
-    <Text style={{ color: tone === "muted" ? colors.ink2 : colors.ink, fontWeight: tone === "strong" ? "500" : "400", fontSize: 15, lineHeight: 22 }}>
-      {props.text}
-    </Text>
-  );
+  return <Text style={{ color: tone === "muted" ? colors.ink2 : colors.ink, fontWeight: tone === "strong" ? "500" : "400", ...text.body }}>{props.text}</Text>;
 };
 
 const KeyValue: GenuiRenderer<"KeyValue"> = ({ props }) => {
   const { colors } = useTheme();
+  const text = useChatText();
   return (
     <View style={{ gap: 4 }}>
       {props.pairs.map(([key, value], index) => (
         <View key={index} style={{ flexDirection: "row", gap: 12 }}>
-          <Text style={{ color: colors.ink2, fontSize: 15, lineHeight: 22, minWidth: 96 }}>{key}</Text>
-          <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 22, flex: 1 }}>{value}</Text>
+          <Text style={{ color: colors.ink2, ...text.body, minWidth: 96 }}>{key}</Text>
+          <Text style={{ color: colors.ink, ...text.body, flex: 1 }}>{value}</Text>
         </View>
       ))}
     </View>
@@ -63,20 +70,28 @@ const KeyValue: GenuiRenderer<"KeyValue"> = ({ props }) => {
 
 const Table: GenuiRenderer<"Table"> = ({ props }) => {
   const { colors } = useTheme();
+  const text = useChatText();
   const rows = squareRows(props.columns, props.rows);
   const widths = props.columns.map((column, index) =>
-    Math.min(240, Math.max(80, ...[column, ...rows.map((row) => row[index] ?? "")].map((cell) => cell.length * 8 + 20))),
+    Math.min(240, Math.max(80, ...[column, ...rows.map((row) => row[index] ?? "")].map((cell) => cell.length * 8 + 24))),
   );
-  const cellStyle = { paddingHorizontal: 10, paddingVertical: 6, flexGrow: 1 } as const;
+  const cellStyle = { paddingHorizontal: 12, paddingVertical: 6, flexGrow: 1 } as const;
   return (
     <View
-      style={{ borderRadius: 12, borderCurve: "continuous", borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, overflow: "hidden" }}
+      style={{
+        borderRadius: radius.card,
+        borderCurve: "continuous",
+        borderWidth: 1,
+        borderColor: colors.line,
+        backgroundColor: colors.surface,
+        overflow: "hidden",
+      }}
     >
       <PageScroll horizontal contentContainerStyle={{ padding: 0, paddingBottom: 0, flexGrow: 1 }}>
         <View style={{ flexGrow: 1 }}>
           <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.line }}>
             {props.columns.map((column, index) => (
-              <Text key={index} style={[cellStyle, { width: widths[index], color: colors.ink2, fontSize: 13, fontWeight: "500" }]}>
+              <Text key={index} style={[cellStyle, { width: widths[index], color: colors.ink2, ...text.scaled(13), fontWeight: "500" }]}>
                 {column}
               </Text>
             ))}
@@ -84,7 +99,7 @@ const Table: GenuiRenderer<"Table"> = ({ props }) => {
           {rows.map((row, rowIndex) => (
             <View key={rowIndex} style={{ flexDirection: "row", borderBottomWidth: rowIndex < rows.length - 1 ? 1 : 0, borderBottomColor: colors.line }}>
               {row.map((cell, cellIndex) => (
-                <Text key={cellIndex} style={[cellStyle, { width: widths[cellIndex], color: colors.ink, fontSize: 14 }]}>
+                <Text key={cellIndex} style={[cellStyle, { width: widths[cellIndex], color: colors.ink, ...text.scaled(13) }]}>
                   {cell}
                 </Text>
               ))}
@@ -98,13 +113,15 @@ const Table: GenuiRenderer<"Table"> = ({ props }) => {
 
 const Callout: GenuiRenderer<"Callout"> = ({ props }) => {
   const { colors } = useTheme();
+  const text = useChatText();
   const tone = props.tone ?? "info";
-  const tint = { info: colors.accentTint, success: colors.greenTint, warning: colors.orangeTint, danger: colors.redTint }[tone];
-  const edge = { info: colors.accent, success: colors.green, warning: colors.orange, danger: colors.red }[tone];
+  // Info is neutral: accent is kept for focus, links and selection.
+  const tint = { info: colors.field, success: colors.greenTint, warning: colors.orangeTint, danger: colors.redTint }[tone];
+  const edge = { info: colors.lineStrong, success: colors.green, warning: colors.orange, danger: colors.red }[tone];
   return (
     <View
       style={{
-        borderRadius: 12,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: edge,
@@ -114,23 +131,31 @@ const Callout: GenuiRenderer<"Callout"> = ({ props }) => {
         gap: 2,
       }}
     >
-      {props.title && <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>{props.title}</Text>}
-      <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 22 }}>{props.body}</Text>
+      {props.title && <Text style={{ color: colors.ink, ...text.body, fontWeight: "500" }}>{props.title}</Text>}
+      <Text style={{ color: colors.ink, ...text.body }}>{props.body}</Text>
     </View>
   );
 };
 
 const Progress: GenuiRenderer<"Progress"> = ({ props }) => {
   const { colors } = useTheme();
+  const text = useChatText();
   const value = Math.min(1, Math.max(0, Number.isFinite(props.value) ? props.value : 0));
+  const percent = Math.round(value * 100);
   return (
-    <View style={{ gap: 4 }}>
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={props.label}
+      accessibilityValue={{ min: 0, max: 100, now: percent, text: `${percent}%` }}
+      style={{ gap: 4 }}
+    >
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <Text style={{ color: colors.ink2, fontSize: 13 }}>{props.label}</Text>
-        <Text style={{ color: colors.ink2, fontSize: 13 }}>{Math.round(value * 100)}%</Text>
+        <Text style={{ color: colors.ink2, ...text.scaled(13) }}>{props.label}</Text>
+        <Text style={{ color: colors.ink2, ...text.scaled(13), fontVariant: ["tabular-nums"] }}>{percent}%</Text>
       </View>
-      <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.field, overflow: "hidden" }}>
-        <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.accent, width: `${value * 100}%` }} />
+      <View style={{ height: 6, borderRadius: radius.full, backgroundColor: colors.field, overflow: "hidden" }}>
+        <View style={{ height: 6, borderRadius: radius.full, backgroundColor: colors.ink, width: `${value * 100}%` }} />
       </View>
     </View>
   );

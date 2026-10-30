@@ -4,13 +4,13 @@ import type { ModelProvider } from "../model";
 import { useSettings } from "../lib/settings";
 
 /** Every provider mark follows the device's Appearance choice. */
-export function ProviderLogo({ provider, size = 15 }: { provider: ModelProvider; size?: number }) {
+export function ProviderLogo({ provider, size = 16 }: { provider: ModelProvider; size?: number }) {
   // Gradient, mask and filter ids are per instance: two logos on one page must not share them.
   const id = `logo${useId().replace(/[^\w-]/g, "")}`;
   const { appearance } = useSettings();
   const simplified = appearance.providerIcons === "simplified";
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" data-provider-logo={provider} className="shrink-0 text-black dark:text-white">
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" data-provider-logo={provider} className="shrink-0 text-ink">
       {simplified ? (
         <path d={providerLogoPath(provider)} fill="currentColor" fillRule="evenodd" clipRule="evenodd" />
       ) : (

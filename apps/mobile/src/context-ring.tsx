@@ -2,7 +2,9 @@ import { Pressable, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import type { ContextUsage } from "@milagre/shared/model";
 import { contextSummary, contextTone } from "@milagre/shared/usage";
+import { hitSlopFor, radius as corner } from "./design-tokens";
 import { useTheme } from "./theme";
+import { pressStyle } from "./ui";
 
 /** A ring that fills as the agent's context window does; the agent compacts it when it gets close to full. A tap opens the details. */
 export function ContextRing({ onPress, canCompact = false, ...usage }: ContextUsage & { onPress: () => void; canCompact?: boolean }) {
@@ -19,8 +21,8 @@ export function ContextRing({ onPress, canCompact = false, ...usage }: ContextUs
       accessibilityLabel={`Context: ${percent}% used (${tokens})`}
       accessibilityHint={attention ? "Compaction recommended. Open context details to compact." : undefined}
       onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => ({ width: 34, height: 34, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.6 : 1 })}
+      hitSlop={hitSlopFor(34)}
+      style={({ pressed }) => [{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
     >
       <Svg width={20} height={20} viewBox="0 0 20 20" style={{ transform: [{ rotate: "-90deg" }] }}>
         <Circle cx={10} cy={10} r={radius} fill="none" stroke={colors.lineStrong} strokeWidth={2.5} />
@@ -46,7 +48,7 @@ export function ContextRing({ onPress, canCompact = false, ...usage }: ContextUs
             top: 2,
             width: 8,
             height: 8,
-            borderRadius: 4,
+            borderRadius: corner.full,
             backgroundColor: color,
             borderWidth: 1.5,
             borderColor: colors.surface,

@@ -4,7 +4,8 @@ import * as Clipboard from "expo-clipboard";
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "@milagre/shared/model";
 import { stepSections } from "@milagre/shared/tool-activity";
-import { IconButton, PillButton, useStyles } from "./ui";
+import { lineHeight, type } from "./design-tokens";
+import { IconButton, PillButton, useAnnounce, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 export function StepOutput({ step }: { step: ChatStep }) {
@@ -12,6 +13,7 @@ export function StepOutput({ step }: { step: ChatStep }) {
   const { colors } = useTheme();
   const [all, setAll] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
+  useAnnounce(copyStatus);
   const sections = stepSections(step);
   const lines = sections.output.replace(/\n$/, "").split("\n");
   const clipped = !all && lines.length > 40;
@@ -31,7 +33,7 @@ export function StepOutput({ step }: { step: ChatStep }) {
         text ? (
           <View key={label} style={{ gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text accessibilityLiveRegion="polite" style={styles.caption}>
+              <Text style={styles.caption}>
                 {label}
                 {index === 1 && clipped ? ` · ${tail ? "last" : "first"} 40 of ${lines.length} lines` : ""}
                 {copyStatus === `${label} copied` ? " · Copied" : copyStatus === `${label} copy failed` ? " · Copy failed" : ""}
@@ -43,7 +45,7 @@ export function StepOutput({ step }: { step: ChatStep }) {
                 onPress={() => copy(label, index === 1 ? sections.output : text)}
               />
             </View>
-            <Text selectable style={[styles.code, { fontSize: 12, color: colors.ink2 }]}>
+            <Text selectable style={[styles.code, { fontSize: type.caption1, lineHeight: lineHeight.footnote, color: colors.ink2 }]}>
               {text}
             </Text>
           </View>

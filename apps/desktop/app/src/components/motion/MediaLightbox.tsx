@@ -74,7 +74,7 @@ const Icon = ({ d }: { d: string }) => (
   </svg>
 );
 const control =
-  "flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 transition-colors hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-accent-ink";
+  "flex size-9 items-center justify-center rounded-full bg-white/10 text-white/90 transition-[background-color,scale] duration-fast hover:bg-white/20 enabled:active:scale-press disabled:opacity-40 disabled:hover:bg-white/10";
 
 export function MediaLightbox({
   items,
@@ -137,6 +137,8 @@ export function MediaLightbox({
   const requestClose = () => {
     const { closing, reduce, speed, thumbFor, close } = latest.current;
     if (closing) return;
+    // Set now, not on the next render: the opening morph checks it as soon as the image decodes.
+    latest.current.closing = true;
     setClosing(true);
     setZoom(FIT);
     const selected = current();
@@ -167,11 +169,13 @@ export function MediaLightbox({
     const openingItem = items[start];
     const media = openingItem ? elements.media.get(openingItem.id) : undefined;
     void (media instanceof HTMLImageElement ? media.decode().catch(() => {}) : Promise.resolve()).then(() => {
+      // Closed while decoding: the opening morph would cancel the closing one, and the viewer would never close.
+      if (latest.current.closing) return;
       const thumb = openingItem ? thumbFor(openingItem.id) : undefined,
         source = thumbRect(thumb);
       if (reduce || !source) {
         figure.scale.jump(reduce ? 1 : 0.96);
-        pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(0.2, speed), ease: EASE_OUT });
+        pose(figure, { opacity: 1, scale: 1 }, { duration: scaled(0.18, speed), ease: EASE_OUT });
         return;
       }
       // jump(), not set(): set() reads the leap to the thumbnail as velocity, and the spring would fling the image past it.
@@ -296,7 +300,7 @@ export function MediaLightbox({
   const chrome = {
     initial: { opacity: 0 },
     animate: { opacity: closing ? 0 : 1 },
-    transition: { duration: scaled(closing ? 0.18 : 0.24, speed), ease: EASE_OUT },
+    transition: { duration: scaled(closing ? 0.18 : 0.28, speed), ease: EASE_OUT },
   };
   return createPortal(
     <dialog
@@ -310,7 +314,7 @@ export function MediaLightbox({
     >
       <motion.div {...chrome} className="absolute inset-0 bg-black/70 backdrop-blur-overlay" onClick={requestClose} />
       <motion.header {...chrome} className="absolute inset-x-0 top-0 flex h-14 items-center justify-between px-4">
-        <span aria-live="polite" className="text-xs tabular-nums text-white/70">
+        <span aria-live="polite" className="text-12 tabular-nums text-white/70">
           {items.length > 1 ? `${index + 1} / ${items.length}` : ""}
         </span>
         <button autoFocus type="button" aria-label="Close preview" onClick={requestClose} className={control}>
@@ -340,7 +344,7 @@ export function MediaLightbox({
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: scaled(0.22, speed), ease: EASE_OUT }}
+            transition={{ duration: scaled(0.18, speed), ease: EASE_OUT }}
             className="absolute inset-0 flex items-center justify-center p-4"
           >
             <Slide item={item} intro={!opened.current} zoom={zoom} elements={elements} onReady={ready} />
@@ -353,7 +357,7 @@ export function MediaLightbox({
             <Icon d="M15 6l-6 6 6 6" />
           </button>
         )}
-        <span className="min-w-0 max-w-[60vw] truncate text-sm text-white/80" title={item.name}>
+        <span className="min-w-0 max-w-[60vw] truncate text-13 text-white/80" title={item.name}>
           {item.name}
         </span>
         {items.length > 1 && (

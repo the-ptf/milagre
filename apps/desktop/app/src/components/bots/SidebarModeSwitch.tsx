@@ -1,6 +1,6 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { BotIcon, Folder01Icon } from "@hugeicons/core-free-icons";
 import Tooltip from "@/components/primitives/Tooltip";
+import { Icon } from "@/components/primitives/Icon";
 
 export type SidebarMode = "projects" | "bots";
 
@@ -22,18 +22,18 @@ export function SidebarModeSwitch({ mode, onMode, collapsed }: { mode: SidebarMo
               aria-pressed={mode === item.mode}
               data-sidebar-mode={item.mode}
               onClick={() => onMode(item.mode)}
-              className={`flex size-8 items-center justify-center rounded-[8px] transition-colors hover:bg-hover-2 hover:text-ink ${
-                mode === item.mode ? "bg-hover-2 text-ink" : "text-ink-3"
+              className={`flex size-8 items-center justify-center rounded-control transition-colors duration-fast hover:text-ink ${
+                mode === item.mode ? "bg-hover-2 text-ink" : "text-ink-3 hover:bg-hover-sidebar"
               }`}
             >
-              <HugeiconsIcon icon={item.icon} size={16} strokeWidth={1.8} color="currentColor" />
+              <Icon icon={item.icon} size={16} />
             </button>
           </Tooltip>
         ))}
       </div>
     );
   return (
-    <div data-sidebar-mode-switch role="group" aria-label="Sidebar" className="mx-2 mb-3 flex h-8 shrink-0 gap-0.5 rounded-[9px] bg-field p-0.5">
+    <div data-sidebar-mode-switch role="group" aria-label="Sidebar" className="mx-2 mb-3 flex h-8 shrink-0 gap-0.5 rounded-control bg-field p-0.5">
       {MODES.map((item) => (
         <button
           key={item.mode}
@@ -41,11 +41,11 @@ export function SidebarModeSwitch({ mode, onMode, collapsed }: { mode: SidebarMo
           aria-pressed={mode === item.mode}
           data-sidebar-mode={item.mode}
           onClick={() => onMode(item.mode)}
-          className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[7px] text-[13px] font-medium transition-[background-color,color,box-shadow] duration-150 ${
+          className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-chip text-13 font-medium transition-[background-color,color,box-shadow] duration-fast ${
             mode === item.mode ? "bg-surface text-ink shadow-card" : "text-ink-3 hover:text-ink"
           }`}
         >
-          <HugeiconsIcon icon={item.icon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+          <Icon icon={item.icon} size={14} className="shrink-0" />
           <span className="truncate">{item.label}</span>
         </button>
       ))}

@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GitBranchIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, GitBranchIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { EdgeFade } from "../bottom-fade";
 import { currentChoice } from "../choice-store";
 import { Icon } from "../icons";
-import { useStyles } from "../ui";
+import { Chip, HeaderButton, SectionLabel, pressStyle, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { lineHeight, type } from "../design-tokens";
 
 /** The grabber and title bar of the sheet, which content scrolls under. */
 const SHEET_HEADER_HEIGHT = 76;
 
 function ChoiceSeparator() {
   const { colors } = useTheme();
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: 40 }} />;
+  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: 42 }} />;
 }
 
 /** Long choice lists use a native sheet with the system search toolbar. */
@@ -86,35 +87,17 @@ export default function ChoiceSheet() {
         ListHeaderComponent={
           <View style={{ paddingTop: 16, paddingBottom: 12, gap: 12 }}>
             {tabs && (
-              <View accessibilityRole="tablist" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                {tabs.map((item) => {
-                  const selected = item.id === tab;
-                  return (
-                    <Pressable
-                      key={item.id}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected }}
-                      onPress={() => chooseTab(item.id)}
-                      style={({ pressed }) => ({
-                        paddingHorizontal: 12,
-                        paddingVertical: 7,
-                        borderRadius: 999,
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: selected ? colors.ink3 : colors.line,
-                        backgroundColor: selected ? colors.hover : pressed ? colors.hover : "transparent",
-                      })}
-                    >
-                      <Text style={{ color: selected ? colors.ink : colors.ink2, fontSize: 13, fontWeight: "500" }}>{item.label}</Text>
-                    </Pressable>
-                  );
-                })}
+              <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {tabs.map((item) => (
+                  <Chip key={item.id} label={item.label} selected={item.id === tab} onPress={() => chooseTab(item.id)} />
+                ))}
               </View>
             )}
             <Text style={styles.caption}>
               {switching ? "Loading…" : `${items.length} ${items.length === 1 ? "result" : "results"}`}
               {load ? " · Pull to refresh" : ""}
             </Text>
-            {refreshError ? <Text style={[styles.caption, { color: colors.error, marginTop: 4 }]}>{refreshError}</Text> : null}
+            {refreshError ? <Text style={[styles.caption, { color: colors.redInk, marginTop: 4 }]}>{refreshError}</Text> : null}
           </View>
         }
         ItemSeparatorComponent={ChoiceSeparator}
@@ -127,23 +110,15 @@ export default function ChoiceSheet() {
               accessibilityState={{ checked: !!item.checked, disabled: !!item.disabled }}
               disabled={item.disabled}
               onPress={() => close(item.id)}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                minHeight: 60,
-                paddingHorizontal: 10,
-                paddingVertical: 14,
-                borderRadius: 10,
-                borderCurve: "continuous",
+              style={({ pressed }) => [
                 // The chosen row shows only its tick, like the Linear issue rows; no fill.
-                backgroundColor: pressed ? colors.hover : "transparent",
-                opacity: item.disabled ? 0.4 : 1,
-              })}
+                { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingHorizontal: 12, paddingVertical: 12 },
+                pressStyle({ pressed, disabled: !!item.disabled, kind: "row" }),
+              ]}
             >
               {item.leading ?? entry.leading ?? <Icon icon={entry.icon ?? GitBranchIcon} tone={item.checked ? "accent" : "ink3"} size={18} />}
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 20 }}>{item.title}</Text>
+                <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{item.title}</Text>
                 {item.subtitle && (
                   <Text numberOfLines={1} ellipsizeMode="middle" style={styles.caption}>
                     {item.subtitle}
@@ -157,12 +132,7 @@ export default function ChoiceSheet() {
           if (!item.section || item.section === items[index - 1]?.section) return row;
           return (
             <View>
-              <Text
-                accessibilityRole="header"
-                style={[styles.caption, { paddingHorizontal: 10, paddingTop: index ? 18 : 0, paddingBottom: 4, fontWeight: "600" }]}
-              >
-                {item.section}
-              </Text>
+              <SectionLabel style={{ paddingHorizontal: 12, paddingTop: index ? 16 : 0, paddingBottom: 4 }}>{item.section}</SectionLabel>
               {row}
             </View>
           );
@@ -184,9 +154,15 @@ export default function ChoiceSheet() {
       />
       {/* HIG: a sheet's close button sits on the leading edge. */}
       <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button icon="xmark" onPress={() => close(null)}>
-          Close
-        </Stack.Toolbar.Button>
+        {Platform.OS === "ios" ? (
+          <Stack.Toolbar.Button icon="xmark" onPress={() => close(null)}>
+            Close
+          </Stack.Toolbar.Button>
+        ) : (
+          <Stack.Toolbar.View>
+            <HeaderButton label="Close" icon={Cancel01Icon} onPress={() => close(null)} />
+          </Stack.Toolbar.View>
+        )}
       </Stack.Toolbar>
       <Stack.Toolbar placement="bottom">
         <Stack.Toolbar.SearchBarSlot />

@@ -1,8 +1,9 @@
 import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useCallback, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Layout2ColumnIcon, LayoutTopIcon, RefreshIcon, TextWrapIcon } from "@hugeicons/core-free-icons";
 import Tooltip from "../primitives/Tooltip";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
 import type { DiffLayout } from "./DiffFile";
 import type { Changes } from "./useChanges";
 import { useRefreshSpin } from "./useRefreshSpin";
@@ -35,26 +36,18 @@ function ToolButton({
 }: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode } & Record<`data-${string}`, string | undefined>) {
   return (
     <Tooltip label={label} side="bottom" align="end">
-      <button
-        type="button"
-        aria-label={label}
-        aria-pressed={active}
-        disabled={disabled}
-        onClick={onClick}
-        {...rest}
-        className={`flex size-7 items-center justify-center rounded-chip transition-colors enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-40 ${active ? "bg-hover text-ink" : "text-ink-3"}`}
-      >
+      <IconButton label={label} size={28} aria-pressed={active} disabled={disabled} onClick={onClick} {...rest} className={active ? "bg-hover text-ink" : ""}>
         {children}
-      </button>
+      </IconButton>
     </Tooltip>
   );
 }
 
 export function DiffToolbar({ changes, prefs }: { changes: Changes; prefs: ReturnType<typeof useDiffPreferences> }) {
-  const icon = (glyph: typeof RefreshIcon) => <HugeiconsIcon icon={glyph} size={15} strokeWidth={1.8} color="currentColor" />;
+  const icon = (glyph: typeof RefreshIcon) => <Icon icon={glyph} size={16} />;
   const spin = useRefreshSpin(() => changes.refresh());
   return (
-    <div data-diff-toolbar className="flex items-center gap-0.5 [-webkit-app-region:no-drag]">
+    <div data-diff-toolbar className="flex items-center gap-0.5 no-drag">
       <ToolButton label="Unified" active={prefs.layout === "unified"} onClick={() => prefs.setLayout("unified")} data-diff-layout="unified">
         {icon(LayoutTopIcon)}
       </ToolButton>

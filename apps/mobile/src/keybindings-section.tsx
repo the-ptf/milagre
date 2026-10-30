@@ -18,6 +18,7 @@ import { confirmSheet } from "./confirm-store";
 import { rulesOf, useHostKeybindings } from "./keybindings-store";
 import { Group, Row } from "./settings-list";
 import { useSession } from "./session";
+import { lineHeight, space, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { ErrorNotice, showActions } from "./ui";
 
@@ -132,8 +133,8 @@ export function KeybindingsSection() {
   };
 
   return (
-    <View style={{ gap: 28 }}>
-      <Text style={{ color: colors.ink2, fontSize: 15, lineHeight: 21, paddingHorizontal: 16 }}>
+    <View style={{ gap: space.section }}>
+      <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, paddingHorizontal: space.gutter }}>
         {host.state
           ? "The connected Mac's keybindings.json. The Mac and this iPad's keyboard both use it; a key marked * runs only under a condition."
           : session.client

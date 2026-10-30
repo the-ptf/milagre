@@ -4,7 +4,8 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import { mcpChipLine, mcpEditTarget, mcpRemoveTargets, mcpTargetPlaces, mcpTransportLine } from "@milagre/shared/mcp";
 import { providerName } from "@milagre/shared/providers";
 import { useMcp } from "../../use-mcp";
-import { Button, PageScroll, Toggle, useStyles } from "../../ui";
+import { Button, ErrorNotice, PageScroll, Toggle, pressStyle, useStyles } from "../../ui";
+import { lineHeight, radius, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 import { confirm } from "../../confirm-store";
 
@@ -50,7 +51,7 @@ export default function McpServerScreen() {
         <Text selectable style={[styles.muted, { paddingHorizontal: 4 }]}>
           {mcpTransportLine(row)}
         </Text>
-        <View style={{ backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous", paddingHorizontal: 16 }}>
+        <View style={{ backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous", paddingHorizontal: 16 }}>
           {row.chips.map((chip, index) => {
             // While the write runs the switch shows the value it was flipped to, and ignores taps.
             const pending = mcp.pending(chip, row.name);
@@ -78,13 +79,9 @@ export default function McpServerScreen() {
             );
           })}
         </View>
-        {error ? (
-          <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
-            {error}
-          </Text>
-        ) : null}
+        {error ? <ErrorNotice message={error} /> : null}
         {row.editable && row.transport === "url" ? (
-          <View style={{ gap: 10 }}>
+          <View style={{ gap: 12 }}>
             <Button title="Edit" secondary onPress={() => router.push({ pathname: "/mcp-add", params: { name: row.name, target: mcpEditTarget(row) } })} />
             <Button title="Remove" secondary destructive loading={removing} onPress={() => void remove()} />
           </View>
@@ -122,11 +119,14 @@ function ChipLine({ text, style }: { text: string; style: StyleProp<TextStyle> }
       {lines > 3 ? (
         <Pressable
           accessibilityRole="button"
-          hitSlop={8}
+          accessibilityState={{ expanded: open }}
+          hitSlop={6}
           onPress={() => setOpen(!open)}
-          style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 32, justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+          style={({ pressed }) => [{ alignSelf: "flex-start", minHeight: 32, justifyContent: "center" }, pressStyle({ pressed })]}
         >
-          <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "600" }}>{open ? "Show less" : "Show more"}</Text>
+          <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
+            {open ? "Show less" : "Show more"}
+          </Text>
         </Pressable>
       ) : null}
     </View>

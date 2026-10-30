@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import type { DiffLine } from "@milagre/shared/diff-parse";
 import type { Range } from "@milagre/shared/diff-layout";
@@ -10,12 +10,13 @@ import { useScreenActive } from "./display-clock";
 import { useRpc } from "./use-rpc";
 import { LARGE_DIFF_LINES, diffRows, wordSegments, type DiffRow } from "./diff-rows";
 import { Counts, StatusBox } from "./diff-ui";
+import { hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { Icon } from "./icons";
-import { ErrorNotice, PillButton, tap, useStyles } from "./ui";
+import { ErrorNotice, Field, PillButton, pressStyle, tap, useStyles } from "./ui";
 import { fonts, useTheme } from "./theme";
 import { usePrDetail, writePr } from "./pr-store";
 import { sendToChat } from "./pr-chat";
-import { SmallButton, ThreadCard } from "./pr-lists";
+import { ThreadCard } from "./pr-lists";
 import { attachThreads, fileName, lineMessage, lineTarget, neighbours, splitDiffRows, threadFixMessage, type SplitDiffRow } from "./pr-review";
 
 const MARKER = { add: "+", remove: "−", context: "" } as const;
@@ -115,7 +116,7 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
   }
 
   const header = (
-    <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, gap: 10 }}>
+    <View style={{ paddingHorizontal: space.gutter, paddingTop: space.md, paddingBottom: space.lg, gap: space.lg }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         {file && <StatusBox status={file.status} />}
         <Text selectable numberOfLines={2} ellipsizeMode="middle" style={[styles.caption, { flex: 1 }]}>
@@ -199,18 +200,17 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
           windowSize={11}
         />
       )}
-      <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: 20 }}>
+      <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: 16 }}>
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: 6,
-            padding: 6,
-            borderRadius: 28,
+            gap: space.sm,
+            padding: space.sm,
+            borderRadius: radius.full,
             borderCurve: "continuous",
             backgroundColor: colors.surface,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.lineStrong,
+            boxShadow: colors.shadowRaised,
           }}
         >
           <NavButton
@@ -219,23 +219,38 @@ export function PrDiff({ client, cwd, number, path, chatKey, onChat, onNavigate,
             disabled={!previous}
             onPress={() => previous && onNavigate(previous.path)}
           />
-          <Text style={{ flex: 1, textAlign: "center", color: colors.ink2, fontSize: 14, fontVariant: ["tabular-nums"] }}>
+          <Text
+            style={{
+              flex: 1,
+              textAlign: "center",
+              color: colors.ink2,
+              fontSize: type.footnote,
+              lineHeight: lineHeight.footnote,
+              fontVariant: ["tabular-nums"],
+            }}
+          >
             File {index + 1} of {pr.files.length}
           </Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Review${pr.pendingReview?.count ? `, ${pr.pendingReview.count} pending` : ""}`}
-            onPress={onReview}
-            style={({ pressed }) => ({
-              height: 40,
-              paddingHorizontal: 14,
-              borderRadius: 20,
-              justifyContent: "center",
-              backgroundColor: colors.hover2,
-              opacity: pressed ? 0.6 : 1,
-            })}
+            hitSlop={hitSlopFor(40)}
+            onPress={() => {
+              tap();
+              onReview();
+            }}
+            style={({ pressed }) => [
+              {
+                minHeight: 40,
+                paddingHorizontal: space.xl,
+                borderRadius: radius.full,
+                justifyContent: "center",
+                backgroundColor: colors.hover2,
+              },
+              pressStyle({ pressed, filled: true }),
+            ]}
           >
-            <Text style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>
+            <Text style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
               {pr.pendingReview?.count ? `${pr.pendingReview.count} pending` : "Review"}
             </Text>
           </Pressable>
@@ -259,20 +274,22 @@ function NavButton({ label, icon, disabled, onPress }: { label: string; icon: ty
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
-      hitSlop={2}
+      hitSlop={hitSlopFor(40)}
       onPress={() => {
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: colors.hover,
-        opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
-      })}
+      style={({ pressed }) => [
+        {
+          width: 40,
+          height: 40,
+          borderRadius: radius.full,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.hover,
+        },
+        pressStyle({ pressed, disabled, filled: true }),
+      ]}
     >
       <Icon icon={icon} tone="ink" size={18} />
     </Pressable>
@@ -294,7 +311,10 @@ function useCode() {
 function Hunk({ header }: { header: string }) {
   const { colors, code } = useCode();
   return (
-    <Text numberOfLines={1} style={[code, { fontSize: 11, color: colors.ink3, backgroundColor: colors.inset, paddingHorizontal: 12, paddingVertical: 3 }]}>
+    <Text
+      numberOfLines={1}
+      style={[code, { fontSize: type.caption2, color: colors.ink3, backgroundColor: colors.inset, paddingHorizontal: space.lg, paddingVertical: space.xs }]}
+    >
       {header}
     </Text>
   );
@@ -314,6 +334,9 @@ function Words({ text, words, kind }: { text: string; words: Range[]; kind: Diff
   );
 }
 
+/** VoiceOver and TalkBack reach a line's long-press comment through this action. */
+const COMMENT_ACTIONS = [{ name: "longpress", label: "Comment on this line" }];
+
 const UnifiedRow = memo(function UnifiedRow({ row, onComment }: { row: DiffRow; onComment: (line: DiffLine, key: string) => void }) {
   const { colors, code, tint, marker } = useCode();
   if (row.type === "hunk") return <Hunk header={row.header} />;
@@ -323,6 +346,8 @@ const UnifiedRow = memo(function UnifiedRow({ row, onComment }: { row: DiffRow; 
     <Pressable
       accessibilityLabel={`${line.kind === "add" ? "Added" : line.kind === "remove" ? "Removed" : "Line"} ${number}: ${line.text}`}
       accessibilityHint="Long-press to comment on this line"
+      accessibilityActions={COMMENT_ACTIONS}
+      onAccessibilityAction={() => onComment(line, row.key)}
       onLongPress={() => onComment(line, row.key)}
       delayLongPress={350}
       style={({ pressed }) => ({ flexDirection: "row", backgroundColor: pressed ? colors.hover : tint[line.kind] })}
@@ -344,6 +369,8 @@ function Half({ line, words, onComment, rowKey }: { line?: DiffLine; words: Rang
     <Pressable
       accessibilityLabel={`${line.kind === "add" ? "Added" : line.kind === "remove" ? "Removed" : "Line"} ${number}: ${line.text}`}
       accessibilityHint="Long-press to comment on this line"
+      accessibilityActions={COMMENT_ACTIONS}
+      onAccessibilityAction={() => onComment(line, rowKey)}
       onLongPress={() => onComment(line, rowKey)}
       delayLongPress={350}
       style={({ pressed }) => ({ flex: 1, flexDirection: "row", backgroundColor: pressed ? colors.hover : tint[line.kind] })}
@@ -386,26 +413,29 @@ function LineComposer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
-    <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8, backgroundColor: colors.inset }}>
+    <View style={{ paddingHorizontal: space.lg, paddingVertical: space.lg, gap: space.md, backgroundColor: colors.inset }}>
       <Text style={styles.caption}>{composer.side === "LEFT" ? `Old line ${composer.line}` : `Line ${composer.line}`}</Text>
-      <TextInput
+      <Field
+        label="Comment on this line"
+        hideLabel
         autoFocus
         multiline
+        autoCapitalize="sentences"
+        autoCorrect
         value={text}
         onChangeText={setText}
         placeholder="Comment on this line"
-        placeholderTextColor={colors.ink3}
-        style={[styles.input, { minHeight: 72, fontSize: 15, textAlignVertical: "top", borderWidth: 1, borderColor: colors.accent }]}
+        style={{ minHeight: 72, fontSize: type.subheadline, textAlignVertical: "top", borderWidth: 1, borderColor: colors.accent }}
       />
-      {!!error && <Text style={{ color: colors.redInk, fontSize: 13 }}>{error}</Text>}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <SmallButton title="Cancel" tone="ink2" onPress={onCancel} />
+      {!!error && <ErrorNotice message={error} />}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+        <PillButton size="small" secondary title="Cancel" onPress={onCancel} />
         <View style={{ flex: 1 }} />
-        <SmallButton title="Send to Chat" disabled={!text.trim()} onPress={() => onChat(text)} />
-        <SmallButton
+        <PillButton size="small" secondary title="Send to Chat" disabled={!text.trim()} onPress={() => onChat(text)} />
+        <PillButton
+          size="small"
           title="Add to review"
-          filled
-          busy={busy}
+          loading={busy}
           disabled={!text.trim()}
           onPress={() => {
             setBusy(true);

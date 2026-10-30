@@ -1,17 +1,7 @@
 import { gitMessage } from "@milagre/shared/git-codes";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowRight01Icon, Cancel01Icon, GitBranchIcon, LinkSquare02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { ModelProvider } from "../model";
 import { formatLineCount } from "../lib/chat-list";
@@ -27,13 +17,13 @@ import {
   type GitStep,
 } from "../lib/git-dialog";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { Button, IconButton } from "./primitives/Button";
+import { FIELD, FIELD_AREA } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { SpinnerRing } from "./primitives/SpinnerRing";
+import Tooltip from "./primitives/Tooltip";
 import { useBridge } from "../lib/computer-bridge";
-
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
-
-function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
 
 const GENERATION_FAILED = "Couldn't write a message. Type one to continue.";
 const FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), input:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
@@ -42,27 +32,14 @@ type Fields = { commitMessage: string; prTitle: string; prBody: string };
 type StepState = { step: GitStep; status: "running" | "done" | "failed"; detail?: string };
 type Failure = { message: string; output?: string; hint?: string; hook?: boolean };
 
-function Spinner({ size = 12 }: { size?: number }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-block shrink-0 rounded-full border-[1.5px] border-line-strong border-t-ink-2"
-      style={{ width: size, height: size, animation: "spin 0.9s linear infinite" }}
-    />
-  );
-}
-
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section className="grid gap-1.5">
-      <h3 className="text-[12px] font-medium text-ink-2">{label}</h3>
+      <h3 className="text-12 font-medium text-ink-2">{label}</h3>
       {children}
     </section>
   );
 }
-
-const FIELD =
-  "w-full rounded-control border border-line bg-field px-2.5 py-2 text-[13px] leading-5 text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-accent";
 
 /** A text field that stays editable while its text is generated; the spinner sits inside it. Read-only while steps run. */
 function GeneratedField({
@@ -99,13 +76,13 @@ function GeneratedField({
   return (
     <div className="relative">
       {multiline ? (
-        <textarea {...props} rows={rows} className={`${FIELD} resize-y ${mono ? "font-mono text-[12.5px]" : ""}`} />
+        <textarea {...props} rows={rows} className={`${FIELD_AREA} resize-y outline-none ${mono ? "font-mono text-12" : ""}`} />
       ) : (
-        <input {...props} className={FIELD} />
+        <input {...props} className={`${FIELD} outline-none`} />
       )}
       {spinner && (
-        <span className="pointer-events-none absolute left-2.5 top-2 flex h-5 items-center gap-1.5 text-[12px] text-ink-3">
-          <Spinner />
+        <span className="pointer-events-none absolute left-2.5 top-2 flex h-5 items-center gap-1.5 text-12 text-ink-3">
+          <SpinnerRing size={12} />
           Writing…
         </span>
       )}
@@ -122,11 +99,11 @@ const STEP_COPY: Record<GitStep, { running: string; failed: string }> = {
 function StepLine({ state, result }: { state: StepState; result: GitRunResult }) {
   const text = state.status === "running" ? STEP_COPY[state.step].running : state.status === "failed" ? STEP_COPY[state.step].failed : (state.detail ?? "");
   return (
-    <li className="flex min-h-6 items-center gap-2 text-[13px]" data-step={state.step} data-status={state.status}>
+    <li className="flex min-h-6 items-center gap-2 text-13" data-step={state.step} data-status={state.status}>
       <span
         className={`flex size-4 shrink-0 items-center justify-center ${state.status === "failed" ? "text-red-ink" : state.status === "done" ? "text-green-ink" : "text-ink-3"}`}
       >
-        {state.status === "running" ? <Spinner /> : <Icon icon={state.status === "done" ? Tick02Icon : Alert02Icon} size={14} />}
+        {state.status === "running" ? <SpinnerRing size={12} /> : <Icon icon={state.status === "done" ? Tick02Icon : Alert02Icon} size={14} />}
       </span>
       <span className={state.status === "running" ? "text-ink-2" : "text-ink"}>{text}</span>
       {state.step === "pr" && state.status === "done" && result.pr && (
@@ -134,7 +111,7 @@ function StepLine({ state, result }: { state: StepState; result: GitRunResult })
           href={result.pr.url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex min-w-0 items-center gap-1 truncate text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"
+          className="inline-flex min-w-0 items-center gap-1 truncate text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-fast hover:decoration-ink"
         >
           <span className="truncate">{result.pr.url.replace(/^https?:\/\//, "")}</span>
           <Icon icon={LinkSquare02Icon} size={12} />
@@ -147,7 +124,7 @@ function StepLine({ state, result }: { state: StepState; result: GitRunResult })
 function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> }) {
   if (!changes.files.length) {
     return (
-      <p className="rounded-control border border-line bg-inset px-3 py-2 text-[12.5px] text-ink-2">
+      <p className="rounded-control border border-line bg-inset px-3 py-2 text-12 text-ink-2">
         No uncommitted changes.{changes.unpushed > 0 ? ` ${changes.unpushed} ${changes.unpushed === 1 ? "commit" : "commits"} to push.` : ""}
       </p>
     );
@@ -156,7 +133,7 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
   const removed = changes.files.reduce((sum, file) => sum + file.removed, 0);
   return (
     <div className="overflow-hidden rounded-control border border-line bg-inset">
-      <div className="flex items-center justify-between border-b border-line px-3 py-1.5 text-[12px] text-ink-2">
+      <div className="flex items-center justify-between border-b border-line px-3 py-1.5 text-12 text-ink-2">
         <span>
           {changes.files.length} {changes.files.length === 1 ? "file" : "files"} changed
         </span>
@@ -166,7 +143,7 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
       </div>
       <ScrollArea as="ul" chainScroll className="max-h-36 py-1">
         {changes.files.map((file) => (
-          <li key={file.path} className="flex items-center gap-2 px-3 py-0.5 text-[12px]" title={file.path}>
+          <li key={file.path} className="flex items-center gap-2 px-3 py-0.5 text-12" title={file.path}>
             <span
               className={`w-3 shrink-0 font-mono font-semibold ${file.status === "added" ? "text-diff-add" : file.status === "deleted" ? "text-diff-remove" : "text-orange-ink"}`}
             >
@@ -174,14 +151,12 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
             </span>
             <span className="min-w-0 flex-1 truncate font-mono text-ink">{file.path}</span>
             {file.secret && (
-              <span
-                data-secret
-                className="flex shrink-0 items-center gap-1 text-[11.5px] text-orange-ink"
-                title="This looks like a secret. Milagre won't commit it."
-              >
-                <Icon icon={Alert02Icon} size={12} />
-                Secret?
-              </span>
+              <Tooltip label="This looks like a secret. Milagre won't commit it." side="top" align="end">
+                <span data-secret className="flex shrink-0 items-center gap-1 text-11 text-orange-ink">
+                  <Icon icon={Alert02Icon} size={12} />
+                  Secret?
+                </span>
+              </Tooltip>
             )}
             <span className="shrink-0 tabular-nums text-ink-3">
               {file.added > 0 && <span className="text-diff-add">+{formatLineCount(file.added)}</span>}
@@ -194,11 +169,6 @@ function FileList({ changes }: { changes: Extract<GitChanges, { isRepo: true }> 
     </div>
   );
 }
-
-const BUTTON_PRIMARY =
-  "inline-flex h-8 items-center gap-1.5 rounded-control bg-ink px-3 text-[12.5px] font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40";
-const BUTTON_SECONDARY =
-  "inline-flex h-8 items-center gap-1.5 rounded-control border border-line bg-surface px-3 text-[12.5px] font-medium text-ink-2 transition-colors hover:border-line-strong hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40";
 
 /**
  * "Commit and open PR": commits the chat's folder, pushes its branch and opens a PR, with a generated,
@@ -479,8 +449,8 @@ export function GitActionsDialog({
   return createPortal(
     <div
       data-git-dialog-overlay
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-[oklch(0.2_0.01_260/0.32)] p-4 [-webkit-app-region:no-drag]"
-      style={{ animation: "fade-in 140ms ease-out both" }}
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-4 backdrop-blur-overlay no-drag"
+      style={{ animation: "fade-in var(--duration-fast) var(--ease-enter) both" }}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -493,42 +463,30 @@ export function GitActionsDialog({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         data-git-dialog
-        className="flex max-h-[min(88vh,760px)] w-[560px] max-w-full flex-col overflow-hidden rounded-[14px] bg-surface text-ink shadow-overlay outline-none"
-        style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both" }}
+        className="flex max-h-[min(88vh,760px)] w-[560px] max-w-full flex-col overflow-hidden rounded-window bg-surface text-ink shadow-overlay outline-none"
+        style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
       >
-        <header className="flex items-center gap-3 px-4 pb-2 pt-3.5">
-          <h2 id="git-dialog-title" className="min-w-0 flex-1 text-[15px] font-semibold">
+        <header className="flex items-center gap-3 px-4 pt-4 pb-2">
+          <h2 id="git-dialog-title" className="min-w-0 flex-1 text-17 font-semibold">
             Commit and open PR
           </h2>
-          {projectName && <p className="mt-1 text-[12px] text-ink-2">{projectName}</p>}
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={close}
-            disabled={running}
-            className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:opacity-40"
-          >
-            <Icon icon={Cancel01Icon} size={16} />
-          </button>
+          {projectName && <p className="mt-1 text-12 text-ink-2">{projectName}</p>}
+          <IconButton label="Close" icon={Cancel01Icon} size={28} onClick={close} disabled={running} />
         </header>
 
         <ScrollArea className="grid flex-1 gap-4 px-4 pb-4 pt-1">
           {!changes && !readError && (
-            <p className="flex items-center gap-2 py-6 text-[13px] text-ink-3">
-              <Spinner /> Reading changes…
+            <p className="flex items-center gap-2 py-6 text-13 text-ink-3">
+              <SpinnerRing size={12} /> Reading changes…
             </p>
           )}
-          {readError && (
-            <p role="alert" className="text-[13px] text-red-ink">
-              {readError}
-            </p>
-          )}
-          {changes && !changes.isRepo && <p className="py-2 text-[13px] text-ink-2">{changes.message ?? "This chat's folder isn't a git repository."}</p>}
+          <InlineError>{readError}</InlineError>
+          {changes && !changes.isRepo && <p className="py-2 text-13 text-ink-2">{changes.message ?? "This chat's folder isn't a git repository."}</p>}
 
           {repo && mode && (
             <>
               <Section label="Changes">
-                <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-2">
+                <div className="flex min-w-0 items-center gap-1.5 text-12 text-ink-2">
                   <span className="text-ink-3">
                     <Icon icon={GitBranchIcon} size={14} />
                   </span>
@@ -553,20 +511,20 @@ export function GitActionsDialog({
                     rows={3}
                     placeholder="Describe the change"
                   />
-                  {generationFailed.commit && !fields.commitMessage && <p className="text-[12px] text-ink-3">{GENERATION_FAILED}</p>}
+                  {generationFailed.commit && !fields.commitMessage && <p className="text-12 text-ink-3">{GENERATION_FAILED}</p>}
                 </Section>
               )}
 
               {showForm && (mode.prOpen || mode.showPrFields || mode.prBlocked) && (
                 <Section label="Pull request">
                   {mode.prOpen && repo.pr ? (
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-control border border-line bg-inset px-3 py-2 text-[12.5px] text-ink-2">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-control border border-line bg-inset px-3 py-2 text-12 text-ink-2">
                       <span>PR #{repo.pr.number} is open. Pushing updates it.</span>
                       <a
                         href={repo.pr.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-medium text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"
+                        className="inline-flex items-center gap-1 font-medium text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-fast hover:decoration-ink"
                       >
                         Open PR #{repo.pr.number}
                         <Icon icon={LinkSquare02Icon} size={12} />
@@ -593,16 +551,16 @@ export function GitActionsDialog({
                         placeholder="What changed and why"
                       />
                       {generationFailed.pr && !fields.prTitle && !(mode.showCommit && generationFailed.commit) && (
-                        <p className="text-[12px] text-ink-3">{GENERATION_FAILED}</p>
+                        <p className="text-12 text-ink-3">{GENERATION_FAILED}</p>
                       )}
                       {prTarget && (
-                        <p data-pr-target className="text-[12px] text-ink-2">
+                        <p data-pr-target className="text-12 text-ink-2">
                           {prTarget}
                         </p>
                       )}
                     </div>
                   ) : (
-                    <p className="rounded-control border border-line bg-inset px-3 py-2 text-[12.5px] text-ink-2">{mode.prBlocked}</p>
+                    <p className="rounded-control border border-line bg-inset px-3 py-2 text-12 text-ink-2">{mode.prBlocked}</p>
                   )}
                 </Section>
               )}
@@ -628,56 +586,55 @@ export function GitActionsDialog({
                   {/* Git's and gh's own output keeps its lines; a one-line reason reads as text. */}
                   {failure.output || failure.message.includes("\n") ? (
                     <>
-                      {failure.output && <p className="text-[12.5px] font-medium text-ink">{failure.message}</p>}
-                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-chip bg-surface px-2.5 py-2 font-mono text-[11.5px] leading-5 text-ink-2">
+                      {failure.output && <p className="text-13 font-medium text-ink">{failure.message}</p>}
+                      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-chip bg-surface px-2.5 py-2 font-mono text-11 text-ink-2">
                         {failure.output ?? failure.message}
                       </pre>
                     </>
                   ) : (
-                    <p className="whitespace-pre-wrap break-words text-[12.5px] text-ink">{failure.message}</p>
+                    <p className="whitespace-pre-wrap break-words text-13 text-ink">{failure.message}</p>
                   )}
-                  {failure.hint && <p className="text-[12.5px] text-ink">{failure.hint}</p>}
+                  {failure.hint && <p className="text-13 text-ink">{failure.hint}</p>}
                   {failure.hook && (
                     <div>
-                      <button
-                        type="button"
-                        className={BUTTON_SECONDARY}
+                      <Button
+                        variant="secondary"
                         onClick={() => {
                           onSendToAgent(hookFailureMessage(failure.output ?? failure.message));
                           onClose();
                         }}
                       >
                         Send to agent
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
               )}
 
-              {!finished && mode.idle && !failure && <p className="text-[12.5px] text-ink-3">{mode.idle}</p>}
+              {!finished && mode.idle && !failure && <p className="text-12 text-ink-3">{mode.idle}</p>}
             </>
           )}
         </ScrollArea>
 
         <footer className="flex items-center gap-2 border-t border-line bg-inset px-4 py-3">
-          <p data-footer-reason className="min-w-0 flex-1 text-[12px] text-ink-3">
+          <p data-footer-reason className="min-w-0 flex-1 text-12 text-ink-3">
             {!finished && !running ? footerReason : null}
           </p>
           {finished || !primary ? (
-            <button type="button" className={BUTTON_PRIMARY} onClick={onClose} disabled={running}>
+            <Button onClick={onClose} disabled={running}>
               {finished ? "Done" : "Close"}
-            </button>
+            </Button>
           ) : (
             <>
               {secondary && (
-                <button type="button" className={BUTTON_SECONDARY} disabled={disabled(secondary)} onClick={() => void run(secondary.steps)}>
+                <Button variant="secondary" disabled={disabled(secondary)} onClick={() => void run(secondary.steps)}>
                   {secondary.label}
-                </button>
+                </Button>
               )}
-              <button type="button" className={BUTTON_PRIMARY} disabled={disabled(primary)} onClick={() => void run(primary.steps)}>
-                {running && <Spinner />}
+              <Button disabled={disabled(primary)} onClick={() => void run(primary.steps)}>
+                {running && <SpinnerRing size={12} color="currentColor" />}
                 {primary.label}
-              </button>
+              </Button>
             </>
           )}
         </footer>

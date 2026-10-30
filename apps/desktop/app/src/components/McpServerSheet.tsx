@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, CommandLineIcon, Globe02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { MCP_SECRET_MASK, validateMcpServer, type McpServerDefinition, type McpTarget } from "@milagre/shared/mcp";
+import { Button, IconButton } from "./primitives/Button";
+import { FIELD, FIELD_AREA } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { RadioGroup, RadioGroupItem } from "./primitives/RadioGroup";
 
 // `stored` is the value the server came with (the mask, for secrets); `edited` is set once the user types a new value.
 type Pair = { key: string; value: string; stored?: string; edited?: boolean };
@@ -11,12 +15,10 @@ const toPairs = (record: Record<string, string>): Pair[] => Object.entries(recor
 // An untouched value goes back as it came, so a masked secret is kept by the runtime rather than saved as "".
 const sent = (pair: Pair) => (pair.edited || pair.stored === undefined ? pair.value : pair.stored);
 const toRecord = (pairs: Pair[]) => Object.fromEntries(pairs.filter((pair) => pair.key || sent(pair)).map((pair) => [pair.key, sent(pair)]));
-// The app's global rule drops the outline on inputs, so focus shows as an ink border.
-const field = "w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink";
-const pairField =
-  "min-w-0 rounded-lg border border-transparent bg-field px-3 py-2 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-ink focus:ring-1 focus:ring-ink";
-const footerButton = "rounded-lg px-4 py-2 text-[13px] transition-colors disabled:opacity-40";
-const label = "block space-y-1.5 text-[12px] font-medium text-ink-2";
+// The app's global rule drops the outline on inputs, so fields show focus as FIELD's accent border. In a pair row,
+// flex-basis wins over FIELD's w-full.
+const pairField = `${FIELD} min-w-0`;
+const label = "block space-y-1.5 text-12 font-medium text-ink-2";
 const TARGETS: { value: McpTarget; label: string; hint: string }[] = [
   { value: "everywhere", label: "Everywhere", hint: "Milagre Chats on every provider" },
   { value: "claude", label: "Claude only", hint: "Written to Claude’s config" },
@@ -91,7 +93,8 @@ export function McpServerSheet({
         onClose();
       }}
       onMouseDown={(event) => event.target === dialog.current && onClose()}
-      className="m-auto w-[520px] max-w-[calc(100vw-32px)] overflow-visible rounded-2xl bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+      className="m-auto w-[520px] max-w-[calc(100vw-32px)] overflow-visible rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
     >
       <form
         data-mcp-sheet
@@ -102,12 +105,11 @@ export function McpServerSheet({
         }}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-[17px] font-semibold text-ink">{title}</h2>
-          <button type="button" aria-label="Close" className="rounded-md p-1 text-ink-2 hover:bg-hover" onClick={onClose}>
-            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.75} color="currentColor" />
-          </button>
+          <h2 className="text-17 font-semibold text-ink">{title}</h2>
+          <IconButton label="Close" icon={Cancel01Icon} className="-mr-1" onClick={onClose} />
         </div>
-        <div className="flex gap-1 rounded-[10px] bg-field p-[3px]">
+        {/* Drawn as primitives/Segmented (large); kept by hand for the data-mcp-kind hooks and aria-pressed the tests read. */}
+        <div className="flex gap-0.5 rounded-control bg-field p-0.5">
           {(["url", "command"] as const).map((value) => (
             <button
               key={value}
@@ -120,35 +122,35 @@ export function McpServerSheet({
                 if (value !== kind) setPairs([]);
                 setKind(value);
               }}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-[8px] py-1.5 text-[13px] disabled:opacity-40 ${kind === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-2"}`}
+              className={`flex h-7 flex-1 items-center justify-center gap-1.5 rounded-chip px-3 text-13 font-medium transition-colors duration-fast disabled:opacity-40 ${kind === value ? "bg-surface text-ink shadow-card" : "text-ink-2 enabled:hover:text-ink"}`}
             >
-              <HugeiconsIcon icon={value === "url" ? Globe02Icon : CommandLineIcon} size={14} strokeWidth={1.75} color="currentColor" />
+              <Icon icon={value === "url" ? Globe02Icon : CommandLineIcon} size={14} />
               {value === "url" ? "URL" : remote ? "Command (on the Mac)" : "Command"}
             </button>
           ))}
         </div>
         <label className={label}>
           Name
-          <input ref={nameInput} aria-label="Name" className={field} value={name} onChange={(event) => edit(setName, event.target.value)} />
+          <input ref={nameInput} aria-label="Name" className={FIELD} value={name} onChange={(event) => edit(setName, event.target.value)} />
         </label>
         {kind === "url" ? (
           <label className={label}>
             URL
-            <input aria-label="URL" className={field} placeholder="https://" value={url} onChange={(event) => edit(setUrl, event.target.value)} />
+            <input aria-label="URL" className={FIELD} placeholder="https://" value={url} onChange={(event) => edit(setUrl, event.target.value)} />
             <span className="block font-normal text-ink-3">If the server asks you to sign in, your browser opens after you add it.</span>
           </label>
         ) : (
           <>
             <label className={label}>
               Command
-              <input aria-label="Command" className={field} placeholder="npx" value={command} onChange={(event) => edit(setCommand, event.target.value)} />
+              <input aria-label="Command" className={FIELD} placeholder="npx" value={command} onChange={(event) => edit(setCommand, event.target.value)} />
             </label>
             <label className={label}>
               Arguments (optional)
               <textarea
                 aria-label="Arguments"
                 rows={3}
-                className={`${field} resize-y font-mono text-[12.5px]`}
+                className={`${FIELD_AREA} resize-y font-mono`}
                 placeholder={"-y\n@scope/server"}
                 value={args}
                 onChange={(event) => edit(setArgs, event.target.value)}
@@ -158,12 +160,12 @@ export function McpServerSheet({
           </>
         )}
         <div className="space-y-1.5">
-          <span className="block text-[12px] font-medium text-ink-2">{kind === "url" ? "Headers (optional)" : "Environment (optional)"}</span>
+          <span className="block text-12 font-medium text-ink-2">{kind === "url" ? "Headers (optional)" : "Environment (optional)"}</span>
           {shown.map((pair, index) => (
-            <div key={index} className="flex gap-2">
+            <div key={index} className="flex items-center gap-2">
               <input
                 aria-label={kind === "url" ? "Header" : "Variable"}
-                className={`${pairField} w-[170px] shrink-0`}
+                className={`${pairField} shrink-0 basis-[168px]`}
                 placeholder={kind === "url" ? "Header" : "Variable"}
                 value={pair.key}
                 onChange={(event) => setPair(index, { ...pair, key: event.target.value })}
@@ -178,47 +180,40 @@ export function McpServerSheet({
                 onBlur={() => !pair.edited && pair.stored === MCP_SECRET_MASK && setPair(index, { ...pair, value: MCP_SECRET_MASK })}
                 onChange={(event) => setPair(index, { ...pair, value: event.target.value, edited: true })}
               />
-              <button
-                type="button"
-                aria-label={kind === "url" ? "Add a header" : "Add a variable"}
-                className={`flex size-9 shrink-0 items-center justify-center rounded-lg border border-line-strong bg-surface text-ink-2 hover:bg-hover ${index === shown.length - 1 ? "" : "invisible"}`}
+              <IconButton
+                label={kind === "url" ? "Add a header" : "Add a variable"}
+                icon={PlusSignIcon}
+                iconSize={14}
+                size={32}
+                variant="secondary"
+                className={index === shown.length - 1 ? "" : "invisible"}
                 onClick={() => setPairs([...shown, EMPTY])}
-              >
-                <HugeiconsIcon icon={PlusSignIcon} size={14} strokeWidth={1.75} color="currentColor" />
-              </button>
+              />
             </div>
           ))}
         </div>
         <fieldset className="space-y-1.5">
-          <legend className="mb-1.5 text-[12px] font-medium text-ink-2">Load it in</legend>
-          <div className="divide-y divide-line rounded-[10px] border border-line">
-            {TARGETS.map((option) => (
-              <label key={option.value} className="flex min-h-11 cursor-pointer items-center gap-2.5 px-3">
-                <input
-                  type="radio"
-                  name="target"
-                  className="size-4 shrink-0 cursor-pointer appearance-none rounded-full border border-line-strong bg-surface transition-[border] checked:border-[5px] checked:border-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                  checked={target === option.value}
-                  onChange={() => setTarget(option.value)}
-                />
-                <span className={`flex-1 text-[13px] ${target === option.value ? "font-medium text-ink" : "text-ink-2"}`}>{option.label}</span>
-                <span className="text-[12px] text-ink-3">{option.hint}</span>
-              </label>
-            ))}
-          </div>
+          <legend className="mb-1.5 text-12 font-medium text-ink-2">Load it in</legend>
+          <RadioGroup aria-label="Load it in" value={target} onValueChange={(value) => setTarget(value as McpTarget)}>
+            <div className="divide-y divide-line rounded-card border border-line">
+              {TARGETS.map((option) => (
+                <label key={option.value} className="flex min-h-11 cursor-pointer items-center gap-2 px-3">
+                  <RadioGroupItem value={option.value} aria-label={option.label} />
+                  <span className={`flex-1 text-13 ${target === option.value ? "font-medium text-ink" : "text-ink-2"}`}>{option.label}</span>
+                  <span className="text-12 text-ink-3">{option.hint}</span>
+                </label>
+              ))}
+            </div>
+          </RadioGroup>
         </fieldset>
-        {error && (
-          <p role="alert" className="text-[12.5px] break-words text-red-ink">
-            {error}
-          </p>
-        )}
+        <InlineError size={12}>{error}</InlineError>
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" className={`${footerButton} border border-line-strong bg-surface font-medium text-ink hover:bg-hover`} onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button type="submit" className={`${footerButton} bg-ink font-semibold text-surface hover:opacity-90`} disabled={busy}>
+          </Button>
+          <Button type="submit" disabled={busy}>
             {busy ? "Saving…" : initial ? "Save" : kind === "url" && !remote ? "Add and sign in" : "Add server"}
-          </button>
+          </Button>
         </div>
       </form>
     </dialog>,

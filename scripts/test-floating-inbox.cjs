@@ -349,7 +349,11 @@ async function browserChecks() {
     assert.equal(await evaluate("document.querySelector('[aria-label=\"15 more Chats. Open inbox\"]').textContent.trim()"), "+15");
     await click('[aria-label="15 more Chats. Open inbox"]');
     assert.equal(await evaluate("window.toggled"), true, "overflow opens the inbox containing all Chats");
-    assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-position-thumb]")).backgroundColor'), "rgb(255, 255, 255)");
+    assert.equal(
+      await evaluate('getComputedStyle(document.querySelector("[data-position-thumb]")).backgroundColor'),
+      "rgb(245, 245, 245)",
+      "the thumb is the inbox panel's dark ink token",
+    );
     for (let index = 0; index < 20; index++) await click('[aria-label="Next message"]');
     assert.equal(await evaluate('document.querySelector("[data-inbox-count]").textContent.trim()'), "20 of 20");
     assert.equal(await evaluate('document.querySelectorAll("[data-position-track]").length'), 1);

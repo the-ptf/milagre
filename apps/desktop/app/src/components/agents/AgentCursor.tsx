@@ -36,7 +36,7 @@ export function AgentCursor({
       className="pointer-events-none absolute top-0 left-0 z-20"
       style={{
         transform: `translate(${x}px, ${y}px)`,
-        transition: reduced ? undefined : "transform 220ms cubic-bezier(.2,.8,.2,1)",
+        transition: reduced ? undefined : "transform var(--duration-base) var(--ease-enter)",
       }}
     >
       <div className="origin-top-left" style={{ transform: `scale(${1 / scale})` }}>
@@ -47,7 +47,7 @@ export function AgentCursor({
           data-slot="agent-cursor-label"
           // The label takes the pointer only to show a subagent's task.
           title={task}
-          className={`absolute top-[17px] left-[12px] flex items-center gap-1 whitespace-nowrap rounded-[6px] rounded-tl-[2px] px-1.5 py-0.5 text-[11px] font-medium shadow-raised ${task ? "pointer-events-auto" : ""}`}
+          className={`absolute top-[17px] left-3 flex items-center gap-1 whitespace-nowrap rounded-chip rounded-tl-[2px] px-1.5 py-0.5 text-11 font-medium shadow-raised ${task ? "pointer-events-auto" : ""}`}
           style={{ background: color, color: ink }}
         >
           {label}

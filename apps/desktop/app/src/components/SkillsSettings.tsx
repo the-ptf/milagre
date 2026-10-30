@@ -19,9 +19,12 @@ import { showNotice } from "../lib/notice";
 import { Select } from "./primitives/Select";
 import { Markdown } from "./markdown/Markdown";
 import { bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
+import { Button } from "./primitives/Button";
+import { FIELD } from "./primitives/Field";
+import { InlineError } from "./primitives/InlineError";
+import { SectionLabel } from "./primitives/SectionLabel";
 
-const button = "rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover disabled:opacity-40";
-const badge = "shrink-0 rounded-full bg-field px-2 py-px text-[11px] font-medium text-ink-2";
+const badge = "shrink-0 rounded-full bg-field px-2 py-px text-11 font-medium text-ink-2";
 const scopeLabel = (scope: SkillScope) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
 const others = (count: number) => `Overrides ${count} other${count === 1 ? "" : "s"}`;
 
@@ -54,12 +57,12 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
   return (
     <div className="mt-6 grid gap-5" data-skills-settings>
       <div className="flex items-start justify-between gap-6">
-        <p className="max-w-[430px] text-[13px] leading-5 text-ink-3">
+        <p className="max-w-[430px] text-13 leading-5 text-ink-3">
           Skills from this Project and your home folder. When two share a name, the first one found wins and the / menu offers only that one.
         </p>
-        <button type="button" className={button} disabled={loading} onClick={() => setRevision((value) => value + 1)}>
+        <Button variant="secondary" size={28} disabled={loading} onClick={() => setRevision((value) => value + 1)}>
           {loading ? "Reloading…" : "Reload"}
-        </button>
+        </Button>
       </div>
       <div className="flex items-center gap-2">
         <input
@@ -69,7 +72,7 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           spellCheck={false}
-          className="h-9 min-w-0 flex-1 rounded-control border border-line bg-surface px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus-visible:border-ink-3"
+          className={`${FIELD} min-w-0 flex-1`}
         />
         <Select<SkillScope | "all">
           label="Scope"
@@ -88,10 +91,10 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
       </div>
       {groups.map((group) => (
         <section key={group.scope} data-skill-group={group.scope}>
-          <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">
+          <SectionLabel className="mb-2 px-1">
             {group.label} · {group.skills.length}
-          </h2>
-          <ul className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">
+          </SectionLabel>
+          <ul className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">
             {group.skills.map((skill) => (
               <SkillRow key={skill.path} skill={skill} hidden={shadowedBy(shadowed, skill).length} onOpen={() => setSelectedPath(skill.path)} />
             ))}
@@ -99,16 +102,16 @@ export function SkillsSettings({ projectPath }: { projectPath: string }) {
         </section>
       ))}
       {!groups.length && !loading && (
-        <p role="status" className="text-[13px] text-ink-3">
-          No skills found. Create one in <code className="font-mono text-[12px]">.claude/skills/&lt;name&gt;/SKILL.md</code>.
+        <p role="status" className="text-13 text-ink-3">
+          No skills found. Create one in <code className="font-mono text-12">.claude/skills/&lt;name&gt;/SKILL.md</code>.
         </p>
       )}
       {warnings.length > 0 && (
         <section data-skill-warnings>
-          <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">Warnings · {warnings.length}</h2>
-          <ul className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">
+          <SectionLabel className="mb-2 px-1">Warnings · {warnings.length}</SectionLabel>
+          <ul className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">
             {warnings.map((warning) => (
-              <li key={warning} className="break-words px-4 py-2.5 text-[12px] text-ink-2 [overflow-wrap:anywhere]">
+              <li key={warning} className="break-words px-4 py-2 text-12 text-ink-2 [overflow-wrap:anywhere]">
                 {shortenHome(warning)}
               </li>
             ))}
@@ -125,17 +128,17 @@ function SkillRow({ skill, hidden, onOpen }: { skill: SkillOption; hidden: numbe
       <button
         type="button"
         onClick={onOpen}
-        className="grid w-full gap-0.5 px-4 py-2.5 text-left transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink-2"
+        className="grid w-full gap-0.5 px-4 py-2 text-left transition-colors duration-fast hover:bg-hover focus-visible:-outline-offset-2"
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[13.5px] font-medium text-ink">/{skill.name}</span>
+          <span className="truncate text-13 font-medium text-ink">/{skill.name}</span>
           <span className={badge}>{skillProviderLabel(skill.provider)}</span>
-          {hidden > 0 && <span className="shrink-0 text-[11px] text-orange-ink">{others(hidden)}</span>}
+          {hidden > 0 && <span className="shrink-0 text-11 text-orange-ink">{others(hidden)}</span>}
         </span>
-        <span title={skill.description} className="truncate text-[12px] text-ink-2">
+        <span title={skill.description} className="truncate text-12 text-ink-2">
           {skill.description}
         </span>
-        {skill.path && <span className="truncate font-mono text-[11px] text-ink-3">{shortenHome(skill.path)}</span>}
+        {skill.path && <span className="truncate font-mono text-11 text-ink-3">{shortenHome(skill.path)}</span>}
       </button>
     </li>
   );
@@ -200,65 +203,63 @@ function SkillDetail({
   return (
     <div className="mt-6 grid gap-5" data-skill-detail>
       <div>
-        <button type="button" className={button} onClick={onBack}>
+        <Button variant="secondary" size={28} onClick={onBack}>
           All skills
-        </button>
+        </Button>
       </div>
-      <section className="grid gap-3 rounded-[12px] bg-surface px-4 py-4 shadow-card">
+      <section className="grid gap-3 rounded-card bg-surface p-4 shadow-card">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="truncate text-[16px] font-semibold text-ink">/{skill.name}</h2>
+          <h2 className="truncate text-15 font-semibold text-ink">/{skill.name}</h2>
           <span className={badge}>{skillProviderLabel(skill.provider)}</span>
           <span className={badge}>{scopeLabel(skill.scope)}</span>
         </div>
-        <p className="text-[13px] leading-5 text-ink-2">{skill.description}</p>
-        {skill.path && <p className="break-all font-mono text-[11.5px] text-ink-3">{shortenHome(skill.path)}</p>}
+        <p className="text-13 leading-5 text-ink-2">{skill.description}</p>
+        {skill.path && <p className="break-all font-mono text-11 text-ink-3">{shortenHome(skill.path)}</p>}
         <div className="flex flex-wrap gap-2">
           {skill.path && !isRemoteKey(projectPath) && (
-            <button
-              type="button"
-              className={button}
+            <Button
+              variant="secondary"
+              size={28}
               disabled={!editor}
               title={editor ? undefined : "Install Cursor, VS Code, Zed or another editor"}
               onClick={() => void open()}
             >
               {editor ? `Open in ${editor.name}` : "Open in editor"}
-            </button>
+            </Button>
           )}
           {skill.path && !isRemoteKey(projectPath) && (
-            <button type="button" className={button} onClick={reveal}>
+            <Button variant="secondary" size={28} onClick={reveal}>
               Show in Finder
-            </button>
+            </Button>
           )}
-          <button type="button" className={button} onClick={copy}>
+          <Button variant="secondary" size={28} onClick={copy}>
             {copied ? "Copied" : `Copy /${skill.name}`}
-          </button>
+          </Button>
         </div>
       </section>
       {hidden.length > 0 && (
         <section data-skill-shadowed>
-          <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">{others(hidden.length)}</h2>
-          <ul className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">
+          <SectionLabel className="mb-2 px-1">{others(hidden.length)}</SectionLabel>
+          <ul className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">
             {hidden.map((item) => (
-              <li key={item.path} className="grid gap-0.5 px-4 py-2.5">
-                <span className="flex items-center gap-2 text-[12px] text-ink-2">
+              <li key={item.path} className="grid gap-0.5 px-4 py-2">
+                <span className="flex items-center gap-2 text-12 text-ink-2">
                   <span className={badge}>{skillProviderLabel(item.provider)}</span>
                   {scopeLabel(item.scope)}
                 </span>
-                <span className="break-all font-mono text-[11px] text-ink-3">{shortenHome(item.path)}</span>
+                <span className="break-all font-mono text-11 text-ink-3">{shortenHome(item.path)}</span>
               </li>
             ))}
           </ul>
         </section>
       )}
-      <section className="rounded-[12px] bg-surface px-5 py-4 text-[13.5px] leading-6 text-ink shadow-card">
+      <section className="rounded-card bg-surface px-5 py-4 text-13 leading-6 text-ink shadow-card">
         {!content ? (
           <p role="status" className="text-ink-3">
             Reading SKILL.md…
           </p>
         ) : "error" in content ? (
-          <p role="alert" className="text-red-ink">
-            Couldn't read this skill: {content.error}
-          </p>
+          <InlineError>Couldn't read this skill: {content.error}</InlineError>
         ) : (
           <Markdown text={skillBody(content.text)} />
         )}

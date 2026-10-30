@@ -130,10 +130,10 @@ export function SidebarUsage({ usage, scope, chatsHome }: { usage: UsageState; s
               if (!(event.relatedTarget as Element | null)?.closest("[data-usage-card]")) scheduleHide();
             }}
             onClick={() => show(item.provider)}
-            className={`sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[8px] px-2 text-[12px] tabular-nums text-ink-2 transition-[background-color,color,opacity] duration-150 hover:bg-hover-2 hover:text-ink ${expanded ? "bg-hover-2 text-ink" : ""} ${item.status === "error" ? "opacity-60" : ""}`}
+            className={`sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-control px-2 text-12 tabular-nums text-ink-2 transition-[background-color,color,opacity] duration-fast hover:bg-hover-sidebar hover:text-ink ${expanded ? "bg-hover-2 text-ink" : ""} ${item.status === "error" ? "opacity-60" : ""}`}
           >
             <span className="flex shrink-0 items-center justify-center">
-              <ProviderLogo provider={item.provider} size={13} />
+              <ProviderLogo provider={item.provider} size={14} />
             </span>
             <span className="sidebar-copy min-w-0 truncate text-ink-2">{PROVIDER_NAMES[item.provider]}</span>
             {item.windows.length === 0 ? (

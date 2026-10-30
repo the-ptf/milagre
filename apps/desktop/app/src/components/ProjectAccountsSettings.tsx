@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ModelProvider, ProjectAccountScope, ProjectAccountsSnapshot } from "@milagre/shared/model";
 import { accountType, providerName } from "@milagre/shared/providers";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { BubbleChatIcon, Briefcase01Icon, UserIcon, UserMultipleIcon } from "@hugeicons/core-free-icons";
 import { CHATS_ACCOUNT_DETAIL } from "@milagre/shared/chats-home";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { Select, type SelectOption } from "./primitives/Select";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { SectionLabel } from "./primitives/SectionLabel";
+import Tooltip from "./primitives/Tooltip";
 import { ProjectAvatarStack } from "./ProjectAvatarStack";
 import { ProviderLogo } from "./ProviderLogo";
 import { bridgeForKey } from "../lib/computer-bridge";
@@ -14,8 +17,8 @@ import { bridgeForKey } from "../lib/computer-bridge";
 /** The Chats home's mark, as the sidebar's Chats group shows it: it has no repository picture of its own. */
 function ChatsHomeMark() {
   return (
-    <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-ink text-surface">
-      <HugeiconsIcon icon={BubbleChatIcon} size={14} />
+    <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-chip bg-ink text-on-ink">
+      <Icon icon={BubbleChatIcon} size={14} />
     </span>
   );
 }
@@ -23,9 +26,11 @@ function ChatsHomeMark() {
 function AccountIcon({ plan }: { plan?: string }) {
   const type = accountType(plan);
   return type ? (
-    <span role="img" aria-label={`${type} account`} title={`${type} account`} className="flex shrink-0 text-ink-3">
-      <HugeiconsIcon icon={type === "Business" ? Briefcase01Icon : type === "Team" ? UserMultipleIcon : UserIcon} size={15} />
-    </span>
+    <Tooltip label={`${type} account`}>
+      <span role="img" aria-label={`${type} account`} className="flex shrink-0 text-ink-3">
+        <Icon icon={type === "Business" ? Briefcase01Icon : type === "Team" ? UserMultipleIcon : UserIcon} size={14} />
+      </span>
+    </Tooltip>
   ) : null;
 }
 
@@ -48,7 +53,7 @@ export function projectAccountOptions(group: ProviderAccounts): SelectOption<str
       display: (
         <>
           <span className="truncate">{defaultAccount?.email || defaultAccount?.label || "Use computer default"}</span>
-          <span className="shrink-0 rounded-md bg-hover px-1.5 py-0.5 text-[10.5px] font-medium text-ink-3">Default</span>
+          <span className="shrink-0 rounded-chip bg-hover px-1.5 py-0.5 text-10 font-medium text-ink-3">Default</span>
         </>
       ),
     },
@@ -127,17 +132,17 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
   const { shown, error, busy, signingIn, load, act } = useProjectAccounts(scope);
   if (error)
     return (
-      <p role="alert" className="px-4 py-3 text-[13px] text-red-ink">
+      <InlineError className="px-4 py-3">
         {error}{" "}
-        <button className="underline" onClick={() => void load(true)}>
+        <button type="button" className="underline" onClick={() => void load(true)}>
           Retry
         </button>
-      </p>
+      </InlineError>
     );
   if (!shown)
     return (
-      <p role="status" className="px-4 py-3 text-[13px] text-ink-3">
-        {scope ? "Checking accounts..." : empty}
+      <p role="status" className="px-4 py-3 text-13 text-ink-3">
+        {scope ? "Checking accounts…" : empty}
       </p>
     );
   return shown.providers.map((group) => {
@@ -148,7 +153,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
     return (
       <div key={group.provider} className="grid gap-1.5 px-4 py-3">
         <div className="flex min-h-8 items-center justify-between gap-4">
-          <h3 className="flex items-center gap-2.5 text-[13.5px] font-medium text-ink">
+          <h3 className="flex items-center gap-2 text-13 font-medium text-ink">
             <ProviderLogo provider={group.provider} size={18} />
             {name}
           </h3>
@@ -163,14 +168,15 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
         </div>
         {(missing || needsSignIn) && (
           <div className="flex items-center justify-between gap-3 pl-7">
-            <p className="text-[12px] text-red-ink">
+            <p className="text-12 text-red-ink">
               {missing
                 ? "The assigned account is unavailable. Choose another saved account."
                 : `${effective!.email || effective!.label} · ${statusLabel(effective!.state)}`}
             </p>
             {needsSignIn && effective!.id !== "default" && (
               <button
-                className="shrink-0 text-[12px] font-medium text-ink underline underline-offset-2 disabled:opacity-40"
+                type="button"
+                className="shrink-0 text-12 font-medium text-ink underline underline-offset-2 disabled:opacity-40"
                 disabled={busy || signingIn}
                 onClick={() => void act(() => window.milagre.accountAction("login", group.provider, effective!.id))}
               >
@@ -180,7 +186,7 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
           </div>
         )}
         {effective?.message && !missing && (
-          <p role="status" className="pl-7 text-[12px] text-ink-3">
+          <p role="status" className="pl-7 text-12 text-ink-3">
             {effective.message}
           </p>
         )}
@@ -191,9 +197,13 @@ function ProjectAccountRows({ scope, empty }: { scope: string; empty?: string })
 
 function Footnote({ onManageAccounts }: { onManageAccounts: () => void }) {
   return (
-    <p className="mt-2 px-1 text-[12px] leading-5 text-ink-3">
+    <p className="mt-2 px-1 text-12 text-ink-3">
       Running replies keep their original account. The next turn uses the one chosen here.{" "}
-      <button className="font-medium text-ink-2 underline underline-offset-2 hover:text-ink" onClick={onManageAccounts}>
+      <button
+        type="button"
+        className="font-medium text-ink-2 underline underline-offset-2 transition-colors duration-fast hover:text-ink"
+        onClick={onManageAccounts}
+      >
         Manage saved accounts
       </button>
     </p>
@@ -201,7 +211,7 @@ function Footnote({ onManageAccounts }: { onManageAccounts: () => void }) {
 }
 
 function Card({ children }: { children: ReactNode }) {
-  return <div className="divide-y divide-line overflow-hidden rounded-[12px] bg-surface shadow-card">{children}</div>;
+  return <div className="divide-y divide-line overflow-hidden rounded-card bg-surface shadow-card">{children}</div>;
 }
 
 export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { projectPath?: string; onManageAccounts: () => void }) {
@@ -233,14 +243,14 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
   const selected = scopes.find((item) => item.key === scope);
   return (
     <div data-project-accounts-settings className="mt-3">
-      <p className="text-[13px] leading-5 text-ink-3">Choose which saved accounts a Project or Link uses on this computer.</p>
+      <p className="text-13 text-ink-3">Choose which saved accounts a Project or Link uses on this computer.</p>
       <section className="mt-6">
         <Card>
           <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
             <div className="grid min-w-0 gap-0.5">
-              <span className="text-[13.5px] font-medium text-ink">Project or Link</span>
-              {selected?.kind === "link" && <span className="text-[12px] text-ink-3">This Link's accounts are independent of its member Projects.</span>}
-              {selected?.chatsHome && <span className="text-[12px] text-ink-3">{CHATS_ACCOUNT_DETAIL}.</span>}
+              <span className="text-13 font-medium text-ink">Project or Link</span>
+              {selected?.kind === "link" && <span className="text-12 text-ink-3">This Link's accounts are independent of its member Projects.</span>}
+              {selected?.chatsHome && <span className="text-12 text-ink-3">{CHATS_ACCOUNT_DETAIL}.</span>}
             </div>
             <Select
               label="Project or Link"
@@ -259,15 +269,15 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
             />
           </div>
           {scopeError ? (
-            <p role="alert" className="px-4 py-3 text-[13px] text-red-ink">
+            <InlineError className="px-4 py-3">
               {scopeError}{" "}
-              <button className="underline" onClick={() => setScopeReload((value) => value + 1)}>
+              <button type="button" className="underline" onClick={() => setScopeReload((value) => value + 1)}>
                 Retry
               </button>
-            </p>
+            </InlineError>
           ) : !scopesLoaded ? (
-            <p role="status" className="px-4 py-3 text-[13px] text-ink-3">
-              Checking accounts...
+            <p role="status" className="px-4 py-3 text-13 text-ink-3">
+              Checking accounts…
             </p>
           ) : (
             <ProjectAccountRows key={scope} scope={scope} empty="Open a Project to choose its accounts." />
@@ -283,7 +293,7 @@ export function ProjectAccountsSettings({ projectPath, onManageAccounts }: { pro
 export function ProjectAccountsGroup({ projectPath, onManageAccounts }: { projectPath: string; onManageAccounts: () => void }) {
   return (
     <section className="mt-6" data-project-accounts-group>
-      <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">Accounts</h2>
+      <SectionLabel className="mb-2 px-1">Accounts</SectionLabel>
       <Card>
         <ProjectAccountRows key={projectPath} scope={projectPath} />
       </Card>

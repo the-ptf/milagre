@@ -173,6 +173,8 @@ async function browserChecks() {
     const openPopover = async () => {
       await evaluate(`document.querySelector('[data-computers-button]').click()`);
       await waitFor(`!!document.querySelector('[data-computers-panel]')`);
+      // Measure rows after the pop-in scale settles, so a hover lands where the row ends up.
+      await waitFor(`document.querySelector('[data-computers-panel]').getAnimations().every((a) => a.playState === "finished")`);
     };
     const lines = () =>
       evaluate(

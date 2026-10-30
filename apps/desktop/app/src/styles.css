@@ -265,8 +265,8 @@ html[data-floating-inbox] #root {
 }
 .command-palette::backdrop {
   opacity: 1;
-  transition: opacity 120ms cubic-bezier(0.16, 1, 0.3, 1);
-  background: rgb(0 0 0 / 24%);
+  transition: opacity var(--duration-fast) var(--ease-enter);
+  background: var(--scrim);
   backdrop-filter: blur(var(--blur-overlay));
   -webkit-backdrop-filter: blur(var(--blur-overlay));
 }
@@ -352,6 +352,18 @@ html[data-floating-inbox] #root {
   --orange-ink: #c54b00;
   --red-ink: #d3373f;
 
+  /* labels on filled controls: themes write --on-accent (lib/theme-sheet.ts); on-ink is the surface (@theme below) */
+  --on-accent: #ffffff;
+  --on-red: #ffffff;
+  /* behind a modal dialog or the command palette */
+  --scrim: rgb(0 0 0 / 0.2);
+
+  /* motion: hover and press 120, enter 180, panels and sheets 280; press scales to 0.97 */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+  --press-scale: 0.97;
+
   /* shadows — our solid hairline ring + shadow-plugin's smooth layered stacks
    * (--shadow-xs…lg come from shadow-plugin/unprefixed) so every surface reads
    * consistently across the app. */
@@ -404,6 +416,11 @@ html[data-floating-inbox] #root {
   --orange-ink: var(--orange);
   --red-ink: var(--red);
 
+  /* the light accent and red take a dark label in dark mode (onColor in packages/shared/src/themes/color.ts) */
+  --on-accent: var(--page);
+  --on-red: var(--page);
+  --scrim: rgb(0 0 0 / 0.4);
+
   --shadow-hairline: 0 0 0 1px var(--line);
   /* Elevation rings go to a subtle *light* hairline in dark mode: the ring
    * paints over the surface behind the element, so a low-alpha white edge
@@ -433,6 +450,8 @@ html[data-floating-inbox] #root {
   --color-ink-4: var(--ink-4);
   --color-hover: var(--hover);
   --color-hover-2: var(--hover-2);
+  /* The sidebar's row hover: --hover nearly matches --page in Milagre Blue light, so the sidebar takes hover-2. */
+  --color-hover-sidebar: var(--hover-2);
   --color-field: var(--field);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
@@ -444,6 +463,8 @@ html[data-floating-inbox] #root {
   --color-green: var(--green);
   --color-green-tint: var(--green-tint);
   --color-green-ink: var(--green-ink);
+  /* Ultracode and merged PRs */
+  --color-purple: var(--purple);
   --color-purple-ink: var(--purple-ink);
   --color-purple-tint: var(--purple-tint);
   --color-orange: var(--orange);
@@ -452,6 +473,18 @@ html[data-floating-inbox] #root {
   --color-red: var(--red);
   --color-red-tint: var(--red-tint);
   --color-red-ink: var(--red-ink);
+  /* Labels on a filled control: text-on-ink on bg-ink (primary), text-on-accent on bg-accent, text-on-red on bg-red.
+   * on-ink reads --surface where it is used, so a panel that redefines --surface (the floating inbox) still matches. */
+  --color-on-ink: var(--surface);
+  --color-on-accent: var(--on-accent);
+  --color-on-red: var(--on-red);
+  --color-scrim: var(--scrim);
+
+  /* motion: duration-fast / duration-base / duration-slow, active:scale-press */
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --scale-press: var(--press-scale);
 
   /* shadows */
   --shadow-hairline: var(--shadow-hairline);
@@ -512,6 +545,10 @@ html[data-floating-inbox] #root {
 html[data-popover-open] .title-drag {
   -webkit-app-region: no-drag;
 }
+/* A control inside a drag region (or a floating card over one) that must take its own clicks. */
+.no-drag {
+  -webkit-app-region: no-drag;
+}
 
 /* A docked simulator (SimulatorTrack), the Browser panel and an open design (ArtifactCard) sit in this space beside the chat. A chat pane
    inside the workspace already has it from the workspace; reserving it twice would leave the chat no room. */
@@ -544,7 +581,7 @@ body {
   color: var(--ink);
   font-feature-settings: "cv11", "ss01";
   font-size: 14px;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   line-height: 1.5;
 }
 
@@ -811,8 +848,7 @@ a {
   }
 }
 
-[data-position-thumb]:focus-visible,
-[data-inbox-arrow]:focus-visible {
+[data-position-thumb]:focus-visible {
   outline: none;
 }
 
@@ -831,20 +867,9 @@ a {
   display: none;
 }
 
-/* The project menu's rows show keyboard focus with their own fill, in ink rather than the accent. */
+/* Menu rows show keyboard focus as an inset accent ring over their own fill, so the clipped panel never cuts it. */
 [data-scope-menu-panel] :focus-visible {
-  outline: none;
-}
-
-/* Project action rows keep the picker's neutral focus fill inside its scrolling panel. */
-[data-link-project-menu] [data-picker-row]:focus-visible {
-  outline: none;
-}
-
-/* Settings › MCP keeps every accent in ink, focus rings included. */
-[data-mcp-page] :focus-visible,
-[data-mcp-sheet] :focus-visible {
-  outline-color: var(--ink);
+  outline-offset: -2px;
 }
 
 /* ── shared keyframes ─────────────────────────────────── */
@@ -1558,14 +1583,11 @@ code.step-running.step-sweep {
   transform-origin: center;
 }
 .startup-splash-mark {
-  fill: #0a0a0a;
+  fill: var(--ink);
 }
 /* A Chat's transcript on its way: the splash mark appears only once the wait is long enough to notice. */
 .chat-loading {
   animation: fade-in 240ms ease-out 300ms both;
-}
-.dark .startup-splash-mark {
-  fill: #ffffff;
 }
 .startup-splash-screen[data-leaving] {
   pointer-events: none;

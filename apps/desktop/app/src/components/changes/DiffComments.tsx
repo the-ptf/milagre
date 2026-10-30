@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject, ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { EASE_OUT } from "../../lib/ease";
 import { labelFor } from "../../lib/diff-comments";
 import type { CommentView } from "./useDiffComments";
+import { Button, IconButton } from "../primitives/Button";
+import { ShortcutKeys } from "../primitives/ShortcutKeys";
 
 /** A quick fade and rise, so a comment doesn't pop into the rows around it. */
 function Rise({ children, className, ...rest }: { children: ReactNode; className: string } & Record<`data-${string}`, string | undefined>) {
@@ -29,16 +30,11 @@ function Rise({ children, className, ...rest }: { children: ReactNode; className
  */
 export function CommentSlot({ children }: { children: ReactNode }) {
   return (
-    <div
-      data-diff-comment-slot
-      className="sticky left-0 flex w-[100cqw] flex-col gap-2 bg-surface px-3 py-2 font-sans text-[12.5px] leading-[18px] whitespace-normal"
-    >
+    <div data-diff-comment-slot className="sticky left-0 flex w-[100cqw] flex-col gap-2 bg-surface px-3 py-2 font-sans text-12 whitespace-normal">
       {children}
     </div>
   );
 }
-
-const iconButton = "flex size-6 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink";
 
 export function CommentCard({ comment, onEdit, onDelete }: { comment: CommentView; onEdit?: () => void; onDelete: () => void }) {
   const [expanded, setExpanded] = useState(false);
@@ -49,7 +45,7 @@ export function CommentCard({ comment, onEdit, onDelete }: { comment: CommentVie
       className="flex items-start gap-2 rounded-control border border-line bg-inset py-1.5 pr-1.5 pl-2.5"
     >
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[11px] leading-4">
+        <div className="flex items-center gap-2 text-11">
           <span data-diff-comment-label className="font-mono text-ink-3">
             {labelFor(comment)}
           </span>
@@ -59,23 +55,19 @@ export function CommentCard({ comment, onEdit, onDelete }: { comment: CommentVie
             </span>
           )}
         </div>
-        <p
+        <button
+          type="button"
           data-diff-comment-body
+          aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
-          className={`mt-0.5 cursor-pointer break-words whitespace-pre-wrap ${comment.outdated ? "text-ink-3" : "text-ink"} ${expanded ? "" : "line-clamp-3"}`}
+          className={`mt-0.5 block w-full text-left break-words whitespace-pre-wrap ${comment.outdated ? "text-ink-3" : "text-ink"} ${expanded ? "" : "line-clamp-3"}`}
         >
           {comment.body}
-        </p>
+        </button>
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
-        {onEdit && !comment.outdated && (
-          <button type="button" aria-label="Edit comment" data-diff-comment-edit onClick={onEdit} className={iconButton}>
-            <HugeiconsIcon icon={PencilEdit02Icon} size={13} strokeWidth={1.8} color="currentColor" />
-          </button>
-        )}
-        <button type="button" aria-label="Delete comment" data-diff-comment-delete onClick={onDelete} className={iconButton}>
-          <HugeiconsIcon icon={Delete02Icon} size={13} strokeWidth={1.8} color="currentColor" />
-        </button>
+        {onEdit && !comment.outdated && <IconButton label="Edit comment" icon={PencilEdit02Icon} size={24} data-diff-comment-edit onClick={onEdit} />}
+        <IconButton label="Delete comment" icon={Delete02Icon} size={24} data-diff-comment-delete onClick={onDelete} />
       </div>
     </Rise>
   );
@@ -136,38 +128,21 @@ export function CommentEditor({
             if (body) (onAddToReview ?? onSave)(body);
           }
         }}
-        className="block w-full resize-none rounded-control border border-line bg-page px-2.5 py-2 text-[12.5px] leading-[18px] text-ink outline-none placeholder:text-ink-3 focus:border-ink"
+        className="block w-full resize-none rounded-control border border-line-strong bg-page px-2.5 py-2 text-12 text-ink outline-none transition-colors duration-fast placeholder:text-ink-3 focus:border-accent"
       />
       <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          data-diff-comment-cancel
-          onClick={onCancel}
-          className="h-7 rounded-control border border-line px-3 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
-        >
+        <Button variant="secondary" size={28} data-diff-comment-cancel onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
         {onAddToReview && (
-          <button
-            type="button"
-            data-diff-comment-chat
-            disabled={!body}
-            onClick={() => onSave(body)}
-            className="h-7 rounded-control border border-line px-3 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40"
-          >
+          <Button variant="secondary" size={28} data-diff-comment-chat disabled={!body} onClick={() => onSave(body)}>
             Send to Chat
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          data-diff-comment-save
-          disabled={!body}
-          onClick={() => (onAddToReview ?? onSave)(body)}
-          className="inline-flex h-7 items-center gap-1.5 rounded-control bg-ink px-3 text-[12px] font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
-        >
+        <Button size={28} data-diff-comment-save disabled={!body} onClick={() => (onAddToReview ?? onSave)(body)}>
           {onAddToReview ? "Add to review" : "Comment"}
-          <kbd className="font-sans text-[11px] opacity-60">⌘↵</kbd>
-        </button>
+          <ShortcutKeys shortcut="⌘↵" plain className="opacity-70" />
+        </Button>
       </div>
     </Rise>
   );

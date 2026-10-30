@@ -1,9 +1,10 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import type { ComponentProps, CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, RotateClockwiseIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { EASE_IN_OUT, EASE_OUT, SPRING_PRESS } from "../../lib/ease";
+import { buttonClass } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 
 // Adapted from beUI's Image Generation (https://beui.dev/components/agents/image-generation, MIT).
 
@@ -29,12 +30,6 @@ export interface ImageGenerationProps {
   className?: string;
   mediaClassName?: string;
   statusClassName?: string;
-}
-
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
-
-function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" aria-hidden />;
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
@@ -72,13 +67,14 @@ function useHoverCapable() {
 }
 
 function DitherMark({ status, reduce }: { status: ImageGenerationStatus; reduce: boolean }) {
-  if (status === "complete") return <Icon icon={Tick02Icon} />;
-  if (status === "error") return <Icon icon={Alert02Icon} />;
+  if (status === "complete") return <Icon icon={Tick02Icon} size={14} />;
+  if (status === "error") return <Icon icon={Alert02Icon} size={14} />;
   return (
     <motion.span
       aria-hidden="true"
-      animate={reduce ? undefined : { rotate: 360 }}
-      transition={{ duration: 2.4, ease: EASE_IN_OUT, repeat: Number.POSITIVE_INFINITY }}
+      // Reduced motion keeps a loading cue: a fade in place of the turn.
+      animate={reduce ? { opacity: [1, 0.4, 1] } : { rotate: 360 }}
+      transition={{ duration: reduce ? 1.2 : 2.4, ease: EASE_IN_OUT, repeat: Number.POSITIVE_INFINITY }}
       className="grid size-3.5 grid-cols-2 place-items-center gap-0.5"
     >
       <span className="size-1 rounded-[1px] bg-current" />
@@ -191,7 +187,7 @@ function DitherField({ interactive, reduce, status }: { interactive: boolean; re
       aria-hidden="true"
       initial={false}
       animate={{ opacity: OVERLAY_OPACITY[status] }}
-      transition={{ duration: reduce ? 0 : 0.4, ease: EASE_OUT }}
+      transition={{ duration: reduce ? 0 : 0.28, ease: EASE_OUT }}
       className="absolute inset-0 overflow-hidden bg-field"
     >
       <canvas ref={canvasRef} className="absolute inset-0 size-full text-ink" />
@@ -225,13 +221,13 @@ export function ImageGeneration({
   return (
     <div data-slot="image-generation" data-state={status} aria-busy={active} className={cx("w-full", className)}>
       <div className={cx("w-full", size === "compact" && "mx-auto max-w-52")}>
-        <div style={{ aspectRatio }} className="group/media relative isolate w-full overflow-hidden rounded-xl bg-field">
+        <div style={{ aspectRatio }} className="group/media relative isolate w-full overflow-hidden rounded-card bg-field">
           <div role="img" aria-label={resolvedLabel} className="absolute inset-0" />
           <motion.div
             aria-hidden={children ? undefined : true}
             initial={false}
             animate={reduce ? { opacity: mediaState.opacity } : { filter: mediaState.filter, opacity: mediaState.opacity, scale: mediaState.scale }}
-            transition={reduce ? { duration: 0 } : { duration: 0.4, ease: EASE_OUT }}
+            transition={reduce ? { duration: 0 } : { duration: 0.28, ease: EASE_OUT }}
             className={cx("absolute inset-0 [&>*]:size-full [&>*]:object-cover [&_img]:size-full [&_img]:object-cover", mediaClassName)}
           >
             {children}
@@ -244,7 +240,7 @@ export function ImageGeneration({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: reduce ? 0 : 0.25, ease: EASE_OUT }}
+                transition={{ duration: reduce ? 0 : 0.28, ease: EASE_OUT }}
                 className="absolute inset-0"
               >
                 <DitherField interactive={interactive} reduce={reduce} status={status} />
@@ -253,7 +249,7 @@ export function ImageGeneration({
           </AnimatePresence>
 
           {status === "complete" && actions ? (
-            <div className="absolute right-2 bottom-2 z-10 flex gap-1 opacity-0 transition-opacity duration-150 group-hover/media:opacity-100 focus-within:opacity-100">
+            <div className="absolute right-2 bottom-2 z-10 flex gap-1 opacity-0 transition-opacity duration-fast group-hover/media:opacity-100 focus-within:opacity-100">
               {actions}
             </div>
           ) : null}
@@ -264,7 +260,7 @@ export function ImageGeneration({
             {showStatus ? (
               <div
                 aria-live="polite"
-                className={cx("flex min-h-5 items-center gap-2 text-[12.5px] font-medium text-ink", status === "error" && "text-red-ink", statusClassName)}
+                className={cx("flex min-h-5 items-center gap-2 text-12 font-medium text-ink", status === "error" && "text-red-ink", statusClassName)}
               >
                 <DitherMark status={status} reduce={reduce} />
                 <AnimatePresence mode="popLayout" initial={false}>
@@ -273,7 +269,7 @@ export function ImageGeneration({
                     initial={reduce ? false : { opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={reduce ? undefined : { opacity: 0, y: -4 }}
-                    transition={{ duration: reduce ? 0 : 0.15, ease: EASE_OUT }}
+                    transition={{ duration: reduce ? 0 : 0.12, ease: EASE_OUT }}
                   >
                     {resolvedStatusText}
                   </motion.span>
@@ -281,7 +277,7 @@ export function ImageGeneration({
               </div>
             ) : null}
             {prompt ? (
-              <div className="mt-0.5 truncate text-[12px] text-ink-3" title={prompt}>
+              <div className="mt-0.5 truncate text-12 text-ink-3" title={prompt}>
                 "{prompt}"
               </div>
             ) : null}
@@ -292,9 +288,9 @@ export function ImageGeneration({
           <motion.button
             type="button"
             onClick={onRetry}
-            whileTap={reduce ? undefined : { scale: 0.96 }}
+            whileTap={reduce ? undefined : { scale: 0.97 }}
             transition={SPRING_PRESS}
-            className="mt-2 inline-flex min-h-8 items-center gap-2 rounded-full px-3 text-[12.5px] font-medium text-ink outline-none transition-colors hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink-3"
+            className={`mt-2 ${buttonClass({ variant: "ghost" })}`}
           >
             <Icon icon={RotateClockwiseIcon} size={14} />
             Try again

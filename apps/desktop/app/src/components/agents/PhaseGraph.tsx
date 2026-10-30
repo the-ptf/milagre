@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon, EyeIcon, Flag01Icon, GitMergeIcon, Rocket01Icon, Target02Icon, TestTube01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { PHASES } from "@milagre/shared/chat-plan";
 import { phaseGraph, phaseGraphLayout } from "@milagre/shared/phase-graph";
 import type { ChatPhase, ChatPlan } from "../../model";
+import { Icon } from "../primitives/Icon";
+import { SectionLabel } from "../primitives/SectionLabel";
 
 export const PHASE_LABELS: Record<ChatPhase, string> = {
   start: "Start",
@@ -52,7 +53,9 @@ export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; no
   return (
     <section data-slot="phase-graph" aria-label="Phase graph" className="flex shrink-0 flex-col gap-2 px-2 pb-2">
       <div className="flex items-center">
-        <h3 className="flex-1 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">Phase graph</h3>
+        <SectionLabel as="h3" className="flex-1">
+          Phase graph
+        </SectionLabel>
         {action}
       </div>
       <div className="flex gap-2">
@@ -64,9 +67,9 @@ export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; no
                 key={phase}
                 {...(current ? { "data-current-phase": "" } : {})}
                 style={{ height: ROW }}
-                className={`flex items-center gap-1 rounded px-1 text-[11px] leading-none ${current ? "bg-hover text-ink" : "text-ink-3"}`}
+                className={`flex items-center gap-1 rounded-inline px-1 text-11 leading-none ${current ? "bg-hover text-ink" : "text-ink-3"}`}
               >
-                <HugeiconsIcon icon={PHASE_ICONS[phase]} size={11} aria-hidden />
+                <Icon icon={PHASE_ICONS[phase]} size={12} />
                 {PHASE_LABELS[phase]}
               </li>
             );
@@ -88,17 +91,17 @@ export function PhaseGraph({ plan, now: fixedNow, action }: { plan: ChatPlan; no
             {layout.gaps.map((gap) => (
               <g key={`${gap.x}-${gap.label}`} data-gap>
                 <rect x={gap.x - 12} y={gap.y - 8} width={24} height={16} rx={4} className="fill-hover" />
-                <text x={gap.x} y={gap.y + 4} textAnchor="middle" className="fill-ink-2 text-[10px]">
+                <text x={gap.x} y={gap.y + 4} textAnchor="middle" className="fill-ink-2 text-10">
                   {gap.label}
                 </text>
               </g>
             ))}
             {layout.ticks.map((tick) => (
-              <text key={tick.x} x={tick.x} y={HEIGHT + 14} textAnchor={tick.anchor} className="fill-ink-3 text-[10px]">
+              <text key={tick.x} x={tick.x} y={HEIGHT + 14} textAnchor={tick.anchor} className="fill-ink-3 text-10">
                 {tick.label}
               </text>
             ))}
-            <text x={layout.now.x} y={HEIGHT + 14} textAnchor={layout.now.anchor} className="fill-ink-3 text-[10px]">
+            <text x={layout.now.x} y={HEIGHT + 14} textAnchor={layout.now.anchor} className="fill-ink-3 text-10">
               Now
             </text>
           </svg>

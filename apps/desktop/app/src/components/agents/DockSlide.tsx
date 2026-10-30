@@ -130,7 +130,7 @@ export const DockSlide = forwardRef<
         initial={reduced ? false : { opacity: 0, x: 24 }}
         animate={{ opacity: 1, x: 0 }}
         exit={reduced ? undefined : { opacity: 0, x: 24 }}
-        transition={{ duration: scaled(0.24, scale), ease: EASE_OUT }}
+        transition={{ duration: scaled(0.28, scale), ease: EASE_OUT }}
         onAnimationComplete={onEntered}
       >
         {children}

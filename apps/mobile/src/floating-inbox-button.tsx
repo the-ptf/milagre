@@ -8,6 +8,7 @@ import { BubbleChatIcon } from "@hugeicons/core-free-icons";
 import type { InboxStatus } from "@milagre/shared/attention";
 import { Icon, SpinnerRing } from "./icons";
 import { springTo, useMotionScale } from "./motion";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const SIZE = 56;
@@ -52,11 +53,11 @@ function StatusBadge({ status, small = false }: { status?: InboxStatus; small?: 
   if (!status) return null;
   if (status === "working" && !reduced) return <SpinnerRing size={small ? 10 : 12} stroke={1.5} tone="accentInk" />;
   const color = status === "approval" ? colors.orange : status === "failed" ? colors.red : status === "completed" ? colors.green : colors.accentInk;
-  return <View style={{ width: small ? 6 : 8, height: small ? 6 : 8, borderRadius: 5, backgroundColor: color }} />;
+  return <View style={{ width: small ? 6 : 8, height: small ? 6 : 8, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
 export function FloatingInboxButton({ status, label, open, bottom }: { status?: InboxStatus; label: string; open: () => void; bottom?: number }) {
-  const { scheme } = useTheme();
+  const { colors } = useTheme();
   const frame = useSafeAreaFrame(),
     insets = useSafeAreaInsets();
   const top = insets.top + 52;
@@ -167,7 +168,6 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
     opacity: edge.get() ? 1 : 0,
     transform: [{ translateX: edge.get() === 1 ? -20 : edge.get() === 2 ? 20 : 0 }],
   }));
-  const background = scheme === "dark" ? "#000" : "#fff";
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: insets.left, right: insets.right, top, height, overflow: "hidden", zIndex: 2 }}>
       <GestureDetector gesture={gesture}>
@@ -188,11 +188,19 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
           <Animated.View
             pointerEvents="none"
             style={[
-              { width: SIZE, height: SIZE, borderRadius: SIZE / 2, backgroundColor: background, alignItems: "center", justifyContent: "center" },
+              {
+                width: SIZE,
+                height: SIZE,
+                borderRadius: radius.full,
+                backgroundColor: colors.surface,
+                boxShadow: colors.shadowRaised,
+                alignItems: "center",
+                justifyContent: "center",
+              },
               bodyStyle,
             ]}
           >
-            <Icon icon={BubbleChatIcon} size={23} color={scheme === "dark" ? "#fff" : "#000"} />
+            <Icon icon={BubbleChatIcon} size={24} tone="ink" />
             <Animated.View
               style={[
                 {
@@ -201,8 +209,8 @@ export function FloatingInboxButton({ status, label, open, bottom }: { status?: 
                   right: 0,
                   width: 18,
                   height: 18,
-                  borderRadius: 9,
-                  backgroundColor: background,
+                  borderRadius: radius.full,
+                  backgroundColor: colors.surface,
                   alignItems: "center",
                   justifyContent: "center",
                 },

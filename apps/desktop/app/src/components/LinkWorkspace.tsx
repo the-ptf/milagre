@@ -57,6 +57,9 @@ import { isModalOpen } from "../lib/modal";
 import { GitActionsDialog } from "./GitActionsDialog";
 import { gitChatContext } from "../lib/git-dialog";
 import { Select } from "./primitives/Select";
+import { Button } from "./primitives/Button";
+import { InlineError } from "./primitives/InlineError";
+import { Notice } from "./Notice";
 import { lazyView } from "../lib/lazy-view";
 import type { LinkedWork } from "@milagre/shared/model";
 import { TerminalPanel } from "./terminal/TerminalPanel";
@@ -556,14 +559,10 @@ export function LinkWorkspace({
         <DotBackground>
           <PersistenceNotices scopes={saveScopes.filter((entry) => entry.scope !== owner || canvasOpen || changes.diffOpen)}>
             {!hostConnection.connected && (
-              <div
-                role="status"
-                data-host-disconnected
-                className="w-full rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
-              >
+              <Notice data-host-disconnected className="no-drag">
                 <p>Reconnecting to your computer</p>
                 <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
-              </div>
+              </Notice>
             )}
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
@@ -669,14 +668,7 @@ export function LinkWorkspace({
                 />
               ) : (
                 <>
-                  {error && session && (
-                    <p
-                      role="alert"
-                      className="absolute inset-x-5 top-14 z-30 rounded-control border border-line bg-surface px-3 py-2 text-[13px] text-red-ink shadow-overlay"
-                    >
-                      {error}
-                    </p>
-                  )}
+                  {session && <InlineError className="absolute inset-x-5 top-14 z-30 rounded-control bg-surface px-3 py-2 shadow-overlay">{error}</InlineError>}
 
                   <DiffBar
                     open={changes.diffOpen}
@@ -886,11 +878,13 @@ export function LinkWorkspace({
               ref={memberDialog}
               aria-label="Choose Project for Git"
               onCancel={() => setGitChoice(null)}
-              className="m-auto w-[380px] rounded-card bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+              className="m-auto w-[380px] max-w-[calc(100vw-32px)] rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
+              style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
             >
+              {/* Not the Dialog primitive: it is opened by this ref and found by its aria-label, which Dialog doesn't forward. */}
               <div className="p-5" onClick={(event) => event.stopPropagation()}>
-                <h2 className="text-[16px] font-semibold">Choose a Project</h2>
-                <p className="mt-1 mb-4 text-[13px] text-ink-2">
+                <h2 className="text-17 font-semibold">Choose a Project</h2>
+                <p className="mt-1 mb-4 text-13 text-ink-2">
                   {state.sessions[gitChoice]?.worktrees.length
                     ? "Git actions apply to one Worktree."
                     : "This Chat has no Worktree yet. It creates one when it changes a Project."}
@@ -908,21 +902,19 @@ export function LinkWorkspace({
                     })),
                   ]}
                 />
-                <div className="mt-4 flex justify-end gap-2">
-                  <button type="button" className="rounded-control px-3 py-2 text-sm hover:bg-hover-2" onClick={() => setGitChoice(null)}>
+                <div className="mt-5 flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setGitChoice(null)}>
                     Cancel
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     disabled={!gitMemberId}
-                    className="rounded-control bg-ink px-3 py-2 text-sm text-surface disabled:opacity-40"
                     onClick={() => {
                       setGitDialog({ sessionId: gitChoice, member: memberWorktreeForAction(state, gitChoice, gitMemberId) });
                       setGitChoice(null);
                     }}
                   >
                     Continue
-                  </button>
+                  </Button>
                 </div>
               </div>
             </dialog>

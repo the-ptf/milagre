@@ -1,6 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   BubbleChatIcon,
@@ -22,6 +21,11 @@ import { shortcutCommand, useShortcutLabel } from "../lib/keybindings";
 import type { KeybindingCommandId } from "@milagre/shared/keybindings";
 import { ScrollArea } from "./primitives/ScrollArea";
 import { ShortcutKeys } from "./primitives/ShortcutKeys";
+import { Icon } from "./primitives/Icon";
+
+/** `--duration-fast` and `--ease-enter` from styles.css, for the Web Animations API. */
+const DURATION_FAST = 120;
+const EASE_ENTER = "cubic-bezier(0.23, 1, 0.32, 1)";
 
 const icons = {
   add: Add01Icon,
@@ -131,7 +135,7 @@ export function CommandPalette({
         { opacity: 0, transform: `translate(-50%, ${reduced ? 0 : 6}px)` },
         { opacity: 1, transform: "translate(-50%, 0px)" },
       ],
-      { duration: reduced ? 60 : 120, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      { duration: reduced ? 60 : DURATION_FAST, easing: EASE_ENTER },
     );
     input.current?.focus();
     return () => {
@@ -159,7 +163,7 @@ export function CommandPalette({
         { opacity, transform },
         { opacity: 0, transform: `translate(-50%, ${reduced ? 0 : 6}px)` },
       ],
-      { duration: reduced ? 60 : 90, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" },
+      { duration: reduced ? 60 : DURATION_FAST, easing: EASE_ENTER, fill: "forwards" },
     );
     void animation.current.finished.then(
       () => {
@@ -182,7 +186,7 @@ export function CommandPalette({
     <dialog
       ref={dialog}
       aria-label="Command palette"
-      className="command-palette fixed m-0 flex max-h-[min(560px,80vh)] w-[min(640px,calc(100vw-32px))] flex-col overflow-hidden rounded-[12px] border border-line bg-surface p-0 text-ink shadow-overlay [-webkit-app-region:no-drag]"
+      className="command-palette fixed m-0 flex max-h-[min(560px,80vh)] w-[min(640px,calc(100vw-32px))] flex-col overflow-hidden rounded-window bg-surface p-0 text-ink shadow-overlay no-drag"
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -224,8 +228,8 @@ export function CommandPalette({
         }
       }}
     >
-      <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5">
-        <HugeiconsIcon icon={Search01Icon} size={18} className="shrink-0 text-ink-3" />
+      <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
+        <Icon icon={Search01Icon} size={18} className="shrink-0 text-ink-3" />
         <input
           ref={input}
           role="combobox"
@@ -240,14 +244,14 @@ export function CommandPalette({
             setSelectedId(null);
           }}
           placeholder="Search commands, chats, and projects…"
-          className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
+          className="min-w-0 flex-1 bg-transparent text-15 text-ink outline-none placeholder:text-ink-3"
         />
         {showHints && <ShortcutKeys shortcut="esc" />}
       </div>
       <ScrollArea id={listId} role="listbox" aria-label="Commands" className="p-1.5">
         {Array.from(new Set(results.map((command) => command.group))).map((group) => (
           <div key={group} role="group" aria-label={group} className="pb-1.5">
-            <div aria-hidden="true" className="px-2.5 pb-1.5 pt-2.5 text-[11px] font-medium text-ink-3">
+            <div aria-hidden="true" className="px-2.5 pb-1.5 pt-2.5 text-11 font-medium text-ink-3">
               {group}
             </div>
             {results
@@ -261,25 +265,25 @@ export function CommandPalette({
                   onPointerMove={() => setSelectedId(command.id)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => close(command)}
-                  className={`flex cursor-default items-center gap-3 rounded-[6px] px-2.5 py-2 text-[13px] ${command.id === selected?.id ? "bg-hover-2" : ""}`}
+                  className={`flex cursor-default items-center gap-3 rounded-control px-2.5 py-2 text-13 ${command.id === selected?.id ? "bg-hover-2" : ""}`}
                 >
-                  <HugeiconsIcon icon={icons[command.icon]} size={17} strokeWidth={1.8} className="shrink-0 text-ink-3" />
+                  <Icon icon={icons[command.icon]} size={16} className="shrink-0 text-ink-3" />
                   <span className="min-w-0 flex-1 truncate">
                     <Label command={command} />
                   </span>
-                  {command.detail && <span className="max-w-[45%] truncate text-[11px] text-ink-3">{command.detail}</span>}
+                  {command.detail && <span className="max-w-[45%] truncate text-11 text-ink-3">{command.detail}</span>}
                   {showHints && command.keybinding && <CommandKeys command={command.keybinding} />}
                 </div>
               ))}
           </div>
         ))}
         {!results.length && !searching && (
-          <div role="status" className="px-4 py-10 text-center text-[13px] text-ink-3">
+          <div role="status" className="px-4 py-10 text-center text-13 text-ink-3">
             No results for “{query}”
           </div>
         )}
       </ScrollArea>
-      <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2.5 text-[11px] text-ink-3 ${showHints ? "" : "invisible"}`}>
+      <div className={`flex shrink-0 gap-4 border-t border-line px-4 py-2.5 text-11 text-ink-3 ${showHints ? "" : "invisible"}`}>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↑↓" plain /> : "↑ ↓"}Navigate</span>
         <span className="inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="↵" plain /> : "↵"}Run</span>
         <span className="ml-auto inline-flex items-center gap-1.5">{showHints ? <ShortcutKeys shortcut="esc" plain /> : "esc"}Close</span>

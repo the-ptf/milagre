@@ -1,5 +1,6 @@
 import { Text, View } from "react-native";
 import type { DiffFileEntry } from "@milagre/shared/git-diff";
+import { radius } from "./design-tokens";
 import { fonts, useTheme, type Palette } from "./theme";
 
 const statusTable = (colors: Palette) =>
@@ -27,9 +28,17 @@ export function StatusBox({ status }: { status: DiffFileEntry["status"] }) {
   return (
     <View
       accessibilityLabel={label}
-      style={{ width: 18, height: 18, borderRadius: 5, borderCurve: "continuous", backgroundColor: tint, alignItems: "center", justifyContent: "center" }}
+      style={{
+        width: 18,
+        height: 18,
+        borderRadius: radius.chip,
+        borderCurve: "continuous",
+        backgroundColor: tint,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
     >
-      <Text style={{ color, fontFamily: fonts.mono, fontSize: 11, fontWeight: "700" }}>{letter}</Text>
+      <Text style={{ color, fontFamily: fonts.mono, fontSize: 11, fontWeight: "600" }}>{letter}</Text>
     </View>
   );
 }

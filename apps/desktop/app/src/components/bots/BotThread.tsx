@@ -1,6 +1,5 @@
 import { prepareImageUploads } from "../../lib/attachment-uploads";
 import { useCallback, useLayoutEffect, useMemo, useState, type ComponentProps } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { PauseIcon, PlayIcon, SidebarRight01Icon } from "@hugeicons/core-free-icons";
 import type { BotSummary, BotsSnapshot, GateMeta } from "@milagre/shared/bots";
 import { projectOfKey } from "@milagre/shared/agent-runs";
@@ -22,11 +21,11 @@ import { PermissionCard } from "../agents/PermissionCard";
 import { QuestionCard } from "../agents/QuestionCard";
 import { BotChatCard } from "./BotChatCard";
 import { GateCard, type GateChoice } from "./GateCard";
+import { IconButton } from "../primitives/Button";
+import Tooltip from "../primitives/Tooltip";
 
 export type BotThreadPreferences = Pick<ComponentProps<typeof DraftChatComposer>, "models" | "cliStatus" | "onModelPickerOpen" | "onUpdateCli" | "updatingCli">;
 
-const HEADER_BUTTON =
-  "flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink [-webkit-app-region:no-drag]";
 const NO_OP = () => {};
 
 // A sign-off is a request in one Chat: request ids repeat across Chats.
@@ -155,14 +154,14 @@ export function BotThread({
         return gate ? (
           <GateCard gate={gate.meta} status="expired" botName={bot.name} />
         ) : (
-          <p data-gate-status="expired" className="text-[12px] text-ink-3">
+          <p data-gate-status="expired" className="text-12 text-ink-3">
             Expired
           </p>
         );
       }
       if (context?.kind === "bot-chat-taken-over")
         return (
-          <p data-bot-taken-over className="text-[12px] text-ink-3">
+          <p data-bot-taken-over className="text-12 text-ink-3">
             You took over this Chat.
           </p>
         );
@@ -211,30 +210,23 @@ export function BotThread({
             // The inset stops 12px short of the controls' end for a bar whose buttons bring their own spacing; the title has none.
             style={{ paddingLeft: headerInset.paddingLeft > 0 ? headerInset.paddingLeft + 12 : 8, paddingRight: Math.max(4, headerInset.paddingRight) }}
           >
-            <h1 className="shrink-0 text-[14px] font-semibold text-ink">{bot.name}</h1>
-            <p className="min-w-0 truncate text-[13px] text-ink-3">
+            <h1 className="shrink-0 text-13 font-semibold text-ink">{bot.name}</h1>
+            <p className="min-w-0 truncate text-13 text-ink-3">
               {bot.role} · {model.name}
             </p>
             {/* Above App's window drag strip (z-50), like the other chrome controls, so clicks reach the buttons. */}
-            <span data-bot-thread-actions className="relative z-[60] ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
-              <button
-                type="button"
-                aria-label={bot.paused ? "Resume" : "Pause"}
-                title={bot.paused ? "Resume" : "Pause"}
-                onClick={() => void togglePause()}
-                className={HEADER_BUTTON}
-              >
-                <HugeiconsIcon icon={bot.paused ? PlayIcon : PauseIcon} size={16} strokeWidth={1.8} color="currentColor" />
-              </button>
-              <button
-                type="button"
-                aria-label="Profile"
+            <span data-bot-thread-actions className="relative z-[60] ml-auto flex shrink-0 items-center gap-1 no-drag">
+              <Tooltip label={bot.paused ? "Resume" : "Pause"} side="bottom" align="end">
+                <IconButton label={bot.paused ? "Resume" : "Pause"} icon={bot.paused ? PlayIcon : PauseIcon} size={32} onClick={() => void togglePause()} />
+              </Tooltip>
+              <IconButton
+                label="Profile"
+                icon={SidebarRight01Icon}
+                size={32}
                 aria-pressed={profileOpen}
                 onClick={onToggleProfile}
-                className={`${HEADER_BUTTON} ${profileOpen ? "bg-hover-2 text-ink" : ""}`}
-              >
-                <HugeiconsIcon icon={SidebarRight01Icon} size={16} strokeWidth={1.8} color="currentColor" />
-              </button>
+                className={profileOpen ? "bg-hover-2 text-ink" : ""}
+              />
             </span>
           </header>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

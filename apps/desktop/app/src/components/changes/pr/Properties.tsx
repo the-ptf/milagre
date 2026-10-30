@@ -1,11 +1,11 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import { PlusSignIcon, Tag01Icon, UserAdd01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import type { PullRequestDetail, PullRequestReviewer, RepoLabel } from "@milagre/shared/pull-request-review";
 import type { MilagreBridge } from "../../../electron";
 import { PickerPanel, PickerRow } from "../../primitives/Picker";
 import Tooltip from "../../primitives/Tooltip";
+import { Icon, type IconSize } from "../../primitives/Icon";
 import type { PullRequestReview } from "../usePullRequest";
 import { PopoverButton } from "./Popover";
 
@@ -15,16 +15,16 @@ import { PopoverButton } from "./Popover";
 /** Where the pickers read their options: the PR's bridge and the Worktree it was read from. */
 export type PrSource = { bridge: MilagreBridge["pr"]; cwd: string };
 
-const icon = (glyph: IconSvgElement, size = 14) => <HugeiconsIcon icon={glyph} size={size} strokeWidth={1.8} color="currentColor" />;
+const icon = (glyph: IconSvgElement, size: IconSize = 14) => <Icon icon={glyph} size={size} />;
 
-const addButton = "flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink";
+const addButton = "flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors duration-fast hover:bg-hover hover:text-ink";
 
 export function Avatar({ login, size = 18, className = "", team = false }: { login: string; size?: number; className?: string; team?: boolean }) {
   // A team has no picture; it shows as a group.
   if (team)
     return (
       <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-hover text-ink-2 ${className}`}>
-        {icon(UserGroupIcon, Math.round(size * 0.65))}
+        {icon(UserGroupIcon, size >= 20 ? 14 : 12)}
       </span>
     );
   return (
@@ -67,21 +67,21 @@ function Property({
   ...rest
 }: { glyph: IconSvgElement; label: string; action?: ReactNode; children: ReactNode } & Record<`data-${string}`, string>) {
   return (
-    <div {...rest} className="flex min-h-[30px] items-start gap-2">
-      <span className="flex h-[30px] shrink-0 items-center text-ink-3">{icon(glyph, 13)}</span>
-      <span className="w-[76px] shrink-0 text-[12.5px] leading-[30px] text-ink-2">{label}</span>
-      <div className="flex min-h-[30px] min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">{children}</div>
-      {action && <span className="flex h-[30px] shrink-0 items-center">{action}</span>}
+    <div {...rest} className="flex min-h-8 items-start gap-2">
+      <span className="flex h-8 shrink-0 items-center text-ink-3">{icon(glyph, 14)}</span>
+      <span className="w-19 shrink-0 text-12 leading-8 text-ink-2">{label}</span>
+      <div className="flex min-h-8 min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">{children}</div>
+      {action && <span className="flex h-8 shrink-0 items-center">{action}</span>}
     </div>
   );
 }
 
 const REVIEW_STATE: Record<PullRequestReviewer["state"], { label: string; ring: string }> = {
-  APPROVED: { label: "Approved", ring: "ring-[2.5px] ring-green ring-offset-1 ring-offset-surface" },
-  CHANGES_REQUESTED: { label: "Changes requested", ring: "ring-[2.5px] ring-red ring-offset-1 ring-offset-surface" },
-  COMMENTED: { label: "Commented", ring: "ring-[1.5px] ring-ink-3" },
-  REQUESTED: { label: "Requested", ring: "ring-[1.5px] ring-surface" },
-  DISMISSED: { label: "Dismissed", ring: "ring-[1.5px] ring-surface" },
+  APPROVED: { label: "Approved", ring: "ring-2 ring-green ring-offset-1 ring-offset-surface" },
+  CHANGES_REQUESTED: { label: "Changes requested", ring: "ring-2 ring-red ring-offset-1 ring-offset-surface" },
+  COMMENTED: { label: "Commented", ring: "ring-2 ring-ink-3" },
+  REQUESTED: { label: "Requested", ring: "ring-2 ring-surface" },
+  DISMISSED: { label: "Dismissed", ring: "ring-2 ring-surface" },
 };
 
 export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; review: PullRequestReview; source?: PrSource }) {
@@ -167,7 +167,7 @@ export function ReviewersRow({ pr, review, source }: { pr: PullRequestDetail; re
           ))}
         </span>
       ) : (
-        <span className="text-[12px] text-ink-3">None yet</span>
+        <span className="text-12 text-ink-3">None yet</span>
       )}
     </Property>
   );
@@ -239,7 +239,7 @@ export function LabelsRow({ pr, review, source }: { pr: PullRequestDetail; revie
               </PickerPanel>
             )}
           >
-            {icon(PlusSignIcon, 13)}
+            {icon(PlusSignIcon, 14)}
           </PopoverButton>
         )
       }
@@ -249,12 +249,12 @@ export function LabelsRow({ pr, review, source }: { pr: PullRequestDetail; revie
           key={label.name}
           data-pr-label={label.name}
           style={labelStyle(label.color)}
-          className="pr-label max-w-full truncate rounded-[6px] px-1.5 text-[11.5px] leading-5 font-medium"
+          className="pr-label max-w-full truncate rounded-chip px-1.5 text-11 leading-5 font-medium"
         >
           {label.name}
         </span>
       ))}
-      {pr.labels.length === 0 && <span className="text-[12px] text-ink-3">None yet</span>}
+      {pr.labels.length === 0 && <span className="text-12 text-ink-3">None yet</span>}
     </Property>
   );
 }

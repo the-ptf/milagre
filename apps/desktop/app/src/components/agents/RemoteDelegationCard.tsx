@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { sentDecision } from "../../lib/agent-runs";
 import type { AgentRun } from "../../lib/agent-runs";
@@ -6,6 +5,8 @@ import { remoteRunStatus, replyTail } from "../../lib/remote-delegation";
 import type { RemoteRunStatus } from "../../lib/remote-delegation";
 import type { OpenDelegation, PermissionDecision } from "../../model";
 import { PermissionCard } from "./PermissionCard";
+import { Button } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 
 const STATUS: Record<RemoteRunStatus, string> = {
   sending: "Sending",
@@ -40,34 +41,30 @@ export function RemoteDelegationCard({
   const approval = run?.approvals[0];
   const chat = delegation.to_chat;
   return (
-    <div
-      data-slot="remote-delegation"
-      data-status={status}
-      className="flex w-full flex-col gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13px]"
-    >
+    <div data-slot="remote-delegation" data-status={status} className="flex w-full flex-col gap-2 rounded-card border border-line bg-surface px-3 py-2 text-13">
       <div className="flex items-start gap-2">
-        <HugeiconsIcon icon={LaptopIcon} size={16} className="mt-px shrink-0 text-ink-3" aria-hidden />
+        <Icon icon={LaptopIcon} size={16} className="mt-px shrink-0 text-ink-3" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium">Running on {delegation.computer?.name}</p>
-          <p className="truncate text-[12px] text-ink-3">
+          <p className="truncate text-12 text-ink-3">
             {STATUS[status]} · {delegation.to_label}
           </p>
         </div>
         {chat && (
           <div className="flex shrink-0 gap-1.5">
-            <button type="button" className="rounded-[8px] border border-line px-2 py-1 text-[12px] hover:bg-hover" onClick={() => onOpenChat(chat)}>
+            <Button variant="secondary" size={24} onClick={() => onOpenChat(chat)}>
               Open
-            </button>
+            </Button>
             {run && (
-              <button type="button" className="rounded-[8px] border border-line px-2 py-1 text-[12px] hover:bg-hover" onClick={() => onStop(chat)}>
+              <Button variant="secondary" size={24} onClick={() => onStop(chat)}>
                 Stop
-              </button>
+              </Button>
             )}
           </div>
         )}
       </div>
-      {step && <p className="truncate text-[12px] text-ink-2">{step.title}</p>}
-      {tail && <p className="max-h-32 overflow-hidden whitespace-pre-wrap text-[12px] text-ink-3">{tail}</p>}
+      {step && <p className="truncate text-12 text-ink-2">{step.title}</p>}
+      {tail && <p className="max-h-32 overflow-hidden whitespace-pre-wrap text-12 text-ink-3">{tail}</p>}
       {approval && (
         <PermissionCard
           key={approval.requestId}

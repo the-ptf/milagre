@@ -10,7 +10,7 @@ import { allComputers } from "../../all-computers";
 import { useSession } from "../../session";
 import { ProjectIcon, setProjectImage } from "../../project-icon";
 import { ProjectAccountsGroup } from "../../project-accounts-section";
-import { ErrorNotice, PageScroll, PillButton, Segmented, Toggle, useStyles } from "../../ui";
+import { ErrorNotice, PageScroll, PillButton, SectionLabel, Segmented, Toggle, useStyles } from "../../ui";
 
 // Same size as desktop's: the icon is shown small everywhere, and the computer keeps it under 450 KB.
 async function pickIcon() {
@@ -111,25 +111,29 @@ export default function ProjectSettingsScreen() {
     <>
       <Stack.Screen options={{ title: name || "Project" }} />
       <PageScroll>
-        <Text style={styles.label}>Icon</Text>
-        <View style={[styles.card, { alignItems: "center", gap: 16 }]}>
-          <ProjectIcon client={client} path={path} size={72} />
-          <Text style={[styles.caption, { textAlign: "center" }]}>
-            Shown in your Projects list and on the desktop app. Reset goes back to the repository&apos;s own icon.
-          </Text>
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <PillButton title="Choose photo" loading={busy} onPress={() => void save(pickIcon)} />
-            <PillButton title="Reset" secondary disabled={busy} onPress={() => void save(async () => null)} />
+        <View style={{ gap: 8 }}>
+          <SectionLabel>Icon</SectionLabel>
+          <View style={[styles.card, { alignItems: "center", gap: 16 }]}>
+            <ProjectIcon client={client} path={path} size={72} />
+            <Text style={[styles.caption, { textAlign: "center" }]}>
+              Shown in your Projects list and on the desktop app. Reset goes back to the repository&apos;s own icon.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <PillButton title="Choose photo" loading={busy} onPress={() => void save(pickIcon)} />
+              <PillButton title="Reset" secondary disabled={busy} onPress={() => void save(async () => null)} />
+            </View>
           </View>
         </View>
-        <Text style={[styles.label, { marginTop: 16 }]}>Projects list</Text>
-        <View style={[styles.card, { gap: 4 }]}>
-          <Toggle title="Show in Projects list" selected={!hidden} disabled={busy} onPress={() => void setHidden(!hidden)} />
-          <Text style={styles.caption}>Hide a Project on this phone when you only use it through a Link.</Text>
+        <View style={{ gap: 8 }}>
+          <SectionLabel>Projects list</SectionLabel>
+          <View style={[styles.card, { gap: 4 }]}>
+            <Toggle title="Show in Projects list" selected={!hidden} disabled={busy} onPress={() => void setHidden(!hidden)} />
+            <Text style={styles.caption}>Hide a Project on this phone when you only use it through a Link.</Text>
+          </View>
         </View>
         {sync && (
-          <>
-            <Text style={[styles.label, { marginTop: 16 }]}>Worktrees</Text>
+          <View style={{ gap: 8 }}>
+            <SectionLabel>Worktrees</SectionLabel>
             <View style={[styles.card, { gap: 8 }]}>
               <Text style={styles.caption}>{MAIN_SYNC_TITLE}</Text>
               <Segmented
@@ -140,16 +144,16 @@ export default function ProjectSettingsScreen() {
               />
               <Text style={styles.caption}>{mainSyncStatusLine(sync.last, now)}</Text>
             </View>
-          </>
+          </View>
         )}
         {error ? <ErrorNotice message={error} /> : null}
-        <View style={{ marginTop: 16 }}>
-          <ProjectAccountsGroup path={path} />
-        </View>
-        <Text style={[styles.label, { marginTop: 16 }]}>Remove Project</Text>
-        <View style={[styles.card, { gap: 12 }]}>
-          <Text style={styles.caption}>Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.</Text>
-          <PillButton title="Remove Project" secondary disabled={busy} onPress={() => void remove()} />
+        <ProjectAccountsGroup path={path} />
+        <View style={{ gap: 8 }}>
+          <SectionLabel>Remove Project</SectionLabel>
+          <View style={[styles.card, { gap: 12 }]}>
+            <Text style={styles.caption}>Files, Worktrees and saved Chats stay on disk. Add the Project again to bring it back.</Text>
+            <PillButton title="Remove Project" secondary disabled={busy} onPress={() => void remove()} />
+          </View>
         </View>
       </PageScroll>
     </>

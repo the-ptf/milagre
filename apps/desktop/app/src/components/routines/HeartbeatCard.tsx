@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Pulse01Icon } from "@hugeicons/core-free-icons";
 import { triggerText } from "@milagre/shared/routines";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -8,6 +7,8 @@ import { qualifyKey, computerOfKey } from "@milagre/shared/chat-scopes";
 import { bridgeFor } from "../../lib/computer-bridge";
 import { refreshRoutines, routineEnd, useRoutines } from "../../lib/routines";
 import { useReplyChatId } from "../agents/ArtifactCard";
+import { Button } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
@@ -45,26 +46,20 @@ export function HeartbeatCard({ step }: { step: HeartbeatStep }) {
       .finally(() => setStopping(false));
   };
   return (
-    <div data-heartbeat-card={step.routine.id} className="flex w-full items-center gap-3 rounded-[14px] border border-line bg-surface px-3 py-2.5">
-      <HugeiconsIcon icon={Pulse01Icon} size={18} strokeWidth={1.8} color="currentColor" className="shrink-0 text-ink" />
+    <div data-heartbeat-card={step.routine.id} className="flex w-full items-center gap-3 rounded-window border border-line bg-surface px-3 py-3">
+      <Icon icon={Pulse01Icon} size={18} className="shrink-0 text-ink" />
       <span className="grid min-w-0 flex-1 gap-0.5">
-        <span className="truncate text-[13.5px] font-medium text-ink">Heartbeat set: {name}</span>
+        <span className="truncate text-13 font-medium text-ink">Heartbeat set: {name}</span>
         {(error || failedRead || meta) && (
-          <span className={`truncate text-[12px] ${error || failedRead ? "text-red-ink" : "text-ink-2"}`}>{error ?? failedRead ?? meta}</span>
+          <span className={`truncate text-12 ${error || failedRead ? "text-red-ink" : "text-ink-2"}`}>{error ?? failedRead ?? meta}</span>
         )}
       </span>
       {enabled === null ? null : routine ? (
-        <button
-          type="button"
-          data-heartbeat-stop
-          disabled={stopping}
-          onClick={stop}
-          className="h-[30px] shrink-0 rounded-full border border-line-strong bg-surface px-3.5 text-[13px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40"
-        >
+        <Button variant="secondary" data-heartbeat-stop disabled={stopping} onClick={stop} className="rounded-full">
           Stop
-        </button>
+        </Button>
       ) : (
-        <span data-heartbeat-stopped className="shrink-0 text-[12px] text-ink-3">
+        <span data-heartbeat-stopped className="shrink-0 text-12 text-ink-3">
           Stopped
         </span>
       )}

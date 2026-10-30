@@ -1,8 +1,10 @@
 import { ActivityIndicator, Pressable } from "react-native";
+import { hitSlopFor, radius } from "../design-tokens";
 import { useTheme } from "../theme";
 import { Icon, type IconData, type Tone } from "../icons";
 import { tap } from "./tap";
 import { useHover } from "./hover";
+import { pressStyle } from "./press-style";
 
 export function IconButton({
   label,
@@ -31,21 +33,23 @@ export function IconButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled, busy: loading }}
-      hitSlop={4}
+      hitSlop={hitSlopFor(size)}
       disabled={disabled || loading}
       onPress={() => {
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: filled ? colors.ink : hovered && !disabled ? colors.hover : "transparent",
-        opacity: disabled ? 0.35 : pressed ? 0.5 : 1,
-      })}
+      style={({ pressed }) => [
+        {
+          width: size,
+          height: size,
+          borderRadius: radius.full,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: filled ? colors.ink : hovered && !disabled ? colors.hover : "transparent",
+        },
+        pressStyle({ pressed, disabled, filled }),
+      ]}
     >
       {loading ? <ActivityIndicator color={filled ? colors.onInk : colors.ink2} /> : <Icon icon={icon} size={20} tone={filled ? "onInk" : tone} />}
     </Pressable>

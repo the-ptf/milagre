@@ -150,14 +150,14 @@ function Morph({
     >
       {/* One surface morphs between the pill and the panel; both faces stay mounted and crossfade over it. Closed, it is
       the row's frosted glass pill; open, a raised card. */}
-      {opened && expanded && <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-overlay" aria-hidden />}
+      {opened && expanded && <div className="fixed inset-0 z-40 bg-scrim backdrop-blur-overlay" aria-hidden />}
       <div
         data-slot={slot.replace(/-track$/, "-surface")}
         style={
           opened && expanded
-            ? { position: "fixed", inset: 20, zIndex: 50, borderRadius: 10 }
+            ? { position: "fixed", inset: 20, zIndex: 50, borderRadius: "var(--radius-card)" }
             : size
-              ? { width: size.width, height: size.height, right: opened ? -room.shift : 0, borderRadius: opened ? 10 : size.height / 2 }
+              ? { width: size.width, height: size.height, right: opened ? -room.shift : 0, borderRadius: opened ? "var(--radius-card)" : size.height / 2 }
               : undefined
         }
         className={`absolute bottom-0 z-10 overflow-hidden text-ink ${expanded ? "" : MORPH_SURFACE} ${opened ? "bg-surface shadow-raised" : `status-pill ${PILL_TONES[pill.tone ?? "ink"]}`}`}

@@ -26,7 +26,8 @@ import { splitStreamingBlocks } from "@milagre/shared/streaming-blocks";
 import { ReachableHostContext, type ReachableHost } from "./reachable-host";
 import { ChatLinkContext } from "./chat-link-context";
 import { cachedMarkdownTokens, markdownChunks, markdownTokens, safeLink } from "./chat-presentation";
-import { PageScroll, useStyles, type Styles } from "./ui";
+import { radius, space } from "./design-tokens";
+import { PageScroll, pressStyle, useAnnounce, useStyles, type Styles } from "./ui";
 import { showImages, type MediaValue, type ThumbRect } from "./viewer-store";
 
 import { resolveMarkdownImage } from "./markdown-image";
@@ -101,12 +102,13 @@ function MarkdownImage({ src, alt, media, basePath, remote }: { src: string; alt
   const broken = !source || failed === source || (pending && loaded?.source === pending && !loaded.value);
   const [ratio, setRatio] = useState(1);
   const thumb = useRef<ViewInstance>(null);
+  useAnnounce(target && !broken && !ready ? `Loading ${alt}…` : null);
   if (!target) return <Text style={styles.muted}>[Image: {alt}]</Text>;
   if (broken)
     return "url" in target ? (
       <Text
         accessibilityRole="link"
-        style={[styles.muted, { color: colors.accent, textDecorationLine: "underline" }]}
+        style={[styles.muted, { color: colors.accentInk, textDecorationLine: "underline" }]}
         onPress={() => void Linking.openURL(target.url).catch(() => Alert.alert("Cannot open image", "Try opening this address in your browser."))}
       >
         Cannot load {alt}. Open image
@@ -123,12 +125,7 @@ function MarkdownImage({ src, alt, media, basePath, remote }: { src: string; alt
         <Text style={styles.muted}>Cannot load {alt} from your computer. Tap to retry.</Text>
       </Pressable>
     );
-  if (!ready)
-    return (
-      <Text accessibilityLiveRegion="polite" style={styles.muted}>
-        Loading {alt}...
-      </Text>
-    );
+  if (!ready) return <Text style={styles.muted}>Loading {alt}…</Text>;
   const open = () => {
     const show = (from?: ThumbRect) => {
       showImages([{ name: alt, source: ready, from }], 0);
@@ -232,7 +229,7 @@ function inlineNodes(nodes: Node[], t: MarkdownTheme): React.ReactNode {
           : token.type === "s_open"
             ? { textDecorationLine: "line-through" }
             : token.type === "code_inline"
-              ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: t.codeSize + 1.5 }
+              ? { fontFamily: t.styles.code.fontFamily, backgroundColor: t.colors.field, fontSize: Math.round(t.codeSize + 1.5) }
               : {};
     const written = token.type === "link_open" ? String(token.attrGet("href") || "") : "";
     // A localhost link is the Chat's computer, never the phone: it opens at that computer's IP (unless the Chat's ports
@@ -290,7 +287,7 @@ const CodeBlock = memo(function CodeBlock({ code, language, t }: { code: string;
     );
   };
   return (
-    <View style={{ backgroundColor: t.colors.field, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}>
+    <View style={{ backgroundColor: t.colors.field, borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden" }}>
       <View
         style={{
           flexDirection: "row",
@@ -308,7 +305,7 @@ const CodeBlock = memo(function CodeBlock({ code, language, t }: { code: string;
           accessibilityRole="button"
           accessibilityLabel={copied ? "Copied" : "Copy code"}
           onPress={copy}
-          style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+          style={({ pressed }) => [{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
         >
           <Icon icon={copied ? Tick02Icon : Copy01Icon} size={16} />
         </Pressable>
@@ -335,7 +332,7 @@ const MarkdownTable = memo(function MarkdownTable({ nodes, images, t }: { nodes:
   return (
     <View
       onLayout={({ nativeEvent }) => setAvailable(Math.max(0, nativeEvent.layout.width - line * 2))}
-      style={{ borderWidth: line, borderColor: t.colors.line, borderRadius: 12, borderCurve: "continuous", overflow: "hidden" }}
+      style={{ borderWidth: line, borderColor: t.colors.line, borderRadius: radius.card, borderCurve: "continuous", overflow: "hidden" }}
     >
       <PageScroll horizontal directionalLockEnabled bounces={false} contentContainerStyle={{ padding: 0, paddingBottom: 0, gap: 0 }}>
         <View>
@@ -408,7 +405,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
       return (
         <View key={key} style={{ gap: 8 }}>
           {children.map((child, i) => (
-            <View key={i} style={{ flexDirection: "row", gap: 10 }}>
+            <View key={i} style={{ flexDirection: "row", gap: space.lg }}>
               <Text style={body}>{token.type === "ordered_list_open" ? `${Number(token.attrGet("start") || 1) + i}.` : "•"}</Text>
               <View style={{ flex: 1, gap: 8 }}>{blocks(child.children, images, t)}</View>
             </View>
@@ -417,7 +414,7 @@ function blocks(nodes: Node[], images: ImageOptions, t: MarkdownTheme): React.Re
       );
     if (token.type === "blockquote_open")
       return (
-        <View key={key} style={{ borderLeftWidth: 3, borderColor: colors.line, paddingLeft: 14, gap: 8 }}>
+        <View key={key} style={{ borderLeftWidth: 3, borderColor: colors.line, paddingLeft: space.lg, gap: space.md }}>
           {blocks(children, images, t)}
         </View>
       );

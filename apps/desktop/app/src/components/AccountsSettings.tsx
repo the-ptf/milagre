@@ -3,11 +3,12 @@ import type { AccountsSnapshot, CliStatus, ModelProvider } from "@milagre/shared
 import type { CliProgress } from "../electron";
 import { accountType, providerName } from "@milagre/shared/providers";
 import { ProviderLogo } from "./ProviderLogo";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Briefcase01Icon, UserIcon, UserMultipleIcon, CheckmarkCircle02Icon, CircleIcon, Delete02Icon, RefreshIcon } from "@hugeicons/core-free-icons";
-
-const button =
-  "rounded-lg border border-line cursor-pointer disabled:cursor-default px-3 py-1.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover disabled:opacity-40";
+import { Button } from "./primitives/Button";
+import { FIELD } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import Tooltip from "./primitives/Tooltip";
 
 const MB = 1024 * 1024;
 
@@ -65,30 +66,26 @@ function AntigravityRow({ onInstalled }: { onInstalled: () => void }) {
           : "Starting…";
   const percent = progress?.phase === "download" && progress.total ? Math.min(100, Math.round((progress.received / progress.total) * 100)) : null;
   return (
-    <div data-antigravity-row className="mx-3 mt-3 grid gap-2 rounded-lg border border-line px-3 py-3">
+    <div data-antigravity-row className="mx-3 mt-3 grid gap-2 rounded-control border border-line p-3">
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0 space-y-1">
-          <span className="block text-[13.5px] font-medium">Antigravity</span>
-          <span role="status" className="block text-[12px] text-ink-3">
+          <span className="block text-13 font-medium">Antigravity</span>
+          <span role="status" className="block text-12 text-ink-3">
             {detail}
           </span>
         </span>
         {(missing || outdated || working) && (
-          <button className={button} disabled={working} onClick={() => void install()}>
+          <Button variant="secondary" size={28} disabled={working} onClick={() => void install()}>
             {label}
-          </button>
+          </Button>
         )}
       </div>
       {working && (
         <div className="h-1 overflow-hidden rounded-full bg-inset" role="progressbar" aria-label="Antigravity download" aria-valuenow={percent ?? undefined}>
-          <div className="h-full bg-ink transition-[width]" style={{ width: `${percent ?? 5}%` }} />
+          <div className="h-full bg-ink transition-[width] duration-base ease-enter" style={{ width: `${percent ?? 5}%` }} />
         </div>
       )}
-      {error && (
-        <p role="alert" className="text-[12px] text-red-ink">
-          {error}
-        </p>
-      )}
+      <InlineError size={12}>{error}</InlineError>
     </div>
   );
 }
@@ -135,11 +132,12 @@ export function AccountsSettings() {
   return (
     <div className="mt-6 grid gap-5" data-accounts-settings>
       <div className="flex items-start justify-between gap-6">
-        <p className="max-w-[430px] text-[13px] leading-5 text-ink-3">
+        <p className="max-w-[430px] text-13 leading-5 text-ink-3">
           Choose the computer default for each provider. Projects and Links can choose a different account in Project Accounts.
         </p>
-        <button
-          className={button}
+        <Button
+          variant="secondary"
+          size={28}
           disabled={busy}
           onClick={() => {
             setBusy(true);
@@ -147,28 +145,25 @@ export function AccountsSettings() {
           }}
         >
           Refresh
-        </button>
+        </Button>
       </div>
-      {error && (
-        <p role="alert" className="text-[13px] text-red-ink">
-          {error}
-        </p>
-      )}
+      <InlineError>{error}</InlineError>
       {!snapshot && !error && (
-        <p role="status" className="text-[13px] text-ink-3">
-          Checking accounts...
+        <p role="status" className="text-13 text-ink-3">
+          Checking accounts…
         </p>
       )}
       {snapshot?.providers.map((group) => (
-        <section key={group.provider} className={`overflow-hidden rounded-[12px] bg-surface shadow-card ${group.installed === false ? "pb-3" : ""}`}>
+        <section key={group.provider} className={`overflow-hidden rounded-card bg-surface shadow-card ${group.installed === false ? "pb-3" : ""}`}>
           <div className="flex items-center justify-between border-b border-line px-4 py-4">
-            <h2 className="flex items-center gap-2.5 text-[14px] font-medium">
+            <h2 className="flex items-center gap-2 text-15 font-semibold">
               <ProviderLogo provider={group.provider} size={20} />
               {providerName(group.provider)}
             </h2>
             {group.installed !== false && (
-              <button
-                className={button}
+              <Button
+                variant="secondary"
+                size={28}
                 disabled={busy || signingIn}
                 onClick={() => {
                   setAdding(group.provider);
@@ -176,7 +171,7 @@ export function AccountsSettings() {
                 }}
               >
                 Add account
-              </button>
+              </Button>
             )}
           </div>
           {group.provider === "antigravity" && <AntigravityRow onInstalled={() => void load(true)} />}
@@ -189,7 +184,7 @@ export function AccountsSettings() {
                 return (
                   <div
                     key={account.id}
-                    className={`flex items-center gap-2 rounded-lg border pr-3 transition-colors ${selected ? "border-line-strong bg-hover" : "border-line hover:bg-hover"}`}
+                    className={`flex items-center gap-2 rounded-control border pr-3 transition-colors duration-fast ${selected ? "border-line-strong bg-hover" : "border-line hover:bg-hover"}`}
                   >
                     <button
                       type="button"
@@ -200,25 +195,22 @@ export function AccountsSettings() {
                       onClick={() => {
                         if (!selected) void act("select", group.provider, account.id);
                       }}
-                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-3 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-2 disabled:cursor-default"
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-control px-3 py-3 text-left disabled:cursor-default"
                     >
-                      <HugeiconsIcon
-                        icon={selected ? CheckmarkCircle02Icon : CircleIcon}
-                        size={18}
-                        strokeWidth={1.8}
-                        className={`shrink-0 ${selected ? "text-ink" : "text-ink-3"}`}
-                      />
+                      <Icon icon={selected ? CheckmarkCircle02Icon : CircleIcon} size={18} className={`shrink-0 ${selected ? "text-ink" : "text-ink-3"}`} />
                       <span className="min-w-0 space-y-1">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-[13.5px] font-medium">{account.email || account.label}</span>
+                          <span className="truncate text-13 font-medium">{account.email || account.label}</span>
                           {type && (
-                            <span title={`${type} account`} role="img" aria-label={`${type} account`} className="flex shrink-0 text-ink-3">
-                              <HugeiconsIcon icon={typeIcon} size={15} aria-hidden="true" />
-                            </span>
+                            <Tooltip label={`${type} account`} className="shrink-0">
+                              <span role="img" aria-label={`${type} account`} className="flex text-ink-3">
+                                <Icon icon={typeIcon} size={14} />
+                              </span>
+                            </Tooltip>
                           )}
-                          {selected && <span className="shrink-0 text-[11px] text-ink-2">Default</span>}
+                          {selected && <span className="shrink-0 text-11 text-ink-2">Default</span>}
                         </span>
-                        <span className="block text-[12px] text-ink-3">
+                        <span className="block text-12 text-ink-3">
                           {[
                             account.email && account.label !== account.email ? account.label : null,
                             account.state === "signed-out" ? "Not signed in" : account.state === "unknown" ? "Not checked" : null,
@@ -227,7 +219,7 @@ export function AccountsSettings() {
                             .join(" · ")}
                         </span>
                         {account.message && (
-                          <span role={account.state === "error" ? "alert" : "status"} className="block max-w-[390px] text-[12px] leading-5 text-ink-3">
+                          <span role={account.state === "error" ? "alert" : "status"} className="block max-w-[390px] text-12 leading-5 text-ink-3">
                             {account.message}
                           </span>
                         )}
@@ -236,30 +228,28 @@ export function AccountsSettings() {
                     {(account.id !== "default" || group.provider === "antigravity") && (
                       <div className="flex shrink-0 gap-2">
                         {account.state === "signing-in" ? (
-                          <button className={button} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
+                          <Button variant="secondary" size={28} disabled={busy} onClick={() => void act("cancel", group.provider, account.id)}>
                             Cancel
-                          </button>
+                          </Button>
                         ) : (
-                          <button
-                            className={`${button} flex items-center gap-1.5 border-transparent`}
-                            disabled={busy || signingIn}
-                            title="Sign in again in this computer's browser"
-                            onClick={() => void act("login", group.provider, account.id)}
-                          >
-                            <HugeiconsIcon icon={RefreshIcon} size={14} />
-                            Re-authenticate
-                          </button>
+                          <Tooltip label="Sign in again in this computer's browser" align="end">
+                            <Button variant="ghost" size={28} disabled={busy || signingIn} onClick={() => void act("login", group.provider, account.id)}>
+                              <Icon icon={RefreshIcon} size={14} />
+                              Re-authenticate
+                            </Button>
+                          </Tooltip>
                         )}
                         {account.id !== "default" && (
-                          <button
-                            className={`${button} flex items-center gap-1.5 border-transparent`}
-                            disabled={busy}
-                            title="Remove from Milagre. The local profile remains. Removing the active account selects the connected CLI account."
-                            onClick={() => void act("remove", group.provider, account.id)}
+                          <Tooltip
+                            label="Remove from Milagre. The local profile remains. Removing the active account selects the connected CLI account."
+                            align="end"
+                            wrap
                           >
-                            <HugeiconsIcon icon={Delete02Icon} size={14} />
-                            Remove
-                          </button>
+                            <Button variant="ghost" size={28} disabled={busy} onClick={() => void act("remove", group.provider, account.id)}>
+                              <Icon icon={Delete02Icon} size={14} />
+                              Remove
+                            </Button>
+                          </Tooltip>
                         )}
                       </div>
                     )}
@@ -276,7 +266,7 @@ export function AccountsSettings() {
                 void act("add", group.provider, label);
               }}
             >
-              <label className="grid gap-2 text-[12px] text-ink-2">
+              <label className="grid gap-2 text-12 text-ink-2">
                 Account name
                 <input
                   autoFocus
@@ -285,23 +275,23 @@ export function AccountsSettings() {
                   value={label}
                   onChange={(event) => setLabel(event.target.value)}
                   placeholder="Personal or work"
-                  className="rounded-lg border border-line bg-field px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
+                  className={FIELD}
                 />
               </label>
-              <p className="text-[12px] text-ink-3">Sign-in opens in your computer's browser. Choose the account you want to add.</p>
+              <p className="text-12 text-ink-3">Sign-in opens in your computer's browser. Choose the account you want to add.</p>
               <div className="flex gap-2">
-                <button type="submit" className={button} disabled={busy || !label.trim()}>
+                <Button type="submit" size={28} disabled={busy || !label.trim()}>
                   Continue to sign in
-                </button>
-                <button type="button" className={button} disabled={busy} onClick={() => setAdding(null)}>
+                </Button>
+                <Button variant="secondary" size={28} disabled={busy} onClick={() => setAdding(null)}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </form>
           )}
         </section>
       ))}
-      <p className="text-[12px] leading-5 text-ink-3">
+      <p className="text-12 leading-5 text-ink-3">
         Add and sign in on this computer. Paired phones can switch accounts. Remove keeps the local profile; removing the active account selects the connected
         CLI account.
       </p>

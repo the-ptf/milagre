@@ -13,12 +13,12 @@ export function Toggle({
   selected: boolean;
   onPress: () => void;
   disabled?: boolean;
-  /** The switch's on color; green unless a screen asks for another (the MCP screens use ink). */
+  /** The switch's on color: ink, like RowSwitch, unless a screen asks for another. */
   tint?: ColorValue;
 }) {
   const { colors } = useTheme();
   return (
-    <Host ignoreSafeArea="all" matchContents={{ vertical: true }} style={{ minHeight: 44 }} seedColor={(seed ?? colors.green) as string}>
+    <Host ignoreSafeArea="all" matchContents={{ vertical: true }} style={{ minHeight: 44 }} seedColor={(seed ?? colors.ink) as string}>
       <Switch label={title} value={selected} disabled={disabled} onValueChange={onPress} />
     </Host>
   );

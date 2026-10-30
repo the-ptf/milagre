@@ -8,6 +8,7 @@ import { LoadingLogo } from "../loading-logo";
 import { useSplit } from "../split-context";
 import { requestNavigation } from "../navigation-commands";
 import { useTheme } from "../theme";
+import { lineHeight, type } from "../design-tokens";
 
 export default function ProjectsScreen() {
   const styles = useStyles();
@@ -51,11 +52,11 @@ export default function ProjectsScreen() {
         <View
           accessible
           accessibilityRole="progressbar"
-          accessibilityLabel="Reopening your Chat..."
+          accessibilityLabel="Reopening your Chat…"
           style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 12 }}
         >
           <LoadingLogo size={64} />
-          <Text style={styles.muted}>Reopening your Chat...</Text>
+          <Text style={styles.muted}>Reopening your Chat…</Text>
         </View>
       ) : (
         <>
@@ -66,7 +67,7 @@ export default function ProjectsScreen() {
           ) : null}
           {pinned ? (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 24 }}>
-              <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 22, fontWeight: "700" }}>
+              <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
                 Pick a Chat
               </Text>
               <Text style={[styles.muted, { textAlign: "center" }]}>Choose one in the sidebar, or start a new one with ⌘N.</Text>

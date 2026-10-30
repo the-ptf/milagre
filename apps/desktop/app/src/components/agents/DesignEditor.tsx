@@ -23,6 +23,7 @@ import type { DesignEditorSession, DesignEditorWorkspace } from "./design-editor
 import { designDraftCache, type DesignFieldDraft, type DesignHistory } from "./design-draft-cache";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
+import { buttonClass as buttonClassOf } from "../primitives/Button";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { Select } from "../primitives/Select";
 
@@ -32,8 +33,10 @@ export const DESIGN_DELETED = "milagre:design-deleted";
 export type DesignDeleted = { chatId: string; id: string };
 
 const fieldClass =
-  "min-w-0 w-full rounded-control border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent disabled:opacity-50";
-const buttonClass = "rounded-control border border-line px-2.5 py-1.5 text-[12px] text-ink hover:bg-hover disabled:opacity-40";
+  "min-w-0 w-full rounded-control border border-line bg-canvas px-2 py-1.5 text-12 text-ink outline-none focus:border-accent disabled:opacity-40";
+const buttonClass = buttonClassOf({ variant: "secondary", size: 28 });
+// A choice holds a label over a value that may wrap, so it sizes to its content.
+const choiceClass = "rounded-control border border-line px-2.5 py-1.5 text-12 text-ink transition-colors duration-fast hover:bg-hover disabled:opacity-40";
 const fingerprint = (document: DesignDocument) => JSON.stringify(document);
 const rounded = (value: number) => Math.round(value * 100) / 100;
 const DraftFields = createContext({ pending: (_value: boolean) => {}, fields: new Map<string, DesignFieldDraft>(), scope: "" });
@@ -106,7 +109,7 @@ function Field({
     className: fieldClass,
   };
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-[11px] text-ink-3">
+    <label className="flex min-w-0 flex-col gap-1 text-11 text-ink-3">
       <span>{label}</span>
       {multiline ? (
         <textarea {...common} rows={3} className={`${fieldClass} resize-y`} />
@@ -798,7 +801,7 @@ export function DesignDocumentEditor({
         createPortal(
           <>
             {suspendedDraft && (
-              <div data-slot="design-suspended-draft" className="flex shrink-0 items-center gap-3 border-b border-line bg-accent/10 px-4 py-2 text-[12px]">
+              <div data-slot="design-suspended-draft" className="flex shrink-0 items-center gap-3 border-b border-line bg-accent-tint px-4 py-2 text-12">
                 <span className="flex-1">An unsaved draft was kept when the editor closed.</span>
                 <button type="button" className={buttonClass} onClick={restoreSuspendedDraft}>
                   Restore unsaved draft
@@ -816,14 +819,14 @@ export function DesignDocumentEditor({
               </div>
             )}
             {error && (
-              <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-line bg-red/10 px-4 py-2 text-[12px] text-red-ink">
+              <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-line bg-red-tint px-4 py-2 text-12 text-red-ink">
                 <span className="flex-1">{error}</span>
               </div>
             )}
             {(notice || incoming || recovery) && (
               <div
                 data-slot="design-version-notice"
-                className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-accent/10 px-4 py-2 text-[12px]"
+                className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-accent-tint px-4 py-2 text-12"
               >
                 <span className="min-w-40 flex-1">{notice}</span>
                 {incoming && !reviewing && (
@@ -852,7 +855,7 @@ export function DesignDocumentEditor({
               </div>
             )}
             {incoming && reviewing && merge && (
-              <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col border-b border-line bg-canvas px-4 py-3 text-[12px]">
+              <section data-slot="design-conflict-review" className="flex max-h-[38vh] shrink-0 flex-col border-b border-line bg-canvas px-4 py-3 text-12">
                 <p className="mb-2 font-medium">Review version {incoming.version}</p>
                 {merge.error && (
                   <p role="alert" className="mb-2 text-red-ink">
@@ -876,7 +879,7 @@ export function DesignDocumentEditor({
                     {dirty && (
                       <button
                         type="button"
-                        className={`${buttonClass} mt-3 self-start border-red/40 text-red-ink`}
+                        className={`${buttonClass} mt-3 self-start text-red-ink`}
                         disabled={saving}
                         onClick={() => void persist(state.current.document, incoming, true)}
                       >
@@ -904,7 +907,7 @@ export function DesignDocumentEditor({
                                 type="button"
                                 aria-label={`Use ${side} for ${field.label}`}
                                 aria-pressed={choices[field.key] === side}
-                                className={`${buttonClass} break-words text-left ${choices[field.key] === side ? "border-accent bg-accent/10" : ""}`}
+                                className={`${choiceClass} break-words text-left ${choices[field.key] === side ? "border-accent bg-accent-tint" : ""}`}
                                 onClick={() => setChoices((current) => ({ ...current, [field.key]: side }))}
                               >
                                 <span className="mb-1 block text-ink-3">{side === "latest" ? "Latest" : "Mine"}</span>
@@ -935,7 +938,7 @@ export function DesignDocumentEditor({
           type="button"
           aria-label={`Select design ${saved.title}`}
           onClick={() => workspace.activate(saved.id)}
-          className={`mb-2 max-w-full truncate text-left text-[13px] ${active ? "text-ink" : "text-ink-3"}`}
+          className={`mb-2 max-w-full truncate text-left text-13 ${active ? "text-ink" : "text-ink-3"}`}
         >
           {saved.title}
         </button>
@@ -945,7 +948,7 @@ export function DesignDocumentEditor({
           style={{ width: document.width, height: document.height }}
         >
           {previewError ? (
-            <div role="alert" data-slot="design-preview-error" className="absolute inset-0 bg-surface p-5 text-[12px] text-ink">
+            <div role="alert" data-slot="design-preview-error" className="absolute inset-0 bg-surface p-5 text-12 text-ink">
               <p className="font-medium">Preview unavailable</p>
               <p className="mt-2 text-ink-2">{previewError}</p>
               <p className="mt-2 text-ink-3">Your draft is still here. Edit the layers or undo the last change to restore the preview.</p>
@@ -971,13 +974,13 @@ export function DesignDocumentEditor({
             {selectedNode ? (
               <div className="flex flex-col gap-4 p-3" key={`${selectedNode.id}:${fieldRevision}`}>
                 <div>
-                  <div className="text-[12px] font-medium">{selectedNode.name ?? selectedNode.id}</div>
-                  <div className="mt-0.5 text-[10px] capitalize text-ink-3">{selectedNode.type}</div>
+                  <div className="text-12 font-medium">{selectedNode.name ?? selectedNode.id}</div>
+                  <div className="mt-0.5 text-10 capitalize text-ink-3">{selectedNode.type}</div>
                 </div>
                 <Field label="Layer name" value={selectedNode.name ?? selectedNode.id} disabled={saving} onCommit={(name) => patch({ name })} />
                 {selectedInstance ? (
                   <>
-                    <div className="rounded-control border border-line bg-canvas p-2 text-[11px] leading-4 text-ink-3">
+                    <div className="rounded-control border border-line bg-canvas p-2 text-11 leading-4 text-ink-3">
                       Linked instance. Edit the main component to update every instance.
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -997,7 +1000,7 @@ export function DesignDocumentEditor({
                   <>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span className="text-[11px] text-ink-3">Width sizing</span>
+                        <span className="text-11 text-ink-3">Width sizing</span>
                         <Select
                           label="Width sizing"
                           value={selectedNode.widthMode ?? "fixed"}
@@ -1012,7 +1015,7 @@ export function DesignDocumentEditor({
                         />
                       </div>
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span className="text-[11px] text-ink-3">Height sizing</span>
+                        <span className="text-11 text-ink-3">Height sizing</span>
                         <Select
                           label="Height sizing"
                           value={selectedNode.heightMode ?? "fixed"}
@@ -1028,7 +1031,7 @@ export function DesignDocumentEditor({
                       </div>
                     </div>
                     {((selectedNode.widthMode && selectedNode.widthMode !== "fixed") || (selectedNode.heightMode && selectedNode.heightMode !== "fixed")) && (
-                      <p className="text-[11px] leading-4 text-ink-3">Hug follows content. Fill uses available space. Width and height are fallback sizes.</p>
+                      <p className="text-11 leading-4 text-ink-3">Hug follows content. Fill uses available space. Width and height are fallback sizes.</p>
                     )}
                     <div className="grid grid-cols-2 gap-2">
                       {(
@@ -1186,7 +1189,7 @@ export function DesignDocumentEditor({
                     )}
                     {selectedNode.type === "frame" && (
                       <>
-                        <div className="border-t border-line pt-3 text-[12px] font-medium">Layout</div>
+                        <div className="border-t border-line pt-3 text-12 font-medium">Layout</div>
                         <Select
                           label="Layout"
                           value={selectedNode.layout ?? "free"}
@@ -1256,7 +1259,7 @@ export function DesignDocumentEditor({
                     </div>
                     {selectedNode.type === "frame" && (
                       <div className="flex flex-col gap-2 border-t border-line pt-3">
-                        <div className="text-[12px] font-medium">{selectedNode.component ? "Main component" : "Component"}</div>
+                        <div className="text-12 font-medium">{selectedNode.component ? "Main component" : "Component"}</div>
                         <button
                           type="button"
                           className={buttonClass}
@@ -1280,8 +1283,8 @@ export function DesignDocumentEditor({
               </div>
             ) : selectedIds.length > 1 ? (
               <div className="flex flex-col gap-4 p-3">
-                <div className="text-[12px] font-medium">{selectedIds.length} layers selected</div>
-                <p className="text-[11px] leading-4 text-ink-3">Drag to move them together. Arrow keys move 1 px; Shift + arrows move 10 px.</p>
+                <div className="text-12 font-medium">{selectedIds.length} layers selected</div>
+                <p className="text-11 leading-4 text-ink-3">Drag to move them together. Arrow keys move 1 px; Shift + arrows move 10 px.</p>
                 {groupPosition && (
                   <div className="grid grid-cols-2 gap-2">
                     <Field
@@ -1301,7 +1304,7 @@ export function DesignDocumentEditor({
                   </div>
                 )}
                 {!canMoveSelection && (
-                  <p className="text-[11px] leading-4 text-ink-3">Unlock layers and select their automatic-layout frame to move this selection.</p>
+                  <p className="text-11 leading-4 text-ink-3">Unlock layers and select their automatic-layout frame to move this selection.</p>
                 )}
                 <div className="flex gap-2 border-t border-line pt-3">
                   <button type="button" className={buttonClass} disabled={saving} onClick={duplicate}>
@@ -1313,7 +1316,7 @@ export function DesignDocumentEditor({
                 </div>
               </div>
             ) : (
-              <p className="p-4 text-[12px] text-ink-3">Select a layer to edit its properties. Shift-click to select more.</p>
+              <p className="p-4 text-12 text-ink-3">Select a layer to edit its properties. Shift-click to select more.</p>
             )}
           </ScrollArea>,
           workspace.inspector,

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft02Icon,
   ArrowUpRight01Icon,
@@ -20,15 +19,16 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import type { AccountsSnapshot, AgentCliStatus, AgentFolder, ModelProvider, OpenProject } from "@milagre/shared/model";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { SectionLabel } from "./primitives/SectionLabel";
 
 const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity"];
 
-const primary =
-  "inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink px-3.5 text-[13px] font-semibold text-page transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
-const secondary =
-  "inline-flex h-8 cursor-pointer items-center justify-center rounded-lg border border-line-strong px-3.5 text-[13px] font-medium text-ink transition-colors hover:bg-hover disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+// A text-only link-like button at the edge of the footer: no fill, so it lines up with the content's left edge.
 const quiet =
-  "inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[14px] font-medium text-ink-2 transition-colors hover:text-ink disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  "inline-flex h-8 items-center gap-1.5 rounded-control text-13 font-medium text-ink-2 transition-colors duration-fast hover:text-ink disabled:cursor-default disabled:opacity-40";
 
 /** ~/Code/web for /Users/me/Code/web, so a path reads the way people say it. */
 function homePath(folder: string) {
@@ -53,7 +53,7 @@ function Progress({ step }: { step: 1 | 2 }) {
           <span key={bar} className={`h-1 w-7 rounded-full ${bar <= step ? "bg-ink" : "bg-line-strong"}`} />
         ))}
       </div>
-      <span className="text-[12px] font-medium text-ink-3">Step {step} of 3</span>
+      <span className="text-12 font-medium text-ink-3">Step {step} of 3</span>
     </div>
   );
 }
@@ -62,10 +62,10 @@ function Header({ step, title, children }: { step: 1 | 2; title: string; childre
   return (
     <header className="grid gap-3">
       <Progress step={step} />
-      <h1 id="onboarding-title" className="text-[28px] font-semibold leading-tight text-ink">
+      <h1 id="onboarding-title" className="text-26 font-semibold text-ink">
         {title}
       </h1>
-      <p className="text-[15px] leading-relaxed text-ink-2">{children}</p>
+      <p className="text-15 leading-relaxed text-ink-2">{children}</p>
     </header>
   );
 }
@@ -132,59 +132,50 @@ function AgentStep({ onNext }: { onNext: () => void }) {
       <Header step={1} title="Choose your agent">
         Milagre runs the coding agents you already use, with their own sign-in. We checked this Mac for them.
       </Header>
-      <ul data-onboarding-agents className="overflow-hidden rounded-xl border border-line bg-surface">
+      <ul data-onboarding-agents className="overflow-hidden rounded-card border border-line bg-surface">
         {rows.map((row) => {
           const muted = row.state === "missing";
           return (
-            <li
-              key={row.provider}
-              data-agent={row.provider}
-              data-state={row.state}
-              className="flex items-center gap-3.5 border-line px-4 py-4 not-last:border-b"
-            >
-              <span className={`flex size-9 shrink-0 items-center justify-center rounded-[9px] border border-line bg-inset ${muted ? "opacity-50" : ""}`}>
+            <li key={row.provider} data-agent={row.provider} data-state={row.state} className="flex items-center gap-3 border-line px-4 py-4 not-last:border-b">
+              <span className={`flex size-9 shrink-0 items-center justify-center rounded-control border border-line bg-inset ${muted ? "opacity-60" : ""}`}>
                 <ProviderLogo provider={row.provider} size={20} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className={`block text-[15px] font-semibold ${muted ? "text-ink-2" : "text-ink"}`}>{providerName(row.provider)}</span>
-                <span role="status" className={`block truncate text-[13px] ${muted ? "text-ink-3" : "text-ink-2"}`}>
+                <span className={`block text-15 font-semibold ${muted ? "text-ink-2" : "text-ink"}`}>{providerName(row.provider)}</span>
+                <span role="status" className={`block truncate text-13 ${muted ? "text-ink-3" : "text-ink-2"}`}>
                   {working === row.provider && row.state === "missing" ? "Installing…" : row.detail}
                 </span>
               </span>
               {row.state === "ready" && (
-                <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
-                  <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} strokeWidth={1.8} color="currentColor" />
+                <span className="flex items-center gap-1.5 text-13 font-medium text-ink">
+                  <Icon icon={CheckmarkCircle02Icon} size={16} />
                   Ready
                 </span>
               )}
               {(row.state === "missing" || row.state === "signed-out" || row.state === "signing-in") && (
-                <button
-                  type="button"
-                  className={`${secondary} min-w-[84px]`}
+                <Button
+                  variant="secondary"
+                  className="min-w-[84px]"
                   disabled={working !== null || (row.state !== "missing" && !row.accountId)}
                   onClick={() => void act(row)}
                 >
                   {row.state === "missing" ? (working === row.provider ? "Installing…" : "Install") : row.state === "signing-in" ? "Cancel" : "Sign in"}
-                </button>
+                </Button>
               )}
             </li>
           );
         })}
       </ul>
-      {error && (
-        <p role="alert" className="-mt-3 text-[13px] text-red-ink">
-          {error}
-        </p>
-      )}
-      <p className="text-[13px] text-ink-3">Add more accounts or pick an agent per Project later in Settings › Accounts.</p>
+      <InlineError className="-mt-3">{error}</InlineError>
+      <p className="text-13 text-ink-3">Add more accounts or pick an agent per Project later in Settings › Accounts.</p>
       <footer className="flex items-center justify-between">
         <button type="button" className={quiet} onClick={onNext}>
           Set up later
         </button>
-        <button type="button" className={`${primary} h-10 px-4 text-[14px]`} onClick={onNext}>
+        <Button onClick={onNext}>
           {ready ? `Continue with ${providerName(ready.provider)}` : "Continue"}
-          <HugeiconsIcon icon={ArrowRight02Icon} size={16} strokeWidth={2} color="currentColor" />
-        </button>
+          <Icon icon={ArrowRight02Icon} size={16} />
+        </Button>
       </footer>
     </>
   );
@@ -244,18 +235,18 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             data-onboarding-tile={tile.id}
             disabled={busy}
             onClick={tile.onClick}
-            className={`flex h-[108px] cursor-pointer flex-col items-start rounded-xl border bg-surface p-4 text-left transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${form?.kind === tile.id ? "border-line-strong bg-hover" : "border-line"}`}
+            className={`flex h-[108px] flex-col items-start rounded-card border bg-surface p-4 text-left transition-colors duration-fast enabled:hover:border-line-strong enabled:hover:bg-hover disabled:cursor-default disabled:opacity-40 ${form?.kind === tile.id ? "border-line-strong bg-hover" : "border-line"}`}
           >
-            <HugeiconsIcon icon={tile.icon} size={20} strokeWidth={1.7} color="currentColor" className="text-ink" />
-            <span className="mt-auto text-[14px] font-semibold text-ink">{tile.title}</span>
-            <span className="mt-1 text-[12px] text-ink-2">{tile.detail}</span>
+            <Icon icon={tile.icon} size={18} className="text-ink" />
+            <span className="mt-auto text-15 font-semibold text-ink">{tile.title}</span>
+            <span className="mt-1 text-12 text-ink-2">{tile.detail}</span>
           </button>
         ))}
       </div>
       {form && (
         <form
           data-onboarding-form={form.kind}
-          className="-mt-2 flex items-center gap-2 rounded-xl border border-line bg-surface p-2"
+          className="-mt-2 flex items-center gap-2 rounded-card border border-line bg-surface p-2"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
@@ -269,88 +260,75 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
             disabled={busy}
             onChange={(event) => setForm({ ...form, value: event.target.value })}
             onKeyDown={(event) => event.key === "Escape" && setForm(null)}
-            className="h-8 min-w-0 flex-1 rounded-lg bg-inset px-3 text-[13px] text-ink outline-none placeholder:text-ink-3 focus-visible:ring-1 focus-visible:ring-line-strong"
+            className="h-8 min-w-0 flex-1 rounded-control bg-inset px-3 text-13 text-ink outline-none transition-shadow duration-fast placeholder:text-ink-3 focus:ring-2 focus:ring-accent disabled:opacity-40"
           />
-          {form.kind === "create" && form.value.trim() && <span className="shrink-0 text-[12px] text-ink-3">~/Code/{form.value.trim()}</span>}
-          <button type="submit" className={primary} disabled={busy || !form.value.trim()}>
+          {form.kind === "create" && form.value.trim() && <span className="shrink-0 text-12 text-ink-3">~/Code/{form.value.trim()}</span>}
+          <Button type="submit" disabled={busy || !form.value.trim()}>
             {busy ? (form.kind === "clone" ? "Cloning…" : "Creating…") : form.kind === "clone" ? "Clone" : "Create"}
-          </button>
-          <button
-            type="button"
-            aria-label="Close"
-            className="flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-2 hover:bg-hover"
-            onClick={() => setForm(null)}
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} color="currentColor" />
-          </button>
+          </Button>
+          <IconButton label="Close" icon={Cancel01Icon} iconSize={14} size={32} onClick={() => setForm(null)} />
         </form>
       )}
-      {error && (
-        <p role="alert" className="-mt-2 text-[13px] text-red-ink">
-          {error}
-        </p>
-      )}
+      <InlineError className="-mt-2">{error}</InlineError>
       {(folders === null || folders.length > 0) && (
-        <section className="grid min-w-0 grid-cols-1 gap-2.5" aria-labelledby="onboarding-recent">
+        <section className="grid min-w-0 grid-cols-1 gap-2" aria-labelledby="onboarding-recent">
           <div className="flex items-center justify-between">
-            <h2 id="onboarding-recent" className="text-[13px] font-semibold text-ink-2">
-              Where your agents worked recently
-            </h2>
-            {sources.length > 0 && <span className="text-[12px] text-ink-3">From {sources.join(" and ")} history</span>}
+            <SectionLabel id="onboarding-recent">Where your agents worked recently</SectionLabel>
+            {sources.length > 0 && <span className="text-12 text-ink-3">From {sources.join(" and ")} history</span>}
           </div>
-          <ul data-onboarding-folders className="grid min-w-0 grid-cols-1 gap-0.5 rounded-xl border border-line bg-surface p-1">
+          <ul data-onboarding-folders className="grid min-w-0 grid-cols-1 gap-0.5 rounded-card border border-line bg-surface p-1">
             {folders === null &&
               [0, 1, 2].map((index) => (
-                <li key={index} className="flex h-14 items-center gap-3 px-2.5">
-                  <span className="size-8 rounded-lg bg-inset" />
-                  <span className="h-3 w-40 rounded bg-inset" />
+                <li key={index} className="flex h-12 items-center gap-3 px-2.5">
+                  <span className="size-8 rounded-control bg-inset" />
+                  <span className="h-3 w-40 rounded-inline bg-inset" />
                 </li>
               ))}
             {folders?.map((folder) => {
               const open = expanded === folder.path;
               return (
-                <li key={folder.path} data-folder={folder.name} className={`rounded-lg ${open ? "bg-hover" : ""}`}>
+                <li key={folder.path} data-folder={folder.name} className={`rounded-control ${open ? "bg-hover" : ""}`}>
                   <button
                     type="button"
                     disabled={busy}
                     aria-expanded={folder.git ? undefined : open}
                     onClick={() => (folder.git ? void run(() => window.milagre.openProjectAt(folder.path)) : setExpanded(open ? null : folder.path))}
-                    className="group flex h-14 w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 text-left transition-colors hover:bg-hover disabled:cursor-default focus-visible:outline-2 focus-visible:outline-accent"
+                    className="group flex h-12 w-full items-center gap-3 rounded-control px-2.5 text-left transition-colors duration-fast enabled:hover:bg-hover disabled:cursor-default disabled:opacity-60"
                   >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-inset text-ink-2">
-                      <HugeiconsIcon icon={folder.git ? FolderGitIcon : Folder01Icon} size={16} strokeWidth={1.7} color="currentColor" />
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-control border border-line bg-inset text-ink-2">
+                      <Icon icon={folder.git ? FolderGitIcon : Folder01Icon} size={16} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] font-medium text-ink">{folder.name}</span>
-                      <span className="block truncate font-mono text-[12px] text-ink-3 group-hover:text-ink-2">{homePath(folder.path)}</span>
+                      <span className="block truncate text-13 font-medium text-ink">{folder.name}</span>
+                      <span className="block truncate font-mono text-12 text-ink-3 group-hover:text-ink-2">{homePath(folder.path)}</span>
                     </span>
                     {!folder.git && (
-                      <span className="shrink-0 rounded-md border border-line bg-inset px-2 py-0.5 text-[11px] font-medium text-ink-2">No Git</span>
+                      <span className="shrink-0 rounded-chip border border-line bg-inset px-2 py-0.5 text-11 font-medium text-ink-2">No Git</span>
                     )}
-                    <span className="shrink-0 text-[12px] text-ink-3">
+                    <span className="shrink-0 text-12 text-ink-3">
                       {providerName(folder.provider)} · {lastUsedLabel(folder.lastUsed)}
                     </span>
                     {folder.git ? (
-                      <span className="hidden h-7 shrink-0 items-center rounded-md bg-ink px-3 text-[12px] font-semibold text-page group-hover:flex group-focus-visible:flex">
+                      <span className="hidden h-7 shrink-0 items-center rounded-control bg-ink px-2.5 text-12 font-medium text-on-ink group-hover:flex group-focus-visible:flex">
                         Open
                       </span>
                     ) : (
-                      open && <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={2} color="currentColor" className="shrink-0 text-ink-2" />
+                      open && <Icon icon={Cancel01Icon} size={14} className="shrink-0 text-ink-2" />
                     )}
                   </button>
                   {open && (
                     <div data-no-git className="grid gap-3 pr-2.5 pb-2.5 pl-[54px]">
-                      <p className="text-[13px] leading-normal text-ink-2">
+                      <p className="text-13 leading-normal text-ink-2">
                         {folder.name} has no Git, so Chats work right in this folder instead of their own Worktree. Add Git later to run Chats side by side and
                         undo their changes.
                       </p>
-                      <div className="flex gap-2.5">
-                        <button type="button" className={primary} disabled={busy} onClick={() => void run(() => window.milagre.openProjectAt(folder.path))}>
+                      <div className="flex gap-2">
+                        <Button disabled={busy} onClick={() => void run(() => window.milagre.openProjectAt(folder.path))}>
                           Open folder
-                        </button>
-                        <button type="button" className={secondary} disabled={busy} onClick={() => void run(() => window.milagre.setUpGit(folder.path))}>
+                        </Button>
+                        <Button variant="secondary" disabled={busy} onClick={() => void run(() => window.milagre.setUpGit(folder.path))}>
                           Set up Git first
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -362,7 +340,7 @@ function ProjectStep({ onBack, onOpened }: { onBack: () => void; onOpened: (proj
       )}
       <footer className="flex items-center">
         <button type="button" className={quiet} onClick={onBack} disabled={busy}>
-          <HugeiconsIcon icon={ArrowLeft02Icon} size={16} strokeWidth={2} color="currentColor" />
+          <Icon icon={ArrowLeft02Icon} size={16} />
           Back
         </button>
       </footer>
@@ -407,28 +385,20 @@ const STARTER_ICONS = { explain: MapsIcon, bug: Bug01Icon, tests: TestTube01Icon
 
 export function FirstChatStarters({ starters }: { starters: Starter[] }) {
   return (
-    <ul data-first-chat-starters className="mb-3 grid gap-2 px-1" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+    <ul data-first-chat-starters className="mb-3 grid gap-2 px-1" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
       {starters.map((starter) => (
         <li key={starter.id}>
           <button
             type="button"
             onClick={starter.onPick}
-            className="group flex h-12 w-full cursor-pointer items-center gap-3 rounded-[10px] border border-line bg-surface px-3.5 text-left text-[14px] text-ink transition-colors hover:border-line-strong hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="group flex h-12 w-full items-center gap-3 rounded-card border border-line bg-surface px-3 text-left text-13 text-ink transition-colors duration-fast hover:border-line-strong hover:bg-hover"
           >
-            <HugeiconsIcon
-              icon={STARTER_ICONS[starter.id as keyof typeof STARTER_ICONS] ?? MapsIcon}
-              size={16}
-              strokeWidth={1.7}
-              color="currentColor"
-              className="text-ink-2"
-            />
+            <Icon icon={STARTER_ICONS[starter.id as keyof typeof STARTER_ICONS] ?? MapsIcon} size={16} className="text-ink-2" />
             <span className="min-w-0 flex-1 truncate">{starter.label}</span>
-            <HugeiconsIcon
+            <Icon
               icon={ArrowUpRight01Icon}
               size={16}
-              strokeWidth={1.7}
-              color="currentColor"
-              className="text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+              className="text-ink-3 opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
             />
           </button>
         </li>

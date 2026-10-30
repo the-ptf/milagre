@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { isMarkdownFile } from "@milagre/shared/file-link";
 import { File, FileMode } from "expo-file-system";
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
+import { SourceCodeIcon, TextIcon } from "@hugeicons/core-free-icons";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useSession } from "../session";
 import { useRpc } from "../use-rpc";
@@ -9,7 +10,7 @@ import { FileCode } from "../file-code";
 import { saveAttachment } from "../save-attachment";
 import { Toast } from "../primitives/toast";
 import { Markdown } from "../markdown";
-import { Button, ErrorNotice, PageScroll, useStyles } from "../ui";
+import { Button, ErrorNotice, HeaderButton, PageScroll, useStyles } from "../ui";
 
 export default function FilePreview() {
   const styles = useStyles();
@@ -71,12 +72,18 @@ export default function FilePreview() {
       <Stack.Screen options={{ title: name }} />
       {markdown && (
         <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button icon={formatted ? "chevron.left.forwardslash.chevron.right" : "doc.richtext"} onPress={() => setFormatted(!formatted)}>
-            {formatted ? "Source" : "Formatted"}
-          </Stack.Toolbar.Button>
+          {Platform.OS === "ios" ? (
+            <Stack.Toolbar.Button icon={formatted ? "chevron.left.forwardslash.chevron.right" : "doc.richtext"} onPress={() => setFormatted(!formatted)}>
+              {formatted ? "Source" : "Formatted"}
+            </Stack.Toolbar.Button>
+          ) : (
+            <Stack.Toolbar.View>
+              <HeaderButton label={formatted ? "Source" : "Formatted"} icon={formatted ? SourceCodeIcon : TextIcon} onPress={() => setFormatted(!formatted)} />
+            </Stack.Toolbar.View>
+          )}
         </Stack.Toolbar>
       )}
-      <PageScroll contentContainerStyle={{ padding: 20, gap: 12 }}>
+      <PageScroll contentContainerStyle={{ padding: 16, gap: 12 }}>
         {!error && data?.binary && <Text style={styles.muted}>This file does not have a text preview.</Text>}
         <Button
           title={downloading ? `Downloading… ${downloadProgress}%` : "Download"}

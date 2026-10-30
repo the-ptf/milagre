@@ -1,7 +1,8 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Notification01Icon } from "@hugeicons/core-free-icons";
 import type { BotsSnapshot } from "@milagre/shared/bots";
 import { BotAvatar } from "./BotAvatar";
+import { Icon } from "../primitives/Icon";
+import { SectionLabel } from "../primitives/SectionLabel";
 
 /** 08:05 today; Oct 14 before that. */
 function botTime(at: number | null, now = Date.now()) {
@@ -37,18 +38,20 @@ export function BotList({
             const first = [...pending].sort((a, b) => a.createdAt - b.createdAt)[0];
             if (first) onPickBot(first.botId);
           }}
-          className={`sidebar-rail-button mb-3 flex h-8 items-center rounded-[8px] border border-orange/30 bg-orange-tint text-orange-ink transition-transform active:scale-[0.98] ${
+          className={`sidebar-rail-button mb-3 flex h-8 items-center rounded-control border border-orange/30 bg-orange-tint text-orange-ink transition-transform duration-fast ease-enter active:scale-press ${
             collapsed ? "mx-auto w-8 justify-center" : "mx-2 gap-1.5 px-2"
           }`}
         >
-          <HugeiconsIcon icon={Notification01Icon} size={15} strokeWidth={1.8} color="currentColor" className="shrink-0" />
-          <span className="sidebar-copy min-w-0 flex-1 truncate text-left text-[13px] font-medium">Needs you</span>
-          <span data-needs-you-count className="sidebar-copy shrink-0 text-[12px] font-semibold tabular-nums">
+          <Icon icon={Notification01Icon} size={16} className="shrink-0" />
+          <span className="sidebar-copy min-w-0 flex-1 truncate text-left text-13 font-medium">Needs you</span>
+          <span data-needs-you-count className="sidebar-copy shrink-0 text-12 font-semibold tabular-nums">
             {pending.length}
           </span>
         </button>
       )}
-      <p className="sidebar-copy mx-2 mb-1 h-6 pl-2 text-[11px] font-medium uppercase leading-6 tracking-[0.04em] text-ink-3">Bots</p>
+      <SectionLabel as="p" className="sidebar-copy mx-2 mb-1 h-6 pl-2 leading-6">
+        Bots
+      </SectionLabel>
       {bots.map((bot) => {
         const active = bot.id === selectedBotId;
         return (
@@ -60,18 +63,18 @@ export function BotList({
             aria-current={active ? "page" : undefined}
             onClick={() => onPickBot(bot.id)}
             title={collapsed ? bot.name : undefined}
-            className={`sidebar-row relative mx-2 mb-px flex h-[46px] items-center gap-2 rounded-[8px] px-1.5 text-left transition-[background-color,transform] duration-150 active:scale-[0.98] ${
-              active ? "bg-hover-2" : "hover:bg-hover-2"
+            className={`sidebar-row relative mx-2 mb-px flex h-12 items-center gap-2 rounded-control px-1.5 text-left transition-[background-color,transform] duration-fast ease-enter active:scale-press ${
+              active ? "bg-hover-2" : "hover:bg-hover-sidebar"
             }`}
           >
             <BotAvatar color={bot.color} body={bot.body} size={28} />
             <span className="sidebar-copy flex min-w-0 flex-1 flex-col">
               <span className="flex items-center gap-1.5">
-                <span className={`min-w-0 flex-1 truncate text-[14px] ${bot.unread ? "font-semibold text-ink" : "font-medium text-ink"}`}>{bot.name}</span>
+                <span className={`min-w-0 flex-1 truncate text-13 ${bot.unread ? "font-semibold text-ink" : "font-medium text-ink"}`}>{bot.name}</span>
                 {bot.unread && <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-ink" />}
-                <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{botTime(bot.lastAt)}</span>
+                <span className="shrink-0 text-12 tabular-nums text-ink-3">{botTime(bot.lastAt)}</span>
               </span>
-              <span data-bot-preview className="truncate text-[12.5px] leading-4 text-ink-3">
+              <span data-bot-preview className="truncate text-12 text-ink-3">
                 {bot.preview || bot.role}
               </span>
             </span>
@@ -90,11 +93,11 @@ export function NewBotButton({ onClick, collapsed }: { onClick: () => void; coll
       data-new-bot
       aria-label="New bot"
       onClick={onClick}
-      className={`sidebar-rail-button flex h-8 items-center rounded-[8px] text-[13px] text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink ${
+      className={`sidebar-rail-button flex h-8 items-center rounded-control text-13 text-ink-2 transition-colors duration-fast hover:bg-hover-sidebar hover:text-ink ${
         collapsed ? "mx-auto w-8 justify-center" : "mx-2 gap-1.5 px-2"
       }`}
     >
-      <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+      <Icon icon={Add01Icon} size={16} className="shrink-0" />
       <span className="sidebar-copy truncate">New bot</span>
     </button>
   );

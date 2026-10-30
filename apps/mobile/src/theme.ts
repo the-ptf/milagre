@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { Appearance, Platform, useColorScheme } from "react-native";
+import { Appearance, Platform, StyleSheet, useColorScheme } from "react-native";
 import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES } from "@milagre/shared/appearance";
 import { mix, onColor, resolvePalette, withAlpha, type ThemePalette } from "@milagre/shared/themes";
 import { readThemeSettings, saveThemeSettings } from "./hosts-native";
@@ -19,6 +19,17 @@ export type Palette = ThemePalette & {
   backdrop: string;
   purpleInk: string;
   purpleTint: string;
+  /** Label on a red fill (a recording mic, a destructive pill). */
+  onRed: string;
+  /** Elevation as `boxShadow`, each with its hairline ring, so an elevated surface takes no border. Dark variants are deeper. */
+  shadowCard: string;
+  shadowRaised: string;
+  shadowOverlay: string;
+  /** Camera and full-screen media: black behind, white on top, the same in every theme. */
+  media: string;
+  onMedia: string;
+  onMedia2: string;
+  onMediaTint: string;
   /** Additions and deletions: the theme's green and red unless Diff colors picks another pair. */
   add: string;
   remove: string;
@@ -30,11 +41,19 @@ function applyMode(mode: PhoneThemeSettings["mode"]) {
 void initThemeStore({ read: readThemeSettings, save: saveThemeSettings }).then(() => applyMode(getThemeSettings().mode));
 
 // Ultracode's purple is a brand color, the same in every theme (desktop keeps --purple out of the theme sheet too).
+// Merged PRs use it too: `purple` for icons and fills, `purpleInk` for text, `purpleTint` behind it.
 const ULTRACODE = {
   light: { purple: "#ad46ff", purpleInk: "#8e2bdc", purpleTint: "#f6edff" },
   dark: { purple: "#ad46ff", purpleInk: "#d0a3ff", purpleTint: "#ad46ff2e" },
 };
+const MEDIA = { media: "#000000", onMedia: "#ffffff", onMedia2: "#ffffffcc", onMediaTint: "#ffffff26" };
+const ELEVATION = {
+  light: { card: "0 1px 3px #0000000f", raised: "0 4px 20px #0000000f", overlay: "0 8px 28px #00000017" },
+  dark: { card: "0 1px 3px #00000040", raised: "0 4px 20px #00000059", overlay: "0 8px 28px #00000080" },
+};
 function extend(p: ThemePalette, scheme: "light" | "dark"): Palette {
+  const ring = `0 0 0 ${StyleSheet.hairlineWidth}px ${p.line}`;
+  const shadow = ELEVATION[scheme];
   return {
     ...p,
     ...ULTRACODE[scheme],
@@ -44,6 +63,11 @@ function extend(p: ThemePalette, scheme: "light" | "dark"): Palette {
     muted: p.ink2,
     error: p.redInk,
     onInk: onColor(p.ink, p.page),
+    onRed: onColor(p.red, p.page),
+    shadowCard: `${ring}, ${shadow.card}`,
+    shadowRaised: `${ring}, ${shadow.raised}`,
+    shadowOverlay: `${ring}, ${shadow.overlay}`,
+    ...MEDIA,
     idleDot: withAlpha(p.ink4, 0.4),
     backdrop: scheme === "dark" ? "#00000066" : "#00000033",
     add: p.green,

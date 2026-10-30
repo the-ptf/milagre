@@ -1,5 +1,5 @@
 import { Children, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Alert02Icon, ArrowDown01Icon, ArrowRight01Icon, Key01Icon } from "@hugeicons/core-free-icons";
 import { mcpSourceRank, mcpSummary, mcpTransportLine, type McpRow } from "@milagre/shared/mcp";
@@ -7,7 +7,8 @@ import { providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useMcp } from "./use-mcp";
-import { useStyles } from "./ui";
+import { pressStyle, SectionLabel, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const openServer = (row: McpRow) => router.push({ pathname: "/mcp-server", params: { name: row.name } });
@@ -48,7 +49,7 @@ export function McpSection() {
         </Text>
       </View>
       {mcp.error ? (
-        <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.error }]}>
+        <Text accessibilityRole="alert" selectable style={[styles.text, { color: colors.redInk }]}>
           {mcp.error}
         </Text>
       ) : null}
@@ -66,13 +67,16 @@ export function McpSection() {
               accessibilityRole="button"
               accessibilityLabel={`${row.name}, needs sign-in on the Mac`}
               onPress={() => openServer(row)}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 10, opacity: pressed ? 0.5 : 1 })}
+              style={({ pressed }) => [
+                { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 60, paddingVertical: 12 },
+                pressStyle({ pressed, kind: "row" }),
+              ]}
             >
               <View
                 style={{
                   width: 32,
                   height: 32,
-                  borderRadius: 9,
+                  borderRadius: radius.control,
                   borderCurve: "continuous",
                   backgroundColor: colors.orangeTint,
                   alignItems: "center",
@@ -89,7 +93,7 @@ export function McpSection() {
                   {mcpTransportLine(row)}
                 </Text>
               </View>
-              <Text style={[styles.caption, { fontSize: 13 }]}>On the Mac</Text>
+              <Text style={[styles.caption, { fontSize: type.footnote, lineHeight: lineHeight.footnote }]}>On the Mac</Text>
               <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
             </Pressable>
           ))}
@@ -103,17 +107,17 @@ export function McpSection() {
         </Group>
       ) : null}
       {outside ? (
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 12 }}>
           <View style={cardStyle(colors)}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Projects and plugins, ${outside}`}
               accessibilityState={{ expanded: open }}
               onPress={() => setOpen(!open)}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56, opacity: pressed ? 0.5 : 1 })}
+              style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56 }, pressStyle({ pressed, kind: "row" })]}
             >
               <Text style={[styles.text, { flex: 1, fontWeight: "500" }]}>Projects and plugins</Text>
-              <Text style={[styles.muted, { fontSize: 17 }]}>{outside}</Text>
+              <Text style={[styles.muted, { fontSize: type.body, lineHeight: lineHeight.body }]}>{outside}</Text>
               <Icon icon={open ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={16} />
             </Pressable>
           </View>
@@ -139,25 +143,23 @@ export function McpSection() {
 const cardStyle = (colors: ReturnType<typeof useTheme>["colors"]) =>
   ({
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: radius.card,
     borderCurve: "continuous",
     overflow: "hidden",
     paddingHorizontal: 16,
   }) as const;
 
-/** A small caps header over a grouped card; rows are separated by hairlines. */
+/** A section label over a grouped card; rows are separated by hairlines (no icon column, so no separator inset). */
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
     <View style={{ gap: 8 }}>
-      <Text accessibilityRole="header" style={[styles.section, { paddingHorizontal: 4 }]}>
-        {title}
-      </Text>
+      <SectionLabel style={{ paddingHorizontal: 4 }}>{title}</SectionLabel>
       <View style={cardStyle(colors)}>
         {Children.toArray(children).map((child, index) => (
           <View key={(child as { key?: string }).key ?? String(index)}>
-            {index > 0 ? <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} /> : null}
+            {index > 0 ? <View style={styles.separator} /> : null}
             {child}
           </View>
         ))}
@@ -180,17 +182,20 @@ function ServerRow({ row, compact = false }: { row: McpRow; compact?: boolean })
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: 10,
+        gap: 12,
         minHeight: compact ? 52 : 60,
-        paddingVertical: 10,
-        opacity: pressed ? 0.5 : 1,
+        paddingVertical: 12,
+        ...pressStyle({ pressed, kind: "row" }),
       })}
     >
       <View style={{ flex: 1, gap: 2 }}>
         <Text numberOfLines={1} style={[styles.text, { fontWeight: "500" }]}>
           {row.name}
         </Text>
-        <Text numberOfLines={1} style={[styles.caption, { fontSize: 13 }, failed ? { color: colors.redInk } : null]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.caption, { fontSize: type.footnote, lineHeight: lineHeight.footnote }, failed ? { color: colors.redInk } : null]}
+        >
           {line}
         </Text>
       </View>

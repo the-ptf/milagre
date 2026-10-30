@@ -13,7 +13,9 @@ import Animated, {
 import { Mic01Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
 import { Icon } from "./icons";
+import { hitSlopFor, radius } from "./design-tokens";
 import { useTheme } from "./theme";
+import { pressStyle } from "./ui";
 import type { DictationPhase } from "@milagre/shared/voice-dictation";
 
 export const MIC_SIZE = 32;
@@ -41,29 +43,29 @@ export function VoiceMicButton({ phase, level, onPress }: { phase: DictationPhas
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={LABELS[phase]}
-      accessibilityState={{ busy }}
+      accessibilityState={{ busy, disabled: busy }}
       disabled={busy}
-      hitSlop={6}
+      hitSlop={hitSlopFor(SIZE)}
       onPress={onPress}
-      style={({ pressed }) => ({ width: SIZE, height: SIZE, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => [{ width: SIZE, height: SIZE, alignItems: "center", justifyContent: "center" }, pressStyle({ pressed })]}
     >
       {recording ? (
         <Animated.View
           pointerEvents="none"
-          style={[{ position: "absolute", width: SIZE, height: SIZE, borderRadius: SIZE / 2, backgroundColor: withAlpha(colors.red, 0.28) }, halo]}
+          style={[{ position: "absolute", width: SIZE, height: SIZE, borderRadius: radius.full, backgroundColor: withAlpha(colors.red, 0.28) }, halo]}
         />
       ) : null}
       <Animated.View
         style={{
           width: SIZE - 6,
           height: SIZE - 6,
-          borderRadius: (SIZE - 6) / 2,
+          borderRadius: radius.full,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: recording ? colors.red : "transparent",
         }}
       >
-        <Icon icon={recording ? StopIcon : Mic01Icon} size={recording ? 14 : 20} color={recording ? "#fff" : undefined} tone={busy ? "ink3" : "ink2"} />
+        <Icon icon={recording ? StopIcon : Mic01Icon} size={recording ? 12 : 20} color={recording ? colors.onRed : undefined} tone={busy ? "ink3" : "ink2"} />
       </Animated.View>
       {busy ? <MicLoadingRing /> : null}
     </Pressable>
@@ -84,7 +86,7 @@ function MicLoadingRing() {
     <>
       <Animated.View
         pointerEvents="none"
-        style={{ position: "absolute", width: SIZE, height: SIZE, borderRadius: SIZE / 2, borderWidth: 2, borderColor: withAlpha(colors.ink3, 0.25) }}
+        style={{ position: "absolute", width: SIZE, height: SIZE, borderRadius: radius.full, borderWidth: 2, borderColor: withAlpha(colors.ink3, 0.25) }}
       />
       <Animated.View
         pointerEvents="none"
@@ -93,7 +95,7 @@ function MicLoadingRing() {
             position: "absolute",
             width: SIZE,
             height: SIZE,
-            borderRadius: SIZE / 2,
+            borderRadius: radius.full,
             borderWidth: 2,
             borderColor: "transparent",
             borderTopColor: colors.ink2,

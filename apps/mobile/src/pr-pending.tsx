@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { SpinnerRing } from "./icons";
 import { IconButton, useStyles } from "./ui";
-import { useTheme } from "./theme";
 
 const WAIT_MS = 15_000;
 
@@ -12,7 +12,6 @@ const WAIT_MS = 15_000;
  */
 export function PrPending({ number, waiting, onClose }: { number: number; waiting: boolean; onClose?: () => void }) {
   const styles = useStyles();
-  const { colors } = useTheme();
   // A Project that never arrives (its Chat was closed, the Mac went away) stops the wait after a while.
   const [gaveUp, setGaveUp] = useState(false);
   useEffect(() => {
@@ -30,7 +29,7 @@ export function PrPending({ number, waiting, onClose }: { number: number; waitin
         </View>
       )}
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
-        {spinning && <ActivityIndicator color={colors.ink3} />}
+        {spinning && <SpinnerRing size={20} />}
         <Text style={[styles.muted, { textAlign: "center" }]}>
           {spinning ? `Opening ${label}…` : waiting ? `Couldn't open ${label}. Open its Chat and try again.` : "This PR's Worktree isn't on this Mac anymore."}
         </Text>

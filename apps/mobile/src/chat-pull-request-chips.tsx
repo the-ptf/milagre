@@ -6,7 +6,8 @@ import type { PullRequest } from "@milagre/shared/model";
 import { pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { issueChipLabel, type LinearIssue } from "@milagre/shared/linear";
 import { Icon, LinearLogo } from "./icons";
-import { PullDown } from "./ui";
+import { PullDown, pressStyle } from "./ui";
+import { lineHeight, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 const icons = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
@@ -46,10 +47,10 @@ export function ChatPullRequestChips({
             event.stopPropagation();
             open(linearIssue.url);
           }}
-          style={({ pressed }) => ({ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 5, opacity: pressed ? 0.55 : 1 })}
+          style={({ pressed }) => [{ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 6 }, pressStyle({ pressed })]}
         >
-          <LinearLogo size={11} />
-          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: 12 }}>
+          <LinearLogo size={12} />
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
             {issueChipLabel(linearIssue)}
           </Text>
         </Pressable>
@@ -67,12 +68,12 @@ export function ChatPullRequestChips({
               event.stopPropagation();
               openPr(pr);
             }}
-            style={({ pressed }) => ({ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
+            style={({ pressed }) => [{ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
           >
             <Icon icon={icons[icon]} tone={tone} size={12} />
-            <Text style={{ color: colors.ink2, fontSize: 12, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+            <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
             {pullRequests.length === 1 && !!label && (
-              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors[tone], fontSize: 12 }}>
+              <Text numberOfLines={1} style={{ flexShrink: 1, color: colors[`${tone}Ink`], fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                 {label}
               </Text>
             )}
@@ -90,7 +91,7 @@ export function ChatPullRequestChips({
           }}
         >
           <View style={{ minHeight: 24, justifyContent: "center" }}>
-            <Text style={{ color: colors.ink2, fontSize: 12 }}>+{ordered.length - 2}</Text>
+            <Text style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>+{ordered.length - 2}</Text>
           </View>
         </PullDown>
       )}
@@ -135,7 +136,7 @@ export function InlinePullRequestLinks({
           event.stopPropagation();
           open(linearIssue.url);
         }}
-        style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
+        style={({ pressed }) => [{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
       >
         <LinearLogo size={fontSize - 3} />
         <Text style={{ color: colors.ink2, fontSize }}>{linearIssue.key}</Text>
@@ -154,7 +155,7 @@ export function InlinePullRequestLinks({
           event.stopPropagation();
           openPr(pr);
         }}
-        style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, opacity: pressed ? 0.55 : 1 })}
+        style={({ pressed }) => [{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }, pressStyle({ pressed })]}
       >
         <Icon icon={icons[icon]} tone={tone} size={fontSize - 1} />
         <Text style={{ color: colors.ink2, fontSize, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>

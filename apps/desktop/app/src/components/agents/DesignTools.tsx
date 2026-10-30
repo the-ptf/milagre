@@ -1,5 +1,4 @@
 import { useId, useMemo, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
@@ -15,6 +14,9 @@ import {
 import type { DesignDocument, DesignNode } from "@milagre/shared/design";
 import Tooltip from "../primitives/Tooltip";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { SectionLabel } from "../primitives/SectionLabel";
 
 const tools = [
   { type: "frame", label: "Add frame", icon: FrameIcon },
@@ -25,7 +27,7 @@ const tools = [
   { type: "icon", label: "Add icon", icon: StarIcon },
 ] as const;
 const iconButton =
-  "flex size-9 items-center justify-center rounded-control text-ink-2 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+  "flex size-9 items-center justify-center rounded-control text-ink-2 transition-[color,background-color,scale] duration-fast ease-enter enabled:hover:bg-hover enabled:hover:text-ink enabled:active:scale-press disabled:opacity-40";
 
 /** The layer panel is a persistent, optional workspace panel, so inspecting a layer does not dismiss it. */
 export function DesignTools({
@@ -77,11 +79,11 @@ export function DesignTools({
   const layerRows = rows.map(({ node, depth, hasChildren }) => (
     <li key={node.id} className="flex items-center gap-0.5" style={{ paddingLeft: Math.min(depth, 8) * 12 }}>
       {hasChildren ? (
-        <button
-          type="button"
-          aria-label={`${collapsed.has(node.id) ? "Expand" : "Collapse"} ${node.name ?? node.id}`}
+        <IconButton
+          label={`${collapsed.has(node.id) ? "Expand" : "Collapse"} ${node.name ?? node.id}`}
+          icon={collapsed.has(node.id) ? ArrowRight01Icon : ArrowDown01Icon}
+          size={20}
           aria-expanded={!collapsed.has(node.id)}
-          className="relative flex size-5 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-hover before:absolute before:-inset-0.5"
           onClick={() =>
             setCollapsed((current) => {
               const next = new Set(current);
@@ -90,9 +92,7 @@ export function DesignTools({
               return next;
             })
           }
-        >
-          <HugeiconsIcon icon={collapsed.has(node.id) ? ArrowRight01Icon : ArrowDown01Icon} size={12} aria-hidden />
-        </button>
+        />
       ) : (
         <span className="w-5 shrink-0" />
       )}
@@ -102,9 +102,9 @@ export function DesignTools({
         aria-label={`Select ${node.name ?? node.id}`}
         aria-pressed={selectedIds.includes(node.id)}
         onClick={(event) => onSelect(node.id, event.shiftKey || event.metaKey || event.ctrlKey)}
-        className={`my-0.5 flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-1.5 text-left text-[12px] ${selectedIds.includes(node.id) ? "bg-accent/10 text-accent" : "text-ink-2 hover:bg-hover"}`}
+        className={`my-0.5 flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-1.5 text-left text-12 transition-colors duration-fast ${selectedIds.includes(node.id) ? "bg-accent-tint text-accent-ink" : "text-ink-2 hover:bg-hover"}`}
       >
-        <span aria-hidden className="w-3 shrink-0 text-center text-[10px]">
+        <span aria-hidden className="w-3 shrink-0 text-center text-10">
           {node.component
             ? "◆"
             : node.componentId
@@ -145,7 +145,7 @@ export function DesignTools({
                 : (index + (event.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
           buttons[next]?.focus();
         }}
-        className="absolute left-4 top-4 z-10 flex flex-col gap-1 rounded-xl border border-line bg-surface p-1 shadow-overlay"
+        className="absolute left-4 top-4 z-10 flex flex-col gap-1 rounded-card bg-surface p-1 shadow-raised"
       >
         <Tooltip label="Layers">
           <button
@@ -154,17 +154,17 @@ export function DesignTools({
             aria-expanded={open}
             aria-controls={panelId}
             data-slot="design-layers-toggle"
-            className={`${iconButton} ${open ? "bg-accent/10 text-accent" : ""}`}
+            className={`${iconButton} ${open ? "bg-accent-tint text-accent-ink" : ""}`}
             onClick={onToggle}
           >
-            <HugeiconsIcon icon={Layers01Icon} size={18} strokeWidth={1.7} aria-hidden />
+            <Icon icon={Layers01Icon} size={18} />
           </button>
         </Tooltip>
         <div className="mx-1 my-0.5 border-t border-line" />
         {tools.map((tool) => (
           <Tooltip key={tool.type} label={tool.label}>
             <button type="button" aria-label={tool.label} className={iconButton} disabled={saving} onClick={() => onAdd(tool.type)}>
-              <HugeiconsIcon icon={tool.icon} size={18} strokeWidth={1.7} aria-hidden />
+              <Icon icon={tool.icon} size={18} />
             </button>
           </Tooltip>
         ))}
@@ -174,21 +174,14 @@ export function DesignTools({
           id={panelId}
           aria-label="Layers"
           data-slot="design-layers-panel"
-          className="absolute left-[72px] top-4 z-10 flex max-h-[calc(100%_-_2rem)] w-56 flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-overlay"
+          className="absolute left-[72px] top-4 z-10 flex max-h-[calc(100%_-_2rem)] w-56 flex-col overflow-hidden rounded-card bg-surface shadow-raised"
         >
           <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-            <span className="flex-1 text-[12px] font-medium">
+            <span className="flex-1 text-12 font-medium">
               Layers <span className="ml-1 font-normal text-ink-3">{layerCount}</span>
             </span>
             <Tooltip label="Close Layers">
-              <button
-                type="button"
-                aria-label="Close Layers"
-                className="flex size-6 items-center justify-center rounded-control text-ink-3 hover:bg-hover hover:text-ink"
-                onClick={onClose}
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={14} aria-hidden />
-              </button>
+              <IconButton label="Close Layers" icon={Cancel01Icon} size={24} onClick={onClose} />
             </Tooltip>
           </header>
           <ScrollArea as="ul" className="min-h-0 flex-1 p-1" aria-label="Design layers">
@@ -203,7 +196,7 @@ export function DesignTools({
                       aria-label={`Show layers for ${design.title}`}
                       aria-expanded={design.id === activeId}
                       aria-pressed={design.id === activeId}
-                      className={`my-0.5 flex w-full items-center gap-2 rounded-control px-2 py-2 text-left text-[12px] ${design.id === activeId ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
+                      className={`my-0.5 flex w-full items-center gap-2 rounded-control px-2 py-2 text-left text-12 transition-colors duration-fast ${design.id === activeId ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover"}`}
                       onClick={() => {
                         onActivate(design.id);
                         requestAnimationFrame(() =>
@@ -213,10 +206,10 @@ export function DesignTools({
                         );
                       }}
                     >
-                      <HugeiconsIcon icon={design.id === activeId ? ArrowDown01Icon : ArrowRight01Icon} className="shrink-0 text-ink-3" size={12} aria-hidden />
-                      <HugeiconsIcon icon={FrameIcon} className="shrink-0 text-ink-3" size={14} aria-hidden />
+                      <Icon icon={design.id === activeId ? ArrowDown01Icon : ArrowRight01Icon} className="shrink-0 text-ink-3" size={12} />
+                      <Icon icon={FrameIcon} className="shrink-0 text-ink-3" size={14} />
                       <span className="min-w-0 flex-1 truncate font-medium">{design.title}</span>
-                      <span className="shrink-0 text-[10px] text-ink-3">{design.document.nodes.length}</span>
+                      <span className="shrink-0 text-11 text-ink-3">{design.document.nodes.length}</span>
                     </button>
                     {design.id === activeId && (
                       <ul aria-label={`${design.title} layers`} className="ml-2 border-l border-line pl-1">
@@ -228,14 +221,16 @@ export function DesignTools({
           </ScrollArea>
           {components.length > 0 && (
             <div className="shrink-0 border-t border-line">
-              <div className="px-3 pt-3 text-[11px] font-medium text-ink-3">Components</div>
+              <SectionLabel as="div" variant="menu" className="px-3 pt-3">
+                Components
+              </SectionLabel>
               <ScrollArea className="max-h-40 p-2" aria-label="Reusable components">
                 {components.map((component) => (
                   <button
                     key={component.id}
                     type="button"
                     aria-label={`Insert ${component.name ?? component.id} instance`}
-                    className="mb-1 w-full truncate rounded-control px-2 py-1.5 text-left text-[12px] text-ink-2 hover:bg-hover disabled:opacity-40"
+                    className="mb-1 w-full truncate rounded-control px-2 py-1.5 text-left text-12 text-ink-2 transition-colors duration-fast enabled:hover:bg-hover disabled:opacity-40"
                     disabled={saving}
                     onClick={() => onInsertInstance(component)}
                   >

@@ -17,7 +17,8 @@ import { InboxPage, InboxPager, useInboxLayout } from "./inbox-motion";
 import { ProviderLogo, SpinnerRing } from "./icons";
 import { Approval, Questions, type InboxQuestionDraft } from "./questions";
 import { useTheme } from "./theme";
-import { GlassIconButton, ErrorNotice, PageScroll, PillButton, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
+import { GlassIconButton, ErrorNotice, PageScroll, PillButton, pressStyle, useStyles } from "./ui";
 
 const EMPTY: InboxSnapshot = { agents: [], items: [] };
 const needsYou = (item: InboxItem) => item.status === "approval" || item.status === "question";
@@ -90,12 +91,10 @@ function usePhoneInbox() {
 }
 
 function InboxDot({ status, monochrome = false }: { status: InboxStatus; monochrome?: boolean }) {
-  const { colors, scheme } = useTheme();
+  const { colors } = useTheme();
   const reduced = useReducedMotion();
   const color = monochrome
-    ? scheme === "dark"
-      ? "#fff"
-      : "#000"
+    ? colors.ink
     : status === "working"
       ? colors.accent
       : status === "completed"
@@ -105,8 +104,8 @@ function InboxDot({ status, monochrome = false }: { status: InboxStatus; monochr
           : status === "question"
             ? colors.accentInk
             : colors.orange;
-  if (status === "working" && !reduced) return <SpinnerRing size={11} stroke={1.5} tone="accent" color={monochrome ? color : undefined} />;
-  return <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color }} />;
+  if (status === "working" && !reduced) return <SpinnerRing size={12} stroke={1.5} tone="accent" color={monochrome ? color : undefined} />;
+  return <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: color }} />;
 }
 
 const statusWords = (status: InboxStatus) =>
@@ -223,7 +222,7 @@ function PhoneInboxPages({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 14,
+          paddingHorizontal: 16,
           minHeight: 44,
         }}
       >
@@ -234,7 +233,9 @@ function PhoneInboxPages({
         <View style={{ width: 44 }} pointerEvents="none" accessibilityElementsHidden />
       </View>
       {items.length > 1 && (
-        <Text style={{ color: colors.ink3, fontSize: 11, textAlign: "center", paddingBottom: 4 }}>Swipe or tap the arrows to move between messages</Text>
+        <Text style={{ color: colors.ink3, fontSize: type.caption2, lineHeight: lineHeight.caption2, textAlign: "center", paddingBottom: 4 }}>
+          Swipe or tap the arrows to move between messages
+        </Text>
       )}
       <GestureDetector gesture={swipe}>
         <Animated.View layout={inboxLayout} style={{ overflow: "hidden" }}>
@@ -246,14 +247,14 @@ function PhoneInboxPages({
             automaticallyAdjustKeyboardInsets
             style={{ flexGrow: 0, flexShrink: 1, maxHeight: height * 0.72 }}
             contentContainerStyle={{
-              paddingHorizontal: 22,
+              paddingHorizontal: 16,
               paddingTop: 16,
               paddingBottom: 8,
               gap: 0,
             }}
           >
             {error ? (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: 12 }}>
                 <ErrorNotice message={error} />
                 <PillButton title="Retry" secondary onPress={refresh} />
               </View>
@@ -262,8 +263,8 @@ function PhoneInboxPages({
             ) : loading ? (
               <Text style={styles.muted}>Loading inbox…</Text>
             ) : !selected ? (
-              <View style={{ alignItems: "center", paddingVertical: 40, gap: 10 }}>
-                <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "500" }}>All caught up</Text>
+              <View style={{ alignItems: "center", paddingVertical: 40, gap: 8 }}>
+                <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "500" }}>All caught up</Text>
                 <Text style={styles.muted}>Questions and finished work will appear here.</Text>
               </View>
             ) : (
@@ -329,17 +330,20 @@ function PhoneInboxCard({
       });
   };
   return (
-    <View accessibilityLabel={`Inbox Chat: ${item.title}`} style={{ gap: 18 }}>
+    <View accessibilityLabel={`Inbox Chat: ${item.title}`} style={{ gap: 16 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Open ${item.title}`}
         onPress={open}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
-          minHeight: 44,
-        }}
+        style={({ pressed }) => [
+          {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            minHeight: 44,
+          },
+          pressStyle({ pressed, kind: "row" }),
+        ]}
       >
         <View style={{ position: "relative" }}>
           <ProviderLogo provider={item.provider ?? "claude"} size={28} />
@@ -349,7 +353,7 @@ function PhoneInboxCard({
               right: -2,
               bottom: -2,
               padding: 2,
-              borderRadius: 7,
+              borderRadius: radius.full,
               backgroundColor: colors.surface,
             }}
           >
@@ -357,8 +361,10 @@ function PhoneInboxCard({
           </View>
         </View>
         <View style={{ flex: 1, gap: 4 }}>
-          <Text style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>{providerName(item.provider ?? "claude")}</Text>
-          <Text style={{ color: colors.ink3, fontSize: 13 }}>
+          <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
+            {providerName(item.provider ?? "claude")}
+          </Text>
+          <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {statusWords(item.status)} · {item.project}
             {item.computer ? ` · ${item.computer}` : ""}
           </Text>
@@ -406,14 +412,15 @@ function PhoneInboxCard({
         <View style={{ gap: 8 }}>
           <Text
             style={{
-              fontSize: 17,
+              fontSize: type.body,
+              lineHeight: lineHeight.body,
               fontWeight: "500",
               color: item.status === "failed" ? colors.redInk : colors.ink,
             }}
           >
             {item.status === "failed" ? "Turn failed" : item.status === "working" ? item.title : "Ready to review"}
           </Text>
-          <Text style={[styles.muted, { lineHeight: 20 }]}>{item.preview}</Text>
+          <Text style={styles.muted}>{item.preview}</Text>
         </View>
       )}
       {error && <ErrorNotice message={error} />}

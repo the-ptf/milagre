@@ -31,7 +31,6 @@ import {
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   BookOpen01Icon,
@@ -81,6 +80,13 @@ import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQ
 import { GlideGroup, RailButton } from "./SidebarNav";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
+import { buttonClass, IconButton } from "./primitives/Button";
+import { FIELD, FIELD_AREA } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { ProjectAvatar } from "./primitives/ProjectAvatar";
+import { SectionLabel } from "./primitives/SectionLabel";
+import Tooltip from "./primitives/Tooltip";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
@@ -107,20 +113,13 @@ import { KeybindingsSettings } from "./settings/KeybindingsSettings";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
-import { WorkspaceIcon } from "./WorkspaceIcon";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
-import { RECENT_PROJECTS_CHANGED, projectInitial, projectRows } from "../lib/project-list";
+import { RECENT_PROJECTS_CHANGED, projectRows } from "../lib/project-list";
 import type { RecentProject } from "../lib/project-list";
 import { setProjectImage, useProjectImages } from "../lib/project-images";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update";
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE, choiceOf, mainSyncChoices, mainSyncStatusLine, overrideOf } from "@milagre/shared/main-sync";
 import type { MainSyncChoice, MainSyncSettings } from "@milagre/shared/main-sync";
-
-type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-
-function Icon({ icon, size = 18 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
 
 export type SettingsSection =
   | "general"
@@ -147,22 +146,22 @@ const SECTIONS: Array<{
   label: string;
   icon: ReactNode;
 }> = [
-  { key: "general", label: "General", icon: <Icon icon={Settings01Icon} /> },
-  { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} /> },
-  { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
-  { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
-  { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} /> },
-  { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} /> },
-  { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} /> },
-  { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} /> },
-  { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} /> },
-  { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} /> },
-  { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} /> },
-  { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} /> },
+  { key: "general", label: "General", icon: <Icon icon={Settings01Icon} size={18} /> },
+  { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} size={18} /> },
+  { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} size={18} /> },
+  { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} size={18} /> },
+  { key: "chat", label: "Chat", icon: <Icon icon={BubbleChatIcon} size={18} /> },
+  { key: "keybindings", label: "Keybindings", icon: <Icon icon={KeyboardIcon} size={18} /> },
+  { key: "browser", label: "Browser", icon: <Icon icon={Globe02Icon} size={18} /> },
+  { key: "notifications", label: "Notifications", icon: <Icon icon={Notification01Icon} size={18} /> },
+  { key: "routines", label: "Routines", icon: <Icon icon={RepeatIcon} size={18} /> },
+  { key: "connections", label: "Connections", icon: <Icon icon={ConnectIcon} size={18} /> },
+  { key: "skills", label: "Skills", icon: <Icon icon={BookOpen01Icon} size={18} /> },
+  { key: "mcp", label: "MCP", icon: <Icon icon={Plug01Icon} size={18} /> },
   { key: "local-mcp", label: "Milagre", icon: <MilagreMark /> },
-  { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} /> },
-  { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
-  { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} /> },
+  { key: "devices", label: "Devices", icon: <Icon icon={LaptopPhoneSyncIcon} size={18} /> },
+  { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} size={18} /> },
+  { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} size={18} /> },
 ];
 
 export type SettingsProject = { path: string; name: string };
@@ -210,11 +209,11 @@ export function SettingsNav({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="flex size-8 items-center justify-center rounded-[8px] text-ink-2 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96] [-webkit-app-region:no-drag]"
+          className="no-drag flex size-8 items-center justify-center rounded-control text-ink-2 transition-[background-color,color,scale] duration-fast hover:bg-hover-sidebar hover:text-ink active:scale-press"
         >
           <Icon icon={ArrowLeft01Icon} size={18} />
         </button>
-        <h2 className="text-[14px] font-semibold text-ink">Settings</h2>
+        <h2 className="text-13 font-semibold text-ink">Settings</h2>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-window bg-surface pt-2 shadow-card">
         <GlideGroup>
@@ -224,7 +223,9 @@ export function SettingsNav({
         </GlideGroup>
         {computers.length > 0 && (
           <div data-settings-computers>
-            <div className="mx-2 mt-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">Computers</div>
+            <SectionLabel as="div" className="mx-2 mt-2 flex h-8 items-center px-2">
+              Computers
+            </SectionLabel>
             <GlideGroup>
               <RailButton icon={<ComputerDot tone="online" />} label={thisMac} active={false} onClick={() => onSelect("devices")} />
               {computers.map((computer) => (
@@ -241,17 +242,15 @@ export function SettingsNav({
         )}
         {showProjectSettings && (
           <>
-            <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2 text-[12.5px] font-medium text-ink-3">Projects</div>
+            <SectionLabel as="div" className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2">
+              Projects
+            </SectionLabel>
             <ScrollArea className="min-h-0 flex-1 pb-2">
               <GlideGroup>
                 {rows.map((row) => (
                   <RailButton
                     key={row.path}
-                    icon={
-                      <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-[5px] bg-ink text-[10px] font-semibold text-surface">
-                        <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
-                      </span>
-                    }
+                    icon={<ProjectAvatar name={row.name} src={imageOf(row.path)} initial={row.initial} size={20} />}
                     label={row.name}
                     active={section === "project" && project?.path === row.path}
                     onClick={() => onSelectProject({ path: row.path, name: row.name })}
@@ -267,7 +266,11 @@ export function SettingsNav({
 }
 
 function ComputerDot({ tone }: { tone: keyof typeof DOT_COLOR }) {
-  return <span aria-hidden className="mx-[5px] block size-2 rounded-full" style={{ background: DOT_COLOR[tone] }} />;
+  return (
+    <span aria-hidden className="flex size-4.5 items-center justify-center">
+      <span className="size-2 rounded-full" style={{ background: DOT_COLOR[tone] }} />
+    </span>
+  );
 }
 
 /** The pill beside a route: the one carrying the connection now, one that would, or one there is none of. */
@@ -275,7 +278,7 @@ function RoutePill({ state }: { state: "In use" | "Ready" | "Not available" }) {
   return (
     <span
       data-connection-state
-      className="rounded-full px-2 py-0.5 text-[11.5px]"
+      className="rounded-full px-2 py-0.5 text-11"
       style={state === "In use" ? { background: "var(--green-tint)", color: "var(--green-ink)" } : { background: "var(--hover)", color: "var(--ink-3)" }}
     >
       {state}
@@ -327,7 +330,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       live = false;
     };
   }, [id, computer?.state]);
-  if (!computer) return <p className="mt-6 text-[13px] text-ink-3">This computer was removed.</p>;
+  if (!computer) return <p className="mt-6 text-13 text-ink-3">This computer was removed.</p>;
 
   const paired = computer.addedAt ? `paired ${new Date(computer.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : null;
   const status = [computer.state === "online" ? "Connected" : routeLine(computer, now), about?.version ? `Milagre ${about.version}` : null, paired]
@@ -364,7 +367,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
   };
   return (
     <div data-computer-settings>
-      <p data-computer-status className="mt-1 text-[13px] text-ink-3">
+      <p data-computer-status className="mt-1 text-13 text-ink-3">
         {status}
       </p>
       <Group title="General">
@@ -377,7 +380,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
             }}
-            className="h-[30px] w-[220px] rounded-[8px] bg-field px-2.5 text-[13px] text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent"
+            className={`${FIELD} w-[220px] outline-none`}
           />
         </Row>
         <div data-computer-show-in-sidebar>
@@ -429,16 +432,12 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
       </Group>
       {computer.state === "online" && (
         <section data-computer-mcp className="mt-6">
-          <h2 className="px-1 text-[12px] font-medium text-ink-3">MCP servers</h2>
+          <SectionLabel className="px-1">MCP servers</SectionLabel>
           <McpSettings key={id} bridge={bridgeFor(id)} remote />
           <LocalMcpSettings key={`local-${id}`} bridge={bridgeFor(id)} />
         </section>
       )}
-      {error && (
-        <p role="alert" className="mt-3 text-[13px] text-red-ink">
-          {error}
-        </p>
-      )}
+      <InlineError className="mt-3">{error}</InlineError>
       <Group title="Remove">
         <Row
           label={`Remove ${computer.name}`}
@@ -454,7 +453,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
               </button>
             </span>
           ) : (
-            <button type="button" data-computer-remove className={DANGER_BUTTON} onClick={() => setConfirming(true)}>
+            <button type="button" data-computer-remove className={QUIET_DANGER_BUTTON} onClick={() => setConfirming(true)}>
               Remove
             </button>
           )}
@@ -468,7 +467,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
 function ChoiceGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-6">
-      <h2 className="mb-2 px-1 text-[12px] font-medium text-ink-3">{title}</h2>
+      <SectionLabel className="mb-2 px-1">{title}</SectionLabel>
       {children}
     </section>
   );
@@ -489,7 +488,7 @@ function ChatWidthField({ value, onCommit, onFocusChange }: { value: number; onC
     if (px !== value) onCommit(px);
   };
   return (
-    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line bg-surface pr-2.5 pl-3 text-[13px] font-medium text-ink focus-within:border-ink-3">
+    <label className="flex h-8 items-center gap-1.5 rounded-control border border-line-strong bg-field pr-2.5 pl-3 text-13 font-medium text-ink transition-colors duration-fast focus-within:border-accent">
       <input
         aria-label="Custom chat width in pixels"
         inputMode="numeric"
@@ -522,16 +521,16 @@ function NotificationChimeSetting() {
     <Row label="Notification chime" description="Plays when a Chat finishes or needs you. Picking one plays it.">
       <div className="flex items-center gap-1.5">
         {notificationChime !== "system" && (
-          <button
-            type="button"
-            aria-label="Play notification chime"
-            title="Play"
-            data-chime-play
-            className="flex size-7 items-center justify-center rounded-[7px] border border-line text-ink-2 hover:bg-hover"
-            onClick={() => playNotificationChime(notificationChime)}
-          >
-            <Icon icon={VolumeHighIcon} size={14} />
-          </button>
+          <Tooltip label="Play">
+            <IconButton
+              label="Play notification chime"
+              icon={VolumeHighIcon}
+              iconSize={14}
+              variant="secondary"
+              data-chime-play
+              onClick={() => playNotificationChime(notificationChime)}
+            />
+          </Tooltip>
         )}
         <Select<NotificationChime>
           label="Notification chime"
@@ -554,7 +553,7 @@ function PublishedPagesSettings() {
   return (
     <div data-slot="published-pages-setting">
       <Row label="Published pages" description="Manage public links to designs and artifacts, including pages from deleted Chats.">
-        <button type="button" className="rounded-[8px] border border-line px-3 py-1.5 text-[12px] hover:bg-hover" onClick={() => setPublishedPages(true)}>
+        <button type="button" className={SECONDARY_BUTTON} onClick={() => setPublishedPages(true)}>
           Manage
         </button>
       </Row>
@@ -578,11 +577,9 @@ function RemoteDelegationSettings() {
           onChange={(enabled) => void setting.save(enabled)}
         />
       </Row>
-      {setting.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
-          {setting.error}
-        </p>
-      )}
+      <InlineError size={12} className="px-4 pb-3">
+        {setting.error}
+      </InlineError>
     </div>
   );
 }
@@ -594,11 +591,9 @@ function BotsSettings() {
       <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
         <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
       </Row>
-      {bots.error && (
-        <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
-          {bots.error}
-        </p>
-      )}
+      <InlineError size={12} className="px-4 pb-3">
+        {bots.error}
+      </InlineError>
     </div>
   );
 }
@@ -683,7 +678,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
   if (page === "babysit-prs") return <BabysitPrsSettings onBack={() => setPage("experimental")} />;
   return (
     <>
-      <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+      <h1 className="text-22 font-semibold tracking-[-0.02em] text-ink">{title}</h1>
       <Group title="Beta">
         <Row
           label="Floating inbox"
@@ -1229,10 +1224,11 @@ function usePairedDevices() {
   return { list, replace: show, error, now, fresh };
 }
 
-const SECONDARY_BUTTON =
-  "rounded-control border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50";
-const DANGER_BUTTON =
-  "rounded-control border border-red/30 bg-red/5 px-3 py-1.5 text-[12px] font-medium text-red-ink transition-colors hover:bg-red/10 disabled:cursor-default disabled:opacity-50";
+const SECONDARY_BUTTON = buttonClass({ variant: "secondary", size: 28 });
+/** The confirm of a destructive action. */
+const DANGER_BUTTON = buttonClass({ variant: "danger", size: 28 });
+/** The first Remove, before its confirm: red text, no fill. */
+const QUIET_DANGER_BUTTON = `${buttonClass({ variant: "ghost", size: 28 })} text-red-ink enabled:hover:bg-red-tint`;
 
 function DeviceGroup({
   title,
@@ -1260,13 +1256,13 @@ function DeviceGroup({
   return (
     <Group title={title}>
       {error ? (
-        <p data-devices-error className="break-words px-4 py-3 text-[12px] text-red-ink">
+        <InlineError data-devices-error size={12} className="px-4 py-3">
           {error}
-        </p>
+        </InlineError>
       ) : (
         devices.length === 0 &&
         empty && (
-          <p data-devices-empty className="px-4 py-3 text-[12px] text-ink-3">
+          <p data-devices-empty className="px-4 py-3 text-12 text-ink-3">
             {empty}
           </p>
         )
@@ -1274,9 +1270,9 @@ function DeviceGroup({
       {devices.map((device) => {
         const asking = confirming === device.key;
         return (
-          <div key={device.key} data-device-row={device.kind} data-device-key={device.key} className="flex min-h-[52px] items-center gap-3 px-4 py-2">
-            <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-hover text-ink-2">
-              <Icon icon={device.kind === "computer" ? LaptopIcon : SmartphoneIcon} size={15} />
+          <div key={device.key} data-device-row={device.kind} data-device-key={device.key} className="flex min-h-12 items-center gap-3 px-4 py-2">
+            <span className="relative flex size-7 shrink-0 items-center justify-center rounded-control bg-hover text-ink-2">
+              <Icon icon={device.kind === "computer" ? LaptopIcon : SmartphoneIcon} size={14} />
               <span
                 aria-hidden
                 className={`absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-surface ${device.route ? "bg-green" : "bg-ink-3"}`}
@@ -1284,18 +1280,16 @@ function DeviceGroup({
             </span>
             <div className="grid min-w-0 flex-1 gap-0.5">
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-[13.5px] font-medium text-ink">{deviceName(device)}</span>
+                <span className="truncate text-13 font-medium text-ink">{deviceName(device)}</span>
                 {fresh.has(device.key) && (
-                  <span
-                    data-device-new
-                    title="Paired since you last looked"
-                    className="shrink-0 rounded-full bg-accent-tint px-1.5 py-px text-[10.5px] font-semibold text-accent-ink"
-                  >
-                    New
-                  </span>
+                  <Tooltip label="Paired since you last looked">
+                    <span data-device-new className="shrink-0 rounded-full bg-accent-tint px-1.5 py-px text-10 font-semibold text-accent-ink">
+                      New
+                    </span>
+                  </Tooltip>
                 )}
               </span>
-              <span data-device-line className="text-[12px] text-ink-3">
+              <span data-device-line className="text-12 text-ink-3">
                 {asking ? removeDeviceQuestion(device) : deviceSeenLine(device, now)}
               </span>
             </div>
@@ -1318,13 +1312,7 @@ function DeviceGroup({
                 </button>
               </span>
             ) : (
-              <button
-                type="button"
-                disabled={busy}
-                data-device-remove
-                onClick={() => setConfirming(device.key)}
-                className="shrink-0 rounded-control px-2 py-1 text-[12.5px] text-red-ink transition-colors hover:bg-red/5 disabled:cursor-default disabled:opacity-50"
-              >
+              <button type="button" disabled={busy} data-device-remove onClick={() => setConfirming(device.key)} className={QUIET_DANGER_BUTTON}>
                 Remove
               </button>
             )}
@@ -1332,7 +1320,7 @@ function DeviceGroup({
         );
       })}
       {footer && (
-        <p data-devices-note className="px-4 py-3 text-[12px] text-ink-3">
+        <p data-devices-note className="px-4 py-3 text-12 text-ink-3">
           {footer}
         </p>
       )}
@@ -1413,7 +1401,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
   const { computers, phones } = devicesByKind(paired.list ?? []);
   return (
     <>
-      <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
+      <p className="mt-1 text-13 text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
       <Group title="Access">
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
           <Switch
@@ -1436,17 +1424,17 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
           </Row>
         )}
         {status?.state === "on" && status.remote === "none" && (
-          <p data-phone-local-only className="px-4 py-3 text-[12px] text-ink-3">
+          <p data-phone-local-only className="px-4 py-3 text-12 text-ink-3">
             Only a phone simulator on this Mac can connect. Set up a Cloudflare tunnel with npm run mobile:cloudflare to reach this Mac from any network.
           </p>
         )}
         {status?.state === "error" && status.error && (
-          <p data-phone-error className="break-words px-4 py-3 text-[12px] text-red-ink">
+          <p data-phone-error className="break-words px-4 py-3 text-12 text-red-ink">
             {status.error}
           </p>
         )}
         {error && (
-          <p data-phone-action-error className="break-words px-4 py-3 text-[12px] text-red-ink">
+          <p data-phone-action-error className="break-words px-4 py-3 text-12 text-red-ink">
             Couldn't change device access: {error}
           </p>
         )}
@@ -1476,22 +1464,22 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
               alt="QR code to pair your phone"
               width={176}
               height={176}
-              className="size-44 shrink-0 rounded-[10px] bg-white"
+              className="size-44 shrink-0 rounded-card bg-white"
             />
             <div className="grid min-w-0 gap-3">
               <div className="grid gap-0.5">
-                <span className="text-[13.5px] font-medium text-ink">Scan with the Milagre app</span>
-                <span className="text-[12px] text-ink-3">Open the app on your phone and point its camera at this code.</span>
+                <span className="text-13 font-medium text-ink">Scan with the Milagre app</span>
+                <span className="text-12 text-ink-3">Open the app on your phone and point its camera at this code.</span>
               </div>
               <div>
                 <button type="button" onClick={copyLink} className={SECONDARY_BUTTON}>
                   {copied ? "Copied" : "Copy link"}
                 </button>
               </div>
-              <p data-phone-warning className="text-[12px] text-ink-2">
+              <p data-phone-warning className="text-12 text-ink-2">
                 This code gives access to your agents. Don't share it or post a screenshot of it.
               </p>
-              <p className="flex gap-4 text-[12px] underline underline-offset-4">
+              <p className="flex gap-4 text-12 underline underline-offset-4">
                 <a href={PRIVACY_URL} target="_blank" rel="noreferrer">
                   Privacy policy
                 </a>
@@ -1501,7 +1489,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
               </p>
               {pairing && (
                 <div data-phone-pairing={pairing.open ? "open" : "closed"} className="flex flex-wrap items-center gap-3">
-                  <span className="text-[12px] text-ink-3">
+                  <span className="text-12 text-ink-3">
                     {pairing.open
                       ? `New devices can pair for ${pairing.minutes} more ${pairing.minutes === 1 ? "minute" : "minutes"}`
                       : "Pairing is closed to new devices."}
@@ -1675,7 +1663,7 @@ export function AboutSettings({ update }: { update: UpdateState | null }) {
           type="button"
           disabled={update?.status === "checking" || update?.status === "downloading" || update?.status === "unavailable" || update?.status === "installing"}
           onClick={() => void (update?.status === "downloaded" ? showUpdateNotice() : window.milagre.checkForUpdates())}
-          className="rounded-control border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-hover disabled:cursor-default disabled:opacity-50"
+          className={SECONDARY_BUTTON}
         >
           {update?.status === "installing" ? "Restarting…" : update?.status === "downloaded" ? "Install & restart" : "Check for updates"}
         </button>
@@ -1795,8 +1783,8 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
   return (
     <div className="grid gap-2 px-4 py-3">
       <label htmlFor="files-to-copy" className="grid gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">Files to copy</span>
-        <span className="text-[12px] text-ink-3">
+        <span className="text-13 font-medium text-ink">Files to copy</span>
+        <span className="text-12 text-ink-3">
           Git-ignored files copied from the main checkout into each new worktree, such as env files. One pattern per line, .gitignore syntax. Leave empty for{" "}
           {DEFAULT_FILES_TO_COPY}.
         </span>
@@ -1812,22 +1800,22 @@ function FilesToCopy({ projectPath }: { projectPath: string }) {
         value={locked ? (found.worktreeInclude ?? "") : (text ?? "")}
         placeholder={DEFAULT_FILES_TO_COPY}
         onChange={(event) => edit(event.target.value)}
-        className={`w-full resize-y rounded-control border border-line px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink outline-none placeholder:text-ink-3 focus-visible:border-ink-3 ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
+        className={`${FIELD_AREA} resize-y font-mono text-12 outline-none ${locked ? "text-ink-2" : ""}`}
       />
       {locked && (
-        <p data-files-to-copy-locked className="text-[12px] text-ink-2">
+        <p data-files-to-copy-locked className="text-12 text-ink-2">
           .worktreeinclude in the repo wins. Edit that file to change what is copied.
         </p>
       )}
       {loadError ? (
-        <p className="text-[12px] text-red-ink">Couldn't read this project's files: {loadError}</p>
+        <InlineError size={12}>Couldn't read this project's files: {loadError}</InlineError>
       ) : (
-        <p data-files-to-copy-preview className="break-words text-[12px] text-ink-3">
+        <p data-files-to-copy-preview className="break-words text-12 text-ink-3">
           {found ? previewSentence(found.matches) : "Checking…"}
         </p>
       )}
       {saveError && (
-        <p data-files-to-copy-error className="break-words text-[12px] text-red-ink">
+        <p data-files-to-copy-error className="break-words text-12 text-red-ink">
           Couldn't save: {saveError}
         </p>
       )}
@@ -1910,8 +1898,8 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
   return (
     <div className="grid gap-2 px-4 py-3">
       <label htmlFor="setup-command" className="grid gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">Setup command</span>
-        <span className="text-[12px] text-ink-3">Runs once in each new worktree before the agent starts, e.g. npm ci.</span>
+        <span className="text-13 font-medium text-ink">Setup command</span>
+        <span className="text-12 text-ink-3">Runs once in each new worktree before the agent starts, e.g. npm ci.</span>
       </label>
       <input
         id="setup-command"
@@ -1924,20 +1912,20 @@ function SetupCommand({ projectPath }: { projectPath: string }) {
         value={locked ? (resolved.command ?? "") : (text ?? "")}
         placeholder={locked ? "Nothing runs" : "npm ci"}
         onChange={(event) => edit(event.target.value)}
-        className={`h-9 w-full rounded-control border border-line px-3 font-mono text-[12.5px] text-ink outline-none placeholder:text-ink-3 focus-visible:border-ink-3 ${locked ? "bg-field text-ink-2" : "bg-surface"}`}
+        className={`${FIELD} font-mono text-12 outline-none ${locked ? "text-ink-2" : ""}`}
       />
       {locked && (
-        <p data-setup-command-locked className="text-[12px] text-ink-2">
+        <p data-setup-command-locked className="text-12 text-ink-2">
           .milagre/worktree.json in the repo wins. Edit its "setup" to change the command.
         </p>
       )}
       {resolved?.note && (
-        <p data-setup-command-note className="break-words text-[12px] text-red-ink">
+        <p data-setup-command-note className="break-words text-12 text-red-ink">
           {resolved.note}
         </p>
       )}
       {error && (
-        <p data-setup-command-error className="break-words text-[12px] text-red-ink">
+        <p data-setup-command-error className="break-words text-12 text-red-ink">
           {error}
         </p>
       )}
@@ -1976,15 +1964,12 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
   return (
     <div className="grid gap-2 px-4 py-3">
       <div className="flex items-center gap-4">
-        <span
-          data-project-icon-preview
-          className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-ink text-[16px] font-semibold text-surface"
-        >
-          <WorkspaceIcon src={imageOf(project.path)} fallback={projectInitial(project.name)} />
+        <span data-project-icon-preview className="flex shrink-0">
+          <ProjectAvatar name={project.name} src={imageOf(project.path)} size={40} />
         </span>
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <span className="text-[13.5px] font-medium text-ink">Icon</span>
-          <span className="text-[12px] text-ink-3">
+          <span className="text-13 font-medium text-ink">Icon</span>
+          <span className="text-12 text-ink-3">
             Shown in the sidebar, the project switcher and on your phone. Reset goes back to the repository's own icon.
           </span>
         </div>
@@ -2008,7 +1993,7 @@ function ProjectIconSetting({ project }: { project: SettingsProject }) {
         </button>
       </div>
       {error && (
-        <p data-project-icon-error className="break-words text-[12px] text-red-ink">
+        <p data-project-icon-error className="break-words text-12 text-red-ink">
           {error}
         </p>
       )}
@@ -2052,7 +2037,9 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
       <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
         <Switch label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      <InlineError size={12} className="px-4 pb-3">
+        {error}
+      </InlineError>
     </div>
   );
 }
@@ -2085,7 +2072,9 @@ export function MainSyncDefaultSetting() {
       <Row label={MAIN_SYNC_TITLE} description={MAIN_SYNC_HINT}>
         <Switch label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      <InlineError size={12} className="px-4 pb-3">
+        {error}
+      </InlineError>
     </div>
   );
 }
@@ -2271,7 +2260,9 @@ function LinearSettings() {
           </div>
         </Row>
       )}
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      <InlineError size={12} className="px-4 pb-3">
+        {error}
+      </InlineError>
     </div>
   );
 }
@@ -2322,7 +2313,9 @@ export function MainSyncSetting({ projectPath }: { projectPath: string }) {
           options={mainSyncChoices(sync?.defaultValue ?? false).map((choice) => ({ value: choice.value, label: choice.title }))}
         />
       </Row>
-      {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
+      <InlineError size={12} className="px-4 pb-3">
+        {error}
+      </InlineError>
     </div>
   );
 }
@@ -2389,7 +2382,7 @@ export function SettingsPanel({
     <ScrollArea className="h-full">
       <div className="mx-auto w-full max-w-[640px] px-6 pt-14 pb-10">
         {/* MCP draws its own title row, with Refresh and Add server beside it; Experimental swaps it for Babysit PRs' page title. */}
-        {section !== "mcp" && section !== "experimental" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
+        {section !== "mcp" && section !== "experimental" && <h1 className="text-22 font-semibold tracking-[-0.02em] text-ink">{title}</h1>}
         {section === "general" && <GeneralSettings models={models} />}
         {section === "accounts" && (
           <>
@@ -2408,7 +2401,7 @@ export function SettingsPanel({
         {section === "routines" && <RoutinesSettings />}
         {section === "connections" && (
           <>
-            <p className="mt-1 text-[13px] text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
+            <p className="mt-1 text-13 text-ink-2">Services Milagre signs in to, so Chats can start from their issues.</p>
             <Group title="Issue trackers">
               <LinearSettings />
             </Group>
@@ -2418,7 +2411,7 @@ export function SettingsPanel({
           (project ? (
             <SkillsSettings key={project.path} projectPath={project.path} />
           ) : (
-            <p className="mt-6 text-[13px] text-ink-3">Open a project to see its skills.</p>
+            <p className="mt-6 text-13 text-ink-3">Open a project to see its skills.</p>
           ))}
         {section === "mcp" && <McpSettings title={title} />}
         {section === "local-mcp" && (
@@ -2426,7 +2419,7 @@ export function SettingsPanel({
             <Group title="Designs and artifacts">
               <PublishedPagesSettings />
             </Group>
-            <h2 className="mt-6 px-1 text-[12px] font-medium text-ink-3">Milagre MCP</h2>
+            <SectionLabel className="mt-6 px-1">Milagre MCP</SectionLabel>
             <LocalMcpSettings bridge={window.milagre} />
           </>
         )}

@@ -63,8 +63,8 @@ export function UltracodeFatality({ onDone }: { onDone: () => void }) {
               className="text-[min(13vw,160px)] leading-none tracking-[0.04em]"
               style={{
                 fontFamily: "Creepster, Impact, sans-serif",
-                color: "#a855f7",
-                backgroundImage: "linear-gradient(180deg, #f0abfc 0%, #a855f7 45%, #4c1d95 100%)",
+                color: "var(--purple)",
+                backgroundImage: "linear-gradient(180deg, #f0abfc 0%, var(--purple) 45%, #4c1d95 100%)",
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 // The stroke paints over the fill and eats into Creepster's heavy strokes, so the letters read thinner.

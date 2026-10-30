@@ -60,7 +60,7 @@ export function PickerPanel({
   }
 
   const search = onQueryChange && (
-    <label className="my-2 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-2 text-ink-3">
+    <label className="my-2 flex shrink-0 items-center gap-2 rounded-control border border-line px-2.5 py-2 text-ink-3 transition-colors focus-within:border-accent">
       <HugeiconsIcon icon={Search01Icon} size={15} strokeWidth={1.8} color="currentColor" />
       <input
         className="w-full border-0 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3"
@@ -76,8 +76,8 @@ export function PickerPanel({
     <div
       data-picker-panel
       onKeyDown={handleKeyDown}
-      className={`z-20 flex flex-col rounded-[10px] border border-line bg-surface p-1.5 shadow-raised ${className}`}
-      style={{ animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", ...style }}
+      className={`z-20 flex flex-col rounded-card bg-surface p-1.5 shadow-raised ${className}`}
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both", ...style }}
     >
       {title && (
         <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
@@ -133,7 +133,7 @@ export function PickerRow({
       role={option ? "option" : undefined}
       aria-selected={option ? selected : undefined}
       onClick={onClick}
-      className={`relative z-10 flex w-full disabled:opacity-40 disabled:cursor-default items-center gap-2 rounded-control border px-2 py-1.5 text-left transition-colors focus-visible:bg-hover focus-visible:outline-2 focus-visible:outline-ink-3 focus-visible:-outline-offset-2 ${selected ? "border-line-strong bg-hover" : "border-transparent hover:border-line hover:bg-inset"}`}
+      className={`relative z-10 flex w-full disabled:opacity-40 disabled:cursor-default items-center gap-2 rounded-control border px-2 py-1.5 text-left transition-colors focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 ${selected ? "border-line-strong bg-hover" : "border-transparent hover:border-line hover:bg-inset"}`}
     >
       {icon && <span className="shrink-0">{icon}</span>}
       <span className={`flex min-w-0 flex-1 ${wrapLabel ? "flex-col gap-0.5" : "items-baseline gap-1.5"}`}>

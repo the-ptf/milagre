@@ -1,7 +1,7 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { runChatMeta } from "@milagre/shared/routines";
 import Tooltip from "../primitives/Tooltip";
+import { IconButton } from "../primitives/Button";
 import { useRoutines } from "../../lib/routines";
 
 /** What replying to a hidden Run Chat does, under the composer of the Run Chat pane. */
@@ -15,23 +15,15 @@ export function RunChatHeader({ chatKey, title, branch, onClose }: { chatKey: st
   const { routines } = useRoutines();
   const run = routines.flatMap((routine) => routine.runs).find((entry) => entry.chatId === chatKey);
   return (
-    <header data-run-chat-header={chatKey} className="flex shrink-0 items-center gap-3 border-b border-line py-2.5 pr-2.5 pl-4">
+    <header data-run-chat-header={chatKey} className="flex shrink-0 items-center gap-3 border-b border-line py-2 pr-2 pl-4">
       <div className="grid min-w-0 flex-1 gap-0.5">
-        <h2 className="truncate text-[15px] leading-5 font-semibold text-ink">{title}</h2>
-        <p data-run-chat-meta className="truncate text-[12px] text-ink-3">
+        <h2 className="truncate text-15 font-semibold text-ink">{title}</h2>
+        <p data-run-chat-meta className="truncate text-12 text-ink-3">
           {run ? runChatMeta(run, branch) : (branch ?? "")}
         </p>
       </div>
       <Tooltip label="Close" side="bottom">
-        <button
-          type="button"
-          aria-label="Close"
-          data-run-chat-close
-          onClick={onClose}
-          className="flex size-7 shrink-0 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={15} strokeWidth={1.8} color="currentColor" />
-        </button>
+        <IconButton label="Close" icon={Cancel01Icon} data-run-chat-close onClick={onClose} />
       </Tooltip>
     </header>
   );

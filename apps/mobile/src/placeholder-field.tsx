@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { insertPlaceholder, placeholderQuery } from "@milagre/shared/routine-prompt";
 import { Field, ListRow } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 type Selection = { start: number; end: number };
@@ -44,11 +45,11 @@ export function PlaceholderField({
           accessibilityLabel="Placeholders"
           style={{
             backgroundColor: colors.surface,
-            borderRadius: 16,
+            borderRadius: radius.card,
             borderCurve: "continuous",
             borderWidth: 1,
             borderColor: colors.line,
-            paddingHorizontal: 14,
+            paddingHorizontal: 16,
           }}
         >
           {suggestions.slice(0, 6).map((item) => (
@@ -56,7 +57,9 @@ export function PlaceholderField({
           ))}
         </View>
       ) : null}
-      <View style={{ backgroundColor: colors.surface, borderRadius: 20, borderCurve: "continuous", borderWidth: 1, borderColor: colors.line, padding: 6 }}>
+      <View
+        style={{ backgroundColor: colors.surface, borderRadius: radius.sheet, borderCurve: "continuous", borderWidth: 1, borderColor: colors.line, padding: 6 }}
+      >
         <Field
           label="Prompt"
           hideLabel
@@ -77,11 +80,20 @@ export function PlaceholderField({
           }}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          style={{ backgroundColor: "transparent", minHeight: 96, maxHeight: 220, fontSize: 15, lineHeight: 21, textAlignVertical: "top" }}
+          style={{
+            backgroundColor: "transparent",
+            minHeight: 96,
+            maxHeight: 220,
+            fontSize: type.subheadline,
+            lineHeight: lineHeight.subheadline,
+            textAlignVertical: "top",
+          }}
         />
       </View>
       {focused && !query && names.length ? (
-        <Text style={{ color: colors.ink3, fontSize: 12, paddingHorizontal: 4 }}>Type {"{{"} to add a placeholder.</Text>
+        <Text style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1, paddingHorizontal: 4 }}>
+          Type {"{{"} to add a placeholder.
+        </Text>
       ) : null}
     </View>
   );

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
+import { lineHeight, radius, space, type } from "./design-tokens";
 import { useFocusEffect } from "expo-router";
 import { Add01Icon, ArrowRight01Icon, File01Icon, Message01Icon, Tick02Icon, Upload01Icon, UserCheck01Icon, Wrench01Icon } from "@hugeicons/core-free-icons";
 import { BABYSIT_DEFAULTS, BABYSIT_LEVELS, DAYS_OPTIONS, FAILURE_OPTIONS, INTERVAL_OPTIONS, type BabysitStep, type BabysitWake } from "@milagre/shared/babysit";
@@ -8,7 +9,7 @@ import { Icon, type IconData } from "./icons";
 import { useSession } from "./session";
 import { Group, Row } from "./settings-list";
 import { useTheme } from "./theme";
-import { ErrorNotice, Segmented, Toggle, useStyles } from "./ui";
+import { Chip, DISABLED_OPACITY, ErrorNotice, pressStyle, Segmented, Toggle, useStyles } from "./ui";
 
 type Save = (change: BabysitChange) => Promise<void>;
 
@@ -32,7 +33,7 @@ const options = (values: readonly number[], title: (value: number) => string) =>
 // Six segments share a phone's width, so the interval reads "5 min" where desktop's menu says "5 minutes".
 const INTERVALS = options(INTERVAL_OPTIONS, (value) => `${value} min`);
 // An off rule keeps its number, shown dimmed, so turning it back on restores it.
-const dimmed = (on: boolean) => (on ? null : { opacity: 0.4 });
+const dimmed = (on: boolean) => (on ? null : { opacity: DISABLED_OPACITY.control });
 const DAYS = options(DAYS_OPTIONS, (value) => plural(value, "day", "days"));
 const FAILURES = options(FAILURE_OPTIONS, (value) => plural(value, "time", "times"));
 
@@ -145,7 +146,7 @@ export function BabysitSection() {
     change(BABYSIT_DEFAULTS);
   };
   return (
-    <View style={{ gap: 20 }}>
+    <View style={{ gap: space.section }}>
       {error}
       <Group title="Babysit PRs">
         <View style={{ gap: 4, paddingVertical: 8 }}>
@@ -153,7 +154,7 @@ export function BabysitSection() {
           {caption("Off by default. When a Chat opens a PR, Milagre adds a Heartbeat to that Chat and watches the PR until it's done.")}
         </View>
         <View style={{ gap: 8, paddingVertical: 12 }}>
-          <Text style={{ color: colors.ink, fontSize: 17 }}>Check every</Text>
+          <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Check every</Text>
           <Segmented
             label="Check every"
             value={String(settings.intervalMinutes)}
@@ -162,34 +163,20 @@ export function BabysitSection() {
           />
           {caption("Milagre asks GitHub itself on this interval. The agent only wakes when something new shows up, so idle PRs cost nothing.")}
         </View>
-        <View style={{ gap: 10, paddingVertical: 12 }}>
-          <Text style={{ color: colors.ink, fontSize: 17 }}>Wake the agent for</Text>
+        <View style={{ gap: space.lg, paddingVertical: space.lg }}>
+          <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>Wake the agent for</Text>
           <View accessibilityLabel="Wake the agent for" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {WAKE.map(({ kind, label }) => {
               const on = settings.wake.includes(kind);
               return (
-                <Pressable
+                <Chip
                   key={kind}
-                  accessibilityRole="button"
-                  accessibilityLabel={label}
-                  accessibilityState={{ selected: on }}
+                  label={label}
+                  selected={on}
+                  multiple
+                  leading={<Icon icon={on ? Tick02Icon : Add01Icon} tone={on ? "onInk" : "ink2"} size={12} />}
                   onPress={() => toggleWake(kind)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    height: 34,
-                    paddingHorizontal: 12,
-                    borderRadius: 17,
-                    borderWidth: 1,
-                    borderColor: on ? colors.accentTint : colors.line,
-                    backgroundColor: on ? colors.accentTint : "transparent",
-                    opacity: pressed ? 0.6 : 1,
-                  })}
-                >
-                  <Icon icon={on ? Tick02Icon : Add01Icon} tone={on ? "accentInk" : "ink2"} size={14} />
-                  <Text style={{ color: on ? colors.accentInk : colors.ink2, fontSize: 14, fontWeight: "500" }}>{label}</Text>
-                </Pressable>
+                />
               );
             })}
           </View>
@@ -208,36 +195,51 @@ export function BabysitSection() {
                 onPress={() => {
                   if (!selected) change({ level: entry.level });
                 }}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  gap: 10,
-                  padding: 12,
-                  borderRadius: 14,
-                  borderCurve: "continuous",
-                  borderWidth: selected ? 2 : 1,
-                  borderColor: selected ? colors.accent : colors.line,
-                  backgroundColor: selected ? colors.accentTint : "transparent",
-                  opacity: pressed ? 0.7 : 1,
-                })}
+                style={({ pressed }) => [
+                  {
+                    flexDirection: "row",
+                    gap: space.lg,
+                    padding: space.lg,
+                    borderRadius: radius.card,
+                    borderCurve: "continuous",
+                    borderWidth: selected ? 2 : 1,
+                    borderColor: selected ? colors.accent : colors.line,
+                    backgroundColor: selected ? colors.accentTint : "transparent",
+                  },
+                  pressStyle({ pressed }),
+                ]}
               >
                 {selected ? (
-                  <View style={{ width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent }}>
+                  <View
+                    style={{ width: 20, height: 20, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent }}
+                  >
                     <Icon icon={Tick02Icon} tone="onAccent" size={12} />
                   </View>
                 ) : (
-                  <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.ink3 }} />
+                  <View style={{ width: 20, height: 20, borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.ink3 }} />
                 )}
                 <View style={{ flex: 1, gap: 6 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <Text style={{ flexShrink: 1, color: selected ? colors.accentInk : colors.ink, fontSize: 15, fontWeight: "600" }}>{entry.title}</Text>
+                    <Text
+                      style={{
+                        flexShrink: 1,
+                        color: selected ? colors.accentInk : colors.ink,
+                        fontSize: type.subheadline,
+                        lineHeight: lineHeight.subheadline,
+                        fontWeight: "600",
+                      }}
+                    >
+                      {entry.title}
+                    </Text>
                     {entry.level === BABYSIT_DEFAULTS.level ? (
                       <Text
                         style={{
                           color: colors.ink2,
-                          fontSize: 11,
+                          fontSize: type.caption2,
+                          lineHeight: lineHeight.caption2,
                           fontWeight: "500",
                           backgroundColor: colors.field,
-                          borderRadius: 4,
+                          borderRadius: radius.chip,
                           paddingHorizontal: 6,
                           overflow: "hidden",
                         }}
@@ -246,24 +248,26 @@ export function BabysitSection() {
                       </Text>
                     ) : null}
                   </View>
-                  <Text style={{ color: selected ? colors.accentInk : colors.ink3, fontSize: 13, lineHeight: 18 }}>{entry.description}</Text>
+                  <Text style={{ color: selected ? colors.accentInk : colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+                    {entry.description}
+                  </Text>
                   <View
                     accessibilityLabel={entry.steps.map((step) => STEPS[step].name).join(", then ")}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
                       alignSelf: "flex-start",
-                      gap: 3,
+                      gap: space.xs,
                       height: 24,
-                      paddingHorizontal: 8,
-                      borderRadius: 12,
+                      paddingHorizontal: space.md,
+                      borderRadius: radius.full,
                       backgroundColor: selected ? colors.surface : colors.field,
                     }}
                   >
                     {entry.steps.map((step, index) => (
-                      <View key={step} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                        {index > 0 ? <Icon icon={ArrowRight01Icon} tone="ink3" size={10} /> : null}
-                        <Icon icon={STEPS[step].icon} tone={selected ? "accent" : "ink2"} size={13} />
+                      <View key={step} style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                        {index > 0 ? <Icon icon={ArrowRight01Icon} tone="ink3" size={12} /> : null}
+                        <Icon icon={STEPS[step].icon} tone={selected ? "accent" : "ink2"} size={12} />
                       </View>
                     ))}
                   </View>

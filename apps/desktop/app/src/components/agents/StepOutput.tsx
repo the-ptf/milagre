@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ChatStep } from "../../model";
 import { stepSections } from "@milagre/shared/tool-activity";
 import { CodeBlock } from "../markdown/CodeBlock";
+import { Button } from "../primitives/Button";
 
 /** Output stays lazy and bounded; revealing lines never changes which call the user opened. */
 export function StepOutput({ step, detail }: { step: ChatStep; detail?: string }) {
@@ -23,9 +24,9 @@ export function StepOutput({ step, detail }: { step: ChatStep; detail?: string }
         />
       )}
       {clipped && (
-        <button type="button" onClick={() => setAll(true)} className="mb-2 rounded-control px-2 py-1 text-[12px] text-ink-2 hover:bg-hover hover:text-ink">
+        <Button variant="ghost" size={24} onClick={() => setAll(true)} className="mb-2 text-ink-2 enabled:hover:text-ink">
           Show {lines.length - 40} {consoleOutput ? "earlier" : "more"} lines
-        </button>
+        </Button>
       )}
     </div>
   );

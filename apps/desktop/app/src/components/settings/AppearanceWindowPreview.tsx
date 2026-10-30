@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -27,6 +26,7 @@ import { EASE_OUT, SPRING_LAYOUT, scaled, scaledSpring, useMotionScale } from ".
 import { useSettings } from "../../lib/settings";
 import { FileChip, FileKindIcon, SkillChip } from "../PromptChip";
 import { ProviderLogo } from "../ProviderLogo";
+import { Icon as ScaleIcon, type IconSize } from "../primitives/Icon";
 
 /** The part of the window a setting changes. `ui` is the interface font: everything but code. */
 export type PreviewArea = "sidebar" | "chat" | "code" | "width" | "diff" | "ui" | "usage";
@@ -74,7 +74,7 @@ function Part({
     <Tag
       data-preview-area={area}
       data-highlighted={outlined || undefined}
-      className={`transition-[opacity,outline-color] duration-200 ease-out ${tight ? "outline-[3px] outline-offset-[3px]" : "outline-4 outline-offset-[6px]"} ${outlined ? "outline-accent" : "outline-transparent"} ${className}`}
+      className={`transition-[opacity,outline-color] duration-base ease-enter ${tight ? "outline-[3px] outline-offset-[3px]" : "outline-4 outline-offset-[6px]"} ${outlined ? "outline-accent" : "outline-transparent"} ${className}`}
       style={{ ...style, opacity: dim ? 0.4 : 1 }}
       {...rest}
     >
@@ -83,14 +83,14 @@ function Part({
   );
 }
 
-function Icon({ icon, size = 16 }: { icon: IconSvgElement; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
+function Icon({ icon, size = 16 }: { icon: IconSvgElement; size?: IconSize }) {
+  return <ScaleIcon icon={icon} size={size} className="shrink-0" />;
 }
 
 /** `+12 −3` in the diff colors, mono, as the sidebar, canvas and changes panel draw it. */
 function Counts({ added, removed, className = "" }: { added: number; removed: number; className?: string }) {
   return (
-    <Part inline area="diff" keep={["sidebar", "diff"]} tight className={`shrink-0 rounded-[3px] font-mono tabular-nums ${className}`}>
+    <Part inline area="diff" keep={["sidebar", "diff"]} tight className={`shrink-0 rounded-inline font-mono tabular-nums ${className}`}>
       <span className="text-diff-add">+{added}</span> <span className="text-diff-remove">−{removed}</span>
     </Part>
   );
@@ -142,7 +142,7 @@ function SidebarMark({ mark }: { mark?: "running" | "unread" }) {
 function ProjectRow({ initial, color, name, current = false }: { initial: string; color: string; name: string; current?: boolean }) {
   return (
     <Part keep={["sidebar", "ui"]} className="mx-2 flex h-8 items-center gap-2 px-2">
-      <span className="flex size-5 items-center justify-center rounded-[5px] text-[11px] font-bold text-white" style={{ background: color }}>
+      <span className="flex size-5 items-center justify-center rounded-chip text-11 font-semibold text-white" style={{ background: color }}>
         {initial}
       </span>
       <span className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] ${current ? "font-medium text-ink" : "text-ink-2"}`}>{name}</span>
@@ -168,7 +168,7 @@ function SidebarUsagePreview({ compact }: { compact: boolean }) {
         {PREVIEW_USAGE.map((item) => (
           <div
             key={item.provider}
-            className="sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-[8px] px-2 text-[12px] tabular-nums text-ink-2"
+            className="sidebar-usage-row relative flex h-8 w-full min-w-0 items-center gap-1.5 rounded-control px-2 text-12 tabular-nums text-ink-2"
           >
             <span className="flex shrink-0 items-center justify-center">
               <ProviderLogo provider={item.provider} size={13} />
@@ -202,12 +202,12 @@ function SidebarUsagePreview({ compact }: { compact: boolean }) {
 function Sidebar({ compactUsage }: { compactUsage: boolean }) {
   return (
     <Part area="sidebar" outline={["sidebar"]} className="flex w-[272px] shrink-0 flex-col rounded-window bg-surface pt-2 shadow-card">
-      <Part keep={["sidebar", "ui"]} className="mx-2 mb-3 flex items-center gap-1 text-[13px] text-ink-3">
-        <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2">
+      <Part keep={["sidebar", "ui"]} className="mx-2 mb-3 flex items-center gap-1 text-13 text-ink-3">
+        <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control px-2">
           <Icon icon={FrameIcon} />
           Canvas
         </span>
-        <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] px-2">
+        <span className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-control px-2">
           <Icon icon={Search01Icon} />
           Search
         </span>
@@ -223,7 +223,7 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
         {SIDEBAR_CHATS.map((chat) => (
           <div
             key={chat.title}
-            className={`relative mx-2 flex h-[46px] items-start rounded-[8px] px-2 pt-1.5 ${"active" in chat && chat.active ? "bg-hover-2" : ""}`}
+            className={`relative mx-2 flex h-[46px] items-start rounded-control px-2 pt-1.5 ${"active" in chat && chat.active ? "bg-hover-2" : ""}`}
           >
             <Part keep={["sidebar", "ui"]} className="flex min-w-0 flex-1 items-center">
               <span className="mr-2 flex size-3 shrink-0 items-center justify-center">
@@ -247,7 +247,7 @@ function Sidebar({ compactUsage }: { compactUsage: boolean }) {
       <div className="mt-3">
         <ProjectRow initial="r" color="#16a34a" name="relay" />
       </div>
-      <div className="mx-2 flex h-8 items-center rounded-[8px] px-2">
+      <div className="mx-2 flex h-8 items-center rounded-control px-2">
         <Part keep={["sidebar", "ui"]} className="flex min-w-0 flex-1 items-center">
           <span className="mr-2 flex size-3 shrink-0 items-center justify-center">
             <SidebarMark />
@@ -297,7 +297,7 @@ function CodeBlock() {
   return (
     <Part area="code" keep={["code", "diff", "width"]} className="my-2 rounded-control">
       <div className="overflow-hidden rounded-control border border-line bg-inset">
-        <Part keep={["code", "width"]} className="flex h-7 items-center border-b border-line px-2.5 font-mono text-[11px] text-ink-3">
+        <Part keep={["code", "width"]} className="flex h-7 items-center border-b border-line px-2.5 font-mono text-11 text-ink-3">
           diff
         </Part>
         <pre data-preview-diff className="py-1.5 font-mono text-[length:var(--code-size)] leading-[1.6] text-ink">
@@ -325,8 +325,8 @@ function CodeBlock() {
 
 function Pill({ icon, label }: { icon: IconSvgElement; label: string }) {
   return (
-    <span className="status-pill flex h-6 items-center gap-1.5 rounded-full px-2 text-[11px] whitespace-nowrap text-ink-2">
-      <Icon icon={icon} size={13} />
+    <span className="status-pill flex h-6 items-center gap-1.5 rounded-full px-2 text-11 whitespace-nowrap text-ink-2">
+      <Icon icon={icon} size={14} />
       <span className="tabular-nums">{label}</span>
     </span>
   );
@@ -334,25 +334,25 @@ function Pill({ icon, label }: { icon: IconSvgElement; label: string }) {
 
 function Composer() {
   return (
-    <Part area="chat" keep={["chat", "ui", "width"]} className="promptbar-surface relative flex items-end gap-1 rounded-[14px] border border-line p-1.5">
+    <Part area="chat" keep={["chat", "ui", "width"]} className="promptbar-surface relative flex items-end gap-1 rounded-window border border-line p-1.5">
       <span className="flex size-7 shrink-0 items-center justify-center text-ink-3">
         <Icon icon={Add01Icon} />
       </span>
       <span data-preview-composer className="min-h-7 min-w-0 flex-1 truncate px-1 py-[5px] text-[length:var(--chat-size)] leading-[18px] text-ink-3">
         Prompt or mention a file with @
       </span>
-      <span className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-ink-2">
+      <span className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-ink-2">
         <ProviderLogo provider="claude" size={14} />
         Opus 5.5 · High
         <span className="text-ink-3">
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
       </span>
-      <span className="flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-1.5 text-[12px] font-medium text-green-ink">
+      <span className="flex h-7 shrink-0 items-center gap-1 rounded-control px-1.5 text-12 font-medium text-green-ink">
         <Icon icon={SecurityCheckIcon} size={14} />
         Auto
       </span>
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-surface">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-on-ink">
         <Icon icon={ArrowUp01Icon} />
       </span>
     </Part>
@@ -372,7 +372,7 @@ function WidthMarkers({ px }: { px: number | null }) {
       <div className="absolute inset-x-0 top-5 flex items-center">
         <span className="h-4 w-0.5 bg-accent" />
         <span className="h-0.5 flex-1 bg-accent" />
-        <span className="mx-3 rounded-full bg-accent px-4 py-1.5 text-[26px] leading-none font-semibold tabular-nums text-white shadow-card">{label}</span>
+        <span className="mx-3 rounded-full bg-accent px-4 py-1.5 text-26 leading-none font-semibold tabular-nums text-on-accent shadow-card">{label}</span>
         <span className="h-0.5 flex-1 bg-accent" />
         <span className="h-4 w-0.5 bg-accent" />
       </div>
@@ -384,11 +384,11 @@ function ChatColumn({ widthPx }: { widthPx: number | null }) {
   const highlight = useContext(HighlightContext);
   const chatText = ["chat", "ui", "width"] as const;
   return (
-    <Part area="width" className="relative mx-auto flex h-full w-full max-w-[var(--chat-width)] flex-col rounded-[6px] px-3 pt-16 pb-3">
+    <Part area="width" className="relative mx-auto flex h-full w-full max-w-[var(--chat-width)] flex-col rounded-chip px-3 pt-16 pb-3">
       {highlight === "width" && <WidthMarkers px={widthPx} />}
-      <Part area="chat" className="flex flex-col gap-3 rounded-[10px]">
+      <Part area="chat" className="flex flex-col gap-3 rounded-card">
         <div className="flex w-full flex-col items-end pl-12">
-          <Part keep={chatText} className="rounded-xl bg-field px-3 py-1.5">
+          <Part keep={chatText} className="rounded-card bg-field px-3 py-1.5">
             <p data-preview-text className="text-[length:var(--chat-size)] leading-[1.55] text-ink">
               Use <SkillChip name="frontend-design" /> to give Appearance a live preview. Start from{" "}
               <FileChip path="apps/desktop/app/src/components/Settings.tsx" /> and drop <FileChip path="src/styles.css" /> overrides.
@@ -444,21 +444,21 @@ function ChangesPanel({ open }: { open: boolean }) {
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
-            transition={{ duration: scaled(0.24, scale), ease: EASE_OUT }}
+            transition={{ duration: scaled(0.28, scale), ease: EASE_OUT }}
           >
             <div className="flex w-[340px] flex-col rounded-window bg-surface shadow-card">
-              <Part keep={["ui"]} className="flex h-11 items-center justify-between border-b border-line px-3.5 text-[13px] font-medium text-ink">
+              <Part keep={["ui"]} className="flex h-11 items-center justify-between border-b border-line px-3.5 text-13 font-medium text-ink">
                 Changes
-                <span className="text-[12px] font-normal text-ink-3">4 files</span>
+                <span className="text-12 font-normal text-ink-3">4 files</span>
               </Part>
               <div className="grid gap-0.5 p-1.5">
                 {PANEL_FILES.map((file) => (
-                  <div key={file.path} className="flex h-8 items-center gap-2 rounded-[7px] px-2 text-[12.5px]">
+                  <div key={file.path} className="flex h-8 items-center gap-2 rounded-control px-2 text-13">
                     <Part inline keep={["ui"]} className="flex min-w-0 flex-1 items-center gap-1.5 text-ink">
                       <FileKindIcon path={file.path} />
                       <span className="truncate">{file.path.split("/").at(-1)}</span>
                     </Part>
-                    <Counts added={file.added} removed={file.removed} className="text-[11px]" />
+                    <Counts added={file.added} removed={file.removed} className="text-11" />
                   </div>
                 ))}
               </div>
@@ -517,7 +517,7 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
         data-slot="appearance-window-preview"
         role="img"
         aria-label="Preview of the app window with these settings"
-        className="relative overflow-hidden rounded-[12px] shadow-card"
+        className="relative overflow-hidden rounded-card shadow-card"
         style={{ width: WINDOW_WIDTH * scale, height: WINDOW_HEIGHT * scale }}
       >
         <HighlightContext.Provider value={highlight}>
@@ -533,7 +533,7 @@ export function AppearanceWindowPreview({ highlight, playMotion }: { highlight: 
               backgroundImage: "repeating-linear-gradient(-45deg, transparent 0, transparent 7px, var(--stripe) 7px, var(--stripe) 8px)",
             }}
           >
-            <Part area="ui" className="absolute inset-0 flex rounded-[12px] outline-offset-[-8px]!">
+            <Part area="ui" className="absolute inset-0 flex rounded-card outline-offset-[-8px]!">
               {/* The title bar: traffic lights and the sidebar toggle over the sidebar, terminal and changes at the right. */}
               <Part keep={["ui"]} className="absolute top-0 right-0 left-0 flex h-11 items-center px-5 text-ink-3">
                 <span className="flex gap-2">

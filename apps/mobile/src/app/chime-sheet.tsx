@@ -1,12 +1,12 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, Text, View } from "react-native";
 import { Tick02Icon, VolumeHighIcon } from "@hugeicons/core-free-icons";
 import { NOTIFICATION_CHIMES, parseNotificationChime } from "@milagre/shared/notification-chimes";
 import { Icon } from "../icons";
 import { playNotificationChime } from "../notification-chime-audio";
 import { usePush } from "../push";
-import { useStyles } from "../ui";
+import { SheetBody, SheetHeader, pressStyle, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { lineHeight, type } from "../design-tokens";
 
 /**
  * Settings > Notifications > Notification chime. A tap picks the chime and plays it; the sheet stays open so the next
@@ -15,20 +15,17 @@ import { useTheme } from "../theme";
 export default function ChimeSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
-  const insets = useSafeAreaInsets();
   const push = usePush();
   const chosen = parseNotificationChime(push.state?.chime);
   return (
-    <View style={{ paddingTop: 24, paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 16) + 4, gap: 12 }}>
-      <Text accessibilityRole="header" style={[styles.subtitle, { textAlign: "center" }]}>
-        Notification chime
-      </Text>
+    <SheetBody>
+      <SheetHeader title="Notification chime" style={{ paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0 }} />
       <View accessibilityRole="radiogroup" style={[styles.card, { paddingVertical: 4 }]}>
         {NOTIFICATION_CHIMES.map((chime, index) => {
           const checked = chime.id === chosen;
           return (
             <View key={chime.id}>
-              {index > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.line }} />}
+              {index > 0 && <View style={styles.separator} />}
               <Pressable
                 accessibilityRole="radio"
                 accessibilityLabel={chime.label}
@@ -38,11 +35,14 @@ export default function ChimeSheet() {
                   playNotificationChime(chime.id);
                   if (!checked) void push.preferences({ chime: chime.id });
                 }}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, opacity: pressed ? 0.5 : 1 })}
+                style={({ pressed }) => [
+                  { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 },
+                  pressStyle({ pressed, disabled: !push.state, kind: "row" }),
+                ]}
               >
-                <Text style={{ flex: 1, color: colors.ink, fontSize: 17 }}>{chime.label}</Text>
+                <Text style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>{chime.label}</Text>
                 {checked && chime.id !== "system" && <Icon icon={VolumeHighIcon} tone="accent" size={18} />}
-                <View style={{ width: 20 }}>{checked && <Icon icon={Tick02Icon} tone="accent" size={20} />}</View>
+                <View style={{ width: 18 }}>{checked && <Icon icon={Tick02Icon} tone="accent" size={18} />}</View>
               </Pressable>
             </View>
           );
@@ -53,6 +53,6 @@ export default function ChimeSheet() {
           ? "Plays when a Chat finishes or needs you. Tap one to hear it."
           : "Turn on notifications in Settings › Notifications to hear it when a Chat finishes or needs you."}
       </Text>
-    </View>
+    </SheetBody>
   );
 }

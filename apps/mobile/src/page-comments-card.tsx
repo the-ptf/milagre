@@ -5,7 +5,7 @@ import type { ParsedPageComment, SavedPageComment } from "@milagre/shared/page-c
 import { useSession } from "./session";
 import { useTheme } from "./theme";
 import { Icon } from "./icons";
-import { radius, type } from "./design-tokens";
+import { lineHeight, radius, type } from "./design-tokens";
 
 /**
  * Comments sent from a Browser panel page (desktop or this phone), shown as what they were instead of the text the agent
@@ -46,14 +46,14 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
           flexDirection: "row",
           alignItems: "center",
           gap: 6,
-          paddingHorizontal: 14,
+          paddingHorizontal: 16,
           paddingVertical: 8,
           borderBottomWidth: 1,
           borderColor: colors.line,
         }}
       >
-        <Icon icon={Comment01Icon} tone="ink2" size={14} />
-        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: type.caption1 }}>
+        <Icon icon={Comment01Icon} tone="ink2" size={12} />
+        <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
           {label}
         </Text>
       </View>
@@ -62,18 +62,22 @@ export function PageCommentsCard({ comments, chatId, moved = 0 }: { comments: Pa
         return (
           <View
             key={comment.id}
-            style={{ flexDirection: "row", gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderColor: colors.line }}
+            style={{ flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderColor: colors.line }}
           >
             {note ? (
               <Icon icon={CheckmarkCircle02Icon} tone="green" size={16} />
             ) : (
-              <Text style={{ width: 16, color: colors.accent, fontSize: type.footnote, fontWeight: "600", textAlign: "center" }}>{comment.number}</Text>
+              <Text
+                style={{ width: 16, color: colors.accent, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", textAlign: "center" }}
+              >
+                {comment.number}
+              </Text>
             )}
             <View style={{ flex: 1, gap: 2 }}>
-              <Text selectable numberOfLines={8} style={{ color: colors.ink, fontSize: type.subheadline }}>
+              <Text selectable numberOfLines={8} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
                 {comment.text}
               </Text>
-              <Text numberOfLines={2} style={{ color: note ? colors.green : colors.ink3, fontSize: type.caption1 }}>
+              <Text numberOfLines={2} style={{ color: note ? colors.greenInk : colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
                 {note ? `Resolved · ${note}` : `${comment.label} · not resolved yet`}
               </Text>
             </View>

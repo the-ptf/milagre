@@ -1,10 +1,10 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import type { AgentSession, QueuedMessage } from "../model";
 import type { MilagreBridge } from "../electron";
 import { queueStatus } from "@milagre/shared/queued-messages";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import Tooltip from "./primitives/Tooltip";
+import { Button, IconButton } from "./primitives/Button";
 
 export interface QueueControls {
   items: QueuedMessage[];
@@ -24,39 +24,42 @@ export function QueuedMessages({ items, held, running, onSendNow, onRemove, disa
   return (
     <div
       data-queued-messages
-      className="mb-2 w-full rounded-[12px] border border-line bg-surface px-1.5 py-1.5 text-[13px] text-ink shadow-overlay"
-      style={{ animation: "fade-up 250ms cubic-bezier(0.23,1,0.32,1) both" }}
+      className="mb-2 w-full rounded-card bg-surface px-1.5 py-1.5 text-13 text-ink shadow-overlay"
+      style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}
     >
-      <p className="px-2 pt-0.5 pb-1 text-[12px] text-ink-3">
+      <p className="px-2 pt-0.5 pb-1 text-12 text-ink-3">
         <span className="font-medium text-ink-2">Queued</span> · {queueStatus({ count: items.length, held, running })}
       </p>
       <ul className="flex flex-col">
         {items.map((item) => (
-          <li key={item.id} data-queued-message={item.id} className="group flex items-center gap-2 rounded-[8px] px-2 py-1.5 hover:bg-hover">
+          <li
+            key={item.id}
+            data-queued-message={item.id}
+            className="group flex items-center gap-2 rounded-control px-2 py-1 transition-colors duration-fast hover:bg-hover"
+          >
             <span className="min-w-0 flex-1 truncate">
               {item.body.trim() || "Attachments"}
               {attachmentNote(item) && <span className="text-ink-3"> · {attachmentNote(item)}</span>}
             </span>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size={24}
               data-queued-send={item.id}
               disabled={disabled}
               onClick={() => onSendNow(item.id)}
-              className="shrink-0 rounded-control px-2 py-0.5 text-[12px] font-medium text-ink-2 transition-colors hover:bg-hover-2 hover:text-ink disabled:cursor-default disabled:opacity-40"
+              className="text-ink-2 enabled:hover:text-ink"
             >
               {running ? "Stop and send" : "Send now"}
-            </button>
+            </Button>
             <Tooltip label="Remove from queue" side="top" align="end">
-              <button
-                type="button"
-                aria-label="Remove from queue"
+              <IconButton
+                label="Remove from queue"
+                icon={Cancel01Icon}
+                size={24}
                 data-queued-remove={item.id}
                 disabled={disabled}
                 onClick={() => onRemove(item.id)}
-                className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink disabled:cursor-default disabled:opacity-40"
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={14} strokeWidth={1.8} />
-              </button>
+              />
             </Tooltip>
           </li>
         ))}

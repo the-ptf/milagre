@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { LaptopIcon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import { privatePairingLink } from "@milagre/shared/pairing-link";
 import { Switch } from "./primitives/Switch";
+import { Button } from "./primitives/Button";
+import { FIELD } from "./primitives/Field";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
 import type { AddComputerResult, ComputerPreview, ComputerView } from "../electron";
-
-const FIELD =
-  "h-9 w-full rounded-[9px] bg-field px-2.5 text-[12.5px] text-ink outline-none ring-1 ring-line-strong focus-visible:ring-accent placeholder:text-ink-3";
 
 /**
  * Add computer (design add-computer v1): paste another Mac's pairing link, see the computer it names, and pair with it,
@@ -111,22 +111,23 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
         // A press on the scrim (the dialog itself, outside its padded content) closes it, unless a pairing is under way.
         if (event.target === dialog.current && !adding) close();
       }}
-      className="m-auto w-[460px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[14px] bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/20 backdrop:backdrop-blur-overlay"
+      className="m-auto w-[460px] max-w-[calc(100vw-32px)] overflow-hidden rounded-window bg-surface p-0 text-ink shadow-overlay backdrop:bg-scrim backdrop:backdrop-blur-overlay"
+      style={{ animation: "pop-in var(--duration-base) var(--ease-enter) both" }}
     >
       <div className="p-5">
-        <h2 id="add-computer-title" className="text-[16px] font-semibold">
+        <h2 id="add-computer-title" className="text-17 font-semibold">
           Add computer
         </h2>
-        <p className="mt-1 text-[13px] text-ink-2">See and drive another Mac's chats from this window.</p>
-        <ol className="mt-4 list-decimal space-y-1 pl-[18px] text-[13px] text-ink-2">
+        <p className="mt-1 text-13 text-ink-2">See and drive another Mac's chats from this window.</p>
+        <ol className="mt-4 list-decimal space-y-1 pl-5 text-13 text-ink-2">
           <li>On the other Mac, open Milagre Settings › Devices.</li>
           <li>Click Pair a device, then Copy link.</li>
           <li>Paste it here. The link works for 10 minutes.</li>
         </ol>
-        <label className="mt-4 block text-[12px] text-ink-3" htmlFor="add-computer-link">
+        <label className="mt-4 block text-12 text-ink-3" htmlFor="add-computer-link">
           Pairing link
         </label>
-        <div className="mt-1.5 flex gap-2">
+        <div className="mt-1.5 flex items-center gap-2">
           <input
             id="add-computer-link"
             aria-label="Pairing link"
@@ -138,16 +139,11 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
             onChange={(event) => setLink(event.target.value)}
             className={`${FIELD} font-mono`}
           />
-          <button
-            type="button"
-            disabled={adding}
-            onClick={() => void paste()}
-            className="shrink-0 rounded-control px-3 text-[13px] ring-1 ring-line-strong hover:bg-hover-2"
-          >
+          <Button variant="secondary" disabled={adding} onClick={() => void paste()}>
             Paste
-          </button>
+          </Button>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-[13px]">
+        <div className="mt-3 flex items-center justify-between gap-3 text-13">
           <span>LAN or Tailscale only</span>
           <Switch
             label="LAN or Tailscale only"
@@ -158,21 +154,21 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
             }}
           />
         </div>
-        <p className="mt-1 text-[12px] text-ink-3">Automatic tries private routes first. Private pairing needs both devices on the same network or tailnet.</p>
+        <p className="mt-1 text-12 text-ink-3">Automatic tries private routes first. Private pairing needs both devices on the same network or tailnet.</p>
         {preview && (
-          <div data-add-computer-found className="mt-3 flex items-center gap-3 rounded-[10px] bg-hover px-3 py-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-hover-2 text-ink-2">
-              <HugeiconsIcon icon={LaptopIcon} size={17} strokeWidth={1.8} color="currentColor" />
+          <div data-add-computer-found className="mt-3 flex items-center gap-3 rounded-card bg-hover px-3 py-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-hover-2 text-ink-2">
+              <Icon icon={LaptopIcon} size={18} />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-[13px] font-medium">{preview.name}</span>
-              <span className="block text-[12px] text-ink-3">Reached through {preview.relayHost} · end-to-end encrypted</span>
+              <span className="block truncate text-13 font-medium">{preview.name}</span>
+              <span className="block text-12 text-ink-3">Reached through {preview.relayHost} · end-to-end encrypted</span>
             </span>
           </div>
         )}
         {preview && (
           <>
-            <label className="mt-3.5 block text-[12px] text-ink-3" htmlFor="add-computer-name">
+            <label className="mt-4 block text-12 text-ink-3" htmlFor="add-computer-name">
               Show it as
             </label>
             <input
@@ -188,37 +184,30 @@ export function AddComputerDialog({ onClose, onAdded }: { onClose: () => void; o
             />
           </>
         )}
-        {error && (
-          <p role="alert" data-add-computer-error className="mt-3 text-[13px] text-red-ink">
-            {error}
-          </p>
-        )}
+        <InlineError data-add-computer-error className="mt-3">
+          {error}
+        </InlineError>
         {waiting && preview ? (
-          <div className="mt-[18px] flex items-center justify-between gap-3">
-            <p role="status" data-add-computer-waiting className="text-[13px] text-ink-2">
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <p role="status" data-add-computer-waiting className="text-13 text-ink-2">
               Waiting for {preview.name} to allow this Mac…
             </p>
-            <button type="button" onClick={() => void window.milagre.computers.cancelAdd()} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
+            <Button variant="ghost" onClick={() => void window.milagre.computers.cancelAdd()}>
               Cancel
-            </button>
+            </Button>
           </div>
         ) : (
-          <div className="mt-[18px] flex justify-end gap-2">
-            <button type="button" onClick={close} className="rounded-control px-3 py-2 text-[13px] hover:bg-hover-2">
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" onClick={close}>
               Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!preview || adding}
-              onClick={() => void add()}
-              className="rounded-control bg-ink px-3 py-2 text-[13px] font-medium text-surface disabled:opacity-40"
-            >
+            </Button>
+            <Button disabled={!preview || adding} onClick={() => void add()}>
               {adding ? "Connecting…" : "Add computer"}
-            </button>
+            </Button>
           </div>
         )}
         {preview && (
-          <p className="mt-3.5 text-[12px] text-ink-3">
+          <p className="mt-4 text-12 text-ink-3">
             This window gets full control of {preview.name}'s Projects, like its own window. Remove it any time from {preview.name}'s Settings › Devices.
           </p>
         )}

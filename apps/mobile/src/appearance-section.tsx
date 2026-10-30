@@ -1,10 +1,10 @@
-import { Platform, Pressable, Text, View } from "react-native";
-import * as Haptics from "expo-haptics";
+import { Pressable, Text, View } from "react-native";
 import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES, PROVIDER_ICON_STYLES } from "@milagre/shared/appearance";
 import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
 import { CustomThemeSection } from "./custom-theme-section";
 import { useTheme } from "./theme";
-import { PullDown, Segmented, Toggle, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
+import { pressStyle, PullDown, SectionLabel, Segmented, tap, Toggle, useStyles } from "./ui";
 
 const GROUPS: ThemeGroup[] = ["Milagre", "Catppuccin", "Popular"];
 const MODES = [
@@ -40,7 +40,7 @@ function Choice({
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.ink, fontSize: 17 }}>{label}</Text>
+        <Text style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body }}>{label}</Text>
         <Text style={styles.caption}>{detail}</Text>
       </View>
       <PullDown
@@ -69,27 +69,30 @@ function Tile({ id, label, name, detail }: { id: ThemeChoice; label: string; nam
       accessibilityState={{ checked: selected }}
       accessibilityLabel={label}
       onPress={() => {
-        if (Platform.OS === "ios") void Haptics.selectionAsync().catch(() => {});
+        tap();
         set({ colorTheme: id });
       }}
-      style={({ pressed }) => ({
-        width: "48%",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        padding: 10,
-        borderRadius: 12,
-        borderCurve: "continuous",
-        backgroundColor: pressed ? colors.hover : colors.field,
-        borderWidth: 2,
-        borderColor: selected ? colors.accent : "transparent",
-      })}
+      style={({ pressed }) => [
+        {
+          width: "48%",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          padding: 12,
+          borderRadius: radius.control,
+          borderCurve: "continuous",
+          backgroundColor: colors.field,
+          borderWidth: 2,
+          borderColor: selected ? colors.accent : "transparent",
+        },
+        pressStyle({ pressed }),
+      ]}
     >
-      <View style={{ width: 32, height: 32, borderRadius: 16, overflow: "hidden", backgroundColor: page, borderWidth: 1, borderColor: colors.line }}>
+      <View style={{ width: 32, height: 32, borderRadius: radius.full, overflow: "hidden", backgroundColor: page, borderWidth: 1, borderColor: colors.line }}>
         <View style={{ position: "absolute", right: 0, bottom: 0, width: 16, height: 16, backgroundColor: accent }} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={[styles.text, { fontSize: 14, fontWeight: "500", lineHeight: 18 }]}>
+        <Text numberOfLines={1} style={[styles.text, { fontSize: type.subheadline, fontWeight: "500", lineHeight: lineHeight.subheadline }]}>
           {name}
         </Text>
         <Text numberOfLines={2} style={styles.caption}>
@@ -121,13 +124,13 @@ export function AppearanceSection() {
     });
   }
   return (
-    <View style={{ gap: 20 }}>
+    <View style={{ gap: 24 }}>
       <View style={styles.card}>
         <Text style={styles.label}>Mode</Text>
         <Segmented label="Mode" value={settings.mode} options={MODES} onChange={(mode) => set({ mode: mode as typeof settings.mode })} />
       </View>
       <View style={{ gap: 8 }}>
-        <Text style={styles.section}>Text and motion</Text>
+        <SectionLabel>Text and motion</SectionLabel>
         <View style={[styles.card, { gap: 16 }]}>
           <Choice
             label="Text size"
@@ -160,7 +163,7 @@ export function AppearanceSection() {
         </View>
       </View>
       <View style={{ gap: 8 }}>
-        <Text style={styles.section}>Icons</Text>
+        <SectionLabel>Icons</SectionLabel>
         <View style={styles.card}>
           <Choice
             label="Provider icons"
@@ -173,7 +176,7 @@ export function AppearanceSection() {
       </View>
       {GROUPS.map((group) => (
         <View key={group} style={{ gap: 8 }} accessibilityRole="radiogroup" accessibilityLabel={group}>
-          <Text style={styles.section}>{group}</Text>
+          <SectionLabel>{group}</SectionLabel>
           <View style={[styles.card, { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", columnGap: 0, rowGap: 8 }]}>
             {themes
               .filter((theme) => theme.group === group)
@@ -193,7 +196,7 @@ export function AppearanceSection() {
         </View>
       ))}
       <View style={{ gap: 8 }}>
-        <Text style={styles.section}>Custom theme</Text>
+        <SectionLabel>Custom theme</SectionLabel>
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle title="Custom theme" selected={settings.customThemeEnabled} onPress={() => changeCustomTheme(!settings.customThemeEnabled)} />
           <Text style={styles.caption}>Build a theme from a few colors. It shows up as &quot;Custom&quot; with the Milagre themes.</Text>

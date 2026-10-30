@@ -1,6 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
 import { Component, memo, useEffect, useMemo, useRef } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, PinIcon, PinOffIcon } from "@hugeicons/core-free-icons";
 import { createPortal } from "react-dom";
 import { projectOfKey, sessionIdFromKey, type AgentRun, type AgentRuns } from "@milagre/shared/agent-runs";
@@ -12,6 +11,8 @@ import { BridgeContext, ScopeContext, bridgeForKey, isRemoteKey } from "../lib/c
 import { EditorLinks } from "./editor-links";
 import { ScrollArea } from "./primitives/ScrollArea";
 import Tooltip from "./primitives/Tooltip";
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
 import { ChatMarkDot } from "./sidebar/ChatRow";
 import { chatActivity } from "@milagre/shared/chat-activity";
 import { chatMentionChoices } from "@milagre/shared/prompt-mentions";
@@ -139,11 +140,11 @@ class TileBoundary extends Component<{ onOpen: () => void; children: ReactNode }
   override render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-[12.5px] text-ink-3">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-12 text-ink-3">
         <span>This Chat can't be shown in the grid.</span>
-        <button type="button" onClick={this.props.onOpen} className="rounded-control px-2 py-1 font-medium text-ink hover:bg-hover">
+        <Button variant="ghost" size={28} onClick={this.props.onOpen}>
           Open it
-        </button>
+        </Button>
       </div>
     );
   }
@@ -223,11 +224,15 @@ const ChatTile = memo(function ChatTile({
       data-focused={focused || undefined}
       aria-label={title}
       onClick={focused ? undefined : (event) => clickFocusesTile(event) && onFocus(chatKey)}
-      className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border bg-surface ${
-        focused ? "border-line-strong" : needsYou ? "cursor-pointer border-orange" : "cursor-pointer border-line hover:border-line-strong"
+      className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-window border bg-surface ${
+        focused
+          ? "border-line-strong"
+          : needsYou
+            ? "cursor-pointer border-orange"
+            : "cursor-pointer border-line transition-colors duration-fast hover:border-line-strong"
       }`}
     >
-      <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-3 text-[12.5px]">
+      <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-3 text-13">
         <ChatMarkDot mark={mark} background={activity.background} />
         <span className="min-w-0 truncate font-medium text-ink">{title}</span>
         <span className="min-w-0 flex-1 truncate text-ink-3">
@@ -238,51 +243,46 @@ const ChatTile = memo(function ChatTile({
         {needsYou && !focused && <span className="shrink-0 font-medium text-orange-ink">Needs you</span>}
         {onClose && (
           <Tooltip label="Close" side="bottom">
-            <button
-              type="button"
-              aria-label="Close"
+            <IconButton
+              label="Close"
+              icon={Cancel01Icon}
+              size={24}
               data-tile-close
               onClick={(event) => {
                 event.stopPropagation();
                 onClose(chatKey);
               }}
-              className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-hover hover:text-ink"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} color="currentColor" />
-            </button>
+            />
           </Tooltip>
         )}
         {!onClose && !isDraftTileKey(chatKey) && (
           <Tooltip label={pinned ? "Remove from grid" : "Keep in grid"} side="bottom">
-            <button
-              type="button"
-              aria-label={pinned ? "Remove from grid" : "Keep in grid"}
+            <IconButton
+              label={pinned ? "Remove from grid" : "Keep in grid"}
+              size={24}
               aria-pressed={pinned}
               data-tile-pin
               onClick={(event) => {
                 event.stopPropagation();
                 onTogglePin(chatKey);
               }}
-              className={`flex size-6 shrink-0 items-center justify-center rounded-control hover:bg-hover hover:text-ink ${pinned ? "text-ink" : "text-ink-3"}`}
             >
-              <HugeiconsIcon icon={pinned ? PinOffIcon : PinIcon} size={13} strokeWidth={2} color="currentColor" />
-            </button>
+              <Icon icon={pinned ? PinOffIcon : PinIcon} size={14} className={pinned ? "text-ink" : undefined} />
+            </IconButton>
           </Tooltip>
         )}
         {!onClose && mark === "unread" && !focused && (
           <Tooltip label="Mark read" side="bottom">
-            <button
-              type="button"
-              aria-label="Mark read"
+            <IconButton
+              label="Mark read"
+              icon={Cancel01Icon}
+              size={24}
               data-tile-dismiss
               onClick={(event) => {
                 event.stopPropagation();
                 onDismiss(chatKey);
               }}
-              className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-hover hover:text-ink"
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={13} strokeWidth={2} color="currentColor" />
-            </button>
+            />
           </Tooltip>
         )}
       </header>
@@ -325,10 +325,10 @@ export function GridDropOverlay() {
   const label = target.tile === null ? "Open beside" : target.side === "before" ? "Add before" : "Add after";
   return createPortal(
     <div aria-hidden data-grid-drop={target.tile ?? "pane"} className="pointer-events-none fixed inset-0 z-50">
-      <div className="absolute rounded-xl bg-accent/10" style={area} />
+      <div className="absolute rounded-window bg-accent-tint" style={area} />
       <div className="absolute w-1 rounded-full bg-accent" style={bar} />
       <div
-        className="absolute rounded-full bg-accent px-2.5 py-1 text-[12px] font-medium whitespace-nowrap text-white"
+        className="absolute rounded-full bg-accent px-2.5 py-1 text-12 font-medium whitespace-nowrap text-on-accent"
         style={{ left: area.left + 12, top: area.top + area.height - 40 }}
       >
         {label}

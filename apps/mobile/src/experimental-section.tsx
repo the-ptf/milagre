@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Text, View } from "react-native";
+import { space } from "./design-tokens";
 import { router, useFocusEffect } from "expo-router";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useSession } from "./session";
@@ -32,8 +33,8 @@ export function ExperimentalSection() {
     }, [session.client]),
   );
   return (
-    <View style={{ gap: 8 }}>
-      <View style={[styles.card, { gap: 4 }]}>
+    <View style={{ gap: space.md }}>
+      <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title="Floating inbox" selected={floatingInbox} onPress={() => setFloatingInbox(!floatingInbox)} />
         <Text style={styles.caption}>
           A movable inbox button in the Chat. Tap to answer questions or approve requests. Flick it toward the left or right edge to tuck it away.
@@ -45,7 +46,7 @@ export function ExperimentalSection() {
           </View>
         )}
       </View>
-      <View style={[styles.card, { gap: 4 }]}>
+      <View style={[styles.card, { gap: space.xs }]}>
         <Toggle title="Ultracode Fatality" selected={fatality} onPress={() => setFatality(!fatality)} />
         <Text style={styles.caption}>
           Turning Ultracode on darkens the screen, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud.

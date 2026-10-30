@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Archive02Icon, ArrowLeft01Icon, Cancel01Icon, RefreshIcon, SquareIcon } from "@hugeicons/core-free-icons";
 import { advisorAction, subagentActivityLabel } from "@milagre/shared/agent-activity";
@@ -11,6 +11,7 @@ import { PersonaAvatar, WholeSubagentDetail, SubagentRow, elapsed, subagentRunni
 import { Icon } from "../icons";
 import { CircleButton, ErrorNotice, IconButton, ListRow, PageScroll, useStyles } from "../ui";
 import { useTheme } from "../theme";
+import { lineHeight, type } from "../design-tokens";
 
 /**
  * The Chat's subagents, like desktop's subagent popover: each row says what the subagent does now and how far it got;
@@ -91,11 +92,11 @@ export default function AgentsSheet() {
         ) : (
           <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
         )}
-        <View style={{ flex: 1, alignItems: "center", gap: 1 }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+        <View style={{ flex: 1, alignItems: "center", gap: 2 }}>
+          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
             {child ? (qaPersona(child)?.name ?? child.title) : "Subagents"}
           </Text>
-          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 13 }}>
+          <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {child
               ? [subagentActivityLabel(child), elapsed(child, now), child.model].filter(Boolean).join(" · ")
               : [running && `${running} running`, done && `${done} done`].filter(Boolean).join(" · ")}
@@ -105,24 +106,25 @@ export default function AgentsSheet() {
           <CircleButton
             label={`${action === "stop" ? "Stop" : "Retry"} ${child.title}`}
             icon={action === "stop" ? SquareIcon : RefreshIcon}
-            onPress={disabled ? undefined : () => control(action, child.id)}
+            disabled={disabled}
+            onPress={() => control(action, child.id)}
           />
         ) : (
           <View style={{ width: 40 }} />
         )}
       </View>
       {error ? (
-        <View style={{ paddingHorizontal: 20 }}>
+        <View style={{ paddingHorizontal: 16 }}>
           <ErrorNotice message={error} />
         </View>
       ) : null}
       {child ? (
-        <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
           <WholeSubagentDetail agent={child} read={() => session.client!.call("chat:subagent", [project!.path, chat!.id, child.id]) as Promise<Subagent>} />
           <ListRow
             title="Archive subagent"
             leading={<Icon icon={Archive02Icon} tone="ink2" size={20} />}
-            trailing={<View />}
+            chevron={false}
             disabled={disabled || action === "stop"}
             onPress={() => {
               setSelected(null);
@@ -131,7 +133,7 @@ export default function AgentsSheet() {
           />
         </View>
       ) : (
-        <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
           {!visible.length && <Text style={[styles.muted, { paddingVertical: 16 }]}>No subagents to show.</Text>}
           {fleet.length > 0 && (
             <View accessibilityRole="header" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8, paddingBottom: 2 }}>
@@ -142,14 +144,23 @@ export default function AgentsSheet() {
                   </View>
                 ))}
               </View>
-              <Text style={{ flex: 1, color: colors.ink2, fontSize: 15, fontWeight: "600" }}>QA fleet</Text>
-              <Text style={{ color: colors.ink3, fontSize: 13 }}>
+              <Text style={{ flex: 1, color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>QA fleet</Text>
+              <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                 {fleet.length} {fleet.length === 1 ? "persona" : "personas"}
               </Text>
             </View>
           )}
           {[...fleet, ...others].map((agent, index) => (
-            <View key={agent.id} style={{ flexDirection: "row", alignItems: "flex-start", gap: 4, borderTopWidth: index ? 1 : 0, borderTopColor: colors.line }}>
+            <View
+              key={agent.id}
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 4,
+                borderTopWidth: index ? StyleSheet.hairlineWidth : 0,
+                borderTopColor: colors.line,
+              }}
+            >
               <SubagentRow agent={agent} provider={provider} now={now} onPress={() => setSelected(agent.id)} />
               {/* As on desktop, an advisor's Stop or Retry stays on its row. */}
               {advisorAction(agent) && (
@@ -166,7 +177,7 @@ export default function AgentsSheet() {
           <ListRow
             title="Archive finished"
             leading={<Icon icon={Archive02Icon} tone="ink2" size={20} />}
-            trailing={<View />}
+            chevron={false}
             disabled={disabled || !visible.some(subagentFinished)}
             onPress={() => archive()}
           />

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { Alert02Icon } from "@hugeicons/core-free-icons";
 import type { ProjectAccountsSnapshot, UsageLimitContext } from "@milagre/shared/model";
 import { limitChoices, limitHeadline, switchedText } from "@milagre/shared/usage-limit";
-import { Icon } from "./icons";
+import { lineHeight, radius, type } from "./design-tokens";
+import { Icon, SpinnerRing } from "./icons";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { ErrorNotice, PillButton } from "./ui";
+import { ErrorNotice, PillButton, pressStyle, useAnnounce } from "./ui";
 
 /**
  * A reply the plan's usage limit stopped. It offers the Project's other accounts for the provider only while this is the
@@ -43,6 +44,7 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
     void load();
     return invalidate;
   }, [interactive, load, invalidate, session.providerRevision]);
+  useAnnounce(switched);
   const { title, detail } = limitHeadline(limit);
   const choices = interactive ? limitChoices(snapshot, limit) : [];
   const loaded = interactive && snapshot !== null;
@@ -62,31 +64,29 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
   return (
     <View
       style={{
-        gap: 10,
-        paddingHorizontal: 14,
+        gap: 12,
+        paddingHorizontal: 16,
         paddingVertical: 12,
-        borderRadius: 18,
+        borderRadius: radius.card,
         borderCurve: "continuous",
         borderWidth: 1,
         borderColor: colors.line,
         backgroundColor: colors.surface,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
         <View style={{ paddingTop: 2 }}>
           <Icon icon={Alert02Icon} tone="orange" size={16} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 15, fontWeight: "600", lineHeight: 20 }}>
+          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.subheadline, fontWeight: "600", lineHeight: lineHeight.subheadline }}>
             {title}
           </Text>
-          <Text style={{ color: colors.ink2, fontSize: 14, lineHeight: 19 }}>{detail}</Text>
+          <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{detail}</Text>
         </View>
       </View>
       {switched ? (
-        <Text accessibilityRole="alert" style={{ color: colors.ink2, fontSize: 14, lineHeight: 19 }}>
-          {switched}
-        </Text>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{switched}</Text>
       ) : (
         loaded && (
           <>
@@ -100,28 +100,30 @@ export function UsageLimitCard({ limit, sessionId, projectPath }: { limit: Usage
                     accessibilityState={{ disabled: choice.disabled || !!switching, busy: switching === choice.id }}
                     disabled={choice.disabled || !!switching}
                     onPress={() => void choose(choice.id)}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 12,
-                      minHeight: 48,
-                      paddingVertical: 8,
-                      borderTopWidth: index ? StyleSheet.hairlineWidth : 0,
-                      borderColor: colors.line,
-                      opacity: choice.disabled ? 0.4 : pressed ? 0.5 : 1,
-                    })}
+                    style={({ pressed }) => [
+                      {
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 12,
+                        minHeight: choice.detail ? 56 : 48,
+                        paddingVertical: 8,
+                        borderTopWidth: index ? StyleSheet.hairlineWidth : 0,
+                        borderColor: colors.line,
+                      },
+                      pressStyle({ pressed, disabled: choice.disabled, kind: "row" }),
+                    ]}
                   >
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+                      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }}>
                         {`Switch to ${choice.label}`}
                       </Text>
                       {!!choice.detail && (
-                        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 13 }}>
+                        <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                           {choice.detail}
                         </Text>
                       )}
                     </View>
-                    {switching === choice.id && <ActivityIndicator color={colors.ink2} />}
+                    {switching === choice.id && <SpinnerRing size={20} tone="ink2" />}
                   </Pressable>
                 ))}
               </View>

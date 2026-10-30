@@ -12,7 +12,7 @@ export function RadioGroupItem({ className = "", tone = "ink", ...props }: Compo
   return (
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
-      className={`aspect-square size-4 shrink-0 rounded-full border border-ink-3 bg-surface outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red ${tone === "accent" ? "text-surface data-[state=checked]:border-accent data-[state=checked]:bg-accent" : "text-ink data-[state=checked]:border-ink"} ${className}`}
+      className={`aspect-square size-4 shrink-0 rounded-full border border-ink-3 bg-surface transition-colors disabled:cursor-not-allowed disabled:opacity-40 aria-invalid:border-red ${tone === "accent" ? "text-on-accent data-[state=checked]:border-accent data-[state=checked]:bg-accent" : "text-ink data-[state=checked]:border-ink"} ${className}`}
       {...props}
     >
       <RadioGroupPrimitive.Indicator data-slot="radio-group-indicator" className="flex items-center justify-center">

@@ -21,7 +21,8 @@ export function Button({
 }) {
   const { colors } = useTheme();
   return (
-    <View style={{ minHeight: 44, justifyContent: "center", alignItems: "center" }}>
+    // No fixed height on the native button, so Dynamic Type can grow it; the row keeps 48.
+    <View style={{ minHeight: 48, justifyContent: "center", alignItems: "center" }}>
       <Host ignoreSafeArea="all" matchContents seedColor={(destructive ? colors.red : colors.ink) as string}>
         <NativeButton
           label={title}
@@ -32,7 +33,6 @@ export function Button({
             onPress();
           }}
           modifiers={Platform.OS === "ios" ? [controlSize("large")] : undefined}
-          style={{ height: 48 }}
         />
       </Host>
       {loading && <ActivityIndicator accessibilityLabel={title} style={{ position: "absolute", right: 12 }} color={colors.ink2} />}

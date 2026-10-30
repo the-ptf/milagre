@@ -120,6 +120,9 @@ import { EditorLinks, Notice } from "./components/editor-links";
 import { BRIEF_NOTICE_MS, clearNoticeOnNavigate, showNotice } from "./lib/notice";
 import { RELOAD_HINT } from "@milagre/shared/chat-reload";
 import { Notice as NoticeCard } from "./components/Notice";
+import { Button } from "./components/primitives/Button";
+import { Dialog } from "./components/primitives/Dialog";
+import { InlineError } from "./components/primitives/InlineError";
 import { openInEditor } from "./lib/editors";
 import type { ProjectRead, RuntimeConnection, StateStamp } from "./electron";
 import { SidebarUsage } from "./components/usage/SidebarUsage";
@@ -2864,28 +2867,18 @@ function App() {
   if (startupError) {
     return (
       <main data-startup-error className="flex min-h-screen items-center justify-center p-8 text-ink">
-        <section className="w-full max-w-xl rounded-2xl border border-line bg-surface p-6 shadow-overlay" aria-labelledby="startup-error-title">
-          <h1 id="startup-error-title" className="text-lg font-semibold">
+        <section className="w-full max-w-xl rounded-window bg-surface p-6 shadow-overlay" aria-labelledby="startup-error-title">
+          <h1 id="startup-error-title" className="text-17 font-semibold">
             Project could not open
           </h1>
-          <p role="alert" className="mt-3 break-words text-sm leading-relaxed text-ink-2">
+          <p role="alert" className="mt-3 break-words text-13 text-ink-2">
             {startupError}
           </p>
           <div className="mt-6 flex gap-3">
-            <button
-              type="button"
-              className="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2"
-              onClick={() => void loadInitialProject()}
-            >
-              Retry
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-line px-4 py-2 text-sm font-medium hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2"
-              onClick={() => void openProject()}
-            >
+            <Button onClick={() => void loadInitialProject()}>Retry</Button>
+            <Button variant="secondary" onClick={() => void openProject()}>
               Open another project
-            </button>
+            </Button>
           </div>
         </section>
       </main>
@@ -3099,16 +3092,10 @@ function App() {
             />
           </div>
           <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-            {notice && (
-              <p role="alert" className="break-words text-[13px] text-red-ink">
-                {notice}
-              </p>
-            )}
-            <h1 className="text-[22px] font-semibold">Choose a Project</h1>
-            <p className="text-[14px] text-ink-3">Open a Project or Link from the sidebar, or add a Project.</p>
-            <button type="button" onClick={openProjectFromSidebar} className="rounded-control bg-ink px-4 py-2 text-[13px] font-medium text-surface">
-              Add Project
-            </button>
+            <InlineError>{notice}</InlineError>
+            <h1 className="text-22 font-semibold tracking-[-0.02em]">Choose a Project</h1>
+            <p className="text-13 text-ink-3">Open a Project or Link from the sidebar, or add a Project.</p>
+            <Button onClick={openProjectFromSidebar}>Add Project</Button>
           </main>
         </div>
         {linkDialogs}
@@ -3365,38 +3352,35 @@ function App() {
       <ScopeContext.Provider value={project.path}>
         <DotBackground key="app">
           <PersistenceNotices scopes={globalUnsavedScopes}>
-            <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto [-webkit-app-region:no-drag]">
+            <div className="pointer-events-none absolute bottom-5 right-5 z-50 max-w-[calc(100%-40px)] [&>*]:pointer-events-auto no-drag">
               <ProviderUpdateNotice onSettings={openAccounts} onUpdated={handleProvidersUpdated} />
             </div>
             {hostConnection.connected && hostConnection.hostOutdated && (
-              <div
-                role="status"
+              <NoticeCard
                 data-host-outdated
-                className="flex w-full items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-2.5 text-[13px] leading-snug text-ink shadow-overlay [-webkit-app-region:no-drag]"
+                className="no-drag"
+                action={
+                  <Button
+                    size={28}
+                    className="shrink-0"
+                    disabled={restartingHost}
+                    onClick={() => {
+                      setRestartingHost(true);
+                      void window.milagre
+                        .restartHost()
+                        .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
+                        .finally(() => setRestartingHost(false));
+                    }}
+                  >
+                    {restartingHost ? "Restarting…" : "Restart host"}
+                  </Button>
+                }
               >
-                <span>{hostConnection.message ?? "Restart Milagre's background host to load large projects."}</span>
-                <button
-                  type="button"
-                  disabled={restartingHost}
-                  onClick={() => {
-                    setRestartingHost(true);
-                    void window.milagre
-                      .restartHost()
-                      .catch((error) => setNotice(`Couldn't restart the host: ${ipcErrorMessage(error)}`))
-                      .finally(() => setRestartingHost(false));
-                  }}
-                  className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
-                >
-                  {restartingHost ? "Restarting…" : "Restart host"}
-                </button>
-              </div>
+                {hostConnection.message ?? "Restart Milagre's background host to load large projects."}
+              </NoticeCard>
             )}
             {!hostConnection.connected && (
-              <div
-                role="status"
-                data-host-disconnected
-                className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink shadow-overlay [-webkit-app-region:no-drag]"
-              >
+              <NoticeCard data-host-disconnected className="no-drag">
                 {hostConnection.failed ? (
                   <>
                     <p className="font-medium">Couldn't restart Milagre's background host</p>
@@ -3408,7 +3392,7 @@ function App() {
                     <p className="mt-1 text-ink-2">Your draft is kept here. Messages will be available when the host reconnects.</p>
                   </>
                 )}
-              </div>
+              </NoticeCard>
             )}
           </PersistenceNotices>
           <div aria-hidden className="title-drag fixed inset-x-0 top-0 z-50 h-[var(--window-chrome-height)]" />
@@ -3587,7 +3571,7 @@ function App() {
                 <div
                   data-chat-pane
                   data-run-chat-pane={runPaneOpen || undefined}
-                  className={`min-h-0 flex-1 flex-col overflow-hidden ${(view === "chat" && !botsShown && !diffPresence.occupied) || runPaneOpen ? "flex" : "hidden"} ${runPaneOpen ? "min-w-0 rounded-[14px] border border-line bg-surface [&_.chat-column]:pt-4" : ""}`}
+                  className={`min-h-0 flex-1 flex-col overflow-hidden ${(view === "chat" && !botsShown && !diffPresence.occupied) || runPaneOpen ? "flex" : "hidden"} ${runPaneOpen ? "min-w-0 rounded-window border border-line bg-surface [&_.chat-column]:pt-4" : ""}`}
                   // In the pane the Chat sits under its own header, not under the window's title bar.
                   style={
                     runPaneOpen
@@ -3940,31 +3924,19 @@ function App() {
         </DotBackground>
         {splashOverlay(true)}
         {quitError && (
-          <dialog
-            ref={(element) => {
-              if (element && !element.open) element.showModal();
-            }}
-            onCancel={(event) => event.preventDefault()}
-            className="fixed inset-0 m-0 h-screen w-screen max-w-none max-h-none items-center justify-center bg-black/40 backdrop-blur-overlay p-6 open:flex"
+          <Dialog
             role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="save-failure-title"
-          >
-            <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 text-ink shadow-xl">
-              <h2 id="save-failure-title" className="text-lg font-semibold">
-                Chats could not be saved
-              </h2>
-              <p className="mt-3 text-sm">Keep Milagre open while you fix the storage problem, then retry saving.</p>
-              <p className="mt-3 break-words text-sm text-ink-2">{quitError}</p>
-              <button
-                autoFocus
-                className="mt-5 rounded-lg bg-ink px-4 py-2 text-sm text-surface"
-                onClick={() => void window.milagre.retryQuit().catch((error) => setQuitError(ipcErrorMessage(error)))}
-              >
+            title="Chats could not be saved"
+            width={448}
+            actions={
+              <Button autoFocus onClick={() => void window.milagre.retryQuit().catch((error) => setQuitError(ipcErrorMessage(error)))}>
                 Retry saving and quit
-              </button>
-            </div>
-          </dialog>
+              </Button>
+            }
+          >
+            <p className="mt-3 text-13">Keep Milagre open while you fix the storage problem, then retry saving.</p>
+            <p className="mt-3 break-words text-13 text-ink-2">{quitError}</p>
+          </Dialog>
         )}
       </ScopeContext.Provider>
     </BridgeContext.Provider>

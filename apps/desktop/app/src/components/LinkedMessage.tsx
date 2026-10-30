@@ -1,7 +1,7 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Link04Icon } from "@hugeicons/core-free-icons";
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import type { LinkedContext } from "../model";
+import { Icon } from "./primitives/Icon";
 
 export { linkedContext };
 
@@ -10,7 +10,7 @@ export function LinkedMessageHeader({ context, onOpenChat }: { context: LinkedCo
   const { text, chat } = linkedHeading(context);
   const label = (
     <>
-      <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+      <Icon icon={Link04Icon} size={12} className="shrink-0" />
       <span className="min-w-0 truncate">{text}</span>
     </>
   );
@@ -19,11 +19,11 @@ export function LinkedMessageHeader({ context, onOpenChat }: { context: LinkedCo
       type="button"
       data-linked-from={chat}
       onClick={() => onOpenChat(chat)}
-      className="flex max-w-full items-center gap-1.5 text-[11px] font-medium text-accent-ink hover:underline"
+      className="flex max-w-full items-center gap-1.5 text-11 font-medium text-accent-ink hover:underline"
     >
       {label}
     </button>
   ) : (
-    <div className="flex max-w-full items-center gap-1.5 text-[11px] font-medium text-ink-3">{label}</div>
+    <div className="flex max-w-full items-center gap-1.5 text-11 font-medium text-ink-3">{label}</div>
   );
 }

@@ -12,7 +12,8 @@ import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@mil
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
-import { Field, ListRow, PageScroll } from "./ui";
+import { Field, ListRow, PageScroll, SectionLabel, useAnnounce, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import { useReturnKey } from "./hardware-keys";
@@ -112,10 +113,11 @@ export function PromptField({
   provider?: string;
 }) {
   const { colors, motionScale, typeScale } = useTheme();
+  const styles = useStyles();
   // Text size scales the composer too; 16 stays 16 at the default step.
   const inputSize = Math.round(16 * typeScale);
   // The menus sit inside the translucent glass composer; an opaque surface keeps the transcript from showing through the rows.
-  const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: 14, borderCurve: "continuous" as const };
+  const menuStyle = { maxHeight: 180, backgroundColor: colors.surface, borderRadius: radius.card, borderCurve: "continuous" as const };
   const paste = useImagePaste(onImagePaste);
   const enter = useReturnKey(paste.ref, onSubmit);
   const glyphs = useChipGlyphs();
@@ -230,6 +232,9 @@ export function PromptField({
     setSelection(selection);
     onChangeText(next);
   };
+  // Read once as the download starts and as a skill is picked, on both platforms (a live region speaks only on Android).
+  useAnnounce(dictation.download !== null ? "Downloading the speech model" : null);
+  useAnnounce(skill && !query ? `/${skill.name}. ${skill.description}` : null);
 
   return (
     <View>
@@ -248,9 +253,10 @@ export function PromptField({
           style={({ pressed }) => ({
             minHeight: 44,
             justifyContent: "center",
-            paddingHorizontal: 10,
+            paddingHorizontal: 12,
             marginBottom: 4,
-            borderRadius: 12,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
             backgroundColor: pressed ? colors.hover : colors.surface,
           })}
         >
@@ -271,11 +277,11 @@ export function PromptField({
               <ListRow key={item.name} title={`/${item.name}`} subtitle={item.description} subtitleLines={3} onPress={() => choose(item.name)} />
             ))}
             {loading ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>Loading skills...</Text>
+              <Text style={[styles.muted, { padding: 12 }]}>Loading skills…</Text>
             ) : error ? (
               <ListRow title="Could not load skills" subtitle="Tap to retry" onPress={refresh} />
             ) : !suggestions.length ? (
-              <Text style={{ padding: 12, color: colors.ink2 }}>No matching skills</Text>
+              <Text style={[styles.muted, { padding: 12 }]}>No matching skills</Text>
             ) : null}
           </PageScroll>
         </Animated.View>
@@ -291,11 +297,11 @@ export function PromptField({
             {(onMention ? files.items : []).slice(0, chatRows.length ? 1 : 40).map((path) => (
               <ListRow key={path} title={path.split("/").pop()!} subtitle={path} onPress={() => chooseMention(formatFileMention(path), path)} />
             ))}
-            {chatRows.length > 0 && <Text style={{ paddingHorizontal: 12, paddingVertical: 6, color: colors.ink2 }}>Chats</Text>}
+            {chatRows.length > 0 && <SectionLabel style={{ paddingHorizontal: 12, paddingVertical: 6 }}>Chats</SectionLabel>}
             {chatRows.map((chat) => (
               <ListRow key={`chat:${chat.id}`} title={chat.title} subtitle={chat.branch} onPress={() => chooseMention(formatChatMention(chat.id))} />
             ))}
-            {!onMention && !chatRows.length && <Text style={{ padding: 12, color: colors.ink2 }}>No matching Chats</Text>}
+            {!onMention && !chatRows.length && <Text style={[styles.muted, { padding: 12 }]}>No matching Chats</Text>}
             {onMention &&
               (files.error ? (
                 isOldMacError(files.error) ? (
@@ -304,9 +310,9 @@ export function PromptField({
                   <ListRow title="Could not load files" subtitle={`${files.error} Tap to retry`} onPress={files.retry} />
                 )
               ) : files.loading && !files.items.length ? (
-                <Text style={{ padding: 12, color: colors.ink2 }}>Loading files...</Text>
+                <Text style={[styles.muted, { padding: 12 }]}>Loading files…</Text>
               ) : !files.items.length && !chatRows.length ? (
-                <Text style={{ padding: 12, color: colors.ink2 }}>No matching files or Chats</Text>
+                <Text style={[styles.muted, { padding: 12 }]}>No matching files or Chats</Text>
               ) : null)}
           </PageScroll>
         </Animated.View>
@@ -355,9 +361,9 @@ export function PromptField({
             fontSize: inputSize,
             minHeight: 44,
             maxHeight: 140,
-            paddingHorizontal: 10,
+            paddingHorizontal: 12,
             paddingVertical: 6,
-            ...(dictation.available ? { paddingRight: 10 + MIC_WIDTH } : null),
+            ...(dictation.available ? { paddingRight: 12 + MIC_WIDTH } : null),
           }}
         >
           <Text style={{ fontSize: inputSize, color: colors.ink }}>
@@ -434,17 +440,24 @@ export function PromptField({
         ) : null}
       </View>
       {dictation.download !== null ? (
-        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 6, color: colors.ink3, fontSize: 13 }}>
+        <Text style={{ marginHorizontal: 16, marginBottom: 6, color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
           Downloading the speech model, once: {Math.round(dictation.download * 100)}%
         </Text>
       ) : null}
       {skill && !query ? (
         <View
-          accessibilityLiveRegion="polite"
-          style={{ marginHorizontal: 10, marginBottom: 6, padding: 10, borderRadius: 10, backgroundColor: colors.accentTint, gap: 4 }}
+          style={{
+            marginHorizontal: 12,
+            marginBottom: 6,
+            padding: 12,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
+            backgroundColor: colors.accentTint,
+            gap: 4,
+          }}
         >
-          <Text style={{ color: colors.accentInk, fontSize: 13, fontWeight: "600" }}>/{skill.name}</Text>
-          <Text style={{ color: colors.ink2, fontSize: 13, lineHeight: 18 }}>{skill.description}</Text>
+          <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>/{skill.name}</Text>
+          <Text style={{ color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{skill.description}</Text>
         </View>
       ) : null}
     </View>

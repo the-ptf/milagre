@@ -11,6 +11,7 @@ import { useSession } from "../session";
 import { CircleButton, PageScroll, PillButton, useStyles } from "../ui";
 import { useChatPage } from "../chat-pages";
 import { useTheme } from "../theme";
+import { lineHeight, type } from "../design-tokens";
 
 /** A reply's tools and notes, like desktop's expanded ActivityBlock; live while the turn runs. Each tool expands to its output. */
 export default function ActivitySheet() {
@@ -68,21 +69,21 @@ export default function ActivitySheet() {
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
         <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
         <View style={{ alignItems: "center", flexShrink: 1 }}>
-          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+          <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
             {selected ? "Tool call" : "Activity"}
           </Text>
           {!selected && !!summary.text && (
-            <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 12 }}>
+            <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
               {run ? "Running" : summary.text}
             </Text>
           )}
         </View>
         <View style={{ width: 40 }} />
       </View>
-      <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 4 }}>
         {outputPending && (
           <Text accessibilityRole="status" style={styles.muted}>
-            {readError ? "Could not load tool output." : "Loading output..."}
+            {readError ? "Could not load tool output." : "Loading output…"}
           </Text>
         )}
         {readError && <PillButton title="Try again" secondary onPress={() => setRetry((value) => value + 1)} />}

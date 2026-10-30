@@ -25,12 +25,12 @@ export function TooltipBubble({
   return createPortal(
     <span
       role="tooltip"
-      className={`pointer-events-none fixed z-[60] flex items-center gap-2 ${wrap ? "max-w-[280px] whitespace-normal leading-snug" : "whitespace-nowrap"} rounded-[8px] bg-ink px-2 py-1 text-[12px] font-medium text-surface shadow-overlay`}
+      className={`pointer-events-none fixed z-[60] flex items-center gap-2 ${wrap ? "max-w-[280px] whitespace-normal leading-snug" : "whitespace-nowrap"} rounded-chip bg-ink px-2 py-1 text-12 font-medium text-on-ink shadow-overlay`}
       style={{
         ...(side === "top" ? { top: rect.top - 6 } : { top: rect.bottom + 6 }),
         ...(align === "start" ? { left: rect.left } : { right: window.innerWidth - rect.right }),
         transform: side === "top" ? "translateY(-100%)" : undefined,
-        animation: "fade-in 120ms ease-out both",
+        animation: "fade-in var(--duration-fast) var(--ease-enter) both",
       }}
     >
       {label}

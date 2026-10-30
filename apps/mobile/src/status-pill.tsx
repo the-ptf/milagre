@@ -14,12 +14,14 @@ import Animated, {
 } from "react-native-reanimated";
 import { Icon, type IconData, type Tone } from "./icons";
 import { useReducedMotion } from "./motion";
+import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
+import { DISABLED_OPACITY, PRESSED_OPACITY } from "./ui";
 
 // The Terminal and Ports pills set the size every status pill above the composer shares.
 const HEIGHT = 24;
-const FONT_SIZE = 11;
-const LINE_HEIGHT = 14;
+const FONT_SIZE = type.caption2;
+const LINE_HEIGHT = lineHeight.caption2;
 const ICON_SIZE = 12;
 
 const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
@@ -128,11 +130,11 @@ export function StatusPill({
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={onPress}
-        hitSlop={8}
+        hitSlop={hitSlopFor(HEIGHT)}
         style={({ pressed }) => ({
           height: HEIGHT,
           paddingHorizontal: 8,
-          borderRadius: HEIGHT / 2,
+          borderRadius: radius.full,
           borderCurve: "continuous",
           flexDirection: "row",
           alignItems: "center",
@@ -140,7 +142,7 @@ export function StatusPill({
           borderWidth: 1,
           borderColor: colors.line,
           overflow: "hidden",
-          transform: [{ scale: pressed ? 0.96 : 1 }],
+          transform: [{ scale: pressed ? 0.97 : 1 }],
         })}
       >
         {({ pressed }) => (
@@ -149,7 +151,7 @@ export function StatusPill({
             <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.surface }]} />
             {tint && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: tint }]} />}
             {/* Pressed and disabled dim the contents only, so the pill's fill stays as it is. */}
-            <View style={{ opacity: disabled ? 0.5 : pressed ? 0.7 : 1 }}>
+            <View style={{ opacity: disabled ? DISABLED_OPACITY.control : pressed ? PRESSED_OPACITY : 1 }}>
               <Animated.View entering={kit.contentIn} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 {leading}
                 {icon && <Icon icon={icon} tone={tone} size={ICON_SIZE} />}
@@ -213,7 +215,7 @@ function Digit({ digit, direction, style }: { digit: string; direction: number; 
   const [state, setState] = useState<{ digit: string; previous: string | null; direction: number }>({ digit, previous: null, direction });
   if (state.digit !== digit) setState({ digit, previous: state.digit, direction });
   const progress = useSharedValue(1);
-  const travel = useSharedValue(LINE_HEIGHT);
+  const travel = useSharedValue<number>(LINE_HEIGHT);
   useEffect(() => {
     if (state.previous === null) return;
     if (reduced) {

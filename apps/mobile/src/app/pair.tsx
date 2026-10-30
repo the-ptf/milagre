@@ -52,7 +52,7 @@ export default function PairLink() {
         </>
       ) : (
         <View style={{ alignItems: "center", gap: 12 }}>
-          <SpinnerRing size={22} />
+          <SpinnerRing size={24} />
           <Text style={styles.muted}>Pairing with {params.name || "your computer"}…</Text>
         </View>
       )}

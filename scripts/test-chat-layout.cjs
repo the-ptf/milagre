@@ -604,7 +604,7 @@ async function browserChecks() {
     assert.equal(await evaluate(`document.querySelectorAll('[data-save-failure] button')[1].disabled`), true, "Offline saving is disabled");
     await evaluate(`document.querySelector('[data-save-failure] button').click()`);
     await waitFor(
-      `document.querySelector('[data-save-failure] button').disabled && document.querySelector('[data-save-failure]').textContent.includes('Saving...')`,
+      `document.querySelector('[data-save-failure] button').disabled && document.querySelector('[data-save-failure]').textContent.includes('Saving…')`,
     );
     await evaluate(`window.finishSave(); window.setSaveScopes([]); window.setDisconnected(false);`);
     await waitFor(`!document.querySelector('[data-save-failure]')`);

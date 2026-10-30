@@ -1,17 +1,15 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, LaptopIcon, Settings01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Icon } from "../primitives/Icon";
 import { useDismiss } from "../../lib/use-dismiss";
 import { useSettings } from "../../lib/settings";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { DOT_COLOR, computerTone, routeLine, settingsTooltip, useComputers, useHiddenComputers, type ComputerTone } from "../../lib/computers";
 import { setComputerHidden } from "../../lib/hidden-projects";
-
-const icon = (data: typeof LaptopIcon, size: number) => <HugeiconsIcon icon={data} size={size} strokeWidth={1.8} color="currentColor" />;
 
 function HostRow({
   id,
@@ -38,36 +36,38 @@ function HostRow({
       data-row
       data-computer-row={id}
       data-computer-hidden={!shown || undefined}
-      className="group/host relative z-10 flex h-11 items-center gap-1 rounded-[8px] pr-2"
+      className="group/host relative z-10 flex h-11 items-center gap-1 rounded-control pr-2"
     >
-      <button
-        type="button"
-        role="menuitemcheckbox"
-        aria-checked={shown}
-        data-menu-row
-        data-computer-show
-        title={shown ? `Hide ${name}'s Projects from the sidebar` : `Show ${name}'s Projects in the sidebar`}
-        onClick={() => onShow(!shown)}
-        className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-[8px] pl-2.5 text-left outline-none focus-visible:bg-hover-2"
-      >
-        <span
-          aria-hidden
-          className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] transition-colors duration-100 ${shown ? "bg-ink text-surface" : "border-[1.5px] border-ink-3"}`}
+      <Tooltip label={shown ? `Hide ${name}'s Projects from the sidebar` : `Show ${name}'s Projects in the sidebar`} className="h-full min-w-0 flex-1">
+        <button
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={shown}
+          data-menu-row
+          data-computer-show
+          onClick={() => onShow(!shown)}
+          className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-control pl-2.5 text-left focus-visible:bg-hover focus-visible:-outline-offset-2"
         >
-          {shown && <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={1.8} color="currentColor" />}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span data-computer-name className={`truncate text-[13px] font-medium ${shown ? "text-ink" : "text-ink-3"}`}>
-            {name}
+          {/* The Checkbox primitive's look; the row itself is the menuitemcheckbox, so the box is only drawn. */}
+          <span
+            aria-hidden
+            className={`flex size-4 shrink-0 items-center justify-center rounded-inline border transition-colors duration-fast ${shown ? "border-ink bg-ink text-on-ink" : "border-ink-3"}`}
+          >
+            {shown && <Icon icon={Tick02Icon} size={12} />}
           </span>
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: DOT_COLOR[tone] }} />
-            <span data-computer-line className="truncate text-[11.5px] text-ink-3">
-              {line}
+          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+            <span data-computer-name className={`truncate text-13 font-medium ${shown ? "text-ink" : "text-ink-3"}`}>
+              {name}
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: DOT_COLOR[tone] }} />
+              <span data-computer-line className="truncate text-11 text-ink-3">
+                {line}
+              </span>
             </span>
           </span>
-        </span>
-      </button>
+        </button>
+      </Tooltip>
       <Tooltip label={gearLabel} side="bottom" align="end">
         <button
           type="button"
@@ -75,9 +75,9 @@ function HostRow({
           data-computer-gear
           aria-label={gearLabel}
           onClick={onGear}
-          className="flex size-[26px] shrink-0 items-center justify-center rounded-[7px] text-ink opacity-0 outline-none transition-opacity duration-100 group-hover/host:opacity-100 hover:bg-hover-2 focus-visible:bg-hover-2 focus-visible:opacity-100"
+          className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink opacity-0 transition-[opacity,background-color] duration-fast group-hover/host:opacity-100 hover:bg-hover focus-visible:bg-hover focus-visible:opacity-100 focus-visible:-outline-offset-2"
         >
-          {icon(Settings01Icon, 15)}
+          <Icon icon={Settings01Icon} size={16} />
         </button>
       </Tooltip>
     </div>
@@ -160,7 +160,7 @@ export function ComputersButton({
           onClick={() => (open ? close() : place() && (setNow(Date.now()), setOpen(true)))}
           className={`${buttonClassName} relative ${collapsed ? "size-8" : "size-9"} ${open ? "bg-hover-2 text-ink" : ""}`}
         >
-          {icon(LaptopIcon, 17)}
+          <Icon icon={LaptopIcon} size={18} />
           {anyAway && <span aria-hidden className="absolute right-1.5 top-1.5 size-1.5 rounded-full" style={{ background: "var(--orange)" }} />}
         </button>
       </Tooltip>
@@ -172,11 +172,16 @@ export function ComputersButton({
             aria-label="Computers"
             data-computers-panel
             onKeyDown={moveFocus}
-            className="fixed z-50 flex max-h-[min(420px,calc(100vh-16px))] w-[272px] flex-col overflow-hidden rounded-[12px] bg-surface shadow-overlay"
-            style={{ bottom: position.bottom, left: position.left, animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "bottom left" }}
+            className="fixed z-50 flex max-h-[min(420px,calc(100vh-16px))] w-[272px] flex-col overflow-hidden rounded-card bg-surface shadow-raised"
+            style={{
+              bottom: position.bottom,
+              left: position.left,
+              animation: "pop-in var(--duration-base) var(--ease-enter) both",
+              transformOrigin: "bottom left",
+            }}
           >
             <ScrollArea className="p-1.5">
-              <GlideMenu className="flex flex-col gap-px" rowSelector="[data-row]" highlightClassName="inset-x-0 rounded-[8px] bg-hover">
+              <GlideMenu className="flex flex-col gap-px" rowSelector="[data-row]" highlightClassName="inset-x-0 rounded-control bg-hover">
                 <HostRow
                   id="this-mac"
                   name={thisMac}
@@ -207,9 +212,9 @@ export function ComputersButton({
                 data-menu-row
                 data-add-computer-row
                 onClick={pick(onAddComputer)}
-                className="flex h-9 w-full items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[13px] text-ink-2 outline-none hover:bg-hover focus-visible:bg-hover"
+                className="flex h-9 w-full items-center gap-2 rounded-control px-2.5 text-left text-13 text-ink-2 transition-colors duration-fast hover:bg-hover focus-visible:bg-hover focus-visible:-outline-offset-2"
               >
-                {icon(Add01Icon, 16)}
+                <Icon icon={Add01Icon} size={16} />
                 Add computer
               </button>
             </ScrollArea>

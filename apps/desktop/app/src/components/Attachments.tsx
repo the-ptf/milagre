@@ -1,7 +1,6 @@
 import { canCopyImage } from "../lib/media";
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { File01Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, File01Icon } from "@hugeicons/core-free-icons";
 import type { ImageAttachment } from "../model";
 import type { AttachmentUpload } from "./usePastedImages";
 import { mediaKind, mediaUrl } from "../lib/media";
@@ -10,6 +9,8 @@ import { lazyView } from "../lib/lazy-view";
 import { MediaLightbox } from "./motion/LazyMediaLightbox";
 import { isRemoteKey, useScope } from "../lib/computer-bridge";
 import { useRemoteMedia } from "../lib/remote-media";
+import { Icon } from "./primitives/Icon";
+import Tooltip from "./primitives/Tooltip";
 
 const NO_IMAGES: ImageAttachment[] = [];
 const NO_FILES: string[] = [];
@@ -105,7 +106,7 @@ export function Attachments({
     <div className="mb-2 flex flex-wrap items-start gap-2" aria-label="Attachments">
       {leading}
       {items.map((item) => (
-        <div key={item.id} className="relative max-w-full rounded-lg border border-line bg-inset p-1">
+        <div key={item.id} className="relative max-w-full rounded-control border border-line bg-inset p-1">
           {failedRemote(item) ? (
             <FileTile path={item.id} name={item.name} unavailable />
           ) : item.kind ? (
@@ -125,19 +126,19 @@ export function Attachments({
                     }
                   : undefined
               }
-              className="block rounded focus-visible:outline-2 focus-visible:outline-accent-ink"
+              className="block rounded-inline"
             >
               {item.kind === "image" && !item.src ? (
-                <span aria-hidden className="block size-20 animate-pulse rounded bg-hover" />
+                <span aria-hidden className="block size-20 animate-pulse rounded-inline bg-hover" />
               ) : item.kind === "image" ? (
-                <img src={item.src} alt={item.name} className={`size-20 rounded object-contain ${showing(item.id) ? "opacity-0" : ""}`} />
+                <img src={item.src} alt={item.name} className={`size-20 rounded-inline object-contain ${showing(item.id) ? "opacity-0" : ""}`} />
               ) : (
                 <span className={`relative block ${showing(item.id) ? "opacity-0" : ""}`}>
-                  <video src={item.src} muted preload="metadata" className="h-20 w-28 rounded object-contain" />
-                  <span className="absolute bottom-0 left-0 rounded bg-surface/90 px-1 text-[10px]">Play video</span>
+                  <video src={item.src} muted preload="metadata" className="h-20 w-28 rounded-inline object-contain" />
+                  <span className="absolute bottom-0 left-0 rounded-inline bg-surface/90 px-1 text-10">Play video</span>
                 </span>
               )}
-              <span className="block max-w-28 truncate px-1 text-[10px] text-ink-2">{item.name}</span>
+              <span className="block max-w-28 truncate px-1 text-11 text-ink-2">{item.name}</span>
             </button>
           ) : (
             <FileTile path={item.id} name={item.name} file={localFiles?.get(item.id)} />
@@ -145,7 +146,7 @@ export function Attachments({
           {item.index !== undefined && (
             <span
               data-image-badge={item.index}
-              className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-surface/90 px-1 py-px text-[10px] font-semibold leading-tight text-ink shadow-xs"
+              className="pointer-events-none absolute top-1.5 left-1.5 rounded-inline bg-surface/90 px-1 py-px text-10 font-semibold leading-tight text-ink shadow-card"
             >
               #{item.index}
             </span>
@@ -155,24 +156,24 @@ export function Attachments({
               type="button"
               aria-label={`Remove ${item.name}`}
               onClick={item.remove}
-              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink before:absolute before:-inset-0.5"
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-ink transition-colors duration-fast before:absolute before:-inset-0.5 hover:bg-hover"
             >
-              ×
+              <Icon icon={Cancel01Icon} size={12} />
             </button>
           )}
         </div>
       ))}
       {uploads.map((upload) => (
-        <div key={upload.id} className="relative max-w-full rounded-lg border border-line bg-inset p-1">
+        <div key={upload.id} className="relative max-w-full rounded-control border border-line bg-inset p-1">
           <UploadTile upload={upload} />
           {cancelUpload && (
             <button
               type="button"
               aria-label={`Cancel uploading ${upload.name}`}
               onClick={() => cancelUpload(upload.id)}
-              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-xs text-ink before:absolute before:-inset-0.5"
+              className="absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full border border-line bg-surface text-ink transition-colors duration-fast before:absolute before:-inset-0.5 hover:bg-hover"
             >
-              ×
+              <Icon icon={Cancel01Icon} size={12} />
             </button>
           )}
         </div>
@@ -188,32 +189,35 @@ function FileTile({ path, name, file, unavailable }: { path: string; name: strin
   const extension = /\.([^./]+)$/.exec(name)?.[1];
   if (unavailable)
     return (
-      <span data-attachment-unavailable title={`${name} couldn't be loaded from its computer`} className="block rounded">
-        <span className="flex size-20 flex-col items-center justify-center gap-1 rounded bg-surface text-ink-3">
-          <HugeiconsIcon icon={File01Icon} size={22} strokeWidth={1.6} color="currentColor" aria-hidden />
-          <span className="text-[10px]">Unavailable</span>
+      <Tooltip label={`${name} couldn't be loaded from its computer`} wrap>
+        <span data-attachment-unavailable className="block rounded-inline">
+          <span className="flex size-20 flex-col items-center justify-center gap-1 rounded-inline bg-surface text-ink-3">
+            <Icon icon={File01Icon} size={18} />
+            <span className="text-11">Unavailable</span>
+          </span>
+          <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{name}</span>
         </span>
-        <span className="block max-w-20 truncate px-1 text-center text-[10px] text-ink-2">{name}</span>
-      </span>
+      </Tooltip>
     );
   return (
     <>
-      <button
-        type="button"
-        aria-label={`Preview ${name}`}
-        onClick={(event) => {
-          event.currentTarget.focus();
-          setOpen(true);
-        }}
-        title={path}
-        className="block rounded hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent-ink"
-      >
-        <span className="flex size-20 flex-col items-center justify-center gap-1 rounded bg-surface text-ink-2">
-          <HugeiconsIcon icon={File01Icon} size={22} strokeWidth={1.6} color="currentColor" aria-hidden />
-          {extension && <span className="max-w-16 truncate text-[10px] font-medium uppercase tracking-wide">{extension}</span>}
-        </span>
-        <span className="block max-w-20 truncate px-1 text-center text-[10px] text-ink-2">{name}</span>
-      </button>
+      <Tooltip label={path} wrap>
+        <button
+          type="button"
+          aria-label={`Preview ${name}`}
+          onClick={(event) => {
+            event.currentTarget.focus();
+            setOpen(true);
+          }}
+          className="block rounded-inline transition-colors duration-fast hover:bg-hover"
+        >
+          <span className="flex size-20 flex-col items-center justify-center gap-1 rounded-inline bg-surface text-ink-2">
+            <Icon icon={File01Icon} size={18} />
+            {extension && <span className="max-w-16 truncate text-11 font-medium">{extension}</span>}
+          </span>
+          <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{name}</span>
+        </button>
+      </Tooltip>
       {open && <AttachmentPreview file={file} path={path} name={name} close={() => setOpen(false)} />}
     </>
   );
@@ -227,26 +231,30 @@ const megabytes = (bytes: number, total: number) => (bytes / MB).toFixed(total <
 function UploadTile({ upload }: { upload: AttachmentUpload }) {
   const percent = upload.totalBytes ? Math.min(100, Math.round((upload.sentBytes / upload.totalBytes) * 100)) : 0;
   return (
-    <span
-      data-attachment-upload
-      title={`Uploading ${upload.name}: ${megabytes(upload.sentBytes, upload.totalBytes)} of ${megabytes(upload.totalBytes, upload.totalBytes)} MB`}
-      className="block rounded"
+    <Tooltip
+      label={`Uploading ${upload.name}: ${megabytes(upload.sentBytes, upload.totalBytes)} of ${megabytes(upload.totalBytes, upload.totalBytes)} MB`}
+      wrap
     >
-      <span className="relative flex size-20 flex-col items-center justify-center gap-1 overflow-hidden rounded bg-surface text-ink-3">
-        <HugeiconsIcon icon={File01Icon} size={22} strokeWidth={1.6} color="currentColor" aria-hidden />
-        <span className="text-[10px] font-medium tabular-nums">{percent}%</span>
-        <span
-          role="progressbar"
-          aria-label={`Uploading ${upload.name}`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-          className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-hover"
-        >
-          <span className="block h-full rounded-full bg-ink transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${percent}%` }} />
+      <span data-attachment-upload className="block rounded-inline">
+        <span className="relative flex size-20 flex-col items-center justify-center gap-1 overflow-hidden rounded-inline bg-surface text-ink-3">
+          <Icon icon={File01Icon} size={18} />
+          <span className="text-11 font-medium tabular-nums">{percent}%</span>
+          <span
+            role="progressbar"
+            aria-label={`Uploading ${upload.name}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+            className="absolute inset-x-2 bottom-2 h-1 overflow-hidden rounded-full bg-hover"
+          >
+            <span
+              className="block h-full rounded-full bg-ink transition-[width] duration-base motion-reduce:transition-none"
+              style={{ width: `${percent}%` }}
+            />
+          </span>
         </span>
+        <span className="block max-w-20 truncate px-1 text-center text-11 text-ink-2">{upload.name}</span>
       </span>
-      <span className="block max-w-20 truncate px-1 text-center text-[10px] text-ink-2">{upload.name}</span>
-    </span>
+    </Tooltip>
   );
 }

@@ -9,7 +9,8 @@ import { providerName } from "@milagre/shared/providers";
 import { useSession } from "./session";
 import { savedProviderUpdateDismissals } from "./hosts-native";
 import { ProviderLogo } from "./icons";
-import { IconButton, PillButton } from "./ui";
+import { IconButton, PillButton, useAnnounce } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 export function ProviderUpdateNotice() {
@@ -42,26 +43,26 @@ export function ProviderUpdateNotice() {
   const { current, working, error } = updates;
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  useAnnounce(current ? `Update available: ${providerName(current.provider)} v${current.version}` : null);
   if (!current) return null;
   const name = providerName(current.provider);
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: Math.max(insets.bottom, 16), zIndex: 50 }}>
       <View
-        accessibilityLiveRegion="polite"
-        style={{ borderRadius: 20, borderCurve: "continuous", borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, padding: 16, gap: 12 }}
+        style={{ borderRadius: radius.sheet, borderCurve: "continuous", boxShadow: colors.shadowRaised, backgroundColor: colors.surface, padding: 16, gap: 12 }}
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <ProviderLogo provider={current.provider} size={20} />
-          <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: "600" }}>
+          <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
             Update available: {name} v{current.version}
           </Text>
           <IconButton label={`Dismiss ${name} update`} icon={Cancel01Icon} disabled={working} onPress={updates.dismiss} />
         </View>
-        <Text style={{ color: colors.ink2, fontSize: 14, lineHeight: 20 }}>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
           Install the update on {session.hostName || "your computer"} now or review provider settings.
         </Text>
         {!!error && (
-          <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: 13 }}>
+          <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
             {error}
           </Text>
         )}

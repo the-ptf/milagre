@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Alert02Icon,
   ArrowRight01Icon,
@@ -15,15 +15,16 @@ import { checkpointEffect, checkpointMeta, checkpointTask, checkpointTime, split
 import type { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { ShortcutKeys } from "../primitives/ShortcutKeys";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
+import { SpinnerRing } from "../primitives/SpinnerRing";
+import Tooltip from "../primitives/Tooltip";
 
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
+type IconData = IconSvgElement;
 export type CheckpointReview = ReturnType<typeof useCheckpoints>;
 /** Undo previews a task's checkpoint; Redo previews the recovery checkpoint an undo saved. */
 export type UndoIntent = "Undo" | "Redo";
-
-function Icon({ icon, size = 15 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
 
 const FILE_ICONS: Record<CheckpointFile["action"], IconData> = { replace: FileEditIcon, delete: FileAddIcon, create: FileRemoveIcon };
 
@@ -94,21 +95,26 @@ export function UndoPanel({
       role="group"
       aria-label={review.view === "list" ? "Undo a task's changes" : `${intent} changes`}
       onKeyDown={onKeyDown}
-      className="promptbar-surface mb-1.5 flex max-h-[min(420px,55vh)] flex-col overflow-hidden rounded-[14px] border border-line-strong text-[13px] text-ink"
-      style={{ animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
+      className="promptbar-surface mb-1.5 flex max-h-[min(420px,55vh)] flex-col overflow-hidden rounded-window border border-line-strong text-13 text-ink"
+      style={{ animation: "fade-up var(--duration-base) var(--ease-enter) both" }}
     >
       {review.view === "list" ? (
         <>
-          <header className="flex items-center gap-2 px-3.5 pt-2.5 pb-1.5 text-[12px] text-ink-2">
+          <header className="flex items-center gap-2 px-3 pt-2 pb-1.5 text-12 text-ink-2">
             <Icon icon={Undo02Icon} size={14} />
             <span className="flex-1 font-medium">Undo a task's changes</span>
-            <span className="flex items-center gap-1.5 text-[11px] text-ink-3">
+            <span className="flex items-center gap-1.5 text-11 text-ink-3">
               <ShortcutKeys shortcut="Enter" compact /> preview
               <ShortcutKeys shortcut="Esc" compact className="ml-1.5" /> close
             </span>
           </header>
           <ScrollArea as="ul" role="listbox" aria-label="Tasks" className="min-h-0 flex-1 px-1.5 pb-1.5">
-            {review.pending && !tasks.length && <li className="px-2.5 py-2 text-ink-3">Loading…</li>}
+            {review.pending && !tasks.length && (
+              <li role="status" className="flex items-center gap-2 px-2.5 py-2 text-ink-3">
+                <SpinnerRing size={12} />
+                Loading…
+              </li>
+            )}
             {!review.pending && !tasks.length && <li className="px-2.5 py-2 text-ink-3">No task has changed files yet.</li>}
             {tasks.map((item, index) => (
               <li key={item.id} role="option" aria-selected={index === current}>
@@ -118,10 +124,10 @@ export function UndoPanel({
                   disabled={review.pending}
                   onPointerEnter={() => setActive(index)}
                   onClick={() => void review.inspect(item.id)}
-                  className={`flex w-full items-center gap-4 rounded-[8px] px-2.5 py-2 text-left transition-colors ${index === current ? "bg-hover" : ""}`}
+                  className={`flex w-full items-center gap-4 rounded-control px-2.5 py-2 text-left transition-colors duration-fast disabled:opacity-40 ${index === current ? "bg-hover" : ""}`}
                 >
                   <span className="min-w-0 flex-1 truncate">{checkpointTask(item)}</span>
-                  <span className="shrink-0 text-[12px] text-ink-3">{checkpointMeta(item)}</span>
+                  <span className="shrink-0 text-12 text-ink-3">{checkpointMeta(item)}</span>
                 </button>
               </li>
             ))}
@@ -129,52 +135,52 @@ export function UndoPanel({
         </>
       ) : (
         <>
-          <header className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
+          <header className="flex items-center gap-2 border-b border-line px-3 py-2">
             <span className="text-ink-2">
-              <Icon icon={intent === "Redo" ? Redo02Icon : Undo02Icon} size={15} />
+              <Icon icon={intent === "Redo" ? Redo02Icon : Undo02Icon} size={16} />
             </span>
             <span className="shrink-0 font-medium text-ink-2">{intent} changes from</span>
             {preview && (
               <>
                 {tasks.length > 0 && intent === "Undo" ? (
-                  <button
-                    type="button"
-                    onClick={() => review.back()}
-                    title="Choose another task"
-                    className="flex min-w-0 items-center gap-1.5 rounded-[7px] bg-field px-2 py-1 font-medium hover:bg-hover"
-                  >
-                    <span className="truncate">{checkpointTask(preview)}</span>
-                    <span className="shrink-0 text-ink-3">
-                      <Icon icon={UnfoldMoreIcon} size={13} />
-                    </span>
-                  </button>
+                  <Tooltip label="Choose another task" className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => review.back()}
+                      className="flex h-6 min-w-0 items-center gap-1.5 rounded-chip bg-field px-2 font-medium transition-colors duration-fast hover:bg-hover"
+                    >
+                      <span className="truncate">{checkpointTask(preview)}</span>
+                      <span className="shrink-0 text-ink-3">
+                        <Icon icon={UnfoldMoreIcon} size={12} />
+                      </span>
+                    </button>
+                  </Tooltip>
                 ) : (
                   <span className="min-w-0 truncate font-medium">{checkpointTask(preview)}</span>
                 )}
                 <span className="shrink-0 text-ink-3">{checkpointTime(preview.createdAt)}</span>
               </>
             )}
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={close}
-              disabled={review.pending}
-              className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-hover"
-            >
-              <Icon icon={Cancel01Icon} size={14} />
-            </button>
+            <IconButton label="Close" icon={Cancel01Icon} size={24} onClick={close} disabled={review.pending} className="ml-auto" />
           </header>
           {review.notice && (
-            <p role="status" className="border-b border-line px-3.5 py-2 text-[12px] text-orange-ink">
+            <p role="status" className="border-b border-line px-3 py-2 text-12 text-orange-ink">
               {review.notice}
             </p>
           )}
           {!preview ? (
-            <p role="status" className="px-3.5 py-3 text-ink-3">
-              {review.error ? "" : "Checking files…"}
+            <p role="status" className="flex items-center gap-2 px-3 py-3 text-ink-3">
+              {review.error ? (
+                ""
+              ) : (
+                <>
+                  <SpinnerRing size={12} />
+                  Checking files…
+                </>
+              )}
             </p>
           ) : !preview.files.length ? (
-            <p className="px-3.5 py-3 text-ink-3">These files are already as they were before the task.</p>
+            <p className="px-3 py-3 text-ink-3">These files are already as they were before the task.</p>
           ) : (
             <ScrollArea as="ul" aria-label="Files" className="min-h-0 flex-1 py-1">
               {preview.files.map((file) => (
@@ -190,31 +196,29 @@ export function UndoPanel({
               ))}
             </ScrollArea>
           )}
-          <footer className="flex items-center gap-2 border-t border-line px-3.5 py-2.5">
+          <footer className="flex items-center gap-2 border-t border-line px-3 py-2">
             {review.error ? (
-              <p role="alert" className="min-w-0 flex-1 text-[12px] text-red-ink">
+              <InlineError size={12} className="min-w-0 flex-1">
                 {review.error}
-              </p>
+              </InlineError>
             ) : review.conflicts > 0 ? (
-              <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] text-orange-ink">
+              <p className="flex min-w-0 flex-1 items-center gap-1.5 text-12 text-orange-ink">
                 <Icon icon={Alert02Icon} size={14} />
                 {review.conflicts === 1 ? "1 file needs a choice" : `${review.conflicts} files need a choice`}
               </p>
             ) : (
-              <p className="min-w-0 flex-1 text-[12px] text-ink-3">{preview?.files.length ? `You can ${intent === "Undo" ? "redo" : "undo"} this.` : ""}</p>
+              <p className="min-w-0 flex-1 text-12 text-ink-3">{preview?.files.length ? `You can ${intent === "Undo" ? "redo" : "undo"} this.` : ""}</p>
             )}
-            <button type="button" onClick={close} disabled={review.pending} className="rounded-[8px] px-3 py-1.5 text-ink-2 hover:bg-hover disabled:opacity-40">
+            <Button variant="ghost" onClick={close} disabled={review.pending}>
               Cancel
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               data-checkpoint-restore
               disabled={review.pending || !review.resolved || review.restoreCount === 0}
               onClick={() => void review.restore().then((result) => result && onClosed())}
-              className="rounded-[8px] bg-ink px-3 py-1.5 font-medium text-surface transition-opacity hover:opacity-85 disabled:bg-field disabled:text-ink-3 disabled:opacity-100"
             >
               {restoreLabel(review, intent)}
-            </button>
+            </Button>
           </footer>
         </>
       )}
@@ -251,30 +255,26 @@ function FileRow({
     <li
       data-checkpoint-file
       data-conflict={file.conflict || undefined}
-      className={`flex min-h-10 items-center gap-2.5 px-3.5 py-1 ${file.conflict ? "bg-orange-tint" : ""}`}
+      className={`flex min-h-10 items-center gap-2 px-3 py-1 ${file.conflict ? "bg-orange-tint" : ""}`}
     >
       <span className="shrink-0 text-ink-3">
-        <Icon icon={FILE_ICONS[file.action]} size={15} />
+        <Icon icon={FILE_ICONS[file.action]} size={16} />
       </span>
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={!onOpen}
-        title={onOpen ? "Show the diff" : file.path}
-        className="flex min-w-0 items-baseline gap-2 text-left enabled:hover:underline"
-      >
-        <span className="truncate font-medium">{name}</span>
-        {dir && <span className="truncate text-ink-3">{dir}</span>}
-      </button>
+      <Tooltip label={onOpen ? "Show the diff" : file.path} className="min-w-0">
+        <button type="button" onClick={onOpen} disabled={!onOpen} className="flex min-w-0 items-baseline gap-2 text-left enabled:hover:underline">
+          <span className="truncate font-medium">{name}</span>
+          {dir && <span className="truncate text-ink-3">{dir}</span>}
+        </button>
+      </Tooltip>
       {file.conflict && (
-        <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-orange-ink">
+        <span className="flex shrink-0 items-center gap-1.5 text-12 text-orange-ink">
           <span className="size-1.5 rounded-full bg-orange" />
           Edited after this task
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         {file.conflict ? (
-          <span role="radiogroup" aria-label={`${name}: keep it or ${intent.toLowerCase()} it`} className="flex gap-0.5 rounded-[9px] bg-field p-0.5">
+          <span role="radiogroup" aria-label={`${name}: keep it or ${intent.toLowerCase()} it`} className="flex gap-0.5 rounded-control bg-field p-0.5">
             {(["keep", "restore"] as const).map((choice) => (
               <button
                 key={choice}
@@ -284,25 +284,16 @@ function FileRow({
                 data-checkpoint-choice={choice}
                 disabled={disabled}
                 onClick={() => onChoose(choice)}
-                className={`rounded-[7px] px-2.5 py-1 text-[12px] font-medium transition-colors ${decision === choice ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"}`}
+                className={`flex h-6 items-center rounded-chip px-2.5 text-12 font-medium transition-colors duration-fast disabled:opacity-40 ${decision === choice ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"}`}
               >
                 {choice === "keep" ? "Keep current" : intent}
               </button>
             ))}
           </span>
         ) : (
-          <span className="text-[12px] text-ink-2">{effect}</span>
+          <span className="text-12 text-ink-2">{effect}</span>
         )}
-        {onOpen && (
-          <button
-            type="button"
-            aria-label={`Show the diff of ${file.path}`}
-            onClick={onOpen}
-            className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink"
-          >
-            <Icon icon={ArrowRight01Icon} size={14} />
-          </button>
-        )}
+        {onOpen && <IconButton label={`Show the diff of ${file.path}`} icon={ArrowRight01Icon} size={24} onClick={onOpen} />}
       </span>
     </li>
   );

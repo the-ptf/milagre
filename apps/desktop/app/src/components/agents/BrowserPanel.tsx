@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, Cancel01Icon, Globe02Icon, LinkSquare02Icon, PlusSignIcon, Refresh01Icon } from "@hugeicons/core-free-icons";
 import type { AgentPort } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { SpinnerRing } from "../primitives/SpinnerRing";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
 import { dockLayer, useCloseWhenDesignsExpand, useDockArea, useSidePanelRoom } from "./dock-area";
 import { useSidePanel } from "./PanelToggles";
 import { ResizableDockSlide } from "./DockSlide";
@@ -46,9 +47,6 @@ export function BrowserPages() {
   );
   return null;
 }
-
-const ICON_BUTTON =
-  "flex size-7 shrink-0 items-center justify-center rounded-control text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-35 disabled:hover:bg-transparent";
 
 /**
  * A Chat's Browser panel, docked beside the chat left of a docked simulator: tabs, an address bar and the page. The
@@ -111,40 +109,36 @@ function BrowserTabs({ chatKey, tabs, active, onClose }: { chatKey: string; tabs
             <div
               key={tab.id}
               data-browser-tab={tab.id}
-              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 ${selected ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover/60"}`}
+              className={`group flex h-7 min-w-0 max-w-[180px] flex-1 basis-[140px] items-center gap-1.5 rounded-control pr-1 pl-2 text-12 transition-colors duration-fast ${selected ? "bg-hover-2 text-ink" : "text-ink-2 hover:bg-hover"}`}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                title={addressText(tab.url) || name}
-                onClick={() => selectBrowserTab(chatKey, tab.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-              >
-                <TabIcon tab={tab} />
-                <span className="min-w-0 flex-1 truncate">{name}</span>
-              </button>
-              <button
-                type="button"
-                aria-label={`Close ${name}`}
+              <Tooltip label={addressText(tab.url) || name} side="bottom" className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => selectBrowserTab(chatKey, tab.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                >
+                  <TabIcon tab={tab} />
+                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                </button>
+              </Tooltip>
+              <IconButton
+                label={`Close ${name}`}
+                icon={Cancel01Icon}
+                size={20}
                 onClick={() => closeBrowserTab(chatKey, tab.id)}
-                className={`flex size-5 shrink-0 items-center justify-center rounded-inline text-ink-3 hover:bg-hover hover:text-ink ${selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
-              >
-                <HugeiconsIcon icon={Cancel01Icon} size={12} aria-hidden />
-              </button>
+                className={selected ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}
+              />
             </div>
           );
         })}
       </div>
       <Tooltip label="New page" side="bottom">
-        <button type="button" aria-label="New page" onClick={() => addBlankTab(chatKey)} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={PlusSignIcon} size={15} aria-hidden />
-        </button>
+        <IconButton label="New page" icon={PlusSignIcon} onClick={() => addBlankTab(chatKey)} />
       </Tooltip>
       <Tooltip label="Hide Browser panel" shortcut={shortcutLabel(rules, "browser.toggle")} side="bottom" align="end">
-        <button type="button" aria-label="Hide Browser panel" onClick={onClose} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={Cancel01Icon} size={15} aria-hidden />
-        </button>
+        <IconButton label="Hide Browser panel" icon={Cancel01Icon} onClick={onClose} />
       </Tooltip>
     </div>
   );
@@ -154,7 +148,7 @@ function TabIcon({ tab }: { tab: BrowserTab }) {
   const [broken, setBroken] = useState(false);
   if (tab.loading) return <SpinnerRing size={12} />;
   if (tab.favicon && !broken) return <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-inline" onError={() => setBroken(true)} />;
-  return <HugeiconsIcon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" aria-hidden />;
+  return <Icon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" />;
 }
 
 const hostLabel = (url: string) => {
@@ -204,19 +198,13 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
   return (
     <form onSubmit={submit} className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2">
       <Tooltip label="Back" side="bottom">
-        <button type="button" aria-label="Back" disabled={!tab.canGoBack} onClick={() => page()?.goBack()} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />
-        </button>
+        <IconButton label="Back" icon={ArrowLeft01Icon} disabled={!tab.canGoBack} onClick={() => page()?.goBack()} />
       </Tooltip>
       <Tooltip label="Forward" side="bottom">
-        <button type="button" aria-label="Forward" disabled={!tab.canGoForward} onClick={() => page()?.goForward()} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={ArrowRight01Icon} size={16} aria-hidden />
-        </button>
+        <IconButton label="Forward" icon={ArrowRight01Icon} disabled={!tab.canGoForward} onClick={() => page()?.goForward()} />
       </Tooltip>
       <Tooltip label={tab.loading ? "Stop" : "Reload"} shortcut={tab.loading ? undefined : "⌘R"} side="bottom">
-        <button type="button" aria-label={tab.loading ? "Stop loading" : "Reload"} disabled={blank} onClick={reload} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={tab.loading ? Cancel01Icon : Refresh01Icon} size={15} aria-hidden />
-        </button>
+        <IconButton label={tab.loading ? "Stop loading" : "Reload"} icon={tab.loading ? Cancel01Icon : Refresh01Icon} disabled={blank} onClick={reload} />
       </Tooltip>
       <input
         ref={input}
@@ -240,13 +228,11 @@ function BrowserToolbar({ chatKey, tab, onSendComments }: { chatKey: string; tab
           setText(addressText(tab.url));
           event.currentTarget.blur();
         }}
-        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none placeholder:text-ink-3 focus:border-line-strong focus:bg-surface"
+        className="h-7 min-w-0 flex-1 rounded-control border border-transparent bg-hover px-2.5 text-12 text-ink outline-none transition-colors duration-fast placeholder:text-ink-3 focus:border-accent focus:bg-surface"
       />
       <CommentControls chatKey={chatKey} live={!blank && !tab.error} onSend={onSendComments} />
       <Tooltip label="Open in your default browser" side="bottom" align="end">
-        <button type="button" aria-label="Open in your default browser" disabled={blank} onClick={() => window.open(tab.url, "_blank")} className={ICON_BUTTON}>
-          <HugeiconsIcon icon={LinkSquare02Icon} size={15} aria-hidden />
-        </button>
+        <IconButton label="Open in your default browser" icon={LinkSquare02Icon} disabled={blank} onClick={() => window.open(tab.url, "_blank")} />
       </Tooltip>
     </form>
   );
@@ -268,13 +254,9 @@ function BrowserPage({ chatKey, tab, ports }: { chatKey: string; tab: BrowserTab
       {tab.error ? (
         <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
           <p className="max-w-[320px] text-13 text-ink-2">{tab.error}</p>
-          <button
-            type="button"
-            onClick={() => navigateBrowserTab(chatKey, tab.id, tab.url)}
-            className="rounded-control border border-line px-3 py-1.5 text-12 text-ink hover:bg-hover"
-          >
+          <Button variant="secondary" size={28} onClick={() => navigateBrowserTab(chatKey, tab.id, tab.url)}>
             Try again
-          </button>
+          </Button>
         </div>
       ) : !live ? (
         <StartPage chatKey={chatKey} ports={ports} />
@@ -289,7 +271,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
   const servers = ports.filter((port) => !port.computerId).sort((a, b) => a.port - b.port);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-8">
-      <HugeiconsIcon icon={Globe02Icon} size={28} className="text-ink-3" aria-hidden />
+      <Icon icon={Globe02Icon} size={18} className="text-ink-4" />
       {servers.length ? (
         <div className="flex w-full max-w-[300px] flex-col gap-1">
           <p className="mb-1 text-center text-12 text-ink-3">This Chat's servers</p>
@@ -301,7 +283,7 @@ function StartPage({ chatKey, ports }: { chatKey: string; ports: AgentPort[] }) 
                 type="button"
                 data-browser-port={port.port}
                 onClick={() => openBrowserTab(chatKey, url)}
-                className="flex items-center gap-2 rounded-control px-3 py-2 text-left text-13 hover:bg-hover"
+                className="flex h-8 items-center gap-2 rounded-control px-3 text-left text-13 transition-colors duration-fast hover:bg-hover"
               >
                 <span className="w-14 shrink-0 font-mono tabular-nums">:{port.port}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-3">{port.command}</span>

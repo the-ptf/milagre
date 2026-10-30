@@ -23,7 +23,13 @@ function usePinColors() {
   const read = () => {
     const style = getComputedStyle(document.documentElement);
     const value = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-    return { accent: value("--accent", "#007df3"), ink: value("--ink", "#191919"), surface: value("--surface", "#ffffff"), green: value("--green", "#199a4d") };
+    return {
+      accent: value("--accent", "#007df3"),
+      ink: value("--ink", "#191919"),
+      surface: value("--surface", "#ffffff"),
+      green: value("--green", "#199a4d"),
+      onAccent: value("--on-accent", "#ffffff"),
+    };
   };
   const [colors, setColors] = useState(read);
   useEffect(() => {
@@ -167,7 +173,7 @@ export const ArtifactPage = forwardRef<
           ...(pin.anchor ? { a: pin.anchor } : {}),
           n: number,
           fill: resolved ? colors.green : colors.ink,
-          ink: resolved ? "#ffffff" : colors.surface,
+          ink: resolved ? colors.onAccent : colors.surface,
           label: `Sent comment ${number}${resolved ? ", resolved" : ""}: ${pin.text}`,
           hide: pin.key === open,
         };
@@ -181,7 +187,7 @@ export const ArtifactPage = forwardRef<
           ...(pin.anchor ? { a: pin.anchor } : {}),
           n: number,
           fill: colors.accent,
-          ink: "#ffffff",
+          ink: colors.onAccent,
           label: `Comment ${number}${pin.text.trim() ? `: ${pin.text.trim()}` : ""}`,
           hide: pin.key === open,
         };

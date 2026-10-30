@@ -17,6 +17,9 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Icon } from "../icons";
+import { useTheme } from "../theme";
+import { lineHeight, radius, type } from "../design-tokens";
+import { pressStyle } from "../ui";
 import { useMedia } from "../chat-reply";
 import { viewerImages, type MediaValue, type ThumbRect } from "../viewer-store";
 
@@ -147,6 +150,7 @@ export default function Viewer() {
   const { images, index } = viewerImages();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const [page, setPage] = useState(index);
   const current = images[page];
   const [progress] = useState(() => new Animated.Value(0));
@@ -240,7 +244,7 @@ export default function Viewer() {
         style={{
           position: "absolute",
           inset: 0,
-          backgroundColor: "#000",
+          backgroundColor: colors.media,
           opacity: Animated.multiply(progress, drag.interpolate({ inputRange: [0, 300], outputRange: [1, 0.4], extrapolate: "clamp" })),
         }}
       />
@@ -284,11 +288,11 @@ export default function Viewer() {
       >
         <View style={{ width: 44 }} />
         <View style={{ alignItems: "center", flex: 1 }}>
-          <Text numberOfLines={1} style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>
+          <Text numberOfLines={1} style={{ color: colors.onMedia, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>
             {images.length > 1 ? `${page + 1} of ${images.length}` : current?.name}
           </Text>
           {images.length > 1 && (
-            <Text numberOfLines={1} style={{ color: "#ffffff99", fontSize: 12 }}>
+            <Text numberOfLines={1} style={{ color: colors.onMedia2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
               {current?.name}
             </Text>
           )}
@@ -298,25 +302,20 @@ export default function Viewer() {
           accessibilityLabel="Close"
           hitSlop={6}
           onPress={close}
-          style={({ pressed }) => ({
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: "#ffffff26",
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.6 : 1,
-          })}
+          style={({ pressed }) => [
+            { width: 44, height: 44, borderRadius: radius.full, backgroundColor: colors.onMediaTint, alignItems: "center", justifyContent: "center" },
+            pressStyle({ pressed }),
+          ]}
         >
-          <Icon icon={Cancel01Icon} color="#ffffff" size={20} />
+          <Icon icon={Cancel01Icon} tone="onMedia" size={20} />
         </Pressable>
       </Animated.View>
       {images.length > 1 && (
         <Animated.View
-          style={[{ position: "absolute", bottom: insets.bottom + 18, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 6 }, chrome]}
+          style={[{ position: "absolute", bottom: insets.bottom + 16, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 6 }, chrome]}
         >
           {images.map((_, i) => (
-            <View key={i} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: i === page ? "#fff" : "#ffffff59" }} />
+            <View key={i} style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.onMedia, opacity: i === page ? 1 : 0.35 }} />
           ))}
         </Animated.View>
       )}

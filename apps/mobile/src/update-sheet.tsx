@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ActivityIndicator, AppState, View, Text } from "react-native";
+import { AppState, View, Text } from "react-native";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { router, useNavigationContainerRef } from "expo-router";
 import * as Updates from "expo-updates";
 import type { NavigationState, PartialState } from "expo-router/react-navigation";
 import { createUpdateController, watchUpdates, type UpdateState } from "./update-controller";
+import { lineHeight, radius, type } from "./design-tokens";
+import { SpinnerRing } from "./icons";
 import { useTheme } from "./theme";
-import { IconButton, PillButton } from "./ui";
+import { IconButton, PillButton, useAnnounce } from "./ui";
 
 const AppUpdates = createContext<{ state: UpdateState; check: (force?: boolean) => Promise<void>; install: () => Promise<void>; dismiss: () => void } | null>(
   null,
@@ -136,7 +138,7 @@ export function UpdateSettingsBadge() {
     <View
       accessibilityLabel="Update available"
       pointerEvents="none"
-      style={{ position: "absolute", right: 5, top: 5, width: 7, height: 7, borderRadius: 4, backgroundColor: colors.green }}
+      style={{ position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.green }}
     />
   );
 }
@@ -179,24 +181,25 @@ export function UpdateSheet({
           : busy
             ? "You can keep using Milagre while the update downloads."
             : "";
+  useAnnounce(state.error ? `${title}. ${state.error}` : title);
   return (
-    <View accessibilityLiveRegion="polite" style={{ padding: 24, paddingTop: 32, gap: 20 }}>
-      <View style={{ gap: 10 }}>
+    <View style={{ paddingHorizontal: 16, paddingBottom: 24, paddingTop: 32, gap: 24 }}>
+      <View style={{ gap: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          {busy && <ActivityIndicator accessibilityLabel={title} color={colors.ink2} />}
-          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 24, fontWeight: "600" }}>
+          {busy && <SpinnerRing size={20} tone="ink2" />}
+          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
             {title}
           </Text>
           {state.status !== "restarting" && <IconButton label="Dismiss update" icon={Cancel01Icon} onPress={onDismiss} />}
         </View>
-        {description ? <Text style={{ color: colors.ink2, fontSize: 16, lineHeight: 23 }}>{description}</Text> : null}
+        {description ? <Text style={{ color: colors.ink2, fontSize: type.callout, lineHeight: lineHeight.callout }}>{description}</Text> : null}
         {state.error ? (
-          <Text selectable accessibilityRole="alert" style={{ color: colors.redInk, fontSize: 15, lineHeight: 22 }}>
+          <Text selectable accessibilityRole="alert" style={{ color: colors.redInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
             {state.error}
           </Text>
         ) : null}
       </View>
-      <View style={{ gap: 10 }}>
+      <View style={{ gap: 12 }}>
         {(actionable || state.status === "downloading") && <PillButton title="What's new" secondary onPress={onNotes} />}
         {actionable || state.status === "check-error" ? (
           <PillButton title={state.error ? "Try again" : "Update now"} onPress={state.status === "ready" ? onUpdate : onRetry} />

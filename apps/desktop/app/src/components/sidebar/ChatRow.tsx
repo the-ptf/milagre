@@ -19,7 +19,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Archive02Icon,
   BubbleChatIcon,
@@ -61,6 +61,7 @@ import type { AgentPort, DiffStat, PullRequest } from "@/model";
 import { portComputer, portUrl, unreachablePortReason } from "@/lib/ports";
 import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@/lib/pr-blockers";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Icon } from "../primitives/Icon";
 import { useDismiss } from "../../lib/use-dismiss";
 import { chatMarkTone } from "@milagre/shared/chats";
 import { backgroundLabel } from "@milagre/shared/chat-activity";
@@ -81,11 +82,7 @@ const markToneClass = { accent: "text-accent", orange: "text-orange-ink", red: "
 
 const toneClass = { red: "text-red-ink", orange: "text-orange-ink" } as const;
 
-type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-
-function HugeIcon({ icon, size = 16 }: { icon: HugeIconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
+type HugeIconData = IconSvgElement;
 
 /** What the hover card tells about a chat. */
 type ChatDetails = {
@@ -192,7 +189,7 @@ const markLabel = (mark: Exclude<ChatMark, "idle">, background = 0) =>
 /** Work going on with no turn: a still ring around how many background tasks run, so it reads apart from running. */
 function BackgroundMark({ count = 0 }: { count?: number }) {
   return (
-    <span className="flex size-3 items-center justify-center rounded-full border-[1.5px] border-accent text-[7px] font-bold leading-none tabular-nums text-accent">
+    <span className="flex size-4 items-center justify-center rounded-full border-[1.5px] border-accent text-10 font-semibold leading-none tabular-nums text-accent">
       {count > 9 ? "9+" : count || ""}
     </span>
   );
@@ -240,7 +237,7 @@ const MARK_ICON = {
 function MarkIcon({ mark }: { mark: keyof typeof MARK_ICON }) {
   return (
     <span className={`flex ${markToneClass[chatMarkTone(mark)]}`}>
-      <HugeiconsIcon icon={MARK_ICON[mark].icon} size={13} strokeWidth={2} color="currentColor" />
+      <Icon icon={MARK_ICON[mark].icon} size={12} />
     </span>
   );
 }
@@ -259,18 +256,27 @@ export function ChatMarkDot({
   const failure = mark === "idle" && failed;
   const label = failure ? "Last turn failed" : mark === "idle" ? "" : markLabel(mark, background);
   const dot = failure ? "size-2 bg-red" : mark === "unread" ? "size-2 bg-accent" : "size-1.5 bg-ink-3 opacity-40";
+  const dotMark = (
+    <span
+      data-slot="chat-mark"
+      data-mark={failure ? "failed" : mark}
+      {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
+      className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
+    >
+      {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
+      {mark === "background" && <BackgroundMark count={background} />}
+      {mark in MARK_ICON && <MarkIcon mark={mark as keyof typeof MARK_ICON} />}
+    </span>
+  );
   return (
     <span className={`sidebar-copy mr-2 flex size-3 shrink-0 items-center justify-center ${topAligned ? "mt-1" : ""}`}>
-      <span
-        data-slot="chat-mark"
-        data-mark={failure ? "failed" : mark}
-        {...(label ? { role: "img", "aria-label": label, title: label } : { "aria-hidden": true })}
-        className={mark === "running" || mark === "background" ? "flex" : mark in MARK_ICON ? "flex" : `rounded-full ${dot}`}
-      >
-        {mark === "running" && <SpinnerRing size={12} color="var(--accent)" />}
-        {mark === "background" && <BackgroundMark count={background} />}
-        {mark in MARK_ICON && <MarkIcon mark={mark as keyof typeof MARK_ICON} />}
-      </span>
+      {label ? (
+        <Tooltip label={label} side="bottom">
+          {dotMark}
+        </Tooltip>
+      ) : (
+        dotMark
+      )}
     </span>
   );
 }
@@ -313,7 +319,7 @@ function RowProjectIcon({ image, initial = "" }: { image?: string | null; initia
     <span
       aria-hidden
       data-chat-project-icon
-      className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface"
+      className="sidebar-copy flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-on-ink"
     >
       <WorkspaceIcon src={image} fallback={letter} />
     </span>
@@ -343,7 +349,7 @@ function InboxTitleLine({
       <span className="flex h-[18px] min-w-0 items-center gap-1.5">
         {item.pinned && (
           <span data-chat-pinned role="img" aria-label="Pinned" className="flex shrink-0 text-ink-3">
-            <HugeiconsIcon icon={PinIcon} size={12} strokeWidth={2} color="currentColor" />
+            <Icon icon={PinIcon} size={12} />
           </span>
         )}
         <span
@@ -352,22 +358,20 @@ function InboxTitleLine({
           <ChatTitle label={item.label} />
         </span>
         {linked.length > 0 && (
-          <span
-            data-chat-linked
-            role="img"
-            aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-            title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-            className="flex shrink-0 text-ink-3"
-          >
-            <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
-          </span>
+          <Tooltip label={`Linked to ${linked.map((end) => end.label).join(", ")}`} side="bottom" className="shrink-0">
+            <span data-chat-linked role="img" aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`} className="flex text-ink-3">
+              <Icon icon={Link04Icon} size={12} />
+            </span>
+          </Tooltip>
         )}
         {item.heartbeat && (
-          <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 text-ink-3">
-            <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
-          </span>
+          <Tooltip label="Heartbeat" side="bottom" className="shrink-0">
+            <span data-chat-heartbeat role="img" aria-label={item.heartbeat} className="flex text-ink-3">
+              <Icon icon={Pulse01Icon} size={12} />
+            </span>
+          </Tooltip>
         )}
-        <span data-chat-time className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-100 ${hideTime ? "opacity-0" : ""}`}>
+        <span data-chat-time className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 transition-opacity duration-fast ${hideTime ? "opacity-0" : ""}`}>
           {running ? (
             <span data-slot="chat-mark" data-mark={mark} className="flex">
               <SpinnerRing size={12} color="var(--accent)" />
@@ -375,13 +379,14 @@ function InboxTitleLine({
           ) : (
             <>
               {lastAt !== undefined && (
-                <span
-                  data-chat-ago
-                  title={new Date(lastAt).toLocaleString()}
-                  className={`text-[length:calc(11.5px+var(--sidebar-delta))] tabular-nums ${item.unread ? "font-semibold text-accent" : "text-ink-3"}`}
-                >
-                  {activityAgo(lastAt, now)}
-                </span>
+                <Tooltip label={new Date(lastAt).toLocaleString()} side="bottom" align="end">
+                  <span
+                    data-chat-ago
+                    className={`text-[length:calc(11px+var(--sidebar-delta))] tabular-nums ${item.unread ? "font-semibold text-accent" : "text-ink-3"}`}
+                  >
+                    {activityAgo(lastAt, now)}
+                  </span>
+                </Tooltip>
               )}
               {item.unread && <span data-slot="chat-mark" data-mark="unread" className="size-2 rounded-full bg-accent" />}
             </>
@@ -429,7 +434,7 @@ function InboxLine({
     node:
       linkProjects !== undefined && item.worktreeCount !== undefined ? (
         <span data-chat-project data-chat-link-projects className="flex min-w-0 items-center gap-1">
-          <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" className="shrink-0 text-ink-3" />
+          <Icon icon={Link04Icon} size={12} className="shrink-0 text-ink-3" />
           <span className="truncate">{linkProjects === 1 ? "1 Project" : `${linkProjects} Projects`}</span>
         </span>
       ) : (
@@ -484,11 +489,9 @@ function InboxLine({
       shrink: true,
       node: (
         <span data-chat-computer className={`flex min-w-0 items-center gap-1 ${computer.offline ? "text-orange-ink" : ""}`}>
-          <HugeiconsIcon
+          <Icon
             icon={computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon}
             size={12}
-            strokeWidth={2}
-            color="currentColor"
             className={`shrink-0 ${computer.offline ? "" : "text-ink-3"}`}
           />
           <span className="truncate">{computer.offline ? `${computer.name}, offline` : computer.name}</span>
@@ -499,7 +502,7 @@ function InboxLine({
     <div
       data-chat-prs
       data-chat-line
-      className={`sidebar-copy pointer-events-none absolute left-[50px] right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
+      className={`sidebar-copy pointer-events-none absolute left-13 right-4 top-6.5 z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
     >
       {parts.map((part, index) => (
         <Fragment key={part.key}>
@@ -592,7 +595,7 @@ export const ChatRow = memo(function ChatRow({
   if (rowComputer)
     facts.push(
       <span key="computer" data-chat-computer className="flex min-w-0 shrink items-center gap-1 truncate">
-        <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+        <Icon icon={LaptopIcon} size={12} className="shrink-0" />
         {rowComputer.offline ? `${rowComputer.name}, offline` : rowComputer.name}
       </span>,
     );
@@ -609,7 +612,7 @@ export const ChatRow = memo(function ChatRow({
   if (branch)
     facts.push(
       <span key="branch" data-chat-branch className="flex min-w-0 shrink items-center gap-1 truncate">
-        <HugeiconsIcon icon={GitBranchIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+        <Icon icon={GitBranchIcon} size={12} className="shrink-0" />
         <span className="truncate">{branch}</span>
       </span>,
     );
@@ -621,14 +624,16 @@ export const ChatRow = memo(function ChatRow({
     );
   if (lastAt !== undefined)
     facts.push(
-      <span key="ago" data-chat-ago title={new Date(lastAt).toLocaleString()} className="shrink-0 tabular-nums">
-        {activityAgo(lastAt, now)}
-      </span>,
+      <Tooltip key="ago" label={new Date(lastAt).toLocaleString()} side="bottom" className="shrink-0">
+        <span data-chat-ago className="tabular-nums">
+          {activityAgo(lastAt, now)}
+        </span>
+      </Tooltip>,
     );
   if (projectName)
     facts.unshift(
       <span key="project" data-chat-project className="flex min-w-0 shrink items-center gap-1 truncate">
-        <HugeiconsIcon icon={Folder01Icon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+        <Icon icon={Folder01Icon} size={12} className="shrink-0" />
         <span className="truncate">{projectName}</span>
       </span>,
     );
@@ -714,7 +719,10 @@ export const ChatRow = memo(function ChatRow({
         }}
       >
         {renaming && inbox ? (
-          <div data-row className="sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-[8px] bg-hover-2 px-2 py-[7px]">
+          <div
+            data-row
+            className="sidebar-row relative z-10 mx-2 flex h-12 items-start gap-3 rounded-control bg-hover-2 px-2 py-1.5 focus-within:ring-2 focus-within:ring-accent focus-within:ring-inset"
+          >
             <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
             <RenameField
               inbox
@@ -726,7 +734,10 @@ export const ChatRow = memo(function ChatRow({
             />
           </div>
         ) : renaming ? (
-          <div data-row className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-[8px] bg-hover-2 px-2">
+          <div
+            data-row
+            className="sidebar-row relative z-10 mx-2 flex h-8 items-center rounded-control bg-hover-2 px-2 focus-within:ring-2 focus-within:ring-accent focus-within:ring-inset"
+          >
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} />
             <RenameField
               initial={item.label}
@@ -753,8 +764,8 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Archiving ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex h-[50px] items-start gap-2.5 rounded-[8px] px-2 py-[7px] text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
-              active ? "bg-hover-2" : "hover:bg-hover-2"
+            className={`sidebar-row relative z-10 mx-2 flex h-12 items-start gap-3 rounded-control px-2 py-1.5 text-left transition-[width,background-color,color,scale] duration-fast active:scale-press ${
+              active ? "bg-hover-2" : "hover:bg-hover-sidebar"
             } ${archiving ? "opacity-30" : ""}`}
           >
             <RowProjectIcon image={projectImage} initial={projectInitial ?? projectName} />
@@ -769,11 +780,11 @@ export const ChatRow = memo(function ChatRow({
             aria-busy={archiving || undefined}
             aria-label={archiving ? `Archiving ${item.label}` : undefined}
             aria-current={active ? "page" : undefined}
-            className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-[46px] items-start pt-1.5" : "h-8 items-center"} rounded-[8px] px-2 text-left transition-[width,background-color,color,transform] duration-150 active:scale-[0.98] ${
-              active ? "bg-hover-2" : "hover:bg-hover-2"
+            className={`sidebar-row relative z-10 mx-2 flex ${twoLines ? "h-12 items-start pt-1.5" : "h-8 items-center"} rounded-control px-2 text-left transition-[width,background-color,color,scale] duration-fast active:scale-press ${
+              active ? "bg-hover-2" : "hover:bg-hover-sidebar"
             } ${archiving ? "opacity-30" : ""}`}
           >
-            <span className="sidebar-chat-initials relative size-6 shrink-0 items-center justify-center rounded-[6px] bg-field text-[10px] font-semibold text-ink-2">
+            <span className="sidebar-chat-initials relative size-6 shrink-0 items-center justify-center rounded-chip bg-field text-10 font-semibold text-ink-2">
               {recentInitials(item.label)}
               {mark === "running" ? (
                 <span aria-hidden className="absolute -right-1 -top-1 flex rounded-full bg-surface p-px">
@@ -790,7 +801,7 @@ export const ChatRow = memo(function ChatRow({
             </span>
             <ChatMarkDot mark={mark} failed={item.details?.failed} background={item.background} topAligned={twoLines} />
             <span
-              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-150 ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
+              className={`sidebar-copy min-w-0 flex-1 truncate text-[length:calc(14px+var(--sidebar-delta))] ${prLines ? "leading-5" : ""} transition-[padding] duration-fast ${shortcutHint ? "pr-12" : "group-hover/row:pr-6"} ${menu ? "pr-6" : ""} ${
                 item.unread ? "font-semibold text-ink" : active ? "font-medium text-ink" : "font-medium text-ink-2"
               }`}
             >
@@ -801,20 +812,23 @@ export const ChatRow = memo(function ChatRow({
                     <ChatTitle label={item.label} />
                   </span>
                   {linked.length > 0 && (
-                    <span
-                      data-chat-linked
-                      role="img"
-                      aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-                      title={`Linked to ${linked.map((end) => end.label).join(", ")}`}
-                      className="flex shrink-0 font-normal text-ink-3"
-                    >
-                      <HugeiconsIcon icon={Link04Icon} size={12} strokeWidth={2} color="currentColor" />
-                    </span>
+                    <Tooltip label={`Linked to ${linked.map((end) => end.label).join(", ")}`} side="bottom" className="shrink-0">
+                      <span
+                        data-chat-linked
+                        role="img"
+                        aria-label={`Linked to ${linked.map((end) => end.label).join(", ")}`}
+                        className="flex font-normal text-ink-3"
+                      >
+                        <Icon icon={Link04Icon} size={12} />
+                      </span>
+                    </Tooltip>
                   )}
                   {item.heartbeat && (
-                    <span data-chat-heartbeat role="img" aria-label={item.heartbeat} title="Heartbeat" className="flex shrink-0 font-normal text-ink-3">
-                      <HugeiconsIcon icon={Pulse01Icon} size={12} strokeWidth={2} color="currentColor" />
-                    </span>
+                    <Tooltip label="Heartbeat" side="bottom" className="shrink-0">
+                      <span data-chat-heartbeat role="img" aria-label={item.heartbeat} className="flex font-normal text-ink-3">
+                        <Icon icon={Pulse01Icon} size={12} />
+                      </span>
+                    </Tooltip>
                   )}
                 </span>
               ) : (
@@ -887,9 +901,9 @@ export const ChatRow = memo(function ChatRow({
         {archiving && (
           // Over the whole row, its pull requests included: the row stays in place, faded and untouchable, until the archive ends.
           <div role="status" className="absolute inset-y-0 left-2 right-2 z-40 flex items-center justify-center">
-            <span className="flex h-6 items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink shadow-card">
+            <span className="flex h-6 items-center gap-1.5 rounded-full bg-surface px-2.5 text-12 font-medium text-ink shadow-card">
               <SpinnerRing size={12} />
-              {!collapsed && "Archiving..."}
+              {!collapsed && "Archiving…"}
             </span>
           </div>
         )}
@@ -906,11 +920,11 @@ export const ChatRow = memo(function ChatRow({
               if (menu) setMenu(null);
               else openMenu(rect.left, rect.bottom + 4);
             }}
-            className={`absolute right-3 ${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} z-20 flex size-6 items-center justify-center rounded-[6px] text-ink-3 transition-[opacity,background-color,color] duration-100 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100 ${
+            className={`absolute right-3 ${prLines ? "top-1" : "top-1/2 -translate-y-1/2"} z-20 flex size-6 items-center justify-center rounded-chip text-ink-3 transition-[opacity,background-color,color] duration-fast hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100 ${
               menu ? "bg-hover text-ink opacity-100" : "opacity-0"
             }`}
           >
-            <HugeIcon icon={MoreVerticalIcon} size={16} />
+            <Icon icon={MoreVerticalIcon} size={16} />
           </button>
         )}
 
@@ -965,7 +979,7 @@ export const ChatRow = memo(function ChatRow({
 
 /** Merged is purple, a blocked PR takes its first blocker's tone, running CI is orange like GitHub's own dot, other open PRs are green. */
 function prTone(pr: PullRequest) {
-  return { purple: "text-purple-500", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" }[pullRequestPresentation(pr).tone];
+  return { purple: "text-purple", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" }[pullRequestPresentation(pr).tone];
 }
 
 function prIcon(pr: PullRequest) {
@@ -979,20 +993,25 @@ const isChecking = (pr: PullRequest) => pullRequestPresentation(pr).checking;
 /** One PR under the chat's title. Only a chat's single PR has room to spell out its blocker or "Ready". */
 function LinearIssueChip({ issue, inbox = false }: { issue: LinearIssue; inbox?: boolean }) {
   return (
-    <button
-      type="button"
-      data-linear-issue-chip
-      title={inbox ? `${issueChipLabel(issue)} · ${issue.title}` : issue.title}
-      aria-label={`Open Linear issue ${issue.key}: ${issue.title}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        window.open(issue.url, "_blank", "noopener,noreferrer");
-      }}
-      className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "pointer-events-auto shrink-0 text-ink-2" : "text-ink-3"}`}
+    <Tooltip
+      label={inbox ? `${issueChipLabel(issue)} · ${issue.title}` : issue.title}
+      side="bottom"
+      className={inbox ? "pointer-events-auto shrink-0" : "min-w-0"}
     >
-      <LinearLogo size={11} />
-      <span className="truncate">{inbox ? issue.key : issueChipLabel(issue)}</span>
-    </button>
+      <button
+        type="button"
+        data-linear-issue-chip
+        aria-label={`Open Linear issue ${issue.key}: ${issue.title}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          window.open(issue.url, "_blank", "noopener,noreferrer");
+        }}
+        className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "pointer-events-auto shrink-0 text-ink-2" : "text-ink-3"}`}
+      >
+        <LinearLogo size={12} />
+        <span className="truncate">{inbox ? issue.key : issueChipLabel(issue)}</span>
+      </button>
+    </Tooltip>
   );
 }
 
@@ -1021,7 +1040,7 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
         rel="noopener noreferrer"
         aria-label={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${blocker ? `, ${BLOCKERS[blocker].short.toLowerCase()}` : readyToMerge ? ", ready to merge" : checking ? ", CI running" : ""}`}
         data-chat-pr
-        className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-sm text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
+        className={`group/pr inline-flex min-w-0 items-center gap-1 rounded-inline text-[length:calc(12px+var(--sidebar-delta))] leading-4 tabular-nums no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${inbox ? "text-ink-2" : "text-ink-3"}`}
         onClick={(event) => {
           event.stopPropagation();
           // A plain click on the Chat's own PR opens its panel; ⌘-click still opens GitHub.
@@ -1029,10 +1048,10 @@ function PullRequestChip({ pr, item, labelled, inbox = false }: { pr: PullReques
         }}
       >
         <span aria-hidden className={`inline-flex group-hover/pr:hidden group-focus-visible/pr:hidden ${prTone(pr)}`}>
-          <HugeIcon icon={prIcon(pr)} size={12} />
+          <Icon icon={prIcon(pr)} size={12} />
         </span>
         <span aria-hidden className="hidden group-hover/pr:inline-flex group-focus-visible/pr:inline-flex">
-          <HugeIcon icon={LinkSquare02Icon} size={12} />
+          <Icon icon={LinkSquare02Icon} size={12} />
         </span>
         <span className="truncate">#{pr.number}</span>
         {labelled && blocker && <span className={`shrink-0 ${toneClass[BLOCKERS[blocker].tone]}`}>{BLOCKERS[blocker].short}</span>}
@@ -1116,17 +1135,17 @@ function ChatHoverCard({
       aria-label={item.label}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      className="fixed z-[60] rounded-[12px] bg-surface p-3 shadow-overlay"
+      className="fixed z-[60] rounded-card bg-surface p-3 shadow-raised"
       style={{
         left: position.left,
         width: HOVER_CARD_WIDTH,
         ...(position.flip ? { bottom: position.top } : { top: position.top }),
-        animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both",
+        animation: "pop-in var(--duration-base) var(--ease-enter) both",
         transformOrigin: position.flip ? "bottom left" : "top left",
       }}
     >
-      <div className="line-clamp-3 text-[13.5px] font-semibold leading-snug text-ink">{item.label}</div>
-      <div className="mt-2 flex flex-col gap-1.5 text-[12.5px] text-ink-2">
+      <div className="line-clamp-3 text-13 font-semibold text-ink">{item.label}</div>
+      <div className="mt-2 flex flex-col gap-1.5 text-12 text-ink-2">
         {status && (
           <CardLine
             icon={
@@ -1139,7 +1158,7 @@ function ChatHoverCard({
           </CardLine>
         )}
         {item.heartbeat && (
-          <CardLine icon={<HugeiconsIcon icon={Pulse01Icon} size={14} strokeWidth={1.8} color="currentColor" />}>
+          <CardLine icon={<Icon icon={Pulse01Icon} size={14} />}>
             <span data-chat-card-heartbeat className="min-w-0 truncate">
               {item.heartbeat}
             </span>
@@ -1157,10 +1176,10 @@ function ChatHoverCard({
                   rel="noopener noreferrer"
                   data-chat-card-pr
                   onClick={onOpenLink}
-                  className="flex min-w-0 items-center gap-2 rounded-[6px] px-1 py-0.5 text-ink-2 no-underline hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                  className="flex min-w-0 items-center gap-2 rounded-chip px-1 py-0.5 text-ink-2 no-underline transition-colors duration-fast hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                 >
                   <span className={`flex size-4 shrink-0 items-center justify-center ${prTone(pr)}`}>
-                    <HugeIcon icon={prIcon(pr)} size={14} />
+                    <Icon icon={prIcon(pr)} size={14} />
                   </span>
                   <span className="min-w-0 flex-1 truncate leading-snug">
                     <span className="tabular-nums">#{pr.number}</span>
@@ -1177,46 +1196,42 @@ function ChatHoverCard({
         {details.ports?.length ? (
           <div data-chat-card-ports className="flex min-w-0 items-start gap-2">
             <span className="flex h-5 w-4 shrink-0 items-center justify-center text-ink-3">
-              <HugeIcon icon={EthernetPortIcon} size={14} />
+              <Icon icon={EthernetPortIcon} size={14} />
             </span>
             <span className="flex min-w-0 flex-wrap gap-1">
               {details.ports.map((port) => {
                 const computer = portComputer(port);
                 const url = portUrl(port);
-                const chip = "rounded-[6px] bg-hover px-1.5 py-0.5 font-mono text-[11.5px] tabular-nums text-ink-2";
+                const chip = "rounded-chip bg-hover px-1.5 py-0.5 font-mono text-11 tabular-nums text-ink-2";
                 // Another computer's port opens at its LAN or tailnet IP; one this Mac can't reach is shown, not linked.
                 return computer && !url ? (
-                  <span
-                    key={port.port}
-                    data-chat-card-port
-                    data-port-remote
-                    title={`${port.command} · ${unreachablePortReason(port, computer)}`}
-                    className={chip}
-                  >
-                    :{port.port} <span className="font-sans text-ink-3">on {computer}</span>
-                  </span>
+                  <Tooltip key={port.port} label={`${port.command} · ${unreachablePortReason(port, computer)}`} wrap>
+                    <span data-chat-card-port data-port-remote className={chip}>
+                      :{port.port} <span className="font-sans text-ink-3">on {computer}</span>
+                    </span>
+                  </Tooltip>
                 ) : (
-                  <a
-                    key={port.port}
-                    href={url ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-chat-card-port
-                    {...(computer ? { "data-port-remote": true } : {})}
-                    title={`${port.command} · open ${url}`}
-                    onClick={onOpenLink}
-                    className={`${chip} no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent`}
-                  >
-                    :{port.port}
-                    {computer ? <span className="font-sans text-ink-3"> on {computer}</span> : null}
-                  </a>
+                  <Tooltip key={port.port} label={`${port.command} · open ${url}`} wrap>
+                    <a
+                      href={url ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-chat-card-port
+                      {...(computer ? { "data-port-remote": true } : {})}
+                      onClick={onOpenLink}
+                      className={`${chip} no-underline hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent`}
+                    >
+                      :{port.port}
+                      {computer ? <span className="font-sans text-ink-3"> on {computer}</span> : null}
+                    </a>
+                  </Tooltip>
                 );
               })}
             </span>
           </div>
         ) : null}
         {details.diff && (
-          <CardLine icon={<HugeIcon icon={FileEditIcon} size={14} />}>
+          <CardLine icon={<Icon icon={FileEditIcon} size={14} />}>
             {details.diff.added === 0 && details.diff.removed === 0 ? (
               <span className="text-ink-3">No changes</span>
             ) : (
@@ -1228,12 +1243,12 @@ function ChatHoverCard({
           </CardLine>
         )}
         {details.branch && (
-          <CardLine icon={<HugeIcon icon={GitBranchIcon} size={14} />}>
+          <CardLine icon={<Icon icon={GitBranchIcon} size={14} />}>
             <span className="truncate">{details.branch}</span>
           </CardLine>
         )}
         {details.linearIssue && (
-          <CardLine icon={<LinearLogo size={13} />}>
+          <CardLine icon={<LinearLogo size={14} />}>
             <a
               href={details.linearIssue.url}
               target="_blank"
@@ -1247,24 +1262,24 @@ function ChatHoverCard({
           </CardLine>
         )}
         {details.linearKey && !(details.branch ?? "").toLowerCase().includes(details.linearKey.toLowerCase()) && (
-          <CardLine icon={<LinearLogo size={13} />}>
-            <span data-chat-card-link-hint className="min-w-0 whitespace-normal text-[12px] leading-snug text-ink-3">
+          <CardLine icon={<LinearLogo size={14} />}>
+            <span data-chat-card-link-hint className="min-w-0 whitespace-normal text-12 text-ink-3">
               {LINK_PR_HINT(details.linearKey)}
             </span>
           </CardLine>
         )}
         {details.path && (
-          <CardLine icon={<HugeIcon icon={Folder01Icon} size={14} />}>
+          <CardLine icon={<Icon icon={Folder01Icon} size={14} />}>
             <span className="truncate">{folderName(details.path)}</span>
           </CardLine>
         )}
         {linked.length > 0 && (
           <div data-chat-card-links className="flex min-w-0 items-start gap-2">
             <span className="flex h-[18px] w-4 shrink-0 items-center justify-center text-ink-3">
-              <HugeIcon icon={Link04Icon} size={14} />
+              <Icon icon={Link04Icon} size={14} />
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="text-[11.5px] text-ink-3">Linked with</span>
+              <span className="text-11 text-ink-3">Linked with</span>
               {linked.map((end) => (
                 <span key={end.linkId} data-chat-card-link className="truncate leading-snug">
                   {end.label}
@@ -1548,6 +1563,24 @@ function ChatMenu({
     }
   };
 
+  const menuRow = (entry: MenuEntry) => (
+    <button
+      key={entry.key}
+      data-menu-row
+      role="menuitem"
+      type="button"
+      disabled={entry.disabled}
+      onClick={entry.onSelect}
+      {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
+      className={`relative z-10 flex w-full items-center gap-2 rounded-control px-2 text-left focus-visible:bg-hover-2 focus-visible:-outline-offset-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red-ink" : "text-ink"}`}
+    >
+      <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
+        {entry.leading ?? (entry.icon && <Icon icon={entry.icon} size={16} />)}
+      </span>
+      <span className={`min-w-0 flex-1 text-13 ${entry.archiveChoice ? "leading-snug" : "truncate"}`}>{entry.label}</span>
+    </button>
+  );
+
   return createPortal(
     <div
       ref={menuRef}
@@ -1555,35 +1588,24 @@ function ChatMenu({
       aria-label={`Actions for ${item.label}`}
       data-chat-menu
       onKeyDown={moveFocus}
-      className="fixed z-[70] rounded-[12px] bg-surface p-1.5 shadow-overlay"
-      style={{ top, left: position.x, width: MENU_WIDTH, animation: "pop-in 160ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top left" }}
+      className="fixed z-[70] rounded-card bg-surface p-1.5 shadow-raised"
+      style={{ top, left: position.x, width: MENU_WIDTH, animation: "pop-in var(--duration-base) var(--ease-enter) both", transformOrigin: "top left" }}
     >
-      <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
+      <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover-2">
         {items.map((entry, index) =>
           entry === "divider" ? (
             <div key={`divider-${index}`} className="my-1 h-px bg-line" />
+          ) : entry.hint ? (
+            <Tooltip key={entry.key} label={entry.hint} wrap side="bottom" className="w-full">
+              {menuRow(entry)}
+            </Tooltip>
           ) : (
-            <button
-              key={entry.key}
-              data-menu-row
-              role="menuitem"
-              type="button"
-              disabled={entry.disabled}
-              title={entry.hint}
-              onClick={entry.onSelect}
-              {...(entry.archiveChoice ? { "data-archive-choice": true } : {})}
-              className={`relative z-10 flex w-full items-center gap-2 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40 ${entry.archiveChoice ? "min-h-8 py-1.5" : "h-8"} ${entry.danger ? "text-red-ink" : "text-ink"}`}
-            >
-              <span className={`flex size-5 shrink-0 items-center justify-center ${entry.danger ? "text-red-ink" : "text-ink-2"}`}>
-                {entry.leading ?? (entry.icon && <HugeIcon icon={entry.icon} size={16} />)}
-              </span>
-              <span className={`min-w-0 flex-1 text-[13px] ${entry.archiveChoice ? "leading-snug" : "truncate"}`}>{entry.label}</span>
-            </button>
+            menuRow(entry)
           ),
         )}
       </GlideMenu>
       {confirm?.reason && (
-        <p data-archive-reason className="px-2 pb-1 pt-1.5 text-[12px] leading-snug text-ink-3">
+        <p data-archive-reason className="px-2 pb-1 pt-1.5 text-12 text-ink-3">
           {confirm.reason}
         </p>
       )}

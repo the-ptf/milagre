@@ -32,7 +32,9 @@ import type { ArtifactRef } from "@milagre/shared/model";
 import { postDesignMessage, sendDesignMessageNow } from "./design-outbox";
 import { useSession } from "./session";
 import { useTheme } from "./theme";
-import { PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
+import { ErrorNotice, PillButton, PullDown, tap, useStyles, type MenuSection } from "./ui";
+import { confirmSheet } from "./confirm-store";
+import { lineHeight, type } from "./design-tokens";
 import { markDesignDeleted } from "./use-design-catalog";
 import { onShareAvailability } from "./share-availability";
 import { CommentBox, RoundButton, SendButton } from "./viewer-chrome";
@@ -374,8 +376,7 @@ export function DesignsSheet({
     close();
   };
   const remove = (design: Artifact) =>
-    Alert.alert(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [
-      { text: "Cancel", style: "cancel" },
+    confirmSheet(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [
       {
         text: "Delete",
         style: "destructive",
@@ -396,6 +397,7 @@ export function DesignsSheet({
             .catch((error: unknown) => Alert.alert("Could not delete the design", error instanceof Error ? error.message : String(error)));
         },
       },
+      { text: "Cancel", style: "cancel" },
     ]);
 
   const canvasMode = view.mode === "canvas";
@@ -441,7 +443,7 @@ export function DesignsSheet({
 
   return (
     <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.surface }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, height: 52, gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 52, gap: 8 }}>
         <View style={{ flexDirection: "row", gap: 8, width: 76 }}>
           {/* In the panel docked beside the Chat (an iPad), the panel's own button closes it. */}
           {!onClose && <RoundButton label="Close designs" icon={Cancel01Icon} onPress={close} />}
@@ -455,11 +457,11 @@ export function DesignsSheet({
           )}
         </View>
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: 14, fontWeight: "600" }}>
+          <Text accessibilityRole="header" numberOfLines={1} style={{ color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
             {title}
           </Text>
           {subtitle ? (
-            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: 12 }}>
+            <Text numberOfLines={1} style={{ color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 }}>
               {subtitle}
             </Text>
           ) : null}
@@ -477,20 +479,20 @@ export function DesignsSheet({
       </View>
       <View style={{ flex: 1 }}>
         {!matching ? (
-          <Text style={[styles.muted, { padding: 20 }]}>Reconnect to this Mac to open this page.</Text>
+          <Text style={[styles.muted, { padding: 16 }]}>Reconnect to this Mac to open this page.</Text>
         ) : feature.enabled !== true ? (
-          <View style={{ padding: 20, gap: 16 }}>
+          <View style={{ padding: 16, gap: 16 }}>
             <Text style={styles.muted}>
               {feature.enabled === false
                 ? "Designs is off for this Mac. Update Milagre on the Mac to use Designs."
-                : feature.error || "Checking whether Designs is available..."}
+                : feature.error || "Checking whether Designs is available…"}
             </Text>
             {feature.error && <PillButton title="Retry" onPress={() => void feature.refresh()} />}
           </View>
         ) : listError && !summaries ? (
-          <Text accessibilityRole="alert" style={{ color: colors.redInk, padding: 20 }}>
-            {listError}
-          </Text>
+          <View style={{ padding: 16 }}>
+            <ErrorNotice message={listError} />
+          </View>
         ) : (
           <>
             <DesignsCanvas ref={canvas} onMessage={onMessage} />
@@ -507,7 +509,7 @@ export function DesignsSheet({
         )}
         {composer && (
           <>
-            <Pressable accessibilityLabel="Close the comment" style={StyleSheet.absoluteFill} onPress={() => closeComposer()} />
+            <Pressable accessibilityRole="button" accessibilityLabel="Close the comment" style={StyleSheet.absoluteFill} onPress={() => closeComposer()} />
             {composer.at && (openNote || openSent) && (
               <CommentBox
                 at={composer.at}
@@ -594,9 +596,9 @@ function DesignsCanvas({ ref, onMessage }: { ref: React.Ref<DomWebViewRef>; onMe
   );
   if (crashed || !prepared)
     return (
-      <Text accessibilityRole="alert" style={{ color: colors.redInk, padding: 20 }}>
-        Could not prepare the designs.
-      </Text>
+      <View style={{ padding: 16 }}>
+        <ErrorNotice message="Could not prepare the designs." />
+      </View>
     );
   return (
     <DomWebView

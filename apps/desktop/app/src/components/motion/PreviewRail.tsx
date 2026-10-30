@@ -29,12 +29,12 @@ interface PreviewRailProps {
 
 function DefaultPreview({ item }: { item: PreviewRailItem }) {
   return (
-    <div data-slot="preview-rail-card" className="rounded-xl border border-line bg-surface p-3 shadow-raised">
-      <p data-slot="preview-rail-title" className="font-medium text-ink">
+    <div data-slot="preview-rail-card" className="rounded-card bg-surface p-3 shadow-raised">
+      <p data-slot="preview-rail-title" className="text-13 font-medium text-ink">
         {item.label}
       </p>
       {item.description ? (
-        <div data-slot="preview-rail-description" className="mt-1 text-sm leading-5 text-ink-2">
+        <div data-slot="preview-rail-description" className="mt-1 text-13 text-ink-2">
           {item.description}
         </div>
       ) : null}

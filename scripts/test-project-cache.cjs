@@ -99,6 +99,12 @@ export const Field = ({value, onChangeText, label}) => <input aria-label={label}
 export const IconButton = ({label, onPress}) => <button aria-label={label} onClick={onPress} />;
 export const PageScroll = ({children}) => <div>{children}</div>;
 export const PullDown = ({children, label, onPress}) => <div role="button" aria-label={label} onClick={onPress}>{children}</div>;
+export const SectionLabel = ({children}) => <span>{children}</span>;
+export const Toast = ({text}) => <span>{text}</span>;
+export const DISABLED_OPACITY = { row: 0.4 };
+export const pressStyle = () => ({});
+export const announce = () => {};
+export const useAnnounce = () => {};
 `;
 const stubs = {
   "react-native": native,

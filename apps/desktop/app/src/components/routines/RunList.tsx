@@ -1,5 +1,4 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
   ArrowRight01Icon,
@@ -15,6 +14,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { RoutineRun } from "@milagre/shared/model";
 import { clock, daySummary, foldText, foldTimes, runDays, runTitle, type RunEntry } from "@milagre/shared/routines";
+import { Button } from "../primitives/Button";
+import { Icon as Glyph } from "../primitives/Icon";
+import { SectionLabel } from "../primitives/SectionLabel";
+import { SpinnerRing } from "../primitives/SpinnerRing";
 
 type HugeIconData = typeof CheckmarkCircle02Icon;
 
@@ -51,9 +54,7 @@ function foldedLine(run: RoutineRun): { icon: HugeIconData; text: string } {
 }
 
 const Icon = ({ icon, spin = false, className }: { icon: HugeIconData; spin?: boolean; className: string }) => (
-  <span className={`flex size-5 shrink-0 items-center justify-center ${className}`}>
-    <HugeiconsIcon icon={icon} size={15} strokeWidth={1.8} color="currentColor" className={spin ? "animate-spin motion-reduce:animate-none" : undefined} />
-  </span>
+  <span className={`flex size-5 shrink-0 items-center justify-center ${className}`}>{spin ? <SpinnerRing size={14} /> : <Glyph icon={icon} size={16} />}</span>
 );
 
 /**
@@ -88,23 +89,23 @@ function Row({
 } & Record<`data-${string}`, string | boolean | undefined>) {
   const body = (
     <>
-      <span className="w-[84px] shrink-0 text-[12.5px] text-ink-3 tabular-nums">{time}</span>
+      <span className="w-[84px] shrink-0 text-12 text-ink-3 tabular-nums">{time}</span>
       {icon}
-      <span className={`min-w-0 flex-1 truncate text-[13px] ${red ? "text-red-ink" : muted ? "text-ink-2" : "font-medium text-ink"}`} title={title ?? text}>
+      <span className={`min-w-0 flex-1 truncate text-13 ${red ? "text-red-ink" : muted ? "text-ink-2" : "font-medium text-ink"}`} title={title ?? text}>
         {text}
       </span>
       {unread && <span role="img" aria-label="Unread" data-run-unread className="size-2 shrink-0 rounded-full bg-accent" />}
       {trailing}
     </>
   );
-  const shape = `flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left ${selected ? "bg-field" : ""}`;
+  const shape = `flex h-9 w-full items-center gap-2 rounded-control px-2 text-left ${selected ? "bg-hover-2" : ""}`;
   return onClick ? (
     <button
       type="button"
       onClick={onClick}
       aria-expanded={expanded}
       aria-current={selected || undefined}
-      className={`${shape} transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none`}
+      className={`${shape} transition-colors duration-fast hover:bg-hover focus-visible:bg-hover focus-visible:-outline-offset-2`}
       {...data}
     >
       {body}
@@ -116,10 +117,8 @@ function Row({
   );
 }
 
-const chevron = <HugeiconsIcon icon={ArrowRight01Icon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0 text-ink-3" />;
-const unfold = (open: boolean) => (
-  <HugeiconsIcon icon={open ? UnfoldLessIcon : UnfoldMoreIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0 text-ink-3" />
-);
+const chevron = <Glyph icon={ArrowRight01Icon} size={14} className="shrink-0 text-ink-3" />;
+const unfold = (open: boolean) => <Glyph icon={open ? UnfoldLessIcon : UnfoldMoreIcon} size={14} className="shrink-0 text-ink-3" />;
 
 /**
  * A Routine's Runs, newest first, grouped by day under small headings (Today, Yesterday, Thu, Oct 16). A Run that did
@@ -227,7 +226,9 @@ export function RunList({
         const open = day.recent || expanded.has(`day:${day.key}`);
         return (
           <section key={day.key} data-run-day={day.label} className="pt-3 first:pt-0">
-            <h3 className="px-2 pb-1 text-[11px] font-semibold tracking-[0.06em] text-ink-3 uppercase">{day.label}</h3>
+            <SectionLabel as="h3" className="px-2 pb-1">
+              {day.label}
+            </SectionLabel>
             {!day.recent && (
               <Row
                 data-run-day-summary={day.label}
@@ -246,16 +247,11 @@ export function RunList({
       })}
       <div className="mt-4 flex items-center gap-3 px-2">
         {days.length > shownDays && (
-          <button
-            type="button"
-            data-run-earlier
-            onClick={() => setShownDays((count) => count + MORE_DAYS)}
-            className="inline-flex h-7 shrink-0 items-center rounded-lg border border-line-strong bg-surface px-3 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover"
-          >
+          <Button variant="secondary" size={28} data-run-earlier onClick={() => setShownDays((count) => count + MORE_DAYS)}>
             Show earlier days
-          </button>
+          </Button>
         )}
-        <span className="ml-auto text-[12px] text-ink-3">Keeps the newest 50 Runs that acted</span>
+        <span className="ml-auto text-12 text-ink-3">Keeps the newest 50 Runs that acted</span>
       </div>
     </div>
   );

@@ -15,7 +15,8 @@ import { EffortSlider } from "../effort-slider";
 import { UltracodeFatality } from "../ultracode-fatality";
 import { ultraRumble } from "../ultra-haptics";
 import { useUltracodeFatality } from "../ultracode-fatality-setting";
-import { CircleButton, useStyles } from "../ui";
+import { CircleButton, SectionLabel, SheetHeader, pressStyle, useSheetBottomInset, useStyles } from "../ui";
+import { lineHeight, radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 /** The model's context window as the picker shows it: "1M", "272k". */
@@ -29,6 +30,7 @@ function contextLabel(model: { provider: ModelProvider; id: string }) {
 export default function ModelSheet() {
   const { colors } = useTheme();
   const styles = useStyles();
+  const bottomInset = useSheetBottomInset();
   const params = useLocalSearchParams<{ chatId: string; model?: string; provider?: string; on?: string; busy?: string }>();
   const session = useSession();
   const composer = useComposer();
@@ -89,29 +91,18 @@ export default function ModelSheet() {
         scrollIndicatorInsets={{ bottom: hasSettings ? panelHeight : 0 }}
       >
         <View style={{ backgroundColor: colors.page }}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 8,
-              backgroundColor: colors.page,
-            }}
-          >
-            <CircleButton label="Cancel" icon={Cancel01Icon} onPress={() => close(false)} />
-            <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-              Model
-            </Text>
-            <CircleButton label="Done" icon={Tick02Icon} filled onPress={() => close(true)} />
-          </View>
+          <SheetHeader
+            title="Model"
+            style={{ backgroundColor: colors.page }}
+            leading={<CircleButton label="Cancel" icon={Cancel01Icon} onPress={() => close(false)} />}
+            trailing={<CircleButton label="Done" icon={Tick02Icon} filled onPress={() => close(true)} />}
+          />
           <ScrollView
             horizontal
             accessibilityRole="tablist"
             showsHorizontalScrollIndicator={false}
             style={{ backgroundColor: colors.page }}
-            contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 }}
+            contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 }}
           >
             {pickerProviders(session.cliStatus, initial.provider, draft.provider).map((provider) => {
               const on = provider === draft.provider;
@@ -122,27 +113,38 @@ export default function ModelSheet() {
                   accessibilityRole="tab"
                   accessibilityLabel={providerName(provider)}
                   accessibilityState={{ selected: on }}
+                  hitSlop={6}
                   onPress={() => setDraft((current) => ({ ...current, provider, model: "", fastMode: false, ultracode: false }))}
-                  style={({ pressed }) => ({
-                    height: 34,
-                    paddingHorizontal: 13,
-                    borderRadius: 17,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    backgroundColor: on ? colors.ink : colors.surface,
-                    opacity: pressed ? 0.7 : 1,
-                  })}
+                  // The Chip look (32 tall, 44 with hitSlop), kept as a tab: these switch the list below.
+                  style={({ pressed }) => [
+                    {
+                      minHeight: 32,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.full,
+                      borderCurve: "continuous",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      backgroundColor: on ? colors.ink : colors.surface,
+                      borderWidth: on ? 0 : 1,
+                      borderColor: colors.lineStrong,
+                    },
+                    pressStyle({ pressed }),
+                  ]}
                 >
-                  <ProviderLogo provider={provider} size={14} inverted={on} />
-                  <Text style={{ color: on ? colors.page : colors.ink2, fontSize: 14, fontWeight: "500" }}>{providerName(provider)}</Text>
-                  {problem && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.orange }} />}
+                  <ProviderLogo provider={provider} size={16} inverted={on} />
+                  <Text
+                    style={{ color: on ? colors.onInk : colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: on ? "600" : "500" }}
+                  >
+                    {providerName(provider)}
+                  </Text>
+                  {problem && <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} />}
                 </Pressable>
               );
             })}
           </ScrollView>
         </View>
-        <View style={{ paddingHorizontal: 16 }}>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Model" style={{ paddingHorizontal: 16 }}>
           {busy && <Text style={[styles.caption, { paddingBottom: 8 }]}>Changes apply to your next message. This turn keeps its settings.</Text>}
           {cli && cli.state !== "ready" && (
             <Text style={[styles.caption, { color: colors.orangeInk, paddingBottom: 8 }]}>
@@ -154,27 +156,35 @@ export default function ModelSheet() {
               {index > 0 && <View style={styles.separator} />}
               <Pressable
                 accessibilityRole="radio"
+                accessibilityLabel={item.description ? `${item.name}. ${item.description}` : item.name}
                 accessibilityState={{ checked: item.id === model.id }}
                 onPress={() => setDraft((current) => ({ ...current, model: item.id }))}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, opacity: pressed ? 0.5 : 1 })}
+                style={({ pressed }) => [
+                  { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, minHeight: item.description ? 56 : 44 },
+                  pressStyle({ pressed, kind: "row" }),
+                ]}
               >
                 <ProviderLogo provider={item.provider} size={16} />
-                <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flex: 1, gap: 4 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <Text style={{ color: colors.ink, fontSize: 15, fontWeight: "500", flexShrink: 1 }}>{item.name}</Text>
+                    <Text style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500", flexShrink: 1 }}>
+                      {item.name}
+                    </Text>
                     {!!contextLabel(item) && (
                       <Text
                         accessibilityLabel={`${contextLabel(item)} context window`}
                         style={{
                           color: colors.ink3,
-                          fontSize: 11,
+                          fontSize: type.caption2,
+                          lineHeight: lineHeight.caption2,
                           fontWeight: "500",
                           fontVariant: ["tabular-nums"],
                           borderWidth: StyleSheet.hairlineWidth,
                           borderColor: colors.lineStrong,
-                          borderRadius: 5,
+                          borderRadius: radius.chip,
+                          borderCurve: "continuous",
                           paddingHorizontal: 4,
-                          paddingVertical: 1,
+                          paddingVertical: 2,
                           overflow: "hidden",
                         }}
                       >
@@ -184,7 +194,7 @@ export default function ModelSheet() {
                   </View>
                   {!!item.description && <Text style={styles.caption}>{item.description}</Text>}
                 </View>
-                {item.id === model.id && <Icon icon={Tick02Icon} tone="ink" size={18} strokeWidth={2.2} />}
+                {item.id === model.id && <Icon icon={Tick02Icon} tone="accent" size={18} />}
               </Pressable>
             </View>
           ))}
@@ -202,14 +212,14 @@ export default function ModelSheet() {
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: colors.line,
             paddingHorizontal: 16,
-            paddingTop: 14,
-            paddingBottom: 34,
-            gap: 14,
+            paddingTop: 16,
+            paddingBottom: bottomInset,
+            gap: 16,
           }}
         >
           {levels.length > 0 && effort && (
             <View style={{ gap: 8 }}>
-              <Text style={styles.section}>Thinking effort</Text>
+              <SectionLabel>Thinking effort</SectionLabel>
               {levels.length > 1 && (
                 <>
                   <EffortSlider
@@ -293,7 +303,7 @@ function SettingTile({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const ink = tone === "purple" ? colors.purpleInk : colors.orange;
+  const ink = tone === "purple" ? colors.purpleInk : colors.orangeInk;
   return (
     <Pressable
       accessibilityRole="switch"
@@ -301,21 +311,24 @@ function SettingTile({
       accessibilityHint={detail}
       accessibilityState={{ checked: value }}
       onPress={() => onChange(!value)}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 11,
-        paddingVertical: 11,
-        paddingHorizontal: 14,
-        borderRadius: 13,
-        borderCurve: "continuous",
-        backgroundColor: value ? (tone === "purple" ? colors.purpleTint : colors.orangeTint) : colors.surface,
-        opacity: pressed ? 0.7 : 1,
-      })}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          minHeight: 56,
+          borderRadius: radius.card,
+          borderCurve: "continuous",
+          backgroundColor: value ? (tone === "purple" ? colors.purpleTint : colors.orangeTint) : colors.surface,
+        },
+        pressStyle({ pressed }),
+      ]}
     >
       <Icon icon={icon} tone={value ? (tone === "purple" ? "purpleInk" : "orange") : "ink2"} size={18} />
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: value ? ink : colors.ink, fontSize: 15, fontWeight: "600" }}>{title}</Text>
+        <Text style={{ color: value ? ink : colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>{title}</Text>
         <Text style={styles.caption}>{detail}</Text>
       </View>
     </Pressable>

@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { TextInput, View } from "react-native";
 import { router } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { Cancel01Icon, Copy01Icon } from "@hugeicons/core-free-icons";
 import { selectableText } from "../select-text-store";
-import { CircleButton, useStyles } from "../ui";
+import { CircleButton, SheetHeader, useStyles } from "../ui";
 import { useTheme } from "../theme";
 import { tap } from "../primitives/tap";
 
@@ -18,20 +18,20 @@ export default function SelectTextSheet() {
   const [text] = useState(selectableText);
   return (
     <View style={[styles.screen, { flex: 1 }]}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
-        <CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />
-        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 17, fontWeight: "600" }}>
-          Select text
-        </Text>
-        <CircleButton
-          label="Copy all"
-          icon={Copy01Icon}
-          onPress={() => {
-            tap();
-            void Clipboard.setStringAsync(text).then(() => router.back());
-          }}
-        />
-      </View>
+      <SheetHeader
+        title="Select text"
+        leading={<CircleButton label="Close" icon={Cancel01Icon} onPress={() => router.back()} />}
+        trailing={
+          <CircleButton
+            label="Copy all"
+            icon={Copy01Icon}
+            onPress={() => {
+              tap();
+              void Clipboard.setStringAsync(text).then(() => router.back());
+            }}
+          />
+        }
+      />
       <TextInput
         value={text}
         editable={false}
@@ -43,7 +43,7 @@ export default function SelectTextSheet() {
           color: colors.ink,
           fontSize: textPx,
           lineHeight: Math.round(textPx * 1.4667),
-          paddingHorizontal: 20,
+          paddingHorizontal: 16,
           paddingTop: 8,
           paddingBottom: 40,
           textAlignVertical: "top",

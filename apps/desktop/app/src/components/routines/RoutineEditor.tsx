@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   BubbleChatIcon,
   Clock01Icon,
@@ -20,6 +19,11 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import { PROMPT_PLACEHOLDER, firstRunAt, promptHint, type RoutineFormState } from "@milagre/shared/routine-form";
 import { Select } from "../primitives/Select";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Button } from "../primitives/Button";
+import { Checkbox } from "../primitives/Checkbox";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
+import { SectionLabel } from "../primitives/SectionLabel";
 import { PlaceholderTextarea } from "./PlaceholderTextarea";
 import { Chip, PopoverChip, Segmented } from "./RoutineChips";
 import { timezones, useRoutineForm, type RoutineFormApi } from "./use-routine-form";
@@ -27,11 +31,9 @@ import { routineIcon } from "./routine-icon";
 import { routineDeleteWarning, type RoutineWithRuns } from "../../lib/routines";
 import { bridgeForKey } from "../../lib/computer-bridge";
 
-const field = "w-full rounded-lg border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-ink focus:ring-1 focus:ring-ink";
-const labelClass = "block text-[12.5px] font-medium text-ink-2";
-const smallButton =
-  "inline-flex h-7 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 text-[12px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-40";
-const headerButton = "inline-flex h-[30px] shrink-0 items-center rounded-lg px-3 text-[13px] font-medium transition-colors disabled:opacity-40";
+// The field's border colour comes from the caller (line-strong, or red when invalid); focus is the accent border.
+const field = "w-full rounded-control border bg-field px-2.5 py-2 text-13 text-ink outline-none transition-colors duration-fast focus:border-accent";
+const labelClass = "block text-12 font-medium text-ink-2";
 const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_MS = 864e5;
@@ -49,11 +51,10 @@ function dateAt(value: string): number | null {
 }
 
 function FieldError({ text }: { text?: string }) {
-  if (!text) return null;
   return (
-    <p role="alert" data-routine-error className="text-[12px] break-words text-red-ink">
+    <InlineError size={12} data-routine-error>
       {text}
-    </p>
+    </InlineError>
   );
 }
 
@@ -150,7 +151,7 @@ function SchedulePanel({ form }: { form: RoutineFormApi }) {
                       aria-label={DAY_NAMES[index]}
                       aria-pressed={on}
                       onClick={() => set({ days: on ? schedule.days.filter((entry) => entry !== index) : [...schedule.days, index] })}
-                      className={`size-7 rounded-lg text-[12px] font-medium transition-colors ${on ? "bg-ink text-surface" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"}`}
+                      className={`size-7 rounded-control text-12 font-medium transition-colors duration-fast ${on ? "bg-ink text-on-ink" : "border border-line-strong bg-surface text-ink-2 hover:bg-hover"}`}
                     >
                       {day}
                     </button>
@@ -317,33 +318,33 @@ export function HookUrl({ url, form, editing }: { url: string | null; form?: Rou
   };
   const shownCopied = form ? form.copied : copied;
   return (
-    <div data-routine-hook className="space-y-2 rounded-[10px] border border-line bg-field px-3 py-2.5">
+    <div data-routine-hook className="space-y-2 rounded-card border border-line bg-field px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink" title={url ?? undefined}>
+        <span className="min-w-0 flex-1 truncate font-mono text-12 text-ink" title={url ?? undefined}>
           {url ?? (!editing ? "The URL appears after you create the Routine." : "Reading the URL…")}
         </span>
         {url && (
-          <button type="button" data-routine-hook-copy className={smallButton} onClick={() => copy(url)}>
-            <HugeiconsIcon icon={shownCopied ? Tick02Icon : Copy01Icon} size={13} strokeWidth={1.8} color="currentColor" />
+          <Button variant="secondary" size={28} data-routine-hook-copy onClick={() => copy(url)}>
+            <Icon icon={shownCopied ? Tick02Icon : Copy01Icon} size={14} />
             {shownCopied ? "Copied" : "Copy"}
-          </button>
+          </Button>
         )}
         {url && editing && form && !form.rotating && (
-          <button type="button" data-routine-hook-rotate className={smallButton} onClick={() => form.setRotating(true)}>
-            <HugeiconsIcon icon={RefreshIcon} size={13} strokeWidth={1.8} color="currentColor" />
+          <Button variant="secondary" size={28} data-routine-hook-rotate onClick={() => form.setRotating(true)}>
+            <Icon icon={RefreshIcon} size={14} />
             Rotate
-          </button>
+          </Button>
         )}
       </div>
       {form?.rotating && (
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 text-[12px] text-ink">The old URL stops working at once.</span>
-          <button type="button" className={smallButton} onClick={() => form.setRotating(false)}>
+          <span className="min-w-0 flex-1 text-12 text-ink">The old URL stops working at once.</span>
+          <Button variant="secondary" size={28} onClick={() => form.setRotating(false)}>
             Cancel
-          </button>
-          <button type="button" data-routine-hook-rotate-confirm className={`${smallButton} border-red/30 text-red-ink`} onClick={() => void form.rotate()}>
+          </Button>
+          <Button variant="danger" size={28} data-routine-hook-rotate-confirm onClick={() => void form.rotate()}>
             Rotate
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -379,11 +380,10 @@ function WebhookRows({ form, initial }: { form: RoutineFormApi; initial?: Routin
         </Labeled>
       </div>
       {initial?.trigger.kind === "webhook" && initial.trigger.signed && (
-        <label className="flex items-center gap-2 text-[12px] text-ink-2">
-          <input
-            type="checkbox"
+        <label className="flex items-center gap-2 text-12 text-ink-2">
+          <Checkbox
             checked={state.webhook.signed}
-            onChange={(event) => update({ webhook: { ...state.webhook, signed: event.target.checked, signingSecret: "" } })}
+            onCheckedChange={(checked) => update({ webhook: { ...state.webhook, signed: checked === true, signingSecret: "" } })}
           />
           Check the signature
         </label>
@@ -468,8 +468,8 @@ export function RoutineEditor({
         setDeleteError(ipcErrorMessage(failure));
       });
   };
-  const modelIcon = <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
-  const modeIcon = <HugeiconsIcon icon={SecurityCheckIcon} size={14} strokeWidth={1.8} color="currentColor" className="shrink-0" />;
+  const modelIcon = <Icon icon={SparklesIcon} size={14} className="shrink-0" />;
+  const modeIcon = <Icon icon={SecurityCheckIcon} size={14} className="shrink-0" />;
   const whereIcon = form.heartbeat ? BubbleChatIcon : state.runIn === "worktree" ? GitBranchIcon : Folder01Icon;
   const triggerIcon = initial ? routineIcon(initial) : state.trigger === "linear" ? Tag01Icon : state.trigger === "webhook" ? WebhookIcon : Clock01Icon;
   const first = firstRunAt(state, now);
@@ -498,21 +498,16 @@ export function RoutineEditor({
             ref={nameInput}
             aria-label="Name"
             placeholder="Name this Routine"
-            className={`h-10 min-w-0 flex-1 rounded-lg border bg-surface px-3 text-[20px] font-semibold tracking-[-0.01em] text-ink outline-none placeholder:font-medium placeholder:text-ink-3 ${errors.name ? "border-red" : "border-accent"}`}
+            className={`h-10 min-w-0 flex-1 rounded-control border bg-surface px-3 text-22 font-semibold tracking-[-0.02em] text-ink outline-none transition-colors duration-fast placeholder:font-medium placeholder:text-ink-3 focus:border-accent ${errors.name ? "border-red" : "border-line-strong"}`}
             value={state.name}
             onChange={(event) => update({ name: event.target.value })}
           />
-          <button type="button" data-routine-cancel className={`${headerButton} border border-line-strong bg-surface text-ink hover:bg-hover`} onClick={cancel}>
+          <Button variant="secondary" data-routine-cancel onClick={cancel}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            data-routine-save
-            className={`${headerButton} bg-ink text-surface hover:opacity-90`}
-            disabled={form.busy || created || (!editing && !form.ready)}
-          >
+          </Button>
+          <Button type="submit" data-routine-save disabled={form.busy || created || (!editing && !form.ready)}>
             {form.busy ? "Saving…" : created ? "Created" : editing ? "Save" : "Create Routine"}
-          </button>
+          </Button>
         </div>
         <FieldError text={errors.name} />
         {discard && (
@@ -520,27 +515,23 @@ export function RoutineEditor({
             role="alertdialog"
             aria-label="Discard changes"
             data-routine-discard
-            className="mt-3 flex items-center gap-3 rounded-xl border border-line px-4 py-2.5"
+            className="mt-3 flex items-center gap-3 rounded-card border border-line px-4 py-2"
           >
-            <span className="min-w-0 flex-1 text-[12.5px] text-ink">Discard your changes to this Routine?</span>
-            <button type="button" data-routine-discard-keep className={smallButton} onClick={discard.onKeep}>
+            <span className="min-w-0 flex-1 text-13 text-ink">Discard your changes to this Routine?</span>
+            <Button variant="secondary" size={28} data-routine-discard-keep onClick={discard.onKeep}>
               Keep editing
-            </button>
-            <button type="button" data-routine-discard-confirm className={`${smallButton} border-red/30 text-red-ink`} onClick={discard.onDiscard}>
+            </Button>
+            <Button variant="danger" size={28} data-routine-discard-confirm onClick={discard.onDiscard}>
               Discard
-            </button>
+            </Button>
           </div>
         )}
-        {error && (
-          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red-ink">
-            {error}
-          </p>
-        )}
-        {form.topError && (
-          <p role="alert" data-routine-top-error className="mt-3 text-[12.5px] break-words text-red-ink">
-            {form.topError}
-          </p>
-        )}
+        <InlineError data-routine-top-error className="mt-3">
+          {error}
+        </InlineError>
+        <InlineError data-routine-top-error className="mt-3">
+          {form.topError}
+        </InlineError>
 
         {!editing && (
           <div className="mt-5 space-y-1.5">
@@ -603,7 +594,7 @@ export function RoutineEditor({
           <div className="mt-3">{state.trigger === "linear" ? <LinearRows form={form} /> : <WebhookRows form={form} initial={initial} />}</div>
         )}
         {comment && (
-          <p data-routine-comment-note className="mt-3 text-[12.5px] text-ink-2">
+          <p data-routine-comment-note className="mt-3 text-12 text-ink-2">
             Comments go into the Chat linked to the issue.
           </p>
         )}
@@ -619,7 +610,7 @@ export function RoutineEditor({
             placeholder={PROMPT_PLACEHOLDER}
             rows={5}
           />
-          <p data-routine-prompt-hint className="text-[12px] text-ink-3">
+          <p data-routine-prompt-hint className="text-12 text-ink-3">
             {promptHint(state.trigger)}
           </p>
           <FieldError text={errors.prompt} />
@@ -667,29 +658,30 @@ export function RoutineEditor({
         </div>
 
         {initial && (
-          <div data-routine-delete className="mt-8 flex min-h-12 items-center gap-3 rounded-xl border border-line px-4 py-2.5">
-            <span className="min-w-0 flex-1 text-[12.5px] text-ink-2">
+          <div data-routine-delete className="mt-8 flex min-h-12 items-center gap-3 rounded-card border border-line px-4 py-2">
+            <span className="min-w-0 flex-1 text-12 text-ink-2">
               {confirming ? `Delete ${initial.name}? ${routineDeleteWarning(initial)}` : routineDeleteWarning(initial)}
             </span>
             {confirming ? (
               <>
-                <button type="button" className={smallButton} onClick={() => setConfirming(false)}>
+                <Button variant="secondary" size={28} onClick={() => setConfirming(false)}>
                   Cancel
-                </button>
-                <button type="button" data-routine-delete-confirm className={`${smallButton} border-red/30 text-red-ink`} onClick={remove}>
+                </Button>
+                <Button variant="danger" size={28} data-routine-delete-confirm onClick={remove}>
                   Delete
-                </button>
+                </Button>
               </>
             ) : (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size={28}
                 data-routine-delete-start
                 onClick={() => setConfirming(true)}
-                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-red-ink transition-colors hover:bg-red-tint"
+                className="text-red-ink enabled:hover:bg-red-tint"
               >
-                <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.8} color="currentColor" />
+                <Icon icon={Delete02Icon} size={14} />
                 Delete Routine
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -697,8 +689,8 @@ export function RoutineEditor({
 
         {!editing && (
           <section data-routine-runs-placeholder className="mt-8 space-y-1.5">
-            <h2 className="text-[13px] font-semibold text-ink-3">Runs</h2>
-            <p className="text-[12.5px] text-ink-3">
+            <SectionLabel>Runs</SectionLabel>
+            <p className="text-12 text-ink-3">
               Runs show here once the Routine is created.
               {state.trigger === "schedule" && first !== null ? ` The first one starts at ${clock(first)}.` : ""}
             </p>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
@@ -30,6 +29,8 @@ import Tooltip from "../primitives/Tooltip";
 import type { DiffList } from "./useDiffFiles";
 import { useRefreshSpin } from "./useRefreshSpin";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Icon } from "../primitives/Icon";
+import { Button, IconButton } from "../primitives/Button";
 
 const STATUS = {
   added: { letter: "A", label: "Added", className: "bg-green-tint text-diff-add" },
@@ -40,7 +41,7 @@ const STATUS = {
 
 export function Counts({ added, removed, className = "", total = false }: { added: number; removed: number; className?: string; total?: boolean }) {
   return (
-    <span data-diff-counts={total ? "total" : ""} className={`flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums ${className}`}>
+    <span data-diff-counts={total ? "total" : ""} className={`flex shrink-0 items-center gap-1.5 font-mono text-11 tabular-nums ${className}`}>
       <span className="text-diff-add">+{added}</span>
       <span className="text-diff-remove">−{removed}</span>
     </span>
@@ -53,7 +54,7 @@ export function StatusBox({ status }: { status: DiffFileEntry["status"] }) {
     <span
       aria-label={label}
       data-status={letter}
-      className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] font-mono text-[10px] font-semibold ${className}`}
+      className={`flex size-4 shrink-0 items-center justify-center rounded-inline font-mono text-10 font-semibold ${className}`}
     >
       {letter}
     </span>
@@ -174,7 +175,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
   const data = c.data?.isRepo ? c.data : undefined;
   const base = branchName(data?.comparisonRef || c.selected || data?.base || "Automatic");
   const current = data?.branch ?? data?.head?.slice(0, 8) ?? (c.data ? "HEAD" : "…");
-  const icon = (remote: boolean) => <HugeiconsIcon icon={remote ? CloudIcon : GitBranchIcon} size={14} className="shrink-0 text-ink-3" />;
+  const icon = (remote: boolean) => <Icon icon={remote ? CloudIcon : GitBranchIcon} size={14} className="shrink-0 text-ink-3" />;
   const options = comparisonOptions(data).map((option) => ({
     ...option,
     wrapLabel: true,
@@ -184,7 +185,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
   const fallback = data?.projectDefault;
   return (
     <div className="@container border-b border-line" data-comparison-controls>
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-[12px] text-ink-3">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-12 text-ink-3">
         <Select
           label="Comparison branch"
           value={c.selected}
@@ -195,11 +196,11 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
           variant="chip"
           triggerClassName="min-w-[64px] max-w-[50%] shrink"
         />
-        <HugeiconsIcon icon={ArrowLeft01Icon} size={14} className="hidden shrink-0 @[300px]:block" />
+        <Icon icon={ArrowLeft01Icon} size={14} className="hidden shrink-0 @[300px]:block" />
         <span className="flex min-w-0 flex-1 items-center gap-1.5" aria-label={`Current branch: ${data?.branch ?? `detached HEAD ${current}`}`}>
-          <HugeiconsIcon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
+          <Icon icon={data?.branch ? GitBranchIcon : GitCommitIcon} size={14} className="hidden shrink-0 @[300px]:block" />
           <BranchLabel name={current} />
-          {data && !data.branch && <span className="shrink-0 rounded bg-hover px-1 text-[10px]">detached</span>}
+          {data && !data.branch && <span className="shrink-0 rounded-inline bg-hover px-1 text-10">detached</span>}
         </span>
       </div>
       <div className="flex gap-5 px-3" aria-label="Changes view" role="tablist" onKeyDown={moveTab}>
@@ -212,7 +213,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
             tabIndex={c.view === view ? 0 : -1}
             data-comparison-view={view}
             onClick={() => c.setView(view)}
-            className={`flex items-center gap-1.5 border-b-2 py-2 text-[12px] ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
+            className={`flex items-center gap-1.5 border-b-2 py-2 text-12 transition-colors duration-fast ${c.view === view ? "border-accent font-semibold text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
           >
             {view === "files" ? "Files" : "Commits"}
             <span className="font-normal tabular-nums text-ink-3">{view === "files" ? fileCount : data?.total}</span>
@@ -220,17 +221,15 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         ))}
       </div>
       {c.missing && (
-        <div role="status" className="flex items-start gap-2 px-3 py-2 text-[11px] text-ink-3">
+        <div role="status" className="flex items-start gap-2 px-3 py-2 text-11 text-ink-3">
           <p className="min-w-0 flex-1 break-words">
             {c.missing} no longer exists. {data?.base ? `Showing changes since ${data.base}.` : "Restoring the automatic base…"}
           </p>
-          <button type="button" aria-label="Dismiss missing branch notice" onClick={c.dismissMissing}>
-            <HugeiconsIcon icon={Cancel01Icon} size={13} />
-          </button>
+          <IconButton label="Dismiss missing branch notice" icon={Cancel01Icon} size={20} onClick={c.dismissMissing} />
         </div>
       )}
       {data?.message && (
-        <div className="px-3 py-2 text-[11px] text-ink-3">
+        <div className="px-3 py-2 text-11 text-ink-3">
           <p>{data.message}</p>
           {fallback?.ref && fallback.ref !== data.comparisonRef && (
             <button type="button" onClick={() => c.select(fallback.ref!)} className="mt-1 text-accent-ink hover:underline">
@@ -240,7 +239,7 @@ export function ComparisonControls({ comparison: c, fileCount }: { comparison: C
         </div>
       )}
       {c.error && (
-        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-[11px] text-red-ink">
+        <button type="button" onClick={() => void c.refresh()} className="px-3 py-2 text-left text-11 text-red-ink">
           {c.error}. Retry
         </button>
       )}
@@ -260,9 +259,9 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
         <CommitRow key={commit.sha} commit={commit} />
       ))}
       {c.data.hasMore && c.limit < 300 && (
-        <button type="button" onClick={c.more} disabled={c.loading} className="w-full rounded-control p-2 text-[12px] text-ink-2 hover:bg-hover">
+        <Button variant="ghost" size={28} onClick={c.more} disabled={c.loading} className="w-full text-ink-2">
           Show more commits
-        </button>
+        </Button>
       )}
       {c.data.hasMore && c.limit >= 300 && <Notice>Showing the latest 300 commits. Choose a closer comparison branch to narrow the history.</Notice>}
     </div>
@@ -272,23 +271,23 @@ export function CommitHistory({ comparison: c }: { comparison: Comparison }) {
 function CommitRow({ commit }: { commit: GitCommit }) {
   const [copy, setCopy] = useState("Copy SHA");
   return (
-    <details className="py-2.5 text-[12px]">
+    <details className="py-3 text-12">
       <summary className="cursor-pointer list-none font-medium text-ink">
         <span className="line-clamp-2 break-words">{commit.message.split("\n")[0]}</span>
-        <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-ink-3">
-          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover text-[8px] text-ink-2">
+        <span className="mt-1.5 flex min-w-0 items-center gap-1.5 text-11 font-normal text-ink-3">
+          <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-full bg-hover text-10 leading-none text-ink-2">
             {commitInitials(commit.author)}
           </span>
           <span className="min-w-0 truncate" title={`${commit.author} <${commit.email}>`}>
             {commit.author}
           </span>
-          <time className="shrink-0" dateTime={commit.date} title={new Date(commit.date).toLocaleString()}>
-            {new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-          </time>
+          <Tooltip label={new Date(commit.date).toLocaleString()} className="shrink-0">
+            <time dateTime={commit.date}>{new Date(commit.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time>
+          </Tooltip>
           {commit.statsUnavailable ? (
-            <span className="ml-auto" title={commitStatsNotice(commit.statsUnavailable)}>
-              Totals unavailable
-            </span>
+            <Tooltip label={commitStatsNotice(commit.statsUnavailable)} align="end" wrap className="ml-auto">
+              <span>Totals unavailable</span>
+            </Tooltip>
           ) : (
             <>
               <span className="ml-auto shrink-0">
@@ -299,28 +298,29 @@ function CommitRow({ commit }: { commit: GitCommit }) {
           )}
         </span>
       </summary>
-      <div className="mt-2 border-l-2 border-line pl-2.5">
-        {commit.statsUnavailable && <p className="mb-2 text-[11px] text-ink-3">{commitStatsNotice(commit.statsUnavailable)}</p>}
+      <div className="mt-2 border-l-2 border-line pl-3">
+        {commit.statsUnavailable && <p className="mb-2 text-11 text-ink-3">{commitStatsNotice(commit.statsUnavailable)}</p>}
         <p className="whitespace-pre-wrap break-words text-ink-2">{commit.message}</p>
-        <p className="mt-2 break-words text-[11px] text-ink-3">
+        <p className="mt-2 break-words text-11 text-ink-3">
           {commit.author} &lt;{commit.email}&gt; · {new Date(commit.date).toLocaleString()}
         </p>
-        <button
-          type="button"
-          title={commit.sha}
-          aria-label={copy}
-          onClick={() =>
-            void navigator.clipboard.writeText(commit.sha).then(
-              () => setCopy("SHA copied"),
-              () => setCopy("Copy failed. Retry"),
-            )
-          }
-          className="mt-2 flex items-center gap-1.5 rounded-control bg-hover px-2 py-1 font-mono text-[11px] text-ink-2"
-        >
-          {commit.sha.slice(0, 8)}
-          <HugeiconsIcon icon={Copy01Icon} size={12} />
-          <span className="sr-only">{copy}</span>
-        </button>
+        <Tooltip label={commit.sha} className="mt-2">
+          <button
+            type="button"
+            aria-label={copy}
+            onClick={() =>
+              void navigator.clipboard.writeText(commit.sha).then(
+                () => setCopy("SHA copied"),
+                () => setCopy("Copy failed. Retry"),
+              )
+            }
+            className="flex h-6 items-center gap-1.5 rounded-control bg-hover px-2 font-mono text-11 text-ink-2 transition-colors duration-fast hover:text-ink"
+          >
+            {commit.sha.slice(0, 8)}
+            <Icon icon={Copy01Icon} size={12} />
+            <span className="sr-only">{copy}</span>
+          </button>
+        </Tooltip>
       </div>
     </details>
   );
@@ -329,7 +329,7 @@ function CommitRow({ commit }: { commit: GitCommit }) {
 /** A PR's tab: `key` names it to the caller; `pr` colours its icon by state; `hint` says whose PR it is (a Link's Project). */
 export type PrTab = { key: string; number: number; pr?: PullRequest; hint?: string };
 
-const TONES = { purple: "text-purple-500", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" } as const;
+const TONES = { purple: "text-purple", red: "text-red-ink", orange: "text-orange-ink", green: "text-green-ink" } as const;
 
 /** Merged purple, closed grey, otherwise the sidebar's tone: blocked red, checks running orange, open green. */
 function prLook(pr: PullRequest | undefined) {
@@ -420,9 +420,9 @@ export function ChangesTabs({
           }}
           data-changes-tab="changes"
         >
-          <HugeiconsIcon icon={FileDiffIcon} size={13} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+          <Icon icon={FileDiffIcon} size={14} className="shrink-0" />
           Changes
-          {count > 0 && <span className="text-[11.5px] font-normal text-ink-3 tabular-nums">{count}</span>}
+          {count > 0 && <span className="text-11 font-normal text-ink-3 tabular-nums">{count}</span>}
         </PanelTab>
         {prs.map((tab) => {
           const look = prLook(tab.pr);
@@ -434,10 +434,10 @@ export function ChangesTabs({
               onClick={() => {
                 if (selected !== tab.key) onSelect(tab.key);
               }}
-              title={title || undefined}
+              tooltip={title || undefined}
               data-changes-tab={tab.key}
             >
-              <HugeiconsIcon icon={look.icon} size={13} strokeWidth={1.8} color="currentColor" className={`shrink-0 ${look.tone}`} />#{tab.number}
+              <Icon icon={look.icon} size={14} className={`shrink-0 ${look.tone}`} />#{tab.number}
             </PanelTab>
           );
         })}
@@ -450,25 +450,33 @@ export function ChangesTabs({
 function PanelTab({
   selected,
   children,
+  tooltip,
   ...props
 }: {
   selected: boolean;
   children: ReactNode;
   onClick: () => void;
-  title?: string;
+  tooltip?: string;
   "data-changes-tab": string;
 }) {
-  return (
+  const tab = (
     <button
       type="button"
       role="tab"
       aria-selected={selected}
       tabIndex={selected ? 0 : -1}
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[12.5px] whitespace-nowrap transition-colors ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-12 whitespace-nowrap transition-colors duration-fast ${selected ? "bg-hover font-semibold text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"}`}
       {...props}
     >
       {children}
     </button>
+  );
+  return tooltip ? (
+    <Tooltip label={tooltip} side="bottom" wrap className="shrink-0">
+      {tab}
+    </Tooltip>
+  ) : (
+    tab
   );
 }
 
@@ -526,10 +534,10 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
   const base = list.state === "ready" && list.isRepo ? list.base : null;
   return (
     <section aria-label={label} data-changes-section={label} className="pb-1.5">
-      <h3 className="flex h-7 items-center gap-1.5 px-3 text-[11.5px] text-ink-3">
+      <h3 className="flex h-7 items-center gap-1.5 px-3 text-11 text-ink-3">
         <span className="font-medium text-ink-2">{label}</span>
         <span className="tabular-nums">{files.length}</span>
-        {label === "Not committed" && <span className="text-[10px]">vs HEAD</span>}
+        {label === "Not committed" && <span>vs HEAD</span>}
         {base && !compactComparison && (
           <span data-diff-base className="min-w-0 truncate">
             since <span className="font-mono">{base}</span>
@@ -544,7 +552,7 @@ function ChangesSection({ label, list, compactComparison, ...treeProps }: { labe
 }
 
 function Notice({ children }: { children: string }) {
-  return <p className="px-4 py-6 text-center text-[12px] text-ink-3">{children}</p>;
+  return <p className="px-4 py-6 text-center text-12 text-ink-3">{children}</p>;
 }
 
 type TreeProps = { onSelectFile: (path: string) => void; activePath?: string; commentCounts?: Record<string, number> };
@@ -570,19 +578,19 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
         aria-current={activePath === node.path}
         onClick={() => onSelectFile(node.path)}
         style={indent}
-        className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-[12.5px] transition-colors hover:bg-hover ${activePath === node.path ? "bg-hover" : ""}`}
+        className={`flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors duration-fast hover:bg-hover ${activePath === node.path ? "bg-hover" : ""}`}
       >
         <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-          <HugeiconsIcon icon={File01Icon} size={14} strokeWidth={1.6} color="currentColor" />
+          <Icon icon={File01Icon} size={14} />
         </span>
         <span className="min-w-0 flex-1 truncate text-ink">{node.name}</span>
         {commentCounts?.[node.path] ? (
           <span
             data-diff-tree-comments={commentCounts[node.path]}
             aria-label={`${commentCounts[node.path]} comments`}
-            className="flex shrink-0 items-center gap-0.5 text-[11px] text-ink-3 tabular-nums"
+            className="flex shrink-0 items-center gap-0.5 text-11 text-ink-3 tabular-nums"
           >
-            <HugeiconsIcon icon={Comment01Icon} size={12} strokeWidth={1.8} color="currentColor" />
+            <Icon icon={Comment01Icon} size={12} />
             {commentCounts[node.path]}
           </span>
         ) : null}
@@ -599,10 +607,10 @@ function TreeRow({ node, depth, onSelectFile, activePath, commentCounts }: { nod
         aria-expanded={!collapsed}
         onClick={() => setCollapsed((value) => !value)}
         style={indent}
-        className="flex h-7 w-full items-center gap-1.5 pr-3 text-left text-[12.5px] transition-colors hover:bg-hover"
+        className="flex h-7 w-full items-center gap-1.5 pr-3 text-left text-13 transition-colors duration-fast hover:bg-hover"
       >
         <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-          <HugeiconsIcon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={13} strokeWidth={1.8} color="currentColor" />
+          <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} size={12} />
         </span>
         <span className="min-w-0 flex-1 truncate text-ink-2" dir="rtl">
           <bdi>{node.name}</bdi>
@@ -619,18 +627,11 @@ function RefreshButton({ label, onRefresh, loading }: { label: string; onRefresh
   const spin = useRefreshSpin(onRefresh, loading);
   return (
     <Tooltip label={label} side="bottom" align="end">
-      <button
-        type="button"
-        aria-label={label}
-        aria-busy={spin.busy || undefined}
-        data-diff-refresh
-        onClick={spin.refresh}
-        className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-      >
+      <IconButton label={label} size={28} aria-busy={spin.busy || undefined} data-diff-refresh onClick={spin.refresh}>
         <span className={spin.spinning ? "animate-spin" : ""} onAnimationIteration={spin.onAnimationIteration}>
-          <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} color="currentColor" />
+          <Icon icon={RefreshIcon} size={14} />
         </span>
-      </button>
+      </IconButton>
     </Tooltip>
   );
 }

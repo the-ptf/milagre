@@ -1,4 +1,4 @@
-import { Platform, Text, View } from "react-native";
+import { Platform, View } from "react-native";
 import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
 import { CHAT_LIST_TITLE, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
@@ -14,7 +14,7 @@ import {
   OneListPreview,
   SampleChatRow,
 } from "./chat-display-choices";
-import { Toggle, useStyles } from "./ui";
+import { CheckRow, SectionLabel, Toggle, useStyles } from "./ui";
 
 // What a Chat row can show under its title; the computer is always on the phone's rows.
 const ROW_FIELDS = CHAT_ROW_FIELDS.filter((field) => field.id !== "computer");
@@ -28,8 +28,8 @@ export function ChatDisplaySection() {
   const rowShow = useChatRowShow();
   const [dictation, setDictation] = useDictationLanguage();
   return (
-    <View style={{ gap: 10 }}>
-      <Text style={styles.section}>{CHAT_LIST_TITLE}</Text>
+    <View style={{ gap: 8 }}>
+      <SectionLabel>{CHAT_LIST_TITLE}</SectionLabel>
       <ChoiceCards<ChatList>
         label={CHAT_LIST_TITLE}
         value={chatList}
@@ -39,7 +39,7 @@ export function ChatDisplaySection() {
           { value: "grouped", title: "By Project", description: "A group per Project that folds.", preview: <ByProjectPreview /> },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>Rows show</Text>
+      <SectionLabel style={{ marginTop: 16 }}>Rows show</SectionLabel>
       <View style={[styles.card, { gap: 4 }]}>
         <SampleChatRow show={rowShow} />
         <View style={[styles.separator, { marginVertical: 8 }]} />
@@ -52,7 +52,7 @@ export function ChatDisplaySection() {
           />
         ))}
       </View>
-      <Text style={[styles.section, { marginTop: 14 }]}>Reasoning</Text>
+      <SectionLabel style={{ marginTop: 16 }}>Reasoning</SectionLabel>
       <ChoiceCards<"folded" | "expanded">
         label="Reasoning"
         value={expandReasoning ? "expanded" : "folded"}
@@ -62,7 +62,7 @@ export function ChatDisplaySection() {
           { value: "expanded", title: "Expanded", description: "Thinking shows open above each answer.", preview: <ExpandedReasoningPreview /> },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>Tool calls</Text>
+      <SectionLabel style={{ marginTop: 16 }}>Tool calls</SectionLabel>
       <ChoiceCards<ToolCallDisplay>
         label="Tool calls"
         value={toolCallDisplay}
@@ -72,14 +72,15 @@ export function ChatDisplaySection() {
           { value: "full", title: "Full detail", description: "Each call on its own row.", preview: <FullToolsPreview /> },
         ]}
       />
-      <Text style={[styles.section, { marginTop: 14 }]}>Dictation language</Text>
-      <View style={[styles.card, { gap: 4 }]}>
+      <SectionLabel style={{ marginTop: 16 }}>Dictation language</SectionLabel>
+      {/* One language at a time: radio rows, not switches. */}
+      <View accessibilityRole="radiogroup" accessibilityLabel="Dictation language" style={[styles.card, { gap: 0 }]}>
         {DICTATION_LANGUAGES.map((language) => (
-          <Toggle
+          <CheckRow
             key={language.code}
             // iPhone dictation can't detect the language: "auto" is the phone's own.
             title={language.code === "auto" && Platform.OS === "ios" ? "Phone language" : language.name}
-            selected={dictation === language.code}
+            checked={dictation === language.code}
             onPress={() => setDictation(language.code)}
           />
         ))}

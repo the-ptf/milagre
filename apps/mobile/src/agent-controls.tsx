@@ -5,7 +5,9 @@ import { ArrowDown01Icon, FlashIcon, Shield01Icon, ShieldAlertIcon, SecurityChec
 import type { PermissionMode } from "@milagre/shared/model";
 import type { MobileModel } from "./turn-options";
 import { Icon, ProviderLogo } from "./icons";
+import { hitSlopFor, type } from "./design-tokens";
 import { useTheme } from "./theme";
+import { pressStyle } from "./ui";
 
 /** The composer's model chip: provider logo, model name, the effort ("· Medium", or Ultra while Ultracode is on) and a bolt while fast
  * mode is on. All of them change in the model sheet. */
@@ -39,29 +41,33 @@ export function AgentControls({
       accessibilityHint="Opens model, effort and speed settings"
       disabled={disabled}
       onPress={onToggle}
-      style={({ pressed }) => ({
-        minHeight: 34,
-        maxWidth: 230,
-        // The composer row also holds the plan pill, the context ring and Send; the model label truncates so Send stays on screen.
-        flexShrink: 1,
-        paddingHorizontal: 6,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        opacity: disabled ? 0.45 : pressed ? 0.6 : 1,
-      })}
+      // A 34pt chip in the dense composer tray still takes a 44pt touch.
+      hitSlop={hitSlopFor(34)}
+      style={({ pressed }) => [
+        {
+          minHeight: 34,
+          maxWidth: 230,
+          // The composer row also holds the plan pill, the context ring and Send; the model label truncates so Send stays on screen.
+          flexShrink: 1,
+          paddingHorizontal: 6,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        pressStyle({ pressed, disabled }),
+      ]}
     >
-      <ProviderLogo provider={model.provider} size={14} />
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 13, fontWeight: "500", flexShrink: 1 }}>
+      <ProviderLogo provider={model.provider} size={16} />
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.footnote, fontWeight: "500", flexShrink: 1 }}>
         {model.name}
       </Text>
       {!!label && (
-        <Text numberOfLines={1} style={{ color: orchestrating ? colors.purpleInk : colors.ink2, fontSize: 13, flexShrink: 2 }}>
+        <Text numberOfLines={1} style={{ color: orchestrating ? colors.purpleInk : colors.ink2, fontSize: type.footnote, flexShrink: 2 }}>
           <Text style={{ color: colors.ink3 }}>· </Text>
           {label}
         </Text>
       )}
-      {fast && <Icon icon={FlashIcon} tone="orange" size={13} />}
+      {fast && <Icon icon={FlashIcon} tone="orange" size={12} />}
       <Icon icon={ArrowDown01Icon} tone="ink3" size={12} />
     </Pressable>
   );
@@ -77,17 +83,20 @@ export function PermissionChip({ mode, disabled, onPress }: { mode: PermissionMo
       accessibilityHint="Opens permission modes"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => ({
-        minHeight: 34,
-        paddingHorizontal: 8,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        opacity: disabled ? 0.45 : pressed ? 0.6 : 1,
-      })}
+      hitSlop={hitSlopFor(34)}
+      style={({ pressed }) => [
+        {
+          minHeight: 34,
+          paddingHorizontal: 8,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+        },
+        pressStyle({ pressed, disabled }),
+      ]}
     >
-      <PermissionIcon mode={mode} size={15} />
-      <Text style={{ color: mode === "full" ? colors.orangeInk : colors.ink2, fontSize: 13 }}>{PERMISSION_MODE_LABEL[mode]}</Text>
+      <PermissionIcon mode={mode} size={16} />
+      <Text style={{ color: mode === "full" ? colors.orangeInk : colors.ink2, fontSize: type.footnote }}>{PERMISSION_MODE_LABEL[mode]}</Text>
     </Pressable>
   );
 }

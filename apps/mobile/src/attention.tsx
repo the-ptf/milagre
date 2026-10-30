@@ -8,8 +8,9 @@ import { chatTitle } from "@milagre/shared/chats";
 import { attentionLabel } from "@milagre/shared/attention";
 import { readAttentionButton, saveAttentionButton } from "./hosts-native";
 import { useSession } from "./session";
+import { lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
-import { PullDown } from "./ui";
+import { pressStyle, PullDown } from "./ui";
 import { useTheme } from "./theme";
 import { useFloatingInbox } from "./floating-inbox-setting";
 import { FloatingInboxChip } from "./inbox";
@@ -97,7 +98,7 @@ export function useAttentionButton(): [boolean, (on: boolean) => void] {
 
 export function AttentionDot() {
   const { colors } = useTheme();
-  return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.orange }} />;
+  return <View accessibilityLabel="Needs attention" style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.orange }} />;
 }
 
 /** Under the header's right edge. One waiting Chat opens on tap; several open a menu to pick one, oldest first. */
@@ -139,26 +140,28 @@ export function AttentionPill({ currentChat, visibleChat, bottom }: { currentCha
         gap: 6,
         minHeight: 32,
         paddingHorizontal: 12,
-        borderRadius: 16,
+        borderRadius: radius.full,
         borderCurve: "continuous",
         backgroundColor: colors.orangeTint,
       }}
     >
-      <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: 13, fontWeight: "600", maxWidth: 220 }}>
+      <Text numberOfLines={1} style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600", maxWidth: 220 }}>
         {label}
       </Text>
-      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={14} strokeWidth={2} />
+      <Icon icon={waiting.length > 1 ? ArrowDown01Icon : ArrowRight01Icon} tone="orange" size={16} strokeWidth={2} />
     </View>
   );
-  const place = { position: "absolute" as const, top: insets.top + 52, right: 12 };
+  const place = { position: "absolute" as const, top: insets.top + 52, right: 16 };
   const first = waiting[0];
   if (waiting.length === 1 && first)
     return (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open the Chat.`}
+        // The 32pt pill still takes a 44pt touch.
+        hitSlop={6}
         onPress={() => open(first)}
-        style={({ pressed }) => [place, { opacity: pressed ? 0.6 : 1 }]}
+        style={({ pressed }) => [place, pressStyle({ pressed })]}
       >
         {pill}
       </Pressable>

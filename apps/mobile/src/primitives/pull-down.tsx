@@ -79,7 +79,12 @@ export function PullDown({
     const trigger = nativeTrigger.title ? (
       <IOSHStack
         spacing={6}
-        modifiers={[padding({ horizontal: 10, vertical: 6 }), frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, alignment: "leading" })]}
+        // A 44pt tall frame around the 29pt label, all of it tappable.
+        modifiers={[
+          padding({ horizontal: 10, vertical: 6 }),
+          frame({ minWidth: 0, maxWidth: nativeTrigger.maxWidth ?? 260, minHeight: 44, alignment: "leading" }),
+          contentShape(shapes.rectangle()),
+        ]}
       >
         {nativeTrigger.showIcon !== false ? <IOSImage systemName={nativeTrigger.systemImage as never} size={14} color={colors.ink2} /> : null}
         <IOSText modifiers={[font({ size: 13, weight: "medium" }), foregroundStyle(colors.ink2), lineLimit(1)]}>{nativeTrigger.title}</IOSText>
@@ -90,7 +95,7 @@ export function PullDown({
         systemName={nativeTrigger.systemImage as never}
         size={nativeTrigger.iconSize ?? 21}
         color={colors.ink2}
-        modifiers={[...(nativeTrigger.rotation ? [rotationEffect(nativeTrigger.rotation)] : []), frame({ width: 36, height: 36 })]}
+        modifiers={[...(nativeTrigger.rotation ? [rotationEffect(nativeTrigger.rotation)] : []), frame({ width: 44, height: 44 })]}
       />
     );
     return (
@@ -156,7 +161,7 @@ export function PullDown({
       {children}
     </Pressable>
   ) : (
-    <View accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={fill ? { flex: 1 } : styles.shrink}>
+    <View accessible accessibilityRole="button" accessibilityLabel={label} onTouchStart={() => Keyboard.dismiss()} style={fill ? { flex: 1 } : styles.shrink}>
       {children}
     </View>
   );

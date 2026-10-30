@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { PlusSignIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import {
   groupMcpRows,
@@ -18,10 +17,15 @@ import { providerName } from "@milagre/shared/providers";
 import type { MilagreBridge } from "../electron";
 import { McpOtherHeader, McpOutsideRow, McpServerRow, McpSignInRow } from "./McpServerRow";
 import { McpServerSheet } from "./McpServerSheet";
+import { Button, IconButton } from "./primitives/Button";
+import { EmptyState } from "./primitives/EmptyState";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { SectionLabel } from "./primitives/SectionLabel";
+import { SpinnerRing } from "./primitives/SpinnerRing";
 
 const keyOf = (account: Pick<McpAccount, "provider" | "accountId">) => `${account.provider}:${account.accountId}`;
-const card = "divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface";
-const heading = "px-1 text-[12px] font-medium text-ink-2";
+const card = "divide-y divide-line overflow-hidden rounded-card border border-line bg-surface";
 // `check` keeps the last answer while `checking` is set, so rows stay on screen during a re-check.
 type Entry = { account: McpAccount; check: McpAccountCheck | null; checking: boolean };
 type Sheet = { initial?: McpServerDefinition; target?: McpTarget; previous?: { name: string; target: McpTarget } };
@@ -211,27 +215,20 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
     scheduleRefresh();
   };
   const seconds = checkedAt ? Math.max(1, Math.round((now - checkedAt) / 1000)) : null;
-  const iconButton =
-    "flex size-[34px] items-center justify-center rounded-lg border border-line-strong bg-surface text-ink-2 transition-colors hover:bg-hover disabled:opacity-40";
 
   const actions = (
     <div className="flex shrink-0 gap-2">
-      <button type="button" aria-label="Refresh" className={iconButton} disabled={checking} onClick={() => void refresh()}>
-        <HugeiconsIcon icon={RefreshIcon} size={15} strokeWidth={1.75} color="currentColor" className={checking ? "animate-spin" : ""} />
-      </button>
-      <button
-        type="button"
-        data-mcp-add
-        className="inline-flex h-[34px] items-center gap-1.5 rounded-lg bg-ink px-3.5 text-[13px] font-medium text-surface transition-opacity hover:opacity-90"
-        onClick={() => setSheet({})}
-      >
-        <HugeiconsIcon icon={PlusSignIcon} size={15} strokeWidth={2} color="currentColor" />
+      <IconButton label="Refresh" icon={RefreshIcon} size={32} variant="secondary" disabled={checking} onClick={() => void refresh()}>
+        {checking ? <SpinnerRing size={14} /> : undefined}
+      </IconButton>
+      <Button data-mcp-add onClick={() => setSheet({})}>
+        <Icon icon={PlusSignIcon} size={14} />
         Add server
-      </button>
+      </Button>
     </div>
   );
   const intro = (
-    <p className="text-[13px] text-ink-2">
+    <p className="text-13 text-ink-2">
       Tool servers your Chats load, for every account on {remote ? "that" : "this"} Mac.{checking ? " Checking…" : seconds ? ` Checked ${seconds} s ago.` : ""}
     </p>
   );
@@ -241,7 +238,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
       {title ? (
         <>
           <div className="flex items-center justify-between gap-4">
-            <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+            <h1 className="text-22 font-semibold tracking-[-0.02em] text-ink">{title}</h1>
             {actions}
           </div>
           <div className="mt-5">{intro}</div>
@@ -253,15 +250,11 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
         </div>
       )}
       <div className="mt-6 space-y-6">
-        {error && (
-          <p role="alert" className="text-[13px] text-red-ink">
-            {error}
-          </p>
-        )}
+        <InlineError>{error}</InlineError>
         {problems.length > 0 && (
           <div className="space-y-1">
             {problems.map((check) => (
-              <p key={keyOf(check)} data-mcp-problem={keyOf(check)} className="text-[12px] text-ink-3">
+              <p key={keyOf(check)} data-mcp-problem={keyOf(check)} className="text-12 text-ink-3">
                 {providerName(check.provider)} · {check.label}: {check.problem}
               </p>
             ))}
@@ -269,7 +262,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
         )}
         {ownAttention.length > 0 && (
           <section className="space-y-2">
-            <h2 className={heading}>Needs sign-in · {ownAttention.length}</h2>
+            <SectionLabel className="px-1">Needs sign-in · {ownAttention.length}</SectionLabel>
             <div className={card}>
               {ownAttention.map((row) => (
                 <McpSignInRow
@@ -286,7 +279,7 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
         )}
         {user.length > 0 && (
           <section className="space-y-2">
-            <h2 className={heading}>Your servers · {user.length}</h2>
+            <SectionLabel className="px-1">Your servers · {user.length}</SectionLabel>
             <div className={card}>
               {user.map((row) => (
                 <McpServerRow
@@ -304,26 +297,26 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
           </section>
         )}
         {outsideCount > 0 && (
-          <div className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div className="overflow-hidden rounded-card border border-line bg-surface">
             <McpOtherHeader open={otherOpen} count={outsideCount} attention={outsideAttention.length} onToggle={() => setOtherOpen(!otherOpen)} />
             {otherOpen && (
               <div className="space-y-3 px-4 pt-3 pb-4">
-                <p className="text-[12px] text-ink-2">Set up outside Milagre. Turn them on or off here; change them where they live.</p>
+                <p className="text-12 text-ink-2">Set up outside Milagre. Turn them on or off here; change them where they live.</p>
                 {outside.map((group) => (
                   <div key={group.source} className="space-y-1.5">
                     <div className="flex items-baseline justify-between gap-3 px-0.5">
-                      <h3 className="text-[12px] font-medium text-ink-2">{group.source}</h3>
+                      <SectionLabel as="h3">{group.source}</SectionLabel>
                       {group.source === "claude.ai connectors" ? (
                         <a
                           href="https://claude.ai/settings/connectors"
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[12px] font-medium text-ink hover:underline"
+                          className="text-12 font-medium text-ink hover:underline"
                         >
                           Manage on claude.ai
                         </a>
                       ) : (
-                        whereOf(group.source) && <span className="text-[12px] text-ink-3">{whereOf(group.source)}</span>
+                        whereOf(group.source) && <span className="text-12 text-ink-3">{whereOf(group.source)}</span>
                       )}
                     </div>
                     <div className={card}>
@@ -355,7 +348,9 @@ export function McpSettings({ bridge = window.milagre, remote = false, title }: 
           </div>
         )}
         {entries && !checking && !attention.length && !user.length && !other.length && !problems.length && (
-          <p className="text-[13px] text-ink-3">No MCP servers yet. Add one with Add server.</p>
+          <EmptyState title="No MCP servers yet" className="py-6">
+            Add one with Add server.
+          </EmptyState>
         )}
       </div>
       {sheet && <McpServerSheet initial={sheet.initial} initialTarget={sheet.target} remote={remote} onSave={save} onClose={() => setSheet(null)} />}

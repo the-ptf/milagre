@@ -4,6 +4,7 @@ import type { ComponentRenderProps } from "@milagre/shared/genui-renderer";
 import { squareRows } from "@milagre/shared/genui";
 import type { GenuiComponentName, GenuiProps } from "@milagre/shared/genui";
 import { ScrollArea } from "../primitives/ScrollArea";
+import { Button as ButtonPrimitive } from "../primitives/Button";
 import { BarChart, LineChart } from "./charts";
 
 export type GenuiRenderer<K extends GenuiComponentName> = (args: ComponentRenderProps<GenuiProps<K>>) => ReactNode;
@@ -16,16 +17,27 @@ const Stack: GenuiRenderer<"Stack"> = ({ props, renderNode }) => (
   </div>
 );
 
-const HEADING = { 1: "text-[15px] font-semibold", 2: "text-[14px] font-semibold", 3: "text-[13px] font-medium text-ink-2" } as const;
+// Sized from the user's chat text size, as markdown headings are.
+const HEADING = {
+  1: "text-[length:calc(var(--chat-size)+2px)] font-semibold text-ink",
+  2: "text-[length:calc(var(--chat-size)+1px)] font-semibold text-ink",
+  3: "text-[length:var(--chat-size)] font-medium text-ink-2",
+} as const;
 
-const Heading: GenuiRenderer<"Heading"> = ({ props }) => <div className={`${HEADING[props.level ?? 2]} text-ink`}>{props.text}</div>;
+const Heading: GenuiRenderer<"Heading"> = ({ props }) => (
+  <div role="heading" aria-level={props.level ?? 2} className={HEADING[props.level ?? 2]}>
+    {props.text}
+  </div>
+);
 
 const TONE = { default: "text-ink", muted: "text-ink-2", strong: "font-medium text-ink" } as const;
 
-const Text: GenuiRenderer<"Text"> = ({ props }) => <p className={`m-0 text-[13px] leading-[1.55] ${TONE[props.tone ?? "default"]}`}>{props.text}</p>;
+const Text: GenuiRenderer<"Text"> = ({ props }) => (
+  <p className={`m-0 text-[length:var(--chat-size)] leading-[1.55] ${TONE[props.tone ?? "default"]}`}>{props.text}</p>
+);
 
 const KeyValue: GenuiRenderer<"KeyValue"> = ({ props }) => (
-  <dl data-slot="genui-keyvalue" className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+  <dl data-slot="genui-keyvalue" className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[length:var(--chat-size)]">
     {props.pairs.map(([key, value], index) => (
       <div key={index} className="contents">
         <dt className="text-ink-2">{key}</dt>
@@ -39,7 +51,7 @@ const Table: GenuiRenderer<"Table"> = ({ props }) => {
   const rows = squareRows(props.columns, props.rows);
   return (
     <ScrollArea data-slot="genui-table" className="my-1 max-w-full rounded-card border border-line bg-surface">
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-[length:var(--chat-size)]">
         <thead>
           <tr>
             {props.columns.map((column, index) => (
@@ -73,7 +85,11 @@ const CALLOUT = {
 } as const;
 
 const Callout: GenuiRenderer<"Callout"> = ({ props }) => (
-  <div data-slot="genui-callout" data-tone={props.tone ?? "info"} className={`rounded-card border px-3 py-2 text-[13px] ${CALLOUT[props.tone ?? "info"]}`}>
+  <div
+    data-slot="genui-callout"
+    data-tone={props.tone ?? "info"}
+    className={`rounded-card border px-3 py-2 text-[length:var(--chat-size)] ${CALLOUT[props.tone ?? "info"]}`}
+  >
     {props.title && <div className="mb-0.5 font-medium">{props.title}</div>}
     <div>{props.body}</div>
   </div>
@@ -82,12 +98,19 @@ const Callout: GenuiRenderer<"Callout"> = ({ props }) => (
 const Progress: GenuiRenderer<"Progress"> = ({ props }) => {
   const value = Math.min(1, Math.max(0, Number.isFinite(props.value) ? props.value : 0));
   return (
-    <div data-slot="genui-progress" className="text-[13px]">
+    <div data-slot="genui-progress" className="text-[length:var(--chat-size)]">
       <div className="mb-1 flex justify-between text-ink-2">
         <span>{props.label}</span>
         <span>{Math.round(value * 100)}%</span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-field">
+      <div
+        role="progressbar"
+        aria-label={props.label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(value * 100)}
+        className="h-1.5 w-full overflow-hidden rounded-full bg-field"
+      >
         <div className="h-full rounded-full bg-accent" style={{ width: `${value * 100}%` }} />
       </div>
     </div>
@@ -99,15 +122,15 @@ const Button: GenuiRenderer<"Button"> = ({ props }) => {
   const streaming = useIsStreaming();
   const secondary = props.variant === "secondary";
   return (
-    <button
-      type="button"
+    <ButtonPrimitive
+      variant={secondary ? "secondary" : "primary"}
       data-slot="genui-button"
       disabled={streaming}
       onClick={() => trigger(props.label, undefined, props.action as never)}
-      className={`inline-flex self-start items-center rounded-control px-3 py-1.5 text-[13px] font-medium transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40 ${secondary ? "border border-line bg-surface text-ink" : "bg-ink text-surface"}`}
+      className="self-start"
     >
       {props.label}
-    </button>
+    </ButtonPrimitive>
   );
 };
 

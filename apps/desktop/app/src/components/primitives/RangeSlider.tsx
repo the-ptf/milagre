@@ -54,7 +54,7 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   if (variant === "position") {
     return (
       <div {...trackProps} data-position-track className={`relative flex h-7 touch-none select-none items-center ${className}`}>
-        <div aria-hidden className="pointer-events-none h-[5px] w-full rounded-full bg-black/15 dark:bg-white/15" />
+        <div aria-hidden className="pointer-events-none h-[5px] w-full rounded-full bg-line-strong" />
         <motion.div
           {...handleProps}
           data-position-thumb
@@ -62,7 +62,7 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
           initial={false}
           animate={{ x: (percent / 100) * Math.max(0, trackWidth - 22) }}
           transition={{ duration: reduce ? 0 : 0.22, ease: [0.23, 1, 0.32, 1] }}
-          className="absolute left-0 h-[5px] w-[22px] rounded-full bg-black dark:bg-white"
+          className="absolute left-0 h-[5px] w-[22px] rounded-full bg-ink focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         />
       </div>
     );
@@ -71,7 +71,7 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
   return (
     <div
       {...trackProps}
-      className={`relative flex h-8 touch-none select-none items-center overflow-hidden rounded-control bg-field ${options.disabled ? "pointer-events-none opacity-50" : "cursor-grab active:cursor-grabbing"} ${className}`}
+      className={`relative flex h-8 touch-none select-none items-center overflow-hidden rounded-control bg-field ${options.disabled ? "pointer-events-none opacity-40" : "cursor-grab active:cursor-grabbing"} ${className}`}
     >
       <div aria-hidden className="pointer-events-none absolute inset-x-[2px] inset-y-0 overflow-hidden rounded-control">
         <motion.div className="absolute inset-0 rounded-control bg-ink/15" style={{ x: fillX }} />
@@ -89,7 +89,7 @@ export function RangeSlider({ showTicks = true, variant = "default", className =
         {...handleProps}
         animate={reduce ? undefined : { scaleY: dragging ? 1.35 : 1 }}
         transition={SPRING_BOUNCY}
-        className="absolute top-1/2 left-0 h-5 w-1 rounded-full bg-ink outline-none ring-inset ring-ink/30 focus-visible:ring-4"
+        className="absolute top-1/2 left-0 h-5 w-1 rounded-full bg-ink outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-field"
         style={{ x: handleX, y: "-50%" }}
       />
     </div>

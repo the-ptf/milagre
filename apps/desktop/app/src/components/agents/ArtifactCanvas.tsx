@@ -15,6 +15,9 @@ import {
 } from "@milagre/shared/artifact";
 import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
+import { Button, IconButton } from "../primitives/Button";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
 import { bridgeForKey } from "../../lib/computer-bridge";
@@ -261,8 +264,8 @@ export function ArtifactFrame({
   const url = registered?.html === html ? registered.url : undefined;
   if (isolated && !url)
     return (
-      <div role={previewError ? "alert" : "status"} className="grid size-full place-items-center text-[12px] text-ink-3">
-        {previewError || "Loading artifact..."}
+      <div role={previewError ? "alert" : "status"} className="grid size-full place-items-center text-12 text-ink-3">
+        {previewError || "Loading artifact…"}
       </div>
     );
   return (
@@ -565,7 +568,7 @@ export const ArtifactCanvas = forwardRef<
             {grouped && (
               <div className="relative shrink-0" style={{ height: GROUP_LABEL / view.scale }}>
                 <div
-                  className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-[13px] whitespace-nowrap"
+                  className="absolute bottom-0 left-0 flex origin-bottom-left items-baseline gap-2 pb-2 text-13 whitespace-nowrap"
                   style={{ transform: `scale(${1 / view.scale})` }}
                 >
                   <span className={`font-medium ${row.group ? "text-ink" : "text-ink-3"}`}>{row.group ?? "Ungrouped"}</span>
@@ -718,82 +721,63 @@ const DesignFrame = memo(function DesignFrame({
   // over the frame's top edge while the pointer or focus is on it, clear of the group's name above the row.
   const compact = width * scale < 260;
   const narrow = !compact && width * scale < 300;
-  const button = "grid size-6 place-items-center rounded-[6px] text-ink-2 hover:bg-hover disabled:opacity-40";
   const controls = (
     <>
       {design.format !== "html" && (
         <>
           <Tooltip label="Previous version">
-            <button
-              type="button"
-              aria-label={`Previous version of ${shown.title}`}
+            <IconButton
+              label={`Previous version of ${shown.title}`}
+              icon={ArrowLeft01Icon}
+              size={24}
               disabled={shown.version <= 1}
               onClick={() => go(shown.version - 1)}
-              className={button}
-            >
-              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
-            </button>
+            />
           </Tooltip>
           <span className="text-ink-3 tabular-nums" data-slot="artifact-frame-version">
             v{shown.version} of {last}
           </span>
           <Tooltip label="Next version">
-            <button
-              type="button"
-              aria-label={`Next version of ${shown.title}`}
+            <IconButton
+              label={`Next version of ${shown.title}`}
+              icon={ArrowRight01Icon}
+              size={24}
               disabled={shown.version >= last}
               onClick={() => go(shown.version + 1)}
-              className={button}
-            >
-              <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden />
-            </button>
+            />
           </Tooltip>
         </>
       )}
       {artifact?.format === "design" && (
-        <button
-          type="button"
-          data-slot="artifact-edit"
-          aria-label={`Edit ${shown.title}`}
-          disabled={openingEditor}
-          onClick={() => void edit()}
-          className="rounded-[6px] border border-line bg-surface px-2 py-0.5 text-ink hover:bg-hover disabled:opacity-40"
-        >
-          {openingEditor ? "Opening..." : "Edit"}
-        </button>
+        <Button variant="secondary" size={24} data-slot="artifact-edit" aria-label={`Edit ${shown.title}`} disabled={openingEditor} onClick={() => void edit()}>
+          {openingEditor ? "Opening…" : "Edit"}
+        </Button>
       )}
       {design.format === "design" &&
         (deleting ? (
           <span className="flex items-center gap-1">
-            <button
-              type="button"
+            <Button
+              variant="danger"
+              size={24}
               data-slot="artifact-delete-confirm"
               aria-label={`Delete ${shown.title} and every version`}
               disabled={deleting === "busy"}
               onClick={() => void remove()}
-              className="rounded-[6px] bg-red px-2 py-0.5 text-white hover:opacity-90 disabled:opacity-50"
             >
-              {deleting === "busy" ? "Deleting..." : "Delete"}
-            </button>
-            <button
-              type="button"
-              disabled={deleting === "busy"}
-              onClick={() => setDeleting(null)}
-              className="rounded-[6px] px-2 py-0.5 text-ink-2 hover:bg-hover disabled:opacity-40"
-            >
+              {deleting === "busy" ? "Deleting…" : "Delete"}
+            </Button>
+            <Button variant="ghost" size={24} disabled={deleting === "busy"} onClick={() => setDeleting(null)}>
               Cancel
-            </button>
+            </Button>
           </span>
         ) : (
           <Tooltip label="Delete design">
-            <button type="button" data-slot="artifact-delete" aria-label={`Delete ${shown.title}`} onClick={() => setDeleting("confirm")} className={button}>
-              <HugeiconsIcon icon={Delete02Icon} size={14} aria-hidden />
-            </button>
+            <IconButton data-slot="artifact-delete" label={`Delete ${shown.title}`} icon={Delete02Icon} size={24} onClick={() => setDeleting("confirm")} />
           </Tooltip>
         ))}
       {sentHere ? (
-        <span data-slot="artifact-chosen" className="flex items-center gap-1.5 rounded-[6px] bg-accent/10 px-2 py-0.5 text-accent">
-          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />
+        <span data-slot="artifact-chosen" className="flex h-6 items-center gap-1.5 rounded-control bg-accent-tint px-2 text-accent-ink">
+          <Icon icon={CheckmarkCircle02Icon} size={14} />
           Chosen
         </span>
       ) : (
@@ -804,9 +788,9 @@ const DesignFrame = memo(function DesignFrame({
             aria-pressed={pendingHere}
             data-slot={pendingHere ? "artifact-choice-pending" : undefined}
             onClick={() => choice.onChoose?.(shown)}
-            className={`flex items-center gap-1.5 rounded-[6px] border px-2 py-0.5 ${pendingHere ? "border-accent bg-accent/10 text-accent" : "border-line bg-surface text-ink hover:bg-hover"}`}
+            className={`flex h-6 items-center gap-1.5 rounded-control px-2 font-medium transition-colors duration-fast enabled:active:scale-press ${pendingHere ? "bg-accent-tint text-accent-ink" : "bg-surface text-ink shadow-btn hover:bg-hover"}`}
           >
-            {pendingHere && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-hidden />}
+            {pendingHere && <Icon icon={CheckmarkCircle02Icon} size={14} />}
             {pendingHere ? "Chosen" : "Choose"}
           </button>
         )
@@ -820,7 +804,7 @@ const DesignFrame = memo(function DesignFrame({
         style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}
       >
         <div
-          className={`absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-[12px] text-ink ${narrow ? "flex-wrap content-end" : ""}`}
+          className={`absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 pb-1.5 text-12 text-ink ${narrow ? "flex-wrap content-end" : ""}`}
           style={{
             width: width * scale,
             height: narrow ? HEADER * 2 : HEADER,
@@ -833,10 +817,10 @@ const DesignFrame = memo(function DesignFrame({
           </span>
           {compact ? (
             <>
-              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} aria-label="Chosen" className="shrink-0 text-accent" />}
+              {isChosen && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={1.8} aria-label="Chosen" className="shrink-0 text-accent" />}
               <div
                 data-slot="artifact-frame-controls"
-                className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-[8px] border border-line bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
+                className={`absolute top-full left-1.5 mt-1.5 flex items-center gap-1 whitespace-nowrap rounded-control bg-surface p-1 shadow-raised ${deleting ? "" : "pointer-events-none opacity-0 group-focus-within/frame:pointer-events-auto group-focus-within/frame:opacity-100 group-hover/frame:pointer-events-auto group-hover/frame:opacity-100"}`}
               >
                 {controls}
               </div>
@@ -850,7 +834,7 @@ const DesignFrame = memo(function DesignFrame({
         <div
           data-design-body
           data-active={active || undefined}
-          className={`size-full overflow-hidden rounded-[12px] border-2 bg-white shadow-raised ${isChosen || active ? "border-accent" : "border-line"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
+          className={`size-full overflow-hidden rounded-card border-2 bg-white shadow-raised ${isChosen || active ? "border-accent" : "border-transparent"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
         >
           {artifact ? (
             <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} />
@@ -891,11 +875,9 @@ const DesignFrame = memo(function DesignFrame({
           </CommentLayer>
         )}
       </div>
-      {editError && (
-        <p role="alert" className="max-w-full px-2 text-[12px] text-red-ink">
-          {editError}
-        </p>
-      )}
+      <InlineError size={12} className="max-w-full px-2">
+        {editError}
+      </InlineError>
       {editing && <DesignEditor chatId={chatId} artifact={editing} latestVersion={last} onClose={() => setEditing(null)} />}
     </div>
   );

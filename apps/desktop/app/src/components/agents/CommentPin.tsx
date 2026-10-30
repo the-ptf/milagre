@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import type { DesignPin, PinControls } from "./ArtifactCanvas";
 import { EASE_OUT, useMotionScale } from "../../lib/ease";
 import { THEME_EVENT } from "../../lib/theme-sheet";
 import { useDismiss } from "../../lib/use-dismiss";
 import { morphFace, useSize, HIDDEN_FACE } from "../motion/morph";
+import { Icon } from "../primitives/Icon";
 
 const SEND_KEYS = /Mac/.test(navigator.userAgent) ? "⌘Enter" : "Ctrl+Enter";
 
@@ -16,18 +16,20 @@ const PIN_RADIUS = `0 ${PIN / 2}px ${PIN / 2}px ${PIN / 2}px`;
 const BUBBLE_RADIUS = "3px 10px 10px 10px";
 /** The pin and its bubble are one surface: its size, corners, fill and ring move together; reduced motion jumps. */
 const SURFACE =
-  "transition-[width,height,border-radius,background-color,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none motion-reduce:duration-0";
-/** A white ring keeps a pin readable on light and dark designs alike. */
-const PIN_SHADOW = "0 0 0 1.5px #fff, 0 1px 3px rgb(0 0 0 / 0.3)";
+  "transition-[width,height,border-radius,background-color,box-shadow] duration-base ease-enter motion-reduce:transition-none motion-reduce:duration-0";
+/** A surface-coloured ring sets the pin off the design under it. */
+const PIN_SHADOW = "0 0 0 1.5px var(--surface), 0 1px 3px rgb(0 0 0 / 0.3)";
+
+const themeColor = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /**
- * The comment cursor: the pin's own shape, its point (top-left) on the spot a click pins, in the accent with a white
- * ring. The 2x image keeps it sharp on a Retina screen.
+ * The comment cursor: the pin's own shape, its point (top-left) on the spot a click pins, in the accent with a ring in
+ * the theme's surface colour (a data URL can't read a CSS variable). The 2x image keeps it sharp on a Retina screen.
  */
-export function commentCursor(fill: string) {
+export function commentCursor(fill: string, ring = themeColor("--surface") || "white") {
   const svg = (size: number) =>
     `url("data:image/svg+xml,${encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 22 22"><path d="M2 2H11A9 9 0 0 1 20 11A9 9 0 0 1 11 20A9 9 0 0 1 2 11Z" fill="${fill}" stroke="#fff" stroke-width="1.5" stroke-linejoin="miter"/></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 22 22"><path d="M2 2H11A9 9 0 0 1 20 11A9 9 0 0 1 11 20A9 9 0 0 1 2 11Z" fill="${fill}" stroke="${ring}" stroke-width="1.5" stroke-linejoin="miter"/></svg>`,
     )}")`;
   return `image-set(${svg(22)} 1x, ${svg(44)} 2x) 2 2, crosshair`;
 }
@@ -43,8 +45,7 @@ function useCommentCursor(on: boolean) {
   }, [on]);
   return useMemo(() => {
     if (!on) return undefined;
-    const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-    return commentCursor(accent || "#007df3");
+    return commentCursor(themeColor("--accent"));
     // `theme` is only a signal to read the accent again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, theme]);
@@ -71,6 +72,7 @@ export function CommentLayer({
     <div
       data-slot="artifact-comment-layer"
       data-design-body
+      role={commenting ? "group" : undefined}
       aria-label={commenting ? `Pin a comment on ${title}` : undefined}
       className={`absolute inset-0 ${commenting ? "" : "pointer-events-none"}`}
       style={cursor ? { cursor } : undefined}
@@ -136,7 +138,7 @@ export function CommentPin({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, sent, comments]);
-  const [fill, ink] = pin.resolved !== undefined ? ["bg-green", "text-white"] : sent ? ["bg-ink", "text-surface"] : ["bg-accent", "text-white"];
+  const [fill, ink] = pin.resolved !== undefined ? ["bg-green", "text-on-accent"] : sent ? ["bg-ink", "text-on-ink"] : ["bg-accent", "text-on-accent"];
   return (
     <div
       ref={root}
@@ -171,7 +173,7 @@ export function CommentPin({
         aria-expanded={open}
         onClick={() => comments.onOpen(pin.key)}
         {...morphFace(!open, reduce, motionScale)}
-        className={`absolute top-0 left-0 grid cursor-pointer place-items-center text-[11px] font-medium ${ink} ${open ? HIDDEN_FACE : "visible"}`}
+        className={`absolute top-0 left-0 grid cursor-pointer place-items-center text-11 font-medium ${ink} ${open ? HIDDEN_FACE : "visible"}`}
         style={{ width: PIN, height: PIN, borderRadius: PIN_RADIUS }}
       >
         {number}
@@ -184,18 +186,18 @@ export function CommentPin({
             data-slot="artifact-comment-bubble"
             initial={{ opacity: 0 }}
             // The comment fades in once the surface has mostly grown, and out first as it shrinks back.
-            animate={{ opacity: 1, transition: { duration: reduce ? 0 : 0.14, delay: reduce ? 0 : 0.1, ease: EASE_OUT } }}
-            exit={{ opacity: 0, transition: { duration: reduce ? 0 : 0.08, ease: EASE_OUT } }}
+            animate={{ opacity: 1, transition: { duration: reduce ? 0 : 0.12, delay: reduce ? 0 : 0.1, ease: EASE_OUT } }}
+            exit={{ opacity: 0, transition: { duration: reduce ? 0 : 0.12, ease: EASE_OUT } }}
             className="absolute top-0 left-0 flex w-64 cursor-default flex-col gap-2 p-2 text-ink"
           >
             {sent ? (
               <>
-                <p className="px-1 text-[13px] whitespace-pre-wrap">{pin.text}</p>
+                <p className="px-1 text-13 whitespace-pre-wrap">{pin.text}</p>
                 {pin.resolved === undefined ? (
-                  <span className="px-1 text-[11px] text-ink-3">Sent to the agent</span>
+                  <span className="px-1 text-11 text-ink-3">Sent to the agent</span>
                 ) : (
-                  <span data-slot="artifact-comment-resolved" className="flex items-start gap-1 px-1 text-[12px] text-green-ink">
-                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={13} className="mt-px shrink-0" aria-hidden />
+                  <span data-slot="artifact-comment-resolved" className="flex items-start gap-1 px-1 text-12 text-green-ink">
+                    <Icon icon={CheckmarkCircle02Icon} size={12} className="mt-0.5 shrink-0" />
                     <span>{pin.resolved}</span>
                   </span>
                 )}
@@ -224,10 +226,14 @@ export function CommentPin({
                     }
                   }}
                   // Grows with the comment up to eight lines, then scrolls; the surface follows the bubble's size.
-                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-[6px] bg-transparent px-1 text-[13px] leading-[1.4] focus:outline-none"
+                  className="field-sizing-content max-h-[8lh] min-h-[2lh] w-full resize-none rounded-chip bg-transparent px-1 text-13 leading-[1.4] outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 />
-                <div className="flex items-center justify-between text-[11px] text-ink-3">
-                  <button type="button" onClick={() => comments.onRemove(pin.key)} className="rounded px-1 py-0.5 hover:bg-hover hover:text-ink">
+                <div className="flex items-center justify-between text-11 text-ink-3">
+                  <button
+                    type="button"
+                    onClick={() => comments.onRemove(pin.key)}
+                    className="h-6 rounded-inline px-1.5 transition-colors hover:bg-hover hover:text-ink"
+                  >
                     Delete
                   </button>
                   <span>Enter to keep · {SEND_KEYS} to send</span>

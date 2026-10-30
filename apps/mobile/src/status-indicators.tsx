@@ -6,7 +6,9 @@ import { BLOCKERS, pullRequestBlockers, pullRequestPresentation } from "@milagre
 import { chatMarkTone } from "@milagre/shared/chats";
 import { agentCounts, MARK_LABEL, type ChatMark } from "./indicators";
 import { Icon, SpinnerRing } from "./icons";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
+import { pressStyle } from "./ui";
 import { StatusPill } from "./status-pill";
 
 /** Desktop's chat mark slot: a question bubble, an approval shield, a spinning ring, an unread dot, or a faint idle dot. */
@@ -18,19 +20,19 @@ export function ChatMarkIcon({ mark, background = 0 }: { mark: ChatMark; backgro
     mark === "background" ? (
       <BackgroundRing count={background} />
     ) : mark === "question" ? (
-      <Icon icon={BubbleChatIcon} tone={tone} size={15} strokeWidth={2} />
+      <Icon icon={BubbleChatIcon} tone={tone} size={16} strokeWidth={2} />
     ) : mark === "waiting" ? (
-      <Icon icon={ShieldAlertIcon} tone={tone} size={15} strokeWidth={2} />
+      <Icon icon={ShieldAlertIcon} tone={tone} size={16} strokeWidth={2} />
     ) : mark === "interrupted" ? (
-      <Icon icon={Alert02Icon} tone={tone} size={15} strokeWidth={2} />
+      <Icon icon={Alert02Icon} tone={tone} size={16} strokeWidth={2} />
     ) : mark === "running" ? (
-      <SpinnerRing size={14} tone={tone} />
+      <SpinnerRing size={16} tone={tone} />
     ) : (
       <View
         style={{
           width: mark === "idle" ? 6 : 8,
           height: mark === "idle" ? 6 : 8,
-          borderRadius: 4,
+          borderRadius: radius.full,
           backgroundColor: mark === "idle" ? colors.idleDot : colors[tone],
         }}
       />
@@ -62,7 +64,7 @@ export function BackgroundRing({ count = 0, size = 15 }: { count?: number; size?
       }}
     >
       {count > 0 && (
-        <Text allowFontScaling={false} style={{ color: colors.accent, fontSize: size * 0.55, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
+        <Text allowFontScaling={false} style={{ color: colors.accent, fontSize: size * 0.55, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
           {count > 9 ? "9+" : count}
         </Text>
       )}
@@ -122,10 +124,10 @@ export function HeaderPullRequestChip({ pr, onPress }: { pr: PullRequest; onPres
       accessibilityLabel={`Pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
       hitSlop={8}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 2, opacity: pressed ? 0.55 : 1 })}
+      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 2 }, pressStyle({ pressed })]}
     >
-      <Icon icon={PR_ICONS[icon]} tone={tone} size={11} strokeWidth={2} />
-      <Text style={{ color: colors[tone], fontSize: 12, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
+      <Icon icon={PR_ICONS[icon]} tone={tone} size={12} strokeWidth={2} />
+      <Text style={{ color: colors[`${tone}Ink`], fontSize: type.caption1, lineHeight: lineHeight.caption1, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
     </Pressable>
   );
 }
@@ -138,7 +140,7 @@ export function SubagentChip({ agents, onPress }: { agents: Subagent[]; onPress:
     <StatusPill
       label="Subagents"
       count={count.total}
-      leading={count.running > 0 ? <SpinnerRing size={11} /> : undefined}
+      leading={count.running > 0 ? <SpinnerRing size={12} /> : undefined}
       tone={count.failed ? "red" : "ink2"}
       accessibilityLabel={`Subagents, ${count.total}${count.running ? `, ${count.running} running` : ""}`}
       onPress={onPress}

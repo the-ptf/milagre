@@ -24,14 +24,14 @@ import type { AgentPort, BackgroundTask, ChatPlan, ContextUsage, ImageAttachment
 import { PortTrack } from "./agents/PortTrack";
 import { TaskTrack } from "./agents/TaskTrack";
 import { createContext, Fragment, memo, startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ComponentProps, DragEvent, ReactElement, ReactNode } from "react";
+import type { DragEvent, ReactElement, ReactNode } from "react";
 import { loopbackOnlyPorts } from "@milagre/shared/loopback-url";
 import { runStatusLabel } from "@milagre/shared/tool-activity";
 import { LoopbackPortsContext } from "../lib/ports";
 import { createPortal } from "react-dom";
 import { commitChatSwitch, transcriptShown } from "../lib/chat-switch-timing";
 import { showSlot, trimSlots, type TranscriptSlot } from "../lib/transcript-slots";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   BubbleChatIcon,
@@ -76,6 +76,10 @@ import { mediaUrl } from "../lib/media";
 import { useRemoteMedia } from "../lib/remote-media";
 import { MediaLightbox } from "./motion/LazyMediaLightbox";
 import { ScrollArea } from "./primitives/ScrollArea";
+import { Button, IconButton } from "./primitives/Button";
+import { Icon } from "./primitives/Icon";
+import { InlineError } from "./primitives/InlineError";
+import { SpinnerRing } from "./primitives/SpinnerRing";
 import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
@@ -140,11 +144,7 @@ const NO_WAITING_STEPS: string[] = [];
 
 const AttachmentPreview = lazyView(() => import("./AttachmentPreview").then((module) => module.AttachmentPreview));
 
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
-
-function Icon({ icon, size = 16 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
+type IconData = IconSvgElement;
 
 /**
  * A reply: its activity (thinking, tool steps and the text between them) folded into one block, the images it generated, then its answer.
@@ -388,12 +388,12 @@ const MessageSection = memo(function MessageSection({
       data-from={messageSender(message)}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
-      style={animate ? { animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" } : undefined}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-slow ${bubble || feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
+      style={animate ? { animation: "fade-up var(--duration-slow) var(--ease-enter) both" } : undefined}
     >
       {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
       <div
-        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-window" : bubble ? "relative rounded-card bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-card border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
         {bubble && undoId && onUndo && (
@@ -403,16 +403,13 @@ const MessageSection = memo(function MessageSection({
               keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
               align="end"
             >
-              <button
-                type="button"
+              <IconButton
+                label="Undo this task's changes"
+                icon={Undo02Icon}
                 data-undo-message={message.id}
-                aria-label="Undo this task's changes"
                 disabled={undoDisabled}
                 onClick={() => onUndo(undoId)}
-                className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
-              >
-                <Icon icon={Undo02Icon} size={15} />
-              </button>
+              />
             </Tooltip>
           </div>
         )}
@@ -468,25 +465,20 @@ const MessageSection = memo(function MessageSection({
             <ReplyContent body={message.body} steps={steps} streaming={streaming} asking={asking} waitingStepIds={waitingStepIds} />
           </StepDetailsMessage>
         )}
-        {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-xs text-ink-3">Turn stopped</p>}
+        {!isUser && !streaming && message.outcome === "cancelled" && <p className="mt-2 text-12 text-ink-3">Turn stopped</p>}
         {limit && <UsageLimitCard limit={limit} sessionId={message.session_id} interactive={limitInteractive} onOpenAccounts={onOpenAccounts} />}
         {showUpdateButton && outdatedProvider && onUpdateCli && (
-          <div className="mt-2.5 flex items-center gap-2">
-            <button
-              type="button"
-              disabled={updatingCli === outdatedProvider}
-              onClick={() => onUpdateCli(outdatedProvider)}
-              className="flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink shadow-xs transition-colors hover:bg-hover active:scale-[0.98] disabled:opacity-50"
-            >
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="secondary" size={28} disabled={updatingCli === outdatedProvider} onClick={() => onUpdateCli(outdatedProvider)}>
               {updatingCli === outdatedProvider ? (
                 <>
-                  <span className="size-3 animate-spin rounded-full border-2 border-ink border-t-transparent" />
+                  <SpinnerRing size={12} />
                   <span>Updating {providerName(outdatedProvider)}…</span>
                 </>
               ) : (
                 <span>Update {providerName(outdatedProvider)} now</span>
               )}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -701,21 +693,11 @@ const MessageTranscript = memo(function MessageTranscript({
   const limitMessageId = isSending || offlineName ? undefined : messages.at(-1)?.id;
   return (
     <>
-      {historyError && (
-        <p role="alert" className="text-xs text-ink-2">
-          Could not load earlier messages: {historyError}. Use Show earlier messages to retry.
-        </p>
-      )}
+      {historyError && <InlineError size={12}>Could not load earlier messages: {historyError}. Use Show earlier messages to retry.</InlineError>}
       {start + remote > 0 && (
-        <button
-          ref={earlierButton}
-          type="button"
-          onClick={() => void showEarlier()}
-          disabled={historyLoading}
-          className="self-center rounded-control border border-line px-3 py-1.5 text-xs text-ink-2 hover:bg-hover"
-        >
-          {historyLoading ? "Loading earlier messages..." : `Show earlier messages (${start + remote})`}
-        </button>
+        <Button ref={earlierButton} variant="secondary" size={28} className="self-center" onClick={() => void showEarlier()} disabled={historyLoading}>
+          {historyLoading ? "Loading earlier messages…" : `Show earlier messages (${start + remote})`}
+        </Button>
       )}
       {cut && <span ref={tailMarker} hidden />}
       {shown.map(({ message, merged }) => {
@@ -928,7 +910,7 @@ function ChipButton({
       type="button"
       aria-expanded={open}
       onClick={(event) => onClick(event.currentTarget)}
-      className={`flex h-7 min-w-0 items-center gap-1.5 rounded-[8px] px-1.5 text-[12px] font-medium whitespace-nowrap transition-colors hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
+      className={`flex h-7 min-w-0 items-center gap-1.5 rounded-control px-1.5 text-12 font-medium whitespace-nowrap transition-colors duration-fast hover:bg-hover hover:text-ink ${open ? "bg-hover text-ink" : "text-ink-2"}`}
     >
       <span className="flex shrink-0">{leading ?? (icon && <Icon icon={icon} size={14} />)}</span>
       <span className="min-w-0 truncate">{label}</span>
@@ -1041,9 +1023,9 @@ function NewChatHeader({
 
   return (
     // The entrance animation makes this a stacking context, so lift it above the composer while a popover is open.
-    <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+    <div className={`px-1 ${menu ? "relative z-30" : ""}`} style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
       {!chats && noGit && selected && (
-        <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-[13px] text-ink-2">
+        <p data-no-git-note className="mt-1 mb-2 flex items-center gap-1.5 text-13 text-ink-2">
           <Icon icon={Folder01Icon} size={14} />
           {selected.name} has no Git, so this Chat works in the folder itself.
         </p>
@@ -1062,7 +1044,7 @@ function NewChatHeader({
             </Tooltip>
           )}
           {chats ? (
-            <span data-new-chat-label className="flex h-7 items-center gap-1.5 px-1.5 text-[12px] font-medium text-ink-2">
+            <span data-new-chat-label className="flex h-7 items-center gap-1.5 px-1.5 text-12 font-medium text-ink-2">
               <Icon icon={BubbleChatIcon} size={14} />
               {newChatLook("chats").trayLabel}
             </span>
@@ -1480,7 +1462,7 @@ export function ChatComposer({
           <div
             aria-hidden
             data-busy={isSending || undefined}
-            className={`chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-16 [&>*]:transition-opacity [&>*]:duration-200 ${scrolled ? "" : "[&>*]:opacity-0"}`}
+            className={`chat-top-blur progressive-blur pointer-events-none absolute inset-x-0 top-0 z-10 h-16 [&>*]:transition-opacity [&>*]:duration-base ${scrolled ? "" : "[&>*]:opacity-0"}`}
           >
             <ProgressiveBlurLayers />
           </div>
@@ -1494,7 +1476,7 @@ export function ChatComposer({
             ]
               .filter(Boolean)
               .join(" ")}
-            style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}
+            style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}
           >
             <NewChatHeading
               projectKey={newChatProjectKey}
@@ -1518,12 +1500,12 @@ export function ChatComposer({
                 <LoadingMark size={48} />
               </div>
             ) : messages.length === 0 ? (
-              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-ink-2" role="alert">
+              <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-13 text-ink-2" role="alert">
                 <p>Could not load this Chat: {loadError}</p>
                 {onRetryLoad && (
-                  <button type="button" onClick={onRetryLoad} className="rounded-control border border-line px-3 py-1.5 hover:bg-hover">
+                  <Button variant="secondary" onClick={onRetryLoad}>
                     Try again
-                  </button>
+                  </Button>
                 )}
               </div>
             ) : (
@@ -1579,7 +1561,7 @@ export function ChatComposer({
                     </LoopbackPortsContext.Provider>
 
                     {isSending && (
-                      <div className="w-full" style={{ animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" }}>
+                      <div className="w-full" style={{ animation: "fade-up var(--duration-slow) var(--ease-enter) both" }}>
                         <ThinkingIndicator
                           startedAt={runStartedAt}
                           label={phase ?? (waitingForSubagents ? "Waiting on subagents" : `Working with ${workingModelName}`)}
@@ -1596,16 +1578,11 @@ export function ChatComposer({
                     />
                     {runtimeChat && !isSending && <NextCheck chatKey={runtimeChat} />}
                     {resume && !isSending && (
-                      <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-[12px] text-ink-2">
+                      <div data-resume-bar className="flex w-full items-center gap-3 rounded-control border border-line px-3 py-2 text-12 text-ink-2">
                         <span className="min-w-0 flex-1">Milagre closed while this chat was working.</span>
-                        <button
-                          type="button"
-                          onClick={resume.onContinue}
-                          disabled={sendBlocked}
-                          className="shrink-0 rounded-control bg-ink px-2.5 py-1 font-medium text-surface transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
-                        >
+                        <Button size={24} onClick={resume.onContinue} disabled={sendBlocked}>
                           Continue
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -1747,13 +1724,11 @@ export function ChatComposer({
               />
             </div>
           </div>
-          {newChatError && (
-            <p role="alert" className="mt-2 px-1 text-[12px] text-red-ink">
-              {newChatError}
-            </p>
-          )}
+          <InlineError size={12} className="mt-2 px-1">
+            {newChatError}
+          </InlineError>
           {composerNote && (
-            <p data-composer-note className="mt-1.5 px-2 text-[12px] text-ink-3">
+            <p data-composer-note className="mt-1.5 px-2 text-12 text-ink-3">
               {composerNote}
             </p>
           )}

@@ -262,7 +262,12 @@ async function browserChecks() {
     );
     await evaluate('window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))');
     await waitFor('!!document.querySelector("[data-diff-comment-input]")');
-    assert.equal(await text("[data-diff-comment-save]"), "Add to review⌘↵");
+    assert.equal(await text("[data-diff-comment-save]"), "Add to review");
+    assert.equal(
+      await evaluate('document.querySelector("[data-diff-comment-save] [data-shortcut-hint]")?.getAttribute("aria-label")'),
+      "Command + Enter",
+      "The save button still shows its Command Enter hint",
+    );
     assert.ok(await evaluate('!!document.querySelector("[data-diff-comment-chat]")'), "Send to Chat sits beside it");
     await evaluate(
       `(() => { const field = document.querySelector("[data-diff-comment-input]"); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, "Why pick first?"); field.dispatchEvent(new Event("input", { bubbles: true })); })()`,

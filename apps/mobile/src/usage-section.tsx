@@ -5,7 +5,8 @@ import type { ProviderUsage, UsageWindow } from "@milagre/shared/model";
 import { providerName } from "@milagre/shared/providers";
 import { formatPercent, formatResetsIn, formatUpdatedAgo } from "@milagre/shared/usage";
 import { ProviderLogo, SpinnerRing } from "./icons";
-import { IconButton, useStyles } from "./ui";
+import { IconButton, SectionLabel, useStyles } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useSession } from "./session";
 import { useUsage } from "./use-usage";
 import { useTheme } from "./theme";
@@ -16,10 +17,13 @@ function WindowRow({ window, now }: { window: UsageWindow; now: number }) {
   const percent = Math.max(0, Math.min(100, window.usedPercent));
   const reset = formatResetsIn(window.resetsAt, now);
   return (
-    <View style={{ gap: 7 }}>
+    <View style={{ gap: 8 }}>
       <View style={[styles.row, { justifyContent: "space-between", gap: 4 }]}>
-        <Text style={{ color: colors.ink2, fontSize: 14 }}>{window.label}</Text>
-        <Text selectable style={{ color: colors.ink, fontSize: 14, fontWeight: "500", fontVariant: ["tabular-nums"] }}>
+        <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{window.label}</Text>
+        <Text
+          selectable
+          style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500", fontVariant: ["tabular-nums"] }}
+        >
           {formatPercent(percent)} used
         </Text>
       </View>
@@ -28,9 +32,9 @@ function WindowRow({ window, now }: { window: UsageWindow; now: number }) {
         accessibilityRole="progressbar"
         accessibilityLabel={`${window.label} usage`}
         accessibilityValue={{ min: 0, max: 100, now: percent, text: `${formatPercent(percent)} used${reset ? `, ${reset}` : ""}` }}
-        style={{ height: 5, borderRadius: 3, overflow: "hidden", backgroundColor: colors.lineStrong }}
+        style={{ height: 4, borderRadius: radius.full, overflow: "hidden", backgroundColor: colors.lineStrong }}
       >
-        <View style={{ width: `${percent}%`, height: "100%", borderRadius: 3, backgroundColor: colors.ink }} />
+        <View style={{ width: `${percent}%`, height: "100%", borderRadius: radius.full, backgroundColor: colors.ink }} />
       </View>
       {reset ? (
         <Text selectable style={styles.caption}>
@@ -48,13 +52,13 @@ function ProviderRows({ provider, now }: { provider: ProviderUsage; now: number 
   const account = provider.account?.email || provider.account?.label;
   return (
     <View style={{ gap: 16 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
         <ProviderLogo provider={provider.provider} size={20} />
-        <View style={{ flex: 1, gap: 3 }}>
+        <View style={{ flex: 1, gap: 4 }}>
           <Text
             selectable
             accessibilityLabel={`${providerName(provider.provider)} usage: ${account || "Account unavailable"}`}
-            style={{ color: colors.ink, fontSize: 16, fontWeight: "600" }}
+            style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "600" }}
           >
             {account || "Account unavailable"}
           </Text>
@@ -73,11 +77,7 @@ function ProviderRows({ provider, now }: { provider: ProviderUsage; now: number 
         </Text>
       ) : null}
       {provider.message ? (
-        <Text
-          selectable
-          accessibilityRole={failed ? "alert" : undefined}
-          style={[styles.caption, { color: failed ? colors.orangeInk : colors.ink2, lineHeight: 18 }]}
-        >
+        <Text selectable accessibilityRole={failed ? "alert" : undefined} style={[styles.caption, { color: failed ? colors.orangeInk : colors.ink2 }]}>
           {provider.message}
         </Text>
       ) : null}
@@ -110,24 +110,22 @@ export function UsageSection() {
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 16 }}>
-        <Text accessibilityRole="header" style={styles.section}>
-          Plan usage
-        </Text>
+        <SectionLabel>Plan usage</SectionLabel>
         {session.client ? (
           <IconButton label="Refresh plan usage" icon={RefreshIcon} size={44} loading={usage.loading} onPress={() => void usage.refresh()} />
         ) : null}
       </View>
-      <View style={[styles.card, { gap: 20 }]}>
+      <View style={[styles.card, { gap: 24 }]}>
         {!session.client ? (
           <Text style={styles.muted}>Connect to a computer to see its plan usage.</Text>
         ) : !usage.snapshot && usage.loading ? (
-          <View style={[styles.row, { gap: 10 }]}>
+          <View style={[styles.row, { gap: 12 }]}>
             <SpinnerRing size={18} />
-            <Text style={styles.muted}>Checking usage...</Text>
+            <Text style={styles.muted}>Checking usage…</Text>
           </View>
         ) : providers.length ? (
           providers.map((provider, index) => (
-            <View key={provider.provider} style={{ gap: 20 }}>
+            <View key={provider.provider} style={{ gap: 24 }}>
               {index > 0 ? <View style={styles.separator} /> : null}
               <ProviderRows provider={provider} now={now} />
             </View>

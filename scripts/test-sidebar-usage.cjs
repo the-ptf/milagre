@@ -276,10 +276,10 @@ async function browserChecks() {
     );
     await evaluate('window.setProviderIcons("simplified"); window.setTheme("dark")');
     await waitFor(
-      '[...document.querySelectorAll("[data-provider-logo]")].every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor" && getComputedStyle(svg).color === "rgb(255, 255, 255)")',
+      '[...document.querySelectorAll("[data-provider-logo]")].every(svg => svg.children.length === 1 && svg.firstElementChild.getAttribute("fill") === "currentColor" && getComputedStyle(svg).color === "rgb(233, 239, 247)")',
     );
     await evaluate('window.setTheme("light")');
-    await waitFor('[...document.querySelectorAll("[data-provider-logo]")].every(svg => getComputedStyle(svg).color === "rgb(0, 0, 0)")');
+    await waitFor('[...document.querySelectorAll("[data-provider-logo]")].every(svg => getComputedStyle(svg).color === "rgb(28, 34, 43)")');
     await evaluate('window.setProviderIcons("original")');
     await waitFor('!!document.querySelector("[data-provider-logo=codex] linearGradient") && !!document.querySelector("[data-provider-logo=antigravity] mask")');
     await evaluate("window.setCollapsed(true)");

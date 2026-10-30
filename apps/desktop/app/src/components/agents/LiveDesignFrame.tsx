@@ -159,7 +159,9 @@ function LiveWork({
             width: box.width,
             height: box.height,
             outline: `${1.5 / scale}px solid ${color}`,
-            transition: reduced ? undefined : "left 200ms ease-out, top 200ms ease-out, width 200ms ease-out, height 200ms ease-out",
+            transition: reduced
+              ? undefined
+              : "left var(--duration-base) var(--ease-enter), top var(--duration-base) var(--ease-enter), width var(--duration-base) var(--ease-enter), height var(--duration-base) var(--ease-enter)",
           }}
         />
       )}
@@ -237,7 +239,7 @@ export function LiveDesignLayer({
       ref={layer}
       data-slot="live-design"
       data-live={live.kind}
-      className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-200"
+      className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-base ease-enter"
       style={{ opacity: leaving === live.key ? 0 : 1 }}
     >
       <LiveWork
@@ -365,7 +367,7 @@ function DraftFrame({
     >
       <div className="relative shrink-0" style={{ height: header / scale }}>
         <div
-          className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 overflow-hidden pb-1.5 text-[12px] text-ink"
+          className="absolute bottom-0 left-0 flex origin-bottom-left items-center gap-1 overflow-hidden pb-1.5 text-12 text-ink"
           style={{ width: width * scale, height: header, transform: `scale(${1 / scale})` }}
         >
           <span className="size-1.5 shrink-0 animate-pulse rounded-full" style={{ background: persona.color }} aria-hidden />
@@ -391,7 +393,7 @@ export function LiveDesignWaiting({ chatId }: { chatId: string }) {
   if (useDraftFrameShown(chatId)) return null;
   return (
     <div data-slot="artifact-canvas-waiting" role="status" className="pointer-events-none absolute inset-0 grid place-items-center">
-      <span className="flex items-center gap-2 text-[13px] text-ink-3">
+      <span className="flex items-center gap-2 text-13 text-ink-3">
         <span className="size-1.5 animate-pulse rounded-full" style={{ background: agentColor(agent) }} aria-hidden />
         {agent} is designing…
       </span>

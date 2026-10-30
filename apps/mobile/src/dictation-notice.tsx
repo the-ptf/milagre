@@ -3,7 +3,9 @@ import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated
 import { AlertCircleIcon, MicOff01Icon, PauseCircleIcon } from "@hugeicons/core-free-icons";
 import { withAlpha } from "@milagre/shared/themes";
 import type { DictationError, DictationErrorKind } from "@milagre/shared/voice-dictation";
+import { lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
+import { useAnnounce } from "./primitives/announce";
 import { useTheme } from "./theme";
 
 const ICONS: Record<DictationErrorKind, typeof MicOff01Icon> = {
@@ -34,6 +36,7 @@ export function DictationNotice({
   const { colors, motionScale } = useTheme();
   const permission = error.kind === "permission";
   const duration = Math.round(150 * motionScale);
+  useAnnounce(error.message);
   return (
     <Animated.View
       entering={motionScale > 0 ? FadeIn.duration(duration).reduceMotion(ReduceMotion.System) : undefined}
@@ -41,36 +44,45 @@ export function DictationNotice({
       pointerEvents="box-none"
       style={{ position: "absolute", right: 0, bottom: micSize + ARROW + 2, width: MAX_WIDTH, alignItems: "flex-end" }}
     >
+      {/* With the Settings button the bubble isn't one element, so the button stays reachable on its own. */}
       <Pressable
+        accessible={!permission}
         accessibilityRole="alert"
-        accessibilityLiveRegion="polite"
         accessibilityLabel={error.message}
         accessibilityHint={permission ? undefined : "Dismisses the message"}
         disabled={permission}
         onPress={onDismiss}
-        style={{ maxWidth: MAX_WIDTH, padding: 12, borderRadius: 12, borderCurve: "continuous", backgroundColor: colors.ink, gap: 10 }}
+        style={{ maxWidth: MAX_WIDTH, padding: 12, borderRadius: radius.card, borderCurve: "continuous", backgroundColor: colors.ink, gap: 12 }}
       >
-        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+        <View
+          accessible={permission}
+          accessibilityRole={permission ? "alert" : undefined}
+          accessibilityLabel={permission ? error.message : undefined}
+          style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}
+        >
           <View style={{ height: 20, justifyContent: "center", opacity: 0.7 }}>
             <Icon icon={ICONS[error.kind]} color={colors.onInk} size={16} />
           </View>
-          <Text style={{ flexShrink: 1, color: colors.onInk, fontSize: 15, lineHeight: 20, fontWeight: "500" }}>{error.message}</Text>
+          <Text style={{ flexShrink: 1, color: colors.onInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>
+            {error.message}
+          </Text>
         </View>
         {permission ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open Settings"
+            hitSlop={6}
             onPress={onOpenSettings}
             style={({ pressed }) => ({
-              height: 32,
-              borderRadius: 8,
+              minHeight: 32,
+              borderRadius: radius.control,
               borderCurve: "continuous",
               alignItems: "center",
               justifyContent: "center",
               backgroundColor: withAlpha(colors.onInk, pressed ? 0.24 : 0.16),
             })}
           >
-            <Text style={{ color: colors.onInk, fontSize: 15, fontWeight: "600" }}>Open Settings</Text>
+            <Text style={{ color: colors.onInk, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" }}>Open Settings</Text>
           </Pressable>
         ) : null}
         {/* Centred on the mic under the bubble's right edge. */}

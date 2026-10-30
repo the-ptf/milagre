@@ -4,9 +4,10 @@ import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { ChartBarLineIcon } from "@hugeicons/core-free-icons";
+import { space } from "./design-tokens";
 import { Icon } from "./icons";
 import { useSession } from "./session";
-import { ErrorNotice, ListRow, Toggle, useStyles } from "./ui";
+import { ErrorNotice, ListRow, SectionLabel, Toggle, useStyles } from "./ui";
 
 /** Settings › General: plan usage, the connected Mac's worktree default and its Auto update (desktop's About). */
 export function GeneralSection() {
@@ -72,9 +73,9 @@ export function GeneralSection() {
     }
   }
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={styles.section}>Plan usage</Text>
-      <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
+    <View style={{ gap: space.md }}>
+      <SectionLabel>Plan usage</SectionLabel>
+      <View style={[styles.card, { paddingVertical: space.xs, gap: 0 }]}>
         <ListRow
           compact
           title="Plan usage"
@@ -85,8 +86,9 @@ export function GeneralSection() {
       </View>
       {session.client && syncMain !== null && (
         <>
-          <Text style={[styles.section, { marginTop: 12 }]}>Worktrees</Text>
-          <View style={[styles.card, { gap: 4 }]}>
+          {/* 16 plus the 8 gap: sections sit 24 apart. */}
+          <SectionLabel style={{ marginTop: space.xl }}>Worktrees</SectionLabel>
+          <View style={[styles.card, { gap: space.xs }]}>
             <Toggle title={MAIN_SYNC_TITLE} selected={syncMain} onPress={() => void changeSyncMain(!syncMain)} />
             <Text style={styles.caption}>{MAIN_SYNC_HINT}</Text>
             {syncMainError ? <ErrorNotice message={syncMainError} /> : null}
@@ -95,8 +97,8 @@ export function GeneralSection() {
       )}
       {session.client && autoUpdate !== null && (
         <>
-          <Text style={[styles.section, { marginTop: 12 }]}>Updates</Text>
-          <View style={[styles.card, { gap: 4 }]}>
+          <SectionLabel style={{ marginTop: space.xl }}>Updates</SectionLabel>
+          <View style={[styles.card, { gap: space.xs }]}>
             <Toggle title={AUTO_UPDATE_TITLE} selected={autoUpdate} onPress={() => void changeAutoUpdate(!autoUpdate)} />
             <Text style={styles.caption}>{AUTO_UPDATE_HINT}</Text>
             {autoUpdateError ? <ErrorNotice message={autoUpdateError} /> : null}

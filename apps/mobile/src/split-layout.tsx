@@ -15,6 +15,7 @@ import { chatShortcutIndex, useHardwareShortcuts } from "./hardware-keys";
 import { rulesOf, useHostKeybindings } from "./keybindings-store";
 import { isOpenChat, requestNavigation } from "./navigation-commands";
 import { useSession } from "./session";
+import { radius } from "./design-tokens";
 import { useTheme } from "./theme";
 import { scaledTiming, useMotionScale } from "./motion";
 
@@ -264,11 +265,12 @@ export function HardwareShortcuts() {
 const s = StyleSheet.create({
   slot: { overflow: "hidden" },
   grabber: { position: "absolute", left: 0, width: DOCK_GUTTER, alignItems: "center", justifyContent: "center" },
-  grip: { width: 4, height: 44, borderRadius: 2 },
+  grip: { width: 4, height: 44, borderRadius: radius.full },
   card: {
     flex: 1,
     width: SIDEBAR_WIDTH,
     marginLeft: CARD_MARGIN,
+    // ponytail: 18 matches the sidebar and panel cards in project-navigation and side-panels; move all three together.
     borderRadius: 18,
     borderCurve: "continuous",
     borderWidth: StyleSheet.hairlineWidth,

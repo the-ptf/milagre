@@ -1,11 +1,11 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowExpand01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { diagramLabel, resolveDiagramSvg } from "@milagre/shared/diagram";
 import { MarkdownStreamingContext } from "../genui/GenerativeUI";
 import { MediaLightbox } from "../motion/LazyMediaLightbox";
 import { CodeBlock } from "./CodeBlock";
+import { IconButton } from "../primitives/Button";
 
 // Pele (pele.run) loads with the first diagram: a reply without one doesn't pay for it.
 let pele: Promise<typeof import("pele")> | null = null;
@@ -120,12 +120,12 @@ export function MermaidBlock({ code }: { code: string }) {
   };
 
   const label = diagramLabel(type);
-  const tab = (on: boolean) => `rounded-[5px] px-2 py-0.5 text-[11px] transition-colors ${on ? "bg-field text-ink" : "text-ink-3 hover:text-ink"}`;
+  const tab = (on: boolean) => `rounded-chip px-2 py-0.5 text-11 transition-colors duration-fast ${on ? "bg-field text-ink" : "text-ink-3 hover:text-ink"}`;
   return (
     <div data-slot="mermaid-block" className="markdown-code my-2 overflow-hidden rounded-control border border-line bg-inset">
-      <div className="flex h-8 items-center gap-1 border-b border-line pr-1 pl-2.5 text-[11px] text-ink-3">
+      <div className="flex h-7 items-center gap-1 border-b border-line pr-1 pl-2.5 text-11 text-ink-3">
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <div role="group" aria-label="Show" className="flex items-center gap-0.5 rounded-[7px] bg-surface p-0.5">
+        <div role="group" aria-label="Show" className="flex items-center gap-0.5 rounded-control bg-surface p-0.5">
           <button type="button" aria-pressed={!source} onClick={() => setSource(false)} className={tab(!source)}>
             Diagram
           </button>
@@ -133,37 +133,22 @@ export function MermaidBlock({ code }: { code: string }) {
             Source
           </button>
         </div>
-        <button
-          type="button"
-          aria-label={copied ? "Copied" : "Copy diagram source"}
-          onClick={copy}
-          className="flex size-6 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-        >
-          <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} size={13} strokeWidth={1.8} color="currentColor" />
-        </button>
-        <button
-          type="button"
-          aria-label="Expand diagram"
-          disabled={source || !!error}
-          onClick={() => void expand()}
-          className="flex size-6 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:opacity-40"
-        >
-          <HugeiconsIcon icon={ArrowExpand01Icon} size={13} strokeWidth={1.8} color="currentColor" />
-        </button>
+        <IconButton label={copied ? "Copied" : "Copy diagram source"} icon={copied ? Tick02Icon : Copy01Icon} size={24} onClick={copy} />
+        <IconButton label="Expand diagram" icon={ArrowExpand01Icon} size={24} disabled={source || !!error} onClick={() => void expand()} />
       </div>
       {source || error ? (
         <>
           {error && !source && (
-            <p role="alert" className="px-3 pt-2 text-[12px] text-red-ink">
+            <p role="alert" className="px-3 pt-2 text-12 text-red-ink">
               The diagram didn't draw: {error}
             </p>
           )}
-          <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[12px] leading-[1.6]">
+          <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[length:var(--code-size)] leading-[1.6]">
             <code>{code}</code>
           </pre>
         </>
       ) : null}
-      <div ref={box} data-slot="mermaid-diagram" hidden={source || !!error} aria-label={label} className="px-3 py-3 text-[13px]" style={THEME} />
+      <div ref={box} data-slot="mermaid-diagram" hidden={source || !!error} aria-label={label} className="px-3 py-3 text-13" style={THEME} />
       {expanded && (
         <MediaLightbox
           items={[{ id: "diagram", name: label, src: expanded, kind: "image" }]}

@@ -6,7 +6,7 @@ import { SKILL_SCOPES, shadowedBy, shortenHome, skillBody, skillProviderLabel } 
 import { useSession } from "../../session";
 import { useRpc } from "../../use-rpc";
 import { Markdown } from "../../markdown";
-import { ErrorNotice, PageScroll, PillButton, useStyles } from "../../ui";
+import { ErrorNotice, PageScroll, PillButton, SectionLabel, announce, useStyles } from "../../ui";
 import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
 
 const scopeLabel = (scope: string) => SKILL_SCOPES.find((item) => item.scope === scope)?.label ?? scope;
@@ -23,6 +23,7 @@ export default function SkillScreen() {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
+    announce("Copied");
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
@@ -69,12 +70,10 @@ export default function SkillScreen() {
             </View>
             {hidden.length > 0 && (
               <View style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={styles.section}>
-                  {overrides(hidden.length)}
-                </Text>
-                <View style={[styles.card, { gap: 10 }]}>
+                <SectionLabel>{overrides(hidden.length)}</SectionLabel>
+                <View style={[styles.card, { gap: 12 }]}>
                   {hidden.map((item) => (
-                    <View key={item.path} style={{ gap: 3 }}>
+                    <View key={item.path} style={{ gap: 4 }}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={skillBadge}>{skillProviderLabel(item.provider)}</Text>
                         <Text style={styles.caption}>{scopeLabel(item.scope)}</Text>

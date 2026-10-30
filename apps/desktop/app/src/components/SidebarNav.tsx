@@ -22,7 +22,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
   ArrowDown01Icon,
@@ -45,7 +45,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import GlideMenu from "@/components/primitives/GlideMenu";
 import Tooltip from "@/components/primitives/Tooltip";
-import { WorkspaceIcon } from "./WorkspaceIcon";
+import { Icon, type IconSize } from "./primitives/Icon";
+import { ProjectAvatar } from "./primitives/ProjectAvatar";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
 import { FiltersButton, type PickerProject } from "./sidebar/FiltersMenu";
 import { useShortcutHints } from "../lib/shortcut-hints";
@@ -97,27 +98,22 @@ import {
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 
-type HugeIconProps = { size?: number; className?: string };
-type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
-
-function HugeIcon({ icon, size = 16, className }: HugeIconProps & { icon: HugeIconData }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" className={className} />;
-}
+type IconProps = { size?: IconSize; className?: string };
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => {});
-const PROJECT_MENU_ICONS: Record<ProjectMenuKey, HugeIconData> = {
+const PROJECT_MENU_ICONS: Record<ProjectMenuKey, IconSvgElement> = {
   reveal: FolderOpenIcon,
   "copy-path": Copy01Icon,
   "copy-name": Copy01Icon,
   settings: Settings01Icon,
 };
 
-const IconChevronDownSmall = (props: HugeIconProps) => <HugeIcon icon={ArrowDown01Icon} {...props} />;
-const IconFolderAdd = (props: HugeIconProps) => <HugeIcon icon={FolderAddIcon} {...props} />;
-const IconMagnifyingGlass = (props: HugeIconProps) => <HugeIcon icon={Search01Icon} {...props} />;
-const IconPlusMedium = (props: HugeIconProps) => <HugeIcon icon={Add01Icon} {...props} />;
-const IconSettingsGear1 = (props: HugeIconProps) => <HugeIcon icon={Settings01Icon} {...props} />;
+const IconChevronDownSmall = (props: IconProps) => <Icon icon={ArrowDown01Icon} {...props} />;
+const IconFolderAdd = (props: IconProps) => <Icon icon={FolderAddIcon} {...props} />;
+const IconMagnifyingGlass = (props: IconProps) => <Icon icon={Search01Icon} {...props} />;
+const IconPlusMedium = (props: IconProps) => <Icon icon={Add01Icon} {...props} />;
+const IconSettingsGear1 = (props: IconProps) => <Icon icon={Settings01Icon} {...props} />;
 
 /* ─────────────────────────────────────────────────────────
  * SIDEBAR NAV
@@ -263,7 +259,7 @@ function writeScopeOrder(order: string[]) {
 type ScopeMenuItem = {
   key: string;
   label: string;
-  icon: HugeIconData;
+  icon: IconSvgElement;
   run: () => void;
   disabled?: boolean;
   destructive?: boolean;
@@ -332,17 +328,17 @@ function ScopeHeader({
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} ${name}${computer ? ` on ${computer.name}${computer.offline ? ", offline" : ""}` : ""}`}
         onClick={onToggle}
-        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[8px] pl-2 text-left hover:bg-hover-2 ${rightRoom}`}
+        className={`flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-control pl-2 text-left transition-colors duration-fast hover:bg-hover-sidebar ${rightRoom}`}
       >
         {/* A Link's stacked avatars are wider than a Project's icon, so the slot grows with them. */}
         <span className="relative flex h-5 min-w-5 shrink-0 items-center justify-center text-ink">
-          <span className="flex items-center justify-center transition-opacity duration-100 group-hover/scope:opacity-0 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-0">
+          <span className="flex items-center justify-center transition-opacity duration-fast group-hover/scope:opacity-0 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-0">
             {icon}
           </span>
           <span
             aria-hidden
             data-scope-chevron
-            className={`absolute inset-y-0 left-0 flex w-5 items-center justify-center text-ink-3 opacity-0 transition-[opacity,transform] duration-150 group-hover/scope:opacity-100 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-100 ${open ? "" : "-rotate-90"}`}
+            className={`absolute inset-y-0 left-0 flex w-5 items-center justify-center text-ink-3 opacity-0 transition-[opacity,transform] duration-fast group-hover/scope:opacity-100 group-has-[[data-scope-toggle]:focus-visible]/scope:opacity-100 ${open ? "" : "-rotate-90"}`}
           >
             <IconChevronDownSmall size={14} />
           </span>
@@ -363,9 +359,9 @@ function ScopeHeader({
             <span
               data-scope-computer
               data-offline={computer.offline || undefined}
-              className={`flex h-[18px] items-center gap-1 rounded-[5px] px-1.5 text-[length:calc(11px+var(--sidebar-delta))] font-medium ${computer.offline ? "bg-orange-tint text-orange-ink" : "bg-ink/[0.07] text-ink-2"}`}
+              className={`flex h-[18px] items-center gap-1 rounded-chip px-1.5 text-[length:calc(11px+var(--sidebar-delta))] font-medium ${computer.offline ? "bg-orange-tint text-orange-ink" : "bg-field text-ink-2"}`}
             >
-              <HugeIcon icon={computer.offline ? CloudOffIcon : LaptopIcon} size={11} />
+              <Icon icon={computer.offline ? CloudOffIcon : LaptopIcon} size={12} />
               <span className="max-w-[72px] truncate">{computerAlias(computer.name)}</span>
             </span>
           </Tooltip>
@@ -374,7 +370,7 @@ function ScopeHeader({
       {/* Rests at the right edge; slides left when hover reveals the actions it would sit under. */}
       {attention && (
         <AttentionDot
-          className={`pointer-events-none absolute right-3 transition-transform duration-150 ease-out ${menu.length > 0 ? "group-hover/scope:-translate-x-[52px] group-has-[:focus-visible]/scope:-translate-x-[52px]" : "group-hover/scope:-translate-x-[26px] group-has-[:focus-visible]/scope:-translate-x-[26px]"}`}
+          className={`pointer-events-none absolute right-3 transition-transform duration-fast ease-enter ${menu.length > 0 ? "group-hover/scope:-translate-x-[52px] group-has-[:focus-visible]/scope:-translate-x-[52px]" : "group-hover/scope:-translate-x-[26px] group-has-[:focus-visible]/scope:-translate-x-[26px]"}`}
         />
       )}
       <div className="absolute right-1 flex items-center gap-0.5">
@@ -450,7 +446,7 @@ function ScopeMenuButton({ name, items }: { name: string; items: ScopeMenuItem[]
           onClick={() => (open ? close() : openMenu())}
           className={`${SCOPE_HEADER_BUTTON} ${open ? "opacity-100" : "opacity-0 group-hover/scope:opacity-100 focus-visible:opacity-100"}`}
         >
-          <HugeIcon icon={MoreVerticalIcon} size={14} />
+          <Icon icon={MoreVerticalIcon} size={14} />
         </button>
       </Tooltip>
       {open &&
@@ -461,16 +457,16 @@ function ScopeMenuButton({ name, items }: { name: string; items: ScopeMenuItem[]
             aria-label={`${name} actions`}
             onKeyDown={moveFocus}
             data-scope-menu-panel
-            className="fixed z-50 flex max-h-[calc(100vh-16px)] w-56 flex-col overflow-hidden rounded-[14px] bg-surface shadow-overlay"
+            className="fixed z-50 flex max-h-[calc(100vh-16px)] w-56 flex-col overflow-hidden rounded-card bg-surface shadow-raised"
             style={{
               top: position.top,
               left: position.left,
-              animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both",
+              animation: "pop-in var(--duration-base) var(--ease-enter) both",
               transformOrigin: "top right",
             }}
           >
             <ScrollArea className="p-1.5">
-              <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-[8px] bg-hover-2">
+              <GlideMenu className="flex flex-col gap-px" rowSelector="[data-menu-row]:not(:disabled)" highlightClassName="inset-x-0 rounded-control bg-hover">
                 {items.map((item) => (
                   <Fragment key={item.key}>
                     {item.separatorBefore && <div className="my-1 h-px bg-line" />}
@@ -484,12 +480,12 @@ function ScopeMenuButton({ name, items }: { name: string; items: ScopeMenuItem[]
                         close();
                         item.run();
                       }}
-                      className="relative z-10 flex h-9 w-full items-center gap-1.5 rounded-[8px] px-2 text-left outline-none focus-visible:bg-hover-2 disabled:opacity-40"
+                      className="relative z-10 flex h-8 w-full items-center gap-1.5 rounded-control px-2 text-left focus-visible:bg-hover focus-visible:-outline-offset-2 disabled:opacity-40"
                     >
                       <span className="flex size-5 shrink-0 items-center justify-center text-ink-2">
-                        <HugeIcon icon={item.icon} size={16} />
+                        <Icon icon={item.icon} size={16} />
                       </span>
-                      <span className={`min-w-0 flex-1 truncate text-[13.5px] ${item.destructive ? "text-red-ink" : "text-ink"}`}>{item.label}</span>
+                      <span className={`min-w-0 flex-1 truncate text-13 ${item.destructive ? "text-red-ink" : "text-ink"}`}>{item.label}</span>
                     </button>
                   </Fragment>
                 ))}
@@ -560,18 +556,23 @@ const AUTO_COLLAPSE_QUERY = "(max-width: 1024px)";
 
 // The + and ⋯ on a Project's header: smaller than the row, so their hover fill doesn't read as a second row.
 const SCOPE_HEADER_BUTTON =
-  "flex size-6 items-center justify-center rounded-[6px] text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]";
+  "flex size-6 items-center justify-center rounded-chip text-ink-3 transition-[background-color,color,transform] duration-fast hover:bg-hover-sidebar hover:text-ink active:scale-press";
 
 const CHATS_HEADER_BUTTON =
-  "flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]";
+  "flex size-8 items-center justify-center rounded-control text-ink-3 transition-[background-color,color,transform] duration-fast hover:bg-hover-sidebar hover:text-ink active:scale-press";
 
-const TOOL_BUTTON = "flex h-8 items-center justify-center gap-1.5 rounded-[8px] px-2 text-[13px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink";
+const TOOL_BUTTON =
+  "flex h-8 items-center justify-center gap-1.5 rounded-control px-2 text-13 text-ink-3 transition-[background-color,color,transform] duration-fast hover:bg-hover-sidebar hover:text-ink active:scale-press";
 const BOTTOM_BAR_BUTTON =
-  "flex items-center justify-center rounded-[8px] text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover-2 hover:text-ink active:scale-[0.96]";
+  "flex items-center justify-center rounded-control text-ink-3 transition-[background-color,color,transform] duration-fast hover:bg-hover-sidebar hover:text-ink active:scale-press";
 
 export function GlideGroup({ children }: { children: ReactNode }) {
   return (
-    <GlideMenu rowSelector="[data-row]" highlightClassName="sidebar-glide-highlight rounded-[7px] bg-hover-2" className="group/glide flex flex-col gap-px">
+    <GlideMenu
+      rowSelector="[data-row]"
+      highlightClassName="sidebar-glide-highlight rounded-control bg-hover-sidebar"
+      className="group/glide flex flex-col gap-px"
+    >
       {children}
     </GlideMenu>
   );
@@ -595,8 +596,8 @@ export function RailButton({
       data-row
       type="button"
       onClick={onClick}
-      className={`sidebar-row relative z-10 mx-2 flex h-9 items-center rounded-[8px] px-2 text-left
-        transition-[width,background-color,color,transform] duration-150 active:scale-[0.98]
+      className={`sidebar-row relative z-10 mx-2 flex h-9 items-center rounded-control px-2 text-left
+        transition-[width,background-color,color,transform] duration-fast active:scale-press
         ${active ? "bg-hover-2 group-hover/glide:bg-transparent" : ""}`}
     >
       <span className={`flex size-5 shrink-0 items-center justify-center ${active ? "text-ink" : "text-ink-2"}`}>{icon}</span>
@@ -1034,24 +1035,17 @@ export default memo(function SidebarNav({
       const first = linkFirstProject(scope, scope.link, current);
       const fallback = (first.name.trim().slice(0, 1) || scope.name.trim().slice(0, 1) || "P").toUpperCase();
       return (
-        <span
-          data-rail-link-icon
-          className="relative flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface"
-        >
-          <span className="flex size-full items-center justify-center opacity-35">
-            <WorkspaceIcon src={scopeImage(first.path)} fallback={fallback} />
-          </span>
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-surface drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
-            <HugeIcon icon={Link04Icon} size={13} />
-          </span>
+        <span data-rail-link-icon className="flex">
+          {/* The first Project's initial, dimmed under the Link glyph. */}
+          <ProjectAvatar name={first.name} src={scopeImage(first.path)} initial={fallback} size={24}>
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-ink/65 text-on-ink">
+              <Icon icon={Link04Icon} size={12} />
+            </span>
+          </ProjectAvatar>
         </span>
       );
     }
-    return (
-      <span className="flex size-6 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-        <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
-      </span>
-    );
+    return <ProjectAvatar name={scope.name} src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} initial={scope.initial} size={24} />;
   };
   const railScopes: RailScope[] | null =
     collapsed && scopes.length > 1
@@ -1266,8 +1260,8 @@ export default memo(function SidebarNav({
       <ScopeHeader
         name={CHATS_GROUP_LABEL}
         icon={
-          <span className="flex size-5 items-center justify-center rounded-[6px] bg-ink text-surface">
-            <HugeIcon icon={BubbleChatIcon} size={12} />
+          <span className="flex size-5 items-center justify-center rounded-chip bg-ink text-on-ink">
+            <Icon icon={BubbleChatIcon} size={12} />
           </span>
         }
         open={chatsOpen}
@@ -1288,7 +1282,7 @@ export default memo(function SidebarNav({
       <div
         inert={!chatsOpen}
         data-scope-body
-        className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+        className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
         style={{ gridTemplateRows: chatsOpen ? "1fr" : "0fr", opacity: chatsOpen ? 1 : 0 }}
       >
         <div className="min-w-0 overflow-hidden">
@@ -1315,7 +1309,7 @@ export default memo(function SidebarNav({
         ) : null,
       )}
       <div data-one-list-header className="sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2">
-        <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
+        <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">{ALL_CHATS_LABEL}</span>
         <Tooltip label="New chat" shortcut={keys.newChat} align="end">
           <button
             type="button"
@@ -1382,11 +1376,7 @@ export default memo(function SidebarNav({
       >
         <ScopeHeader
           name={scope.name}
-          icon={
-            <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-              <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(iconScope.key)} fallback={iconScope.initial} />
-            </span>
-          }
+          icon={<ProjectAvatar name={scope.name} src={current && !selectedLink ? workspace.image : scopeImage(iconScope.key)} initial={iconScope.initial} />}
           open={open}
           current={!!current}
           attention={copies.some((part) => !part.current && attentionPaths.includes(part.scope.key))}
@@ -1420,7 +1410,7 @@ export default memo(function SidebarNav({
         <div
           inert={!open}
           data-scope-body
-          className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+          className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
           style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
         >
           <div className="min-w-0 overflow-hidden">
@@ -1468,7 +1458,7 @@ export default memo(function SidebarNav({
       <div
         ref={bar}
         data-sidebar-bar
-        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-[10px] bg-page"
+        className="absolute top-[calc(var(--window-chrome-top)-var(--window-chrome-height))] z-[60] flex items-center gap-1 rounded-card bg-page"
         style={{ left: chrome.sidebarLeft - 12 }}
       >
         <div data-sidebar-toggle>
@@ -1478,16 +1468,16 @@ export default memo(function SidebarNav({
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!collapsed}
               onClick={toggle}
-              className="flex size-8 items-center justify-center rounded-[8px] text-ink-3 transition-colors hover:bg-hover-2 hover:text-ink [-webkit-app-region:no-drag]"
+              className={`${TOOL_BUTTON} no-drag size-8`}
             >
               <span className="pointer-events-none flex items-center justify-center">
-                <HugeIcon icon={collapsed ? SidebarRight01Icon : SidebarLeft01Icon} size={18} />
+                <Icon icon={collapsed ? SidebarRight01Icon : SidebarLeft01Icon} size={18} />
               </span>
             </button>
           </Tooltip>
         </div>
         {!botsMode && (
-          <div data-sidebar-tools className="flex items-center gap-1 [-webkit-app-region:no-drag]">
+          <div data-sidebar-tools className="no-drag flex items-center gap-1">
             {onOpenCanvas && (
               <Tooltip label="Canvas" side="bottom">
                 <button
@@ -1497,7 +1487,7 @@ export default memo(function SidebarNav({
                   onClick={onOpenCanvas}
                   className={`${TOOL_BUTTON} size-8 ${canvasActive ? "bg-hover-2 text-ink" : ""}`}
                 >
-                  <HugeIcon icon={FrameIcon} size={16} />
+                  <Icon icon={FrameIcon} size={16} />
                 </button>
               </Tooltip>
             )}
@@ -1514,7 +1504,7 @@ export default memo(function SidebarNav({
                 >
                   {/* The dot sits on the icon's top-right corner, cut out of it by its ring. */}
                   <span className="relative flex">
-                    <HugeIcon icon={RepeatIcon} size={16} />
+                    <Icon icon={RepeatIcon} size={16} />
                     {routinesUnread && (
                       <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
                     )}
@@ -1525,7 +1515,7 @@ export default memo(function SidebarNav({
             {onLinkProject && (
               <Tooltip label="Link projects" side="bottom">
                 <button type="button" aria-label="Link projects" data-link-projects onClick={onLinkProject} className={`${TOOL_BUTTON} size-8`}>
-                  <HugeIcon icon={Link04Icon} size={16} />
+                  <Icon icon={Link04Icon} size={16} />
                 </button>
               </Tooltip>
             )}
@@ -1580,7 +1570,7 @@ export default memo(function SidebarNav({
                     renders its pinned rows into its slot here, so a drag moves a chat between Pinned and its group. */}
                       <div data-all-pinned={anyPinned || undefined} className={anyPinned ? "mb-2" : ""}>
                         {anyPinned && (
-                          <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-8 text-ink-3">
+                          <p className="sidebar-copy mx-2 mb-1 h-8 pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium leading-8 text-ink-3">
                             Pinned
                           </p>
                         )}
@@ -1609,7 +1599,7 @@ export default memo(function SidebarNav({
                                 className={`mb-2 ${dimmed ? "opacity-50" : ""}`}
                               >
                                 {scope.link && !sections[index - 1]?.scope.link && (
-                                  <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12.5px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">
+                                  <p className="mx-2 mt-1 mb-1 h-6 pl-2 text-[length:calc(12px+var(--sidebar-delta))] font-medium leading-6 text-ink-3">
                                     Links
                                   </p>
                                 )}
@@ -1623,9 +1613,11 @@ export default memo(function SidebarNav({
                                         )}
                                       />
                                     ) : (
-                                      <span className="flex size-5 items-center justify-center overflow-hidden rounded-[6px] bg-ink text-[10px] font-semibold text-surface">
-                                        <WorkspaceIcon src={current && !selectedLink ? workspace.image : scopeImage(scope.key)} fallback={scope.initial} />
-                                      </span>
+                                      <ProjectAvatar
+                                        name={scope.name}
+                                        src={current && !selectedLink ? workspace.image : scopeImage(scope.key)}
+                                        initial={scope.initial}
+                                      />
                                     )
                                   }
                                   open={open}
@@ -1647,7 +1639,7 @@ export default memo(function SidebarNav({
                                 <div
                                   inert={!open}
                                   data-scope-body
-                                  className="grid transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+                                  className="grid transition-[grid-template-rows,opacity] duration-base ease-enter motion-reduce:transition-none"
                                   style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
                                 >
                                   <div className="min-w-0 overflow-hidden">
@@ -1698,7 +1690,7 @@ export default memo(function SidebarNav({
                       linkProjectId={selectedLink ? null : linkProjectIdOf(projectPath)}
                       header={
                         <div className={`sidebar-copy mx-2 mb-1 flex h-8 items-center justify-between pl-2 ${collapsed ? "hidden" : ""}`}>
-                          <span className="text-[length:calc(12.5px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
+                          <span className="text-[length:calc(12px+var(--sidebar-delta))] font-medium text-ink-3">Chats</span>
                           <Tooltip label="New chat" shortcut={keys.newChat} align="end">
                             <button
                               type="button"
@@ -1751,7 +1743,7 @@ export default memo(function SidebarNav({
                   onClick={() => onOpenProject?.()}
                   className={`${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
                 >
-                  <IconFolderAdd size={17} />
+                  <IconFolderAdd size={18} />
                 </button>
               </Tooltip>
               <FiltersButton
@@ -1783,7 +1775,7 @@ export default memo(function SidebarNav({
                 onClick={onOpenSettings}
                 className={`relative ${BOTTOM_BAR_BUTTON} ${collapsed ? "size-8" : "size-9"}`}
               >
-                <IconSettingsGear1 size={17} />
+                <IconSettingsGear1 size={18} />
                 <UpdateSettingsBadge />
               </button>
             </Tooltip>
@@ -2484,14 +2476,14 @@ function ChatList({
   const target = (invalid: boolean, hint: string | null) => (
     <>
       {invalid && hint ? (
-        <span className="absolute left-0 top-full z-40 mt-1 rounded-[6px] bg-surface px-2 py-1 text-[11.5px] text-red-ink shadow-overlay">{hint}</span>
+        <span className="absolute left-0 top-full z-40 mt-1 rounded-chip bg-surface px-2 py-1 text-11 text-red-ink shadow-raised">{hint}</span>
       ) : (
-        <HugeIcon icon={Link04Icon} size={14} />
+        <Icon icon={Link04Icon} size={14} />
       )}
     </>
   );
   const targetClass = (invalid: boolean) =>
-    `pointer-events-none z-30 flex items-center justify-end rounded-[8px] pr-2 ring-2 ${invalid ? "bg-red/5 ring-red/60" : "bg-accent/10 text-accent ring-accent"}`;
+    `pointer-events-none z-30 flex items-center justify-end rounded-control pr-2 ring-2 ${invalid ? "bg-red-tint ring-red" : "bg-accent-tint text-accent-ink ring-accent"}`;
   const indicator = (inPins: boolean) =>
     mark?.inPins === inPins &&
     drag?.target?.id &&
@@ -2534,13 +2526,13 @@ function ChatList({
     <div ref={pinRef} data-chat-list-pins data-chat-scope={scopeKey} className="relative">
       {drag && pinned.length === 0 && !anyPinned && !collapsed && (
         <div className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2">
-          <span className="text-[12.5px] font-medium text-ink-3">Pinned</span>
+          <span className="text-12 font-medium text-ink-3">Pinned</span>
         </div>
       )}
       {drag && pinned.length === 0 && !collapsed && (
         <div
           data-pin-zone
-          className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-[8px] border border-dashed text-[12.5px] ${drag.target?.id === null ? "border-accent bg-accent/10 text-accent-ink" : "border-line-strong text-ink-3"}`}
+          className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-control border border-dashed text-12 ${drag.target?.id === null ? "border-accent bg-accent-tint text-accent-ink" : "border-line-strong text-ink-3"}`}
         >
           Drop here to pin
         </div>
@@ -2563,13 +2555,13 @@ function ChatList({
         <>
           {pinnedHeader && (pinned.length > 0 || drag) && !collapsed && (
             <div className="sidebar-copy mx-2 mb-1 flex h-8 items-center pl-2">
-              <span className="text-[12.5px] font-medium text-ink-3">Pinned</span>
+              <span className="text-12 font-medium text-ink-3">Pinned</span>
             </div>
           )}
           {drag && pinned.length === 0 && !collapsed && (
             <div
               data-pin-zone
-              className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-[8px] border border-dashed text-[12.5px] ${drag.target?.id === null ? "border-accent bg-accent/10 text-accent-ink" : "border-line-strong text-ink-3"}`}
+              className={`mx-2 mb-1 flex h-8 items-center justify-center rounded-control border border-dashed text-12 ${drag.target?.id === null ? "border-accent bg-accent-tint text-accent-ink" : "border-line-strong text-ink-3"}`}
             >
               Drop here to pin
             </div>

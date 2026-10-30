@@ -13,7 +13,8 @@ import {
 import { checkpointEffect, checkpointMeta, checkpointTask, checkpointTime, splitCheckpointPath, type CheckpointFile } from "@milagre/shared/checkpoints";
 import type { useCheckpoints } from "@milagre/shared/use-checkpoints";
 import { Icon } from "./icons";
-import { IconButton, PageScroll, PillButton, Segmented } from "./ui";
+import { ErrorNotice, IconButton, PageScroll, PillButton, Segmented, pressStyle } from "./ui";
+import { lineHeight, radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 
 export type CheckpointReview = ReturnType<typeof useCheckpoints>;
@@ -51,21 +52,19 @@ export function UndoPanel({
       testID="undo-panel"
       accessibilityLabel={title}
       style={{
-        borderWidth: 1,
-        borderColor: colors.lineStrong,
         borderRadius: 24,
         borderCurve: "continuous",
         overflow: "hidden",
-        padding: 14,
+        padding: 16,
         paddingTop: 12,
-        gap: 10,
-        boxShadow: "0 4px 20px #0000000f",
+        gap: 12,
+        boxShadow: colors.shadowRaised,
       }}
     >
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 24, borderCurve: "continuous", backgroundColor: colors.surface }]} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon icon={intent === "Redo" && review.view === "preview" ? Redo02Icon : Undo02Icon} tone="ink2" size={17} />
-        <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+        <Icon icon={intent === "Redo" && review.view === "preview" ? Redo02Icon : Undo02Icon} tone="ink2" size={18} />
+        <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}>
           {title}
         </Text>
         <IconButton label="Close" icon={Cancel01Icon} size={34} disabled={review.pending} onPress={review.close} />
@@ -77,7 +76,9 @@ export function UndoPanel({
           contentInsetAdjustmentBehavior="never"
         >
           {!review.tasks.length && (
-            <Text style={{ color: colors.ink3, fontSize: 15, paddingVertical: 8 }}>{review.pending ? "Loading…" : "No task has changed files yet."}</Text>
+            <Text style={{ color: colors.ink3, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, paddingVertical: 8 }}>
+              {review.pending ? "Loading…" : "No task has changed files yet."}
+            </Text>
           )}
           {review.tasks.map((item, index) => (
             <Pressable
@@ -85,26 +86,27 @@ export function UndoPanel({
               testID={`undo-task-${item.id}`}
               accessibilityRole="button"
               accessibilityLabel={`${checkpointTask(item)}. ${checkpointMeta(item)}`}
+              accessibilityState={{ disabled: review.pending }}
               disabled={review.pending}
               onPress={() => void review.inspect(item.id)}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 10,
-                paddingVertical: 9,
+                gap: 12,
+                paddingVertical: 8,
                 paddingHorizontal: 12,
-                borderRadius: 14,
+                borderRadius: radius.card,
                 borderCurve: "continuous",
                 backgroundColor: index === 0 || pressed ? colors.field : "transparent",
               })}
             >
               <View style={{ flex: 1, gap: 2 }}>
-                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 15 }}>
+                <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
                   {checkpointTask(item)}
                 </Text>
-                <Text style={{ color: colors.ink3, fontSize: 13 }}>{checkpointMeta(item)}</Text>
+                <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{checkpointMeta(item)}</Text>
               </View>
-              <Icon icon={ArrowRight01Icon} tone="ink3" size={15} />
+              <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />
             </Pressable>
           ))}
         </PageScroll>
@@ -114,35 +116,41 @@ export function UndoPanel({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`From ${checkpointTask(preview)}, ${checkpointTime(preview.createdAt)}. Choose another task`}
+              accessibilityState={{ disabled: review.pending || !review.tasks.length || intent !== "Undo" }}
               disabled={review.pending || !review.tasks.length || intent !== "Undo"}
               onPress={review.back}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                minHeight: 44,
-                paddingHorizontal: 12,
-                borderRadius: 12,
-                borderCurve: "continuous",
-                backgroundColor: colors.field,
-              }}
+              style={({ pressed }) => [
+                {
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  minHeight: 44,
+                  paddingHorizontal: 12,
+                  borderRadius: radius.control,
+                  borderCurve: "continuous",
+                  backgroundColor: colors.field,
+                },
+                pressStyle({ pressed }),
+              ]}
             >
-              <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: "500" }}>
+              <Text numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "500" }}>
                 {checkpointTask(preview)}
               </Text>
-              <Text style={{ color: colors.ink3, fontSize: 13 }}>{checkpointTime(preview.createdAt)}</Text>
-              {review.tasks.length > 0 && intent === "Undo" && <Icon icon={UnfoldMoreIcon} tone="ink3" size={15} />}
+              <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>{checkpointTime(preview.createdAt)}</Text>
+              {review.tasks.length > 0 && intent === "Undo" && <Icon icon={UnfoldMoreIcon} tone="ink3" size={16} />}
             </Pressable>
           )}
           {!!review.notice && (
-            <Text accessibilityRole="alert" style={{ color: colors.orangeInk, fontSize: 13 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
               {review.notice}
             </Text>
           )}
           {!preview ? (
-            !review.error && <Text style={{ color: colors.ink3, fontSize: 15 }}>Checking files…</Text>
+            !review.error && <Text style={{ color: colors.ink3, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>Checking files…</Text>
           ) : !preview.files.length ? (
-            <Text style={{ color: colors.ink3, fontSize: 15 }}>These files are already as they were before the task.</Text>
+            <Text style={{ color: colors.ink3, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
+              These files are already as they were before the task.
+            </Text>
           ) : (
             <PageScroll
               style={{ maxHeight: 280, flexGrow: 0 }}
@@ -162,15 +170,11 @@ export function UndoPanel({
               ))}
             </PageScroll>
           )}
-          {!!review.error && (
-            <Text accessibilityRole="alert" style={{ color: colors.redInk, fontSize: 13 }}>
-              {review.error}
-            </Text>
-          )}
+          {!!review.error && <ErrorNotice message={review.error} />}
           {review.conflicts > 0 && !review.error && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Icon icon={Alert02Icon} tone="orange" size={14} />
-              <Text style={{ color: colors.orangeInk, fontSize: 13 }}>
+              <Icon icon={Alert02Icon} tone="orange" size={16} />
+              <Text style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
                 {review.conflicts === 1 ? "1 file needs a choice" : `${review.conflicts} files need a choice`}
               </Text>
             </View>
@@ -182,7 +186,9 @@ export function UndoPanel({
             onPress={() => void review.restore()}
           />
           {!!preview?.files.length && (
-            <Text style={{ color: colors.ink3, fontSize: 13, textAlign: "center" }}>{`You can ${intent === "Undo" ? "redo" : "undo"} this.`}</Text>
+            <Text
+              style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, textAlign: "center" }}
+            >{`You can ${intent === "Undo" ? "redo" : "undo"} this.`}</Text>
           )}
         </>
       )}
@@ -209,29 +215,29 @@ function FileRow({
   const { name, dir } = splitCheckpointPath(file.path);
   const effect = intent === "Redo" && file.action === "replace" ? "Reapply" : checkpointEffect(file);
   return (
-    <View testID="undo-file" style={{ gap: 8, paddingVertical: 11, borderTopWidth: first ? 0 : StyleSheet.hairlineWidth, borderTopColor: colors.line }}>
+    <View testID="undo-file" style={{ gap: 8, paddingVertical: 12, borderTopWidth: first ? 0 : StyleSheet.hairlineWidth, borderTopColor: colors.line }}>
       <Pressable
         accessibilityRole={onOpen ? "button" : undefined}
         accessibilityLabel={`${file.path}. ${file.conflict ? "Edited after this task" : effect}`}
         disabled={!onOpen}
         onPress={onOpen}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, opacity: pressed ? 0.5 : 1 })}
+        style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 12 }, pressStyle({ pressed })]}
       >
-        <Icon icon={FILE_ICONS[file.action]} tone="ink3" size={17} />
+        <Icon icon={FILE_ICONS[file.action]} tone="ink3" size={18} />
         <View style={{ flex: 1, gap: 2 }}>
-          <Text numberOfLines={1} ellipsizeMode="middle" style={{ color: colors.ink, fontSize: 15 }}>
+          <Text numberOfLines={1} ellipsizeMode="middle" style={{ color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>
             <Text style={{ fontWeight: "500" }}>{name}</Text>
-            {dir ? <Text style={{ color: colors.ink3, fontSize: 14 }}>{`  ${dir}`}</Text> : null}
+            {dir ? <Text style={{ color: colors.ink3, fontSize: type.footnote }}>{`  ${dir}`}</Text> : null}
           </Text>
           {file.conflict && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.orange }} />
-              <Text style={{ color: colors.orangeInk, fontSize: 13 }}>Edited after this task</Text>
+              <View style={{ width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.orange }} />
+              <Text style={{ color: colors.orangeInk, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>Edited after this task</Text>
             </View>
           )}
         </View>
-        {!file.conflict && <Text style={{ color: colors.ink2, fontSize: 15 }}>{effect}</Text>}
-        {onOpen && <Icon icon={ArrowRight01Icon} tone="ink3" size={14} />}
+        {!file.conflict && <Text style={{ color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline }}>{effect}</Text>}
+        {onOpen && <Icon icon={ArrowRight01Icon} tone="ink3" size={16} />}
       </Pressable>
       {file.conflict && (
         <Segmented

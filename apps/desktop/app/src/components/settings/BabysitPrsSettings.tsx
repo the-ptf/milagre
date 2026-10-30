@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
   ArrowLeft01Icon,
@@ -24,18 +24,18 @@ import {
   type BabysitWake,
 } from "@milagre/shared/babysit";
 import { createDebouncedSave, useBabysitSettings, type BabysitChange, type SaveState } from "../../lib/babysit-settings";
+import { IconButton } from "../primitives/Button";
 import { Checkbox } from "../primitives/Checkbox";
+import { FIELD, FIELD_AREA } from "../primitives/Field";
+import { Icon } from "../primitives/Icon";
+import { InlineError } from "../primitives/InlineError";
 import { RadioGroup, RadioGroupItem } from "../primitives/RadioGroup";
 import { Select } from "../primitives/Select";
 import { Switch } from "../primitives/Switch";
+import Tooltip from "../primitives/Tooltip";
 import { Group, Row } from "./SettingsGroup";
 
-type IconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
 type Save = (change: BabysitChange) => Promise<void>;
-
-function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
 
 const WAKE: Array<{ kind: BabysitWake; label: string }> = [
   { kind: "comments", label: "Review comments" },
@@ -44,7 +44,7 @@ const WAKE: Array<{ kind: BabysitWake; label: string }> = [
   { kind: "behind", label: "Branch behind base" },
 ];
 
-const STEPS: Record<BabysitStep, { icon: IconData; name: string }> = {
+const STEPS: Record<BabysitStep, { icon: IconSvgElement; name: string }> = {
   report: { icon: File01Icon, name: "Report" },
   fix: { icon: Wrench01Icon, name: "Fix" },
   push: { icon: Upload01Icon, name: "Push" },
@@ -63,13 +63,13 @@ export function BabysitPrsRow({ onOpen }: { onOpen: () => void }) {
       type="button"
       data-babysit-prs-row
       onClick={onOpen}
-      className="flex min-h-12 w-full items-center justify-between gap-6 px-4 py-2 text-left transition-colors hover:bg-hover"
+      className="flex min-h-12 w-full items-center justify-between gap-6 px-4 py-2 text-left transition-colors duration-fast hover:bg-hover"
     >
       <span className="grid min-w-0 gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">Babysit PRs</span>
-        <span className="text-[12px] text-ink-3">Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</span>
+        <span className="text-13 font-medium text-ink">Babysit PRs</span>
+        <span className="text-12 text-ink-3">Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</span>
       </span>
-      <span className="flex shrink-0 items-center gap-1 text-[13px] text-ink-2">
+      <span className="flex shrink-0 items-center gap-1 text-13 text-ink-2">
         {settings && (settings.enabled ? "On" : "Off")}
         <span className="text-ink-3">
           <Icon icon={ArrowRight01Icon} size={16} />
@@ -131,22 +131,26 @@ function useAutosave(saved: string, key: "instructions" | "ownRuleText", save: S
 }
 
 function StepPill({ steps, selected }: { steps: readonly BabysitStep[]; selected: boolean }) {
+  const names = steps.map((step) => STEPS[step].name).join(" → ");
   return (
-    <span
-      title={steps.map((step) => STEPS[step].name).join(" → ")}
-      className={`flex h-6 shrink-0 items-center gap-0.5 rounded-full px-1.5 ${selected ? "bg-surface text-accent shadow-card" : "bg-field text-ink-2"}`}
-    >
-      {steps.map((step, index) => (
-        <span key={step} data-step={step} className="flex items-center gap-0.5">
-          {index > 0 && (
-            <span className="text-ink-3">
-              <Icon icon={ArrowRight01Icon} size={10} />
-            </span>
-          )}
-          <Icon icon={STEPS[step].icon} size={13} />
-        </span>
-      ))}
-    </span>
+    <Tooltip label={names} align="end" className="shrink-0">
+      <span
+        role="img"
+        aria-label={names}
+        className={`flex h-6 shrink-0 items-center gap-0.5 rounded-full px-1.5 ${selected ? "bg-surface text-accent shadow-card" : "bg-field text-ink-2"}`}
+      >
+        {steps.map((step, index) => (
+          <span key={step} data-step={step} className="flex items-center gap-0.5">
+            {index > 0 && (
+              <span className="text-ink-3">
+                <Icon icon={ArrowRight01Icon} size={12} />
+              </span>
+            )}
+            <Icon icon={STEPS[step].icon} size={14} />
+          </span>
+        ))}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -171,14 +175,14 @@ function StopRow({
   children?: ReactNode;
 }) {
   return (
-    <div className="grid gap-2.5 px-4 py-3">
+    <div className="grid gap-2 px-4 py-3">
       <div className="flex min-h-6 items-center gap-3">
         <Checkbox id={id} tone="accent" checked={checked} disabled={disabled} onCheckedChange={(next) => onChange?.(next === true)} />
         <label htmlFor={id} className={`grid min-w-0 flex-1 gap-0.5 ${disabled ? "" : "cursor-pointer"}`}>
-          <span className="text-[13.5px] font-medium text-ink">{label}</span>
-          {description && <span className="text-[12px] text-ink-3">{description}</span>}
+          <span className="text-13 font-medium text-ink">{label}</span>
+          {description && <span className="text-12 text-ink-3">{description}</span>}
         </label>
-        {trailing && <span className="shrink-0 text-[12.5px] text-ink-3">{trailing}</span>}
+        {trailing && <span className="shrink-0 text-13 text-ink-3">{trailing}</span>}
       </div>
       {children}
     </div>
@@ -188,14 +192,14 @@ function StopRow({
 function SaveMark({ state }: { state: SaveState }) {
   if (state === "error")
     return (
-      <span role="alert" className="text-[12px] text-red-ink">
+      <span role="alert" className="text-12 text-red-ink">
         Not saved
       </span>
     );
-  if (state === "saving") return <span className="text-[12px] text-ink-3">Saving…</span>;
+  if (state === "saving") return <span className="text-12 text-ink-3">Saving…</span>;
   if (state === "idle") return null;
   return (
-    <span data-saved className="flex items-center gap-1 text-[12px] text-ink-3">
+    <span data-saved className="flex items-center gap-1 text-12 text-ink-3">
       <Icon icon={Tick02Icon} size={12} />
       Saved
     </span>
@@ -225,7 +229,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
       <Group
         title="Babysit PRs"
         action={
-          <button type="button" data-babysit-reset className="text-[12px] font-medium text-accent-ink hover:underline" onClick={reset}>
+          <button type="button" data-babysit-reset className="text-12 font-medium text-accent-ink hover:underline" onClick={reset}>
             Reset all to defaults
           </button>
         }
@@ -248,8 +252,8 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
             onChange={(value) => change({ intervalMinutes: Number(value) })}
           />
         </Row>
-        <div className="grid gap-2.5 px-4 py-3">
-          <span id="babysit-wake" className="text-[13.5px] font-medium text-ink">
+        <div className="grid gap-2 px-4 py-3">
+          <span id="babysit-wake" className="text-13 font-medium text-ink">
             Wake the agent for
           </span>
           <div role="group" aria-labelledby="babysit-wake" className="flex flex-wrap gap-1.5">
@@ -261,9 +265,9 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
                   type="button"
                   aria-pressed={on}
                   onClick={() => toggleWake(kind)}
-                  className={`flex h-7 items-center gap-1.5 rounded-full border px-2 text-[12.5px] font-medium transition-colors ${on ? "border-transparent bg-accent-tint text-accent-ink" : "border-line text-ink-2 hover:bg-hover"}`}
+                  className={`flex h-7 items-center gap-1.5 rounded-full border px-2 text-13 font-medium transition-colors duration-fast ${on ? "border-transparent bg-accent-tint text-accent-ink" : "border-line text-ink-2 hover:bg-hover"}`}
                 >
-                  <Icon icon={on ? Tick02Icon : Add01Icon} size={13} />
+                  <Icon icon={on ? Tick02Icon : Add01Icon} size={14} />
                   {label}
                 </button>
               );
@@ -284,17 +288,17 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               <label
                 key={entry.level}
                 data-babysit-level={entry.level}
-                className={`flex cursor-pointer items-center gap-3 rounded-[10px] px-2.5 py-1.5 transition-colors ${selected ? "bg-accent-tint" : "hover:bg-hover"}`}
+                className={`flex cursor-pointer items-center gap-3 rounded-card px-2.5 py-1.5 transition-colors duration-fast ${selected ? "bg-accent-tint" : "hover:bg-hover"}`}
               >
                 <RadioGroupItem tone="accent" value={String(entry.level)} />
                 <span className="grid min-w-0 flex-1 gap-0.5">
-                  <span className={`flex items-center gap-2 text-[13.5px] font-medium ${selected ? "text-accent-ink" : "text-ink"}`}>
+                  <span className={`flex items-center gap-2 text-13 font-medium ${selected ? "text-accent-ink" : "text-ink"}`}>
                     {entry.title}
                     {entry.level === BABYSIT_DEFAULTS.level && (
-                      <span className="rounded-[4px] bg-field px-1.5 py-px text-[11px] font-medium text-ink-2">Default</span>
+                      <span className="rounded-inline bg-field px-1.5 py-px text-11 font-medium text-ink-2">Default</span>
                     )}
                   </span>
-                  <span className={`text-[12px] ${selected ? "text-accent-ink" : "text-ink-3"}`}>{entry.description}</span>
+                  <span className={`text-12 ${selected ? "text-accent-ink" : "text-ink-3"}`}>{entry.description}</span>
                 </span>
                 <StepPill steps={entry.steps} selected={selected} />
               </label>
@@ -329,7 +333,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               label="Watch the PR for"
               width={120}
               disabled={!settings.stopAfterDays.on}
-              triggerClassName="disabled:opacity-50"
+              triggerClassName="disabled:opacity-40"
               value={String(settings.stopAfterDays.days)}
               options={options(DAYS_OPTIONS, "day", "days")}
               onChange={(value) => change((current) => ({ stopAfterDays: { ...current.stopAfterDays, days: Number(value) } }))}
@@ -346,7 +350,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
               label="Failed to fix the same problem"
               width={120}
               disabled={!settings.stopAfterFailures.on}
-              triggerClassName="disabled:opacity-50"
+              triggerClassName="disabled:opacity-40"
               value={String(settings.stopAfterFailures.times)}
               options={options(FAILURE_OPTIONS, "time", "times")}
               onChange={(value) => change((current) => ({ stopAfterFailures: { ...current.stopAfterFailures, times: Number(value) } }))}
@@ -370,13 +374,9 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
                 onChange={(event) => ownRule.onChange(event.target.value)}
                 onFocus={ownRule.onFocus}
                 onBlur={ownRule.onBlur}
-                className="h-9 w-full rounded-[8px] bg-field px-3 text-[13px] text-ink outline-none placeholder:text-ink-3"
+                className={`${FIELD} outline-none`}
               />
-              {ownRule.state === "error" && (
-                <span role="alert" className="text-[12px] text-red-ink">
-                  Not saved
-                </span>
-              )}
+              <InlineError size={12}>{ownRule.state === "error" && "Not saved"}</InlineError>
             </div>
           )}
         </StopRow>
@@ -392,7 +392,7 @@ function BabysitForm({ settings, save }: { settings: BabysitSettings; save: Save
             onChange={(event) => instructions.onChange(event.target.value)}
             onFocus={instructions.onFocus}
             onBlur={instructions.onBlur}
-            className="w-full resize-y rounded-[8px] bg-field px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none"
+            className={`${FIELD_AREA} resize-y leading-relaxed outline-none`}
           />
           <div className="flex min-h-4 justify-end">
             <SaveMark state={instructions.state} />
@@ -409,15 +409,8 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
   return (
     <div data-babysit-prs-page>
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          aria-label="Back to Experimental"
-          onClick={onBack}
-          className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-field text-ink-2 transition-colors hover:bg-hover hover:text-ink"
-        >
-          <Icon icon={ArrowLeft01Icon} size={16} />
-        </button>
-        <h1 className="flex min-w-0 items-center gap-2 text-[22px] font-semibold tracking-[-0.01em] text-ink">
+        <IconButton label="Back to Experimental" icon={ArrowLeft01Icon} onClick={onBack} className="bg-field" />
+        <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.02em] text-ink">
           <span className="text-ink-3">Experimental</span>
           <span className="text-ink-3">
             <Icon icon={ArrowRight01Icon} size={16} />
@@ -425,11 +418,9 @@ export function BabysitPrsSettings({ onBack }: { onBack: () => void }) {
           <span>Babysit PRs</span>
         </h1>
       </div>
-      {error && (
-        <p role="alert" className="mt-3 px-1 text-[12px] text-red-ink">
-          {error}
-        </p>
-      )}
+      <InlineError size={12} className="mt-3 px-1">
+        {error}
+      </InlineError>
       {settings && <BabysitForm settings={settings} save={save} />}
     </div>
   );

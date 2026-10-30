@@ -1,6 +1,7 @@
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View, type TextInputInstance } from "react-native";
+import { withAlpha } from "@milagre/shared/themes";
 import { appVersionLine } from "./app-version";
 import * as Clipboard from "expo-clipboard";
 import type { Href } from "expo-router";
@@ -49,7 +50,8 @@ import { ChatMarkIcon } from "./status-indicators";
 import { Icon, SpinnerRing, type IconData } from "./icons";
 import { tap } from "./primitives/tap";
 import { LoadingLogo } from "./loading-logo";
-import { ErrorNotice, IconButton, PullDown, useStyles } from "./ui";
+import { hitSlopFor, lineHeight, radius, type } from "./design-tokens";
+import { DISABLED_OPACITY, ErrorNotice, IconButton, pressStyle, PullDown, SectionLabel, Toast, useAnnounce, useStyles } from "./ui";
 import { HoverView } from "./primitives/hover";
 import { subscribeNavigation, takeNavigation, type NavigationCommand } from "./navigation-commands";
 import { ChatsHomeIcon, ProjectIcon, ProjectIcons } from "./project-icon";
@@ -468,7 +470,7 @@ const NavigationBody = memo(function NavigationBody({
           hostId: build.hostId,
           hostName: build.hostName,
           reach: build.reach,
-          message: `Loading chats from ${build.hostName}...`,
+          message: `Loading chats from ${build.hostName}…`,
         };
       return null;
     };
@@ -519,7 +521,7 @@ const NavigationBody = memo(function NavigationBody({
             message: `Could not ${project.copy ? "refresh" : "load"} chats on ${build.hostName}. Tap to retry.`,
             failed: true,
           });
-        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading chats from ${build.hostName}...` });
+        else if (!project.copy) listed.push({ ...base, key: `${build.hostId}|${project.path}:notice`, message: `Loading chats from ${build.hostName}…` });
       }
       if (listed.length === 1)
         listed.push({
@@ -646,7 +648,7 @@ const NavigationBody = memo(function NavigationBody({
             result.push({
               ...base,
               key: `${build.hostId}|${project.path}:notice`,
-              message: !project.copy ? "Loading chats..." : show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
+              message: !project.copy ? "Loading chats…" : show !== "all" ? "No matching chats" : "No chats yet. Start one with +.",
             });
         }
       }
@@ -1222,6 +1224,7 @@ const NavigationBody = memo(function NavigationBody({
       }
     };
   });
+  useAnnounce(busy ? "Opening…" : "");
   useEffect(() => {
     if (!visible) return;
     const run = () => {
@@ -1236,7 +1239,11 @@ const NavigationBody = memo(function NavigationBody({
       <View style={[styles.screen, { backgroundColor: background }]}>
         <View style={{ paddingTop: insets.top + 4, paddingHorizontal: 8, paddingBottom: 4, flexDirection: "row", alignItems: "center", gap: 4 }}>
           <IconButton label={`Back to ${ALL_CHATS_LABEL}`} icon={ArrowLeft01Icon} size={44} onPress={() => setPage(null)} />
-          <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, color: colors.ink, fontSize: 17, fontWeight: "600" }}>
+          <Text
+            accessibilityRole="header"
+            numberOfLines={1}
+            style={{ flex: 1, color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600" }}
+          >
             Add project
           </Text>
           {onClose && <IconButton label="Close navigation" icon={Cancel01Icon} size={44} onPress={onClose} />}
@@ -1255,19 +1262,19 @@ const NavigationBody = memo(function NavigationBody({
     <View style={[styles.screen, { backgroundColor: background }]}>
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, gap: 8, paddingBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: 22, fontWeight: "700" }}>
+          <Text accessibilityRole="header" style={{ flex: 1, color: colors.ink, fontSize: type.title2, lineHeight: lineHeight.title2, fontWeight: "600" }}>
             {ALL_CHATS_LABEL}
           </Text>
           {/* One glass capsule holds all three, as iOS groups toolbar buttons. Settings opens over the sidebar, which stays where it was under it. Routines is a page, so the sidebar closes first. */}
           <View style={s.headerGroup}>
             <HeaderGlass />
             <View>
-              <HeaderButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
+              <CapsuleButton label="Settings" icon={Settings01Icon} onPress={() => onNavigate("/settings", "sheet")} />
               <UpdateSettingsBadge />
             </View>
             {routinesAvailable && (
               <View>
-                <HeaderButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
+                <CapsuleButton label={unreadRuns ? "Routines, unread Runs" : "Routines"} icon={RepeatIcon} onPress={() => onNavigate("/routines", true)} />
                 {unreadRuns && <View pointerEvents="none" style={[s.headerDot, { backgroundColor: colors[chatMarkTone("unread")] }]} />}
               </View>
             )}
@@ -1314,7 +1321,7 @@ const NavigationBody = memo(function NavigationBody({
             }}
           />
         }
-        ListEmptyComponent={<Text style={[styles.muted, { padding: 20 }]}>{emptyText}</Text>}
+        ListEmptyComponent={<Text style={[styles.muted, { padding: 16 }]}>{emptyText}</Text>}
         extraData={rowView}
         renderItem={renderItem}
       />
@@ -1330,23 +1337,13 @@ const NavigationBody = memo(function NavigationBody({
       />
       {/* "Chat archived", like the Chat screen's toast, floating under the header without moving the list: the archive
           finishes here, after that screen has gone. */}
-      {archives.done && !error && !archives.notice ? (
-        <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 60, alignItems: "center" }}>
-          <View
-            accessibilityLiveRegion="polite"
-            style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
-          >
-            <Text style={{ color: colors.surface, fontSize: 14 }}>{archives.done}</Text>
-          </View>
-        </View>
-      ) : null}
+      {archives.done && !error && !archives.notice ? <Toast key={archives.done} text={archives.done} placement="top" /> : null}
       {busy && (
         <View
           accessible
           accessibilityRole="progressbar"
-          accessibilityLabel="Opening..."
-          accessibilityLiveRegion="polite"
-          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: `${colors.page}e6` }]}
+          accessibilityLabel="Opening…"
+          style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: withAlpha(colors.page, 0.9) }]}
         >
           <LoadingLogo size={64} />
         </View>
@@ -1411,14 +1408,13 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     worktreeForLinks,
     actions: { enter, act, projectAction, startNewChat, startWithoutProject, foldChats, load },
   } = view;
-  if (item.kind === "section")
-    return <Text style={[s.detail, { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 6, fontWeight: "500" }]}>{item.name}</Text>;
+  if (item.kind === "section") return <SectionLabel style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>{item.name}</SectionLabel>;
   if (item.kind === "offline") return <OfflineLine hostIds={item.hostIds} />;
   if (item.kind === "divider") return <View style={[s.divider, { backgroundColor: colors.line }]} />;
   if (item.kind === "chatsGroup")
     // Styled like a Project group: a tap folds it, a long press opens its menu, + starts a Chat without a Project.
     return (
-      <View style={[s.project, { opacity: item.offline ? 0.55 : 1 }]}>
+      <View style={[s.project, { opacity: item.offline ? DISABLED_OPACITY.row : 1 }]}>
         <PullDown
           label={`${item.expanded ? "Collapse" : "Expand"} ${CHATS_GROUP_LABEL}`}
           title={CHATS_GROUP_LABEL}
@@ -1439,7 +1435,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             )}
             <View style={{ flex: 1 }} />
             {chatsGroupNeedsAttention(item.homes, currentHostId, attention.map(projectOfKey)) && <AttentionDot />}
-            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
+            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
           </View>
         </PullDown>
         <IconButton label="New Chat without a Project" icon={Add01Icon} size={44} disabled={busy} onPress={() => void startWithoutProject()} />
@@ -1448,7 +1444,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   if (item.kind === "start")
     return (
       <View style={s.startEmpty}>
-        <Icon icon={SearchRemoveIcon} tone="ink3" size={30} />
+        <Icon icon={SearchRemoveIcon} tone="ink3" size={32} />
         <Text style={s.startTitle}>No chat matches “{query.trim()}”</Text>
         <Pressable
           accessibilityRole="button"
@@ -1466,7 +1462,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             glassType="regular"
             isInteractive={false}
             reducedTransparencyFallbackColor={colors.surface}
-            style={[StyleSheet.absoluteFill, { borderRadius: 18, borderCurve: "continuous" }]}
+            style={[StyleSheet.absoluteFill, { borderRadius: radius.card, borderCurve: "continuous" }]}
           />
           <Icon icon={PencilEdit02Icon} tone="ink" size={20} />
           <Text style={[s.secondary, { flex: 1, color: colors.ink, fontWeight: "600" }]}>Start a new chat with your search</Text>
@@ -1481,7 +1477,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         accessibilityLabel={`New Chat in ${item.name}${item.many ? `, ${item.hostName}` : ""}`}
         disabled={busy || offline}
         onPress={() => void enter(item.hostId, item.path)}
-        style={({ pressed }) => [s.projectHit, { opacity: offline ? 0.55 : 1, backgroundColor: pressed ? colors.hover : "transparent" }]}
+        style={({ pressed }) => [s.projectHit, pressStyle({ pressed, disabled: offline, kind: "row" })]}
       >
         {item.members ? (
           <ProjectIcons client={clientOf(item.hostId)} projects={item.members} />
@@ -1511,7 +1507,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
     const choose = (action: string) => void projectAction(item.hostId, item.path, item.name, action);
     // A tap folds the group; a long press opens the Project's menu.
     return (
-      <View style={[s.project, { opacity: offline ? 0.55 : 1 }]}>
+      <View style={[s.project, { opacity: offline ? DISABLED_OPACITY.row : 1 }]}>
         <PullDown
           label={`${item.expanded ? "Collapse" : "Expand"} ${item.name}${item.chip ? `, ${item.hostName}${offline ? ", offline" : ""}` : ""}`}
           title={item.name}
@@ -1539,7 +1535,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
               </Text>
             )}
             {item.hostId === currentHostId && attention.some((key) => projectOfKey(key) === item.path) && <AttentionDot />}
-            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={13} />
+            <Icon icon={item.expanded ? ArrowDown01Icon : ArrowRight01Icon} tone="ink3" size={12} />
           </View>
         </PullDown>
         <IconButton
@@ -1559,10 +1555,10 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         accessibilityRole="button"
         accessibilityLabel={`${item.snippet}, in ${item.title}, ${item.project}`}
         onPress={() => void enter(item.hostId, item.path, item.chat.id)}
-        style={({ pressed }) => [s.chat, { backgroundColor: pressed ? colors.hover : "transparent" }]}
+        style={({ pressed }) => [s.chat, pressStyle({ pressed, kind: "row" })]}
       >
         <View style={[s.chatBody, { flex: 1 }]}>
-          <View style={{ flex: 1, gap: 5 }}>
+          <View style={{ flex: 1, gap: 4 }}>
             <Text numberOfLines={2} style={s.chatTitle}>
               {item.snippet.slice(0, start)}
               <Text style={{ fontWeight: "600" }}>{item.snippet.slice(start, end)}</Text>
@@ -1647,7 +1643,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   if (item.home) {
     const detail = chatsRowDetail(item.hostName + (offline ? ", offline" : ""), item.chat.summary?.lastAt, now);
     return (
-      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
+      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
         <HoverView
           style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
           hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
@@ -1671,14 +1667,14 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
             >
               <View style={s.chatBody}>
                 <ChatMarkIcon mark={item.mark} background={item.background} />
-                <View style={{ flex: 1, gap: 3 }}>
+                <View style={{ flex: 1, gap: 2 }}>
                   <Text
                     numberOfLines={2}
                     style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
                   >
                     {title}
                   </Text>
-                  <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
                     {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                     <Text numberOfLines={1} style={[s.detail, { flexShrink: 1, fontVariant: ["tabular-nums"] }]}>
                       {detail}
@@ -1691,7 +1687,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           </View>
           {!item.pending && !archiving && (
             <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-              <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+              <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
                 <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
               </View>
             </PullDown>
@@ -1734,7 +1730,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         key: "project",
         node: copy?.project.link ? (
           <>
-            <Icon icon={Link04Icon} tone="ink3" size={13} />
+            <Icon icon={Link04Icon} tone="ink3" size={12} />
             <Text numberOfLines={1} style={s.inboxText}>
               {copy.project.link.projects.length} Projects
             </Text>
@@ -1781,7 +1777,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
       ...(otherComputer ? [{ key: "computer", node: <ComputerTag name={item.hostName} offline={offline} large /> }] : []),
     ];
     return (
-      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
+      <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
         <HoverView
           style={[s.inbox, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
           hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
@@ -1814,15 +1810,15 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                 <ProjectIcon client={clientOf(item.hostId)} path={item.path} size={32} />
               )}
             </View>
-            <View pointerEvents="box-none" style={{ flex: 1, gap: 3 }}>
+            <View pointerEvents="box-none" style={{ flex: 1, gap: 2 }}>
               <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={s.inboxLine}>
-                {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={13} />}
+                {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                 {linkedIcon}
                 <Text numberOfLines={1} style={[s.inboxTitle, { color: colors.ink, fontWeight: item.chat.unread ? "600" : "500" }]}>
                   {title}
                 </Text>
                 {running ? (
-                  <SpinnerRing size={14} tone="accent" />
+                  <SpinnerRing size={16} tone="accent" />
                 ) : (
                   <>
                     {lastAt !== undefined && (
@@ -1855,7 +1851,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   }
   // A tap opens the Chat and a long press opens its ⋯ menu, as on desktop's sidebar.
   return (
-    <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? 0.55 : 1 }}>
+    <View pointerEvents={archiving ? "none" : "auto"} style={{ opacity: offline ? DISABLED_OPACITY.row : 1 }}>
       <HoverView
         style={[s.chat, s.grouped, { backgroundColor: selected && !archiving ? selectedFill : "transparent" }]}
         hoverStyle={!selected && !archiving ? { backgroundColor: colors.hover } : undefined}
@@ -1879,7 +1875,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           >
             <View style={[s.chatBody, hasChips && { minHeight: 28, paddingTop: 6, paddingBottom: 0 }]}>
               <ChatMarkIcon mark={item.mark} background={item.background} />
-              <View style={{ flex: 1, gap: 3 }}>
+              <View style={{ flex: 1, gap: 2 }}>
                 <Text
                   numberOfLines={hasChips ? 1 : 2}
                   style={[s.chatTitle, { color: item.chat.unread || selected ? colors.ink : colors.ink2, fontWeight: item.chat.unread ? "600" : "500" }]}
@@ -1887,7 +1883,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
                   {title}
                 </Text>
                 {!hasChips && secondLine && (
-                  <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
                     {item.chat.pinned && <Icon icon={PinIcon} tone="ink3" size={12} />}
                     {linkedIcon}
                     {computerTag}
@@ -1922,7 +1918,7 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
         </View>
         {!item.pending && !archiving && (
           <PullDown label={`Actions for ${title}`} title={title} sections={menu} onSelect={(action) => void act(item, action)}>
-            <View style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}>
+            <View style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
               <Icon icon={MoreHorizontalIcon} tone="ink3" size={18} />
             </View>
           </PullDown>
@@ -1933,8 +1929,9 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
   );
 });
 
-/** A button in the list's header capsule; the capsule draws the glass behind them all. */
-function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
+/** A button in the list's header capsule; the capsule draws the glass behind them all. Not the HeaderButton primitive: a
+ * press tints instead of fading (see below). */
+function CapsuleButton({ label, icon, onPress }: { label: string; icon: IconData; onPress: () => void }) {
   const s = useS();
   const { colors } = useTheme();
   // A press tints the glass instead of fading it: UIKit drops Liquid Glass for good when an ancestor's alpha changes.
@@ -1942,7 +1939,7 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      hitSlop={4}
+      hitSlop={hitSlopFor(40)}
       onPress={() => {
         tap();
         onPress();
@@ -1951,7 +1948,7 @@ function HeaderButton({ label, icon, onPress }: { label: string; icon: IconData;
     >
       {({ pressed }) => (
         <>
-          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 20, backgroundColor: colors.hover }]} />}
+          {pressed && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.full, backgroundColor: colors.hover }]} />}
           <Icon icon={icon} tone="ink" size={20} />
         </>
       )}
@@ -1968,7 +1965,7 @@ function HeaderGlass() {
       glassType="regular"
       isInteractive={false}
       reducedTransparencyFallbackColor={colors.surface}
-      style={[StyleSheet.absoluteFill, { borderRadius: 20, borderCurve: "continuous" }]}
+      style={[StyleSheet.absoluteFill, { borderRadius: radius.full, borderCurve: "continuous" }]}
     />
   );
 }
@@ -1992,9 +1989,21 @@ function OfflineLine({ hostIds }: { hostIds: string[] }) {
   };
   return (
     <View style={s.offlineLine}>
-      <Text style={{ color: colors.ink3, fontSize: 13 }}>{hostIds.length === 1 ? "1 computer offline" : `${hostIds.length} computers offline`}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Retry offline computers" disabled={retrying} hitSlop={8} onPress={retry}>
-        <Text style={{ color: colors.ink3, fontSize: 13, fontWeight: "600", opacity: retrying ? 0.5 : 1 }}>{retrying ? "Retrying..." : "Retry"}</Text>
+      <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote }}>
+        {hostIds.length === 1 ? "1 computer offline" : `${hostIds.length} computers offline`}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Retry offline computers"
+        accessibilityState={{ disabled: retrying, busy: retrying }}
+        disabled={retrying}
+        hitSlop={{ left: 8, right: 8 }}
+        onPress={retry}
+        style={({ pressed }) => [{ minHeight: 44, justifyContent: "center" }, pressStyle({ pressed, disabled: retrying })]}
+      >
+        <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>
+          {retrying ? "Retrying…" : "Retry"}
+        </Text>
       </Pressable>
     </View>
   );
@@ -2006,7 +2015,7 @@ function ComputerTag({ name, offline, chip = false, large = false }: { name: str
   const { colors } = useTheme();
   return (
     <View style={[{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }, chip && s.chip]}>
-      <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={large ? 14 : 13} />
+      <Icon icon={offline ? CloudOffIcon : isDesktopComputer(name) ? ComputerIcon : LaptopIcon} tone={offline ? "orange" : "ink3"} size={12} />
       <Text numberOfLines={1} style={[large ? s.inboxText : s.detail, { flexShrink: 1 }, offline && { color: colors.orangeInk }]}>
         {offline ? `${name}, offline` : name}
       </Text>
@@ -2016,44 +2025,44 @@ function ComputerTag({ name, offline, chip = false, large = false }: { name: str
 
 const makeS = (colors: Palette) =>
   StyleSheet.create({
-    secondary: { color: colors.ink2, fontSize: 15 },
-    detail: { color: colors.ink2, fontSize: 12 },
-    headerGroup: { flexDirection: "row", alignItems: "center", height: 40, paddingHorizontal: 2, borderRadius: 20, borderCurve: "continuous" },
-    headerButton: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-    startEmpty: { alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 80 },
-    startTitle: { color: colors.ink, fontSize: 17, fontWeight: "600", textAlign: "center", marginBottom: 14 },
+    secondary: { color: colors.ink2, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
+    detail: { color: colors.ink2, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
+    headerGroup: { flexDirection: "row", alignItems: "center", height: 40, paddingHorizontal: 2, borderRadius: radius.full, borderCurve: "continuous" },
+    headerButton: { width: 40, height: 40, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
+    startEmpty: { alignItems: "center", gap: 12, paddingHorizontal: 16, paddingTop: 80 },
+    startTitle: { color: colors.ink, fontSize: type.body, lineHeight: lineHeight.body, fontWeight: "600", textAlign: "center", marginBottom: 12 },
     startCard: {
       alignSelf: "stretch",
       flexDirection: "row",
       alignItems: "center",
       gap: 12,
       padding: 16,
-      borderRadius: 18,
+      borderRadius: radius.card,
       borderCurve: "continuous",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
     },
     projectHit: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, paddingHorizontal: 16 },
-    headerDot: { position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: 4 },
-    chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderCurve: "continuous", backgroundColor: colors.field },
+    headerDot: { position: "absolute", right: 4, top: 4, width: 8, height: 8, borderRadius: radius.full },
+    chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.field },
     project: { flexDirection: "row", alignItems: "center", marginTop: 12, paddingHorizontal: 8 },
     divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16, marginTop: 12 },
     projectTitle: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8 },
     chat: { flexDirection: "row", alignItems: "center" },
-    grouped: { marginVertical: 2, marginHorizontal: 8, borderRadius: 8, borderCurve: "continuous" },
-    chatBody: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
+    grouped: { marginVertical: 2, marginHorizontal: 8, borderRadius: radius.control, borderCurve: "continuous" },
+    chatBody: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingLeft: 12, paddingVertical: 8 },
     line: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },
-    unread: { width: 8, height: 8, borderRadius: 4 },
+    unread: { width: 8, height: 8, borderRadius: radius.full },
     inbox: { position: "relative" },
     inboxContent: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
     inboxLine: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 20, overflow: "hidden" },
-    inboxTitle: { flex: 1, fontSize: 16, lineHeight: 21 },
-    inboxTime: { color: colors.ink3, fontSize: 13, fontVariant: ["tabular-nums"] },
-    inboxText: { color: colors.ink2, fontSize: 14 },
-    inboxSeparator: { color: colors.ink3, fontSize: 14 },
+    inboxTitle: { flex: 1, fontSize: type.callout, lineHeight: lineHeight.callout },
+    inboxTime: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontVariant: ["tabular-nums"] },
+    inboxText: { color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote },
+    inboxSeparator: { color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote },
     inboxPart: { flexDirection: "row", alignItems: "center", gap: 6 },
-    chatTitle: { color: colors.ink, fontSize: 15, lineHeight: 20 },
+    chatTitle: { color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline },
     notice: { minHeight: 44, justifyContent: "center", paddingLeft: 42, paddingRight: 12 },
-    offlineLine: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16 },
+    offlineLine: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16 },
   });
 const useS = createStylesHook(makeS);

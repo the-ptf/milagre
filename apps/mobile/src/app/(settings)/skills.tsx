@@ -5,7 +5,8 @@ import type { SkillOption } from "@milagre/shared/model";
 import { SKILL_PROVIDERS, SKILL_SCOPES, filterSkills, groupSkills, shadowedBy, shortenHome, skillProviderLabel } from "@milagre/shared/skill-catalog";
 import type { SkillScope } from "@milagre/shared/skill-catalog";
 import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
-import { ErrorNotice, Field, PageScroll, PullDown, useStyles } from "../../ui";
+import { ErrorNotice, Field, PageScroll, PullDown, SectionLabel, pressStyle, useStyles } from "../../ui";
+import { lineHeight, type } from "../../design-tokens";
 import { useTheme } from "../../theme";
 
 export default function SkillsScreen() {
@@ -52,9 +53,7 @@ export default function SkillsScreen() {
             </View>
             {groups.map((group) => (
               <View key={group.scope} style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={styles.section}>
-                  {group.label} · {group.skills.length}
-                </Text>
+                <SectionLabel>{`${group.label} · ${group.skills.length}`}</SectionLabel>
                 <View style={[styles.card, { paddingVertical: 0, gap: 0 }]}>
                   {group.skills.map((skill, index) => (
                     <View key={skill.path || skill.name}>
@@ -72,10 +71,8 @@ export default function SkillsScreen() {
             {!groups.length && <Text style={styles.muted}>No skills found. Create one in .claude/skills/&lt;name&gt;/SKILL.md.</Text>}
             {data.warnings.length > 0 && (
               <View style={{ gap: 8 }}>
-                <Text accessibilityRole="header" style={styles.section}>
-                  Warnings · {data.warnings.length}
-                </Text>
-                <View style={[styles.card, { gap: 10 }]}>
+                <SectionLabel>{`Warnings · ${data.warnings.length}`}</SectionLabel>
+                <View style={[styles.card, { gap: 12 }]}>
                   {data.warnings.map((warning) => (
                     <Text key={warning} selectable style={styles.caption}>
                       {shortenHome(warning)}
@@ -100,16 +97,16 @@ function SkillRow({ skill, hidden, onPress }: { skill: SkillOption; hidden: numb
       accessibilityRole="button"
       accessibilityLabel={`/${skill.name}. ${skill.description}`}
       onPress={onPress}
-      style={({ pressed }) => ({ paddingVertical: 12, gap: 3, opacity: pressed ? 0.5 : 1 })}
+      style={({ pressed }) => [{ paddingVertical: 12, gap: 4 }, pressStyle({ pressed, kind: "row" })]}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Text numberOfLines={1} style={[styles.text, { fontWeight: "500", flexShrink: 1 }]}>
           /{skill.name}
         </Text>
         <Text style={skillBadge}>{skillProviderLabel(skill.provider)}</Text>
-        {hidden > 0 && <Text style={{ color: colors.orangeInk, fontSize: 11 }}>{overrides(hidden)}</Text>}
+        {hidden > 0 && <Text style={{ color: colors.orangeInk, fontSize: type.caption2, lineHeight: lineHeight.caption2 }}>{overrides(hidden)}</Text>}
       </View>
-      <Text numberOfLines={1} style={[styles.caption, { color: colors.ink2, fontSize: 13 }]}>
+      <Text numberOfLines={1} style={[styles.caption, { color: colors.ink2, fontSize: type.footnote, lineHeight: lineHeight.footnote }]}>
         {skill.description}
       </Text>
       {!!skill.path && (

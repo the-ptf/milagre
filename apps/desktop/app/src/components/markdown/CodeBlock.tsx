@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { resolveCodeLanguage } from "../../lib/code-languages";
 import { diffRows } from "../../lib/message-fences";
 import { highlight, isLanguageReady, loadLanguage } from "./highlighter";
+import { IconButton } from "../primitives/Button";
 
 const ROW_TINT = { add: "bg-[var(--diff-add)]", remove: "bg-[var(--diff-remove)]", context: "" } as const;
 const ROW_MARKER = { add: "+", remove: "−", context: " " } as const;
@@ -132,16 +132,9 @@ export function CodeBlock({
 
   return (
     <div ref={frame} className="markdown-code my-2 overflow-hidden rounded-control border border-line bg-inset">
-      <div className="flex h-7 items-center justify-between border-b border-line pr-1 pl-2.5 text-[11px] text-ink-3">
+      <div className="flex h-7 items-center justify-between border-b border-line pr-0.5 pl-3 text-11 text-ink-3">
         <span className="font-mono">{label ?? (fence?.toLowerCase() || "text")}</span>
-        <button
-          type="button"
-          aria-label={copied ? "Copied" : "Copy code"}
-          onClick={copy}
-          className="flex size-6 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-        >
-          <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} size={13} strokeWidth={1.8} color="currentColor" />
-        </button>
+        <IconButton label={copied ? "Copied" : "Copy code"} icon={copied ? Tick02Icon : Copy01Icon} iconSize={12} size={24} onClick={copy} />
       </div>
       {rows ? (
         <pre className="overflow-x-auto py-1.5 font-mono text-[length:var(--code-size)] leading-[1.6]">
@@ -166,7 +159,7 @@ export function CodeBlock({
           </code>
         </pre>
       ) : (
-        <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[length:var(--code-size)] leading-[1.6]">
+        <pre className="overflow-x-auto px-3 py-2 font-mono text-[length:var(--code-size)] leading-[1.6]">
           <code>
             {/* Lines stay joined by real newlines so a hand selection copies blank lines too. */}
             {lines

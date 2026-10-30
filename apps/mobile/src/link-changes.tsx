@@ -9,8 +9,8 @@ import { useSession } from "./session";
 import { ChangeSections, diffTarget } from "./change-tree";
 import { ProjectIcon } from "./project-icon";
 import { Icon } from "./icons";
-import { PageScroll, useStyles } from "./ui";
-import { useTheme } from "./theme";
+import { radius, type, lineHeight } from "./design-tokens";
+import { PageScroll, pressStyle, useStyles } from "./ui";
 
 export function LinkChangesView({ chatId, header, onOpen }: { chatId: number; header?: React.ReactNode; onOpen?: (target: DiffTarget) => void }) {
   const styles = useStyles();
@@ -52,11 +52,11 @@ export function LinkChangesView({ chatId, header, onOpen }: { chatId: number; he
             key={project.id}
             accessible
             accessibilityLabel={`${project.name}. ${LINK_PENDING_WORKTREE_TEXT}`}
-            style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingLeft: 26, paddingRight: 4 }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingLeft: 28, paddingRight: 4 }}
           >
             <ProjectIcon client={session.client} path={project.path} />
-            <View style={{ flex: 1, gap: 5 }}>
-              <Text numberOfLines={1} style={[styles.text, { fontSize: 16, fontWeight: "500" }]}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text numberOfLines={1} style={[styles.text, { fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }]}>
                 {project.name}
               </Text>
               <Text style={styles.caption}>{LINK_PENDING_WORKTREE_TEXT}</Text>
@@ -80,7 +80,6 @@ function MemberChanges({
   revision: number;
   onOpen?: (target: DiffTarget) => void;
 }) {
-  const { colors } = useTheme();
   const styles = useStyles();
   const session = useSession();
   const [collapsed, setCollapsed] = useState(false);
@@ -91,20 +90,23 @@ function MemberChanges({
         accessibilityLabel={`${collapsed ? "Expand" : "Collapse"} ${name}`}
         accessibilityState={{ expanded: !collapsed }}
         onPress={() => setCollapsed((value) => !value)}
-        style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingVertical: 12,
-          paddingHorizontal: 4,
-          borderRadius: 12,
-          backgroundColor: pressed ? colors.hover : "transparent",
-        })}
+        style={({ pressed }) => [
+          {
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingVertical: 12,
+            paddingHorizontal: 4,
+            borderRadius: radius.control,
+            borderCurve: "continuous",
+          },
+          pressStyle({ pressed, kind: "row" }),
+        ]}
       >
-        <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} tone="ink3" size={14} />
+        <Icon icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon} tone="ink3" size={16} />
         <ProjectIcon client={session.client} path={member.projectPath} />
-        <View style={{ flex: 1, gap: 5 }}>
-          <Text numberOfLines={1} style={[styles.text, { fontSize: 16, fontWeight: "500" }]}>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text numberOfLines={1} style={[styles.text, { fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }]}>
             {name}
           </Text>
           <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>

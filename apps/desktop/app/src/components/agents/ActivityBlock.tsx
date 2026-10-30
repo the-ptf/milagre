@@ -1,9 +1,7 @@
 import { useRef, useState } from "react";
-import type { ComponentProps } from "react";
 import { activityDuration, stepDisplayTitle } from "@milagre/shared/tool-activity";
 import { useDisplayValue } from "../../lib/display-clock";
 import { ActivitySources } from "./ActivitySource";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, ArrowDown01Icon } from "@hugeicons/core-free-icons";
 import type { ChatStep } from "../../model";
 import { activitySummary, titleSpans } from "../../lib/reply-parts";
@@ -13,14 +11,10 @@ import { useSettings } from "../../lib/settings";
 import { useStepTitleSweep } from "../../lib/step-sweep";
 import { Markdown } from "../markdown/Markdown";
 import { StepRow } from "./StepRow";
+import { Icon } from "../primitives/Icon";
+import { Button } from "../primitives/Button";
 
 const NO_WAITING_STEPS: string[] = [];
-
-type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
-
-function Icon({ icon, size = 14 }: { icon: IconData; size?: number }) {
-  return <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" />;
-}
 
 function Title({ step, running }: { step: ChatStep; running: boolean }) {
   const sweep = useStepTitleSweep(running);
@@ -28,7 +22,7 @@ function Title({ step, running }: { step: ChatStep; running: boolean }) {
     <>
       {titleSpans(stepDisplayTitle(step, running)).map((span, index) =>
         span.code ? (
-          <code key={index} className={`rounded-[4px] bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`}>
+          <code key={index} className={`rounded-inline bg-field px-1 py-px font-mono text-[0.92em] text-ink ${sweep.className ?? ""}`}>
             {span.text}
           </code>
         ) : (
@@ -99,7 +93,7 @@ export function ActivityBlock({
           if (boundary === null) setBoundary(activityBoundary(entries, waitingStepIds, streaming));
           setOpen((value) => !value);
         }}
-        className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-[8px] px-1.5 py-1 text-left text-[12.5px] leading-[1.4] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+        className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-control px-1.5 py-1 text-left text-12 leading-[1.4] text-ink-2 transition-colors duration-fast hover:bg-hover hover:text-ink"
       >
         <ActivitySources steps={steps} />
         <span role="status" className="min-w-0 truncate">
@@ -115,23 +109,23 @@ export function ActivityBlock({
             summary.text
           )}
         </span>
-        {waiting && <span className="shrink-0 text-[11.5px] text-ink-3">Waiting for approval</span>}
+        {waiting && <span className="shrink-0 text-11 text-ink-3">Waiting for approval</span>}
         {summary.failed > 0 && (
-          <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-red-ink">
-            <Icon icon={Alert02Icon} size={13} />
+          <span className="flex shrink-0 items-center gap-1 text-11 text-red-ink">
+            <Icon icon={Alert02Icon} size={12} />
             {summary.failed} failed
           </span>
         )}
-        {streaming && <span className="shrink-0 text-[11.5px] text-ink-3">{steps.length} calls</span>}
-        <span aria-hidden className={`shrink-0 text-ink-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
+        {streaming && <span className="shrink-0 text-11 text-ink-3">{steps.length} calls</span>}
+        <span aria-hidden className={`shrink-0 text-ink-3 transition-transform duration-base ease-enter ${open ? "rotate-180" : ""}`}>
           <Icon icon={ArrowDown01Icon} size={12} />
         </span>
-        {elapsed && <span className="shrink-0 text-[11.5px] text-ink-3 tabular-nums">{elapsed}</span>}
+        {elapsed && <span className="shrink-0 text-11 text-ink-3 tabular-nums">{elapsed}</span>}
       </button>
 
       <div
         inert={!open}
-        className="grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+        className="grid transition-[grid-template-rows,opacity] duration-slow ease-enter"
         style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0 }}
       >
         <div className="min-w-0 overflow-hidden">
@@ -142,27 +136,28 @@ export function ActivityBlock({
             role="group"
             aria-label="Activity"
             aria-live="off"
-            className="relative mt-0.5 ml-[12px] border-l border-line pl-2 outline-none"
+            className="relative mt-0.5 ml-3 border-l border-line pl-2 outline-none"
           >
             {hidden > 0 && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size={24}
                 data-earlier-steps
-                className="self-start rounded-control border border-line px-2 py-1 text-[12px] text-ink-2 hover:bg-hover"
+                className="self-start"
                 onClick={() => {
                   setBoundary(0);
                   body.current?.focus({ preventScroll: true });
                 }}
               >
                 {earlierStepsLabel(entries, hidden)}
-              </button>
+              </Button>
             )}
             {boundary !== null &&
               entries.slice(hidden).map((entry, index) =>
                 entry.type === "step" ? (
                   <StepRow key={entry.step.id} step={entry.step} waiting={waitingStepIds.includes(entry.step.id)} />
                 ) : (
-                  <div key={`text-${hidden + index}`} className="px-1.5 py-1 text-[12.5px] leading-[1.55] text-ink-2">
+                  <div key={`text-${hidden + index}`} className="px-1.5 py-1 text-12 leading-[1.55] text-ink-2">
                     <Markdown text={entry.text} />
                   </div>
                 ),

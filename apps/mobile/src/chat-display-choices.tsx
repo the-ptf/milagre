@@ -12,7 +12,9 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import type { ChatRowShow } from "@milagre/shared/chat-row";
+import { lineHeight, radius, type } from "./design-tokens";
 import { Icon } from "./icons";
+import { pressStyle } from "./primitives/press-style";
 import { tap } from "./primitives/tap";
 import { createStylesHook, fonts, type Palette } from "./theme";
 import { useTheme } from "./theme";
@@ -49,7 +51,7 @@ export function ChoiceCards<T extends string>({
               tap();
               onChange(option.value);
             }}
-            style={({ pressed }) => [s.card, selected ? { borderColor: colors.accent, borderWidth: 2 } : null, { opacity: pressed ? 0.7 : 1 }]}
+            style={({ pressed }) => [s.card, selected ? { borderColor: colors.accent, borderWidth: 2 } : null, pressStyle({ pressed })]}
           >
             <View style={s.preview}>{option.preview}</View>
             <View style={s.name}>
@@ -221,15 +223,15 @@ export function SampleChatRow({ show }: { show: ChatRowShow }) {
         <Text style={[s.small, { flex: 1, color: colors.ink2 }]}>milagre-ade</Text>
         {show.lastActivity && <Text style={[s.small, { color: colors.ink3, fontVariant: ["tabular-nums"] }]}>4m</Text>}
       </View>
-      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: 16, fontWeight: "500" }}>
+      <Text numberOfLines={1} style={{ color: colors.ink, fontSize: type.callout, lineHeight: lineHeight.callout, fontWeight: "500" }}>
         App freezes when opening chats
       </Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         {show.branch && <Text style={[s.small, { color: colors.ink3, fontFamily: fonts.mono }]}>milagre/fix-chat</Text>}
         {show.pullRequests && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Icon icon={GitPullRequestIcon} tone="purple" size={12} />
-            <Text style={[s.small, { color: colors.purple }]}>#649</Text>
+            <Text style={[s.small, { color: colors.purpleInk }]}>#649</Text>
           </View>
         )}
         {show.linearIssue && <Text style={[s.small, { color: colors.ink2 }]}>ENG-412</Text>}
@@ -248,20 +250,21 @@ const useS = createStylesHook((colors: Palette) =>
     cards: { flexDirection: "row", gap: 12 },
     card: {
       flex: 1,
-      gap: 10,
+      gap: 12,
       padding: 12,
-      borderRadius: 16,
+      borderRadius: radius.card,
       borderCurve: "continuous",
       backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.line,
     },
-    preview: { minHeight: 104, padding: 10, borderRadius: 10, borderCurve: "continuous", backgroundColor: colors.page, overflow: "hidden" },
+    preview: { minHeight: 104, padding: 12, borderRadius: radius.control, borderCurve: "continuous", backgroundColor: colors.page, overflow: "hidden" },
     name: { flexDirection: "row", alignItems: "center", gap: 6 },
-    mark: { width: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-    title: { flex: 1, color: colors.ink, fontSize: 15, fontWeight: "600" },
-    description: { color: colors.ink3, fontSize: 12, lineHeight: 16 },
+    mark: { width: 18, height: 18, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
+    title: { flex: 1, color: colors.ink, fontSize: type.subheadline, lineHeight: lineHeight.subheadline, fontWeight: "600" },
+    description: { color: colors.ink3, fontSize: type.caption1, lineHeight: lineHeight.caption1 },
+    // The sketches are drawn at miniature scale; their 9pt text and 10/11 icons are part of the drawing.
     tiny: { flexShrink: 1, color: colors.ink3, fontSize: 9 },
-    small: { fontSize: 12 },
+    small: { fontSize: type.caption1, lineHeight: lineHeight.caption1 },
   }),
 );

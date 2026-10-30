@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   emptyLocalMcpDraft,
   localMcpClientConfig,
@@ -20,8 +19,8 @@ import {
 } from "@milagre/shared/local-mcp";
 import { useLocalMcp } from "@milagre/shared/use-local-mcp";
 import { useSession } from "./session";
-import { Button, Field, Toggle, useStyles } from "./ui";
-import { Icon } from "./icons";
+import { radius } from "./design-tokens";
+import { Button, CheckboxBox, ErrorNotice, Field, pressStyle, tap, Toggle, useStyles } from "./ui";
 import { useTheme } from "./theme";
 
 export function LocalMcpSection() {
@@ -85,7 +84,7 @@ export function LocalMcpSection() {
         {!item && <Field label="Connection name" value={draft.label} onChangeText={(label) => setDraft({ ...draft, label })} />}
         <ScopeFields draft={draft} onChange={setDraft} status={local.status} />
         <Button
-          title={local.busy ? "Saving..." : item ? (item.enabled ? "Save access" : `Enable ${item.label}`) : "Create configuration"}
+          title={local.busy ? "Saving…" : item ? (item.enabled ? "Save access" : `Enable ${item.label}`) : "Create configuration"}
           disabled={local.busy || !localMcpDraftValid(draft)}
           onPress={() => void submit(item)}
         />
@@ -95,12 +94,8 @@ export function LocalMcpSection() {
   return (
     <View style={{ gap: 24 }}>
       <Text style={styles.muted}>Connect your local tools to Milagre. Choose which Projects or Designs each app can access when you enable it.</Text>
-      {local.error ? (
-        <Text accessibilityRole="alert" style={styles.text}>
-          {local.error}
-        </Text>
-      ) : null}
-      {!local.status && !local.error ? <Text style={styles.muted}>Loading client settings...</Text> : null}
+      {local.error ? <ErrorNotice message={local.error} /> : null}
+      {!local.status && !local.error ? <Text style={styles.muted}>Loading client settings…</Text> : null}
       <View>
         {(local.status?.clients ?? []).map((item) => (
           <Fragment key={item.id}>
@@ -122,9 +117,10 @@ export function LocalMcpSection() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Set up ${item.label}`}
+                  accessibilityState={{ disabled: local.busy }}
                   disabled={local.busy}
                   onPress={() => open(item)}
-                  style={{ minHeight: 44, justifyContent: "center", alignSelf: "flex-start" }}
+                  style={({ pressed }) => [{ minHeight: 44, justifyContent: "center", alignSelf: "flex-start" }, pressStyle({ pressed, disabled: local.busy })]}
                 >
                   <Text style={styles.text}>Set up</Text>
                 </Pressable>
@@ -180,11 +176,7 @@ export function LocalMcpSection() {
                   }
                 />
                 <Button title="Done" secondary onPress={local.dismiss} />
-                {copyError ? (
-                  <Text accessibilityRole="alert" style={styles.text}>
-                    Could not copy. Try again before closing this configuration.
-                  </Text>
-                ) : null}
+                {copyError ? <ErrorNotice message="Could not copy. Try again before closing this configuration." /> : null}
               </View>
             ) : null}
             {custom.length > 0 ? (
@@ -294,29 +286,33 @@ function ScopeChoice({ title, selected, onPress, radio = false }: { title: strin
       accessibilityRole={radio ? "radio" : "checkbox"}
       accessibilityLabel={title}
       accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8, opacity: pressed ? 0.6 : 1 })}
+      onPress={() => {
+        tap();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
+        pressStyle({ pressed, kind: "row" }),
+      ]}
     >
-      <View
-        style={{
-          width: 20,
-          height: 20,
-          borderWidth: 1,
-          borderRadius: radio ? 10 : 4,
-          borderColor: selected ? colors.ink : colors.ink3,
-          backgroundColor: selected && !radio ? colors.ink : colors.surface,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {selected ? (
-          radio ? (
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.ink }} />
-          ) : (
-            <Icon icon={Tick02Icon} tone="onInk" size={16} />
-          )
-        ) : null}
-      </View>
+      {radio ? (
+        // ponytail: CheckRow's radio is a trailing tick on one line; these titles wrap, so the radio dot stays here.
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderWidth: 1.5,
+            borderRadius: radius.full,
+            borderColor: selected ? colors.ink : colors.ink3,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {selected ? <View style={{ width: 10, height: 10, borderRadius: radius.full, backgroundColor: colors.ink }} /> : null}
+        </View>
+      ) : (
+        <CheckboxBox checked={selected} />
+      )}
       <Text style={[styles.text, { flex: 1 }]}>{title}</Text>
     </Pressable>
   );

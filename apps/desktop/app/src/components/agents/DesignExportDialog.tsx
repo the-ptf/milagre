@@ -1,14 +1,17 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { designPageExportBlob, designPageExportSize, type DesignExportItem, type DesignExportFormat } from "./design-export";
+import { Button } from "../primitives/Button";
+import { Dialog } from "../primitives/Dialog";
+import { InlineError } from "../primitives/InlineError";
+import { SectionLabel } from "../primitives/SectionLabel";
 
 /** Export a snapshot of the current draft, without saving it to the Chat. */
 export function DesignExportDialog({ designs, onClose }: { designs: DesignExportItem[]; onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
   const formatName = useId();
   const alive = useRef(false);
   const working = useRef(false);
+  // Read while rendering: the Dialog's own effect, which runs first, moves focus into it.
+  const [previousFocus] = useState(() => window.document.activeElement as HTMLElement | null);
   const [format, setFormat] = useState<DesignExportFormat>("png");
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
@@ -22,15 +25,11 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
 
   useEffect(() => {
     alive.current = true;
-    const element = dialog.current;
-    const previousFocus = window.document.activeElement as HTMLElement | null;
-    element?.showModal();
     return () => {
       alive.current = false;
-      element?.close();
       previousFocus?.focus();
     };
-  }, []);
+  }, [previousFocus]);
 
   const close = () => {
     if (!working.current) onClose();
@@ -61,36 +60,40 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
     }
   };
 
-  return createPortal(
-    <dialog
-      ref={dialog}
-      data-slot="design-export-dialog"
-      aria-labelledby={titleId}
+  return (
+    // The dialog is portalled, but its events still bubble through React to the canvas behind it.
+    <div
+      role="presentation"
+      className="contents"
       onKeyDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
-      onCancel={(event) => {
-        event.preventDefault();
-        close();
-      }}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (event.target === event.currentTarget) close();
-      }}
-      className="m-auto w-[400px] max-w-[calc(100vw-32px)] overflow-hidden rounded-window border border-line bg-surface p-0 text-ink shadow-overlay backdrop:bg-black/30 backdrop:backdrop-blur-overlay"
+      onClick={(event) => event.stopPropagation()}
     >
-      <div className="p-5">
-        <h2 id={titleId} className="text-[16px] font-semibold">
-          Export Designs page
-        </h2>
-        <p className="mt-1 text-[12px] text-ink-3">
-          All {designs.length} {designs.length === 1 ? "design" : "designs"}, including unsaved edits.
-        </p>
+      <Dialog
+        data-slot="design-export-dialog"
+        title="Export Designs page"
+        description={`All ${designs.length} ${designs.length === 1 ? "design" : "designs"}, including unsaved edits.`}
+        onClose={close}
+        width={400}
+        actions={
+          <>
+            <Button variant="ghost" aria-label="Cancel export" disabled={exporting} onClick={close}>
+              Cancel
+            </Button>
+            <Button data-slot="design-export-download" disabled={exporting} onClick={() => void download()}>
+              {exporting ? "Exporting…" : `Export ${format.toUpperCase()}`}
+            </Button>
+          </>
+        }
+      >
         <fieldset disabled={exporting} className="mt-5 space-y-2">
-          <legend className="mb-2 text-[12px] font-medium text-ink-2">File format</legend>
+          <SectionLabel as="legend" className="mb-2">
+            File format
+          </SectionLabel>
           {formats.map((option) => (
             <label
               key={option.value}
-              className={`flex items-center gap-3 rounded-control border px-3 py-3 ${format === option.value ? "border-accent bg-accent/10" : "border-line hover:bg-hover"} ${exporting ? "opacity-50" : "cursor-pointer"}`}
+              className={`flex items-center gap-3 rounded-control border px-3 py-3 transition-colors duration-fast ${format === option.value ? "border-accent bg-accent-tint" : "border-line hover:bg-hover"} ${exporting ? "opacity-40" : "cursor-pointer"}`}
             >
               <input
                 type="radio"
@@ -102,43 +105,20 @@ export function DesignExportDialog({ designs, onClose }: { designs: DesignExport
                   setFormat(option.value);
                   setError("");
                 }}
-                className="size-3.5 shrink-0 accent-accent"
+                className="size-4 shrink-0 accent-accent"
               />
               <span>
-                <span className="block text-[13px] font-medium">{option.label}</span>
-                <span className="mt-0.5 block text-[12px] text-ink-3">{option.description}</span>
+                <span className="block text-13 font-medium">{option.label}</span>
+                <span className="mt-0.5 block text-12 text-ink-3">{option.description}</span>
               </span>
             </label>
           ))}
         </fieldset>
-        <p className="mt-4 break-all text-[11px] text-ink-3">{filename}</p>
-        {error && (
-          <p role="alert" className="mt-3 text-[12px] leading-relaxed text-red-ink">
-            {error}
-          </p>
-        )}
-      </div>
-      <footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-4">
-        <button
-          type="button"
-          aria-label="Cancel export"
-          className="rounded-control border border-line px-3 py-1.5 text-[12px] hover:bg-hover disabled:opacity-40"
-          disabled={exporting}
-          onClick={close}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          data-slot="design-export-download"
-          className="rounded-control bg-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-40"
-          disabled={exporting}
-          onClick={() => void download()}
-        >
-          {exporting ? "Exporting..." : `Export ${format.toUpperCase()}`}
-        </button>
-      </footer>
-    </dialog>,
-    window.document.body,
+        <p className="mt-4 break-all text-11 text-ink-3">{filename}</p>
+        <InlineError size={12} className="mt-3 leading-relaxed">
+          {error}
+        </InlineError>
+      </Dialog>
+    </div>
   );
 }

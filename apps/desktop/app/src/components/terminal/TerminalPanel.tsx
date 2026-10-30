@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { shortcutLabel, useKeybindings } from "../../lib/keybindings";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, Cancel01Icon, ComputerTerminal01Icon } from "@hugeicons/core-free-icons";
 import type { TerminalInfo, TerminalProfiles } from "@milagre/shared/terminal";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { Select } from "../primitives/Select";
 import Tooltip from "../primitives/Tooltip";
+import { Icon } from "../primitives/Icon";
+import { IconButton } from "../primitives/Button";
 import { PickerPanel, PickerRow } from "../primitives/Picker";
 import { useDismiss } from "../../lib/use-dismiss";
 import { closeTerminal, newTerminal, openTerminal, takeFocusRequest, toggleTerminalPanel, type TerminalPlace } from "../../lib/terminal-actions";
@@ -201,7 +202,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                   return (
                     <div
                       key={terminal.id}
-                      className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-xs transition-colors ${selected ? "bg-hover text-ink" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
+                      className={`group flex h-7 min-w-0 max-w-[200px] shrink items-center rounded-control text-12 transition-colors duration-fast ${selected ? "bg-hover text-ink" : "text-ink-3 hover:bg-hover hover:text-ink"}`}
                     >
                       <button
                         type="button"
@@ -214,16 +215,16 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                         }}
                         className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-1 pl-2"
                       >
-                        <HugeiconsIcon icon={ComputerTerminal01Icon} size={13} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+                        <Icon icon={ComputerTerminal01Icon} size={12} className="shrink-0" />
                         <span className="truncate font-mono">{terminal.title}</span>
-                        {multiple && <span className="truncate text-[10px] text-ink-3">{terminal.label}</span>}
+                        {multiple && <span className="truncate text-11 text-ink-3">{terminal.label}</span>}
                       </button>
                       {asking ? (
                         // Focus stays in the Terminal, so a second ⌘W confirms.
                         <button
                           type="button"
                           onClick={() => close(terminal)}
-                          className="mr-1 shrink-0 rounded-[5px] bg-red-tint px-1.5 py-0.5 text-[11px] font-medium text-red-ink"
+                          className="mr-0.5 h-6 shrink-0 rounded-chip bg-red-tint px-1.5 text-11 font-medium text-red-ink"
                         >
                           End {terminal.title}
                         </button>
@@ -232,9 +233,9 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                           type="button"
                           aria-label={`Close ${terminal.title}`}
                           onClick={() => close(terminal)}
-                          className={`relative mr-1 flex size-5 shrink-0 items-center justify-center rounded-[5px] hover:bg-inset before:absolute before:-inset-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
+                          className={`relative mr-1 flex size-5 shrink-0 items-center justify-center rounded-chip transition-[background-color,opacity] duration-fast hover:bg-inset before:absolute before:-inset-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
                         >
-                          <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} color="currentColor" />
+                          <Icon icon={Cancel01Icon} size={12} />
                         </button>
                       )}
                     </div>
@@ -242,15 +243,12 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                 })}
                 <div ref={plus} className="relative shrink-0">
                   <Tooltip label="New Terminal" shortcut={shortcutLabel(rules, "terminal.new")} side="top">
-                    <button
-                      type="button"
-                      aria-label="New Terminal"
+                    <IconButton
+                      label="New Terminal"
+                      icon={Add01Icon}
                       aria-expanded={multiple ? picking : undefined}
                       onClick={() => (picking ? setTerminalPicking(chatId, false) : add())}
-                      className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                    >
-                      <HugeiconsIcon icon={Add01Icon} size={15} strokeWidth={1.8} color="currentColor" />
-                    </button>
+                    />
                   </Tooltip>
                   {picking && places && (
                     <PickerPanel
@@ -285,14 +283,7 @@ export function TerminalPanel({ chatId, places, notify }: { chatId: string | nul
                 />
               )}
               <Tooltip label="Hide Terminals" shortcut={shortcutLabel(rules, "terminal.toggle")} side="top" align="end">
-                <button
-                  type="button"
-                  aria-label="Hide Terminals"
-                  onClick={() => setTerminalPanelOpen(chatId, false)}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                >
-                  <HugeiconsIcon icon={ArrowDown01Icon} size={15} strokeWidth={1.8} color="currentColor" />
-                </button>
+                <IconButton label="Hide Terminals" icon={ArrowDown01Icon} onClick={() => setTerminalPanelOpen(chatId, false)} />
               </Tooltip>
             </header>
             <div ref={body} data-terminal-body className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5 pb-1" />

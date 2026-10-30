@@ -123,7 +123,7 @@ const Row = memo(function Row({ row }: { row: DiffRow }) {
   const MARKER_COLOR = { add: colors.add, remove: colors.remove, context: colors.ink3 } as const;
   if (row.type === "hunk")
     return (
-      <Text numberOfLines={1} style={[code, { fontSize: 11, color: colors.ink3, backgroundColor: colors.inset, paddingHorizontal: 12, paddingVertical: 3 }]}>
+      <Text numberOfLines={1} style={[code, { fontSize: 11, color: colors.ink3, backgroundColor: colors.inset, paddingHorizontal: 12, paddingVertical: 4 }]}>
         {row.header}
       </Text>
     );
