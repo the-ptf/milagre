@@ -88,6 +88,7 @@ import { PickerPanel, PickerRow } from "./primitives/Picker";
 import { LinearIssuePicker } from "./LinearIssuePicker";
 import { NewChatHeading } from "./NewChatHeading";
 import Tooltip from "./primitives/Tooltip";
+import { CopyButton } from "./primitives/CopyButton";
 import { PillSlot, StatusPill } from "./primitives/StatusPill";
 import { AnimatePresence, LayoutGroup } from "motion/react";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -252,8 +253,10 @@ function ReplyContent({
   streaming,
   asking = false,
   waitingStepIds,
+  copyable = true,
 }: {
   body: string;
+  copyable?: boolean;
   steps: ChatStep[];
   streaming: boolean;
   asking?: boolean;
@@ -275,6 +278,16 @@ function ReplyContent({
         <HeartbeatCard key={step.id} step={step} />
       ))}
       {answer.trim() && <div data-slot="message-content">{streaming ? <StreamingMarkdown text={answer} /> : <Markdown text={answer} />}</div>}
+      {/* Reserve the footer while streaming so completion and hover keep the transcript still. */}
+      {copyable && answer.trim() && (
+        <div className="h-7" data-message-copy-footer>
+          {!streaming && (
+            <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              <CopyButton text={answer} />
+            </div>
+          )}
+        </div>
+      )}
       {thought && (
         <div data-slot="message-thought" className="text-ink-2">
           <Markdown text={thought} />
@@ -383,6 +396,7 @@ const MessageSection = memo(function MessageSection({
   const showUpdateButton = Boolean(outdatedProvider && onUpdateCli && (isCurrentlyOutdated || updatingCli === outdatedProvider));
   const limit = !isUser && !streaming ? usageLimitOf(message) : null;
   const steps = message.steps ?? [];
+  const copyUser = (bubble || (isUser && linked)) && !advisor && Boolean(message.body.trim()) && !onlyImageMentions(message.body, message.images?.length ?? 0);
   return (
     <article
       id={`message-${message.id}`}
@@ -390,32 +404,44 @@ const MessageSection = memo(function MessageSection({
       data-from={messageSender(message)}
       data-linked={linked?.kind}
       data-streaming={streaming || undefined}
-      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble || feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
+      className={`group/message flex min-w-0 w-full flex-col gap-1.5 transition-[opacity,transform] duration-300 ${bubble ? (copyUser && undoId && onUndo ? "items-end pl-18" : "items-end pl-12") : feedback || pageFeedback || answered || prAction || issue ? "items-end pl-12" : ""}`}
       style={animate ? { animation: "fade-up 400ms cubic-bezier(0.23,1,0.32,1) both" } : undefined}
     >
-      {linked && <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />}
+      {linked && (
+        <div className="flex min-w-0 max-w-full items-center gap-1.5">
+          <LinkedMessageHeader context={linked} onOpenChat={onOpenChat} />
+          {copyUser && (
+            <div className="shrink-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+              <CopyButton text={message.body} />
+            </div>
+          )}
+        </div>
+      )}
       <div
-        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
+        className={`min-w-0 max-w-full text-[length:var(--chat-size)] leading-[1.55] text-ink ${advisor ? "w-full rounded-[14px]" : bubble ? "relative rounded-xl bg-field px-3 py-1.5" : feedback || pageFeedback || answered || prAction || issue ? "w-full max-w-md" : isUser ? "relative rounded-xl border border-line px-3 py-2" : ""} ${highlighted ? "outline outline-[1.5px] -outline-offset-[1.5px] outline-accent" : ""}`}
       >
         {/* Beside the bubble, not under it: showing it on hover never moves the transcript. */}
-        {bubble && undoId && onUndo && (
-          <div className="absolute top-[3px] right-full mr-1.5 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
-            <Tooltip
-              label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
-              keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
-              align="end"
-            >
-              <button
-                type="button"
-                data-undo-message={message.id}
-                aria-label="Undo this task's changes"
-                disabled={undoDisabled}
-                onClick={() => onUndo(undoId)}
-                className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+        {bubble && (copyUser || (undoId && onUndo)) && (
+          <div className="absolute top-[3px] right-full mr-1.5 flex opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+            {bubble && undoId && onUndo && (
+              <Tooltip
+                label={undoDisabled ? "Wait for the task to finish" : "Undo changes"}
+                keyHint={undoLatest && !undoDisabled ? "Esc Esc" : undefined}
+                align="end"
               >
-                <Icon icon={Undo02Icon} size={15} />
-              </button>
-            </Tooltip>
+                <button
+                  type="button"
+                  data-undo-message={message.id}
+                  aria-label="Undo this task's changes"
+                  disabled={undoDisabled}
+                  onClick={() => onUndo(undoId)}
+                  className="flex size-7 items-center justify-center rounded-[7px] text-ink-3 transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-50"
+                >
+                  <Icon icon={Undo02Icon} size={15} />
+                </button>
+              </Tooltip>
+            )}
+            {copyUser && <CopyButton text={message.body} />}
           </div>
         )}
         <Attachments
@@ -455,7 +481,7 @@ const MessageSection = memo(function MessageSection({
         ) : recommendation ? (
           <>
             <StepDetailsMessage id={message.id}>
-              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} />
+              <ReplyContent body={recommendation.intro} steps={steps} streaming={false} waitingStepIds={waitingStepIds} copyable={false} />
             </StepDetailsMessage>
             <div className={recommendation.intro ? "mt-2" : undefined}>
               <RecommendationCard
@@ -463,6 +489,11 @@ const MessageSection = memo(function MessageSection({
                 options={recommendation.options}
                 onSelect={(option) => onRecommendationSelect(option.label)}
               />
+            </div>
+            <div className="h-7" data-message-copy-footer>
+              <div className="w-fit opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+                <CopyButton text={message.body} />
+              </div>
             </div>
           </>
         ) : (
