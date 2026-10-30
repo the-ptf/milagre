@@ -250,7 +250,7 @@ function createRuntime(options) {
     const text = typeof request?.text === "string" ? request.text.trim().slice(0, 4000) : "";
     const point = [request?.x, request?.y];
     if (!chatId || !text) throw new Error("Write the comment first.");
-    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap an element of the page.");
+    if (!point.every((value) => typeof value === "number" && value >= 0 && value <= 1)) throw new Error("Tap the page to place a comment pin.");
     const scope = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     const session = scope && Number.isSafeInteger(sessionId) ? (await scopeStates.get(scope))?.sessions?.[sessionId] : null;
@@ -305,6 +305,10 @@ function createRuntime(options) {
   commands.handle("browser:list", (_context, request) => browsers.list(request));
   commands.handle("browser:attach", (_context, request) => browsers.attach(request));
   commands.handle("browser:detach", (_context, request) => browsers.detach(request));
+  commands.handle("browser:open-page", (context, request) => {
+    if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
+    return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
+  });
   // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
   commands.handle("browser:panel-pages", (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");

@@ -60,6 +60,7 @@ const PATHS = Object.freeze({
   "browser:list": denied,
   "browser:attach": denied,
   "browser:open": denied,
+  "browser:open-page": denied,
   "browser:frame": denied,
   "browser:status": denied,
   "browser:control": denied,

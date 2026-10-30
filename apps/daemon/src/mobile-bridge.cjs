@@ -95,6 +95,7 @@ const METHODS = new Set([
   "browser:list",
   "browser:attach",
   "browser:open",
+  "browser:open-page",
   "browser:frame",
   "browser:status",
   "browser:control",
