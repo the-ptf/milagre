@@ -349,6 +349,9 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         await waitFor(() => evaluate('document.body.textContent.includes("A saved conversation for scoped menu checks.")'), "personal Chat opens");
         await evaluate(`document.querySelector('[aria-label="New chat"]').click()`);
         await waitFor(() => evaluate('!!document.querySelector("[data-new-chat-heading]")'), "new Chat draft opens in the real Project");
+        // A window at most 1024 px wide (the CI macOS runner's screen) collapses the sidebar, whose rail shows only the
+        // open Project's Chats. Expanded, the personal Chat has its own row.
+        await evaluate(`document.querySelector('[aria-label="Expand sidebar"]')?.click()`);
         // The open Project has Chats with the same numbers, so the row is the one with this id and this title.
         const personalRow =
           "[...document.querySelectorAll('[data-chat-id=\"" + homeChat.id + '"]\')].find((row) => row.textContent.includes("Personal menu regression"))';
