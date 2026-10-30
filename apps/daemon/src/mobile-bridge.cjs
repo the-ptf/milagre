@@ -51,6 +51,10 @@ const METHODS = new Set([
   "limits:auto-switch:save",
   "app-update:auto:read",
   "app-update:auto:save",
+  // The Mac's desktop app update: what it runs and whether a newer one waits, a check, and the install (host-updates.cjs).
+  "app-update:state",
+  "app-update:check",
+  "app-update:install",
   "computer:resources:read",
   "keybindings:read",
   "keybindings:set-command",
