@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon, Delete02Icon, Link04Icon, Tick02Icon, Unlink04Icon } from "@hugeicons/core-free-icons";
 import {
   canLinkProjects,
   findLink,
@@ -53,12 +53,16 @@ type SidebarLinksValue = {
   refresh: () => void;
   ask: (source: LinkChat, target: LinkChat, anchor: Anchor) => void;
   pick: (source: LinkChat, anchor: Anchor, mode: "link" | "remove") => void;
-  toast: (text: string, options?: { undo?: () => void; left?: number }) => void;
+  toast: (text: string, options?: ToastOptions) => void;
   register: (handle: LinkListHandle) => () => void;
   lists: () => LinkListHandle[];
 };
 
 const NO_ENDS: LinkedEnd[] = [];
+/** `kind` leads the toast with its icon: a deletion's trash or Done's check. */
+type ToastOptions = { undo?: () => void; left?: number; kind?: "deleted" | "done" };
+const TOAST_ICONS = { deleted: Delete02Icon, done: CheckmarkCircle02Icon };
+
 const SidebarLinksContext = createContext<SidebarLinksValue>({
   links: [],
   projectIdOf: () => null,
@@ -96,7 +100,7 @@ export function SidebarLinksProvider({
   const [links, setLinks] = useState<ProjectLink[]>([]);
   const [asking, setAsking] = useState<{ source: LinkChat; target: LinkChat; anchor: Anchor } | null>(null);
   const [picking, setPicking] = useState<{ source: LinkChat; anchor: Anchor; mode: "link" | "remove" } | null>(null);
-  const [toast, setToast] = useState<{ text: string; left: number; undo?: () => void } | null>(null);
+  const [toast, setToast] = useState<{ text: string; left: number; undo?: () => void; kind?: ToastOptions["kind"] } | null>(null);
   const handles = useRef(new Set<LinkListHandle>());
   const latest = useRef({ scopes, projects, onAskChat });
   latest.current = { scopes, projects, onAskChat };
@@ -130,9 +134,9 @@ export function SidebarLinksProvider({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const showToast = useCallback((text: string, options: { undo?: () => void; left?: number } = {}) => {
+  const showToast = useCallback((text: string, options: ToastOptions = {}) => {
     const left = options.left ?? (document.querySelector("aside")?.getBoundingClientRect().right ?? 0) + 12;
-    setToast({ text, undo: options.undo, left });
+    setToast({ text, undo: options.undo, left, kind: options.kind });
   }, []);
 
   const scopeOf = useCallback((key: string) => scopes.find((scope) => scope.scopeKey === key), [scopes]);
@@ -333,9 +337,15 @@ export function SidebarLinksProvider({
           <div
             role="status"
             data-chat-toast
-            className="fixed bottom-4 z-[80] flex max-w-[min(520px,calc(100vw-2rem))] items-center gap-3 rounded-[10px] bg-surface px-3 py-2 text-[13px] text-ink shadow-overlay"
+            // Dark on the light page, as on the phone: a white toast on the canvas went unseen.
+            className="fixed bottom-4 z-[80] flex min-h-10 max-w-[min(520px,calc(100vw-2rem))] items-center gap-2.5 rounded-full bg-ink py-2 pr-4 pl-3.5 text-sm font-medium text-surface shadow-overlay"
             style={{ left: toast.left, animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
+            {toast.kind && (
+              <span className={toast.kind === "deleted" ? "text-red" : "text-green"}>
+                <HugeIcon icon={TOAST_ICONS[toast.kind]} size={16} />
+              </span>
+            )}
             <span>{toast.text}</span>
             {toast.undo && (
               <button
@@ -345,7 +355,7 @@ export function SidebarLinksProvider({
                   setToast(null);
                   toast.undo?.();
                 }}
-                className="shrink-0 font-medium text-accent-ink hover:underline"
+                className="ml-2 shrink-0 font-semibold text-surface underline-offset-2 hover:underline"
               >
                 Undo
               </button>

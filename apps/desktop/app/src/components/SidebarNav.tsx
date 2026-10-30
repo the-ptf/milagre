@@ -1884,7 +1884,7 @@ function chatRowActions(
   linkProjectId: string | null,
   scopeKey: string,
   now: () => RowActionsNow,
-  showToast: (text: string, undo?: () => void) => void,
+  showToast: (text: string, undo?: () => void, kind?: "deleted" | "done") => void,
 ): ChatRowActions {
   return {
     ...actions,
@@ -1906,14 +1906,14 @@ function chatRowActions(
         const latest = now().actions;
         if (!latest.onDone) return;
         latest.onDone(id);
-        showToast("Moved to Done", () => now().actions.onReopen?.(id));
+        showToast("Moved to Done", () => now().actions.onReopen?.(id), "done");
       }),
     onArchive:
       actions.onArchive &&
       ((id, mode, plan) => {
         const latest = now().actions;
         const work = latest.onArchive?.(id, mode, plan);
-        showToast("Chat deleted", latest.onUndoArchive && (() => now().actions.onUndoArchive?.(id)));
+        showToast("Chat deleted", latest.onUndoArchive && (() => now().actions.onUndoArchive?.(id)), "deleted");
         return work;
       }),
     ...(linkProjectId
@@ -2034,9 +2034,9 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
   const sidebarLinks = useSidebarLinks();
   const botMarks = useBotMarks();
   // Both read the latest render's scopes and Links when an action runs, so one set of actions serves every render.
-  const showToast = useEvent((text: string, undo?: () => void) => {
+  const showToast = useEvent((text: string, undo?: () => void, kind?: "deleted" | "done") => {
     const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-    sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+    sidebarLinks.toast(text, { undo, kind, left: (aside?.right ?? 0) + 12 });
   });
   const readScope = useEvent((scopeKey: string): RowActionsNow => {
     const scope = scopes.get(scopeKey);
@@ -2193,9 +2193,9 @@ function ChatList({
   }, [scopeKey, linkProjectId]);
 
   const showToast = useCallback(
-    (text: string, undo?: () => void) => {
+    (text: string, undo?: () => void, kind?: "deleted" | "done") => {
       const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-      live.current.sidebarLinks.toast(text, { undo, left: (aside?.right ?? 0) + 12 });
+      live.current.sidebarLinks.toast(text, { undo, kind, left: (aside?.right ?? 0) + 12 });
     },
     [live],
   );
