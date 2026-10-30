@@ -8,7 +8,7 @@ import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccounts
 import { AccountsSettings } from "./AccountsSettings";
 import { SkillsSettings } from "./SkillsSettings";
 import { McpSettings } from "./McpSettings";
-import { Switch } from "./primitives/Switch";
+import { SettingCheckbox } from "./primitives/Checkbox";
 import { LocalMcpSettings } from "./LocalMcpSettings";
 import { MilagreMark } from "./MilagreMark";
 import { ipcErrorMessage } from "@milagre/shared/result";
@@ -102,7 +102,7 @@ import {
 import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
-import { ChatListChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
+import { ChatListChoice, DictationActionChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
 import { KeybindingsSettings } from "./settings/KeybindingsSettings";
 import { playNotificationChime } from "../lib/notification-chime";
 import { ProviderLogo } from "./ProviderLogo";
@@ -382,7 +382,7 @@ function ComputerSettings({ id, onRemoved }: { id: string; onRemoved: () => void
         </Row>
         <div data-computer-show-in-sidebar>
           <Row label="Show in sidebar" description={`${computer.name}'s Projects in the sidebar on this Mac. It stays connected while hidden.`}>
-            <Switch label="Show in sidebar" checked={!hiddenComputers.has(computer.id)} onChange={(show) => setComputerHidden(computer.id, !show)} />
+            <SettingCheckbox label="Show in sidebar" checked={!hiddenComputers.has(computer.id)} onChange={(show) => setComputerHidden(computer.id, !show)} />
           </Row>
         </div>
       </Group>
@@ -571,7 +571,7 @@ function RemoteDelegationSettings() {
         label="Delegate to other computers"
         description="A Chat's agent can hand work to a Project on another paired computer. That computer runs the turn, and this Chat shows it as it runs. Needs Drive other computers on in Settings > Devices."
       >
-        <Switch
+        <SettingCheckbox
           label="Delegate to other computers"
           checked={setting.enabled}
           disabled={!setting.ready || setting.saving}
@@ -592,7 +592,7 @@ function BotsSettings() {
   return (
     <div data-slot="bots-setting">
       <Row label="Bots" description="Named bots that work for you and ask before anything irreversible.">
-        <Switch label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
+        <SettingCheckbox label="Bots" checked={bots.enabled} disabled={!bots.ready || bots.saving} onChange={(enabled) => void bots.setEnabled(enabled)} />
       </Row>
       {bots.error && (
         <p role="alert" className="px-4 pb-3 text-[12px] text-red-ink">
@@ -621,7 +621,7 @@ function ChatSettings() {
           label="TLDR writing"
           description="Shape Claude, Codex and Antigravity updates and replies with /tldr. Applies on the next turn after the current reply finishes."
         >
-          <Switch label="TLDR writing" checked={settings.tldrEnabled} onChange={(tldrEnabled) => updateSettings({ tldrEnabled })} />
+          <SettingCheckbox label="TLDR writing" checked={settings.tldrEnabled} onChange={(tldrEnabled) => updateSettings({ tldrEnabled })} />
         </Row>
         <Row label="Claude replies">
           <Select<ClaudeReplies>
@@ -635,19 +635,23 @@ function ChatSettings() {
           />
         </Row>
       </Group>
-      <Group title="Dictation">
-        <Row
-          label="Language"
-          description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
-        >
-          <Select
-            label="Dictation language"
-            value={settings.dictationLanguage}
-            onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
-            options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
-          />
-        </Row>
-      </Group>
+      <ChoiceGroup title="Dictation">
+        <p className="mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
+        <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
+        <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
+          <Row
+            label="Language"
+            description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
+          >
+            <Select
+              label="Dictation language"
+              value={settings.dictationLanguage}
+              onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
+              options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
+            />
+          </Row>
+        </div>
+      </ChoiceGroup>
     </>
   );
 }
@@ -689,7 +693,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
           label="Floating inbox"
           description="A thin bar attached to the screen edge. Drag its grip to show docking targets over a dimmed desktop. Drop left, right, or bottom; release elsewhere to return. The bottom bar is horizontal. Hover a dot to preview its Chat."
         >
-          <Switch label="Floating inbox" checked={settings.floatingInbox} onChange={(floatingInbox) => updateSettings({ floatingInbox })} />
+          <SettingCheckbox label="Floating inbox" checked={settings.floatingInbox} onChange={(floatingInbox) => updateSettings({ floatingInbox })} />
         </Row>
         {settings.floatingInbox && (
           <div className="ml-4 border-l border-line pl-4">
@@ -697,7 +701,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
               label="Show chat activity"
               description="Include working chats with a progress summary and finished updates. Off: only questions and permission requests."
             >
-              <Switch
+              <SettingCheckbox
                 label="Show chat activity"
                 checked={settings.floatingInboxActivity}
                 onChange={(floatingInboxActivity) => updateSettings({ floatingInboxActivity })}
@@ -709,7 +713,11 @@ function ExperimentalSettings({ title }: { title?: string }) {
           label="Ultracode Fatality"
           description="Turning Ultracode on darkens the window, slams ULTRACODE across it Mortal Kombat style, and an announcer says it out loud."
         >
-          <Switch label="Ultracode Fatality" checked={settings.ultracodeFatality} onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })} />
+          <SettingCheckbox
+            label="Ultracode Fatality"
+            checked={settings.ultracodeFatality}
+            onChange={(ultracodeFatality) => updateSettings({ ultracodeFatality })}
+          />
         </Row>
         <BotsSettings />
         <RemoteDelegationSettings />
@@ -804,7 +812,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
           label="Keep the Mac awake"
           description="While Milagre runs, so your phone and other computers can reach it. The screen can still turn off. Plugged in, it stays awake with the lid closed; on battery, closing the lid sleeps it."
         >
-          <Switch label="Keep the Mac awake" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
+          <SettingCheckbox label="Keep the Mac awake" checked={settings.keepAwake} onChange={(keepAwake) => updateSettings({ keepAwake })} />
         </Row>
       </Group>
       <Group title="Plan usage">
@@ -820,7 +828,7 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
           />
         </Row>
         <Row label="Show in sidebar" description="Hover a provider for its limits and reset times">
-          <Switch
+          <SettingCheckbox
             label="Show usage in sidebar"
             checked={settings.showUsageInSidebar}
             onChange={(showUsageInSidebar) => updateSettings({ showUsageInSidebar })}
@@ -837,20 +845,28 @@ function NotificationsSettings() {
     <>
       <Group title="Alerts">
         <Row label="Notify when finished" description="When a turn finishes or fails while you are outside the chat">
-          <Switch
+          <SettingCheckbox
             label="Notify when finished"
             checked={settings.notifyOnCompletion}
             onChange={(notifyOnCompletion) => updateSettings({ notifyOnCompletion })}
           />
         </Row>
         <Row label="Dock badge" description="Count chats with unread replies or waiting for your input">
-          <Switch label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
+          <SettingCheckbox label="Dock badge" checked={settings.showDockBadge} onChange={(showDockBadge) => updateSettings({ showDockBadge })} />
         </Row>
         <Row label="Notify when waiting" description="When a chat needs an approval or an answer and Milagre is in the background">
-          <Switch label="Notify when waiting" checked={settings.notifyWhenWaiting} onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })} />
+          <SettingCheckbox
+            label="Notify when waiting"
+            checked={settings.notifyWhenWaiting}
+            onChange={(notifyWhenWaiting) => updateSettings({ notifyWhenWaiting })}
+          />
         </Row>
         <Row label="Attention button" description="Top right, when a chat in another project needs an approval or an answer">
-          <Switch label="Attention button" checked={settings.showAttentionButton} onChange={(showAttentionButton) => updateSettings({ showAttentionButton })} />
+          <SettingCheckbox
+            label="Attention button"
+            checked={settings.showAttentionButton}
+            onChange={(showAttentionButton) => updateSettings({ showAttentionButton })}
+          />
         </Row>
       </Group>
       <Group title="Schedule">
@@ -869,7 +885,7 @@ function RoutinesSettings() {
   return (
     <Group title="Nudges">
       <Row label="Unread Runs dot" description="On the Routines button and each Routine's row, while a Run's Chat has a result you haven't opened">
-        <Switch label="Unread Runs dot" checked={settings.routineNudges} onChange={(routineNudges) => updateSettings({ routineNudges })} />
+        <SettingCheckbox label="Unread Runs dot" checked={settings.routineNudges} onChange={(routineNudges) => updateSettings({ routineNudges })} />
       </Row>
     </Group>
   );
@@ -970,7 +986,7 @@ function AppearanceSettings() {
       </section>
       <Group title="Custom theme">
         <Row label="Custom theme" description={'Build a theme from a few colors. It shows up as "Custom" with the Milagre themes.'}>
-          <Switch
+          <SettingCheckbox
             label="Custom theme"
             checked={settings.customThemeEnabled}
             onChange={(customThemeEnabled) => {
@@ -1132,7 +1148,7 @@ function OtherComputersSetting({ onAddComputer }: { onAddComputer?: () => void }
   return (
     <Group title="Other computers">
       <Row label="Drive other computers" description="Drive the chats of other Macs running Milagre from this window. Their Projects join the sidebar.">
-        <Switch label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
+        <SettingCheckbox label="Drive other computers" checked={otherComputers} onChange={(next) => updateSettings({ otherComputers: next })} />
       </Row>
       {otherComputers && onAddComputer && (
         <Row
@@ -1416,7 +1432,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
       <p className="mt-1 text-[13px] text-ink-2">Phones and other Macs that can see and drive this Mac's chats.</p>
       <Group title="Access">
         <Row label="Allow devices to connect" description={loadError ?? phoneStatusLine(status)}>
-          <Switch
+          <SettingCheckbox
             label="Allow devices to connect"
             checked={status?.enabled === true}
             onChange={(enabled) => {
@@ -1426,7 +1442,7 @@ function DevicesSettings({ onAddComputer }: { onAddComputer?: () => void }) {
         </Row>
         {status?.enabled && status.lan && (
           <Row label="Allow on local network" description={phoneLanLine(status) ?? ""}>
-            <Switch
+            <SettingCheckbox
               label="Allow on local network"
               checked={status.lan.enabled}
               onChange={(enabled) => {
@@ -1630,7 +1646,7 @@ function AutoUpdateRow({ bridge }: { bridge: Pick<MilagreBridge, "readAutoUpdate
   };
   return (
     <Row label={AUTO_UPDATE_TITLE} description={error || AUTO_UPDATE_HINT}>
-      <Switch label={AUTO_UPDATE_TITLE} checked={autoUpdate} onChange={(next) => void change(next)} />
+      <SettingCheckbox label={AUTO_UPDATE_TITLE} checked={autoUpdate} onChange={(next) => void change(next)} />
     </Row>
   );
 }
@@ -2050,7 +2066,7 @@ function ShowInSidebarSetting({ project }: { project: SettingsProject }) {
   return (
     <div data-show-in-sidebar>
       <Row label="Show in sidebar" description="In the sidebar on this Mac. Filters › Projects chooses them all at once.">
-        <Switch label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
+        <SettingCheckbox label="Show in sidebar" checked={hidden === false} onChange={(show) => void change(show)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
@@ -2083,7 +2099,7 @@ export function MainSyncDefaultSetting() {
   return (
     <div data-main-sync-default>
       <Row label={MAIN_SYNC_TITLE} description={MAIN_SYNC_HINT}>
-        <Switch label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
+        <SettingCheckbox label={MAIN_SYNC_TITLE} checked={syncMain === true} onChange={(next) => void change(next)} />
       </Row>
       {error && <p className="px-4 pb-3 break-words text-[12px] text-red-ink">{error}</p>}
     </div>
@@ -2126,7 +2142,7 @@ function LimitAutoSwitchSetting() {
           "When a Chat hits its plan's usage limit, move its Project to the next signed-in account and continue." + (error ? ` Could not save: ${error}` : "")
         }
       >
-        <Switch label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
+        <SettingCheckbox label="Switch accounts at usage limits" checked={autoSwitch} onChange={(next) => void change(next)} />
       </Row>
     </Group>
   );
@@ -2226,7 +2242,7 @@ function LinearSettings() {
   return (
     <div data-linear-settings data-linear-connected={status?.connected ? "true" : "false"} className="divide-y divide-line">
       <Row label={LINEAR_TITLE} description={LINEAR_HINT}>
-        <Switch label={LINEAR_TITLE} checked={enabled === true} onChange={(next) => void changeEnabled(next)} />
+        <SettingCheckbox label={LINEAR_TITLE} checked={enabled === true} onChange={(next) => void changeEnabled(next)} />
       </Row>
       {enabled &&
         linearWorkspaces(status).map((workspace) => (
@@ -2242,7 +2258,7 @@ function LinearSettings() {
         ))}
       {enabled && status?.connected && moveToStarted !== null && (
         <Row label={LINEAR_MOVE_TO_STARTED_TITLE} description={LINEAR_MOVE_TO_STARTED_HINT}>
-          <Switch label={LINEAR_MOVE_TO_STARTED_TITLE} checked={moveToStarted} onChange={(next) => void changeMoveToStarted(next)} />
+          <SettingCheckbox label={LINEAR_MOVE_TO_STARTED_TITLE} checked={moveToStarted} onChange={(next) => void changeMoveToStarted(next)} />
         </Row>
       )}
       {enabled && status && (

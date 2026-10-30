@@ -8,7 +8,7 @@ import { savedHosts } from "../../hosts-native";
 import { forgetComputer, renameComputer, routeLabel } from "../../computer-actions";
 import { useComputerStatus, useRouteChanges } from "../../use-computer-status";
 import { Group, Row } from "../../settings-list";
-import { ErrorNotice, PageScroll, RowSwitch } from "../../ui";
+import { ErrorNotice, PageScroll, RowCheckbox } from "../../ui";
 import { useTheme } from "../../theme";
 
 type MacPage = "general" | "accounts" | "connections" | "skills" | "mcp";
@@ -76,7 +76,7 @@ export default function ComputerScreen() {
             title="Show its Chats"
             chevron={false}
             trailing={
-              <RowSwitch
+              <RowCheckbox
                 label={`Show ${host.name} Chats`}
                 selected={shown}
                 onPress={() =>

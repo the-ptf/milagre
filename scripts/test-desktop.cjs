@@ -211,12 +211,12 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     const pages = async () => fetch(`http://127.0.0.1:${debuggerPort}/json/list`).then((response) => response.json());
     assert.equal((await pages()).filter((page) => page.url.includes("floating-inbox=")).length, 0);
     await evaluate("window.milagre.openInboxSettings()");
-    await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "Floating inbox Experimental switch");
+    await waitFor(() => evaluate(`!!document.querySelector('[role="checkbox"][aria-label="Floating inbox"]')`), "Floating inbox Experimental switch");
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
       const shot = await connection.call("Page.captureScreenshot");
       await fs.writeFile(path.join(process.env.MILAGRE_SCREENSHOT_DIR, "floating-inbox-settings.png"), Buffer.from(shot.data, "base64"));
     }
-    await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+    await evaluate(`document.querySelector('[role="checkbox"][aria-label="Floating inbox"]').click()`);
     const dockPage = await waitFor(async () => (await pages()).find((page) => page.url.includes("floating-inbox=dock")), "native floating bar");
     const dock = await connect(dockPage.webSocketDebuggerUrl);
     try {
@@ -300,9 +300,9 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
         await evaluate("window.milagre.openInboxChat(" + JSON.stringify(project + "#2") + ")");
         await waitFor(() => evaluate(`!!document.querySelector('[data-prompt-editor]')`), "inbox opens Chat in the main window");
         await evaluate("window.milagre.openInboxSettings()");
-        await waitFor(() => evaluate(`!!document.querySelector('[role="switch"][aria-label="Floating inbox"]')`), "return to Experimental settings");
+        await waitFor(() => evaluate(`!!document.querySelector('[role="checkbox"][aria-label="Floating inbox"]')`), "return to Experimental settings");
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), true);
-        await evaluate(`document.querySelector('[role="switch"][aria-label="Floating inbox"]').click()`);
+        await evaluate(`document.querySelector('[role="checkbox"][aria-label="Floating inbox"]').click()`);
         await waitFor(async () => !(await pages()).some((page) => page.url.includes("floating-inbox=")), "disabled experiment destroys both native windows");
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("milagre-settings")).floatingInbox'), false);
       } finally {
