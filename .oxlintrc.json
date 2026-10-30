@@ -21,7 +21,7 @@
     "unicorn/prefer-node-protocol": "error",
     "unicorn/consistent-function-scoping": "off",
     "promise/always-return": "warn",
-    "unicorn/no-array-sort": "warn",
+    "unicorn/no-array-sort": "off",
     "unicorn/prefer-add-event-listener": "error",
     "unicorn/prefer-set-has": "error",
     "unicorn/prefer-array-find": "error",
