@@ -131,6 +131,7 @@ import { createKnownFiles, mentionPaths } from "../file-mentions";
 import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
+import { ToastPill } from "../primitives/toast";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
@@ -2393,36 +2394,18 @@ function ChatPane({
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
                 {toast ? (
                   <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
-                    <View
-                      accessibilityLiveRegion="polite"
-                      style={{
-                        maxWidth: 360,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 14,
-                        borderRadius: 14,
-                        paddingHorizontal: 14,
-                        paddingVertical: 10,
-                        backgroundColor: colors.ink,
-                      }}
-                    >
-                      <Text style={{ flexShrink: 1, color: colors.surface, fontSize: 15 }}>{toast.text}</Text>
-                      {toast.undo ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel="Undo"
-                          hitSlop={10}
-                          onPress={() => {
-                            const { undo } = toast;
-                            if (toastTimer.current) clearTimeout(toastTimer.current);
-                            setToast(null);
-                            undo?.();
-                          }}
-                        >
-                          <Text style={{ color: colors.accent, fontSize: 15, fontWeight: "600" }}>Undo</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
+                    <ToastPill
+                      text={toast.text}
+                      onUndo={
+                        toast.undo &&
+                        (() => {
+                          const { undo } = toast;
+                          if (toastTimer.current) clearTimeout(toastTimer.current);
+                          setToast(null);
+                          undo?.();
+                        })
+                      }
+                    />
                   </View>
                 ) : null}
                 <MessageNavigation

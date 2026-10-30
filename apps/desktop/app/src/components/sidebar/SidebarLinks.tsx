@@ -17,6 +17,7 @@ import { ipcErrorMessage } from "@milagre/shared/result";
 import type { ProjectLink } from "@/electron";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { useDismiss } from "../../lib/use-dismiss";
+import { TOAST_CLASS } from "../../lib/toast";
 import type { SidebarRecent } from "./ChatRow";
 
 /* ─────────────────────────────────────────────────────────
@@ -337,15 +338,10 @@ export function SidebarLinksProvider({
           <div
             role="status"
             data-chat-toast
-            // Dark on the light page, as on the phone: a white toast on the canvas went unseen.
-            className="fixed bottom-4 z-[80] flex min-h-10 max-w-[min(520px,calc(100vw-2rem))] items-center gap-2.5 rounded-full bg-ink py-2 pr-4 pl-3.5 text-sm font-medium text-surface shadow-overlay"
+            className={`${TOAST_CLASS} bottom-4 flex items-center gap-3`}
             style={{ left: toast.left, animation: "fade-up 200ms cubic-bezier(0.23,1,0.32,1) both" }}
           >
-            {toast.kind && (
-              <span className={toast.kind === "deleted" ? "text-red" : "text-green"}>
-                <HugeIcon icon={TOAST_ICONS[toast.kind]} size={16} />
-              </span>
-            )}
+            {toast.kind && <HugeIcon icon={TOAST_ICONS[toast.kind]} size={16} />}
             <span>{toast.text}</span>
             {toast.undo && (
               <button
@@ -355,7 +351,7 @@ export function SidebarLinksProvider({
                   setToast(null);
                   toast.undo?.();
                 }}
-                className="ml-2 shrink-0 font-semibold text-surface underline-offset-2 hover:underline"
+                className="relative shrink-0 font-semibold underline-offset-2 before:absolute before:-inset-2 hover:underline"
               >
                 Undo
               </button>

@@ -7,6 +7,7 @@ import type { Client } from "./client";
 import type { DesignPageShare } from "@milagre/shared/artifact";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 import { useTheme } from "./theme";
+import { ToastPill } from "./primitives/toast";
 
 const when = (share: DesignPageShare) =>
   `${share.updatedAt ? "Updated" : "Published"} ${new Date(share.updatedAt ?? share.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
@@ -251,12 +252,7 @@ export function DesignPageShareSheet({
       </PageScroll>
       {toast && (
         <View key={toast.key} pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, bottom: 24, alignItems: "center" }}>
-          <View
-            accessibilityLiveRegion="polite"
-            style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
-          >
-            <Text style={{ color: colors.surface, fontSize: 14 }}>{toast.text}</Text>
-          </View>
+          <ToastPill text={toast.text} />
         </View>
       )}
     </View>

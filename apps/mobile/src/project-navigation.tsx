@@ -1,6 +1,5 @@
 import { ChatSwipeRow } from "./chat-swipe-row";
 import { retentionOf, useDoneRetention } from "./done-retention";
-import { radius } from "./design-tokens";
 import { doneCountdown } from "@milagre/shared/done";
 import { chatSummary } from "@milagre/shared/chat-summary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -69,6 +68,7 @@ import { confirm } from "./confirm-store";
 import { showChoiceSheet } from "./choice-store";
 import { ArchivingOverlay, useArchiveActivity } from "./archive-progress";
 import { clearArchiveNotice, showArchiveNotice } from "./archive";
+import { ToastPill } from "./primitives/toast";
 import { AttentionDot, useAttention } from "./attention";
 import { lastUserModel, projectOfKey } from "@milagre/shared/agent-runs";
 import { useChatPullRequests } from "./use-chat-pull-requests";
@@ -1417,27 +1417,20 @@ const NavigationBody = memo(function NavigationBody({
           list without moving it. A deletion started on the Chat screen shows here, since that screen has gone. */}
       {archives.deleted || doneToast ? (
         <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: bottomInset + 8, alignItems: "center" }}>
-          <View accessibilityLiveRegion="polite" style={[s.doneToast, { backgroundColor: colors.ink }]}>
-            <Icon icon={archives.deleted ? Delete02Icon : CheckmarkCircle02Icon} tone={archives.deleted ? "red" : "green"} size={18} />
-            <Text style={{ flex: 1, color: colors.surface, fontSize: 15, fontWeight: "500" }}>{archives.deleted ? "Chat deleted" : "Moved to Done"}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Undo"
-              hitSlop={10}
-              onPress={() => {
-                if (archives.deleted) {
-                  undoDelete(archives.deleted);
-                  return;
-                }
-                if (!doneToast) return;
-                const { row } = doneToast;
-                setDoneToast(null);
-                void act(row, "reopen");
-              }}
-            >
-              <Text style={{ color: colors.accent, fontSize: 15, fontWeight: "600" }}>Undo</Text>
-            </Pressable>
-          </View>
+          <ToastPill
+            text={archives.deleted ? "Chat deleted" : "Moved to Done"}
+            icon={archives.deleted ? Delete02Icon : CheckmarkCircle02Icon}
+            onUndo={() => {
+              if (archives.deleted) {
+                undoDelete(archives.deleted);
+                return;
+              }
+              if (!doneToast) return;
+              const { row } = doneToast;
+              setDoneToast(null);
+              void act(row, "reopen");
+            }}
+          />
         </View>
       ) : null}
       {busy && (
@@ -2220,17 +2213,6 @@ const makeS = (colors: Palette) =>
     chip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderCurve: "continuous", backgroundColor: colors.field },
     project: { flexDirection: "row", alignItems: "center", marginTop: 12, paddingHorizontal: 8 },
     doneRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, paddingHorizontal: 16 },
-    doneToast: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      width: "100%",
-      maxWidth: 360,
-      minHeight: 48,
-      paddingHorizontal: 16,
-      borderRadius: radius.full,
-      borderCurve: "continuous",
-    },
     divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16, marginTop: 12 },
     projectTitle: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8 },
     chat: { flexDirection: "row", alignItems: "center" },
