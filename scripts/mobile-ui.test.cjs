@@ -179,6 +179,9 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // pages had at app/, so these resolve to the same fake.
       if (file.startsWith("app/(settings)/") && id.startsWith("../../")) id = id.slice(3);
       // A pure helper (the draft clear after a send): tests get the real one.
+      // The toast pill (primitives/toast.tsx) draws its icon as a named element, under the screen's own fake when it has one.
+      if (file.startsWith("primitives/") && id === "../icons" && !(id in modules)) return modules["./icons"] ?? { Icon: "Icon" };
+      if (id === "react-native-safe-area-context" && !(id in modules)) return { useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) };
       // Motion helpers at Normal speed with the system's reduced motion off; a test's own fake wins.
       if (/^\.\.?\/motion$/.test(id) && !(id in modules))
         return { useReducedMotion: () => false, useMotionScale: () => 1, scaledTiming: (config) => config, springTo: (target) => target };
@@ -333,6 +336,93 @@ const jsx = (type, props, key) => (type === messageActionsStub ? props.children(
 
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
 const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
+
+test("context settings stay safe and unavailable on both clients without a host response", async () => {
+  const shared = await import("../packages/shared/src/context-settings.mjs");
+  for (const response of [null, undefined]) {
+    const desktop = hookHost({ effects: true });
+    const bridge = { readContextSettings: async () => response };
+    const { useContextSettings } = load("../../desktop/app/src/lib/context-settings.ts", {
+      react: desktop,
+      "@milagre/shared/context-settings": shared,
+      "./computer-bridge": { useBridge: () => bridge },
+    });
+    desktop.begin();
+    useContextSettings();
+    await new Promise(setImmediate);
+    desktop.begin();
+    const value = useContextSettings();
+    assert.equal(value.settings.autoCompact, false, "the desktop composer can read defaults without crashing");
+    assert.equal(value.ready, false, "unavailable host settings cannot be edited");
+
+    const mobile = hookHost();
+    const phone = load("context-settings.ts", {
+      react: mobile,
+      "@milagre/shared/context-settings": shared,
+      "./session": { useSession: () => ({ client: {} }) },
+      "./use-rpc": { useRpc: () => ({ data: response, error: "" }) },
+    }).useContextSettings();
+    assert.deepEqual(value.settings, phone.settings);
+    assert.equal(value.ready, phone.ready);
+    desktop.unmount();
+  }
+});
+
+test("desktop context settings handle missing methods, read failures, events and switching computers", async () => {
+  const shared = await import("../packages/shared/src/context-settings.mjs");
+  const react = hookHost({ effects: true });
+  let bridge = {};
+  const { useContextSettings } = load("../../desktop/app/src/lib/context-settings.ts", {
+    react,
+    "@milagre/shared/context-settings": shared,
+    "./computer-bridge": { useBridge: () => bridge },
+  });
+  const render = () => {
+    react.begin();
+    return useContextSettings();
+  };
+  assert.equal(render().ready, false);
+  bridge = {
+    readContextSettings: async () => {
+      throw new Error("offline");
+    },
+  };
+  render();
+  await new Promise(setImmediate);
+  assert.equal(render().error, "Could not read context settings.");
+  assert.equal(render().settings.autoCompact, false);
+  assert.equal(render().ready, false);
+
+  const pending = deferred();
+  let onChange;
+  let removed = false;
+  bridge = {
+    readContextSettings: () => pending.promise,
+    onContextSettings: (fn) => {
+      onChange = fn;
+      return () => {
+        removed = true;
+      };
+    },
+  };
+  render();
+  const enabled = { ...shared.CONTEXT_DEFAULTS, autoCompact: true };
+  onChange(enabled);
+  assert.equal(render().settings.autoCompact, true);
+  assert.equal(render().ready, true);
+  pending.resolve(null);
+  await new Promise(setImmediate);
+  assert.equal(render().settings.autoCompact, true, "a stale initial read cannot replace the newer event");
+  onChange(null);
+  assert.equal(render().settings.autoCompact, false);
+  assert.equal(render().ready, false);
+  bridge = {};
+  assert.equal(render().ready, false);
+  assert.equal(removed, true);
+  onChange(enabled);
+  assert.equal(render().settings.autoCompact, false, "late events from the old computer are ignored");
+  react.unmount();
+});
 
 test("display clocks stop off-screen and in the background, then catch up from wall time", () => {
   const host = hookHost({ effects: true });
@@ -2680,6 +2770,8 @@ function chatHost({
   localOutbox,
   computers,
   screenWidth = 402,
+  contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" },
+  contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false },
   now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
   // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
@@ -2807,6 +2899,11 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "../chat-display-setting": {
+      useShowContextSize: () => [contextPreferences.showContextSize],
+      useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
+    },
+    "@milagre/shared/chat-display": require("@milagre/shared/chat-display"),
     ...(localOutbox
       ? {
           "../outbox": {
@@ -2849,6 +2946,8 @@ function chatHost({
     "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },
+    "../context-settings": { useContextSettings: () => ({ settings: contextSettings }) },
+    "@milagre/shared/use-compaction-feedback": { useCompactionFeedback: () => null },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
     "../browser": { useBrowserShortcut: (options) => (typeof browserShortcut === "function" ? browserShortcut(options) : browserShortcut) },
@@ -3479,7 +3578,11 @@ function allComputersFake(session, computers, storeCalls) {
     useFoldedProjects: (ids) => new Map(ids.map((id) => [id, new Set()])),
     allComputers: {
       viewOf: (hostId) => views().find((view) => view.hostId === hostId),
-      clientFor: (hostId) => (hostId === session.client.url ? session.client : { url: hostId, call: async () => {} }),
+      // A computer of the test's may bring its own client (`computer.client`), to see what reached it.
+      clientFor: (hostId) =>
+        hostId === session.client.url
+          ? session.client
+          : (computers?.find((computer) => computer.hostId === hostId)?.client ?? { url: hostId, call: async () => {} }),
       hostFor: (hostId) => ({ id: hostId, name: views().find((view) => view.hostId === hostId)?.name ?? "Mac", address: hostId, token: "token", lastUsed: 0 }),
       refreshProject: async (hostId, path) => {
         storeCalls.push(["refreshProject", hostId, path]);
@@ -4962,6 +5065,13 @@ async function settleAll() {
   for (let i = 0; i < 10; i++) await settle();
 }
 
+/** Lets a deletion's Undo time pass (the test's setTimeout is mocked), then the steps after it. */
+async function passUndo(t) {
+  await settleAll();
+  t.mock.timers.tick(require("@milagre/shared/archive").DELETE_UNDO_MS);
+  await settleAll();
+}
+
 test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
   const react = hookHost();
   const calls = [];
@@ -4970,9 +5080,9 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   const { ChatSwipeRow } = load("chat-swipe-row.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { View: "View", Text: "Text" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
     "react-native-gesture-handler/ReanimatedSwipeable": { default: "Swipeable" },
-    "react-native-reanimated": { ReduceMotion: { Always: "always", System: "system" } },
+    "react-native-reanimated": { ReduceMotion: { Always: "always", System: "system" }, useDerivedValue: (read) => ({ get: read }) },
     "@hugeicons/core-free-icons": {},
     "./icons": { Icon: "Icon" },
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
@@ -5001,7 +5111,7 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   row.props.onSwipeableOpen("right");
   row.props.onSwipeableOpen("left");
   assert.deepEqual(calls, ["read"], "another swipe cannot mark Done while a read is pending");
-  assert.equal(render(true).props.enabled, false);
+  assert.equal(render(true).props.enabled.get(), false);
   pending.resolve();
   await settle();
   row = render(false);
@@ -5012,7 +5122,7 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   await settle();
   assert.deepEqual(calls, ["read", "unread", "done"]);
   row = render(false, true);
-  assert.equal(row.props.enabled, false);
+  assert.equal(row.props.enabled.get(), false);
   row.props.onSwipeableOpen("left");
   assert.deepEqual(calls, ["read", "unread", "done"]);
   // A Done row reopens with a swipe right and has nothing to swipe left to.
@@ -5031,6 +5141,30 @@ test("Chat swipe directions mark Done or read status once and block unavailable 
   assert.equal(row.props.containerStyle, undefined);
   assert.equal(render(false, false, false, false).props.onSwipeableOpen, row.props.onSwipeableOpen);
   assert.ok(closes >= 3, "rows close after the action");
+  assert.equal(row.props.hitSlop, undefined, "outside the sidebar a row swipes across its whole width");
+
+  // In the slide-over sidebar a left swipe only reveals Done, which a tap commits; the row leaves its right edge to the
+  // sidebar's close, and takes no swipe while the sidebar slides.
+  let open = true;
+  react.useContext = () => ({ get: () => open });
+  row = render(true);
+  assert.equal(row.props.hitSlop.right, -32);
+  assert.equal(row.props.enabled.get(), true);
+  assert.equal(render(true).props.hitSlop, row.props.hitSlop, "the edge keeps its identity across renders");
+  open = false;
+  assert.equal(row.props.enabled.get(), false, "a sliding sidebar's rows take no swipe");
+  open = true;
+  row.props.onSwipeableOpen("left");
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive"], "a revealed Done waits for its tap");
+  const done = row.props.renderRightActions();
+  assert.equal(done.type, "Pressable");
+  done.props.onPress();
+  await settle();
+  assert.deepEqual(calls, ["read", "unread", "done", "reopen", "archive", "done"]);
+  row.props.onSwipeableOpen("right");
+  await settle();
+  assert.deepEqual(calls.at(-1), "read", "a right swipe still commits on release");
 });
 
 test("an older Mac's rows offer no Done, and their left swipe archives as before", () => {
@@ -5048,7 +5182,8 @@ test("an older Mac's rows offer no Done, and their left swipe archives as before
   }
 });
 
-test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -5070,6 +5205,13 @@ test("a sidebar Chat deletes immediately and stops the turn while preserving uns
   more.props.onSelect("archive");
   await settleAll();
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
+  assert.equal(listsChat(nav), false, "the row leaves the list at once");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete"),
+    false,
+    "the conversation stays while the toast's Undo can bring it back",
+  );
+  await passUndo(t);
   assert.deepEqual(
     project.calls.map(([method]) => method),
     ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
@@ -5080,7 +5222,8 @@ test("a sidebar Chat deletes immediately and stops the turn while preserving uns
   );
 });
 
-test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async () => {
+test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const screen = chatHost({
@@ -5096,7 +5239,7 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.render();
   const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   archive.props.onPress();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
@@ -5452,6 +5595,81 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
   }
+});
+
+test("context size and the direct compact button are independent, follow the threshold and preserve the draft", async () => {
+  const contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" };
+  const screen = chatHost({ effects: true, contextPreferences, call: async () => ({ sessionId: 42 }) });
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 69, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const compact = (tree) => find(tree, (node) => node.props?.accessibilityLabel === "Compact context");
+  const ring = (tree) => find(tree, (node) => node.type === "ContextRing");
+  let tree = screen.render();
+  assert.ok(ring(tree));
+  assert.ok(!compact(tree));
+  chat.contextUsage.used = 70;
+  tree = screen.render();
+  assert.ok(compact(tree));
+  assert.equal(compact(tree).props.disabled, false);
+  contextPreferences.showContextSize = false;
+  tree = screen.render();
+  assert.equal(ring(tree).props.showSize, false, "a chevron replaces the size");
+  assert.ok(compact(tree));
+  chat.contextUsage.used = 20;
+  assert.ok(!compact(screen.render()));
+  contextPreferences.compactButtonDisplay = "always";
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.drafts[chatId] = "Keep this draft";
+  tree = screen.render();
+  compact(tree).props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.archived = true;
+  assert.equal(compact(screen.render()).props.disabled, true);
+  chat.archived = false;
+  screen.session.error = "Disconnected";
+  assert.equal(compact(screen.render()).props.disabled, true);
+  screen.session.error = "";
+  chat.provider = "codex";
+  assert.ok(!compact(screen.render()));
+});
+
+test("mobile compaction can be queued and cancelled during a turn, and quiet mode hides its controls", async () => {
+  const contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false };
+  const screen = chatHost({ effects: true, contextSettings, call: async () => ({ sessionId: 42 }) });
+  screen.session.refresh = async () => {};
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 90, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.snapshot.runs.runs[chatId] = { text: "Working", steps: [], approvals: [], questions: [] };
+  screen.session.drafts[chatId] = "Keep this draft";
+  const button = (tree, label) => find(tree, (node) => node.props?.accessibilityLabel === label);
+  const compact = button(screen.render(), "Compact context");
+  assert.equal(compact.props.disabled, false);
+  compact.props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  chat.queued = [{ id: "compact-1", context: { kind: "compaction", status: "preparing" } }];
+  button(screen.render(), "Cancel queued compaction").props.onPress();
+  await settle();
+  assert.deepEqual(Array.from(screen.calls.find((call) => call.method === "chat:queue-remove").args), [chatId, "compact-1"]);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.queued = [];
+  contextSettings.autoCompact = true;
+  const quiet = screen.render();
+  assert.ok(!button(quiet, "Compact context"));
+  assert.ok(!find(quiet, (node) => node.type === "ContextRing"));
+  chat.provider = "codex";
+  assert.ok(
+    find(screen.render(), (node) => node.type === "ContextRing"),
+    "unsupported providers keep their usage display",
+  );
 });
 
 test("Compact now from the context sheet sends /compact to the open Chat with the compact flag and no preview", async () => {
@@ -9671,13 +9889,23 @@ test("mobile picker exposes other devices only in Attach and detach updates this
   h.cleanup();
 });
 
+/** The toast pill (primitives/toast.tsx) saying `text`; the trees here don't draw a component's own children. */
+function toastPill(tree, text) {
+  return find(tree, (node) => node.type?.name === "ToastPill" && node.props.text === text);
+}
+
+/** Whether the list has a Chat row. */
+function listsChat(nav) {
+  return nav.rows().props.data.some((item) => item.kind === "chat");
+}
+
 // The progress drawn over an archiving Chat's row.
 function archiveIndicator(tree) {
   const component = find(tree, (node) => node.type === archiveProgress.ArchivingOverlay);
   return component && find(component.type(component.props), (node) => node.props.accessibilityRole === "progressbar");
 }
 
-test("sidebar archive shows progress over the Chat's row and clears it on failure", async () => {
+test("a sidebar deletion takes the Chat's row out of the list and brings it back on failure", async () => {
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9692,31 +9920,125 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.equal(
-    find(nav.render(), (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Archiving Chat"),
-    undefined,
-  );
-  const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Deleting Fix", "archive feedback sits on the row and survives closing the action sheet");
-  assert.ok(
-    find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
-    "the row's pill spins desktop's ring",
-  );
-  assert.equal(nav.more(row), undefined, "an archiving row offers no menu");
-  assert.equal(row.props.children.props.pointerEvents, "none");
-  // Hidden on the Mac while the worktree is still going: the row stays, under the progress.
-  project.snapshot.project.state.sessions[5].archived = true;
-  assert.ok(archiveIndicator(nav.row("chat")));
-  project.snapshot.project.state.sessions[5].archived = false;
+  assert.equal(listsChat(nav), false, "the row goes at once, with the toast's Undo");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
   patch.reject(new Error("disk full"));
   await settleAll();
+  assert.ok(nav.row("chat"), "a failed deletion brings the row back");
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
+  assert.equal(archiveStore.archiveActivity().deleted, "", "and its toast goes");
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
   assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
-test("archiving the open Chat from the sidebar stays in place through archive and completion", async () => {
+/** Two Computers, each with Chat /p#5 ("Fix"); `fail` makes one Computer's hide fail. */
+function twoComputerArchive({ fail } = {}) {
+  const mac = archiveProject();
+  const studio = archiveProject();
+  const studioCall = (method, args) => (fail === "studio" && method === "chat:patch" ? Promise.reject(new Error("disk full")) : studio.call(method, args));
+  // A deleted Chat leaves its Computer's Project, as the Mac's state does.
+  const macCall = (method, args) => {
+    if (method === "chat:delete") delete mac.snapshot.project.state.sessions[args[1]];
+    return mac.call(method, args);
+  };
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: {
+      client: { ...mac.client, call: macCall, url: "mac" },
+      recent: [{ path: "/p" }],
+      snapshot: mac.snapshot,
+      expectActivity() {},
+      refresh: async () => {},
+    },
+    computers: [
+      { hostId: "mac", name: "MacBook", state: "online", projects: [{ path: "/p" }], copies: { "/p": mac.snapshot } },
+      {
+        hostId: "studio",
+        name: "Studio",
+        state: "online",
+        projects: [{ path: "/p" }],
+        copies: { "/p": studio.snapshot },
+        client: { url: "studio", call: studioCall, snapshot: studio.client.snapshot },
+      },
+    ],
+  });
+  const hosts = () =>
+    nav
+      .rows()
+      .props.data.filter((item) => item.kind === "chat")
+      .map((item) => item.hostId);
+  const remove = (hostId) => {
+    const at = hosts().indexOf(hostId);
+    nav.more(nav.row("chat", at)).props.onSelect("archive");
+  };
+  return { nav, mac, studio, hosts, remove };
+}
+
+test("deleting a Chat hides and undoes only its own Computer's row when another Computer has the same path and id", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive();
+  same(hosts().sort(), ["mac", "studio"]);
+  remove("mac");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's Chat stays listed while the Mac's is deleted");
+  assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
+  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  await settleAll();
+  same(hosts().sort(), ["mac", "studio"]);
+  assert.equal(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  assert.equal(studio.calls.length, 0, "nothing reached Studio");
+});
+
+test("deletions of the same Chat on two Computers run apart, and one's failure brings back only its own row", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { nav, mac, studio, hosts, remove } = twoComputerArchive({ fail: "studio" });
+  remove("mac");
+  await settleAll();
+  remove("studio");
+  await settleAll();
+  same(hosts(), ["studio"], "Studio's failed deletion brings back only Studio's row");
+  assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
+  archiveStore.clearArchiveNotice();
+  assert.equal(archiveStore.archiveActivity().hidden.has("mac|/p#5"), true, "the Mac's deletion is still waiting out its Undo");
+  await passUndo(t);
+  assert.ok(
+    mac.calls.some(([method]) => method === "chat:delete"),
+    "the Mac's Chat is deleted after its Undo time",
+  );
+  assert.equal(
+    studio.calls.some(([method]) => method === "chat:delete"),
+    false,
+  );
+  same(hosts(), ["studio"]);
+});
+
+test("an Undo on the list's toast brings the deleted Chat back without deleting it", async () => {
+  const project = archiveProject();
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: { client: { ...project.client, url: "mac" }, recent: [{ path: "/p" }], snapshot: project.snapshot, expectActivity() {}, refresh: async () => {} },
+  });
+  nav.more(nav.row("chat")).props.onSelect("archive");
+  await settleAll();
+  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  await settleAll();
+  assert.ok(nav.row("chat"), "the row is back");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete" || method === "worktree:remove"),
+    false,
+  );
+  assert.deepEqual(
+    project.calls.filter(([method]) => method === "chat:patch").map((call) => call[3]),
+    [{ archived: true, unread: false }, { archived: false }],
+  );
+});
+
+test("deleting the open Chat from the sidebar stays in place through the deletion", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9732,14 +10054,15 @@ test("archiving the open Chat from the sidebar stays in place through archive an
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(nav.routes, [], "confirming an archive must not close or replace the sidebar");
-  assert.ok(archiveIndicator(nav.row("chat")), "progress stays on the same sidebar row");
+  assert.deepEqual(nav.routes, [], "deleting must not close or replace the sidebar");
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(nav.routes, []);
+  assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
 });
 
-test("the Chat screen opens its sidebar once on archive without replacing the screen", async () => {
+test("the Chat screen opens its sidebar once on archive without replacing the screen", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const screen = chatHost({ alert: pressDanger([]), call: (method, args) => (method === "chat:patch" ? patch.promise : project.call(method, args)) });
@@ -9757,7 +10080,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   // The phone moves on to another Chat while the archive runs.
   screen.router.replaced = "/chat?id=9";
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.equal(screen.router.replaced, "/chat?id=9", "the end of the archive does not pull the phone back to the list");
   assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
   assert.deepEqual(screen.panels.shown, ["left"], "completion must not reopen the sidebar");
@@ -12254,10 +12577,7 @@ test("picking a Linear issue links it to the Chat's Worktree and toasts the PR h
   assert.equal(screen.calls.at(-1).method, "worktree:link-issue");
   // The stored result toasts the PR hint, which names the key the branch doesn't; no alert to dismiss.
   assert.equal(shown.length, 0, "no alert");
-  assert.ok(
-    find(screen.render(), (n) => n.type === "Text" && n.props.children === `Issue linked. ${LINK_PR_HINT("ENG-12")}`),
-    "the toast shows the hint",
-  );
+  assert.ok(toastPill(screen.render(), `Issue linked. ${LINK_PR_HINT("ENG-12")}`), "the toast shows the hint");
 });
 
 test("a stored Linear issue is hidden everywhere while Linear is off", () => {
@@ -13209,7 +13529,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   await new Promise((resolve) => setImmediate(resolve));
   tree = render("chat");
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"], "publishing copies the link right away");
-  assert.ok(text(tree, "Published. Link copied."), "a toast says what happened");
+  assert.ok(toastPill(tree, "Published. Link copied."), "a toast says what happened");
   assert.equal(
     find(tree, (n) => n.props?.title === "Publish"),
     undefined,
@@ -13228,7 +13548,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
   assert.deepEqual(calls.at(-2), ["publish", "Designs"], "only an older host needs the title");
   assert.deepEqual(calls.at(-1), ["copy", "https://share.milagre.cloud/s/snapshot"]);
   assert.equal(state.shares.length, 1, "the update keeps one link");
-  assert.ok(text(tree, "Snapshot updated. Link copied."));
+  assert.ok(toastPill(tree, "Snapshot updated. Link copied."));
   assert.ok(text(tree, "Updated "));
   find(tree, (n) => n.props?.title === "Revoke link").props.onPress();
   tree = render("chat");
@@ -13245,7 +13565,7 @@ test("mobile publishing checks availability, retries, and keeps history availabl
     find(tree, (n) => n.props?.accessibilityLabel === "Snapshot link"),
     undefined,
   );
-  assert.ok(text(tree, "Link revoked."));
+  assert.ok(toastPill(tree, "Link revoked. Copies may remain online."));
   tree = render(undefined);
   assert.equal(
     find(tree, (n) => n.props?.title === "Publish"),
@@ -16872,4 +17192,141 @@ test("artifact feedback refreshes comments received after a dock was opened", as
   tree = h.render("ArtifactSheet", props);
   assert.ok(h.commands().some((command) => command.t === "reveal" && command.k === "sent:12345678"));
   h.cleanup();
+});
+
+function panelHandoffHost() {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  const painted = new Set();
+  const routes = [];
+  const session = { cancelNavigation() {} };
+  const { SidePanelsProvider } = load("side-panels.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/after-paint": {
+      afterPaint: (work) => {
+        painted.add(work);
+        return () => painted.delete(work);
+      },
+    },
+    "react-native": {
+      useWindowDimensions: () => ({ width: 390 }),
+      Keyboard: { dismiss() {} },
+      BackHandler: { addEventListener: () => ({ remove() {} }) },
+    },
+    "expo-router": { router: { canDismiss: () => false, replace: (href) => routes.push(href), push: (href) => routes.push(href) } },
+    "react-native-safe-area-context": {},
+    "react-native-gesture-handler": {},
+    "react-native-reanimated": {
+      ReduceMotion: { System: "system" },
+      Easing: { out: (value) => value, cubic: "cubic" },
+      useSharedValue: (initial) =>
+        react.useState(() => ({
+          value: initial,
+          set(value) {
+            this.value = value;
+          },
+        }))[0],
+      withTiming: (value, _options, complete) => {
+        complete?.();
+        return value;
+      },
+    },
+    "react-native-worklets": { scheduleOnRN: (work) => work() },
+    "@hugeicons/core-free-icons": {},
+    "./session": { useSession: () => session },
+    "./project-navigation": {},
+    "./app/changes": {},
+    "./change-tree": {},
+    "./app/diff": {},
+    "./ui": {},
+    "./icons": {},
+    "./pr-overview": {},
+    "./pr-chat": {},
+    "./motion": { springTo: (value) => value, scaledTiming: (value) => value },
+    "./theme": { getMotionScale: () => 1 },
+    "./panel-motion": {},
+    "./chat-swipe-row": { ClosesLeftContext: { Provider: "ClosesLeftProvider" }, hideRevealed() {} },
+    "./simulator": {},
+    "./designs-sheet": {},
+    "./artifact": {},
+    "./browser": {},
+  });
+  const render = () => {
+    react.begin();
+    const value = SidePanelsProvider({ children: null }).props.value;
+    react.flush();
+    return value;
+  };
+  const old = { token: {}, chatId: 1 };
+  render().attach(old);
+  render().show("left");
+  render();
+  return {
+    render,
+    old,
+    routes,
+    painted,
+    cleanup: () => react.cleanup(),
+    paint: () => {
+      for (const work of painted) {
+        painted.delete(work);
+        work();
+      }
+    },
+  };
+}
+
+test("a Chat committed under the sidebar is revealed without a native transition event or the one-second watchdog", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    assert.equal(host.routes.length, 1);
+    host.render().detach(host.old.token);
+    const next = { token: {}, chatId: 2 };
+    host.render().attach(next);
+    assert.equal(host.render().open, "left", "keep the old Chat covered until the destination paints");
+    host.paint();
+    assert.equal(host.render().open, null, "no transitionEnd is needed to reveal the committed destination");
+    assert.equal(host.render().screen.chatId, 2);
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a superseded sidebar handoff cannot close the navigation on the next Chat", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    const second = { token: {}, chatId: 2 };
+    host.render().attach(second);
+    const stale = [...host.painted][0];
+    host.render().navigate({ pathname: "/chat", params: { id: "3" } });
+    const third = { token: {}, chatId: 3 };
+    host.render().attach(third);
+    stale();
+    assert.equal(host.render().open, "left");
+    host.paint();
+    assert.equal(host.render().open, null);
+    assert.equal(host.render().screen.chatId, 3);
+  } finally {
+    host.cleanup();
+  }
+});
+
+test("a native transition ending first cancels the queued sidebar arrival", () => {
+  const host = panelHandoffHost();
+  try {
+    host.render().navigate({ pathname: "/chat", params: { id: "2" } });
+    const next = { token: {}, chatId: 2 };
+    host.render().attach(next);
+    host.render().arrived(next.token);
+    assert.equal(host.render().open, null);
+    assert.equal(host.painted.size, 0);
+    host.render().show("left");
+    host.paint();
+    assert.equal(host.render().open, "left", "a completed arrival cannot dismiss a reopened sidebar");
+  } finally {
+    host.cleanup();
+  }
 });

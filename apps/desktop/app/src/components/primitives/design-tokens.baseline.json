@@ -16,7 +16,6 @@
     "components/CommandPalette.tsx": 6,
     "components/CompactionDivider.tsx": 2,
     "components/ComputerAllowPrompt.tsx": 5,
-    "components/ContextRing.tsx": 4,
     "components/DictationNotice.tsx": 1,
     "components/FileCode.tsx": 1,
     "components/FindBar.tsx": 2,
@@ -133,11 +132,10 @@
     "components/sidebar/ComputersButton.tsx": 3,
     "components/sidebar/FiltersMenu.tsx": 7,
     "components/sidebar/ScopeRail.tsx": 3,
-    "components/sidebar/SidebarLinks.tsx": 18,
+    "components/sidebar/SidebarLinks.tsx": 17,
     "components/terminal/TerminalPanel.tsx": 3,
     "components/usage/SidebarUsage.tsx": 1,
-    "components/usage/UsageCard.tsx": 8,
-    "lib/toast.ts": 1
+    "components/usage/UsageCard.tsx": 8
   },
   "radius": {
     "App.tsx": 7,
@@ -251,12 +249,11 @@
     "components/sidebar/ComputersButton.tsx": 7,
     "components/sidebar/FiltersMenu.tsx": 6,
     "components/sidebar/ScopeRail.tsx": 3,
-    "components/sidebar/SidebarLinks.tsx": 9,
+    "components/sidebar/SidebarLinks.tsx": 8,
     "components/terminal/TerminalPanel.tsx": 2,
     "components/terminal/TerminalSlide.tsx": 1,
     "components/usage/SidebarUsage.tsx": 1,
     "components/usage/UsageCard.tsx": 1,
-    "lib/phone.ts": 1,
-    "lib/toast.ts": 1
+    "lib/phone.ts": 1
   }
 }

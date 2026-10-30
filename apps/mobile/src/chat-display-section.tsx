@@ -1,3 +1,4 @@
+import { ContextSettingsSection } from "./context-settings-section";
 import { Platform, Text, View } from "react-native";
 import { router } from "expo-router";
 import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
@@ -34,6 +35,7 @@ export function ChatDisplaySection() {
   const [dictationAction, setDictationAction] = useDictationAction();
   return (
     <View style={{ gap: 10 }}>
+      <ContextSettingsSection />
       <Text style={styles.section}>{CHAT_LIST_TITLE}</Text>
       <ChoiceCards<ChatList>
         label={CHAT_LIST_TITLE}

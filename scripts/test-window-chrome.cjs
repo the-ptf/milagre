@@ -217,7 +217,8 @@ async function browserChecks() {
         await click('button[aria-label="Chat actions"]');
         await waitFor('!!document.querySelector("[data-panel-toggle=terminal]")');
         await click("[data-panel-toggle=terminal]");
-        await waitForPanel('document.querySelector("[data-panel-toggle=terminal]").getAttribute("aria-checked") === "true"');
+        // The menu re-renders after the click, so the toggle can be gone for a moment: wait on, don't throw.
+        await waitForPanel('document.querySelector("[data-panel-toggle=terminal]")?.getAttribute("aria-checked") === "true"');
         await click("[data-attention-button]");
         await waitFor("window.attentionOpened");
         await evaluate("window.showDiff(true)");

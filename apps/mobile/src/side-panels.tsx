@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { afterPaint } from "@milagre/shared/after-paint";
 import { BackHandler, Keyboard, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { router, useFocusEffect, useNavigation, type Href } from "expo-router";
 import { SafeAreaInsetsContext, useSafeAreaInsets, type EdgeInsets } from "react-native-safe-area-context";
@@ -139,8 +140,9 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
   const current = useRef<Screen | null>(null);
   const openSide = useRef<Side | null>(null);
   // While a Chat picked in the open navigation replaces the screen under it: the timer that slides the navigation away
-  // regardless, and the screen that took the panels, until its own transition ends.
+  // regardless, and the screen that took the panels, until it paints or its native transition ends.
   const handoff = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelArrival = useRef<(() => void) | null>(null);
   const arriving = useRef<object | null>(null);
   const reset = useCallback(() => {
     progress.set(0);
@@ -158,6 +160,8 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
     [progress],
   );
   const endHandoff = useCallback(() => {
+    cancelArrival.current?.();
+    cancelArrival.current = null;
     if (handoff.current) clearTimeout(handoff.current);
     handoff.current = null;
     arriving.current = null;
@@ -186,13 +190,18 @@ export function SidePanelsProvider({ children }: { children: React.ReactNode }) 
         current.current = next;
         setScreen(next);
         setMounted((previous) => (previous.right ? { ...previous, right: false } : previous));
+        // The replacement has animation: "none", so transitionEnd can be absent or arrive before its listener.
+        // Focus attaches after commit: let that screen paint, then reveal it without waiting for the 1 s watchdog.
+        cancelArrival.current = afterPaint(() => {
+          if (arriving.current === next.token) finishHandoff();
+        });
         return;
       }
       if (current.current?.token !== next.token) reset();
       current.current = next;
       setScreen(next);
     },
-    [reset],
+    [reset, finishHandoff],
   );
   const arrived = useCallback(
     (token: object) => {

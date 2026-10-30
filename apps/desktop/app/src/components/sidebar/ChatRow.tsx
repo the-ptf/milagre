@@ -164,6 +164,8 @@ export type ChatRowActions = {
   /** Checks the Chat's Worktree to choose its deletion cleanup mode. */
   onArchiveCheck?: (id: string) => Promise<ArchivePlan>;
   onArchive?: (id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown> | void;
+  /** Calls off a deletion still waiting out its toast's Undo. */
+  onUndoArchive?: (id: string) => void;
   /** Links the chat's Worktree to a Linear issue by key. */
   onLinkIssue?: (id: string, key: string, workspace?: string) => void;
   /** Removes the Worktree's stored Linear issue link. */
