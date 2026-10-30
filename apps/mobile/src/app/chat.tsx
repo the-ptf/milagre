@@ -2929,7 +2929,7 @@ function ChatPane({
                                           top: "50%",
                                           height: 34,
                                           marginTop: -17,
-                                          borderRadius: 17,
+                                          borderRadius: 999,
                                           backgroundColor: colors.orangeTint,
                                         }}
                                       />
