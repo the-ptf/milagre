@@ -19,6 +19,7 @@ import { useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
 import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
+import { useDictationAction } from "./chat-display-setting";
 import { MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
@@ -165,10 +166,20 @@ export function PromptField({
       placed.current = false;
     }, []),
   );
+  const [dictationAction] = useDictationAction();
+  const dictatedSend = useRef<{ value: string; projectPath: string; currentId: number | undefined } | null>(null);
+  // Submit from the next render so the screen's send action reads the transcript and its normal availability checks.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.value === draft && pending.projectPath === projectPath && pending.currentId === currentId && dictationAction === "send") onSubmit?.();
+  });
   const dictation = useVoiceDictation(
     (text, anchor) => {
       const edit = insertDictation(draft, anchor.selection, text);
       if (!edit) return;
+      if (dictationAction === "send") dictatedSend.current = { value: edit.value, projectPath, currentId };
       const caret = { start: edit.caret, end: edit.caret };
       setRequested({ draft: edit.value, selection: caret });
       setSelection(caret);

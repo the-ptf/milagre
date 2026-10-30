@@ -200,6 +200,8 @@ type SidebarNavProps = {
   recents?: SidebarRecent[];
   /** What the chat rows' menu can do; an action left out is shown disabled. */
   chatActions?: ChatRowActions;
+  /** Actions bound to the row's own scope, independent of the draft or Chat on screen. */
+  scopeChatActions?: (scopeKey: string, gitless: boolean) => ChatRowActions;
   /** Plan usage, shown above the footer buttons in both the expanded and collapsed sidebar. */
   usage?: ReactNode;
   variant?: string;
@@ -652,6 +654,7 @@ export default memo(function SidebarNav({
   attentionPaths = NO_PATHS,
   recents: listedRecents = DEFAULT_RECENTS,
   chatActions = NO_CHAT_ACTIONS,
+  scopeChatActions,
   usage,
   runningKeys = "",
   waitingKeys = "",
@@ -895,6 +898,7 @@ export default memo(function SidebarNav({
     if (!actions) {
       const archivable = !key.startsWith("milagre-link:") && !!onScopeArchiveCheck && !!onScopeArchive;
       actions = {
+        ...scopeChatActions?.(key, gitless),
         remote: isRemoteKey(key),
         ...(gitless ? { gitless: true } : {}),
         onPin: (id, order) =>

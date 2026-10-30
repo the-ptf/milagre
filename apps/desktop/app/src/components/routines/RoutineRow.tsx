@@ -5,7 +5,7 @@ import { BubbleChatIcon, Delete02Icon, LaptopIcon, MoreHorizontalIcon, PencilEdi
 import type { Routine } from "@milagre/shared/model";
 import { canEditRoutine, canRunNow } from "@milagre/shared/routines";
 import GlideMenu from "../primitives/GlideMenu";
-import { Switch } from "../primitives/Switch";
+import { SettingCheckbox } from "../primitives/Checkbox";
 import { useDismiss } from "../../lib/use-dismiss";
 import { isHeartbeat, routineDeleteQuestion, type RoutineWithRuns } from "../../lib/routines";
 import { routineIcon } from "./routine-icon";
@@ -236,7 +236,7 @@ export function RoutineRow({
           </span>
         </button>
         <span className="flex shrink-0 items-center gap-3">
-          <Switch label={`${routine.name} on`} checked={routine.enabled} onChange={onToggle} />
+          <SettingCheckbox label={`${routine.name} on`} checked={routine.enabled} onChange={onToggle} />
           <RoutineMenu routine={routine} entries={entries} />
         </span>
       </div>

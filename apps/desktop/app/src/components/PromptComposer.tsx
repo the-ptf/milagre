@@ -194,7 +194,7 @@ export function PromptComposer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   // Bumped each time Ultracode turns on; the Fatality overlay plays once per bump (Settings › Experimental).
   const [fatality, setFatality] = useState(0);
-  const { ultracodeFatality, appearance } = useSettings();
+  const { ultracodeFatality, appearance, dictationAction } = useSettings();
   const chatSize = appearance.chatSize;
   const effortLevels = capability.efforts;
   const effortIndex = Math.max(0, effortLevels.indexOf(effort ?? ""));
@@ -474,11 +474,21 @@ export function PromptComposer({
 
   const draftLatest = useRef(draft);
   draftLatest.current = draft;
+  const dictatedSend = useRef<{ value: string; scope: string } | null>(null);
+  // Wait for the parent's updated draft and attachments before using its ordinary send action.
+  useEffect(() => {
+    const pending = dictatedSend.current;
+    if (!pending) return;
+    dictatedSend.current = null;
+    if (pending.scope !== imageDraft.scope || pending.value !== draft || dictationAction !== "send") return;
+    if (canSend && !sendBlocked && !imageDraft.loading && !offlineName) send();
+  });
 
   // The words land where the caret was when the mic was clicked, in the draft as it is when they arrive.
   const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
     const edit = insertDictation(draftLatest.current, anchor.selection, text);
     if (!edit) return;
+    if (dictationAction === "send") dictatedSend.current = { value: edit.value, scope: imageDraft.scope };
     setCaret(edit.caret);
     onDraftChange(edit.value);
     inputRef.current?.setSelection(edit.caret);
