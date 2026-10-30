@@ -328,9 +328,15 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
       assert.ok(Array.isArray(computers.computers), "CLI can read the same saved computers as the native UI");
       assert.deepEqual(await evaluate("window.milagre.computers.list()"), computers, "Desktop and CLI share the daemon-owned computer list");
       console.log("PASS: native commands execute through the owning desktop handlers");
+      // A window at most 1024 px wide (the CI runners' screens) collapses the sidebar. Its rail shows a Chat's initials
+      // with one scope but Project avatars with several (the Chats home the source pass makes, a Link), and then no
+      // Chat title is on the page. Expanded (once its button shows), the Chat's row shows its title.
       await shared.call("chat:patch", [project, 2, { title: "Updated from another device" }]);
       await waitFor(
-        () => evaluate('document.body?.textContent.includes("Updated from another device") && !document.body?.textContent.includes("Saved chat")'),
+        () =>
+          evaluate(
+            `(document.querySelector('[aria-label="Expand sidebar"]')?.click(), document.body?.textContent.includes("Updated from another device") && !document.body?.textContent.includes("Saved chat"))`,
+          ),
         "shared client update in desktop",
       );
       if (process.env.MILAGRE_SCREENSHOT_DIR) {
@@ -400,8 +406,13 @@ async function checkApp({ executable, args, profile, project, expectTheme, expec
     assert.equal(JSON.parse(durable["milagre-settings"]).theme, "dark");
     assert.equal(JSON.parse(durable["milagre.composer-preferences"])["fixture-chat"].fastMode, true);
     console.log("PASS: theme and composer preferences survive loss of Chromium origin storage");
+    // The reloads mount a fresh sidebar, collapsed again on a narrow screen (see "shared client update in desktop"); it
+    // is expanded once its button shows.
     await waitFor(
-      () => evaluate('document.body?.textContent.includes("Saved chat") && !document.querySelector(".startup-splash-screen")'),
+      () =>
+        evaluate(
+          `(document.querySelector('[aria-label="Expand sidebar"]')?.click(), document.body?.textContent.includes("Saved chat") && !document.querySelector(".startup-splash-screen"))`,
+        ),
       "saved Chat visible after reload",
     );
     if (process.env.MILAGRE_SCREENSHOT_DIR) {
