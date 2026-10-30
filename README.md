@@ -70,7 +70,7 @@ See [desktop distribution](docs/agents/distribution.md) for build commands, nati
 
 ## Develop locally
 
-Requires macOS, Node.js 24 or newer, and npm.
+Requires macOS, Node.js 24 or newer, and npm. Development and CI use Node.js 26 LTS; the packaged desktop app uses its bundled Electron runtime.
 
 ```sh
 npm ci
