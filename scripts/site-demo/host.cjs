@@ -16,6 +16,7 @@ const MODELS = {
   claude: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high"], recommended: true }],
   codex: [{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol", efforts: ["low", "medium", "high"], recommended: true }],
   antigravity: null,
+  kiro: null,
 };
 
 // The Chat the recordings follow, and the others around it in the sidebar.
@@ -232,9 +233,12 @@ async function startSiteDemo({ port = 8913, log = () => {} } = {}) {
     version: VERSION,
     runtimeOptions: {
       ...demoRuntimeOptions({ cwd: project, worktreeRoot: path.join(project, ".milagre", "worktrees") }),
-      agentCliStatus: Object.assign(async () => ({ codex: { state: "ready" }, claude: { state: "ready" }, antigravity: { state: "ready" } }), {
-        invalidate() {},
-      }),
+      agentCliStatus: Object.assign(
+        async () => ({ codex: { state: "ready" }, claude: { state: "ready" }, antigravity: { state: "ready" }, kiro: { state: "missing" } }),
+        {
+          invalidate() {},
+        },
+      ),
       agentModels: async () => MODELS,
       createSession: scriptedSession(log),
       ...fakePullRequests(byPath),

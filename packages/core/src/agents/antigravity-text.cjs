@@ -57,11 +57,12 @@ function antigravityModel({
     const resolved = await getCommand();
     const command = typeof resolved === "string" ? resolved : resolved?.command;
     signal?.throwIfAborted();
-    if (!command) throw new Error("Antigravity isn't installed.");
+    if (!command) throw new Error(`${config.name} isn't installed.`);
     const root = config.tempRoot;
     let tmpdir = null;
     let cwd = null;
     let rpc = null;
+    let sessionId = null;
     const abort = () => void rpc?.close();
     try {
       if (root) tmpdir = await makeTempDir(root, "text");
@@ -76,8 +77,7 @@ function antigravityModel({
       });
       rpc = createRpc({ command: spawn.command, args: spawn.args, cwd, env: spawn.env, name: config.name });
       let text = "";
-      let sessionId = null;
-      const exited = new Promise((_resolve, reject) => rpc.on("exit", ({ detail } = {}) => reject(new Error(detail || "Antigravity stopped."))));
+      const exited = new Promise((_resolve, reject) => rpc.on("exit", ({ detail } = {}) => reject(new Error(detail || `${config.name} stopped.`))));
       exited.catch(() => {});
       rpc.on("notification", ({ method, params = {} }) => {
         const update = params.update ?? {};
@@ -123,10 +123,13 @@ function antigravityModel({
       return await Promise.race([run(), exited]);
     } catch (error) {
       if (config.isLoginError(error)) throw new Error(loginMessage(config.provider), { cause: error });
-      if (signal?.aborted) throw signal.reason ?? new Error("Antigravity stopped.");
+      if (signal?.aborted) throw signal.reason ?? new Error(`${config.name} stopped.`);
       throw error;
     } finally {
       signal?.removeEventListener("abort", abort);
+      // An agent that keeps every session (Kiro) gets this throwaway one deleted, so its history holds only Chats.
+      if (config.deleteThrowawaySessions && sessionId && !signal?.aborted)
+        await rpc?.request("session/delete", { sessionId }, { timeoutMs: 5_000 }).catch(() => {});
       await rpc?.close();
       if (tmpdir) await fs.rm(tmpdir, { recursive: true, force: true }).catch(() => {});
       if (cwd) await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});

@@ -62,8 +62,9 @@ test("capabilities come from the reported models", () => {
     codex: { "gpt-6-sol": { efforts: ["low", "ultra"], defaultEffort: "medium", ultracode: false, fastMode: true } },
     claude: { "claude-opus-5-5": { efforts: ["low", "xhigh"], ultracode: true, fastMode: true } },
     antigravity: {},
+    kiro: {},
   });
-  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null }), { codex: {}, claude: {}, antigravity: {} });
+  assert.deepEqual(capabilitiesFrom({ codex: null, claude: null, antigravity: null, kiro: null }), { codex: {}, claude: {}, antigravity: {}, kiro: {} });
   assert.equal(capabilitiesFrom(null), null);
 });
 

@@ -22,7 +22,7 @@ import { isWindows, thisComputer } from "../lib/shortcut-hints";
 import { ProviderLogo } from "./ProviderLogo";
 import { ScrollArea } from "./primitives/ScrollArea";
 
-const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity"];
+const PROVIDERS: ModelProvider[] = ["claude", "codex", "antigravity", "kiro"];
 
 const primary =
   "inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink px-3.5 text-[13px] font-semibold text-page transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";

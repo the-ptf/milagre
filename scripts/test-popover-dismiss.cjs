@@ -91,29 +91,30 @@ async function browserChecks() {
     await screenshot("model-picker-open");
     assert.equal(
       await evaluate(`[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.disabled).join()`),
-      "false,false,false",
+      "false,false,false,false",
       "A provider tab stays clickable while its CLI needs an update",
     );
-    // Each provider's models, with its logo in color and each model's context window beside its name.
-    for (const index of [0, 1, 2]) {
+    // Each provider's models, with its logo in color and each model's context window (Kiro: its credit multiplier) beside its name.
+    // Antigravity last: its tab stays open for the missing-CLI check below.
+    for (const index of [0, 1, 3, 2]) {
       await click(`[data-picker-panel] [data-provider-tabs] > button:nth-child(${index + 1})`);
       assert.match(
         await evaluate(`document.querySelector('[data-picker-panel] [data-picker-row] [data-picker-meta]')?.textContent ?? ""`),
-        /^\d+(k|M)$/,
-        "A model row shows its context window beside the name",
+        /^(\d+(k|M)|[\d.]+×)$/,
+        "A model row shows its context window or credit multiplier beside the name",
       );
       await screenshot(`model-picker-tab-${index + 1}`);
     }
     const tabs = `[...document.querySelectorAll('[data-picker-panel] [data-provider-tabs] > button')].map((tab) => tab.getAttribute('aria-label')).join()`;
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'missing', message: 'Antigravity is not installed.' } }))`);
     // The open tab stays until the picker reopens; then a missing CLI has no tab.
-    await waitFor(`${tabs} === "Codex,Claude,Antigravity"`);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
     await click(model);
     await click(model);
-    await waitFor(`${tabs} === "Codex,Claude"`);
+    await waitFor(`${tabs} === "Codex,Claude,Kiro"`);
     await screenshot("model-picker-missing-hidden");
     await evaluate(`window.setCliStatus((current) => ({ ...current, antigravity: { state: 'ready' } }))`);
-    await waitFor(`${tabs} === "Codex,Claude,Antigravity"`);
+    await waitFor(`${tabs} === "Codex,Claude,Antigravity,Kiro"`);
     await click("[data-picker-panel] input");
     assert.equal(await panels(), 1, "Pressing inside the picker keeps it open");
     await click("[data-prompt-editor]");

@@ -264,6 +264,8 @@ function createUsageReader(deps = {}) {
     readClaude = readClaudeUsage,
     readCodex = readCodexUsage,
     readAntigravity = () => readAntigravityUsage({ now }),
+    // Kiro's credits come in a later change (docs/adr/0007-kiro-over-acp.md); until then the sidebar leaves it out.
+    readKiro = () => providerResult("kiro", now, "unavailable", [], "Kiro credits aren't shown yet."),
     now = Date.now,
     store = createUsageStore(),
     ready = () => undefined,
@@ -287,7 +289,14 @@ function createUsageReader(deps = {}) {
     inFlight ??= Promise.resolve()
       .then(ready)
       .catch(() => {})
-      .then(() => Promise.all([readProvider("claude", readClaude), readProvider("codex", readCodex), readProvider("antigravity", readAntigravity)]))
+      .then(() =>
+        Promise.all([
+          readProvider("claude", readClaude),
+          readProvider("codex", readCodex),
+          readProvider("antigravity", readAntigravity),
+          readProvider("kiro", readKiro),
+        ]),
+      )
       .then((providers) => ({ providers }))
       .finally(() => {
         inFlight = null;

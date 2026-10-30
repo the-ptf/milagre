@@ -229,8 +229,8 @@ const designs = {
   open: { title: 'Chat open', width: 390, height: 844, format: 'design', document: ${JSON.stringify(designOpen())}, html: ${JSON.stringify(designHtml(designOpen()))} },
 };
 const replies = {
-  getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null},
-  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'}},
+  getCurrentProject: project, getRuns: {runs:{},seq:1}, getModels: {codex:null,claude:null,antigravity:null,kiro:null},
+  getCliStatus: {codex:{state:'ready'},claude:{state:'ready'},antigravity:{state:'ready'},kiro:{state:'missing'}},
   getRuntimeConnection: {connected:true}, getLinkedWork: {delegations:[],negotiations:[],receiveOnly:[]},
   listRecentProjects: [{path:project.path,name:project.name}], listBranches: ['main'],
   getWorktreeRoots: [], getCachedUsage: {providers:[]}, readUsage: {providers:[]}, getAgentPorts: {},

@@ -263,6 +263,7 @@ class AcpSession {
           throw Object.assign(new Error(`${this.config.name} couldn't switch to ${model}: ${error.message}`), { rpcError: error.rpcError });
         }
       }
+      await this.applyEffort(model ?? this.state.model, effort);
       await this.applyMode();
     } catch (error) {
       await this.failStart(error);
@@ -421,17 +422,32 @@ class AcpSession {
     readConfigOptions(result?.configOptions, this.state);
   }
 
+  // An agent whose effort is a session option of its own (Kiro's `effortLevel`, offered per model) gets the turn's
+  // effort when the model takes it; one that refuses keeps its own and the turn goes on.
+  async applyEffort(model, effort) {
+    const option = this.config.effortOption;
+    const value = option && this.config.resolveEffort?.({ model, effort, offered: this.state.models });
+    if (!value || value === this.state[option]) return;
+    try {
+      await this.setConfig(option, value);
+    } catch (error) {
+      if (!error.rpcError) throw error;
+    }
+  }
+
   // The agent's mode follows Milagre's permission mode. An agent without config options gets session/set_mode;
   // one that refuses both keeps its mode, and the approval cards still follow Milagre's (see PendingPermissions).
   // Full's mode never asks, so a babysit Run's turn in Full runs in Auto's: its commands ask, the level refuses what it
   // doesn't allow, and PendingPermissions allows the rest without a card.
   async applyMode() {
     const target = this.config.modes[this.guard && this.permissions.mode === "full" ? "auto" : this.permissions.mode];
-    if (!target || target === this.state.mode || !this.rpc || this.closed) return;
+    // Kiro's permission mode is its `autopilot` option; its `mode` names its agents (see kiro-acp.cjs).
+    const option = this.config.modeOption ?? "mode";
+    if (!target || target === this.state[option] || !this.rpc || this.closed) return;
     try {
-      await this.setConfig("mode", target);
+      await this.setConfig(option, target);
     } catch (error) {
-      if (!error.rpcError) throw error;
+      if (!error.rpcError || option !== "mode") throw error;
       try {
         await this.rpc.request("session/set_mode", { sessionId: this.state.sessionId, modeId: target }, { timeoutMs: CONFIG_TIMEOUT_MS });
         this.state.mode = target;

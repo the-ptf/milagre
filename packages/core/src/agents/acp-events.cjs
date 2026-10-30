@@ -287,7 +287,11 @@ function readConfigOptions(options, state) {
       if (Array.isArray(option.options)) state.models = option.options.filter((item) => typeof item?.value === "string");
     }
     if ((option?.id === "mode" || option?.category === "mode") && typeof option.currentValue === "string") state.mode = option.currentValue;
+    // Kiro's permission mode, a switch of its own (see kiro-acp.cjs).
+    if (option?.id === "autopilot" && typeof option.currentValue === "string") state.autopilot = option.currentValue;
   }
+  // Kiro's effort follows the model: offered at the model's default after a switch, absent for a model without efforts.
+  if (options.some((option) => option?.id === "model")) state.effortLevel = options.find((option) => option?.id === "effortLevel")?.currentValue;
 }
 
 // session/prompt's stopReason -> the turn's end.

@@ -31,8 +31,25 @@ const { createInterface } = require("node:readline");
 const scenario = process.env.FAKE_SCENARIO || "reply";
 const received = [];
 let sessions = 0;
-let model = "gemini-3.8-flash-high";
-let mode = "default";
+let model = scenario === "kiro" ? "auto" : "gemini-3.8-flash-high";
+let mode = scenario === "kiro" ? "vibe" : "default";
+// Kiro (scenario "kiro"): models carry their credits and efforts, `effortLevel` follows the model at its default,
+// and approvals are the `autopilot` option.
+const KIRO_MODELS = [
+  { value: "auto", name: "Auto", description: "Models chosen by task", _meta: { kiro: { rateMultiplier: 1, rateUnit: "Credit" } } },
+  {
+    value: "claude-opus-5.5",
+    name: "Claude Opus 5.5",
+    description: "Claude Opus 5.5 model with 1M context window",
+    _meta: { kiro: { rateMultiplier: 2, rateUnit: "Credit", effortLevels: ["low", "medium", "high", "xhigh", "max"], defaultEffortLevel: "medium" } },
+  },
+];
+const kiroDefaultEffort = (value) => {
+  const { _meta: meta } = KIRO_MODELS.find((item) => item.value === value) ?? {};
+  return meta?.kiro.defaultEffortLevel ?? null;
+};
+let effortLevel = null;
+let autopilot = "on";
 let promptWaiter = null;
 let waiting = null;
 let nextServerId = 0;
@@ -44,7 +61,14 @@ const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0
 const update = (sessionId, body) => send({ method: "session/update", params: { sessionId, update: body } });
 const text = (sessionId, value) => update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: value } });
 
-const configOptions = () => [
+const kiroConfigOptions = () => [
+  { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: mode, options: ["vibe", "spec"].map((value) => ({ value, name: value })) },
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: model, options: KIRO_MODELS },
+  ...(effortLevel ? [{ id: "effortLevel", name: "Effort", type: "select", currentValue: effortLevel, options: [] }] : []),
+  { id: "autopilot", name: "Autopilot", type: "select", currentValue: autopilot, options: ["on", "off"].map((value) => ({ value, name: value })) },
+];
+const configOptions = () => (scenario === "kiro" ? kiroConfigOptions() : antigravityConfigOptions());
+const antigravityConfigOptions = () => [
   {
     id: "model",
     name: "Model",
@@ -294,8 +318,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       if (params.configId === "model") {
         if (params.value === "nope") return send({ id, error: { code: -32602, message: "Unknown model" } });
         model = params.value;
+        if (scenario === "kiro") effortLevel = kiroDefaultEffort(model);
       }
       if (params.configId === "mode") mode = params.value;
+      if (params.configId === "effortLevel") effortLevel = params.value;
+      if (params.configId === "autopilot") autopilot = params.value;
       return send({ id, result: { configOptions: configOptions() } });
     case "session/prompt":
       return void runPrompt(id, params.sessionId);

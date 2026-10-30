@@ -52,7 +52,7 @@ export function appleLocale(language) {
 }
 
 // Words every Chat may name: the app, its agents and its own nouns.
-const APP_TERMS = ["Milagre", "Claude", "Codex", "Antigravity", "Worktree", "Chat", "Routine", "Heartbeat", "MCP", "pull request"];
+const APP_TERMS = ["Milagre", "Claude", "Codex", "Antigravity", "Kiro", "Worktree", "Chat", "Routine", "Heartbeat", "MCP", "pull request"];
 // Folder names that say nothing about the project.
 const NOISE = new Set(["src", "lib", "dist", "build", "test", "tests", "app", "apps", "packages", "index", "main", "utils", "scripts", "docs", "assets"]);
 const MAX_TERMS = 120;

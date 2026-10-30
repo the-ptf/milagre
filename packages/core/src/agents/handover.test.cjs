@@ -292,7 +292,7 @@ test("an outer abort signal aborts the model call", async () => {
   assert.equal(seen.aborted, true);
 });
 
-test("handover models cover all three providers; Antigravity writes the brief through its agent", async () => {
+test("handover models cover every provider; Antigravity writes the brief through its agent", async () => {
   const fake = path.join(__dirname, "fixtures", "fake-acp-agent.cjs");
   const models = createHandoverModels({
     cli: async (provider) =>
@@ -301,7 +301,7 @@ test("handover models cover all three providers; Antigravity writes the brief th
         : { problem: "missing" },
     clientVersion: "1.0.0",
   });
-  assert.deepEqual(Object.keys(models).toSorted(), ["antigravity", "claude", "codex"]);
+  assert.deepEqual(Object.keys(models).toSorted(), ["antigravity", "claude", "codex", "kiro"]);
   // The fake answers with JSON that isn't a brief: the minimal brief takes its place.
   const brief = await generateBrief(
     { transcript: "T", transcriptPath: "/x/3.md", provider: "antigravity", lastUserMessage: "go", changedFiles: async () => ["a.ts"] },

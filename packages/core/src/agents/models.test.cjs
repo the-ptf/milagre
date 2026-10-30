@@ -234,9 +234,10 @@ test("Claude's model list comes from an idle query that is closed afterwards", a
 });
 
 test("each agent is asked once per run; a missing CLI or a failed lookup is asked again", async () => {
-  const asked = { claude: 0, codex: 0 };
+  const asked = { claude: 0, codex: 0, kiro: 0 };
   const statuses = {
     claude: [{ command: "/c", version: "2.1.287" }],
+    kiro: [{ command: "/k", version: "2.34.2" }],
     codex: [
       { command: null, version: null, problem: "missing" },
       { command: "/x", version: "0.158.0" },
@@ -260,12 +261,18 @@ test("each agent is asked once per run; a missing CLI or a failed lookup is aske
     },
   };
   list.antigravity = () => [{ id: "gemini-3.8-flash-high" }];
+  list.kiro = async ({ command }) => {
+    asked.kiro += 1;
+    assert.equal(command, "/k");
+    return [{ id: "kiro:auto", credits: 1 }];
+  };
   const models = createModelCache({ cli, cwd: "/tmp", clientVersion: "1.0.0", list });
   const antigravity = [{ id: "gemini-3.8-flash-high" }];
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity });
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity });
-  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: [{ id: "gpt-6-astra" }], antigravity });
-  assert.deepEqual(asked, { claude: 1, codex: 2 });
+  const kiro = [{ id: "kiro:auto", credits: 1 }];
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro });
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: null, antigravity, kiro });
+  assert.deepEqual(await models(), { claude: [{ id: "claude-opus-5-5" }], codex: [{ id: "gpt-6-astra" }], antigravity, kiro });
+  assert.deepEqual(asked, { claude: 1, codex: 2, kiro: 1 });
 });
 
 test("Antigravity lists the catalog's families until a session reports models, then that account's grouped list", async () => {
