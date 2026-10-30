@@ -16,8 +16,6 @@ const { pullRequestRefs } = require("@milagre/shared/chats");
 const { connect } = require("./client.cjs");
 const { createConfinement } = require("./confine.cjs");
 
-// Characters of a data URL the phone gets for a Project's icon (about 450 KB of image).
-const MAX_PROJECT_IMAGE = 600_000;
 const METHODS = new Set([
   "live-activity:state",
   "live-activity:open",
@@ -1011,13 +1009,8 @@ async function startMobileBridge({
             // The phone only looks up the new worktree's Chat; a large Project's whole state is tens of MB, past what a LAN socket buffers.
             if (request.method === "worktree:create" && result?.project?.state)
               result = { ...result, project: forNewWorktree(result.project, result.worktreeId) };
-            // A Project's icon can be a full-size app icon; past this size the phone keeps its folder glyph.
-            if (
-              (request.method === "project:image" || request.method === "project:set-icon") &&
-              typeof result === "string" &&
-              result.length > MAX_PROJECT_IMAGE
-            )
-              result = null;
+            // Project icons retain the desktop's result. Core bounds repository images to 5 MiB and chosen icons
+            // to 450 KB; a smaller transport-only limit silently replaces valid icons with folders on phones.
           }
         } else throw failure(404, "Unknown endpoint");
         reply(200, { result: result ?? null });
