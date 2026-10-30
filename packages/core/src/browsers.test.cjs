@@ -332,6 +332,9 @@ test("input rejects malformed events, replays, unmatched buttons and stale viewp
     { kind: "key", phase: "down", key: "a".repeat(40), code: "KeyA", keyCode: 65 },
     { kind: "key", phase: "down", key: "a", code: "KeyA", keyCode: 65, commands: ["shutdown"] },
     { kind: "navigate", action: "close" },
+    { kind: "viewport", width: 99, height: 600 },
+    { kind: "viewport", width: 800, height: 5000 },
+    { kind: "viewport", width: 800.5, height: 600 },
     { kind: "eval", script: "1" },
   ]) {
     await assert.rejects(input(f, v, event), /input/i);
@@ -347,9 +350,11 @@ test("input rejects malformed events, replays, unmatched buttons and stale viewp
   assert.deepEqual(await input(f, v, { ...DOWN, phase: "move", button: "none" }, 4), { accepted: false }, "old viewport generation");
   assert.deepEqual(await input(f, v, { kind: "navigate", action: "back" }, 5, status.generation), { accepted: true });
   assert.deepEqual(await input(f, v, { kind: "text", text: "héllo" }, 6, status.generation), { accepted: true });
-  assert.deepEqual(f.events.slice(-2), [
+  assert.deepEqual(await input(f, v, { kind: "viewport", width: 640, height: 480, extra: true }, 7, status.generation), { accepted: true });
+  assert.deepEqual(f.events.slice(-3), [
     { kind: "navigate", action: "back" },
     { kind: "text", text: "héllo" },
+    { kind: "viewport", width: 640, height: 480 },
   ]);
 });
 

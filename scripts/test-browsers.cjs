@@ -196,6 +196,13 @@ async function browserChecks(url) {
       'document.querySelector("[data-slot=browser-frame]").contentDocument.getElementById("live").textContent==="You control this page"',
       "first viewer takes free control",
     );
+    // The page lays out at the viewer's size, not its 800x600 window's.
+    const stage = await inFrame('[doc.getElementById("stage").clientWidth, doc.getElementById("stage").clientHeight].map(Math.round).join("x")');
+    await waitUntil(async () => (await pageEval("Fixture", "innerWidth + 'x' + innerHeight")) === stage, `the page takes the viewer's size ${stage}`);
+    await waitFor(
+      `(()=>{const doc=document.querySelector("[data-slot=browser-frame]").contentDocument;const s=doc.getElementById("stage"),f=doc.getElementById("frame");return Math.abs(f.clientWidth-s.clientWidth)<2&&Math.abs(f.clientHeight-s.clientHeight)<2})()`,
+      "the frame fills the viewer with no letterbox",
+    );
     await screenshot("viewer-light");
 
     const viewport = await pageEval("Fixture", "innerWidth");
@@ -298,7 +305,7 @@ async function browserChecks(url) {
     await screenshot("no-page-light");
     clearTimeout(watchdog);
     console.log(
-      "PASS: Browser button with a page, on-demand capture, panel opens on the streamed page, live frame, tab title/address, click, typing, Backspace, wheel, live theme without reconnect, takeover and retake, attach from a blank page, hide keeps browsers running, closed-page failure, detach, last own tab closing keeps the stream, no button without a page",
+      "PASS: Browser button with a page, on-demand capture, panel opens on the streamed page, live frame at the viewer's size, tab title/address, click, typing, Backspace, wheel, live theme without reconnect, takeover and retake, attach from a blank page, hide keeps browsers running, closed-page failure, detach, last own tab closing keeps the stream, no button without a page",
     );
     await service.close();
     stopChrome();

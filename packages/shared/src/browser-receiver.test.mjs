@@ -186,7 +186,8 @@ function harness(call) {
     elements = {},
     timers = new Map(),
     intervals = new Map(),
-    posted = [];
+    posted = [],
+    resized = [];
   let serial = 0;
   const element = (id) => {
     const handlers = {};
@@ -248,6 +249,9 @@ function harness(call) {
     window,
     document,
     ResizeObserver: class {
+      constructor(fn) {
+        resized.push(fn);
+      }
       observe() {}
     },
     setTimeout: (fn, delay) => {
@@ -271,6 +275,7 @@ function harness(call) {
     bridge,
     intervals,
     posted,
+    resize: () => resized.forEach((fn) => fn()),
     timeout(delay) {
       for (const [id, value] of timers)
         if (value.delay === delay) {
@@ -309,7 +314,9 @@ const pointer = (pointerType, clientX = 100, clientY = 100, extra = {}) => ({
   preventDefault() {},
   ...extra,
 });
-const inputs = (calls) => calls.filter(([method]) => method === "input").map(([, args]) => args.event);
+const sent = (calls) => calls.filter(([method]) => method === "input").map(([, args]) => args.event);
+// Input from the user; the viewer's size has its own test.
+const inputs = (calls) => sent(calls).filter((event) => event.kind !== "viewport");
 
 test("the receiver shows frames, reports the page and maps a mouse click to page coordinates", async () => {
   const calls = [],
@@ -333,6 +340,37 @@ test("the receiver shows frames, reports the page and maps a mouse click to page
   ]);
   assert.equal(h.document.activeElement, h.elements.keys, "clicking the page directs typing to it");
   assert.ok(calls.filter(([method]) => method === "input").every(([, args]) => args.generation === 2));
+  h.bridge.dispose();
+});
+
+test("the page lays out at the stage's size while this viewer controls it, and follows it when it resizes", async () => {
+  const calls = [],
+    h = harness(host(calls));
+  await h.flush();
+  const viewports = () => sent(calls).filter((event) => event.kind === "viewport");
+  assert.deepEqual(viewports(), [{ kind: "viewport", width: 400, height: 400 }], "sent once control and a frame arrive");
+  h.elements.stage.clientWidth = 640.4;
+  h.elements.stage.clientHeight = 300;
+  h.resize();
+  h.resize();
+  await h.flush();
+  assert.equal(viewports().length, 1, "a resize waits until the stage settles");
+  h.timeout(150);
+  h.timeout(150);
+  await h.flush();
+  assert.deepEqual(viewports().at(-1), { kind: "viewport", width: 640, height: 300 });
+  assert.equal(viewports().length, 2, "an unchanged size is not sent again");
+  h.bridge.dispose();
+});
+
+test("a view-only viewer leaves the page's size alone", async () => {
+  const calls = [],
+    h = harness(host(calls, { status: { ...STATUS, controlling: false } }));
+  await h.flush();
+  h.resize();
+  h.timeout(150);
+  await h.flush();
+  assert.equal(sent(calls).length, 0);
   h.bridge.dispose();
 });
 

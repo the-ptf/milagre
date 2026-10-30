@@ -29,7 +29,9 @@ export type BrowserInput =
       commands?: ("selectAll" | "copy" | "cut" | "paste" | "undo" | "redo")[];
     }
   | { kind: "text"; text: string }
-  | { kind: "navigate"; action: "back" | "forward" | "reload" };
+  | { kind: "navigate"; action: "back" | "forward" | "reload" }
+  /** The viewer's size in CSS pixels: the page lays out at it, whatever size its own window is. */
+  | { kind: "viewport"; width: number; height: number };
 export interface BrowserApi {
   list(request: { chatId: string }): Promise<BrowserList>;
   attach(request: { chatId: string; browserId: string }): Promise<BrowserList>;

@@ -27,8 +27,10 @@ type Page = {
   shownAt: number;
   /** The comment pins this page shows, put back after every load. */
   pins: PagePin[];
-  /** Viewed from the phone or the pill: parked where it still paints. */
+  /** Viewed from the phone or another computer: parked where it still paints. */
   viewed: boolean;
+  /** The viewer's size, which the page takes while parked and viewed; null keeps the size it had. */
+  viewport: { width: number; height: number } | null;
 };
 
 const pages = new Map<string, Page>();
@@ -62,7 +64,7 @@ function createPage(chatKey: string, tabId: string, address: string): Page {
   const overlay = document.createElement("div");
   overlay.dataset.browserOverlay = tabId;
   Object.assign(overlay.style, { position: "absolute", inset: "0", pointerEvents: "none" });
-  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [], viewed: false };
+  const page: Page = { chatKey, tabId, surface, webview, overlay, contentsId: null, shownAt: 0, pins: [], viewed: false, viewport: null };
   const history = () => ({ canGoBack: safe(() => webview.canGoBack(), false), canGoForward: safe(() => webview.canGoForward(), false) });
   webview.addEventListener("dom-ready", () => {
     const before = page.contentsId;
@@ -166,8 +168,13 @@ export function syncBrowserPages(chats: ReadonlyMap<string, ChatBrowser>) {
  * and letting clicks through: off screen, Chromium stops painting it and the viewer would get no frames.
  */
 function park(page: Page) {
-  if (page.viewed) Object.assign(page.surface.style, { left: "0px", top: "0px", opacity: "0", pointerEvents: "none", clipPath: "" });
-  else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none", clipPath: "" });
+  if (page.viewed) {
+    // Only what is inside the window paints, so a viewer bigger than this window gets the window's size.
+    const size = page.viewport
+      ? { width: `${Math.min(page.viewport.width, window.innerWidth)}px`, height: `${Math.min(page.viewport.height, window.innerHeight)}px` }
+      : {};
+    Object.assign(page.surface.style, { left: "0px", top: "0px", ...size, opacity: "0", pointerEvents: "none", clipPath: "" });
+  } else Object.assign(page.surface.style, PARKED, { opacity: "1", pointerEvents: "none", clipPath: "" });
 }
 
 function place() {
@@ -268,10 +275,12 @@ export function listenToBrowserPages(onKey: (chatKey: string, tabId: string, key
   const offOpen = bridge.onOpenUrl?.(({ chatKey, url }) => {
     if (typeof chatKey === "string" && /^https?:\/\//i.test(url)) openBrowserTab(chatKey, url);
   });
-  const offViewed = bridge.onViewed?.(({ from, viewed }) => {
+  const offViewed = bridge.onViewed?.(({ from, viewed, viewport }) => {
     const page = pageOfContents(from);
     if (!page) return;
     page.viewed = viewed;
+    if (!viewed) page.viewport = null;
+    else if (viewport !== undefined) page.viewport = viewport;
     if (shown?.tabId !== page.tabId) park(page);
   });
   return () => {

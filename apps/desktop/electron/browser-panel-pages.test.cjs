@@ -115,6 +115,20 @@ test("a DevTools connection to a page attaches its debugger for as long as it is
   const event = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
   debug.emit("message", {}, "Page.screencastFrame", { data: "jpeg" });
   assert.deepEqual(await event, { method: "Page.screencastFrame", params: { data: "jpeg" } });
+  // A viewer's size goes to the window, which sizes the parked page; emulation would leave frames cut at the guest.
+  const sized = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
+  ws.send(JSON.stringify({ id: 2, method: "Emulation.setDeviceMetricsOverride", params: { width: 640, height: 480, deviceScaleFactor: 0, mobile: false } }));
+  assert.deepEqual(await sized, { id: 2, result: {} });
+  assert.deepEqual(f.sent.at(-1), ["browser-panel:viewed", { from: 7, viewed: true, viewport: { width: 640, height: 480 } }]);
+  const cleared = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
+  ws.send(JSON.stringify({ id: 3, method: "Emulation.clearDeviceMetricsOverride", params: {} }));
+  await cleared;
+  assert.deepEqual(f.sent.at(-1), ["browser-panel:viewed", { from: 7, viewed: true, viewport: null }]);
+  assert.deepEqual(
+    debug.commands.map(([method]) => method),
+    ["Page.startScreencast"],
+    "no emulation reaches the guest",
+  );
   ws.close();
   for (let i = 0; i < 50 && debug.attached; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(debug.attached, false, "the debugger is let go once nothing views the page");
