@@ -20,6 +20,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { useSession } from "./session";
 import { ProjectNavigation } from "./project-navigation";
+import { ClosesLeftContext } from "./chat-swipe-row";
 import { ChangesView } from "./app/changes";
 import { ChangesShownContext } from "./change-tree";
 import { DiffView, type DiffTarget } from "./app/diff";
@@ -610,7 +611,11 @@ export function SidePanelsHost() {
   const activeChatId = screen?.chatId;
   const closePanel = useCallback(() => show(null), [show]);
   const navigation = useMemo(
-    () => <ProjectNavigation visible={leftAwake} activeChatId={activeChatId} surface={card} onClose={closePanel} onNavigate={navigate} />,
+    () => (
+      <ClosesLeftContext.Provider value>
+        <ProjectNavigation visible={leftAwake} activeChatId={activeChatId} surface={card} onClose={closePanel} onNavigate={navigate} />
+      </ClosesLeftContext.Provider>
+    ),
     [leftAwake, activeChatId, card, closePanel, navigate],
   );
   // Open, only a drag back toward the screen closes it.
