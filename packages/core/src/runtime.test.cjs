@@ -188,6 +188,33 @@ test("opening and reopening a Git Project ignores runtime state while shared con
   ]);
 });
 
+test("a text-only Git Project opens, closes and reopens without hard-link support", async (t) => {
+  const { project, make } = await fixture(t);
+  const syncFs = require("node:fs");
+  const link = syncFs.linkSync;
+  const metadata = path.join(project, ".milagre");
+  t.mock.method(syncFs, "linkSync", (from, to) => {
+    if (to === path.join(metadata, ".gitignore")) throw Object.assign(new Error("hard links unsupported"), { code: "ENOTSUP" });
+    return link(from, to);
+  });
+  const warn = t.mock.method(console, "warn", () => {});
+  const runtime = make();
+  await Promise.all([runtime.openProject(project), runtime.openProject(project)]);
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  await runtime.invoke("chat:patch", [project, session.id, { title: "Text-only Chat" }]);
+  await runtime.close();
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  const reopened = make();
+  assert.equal((await reopened.openProject(project)).path, project);
+  const restored = await reopened.invoke("project:current");
+  assert.equal(restored.state.sessions[session.id].title, "Text-only Chat");
+  await reopened.close();
+  for (const lock of [".milagre/runtime.lock", ".git/milagre-runtime.lock"]) await assert.rejects(fs.stat(path.join(project, lock)), { code: "ENOENT" });
+  assert.ok((await fs.readdir(metadata)).every((file) => !file.startsWith(".gitignore")));
+  assert.equal(warn.mock.callCount(), 2);
+});
+
 test("opening preserves an existing metadata ignore file, including when tracked", async (t) => {
   const { project, make } = await fixture(t);
   const metadata = path.join(project, ".milagre");

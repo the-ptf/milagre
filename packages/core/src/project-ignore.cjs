@@ -34,6 +34,14 @@ function ensureProjectIgnore(projectPath) {
     try {
       fs.linkSync(temporary, path.join(directory, ".gitignore"));
     } catch (error) {
+      // Some supported Project filesystems cannot hard-link. Keep opening usable without a rename/copy
+      // fallback: those could replace a user's rules or expose an incomplete ignore file to Git.
+      if (["ENOTSUP", "EOPNOTSUPP", "ENOSYS"].includes(error.code)) {
+        console.warn(
+          `Milagre couldn't create ${path.join(directory, ".gitignore")}: hard links are unsupported (${error.code}); automatic runtime-state ignore protection was skipped.`,
+        );
+        return;
+      }
       if (error.code !== "EEXIST") throw error;
     }
   } finally {

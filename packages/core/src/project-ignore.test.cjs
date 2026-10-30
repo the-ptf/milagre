@@ -7,6 +7,52 @@ const { execFileSync } = require("node:child_process");
 const { ensureProjectIgnore } = require("./project-ignore.cjs");
 const { readProjectState, saveProjectState, stateFile } = require("./project-store.cjs");
 
+test("unsupported hard links leave existing ignore files and symlinks untouched, without partial rules", async (t) => {
+  const syncFs = require("node:fs");
+  const project = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-ignore-"));
+  t.after(() => fs.rm(project, { recursive: true, force: true }));
+  const directory = path.join(project, ".milagre");
+  const destination = path.join(directory, ".gitignore");
+  await fs.mkdir(directory);
+  const warn = t.mock.method(console, "warn", () => {});
+  for (const code of ["ENOTSUP", "EOPNOTSUPP", "ENOSYS"]) {
+    const link = t.mock.method(syncFs, "linkSync", () => {
+      throw Object.assign(new Error("hard links unsupported"), { code });
+    });
+    ensureProjectIgnore(project);
+    assert.deepEqual(await fs.readdir(directory), []);
+    await fs.writeFile(destination, "# User rules\n*.local\n");
+    ensureProjectIgnore(project);
+    assert.equal(await fs.readFile(destination, "utf8"), "# User rules\n*.local\n");
+    assert.deepEqual(await fs.readdir(directory), [".gitignore"]);
+    await fs.unlink(destination);
+    await fs.symlink(path.join(project, "missing-ignore"), destination);
+    ensureProjectIgnore(project);
+    assert.equal((await fs.lstat(destination)).isSymbolicLink(), true);
+    await assert.rejects(fs.stat(path.join(project, "missing-ignore")), { code: "ENOENT" });
+    assert.deepEqual(await fs.readdir(directory), [".gitignore"]);
+    await fs.unlink(destination);
+    link.mock.restore();
+  }
+  assert.equal(warn.mock.callCount(), 9);
+  assert.match(warn.mock.calls[0].arguments[0], /automatic runtime-state ignore protection was skipped/);
+});
+
+test("other publication failures remain errors and remove temporary rules", async (t) => {
+  const project = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-ignore-"));
+  t.after(() => fs.rm(project, { recursive: true, force: true }));
+  const directory = path.join(project, ".milagre");
+  await fs.mkdir(directory);
+  for (const code of ["EACCES", "EPERM", "ENOSPC", "EIO"]) {
+    const link = t.mock.method(require("node:fs"), "linkSync", () => {
+      throw Object.assign(new Error("publication failed"), { code });
+    });
+    assert.throws(() => ensureProjectIgnore(project), { code });
+    assert.deepEqual(await fs.readdir(directory), []);
+    link.mock.restore();
+  }
+});
+
 test("a legacy full save cycle stays ignored and retains images, details and subagent transcripts", async (t) => {
   const project = await fs.mkdtemp(path.join(os.tmpdir(), "milagre-ignore-"));
   t.after(() => fs.rm(project, { recursive: true, force: true }));
