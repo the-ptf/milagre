@@ -115,6 +115,7 @@ import { bridgeForKey } from "../lib/computer-bridge";
 import { LOCAL_COMPUTER } from "@milagre/shared/chat-scopes";
 import { rememberProjectComputer, shortPath, useChatsGroup, useProjectGroups, type ProjectCopy } from "../lib/project-copies";
 import { headingLayer, newChatLook } from "../lib/new-chat-look";
+import { WelcomeSky } from "./WelcomeSky";
 import type { ChatsHome, ProjectKind } from "@milagre/shared/chats-home";
 import { isModalOpen } from "../lib/modal";
 import { messageSender } from "@milagre/shared/advisor-result";
@@ -1512,7 +1513,7 @@ export function ChatComposer({
             event.stopPropagation();
           }
         }}
-        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "justify-center" : ""}`}
+        className={`relative flex h-full min-h-0 w-full flex-col overflow-visible bg-transparent ${isNewChat ? "isolate justify-center" : ""}`}
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes("Files")) {
             event.preventDefault();
@@ -1532,6 +1533,7 @@ export function ChatComposer({
             <ProgressiveBlurLayers />
           </div>
         )}
+        {isNewChat && <WelcomeSky />}
         {!isNewChat && findOpen && onFindClose && <FindBar rootRef={root} focusSignal={findSignal} seed={findSeed} onClose={onFindClose} />}
         {projectNewChat && (
           <div
