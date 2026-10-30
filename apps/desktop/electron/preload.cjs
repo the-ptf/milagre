@@ -72,6 +72,15 @@ function makeBridge(invoke, listen, send) {
       repair: (request) => invoke("simulator:repair", request),
       close: (request) => invoke("simulator:close", request),
     },
+    simlock: {
+      readSettings: () => invoke("simlock:settings:read"),
+      saveSettings: (patch) => invoke("simlock:settings:save", patch),
+      onSettings: (callback) => listen("simlock:settings", callback),
+      identity: (request) => invoke("simlock:identity", request),
+      models: () => invoke("simlock:models"),
+      lease: (request) => invoke("simlock:lease", request),
+      release: (request) => invoke("simlock:release", request),
+    },
     pageComments: {
       add: (request) => invoke("browser-comments:add", request),
       list: (request) => invoke("browser-comments:list", request),
