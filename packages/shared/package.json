@@ -29,6 +29,7 @@
     "src/usage.ts",
     "src/main-sync.ts",
     "src/auto-update.ts",
+    "src/computer-resources.ts",
     "src/mcp.ts",
     "src/local-mcp.ts",
     "src/use-local-mcp.ts",
@@ -178,6 +179,10 @@
       "types": "./src/babysit.d.mts",
       "default": "./src/babysit.mjs"
     },
+    "./done": {
+      "types": "./src/done.d.mts",
+      "default": "./src/done.mjs"
+    },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
@@ -297,6 +302,7 @@
     "./usage": "./src/usage.ts",
     "./main-sync": "./src/main-sync.ts",
     "./auto-update": "./src/auto-update.ts",
+    "./computer-resources": "./src/computer-resources.ts",
     "./mcp": "./src/mcp.ts",
     "./local-mcp": "./src/local-mcp.ts",
     "./use-provider-updates": "./src/use-provider-updates.ts",

@@ -693,7 +693,7 @@ export function LinkWorkspace({
                     const work = archiveLinkChat({
                       running: Boolean(agents.runs[key]),
                       stop: () => agents.interrupt(key),
-                      hide: () => bridge.patchChat(owner, chat, { archived: true }),
+                      hide: () => bridge.patchChat(owner, chat, { archived: true, unread: false }),
                     });
                     onArchiving?.(key, work);
                     void work.catch((error) => setError(ipcErrorMessage(error)));

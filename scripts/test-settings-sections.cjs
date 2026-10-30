@@ -35,6 +35,7 @@ window.milagre = {
   listEditors: async () => [], setWindowBackground: async () => {},
   getPhoneStatus: async () => ({ enabled: false, state: "off", remote: "none" }),
   onPhoneStatus: () => () => {},
+  readComputerResources: async () => ({ memory: { total: 16 * 1024 ** 3, available: 8 * 1024 ** 3, milagre: 1024 ** 3 }, disk: null }),
   listDevices: async () => [],
   acknowledgeDevices: async () => {},
   listRecentProjects: async () => [],

@@ -331,9 +331,8 @@ async function browserChecks() {
     const archiveRow = `[...document.querySelectorAll("[data-chat-menu] [data-menu-row]")].find((row) => row.textContent.trim() === "Archive")`;
     await waitFor(`!!${archiveRow} && !${archiveRow}.disabled`);
     assert.deepEqual(await evaluate("window.archiveChecked"), ["/work/shop", "7"]);
+    // Archive asks nothing: the click archives.
     await evaluate(`${archiveRow}.click()`);
-    await waitFor(`!!document.querySelector("[data-chat-menu] [data-archive-choice]")`);
-    await evaluate(`document.querySelector("[data-chat-menu] [data-archive-choice]").click()`);
     await waitFor(`!!window.archived`);
     assert.deepEqual(await evaluate("window.archived.slice(0, 2)"), ["/work/shop", "7"]);
     await waitFor(`!document.querySelector("[data-chat-menu]")`);

@@ -763,6 +763,8 @@ interface ChatComposerProps {
   reconnectingName?: string | null;
   /** Above the prompt, inside a tray like a new Chat's: messages waiting on this Mac and the offline computer's chip. */
   offlineTray?: ReactNode;
+  /** The Chat is mounted but not on screen (Settings, the canvas, Routines): its Browser panel and button go away. */
+  offScreen?: boolean;
   /** Sends a comment on a design, or the design the user chose, to the agent; resolves whether it went. */
   onSendDesignMessage?: (text: string) => Promise<boolean>;
   /** Sends the Browser panel's page comments, with their screenshots. */
@@ -1189,6 +1191,7 @@ export function ChatComposer({
   offlineName,
   reconnectingName,
   offlineTray,
+  offScreen = false,
   scopeKind,
   imageDraft,
   projectPath,
@@ -1323,6 +1326,8 @@ export function ChatComposer({
   const transcriptKey = isNewChat ? null : (agentChatId ?? runtimeChat ?? draftKey);
   // Pages open on the viewing Mac, including pages linked from a Chat on another computer.
   const browserChat = !isNewChat ? runtimeChat : null;
+  // The panel docks outside the chat pane, so the pane hiding doesn't hide it.
+  const browserShown = browserChat && !offScreen ? browserChat : null;
   useEffect(() => {
     if (isNewChat) {
       setScrolled(false);
@@ -1660,7 +1665,9 @@ export function ChatComposer({
             <TaskTrack key={`tasks-${messages[0]?.session_id ?? "new"}`} plan={plan} />
             <BrowserTrack key={`browser-${agentChatId ?? chatId}`} chatId={agentChatId} />
             {!isNewChat && runtimeChat && <SimulatorTrack key={`simulator-${runtimeChat}`} chatId={runtimeChat} />}
-            {browserChat && <BrowserPanel key={`browser-panel-${browserChat}`} chatKey={browserChat} ports={ports ?? []} onSendComments={onSendPageComments} />}
+            {browserShown && (
+              <BrowserPanel key={`browser-panel-${browserShown}`} chatKey={browserShown} ports={ports ?? []} onSendComments={onSendPageComments} />
+            )}
             <SubagentTrack
               key={chatId}
               chatKey={runtimeChat}

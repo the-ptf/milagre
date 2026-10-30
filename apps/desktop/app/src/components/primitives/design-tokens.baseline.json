@@ -129,7 +129,7 @@
     "components/settings/KeybindingsSettings.tsx": 16,
     "components/settings/SettingsGroup.tsx": 5,
     "components/settings/ThemePicker.tsx": 4,
-    "components/sidebar/ChatRow.tsx": 11,
+    "components/sidebar/ChatRow.tsx": 10,
     "components/sidebar/ComputersButton.tsx": 3,
     "components/sidebar/FiltersMenu.tsx": 7,
     "components/sidebar/ScopeRail.tsx": 3,

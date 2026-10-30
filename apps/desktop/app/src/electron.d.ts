@@ -1,4 +1,5 @@
 import type { BabysitSettings } from "@milagre/shared/babysit";
+import type { DoneSettings } from "@milagre/shared/done";
 import type { CheckpointApi } from "@milagre/shared/checkpoints";
 import type { KeybindingCommandId, KeybindingRule, KeybindingsState } from "@milagre/shared/keybindings";
 import type { MainSyncSettings, MainSyncStatus } from "@milagre/shared/main-sync";
@@ -22,6 +23,7 @@ import type {
 } from "@milagre/shared/model";
 import type { Result } from "@milagre/shared/result";
 import type { ChatsHome } from "@milagre/shared/chats-home";
+import type { ComputerResources } from "@milagre/shared/computer-resources";
 import type { BotRecord, BotsSnapshot, GateRecord } from "@milagre/shared/bots";
 import type { StatePatch } from "@milagre/shared/state-patch";
 export type FloatingDragOverlay = {
@@ -400,6 +402,8 @@ export type MilagreBridge = {
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
   /** The switch changed, here or from another device. */
   onAutoUpdate: (callback: (value: { autoUpdate: boolean }) => void) => () => void;
+  /** Settings › Devices: this computer's memory and disk and how much Milagre takes (a paired computer's bridge reads that computer's). */
+  readComputerResources: () => Promise<ComputerResources>;
   /** Settings › Keybindings: the rules of keybindings.json on this computer (a paired computer's bridge reads that computer's). A missing file is created with the defaults. */
   readKeybindings: () => Promise<KeybindingsState>;
   /** Replaces one command's rules (none unbinds it). Rejects an unknown command, a key or `when` Milagre can't read, or a file with errors. */
@@ -417,6 +421,12 @@ export type MilagreBridge = {
   saveBabysitSettings: (patch: Partial<BabysitSettings>) => Promise<BabysitSettings>;
   /** The settings changed, here or from another device. */
   onBabysitSettings: (callback: (value: BabysitSettings) => void) => () => void;
+  /** Settings › Chats: how long a Chat stays in the Done list before the host archives it. Kept by the host. */
+  readDoneSettings: () => Promise<DoneSettings>;
+  /** Merges the patch over the stored settings and returns the normalized result. */
+  saveDoneSettings: (patch: Partial<DoneSettings>) => Promise<DoneSettings>;
+  /** The settings changed, here or from another device. */
+  onDoneSettings: (callback: (value: DoneSettings) => void) => () => void;
   /** Whether this Mac runs Routines: always `true` now; an older paired computer may still say `false`. */
   readRoutinesEnabled: () => Promise<{ enabled: boolean }>;
   /** This Mac's routines that haven't ended, newest first, each with its latest Runs first. */
