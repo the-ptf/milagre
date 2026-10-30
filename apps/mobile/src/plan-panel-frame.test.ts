@@ -4,11 +4,11 @@ import { PLAN_PANEL, morphRect, planPanelFrame } from "./plan-panel-frame.ts";
 
 const window = { width: 402, height: 874 };
 const insets = { top: 62, bottom: 34, left: 0, right: 0 };
-const pill = { x: 250, y: 790, width: 54, height: 34 };
+const pill = { x: 250, y: 790, width: 54, height: 24 };
 
 test("the panel spans the Chat's width and sits on the pill's bottom edge", () => {
   const { from, to } = planPanelFrame({ window, insets, pill, content: 300 });
-  assert.deepEqual(from, { ...pill, radius: 17 });
+  assert.deepEqual(from, { ...pill, radius: 12 });
   assert.equal(to.x, PLAN_PANEL.edge);
   assert.equal(to.width, 402 - 2 * PLAN_PANEL.edge);
   assert.equal(to.y + to.height, pill.y + pill.height, "the bottom edge stays on the pill's");
@@ -37,6 +37,21 @@ test("safe-area sides and the overlay's own origin shift the frame", () => {
   assert.equal(to.width, 402 - 44 - 30 - 2 * PLAN_PANEL.edge);
   assert.equal(from.y, pill.y - 20, "rects are relative to the overlay");
   assert.equal(to.y + to.height, pill.y + pill.height - 20);
+});
+
+test("beside an iPad's sidebar the panel keeps to the composer's column", () => {
+  const ipad = { width: 1180, height: 820 };
+  const sidebar = 332;
+  const column = { x: sidebar, width: ipad.width - sidebar };
+  const right = { x: 1080, y: 700, width: 54, height: 24 };
+  const { from, to } = planPanelFrame({ window: ipad, insets, pill: right, room: column, origin: { x: sidebar, y: 0 }, content: 300 });
+  assert.equal(to.x, PLAN_PANEL.edge, "the panel starts at the overlay's left edge, not under the sidebar");
+  assert.equal(to.width, column.width - 2 * PLAN_PANEL.edge);
+  assert.equal(from.x, right.x - sidebar);
+  const centred = { x: sidebar + (column.width - 760) / 2, width: 760 };
+  const narrow = planPanelFrame({ window: ipad, insets, pill: right, room: centred, origin: { x: sidebar, y: 0 }, content: 300 }).to;
+  assert.equal(narrow.x, centred.x + PLAN_PANEL.edge - sidebar, "a reading-width column centres the panel with it");
+  assert.equal(narrow.width, 760 - 2 * PLAN_PANEL.edge);
 });
 
 test("the panel is never smaller than the pill it grows from", () => {

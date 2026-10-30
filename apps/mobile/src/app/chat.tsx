@@ -2371,6 +2371,8 @@ function ChatPane({
                   {/* The transcript blurs and fades under the composer like desktop's, while the Chat's end is below it. */}
                   {showJumpToBottom && <BottomFade height={dockHeight + 48} width={window.width} />}
                   <View
+                    ref={planPanel.attachRoom}
+                    collapsable={false}
                     onLayout={({ nativeEvent }) => setDockHeight(Math.round(nativeEvent.layout.height))}
                     style={[column, { paddingHorizontal: 12, paddingTop: 6, paddingBottom: dockPadding, gap: 8 }]}
                   >
@@ -2416,6 +2418,7 @@ function ChatPane({
                           />
                         )}
                         {params.id && Number(params.id) > 0 && <PortsChip key={`ports-${chatId}`} chatId={chatId} ports={ports} />}
+                        <PlanPill panel={planPanel} />
                         {params.id && Number(params.id) > 0 && <SimulatorChip key={chatId} chatId={chatId} />}
                         {agents.length > 0 && <SubagentChip agents={agents} onPress={() => headerAction("agents")} />}
                       </ScrollView>
@@ -2847,7 +2850,6 @@ function ChatPane({
                                 onPress={() => router.push({ pathname: "/permission-sheet", params: { chatId, ...(run ? { busy: "1" } : {}) } })}
                               />
                               <View style={{ flex: 1 }} />
-                              <PlanPill panel={planPanel} />
                               {contextUsage && contextUsage.size > 0 && params.id && (
                                 <ContextRing
                                   {...contextUsage}
