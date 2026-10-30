@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { useAsyncMiddleware } = require("./async-middleware.cjs");
+const { openRenderer } = require("./renderer-ready.cjs");
 const imageBytes = require("node:fs").readFileSync(path.join(__dirname, "fixtures/photo.png")).toString("base64");
 const fixture = `
 window.imageBytes = ${JSON.stringify(imageBytes)};
@@ -145,8 +146,7 @@ async function browserChecks() {
     await delay(100);
   };
   try {
-    await window.loadURL(process.argv[2]);
-    await waitFor(String.raw`!!document.querySelector("[data-prompt-editor]")`);
+    await openRenderer(window, process.argv[2], String.raw`!!document.querySelector("[data-prompt-editor]")`);
     await key("2", { metaKey: true });
     await waitFor(String.raw`document.querySelector("[aria-current=page]")?.textContent.includes("Attachment test")`);
     await waitFor(
@@ -520,12 +520,14 @@ async function browserChecks() {
   } catch (error) {
     console.error(error);
     console.error(errors);
-    console.error(await evaluate("document.body.innerText.slice(0, 2000)"));
-    console.error(
-      await evaluate(
-        `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,
-      ),
-    );
+    if (error.code !== "ERR_RENDERER_READINESS") {
+      console.error(await evaluate("document.body.innerText.slice(0, 2000)"));
+      console.error(
+        await evaluate(
+          `(() => { const v = document.querySelector('dialog video'); return v ? { src:v.src, error:v.error?.message, code:v.error?.code, ready:v.readyState, network:v.networkState } : null; })()`,
+        ),
+      );
+    }
     app.exit(1);
   }
 }
