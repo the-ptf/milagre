@@ -18,7 +18,7 @@ export function response(body, status = 200, type = "text/plain; charset=utf-8",
 }
 
 /** A public page's policy also lets it show its own files, which the service keeps at `origin`. */
-export const pagePolicy = (origin) =>
+const pagePolicy = (origin) =>
   SECURITY_HEADERS["Content-Security-Policy"].replace("img-src data:", `img-src data: ${origin}; media-src ${origin}; font-src ${origin}`);
 
 /** Where a page's file lives in the bucket. */
@@ -172,7 +172,7 @@ const chunkKey = (revision, index) => (revision ? `html:${revision}:${index}` : 
 export const PAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 // A file uploaded for a publication that never came is removed after this long.
-export const STAGED_MS = 60 * 60 * 1000;
+const STAGED_MS = 60 * 60 * 1000;
 const fileBytes = (files) => Object.values(files ?? {}).reduce((sum, file) => sum + file.size, 0);
 
 /**

@@ -2,8 +2,6 @@ export const PAGE_TTL_MS: number;
 export const CHUNK_BYTES: number;
 export const SECURITY_HEADERS: Record<string, string>;
 export function response(body: BodyInit | null, status?: number, type?: string, headers?: Record<string, string>): Response;
-export function pagePolicy(origin: string): string;
-export const STAGED_MS: number;
 export function fileKey(id: string, hash: string): string;
 /** The bucket that keeps Artifact pages' files (R2 in production). */
 export interface FileBucket {

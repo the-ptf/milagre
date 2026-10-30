@@ -112,4 +112,4 @@ function fileResponse(readAsset, chatId, asset, header) {
     },
   });
 }
-module.exports = { createArtifactPreviews, PREVIEW_CSP };
+module.exports = { createArtifactPreviews };
