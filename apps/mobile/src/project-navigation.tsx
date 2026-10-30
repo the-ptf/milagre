@@ -1628,15 +1628,12 @@ const NavigationRow = memo(function NavigationRow({ item, view }: { item: Row; v
           >
             <View style={[s.doneRow, { paddingRight: 0 }]}>
               <Icon icon={CheckmarkCircle02Icon} tone="ink4" size={18} />
-              <Text numberOfLines={1} style={{ flex: 1, fontSize: 16, color: colors.ink3 }}>
+              <Text numberOfLines={1} style={{ flex: 1, minWidth: item.many ? "50%" : 0, fontSize: 16, color: colors.ink3 }}>
                 {item.title}
               </Text>
               {item.many && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, maxWidth: "40%" }}>
-                  <Icon icon={offline ? CloudOffIcon : LaptopIcon} tone="ink3" size={13} />
-                  <Text numberOfLines={1} style={[s.detail, { flexShrink: 1 }]}>
-                    {item.hostName}
-                  </Text>
+                <View style={{ flexShrink: 1, maxWidth: "30%" }}>
+                  <ComputerTag name={item.hostName} offline={offline} />
                 </View>
               )}
               {countdown && (

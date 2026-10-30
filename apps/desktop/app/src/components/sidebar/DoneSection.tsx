@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, CloudOffIcon, HourglassIcon, LaptopIcon, Undo02Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, HourglassIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { doneCountdown } from "@milagre/shared/done";
 import { preferenceStorage as localStorage } from "../../lib/preference-storage.ts";
 import { useDisplayNow } from "../../lib/display-clock";
 import { ScrollArea } from "../primitives/ScrollArea";
 import { ChatTitle } from "./ChatTitle";
-import type { RowComputer, SidebarRecent } from "./ChatRow";
+import { computerIcon, type RowComputer, type SidebarRecent } from "./ChatRow";
 
 /**
  * A Done chat with what its own scope does with it: open it, or take it back to the list. `computer`: the one it lives on,
@@ -76,16 +76,18 @@ function DoneRow({ entry, countdown }: { entry: DoneEntry; countdown: string | n
         <span className="flex shrink-0 text-ink-4">
           <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} strokeWidth={2} color="currentColor" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] text-ink-3 group-hover/done:text-ink-2">
+        <span
+          className={`min-w-0 flex-1 truncate text-[length:calc(13px+var(--sidebar-delta))] text-ink-3 group-hover/done:text-ink-2 ${computer ? "min-w-[50%]" : ""}`}
+        >
           <ChatTitle label={item.label} />
         </span>
         {computer && (
           <span
             data-done-computer
             title={computer.offline ? `On ${computer.name}, offline` : `On ${computer.name}`}
-            className={`flex min-w-0 max-w-[40%] shrink items-center gap-1 text-[length:calc(11px+var(--sidebar-delta))] ${computer.offline ? "text-orange-ink" : "text-ink-4"} ${onReopen && !countdown ? "group-focus-within/done:opacity-0 group-hover/done:opacity-0" : ""}`}
+            className={`flex min-w-0 max-w-[30%] shrink items-center gap-1 text-[length:calc(11px+var(--sidebar-delta))] ${computer.offline ? "text-orange-ink" : "text-ink-4"} ${onReopen && !countdown ? "group-focus-within/done:opacity-0 group-hover/done:opacity-0" : ""}`}
           >
-            <HugeiconsIcon icon={computer.offline ? CloudOffIcon : LaptopIcon} size={11} strokeWidth={2} color="currentColor" className="shrink-0" />
+            <HugeiconsIcon icon={computerIcon(computer)} size={11} strokeWidth={2} color="currentColor" className="shrink-0" />
             <span className="truncate">{computer.name}</span>
           </span>
         )}

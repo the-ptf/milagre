@@ -116,6 +116,9 @@ type ChatDetails = {
 /** The computer a row's chat lives on, shown on its second line once there are two or more computers. `local`: this Mac. */
 export type RowComputer = { name: string; offline: boolean; local?: boolean };
 
+/** A computer's icon: a cloud when it is offline, a desktop for a Studio, mini or iMac, a laptop otherwise. */
+export const computerIcon = (computer: RowComputer) => (computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon);
+
 export type SidebarRecent = {
   id: string;
   /** A local Chat preview can be opened, but cannot be edited until the host accepts it. */
@@ -510,7 +513,7 @@ function InboxLine({
       node: (
         <span data-chat-computer className={`flex min-w-0 items-center gap-1 ${computer.offline ? "text-orange-ink" : ""}`}>
           <HugeiconsIcon
-            icon={computer.offline ? CloudOffIcon : /studio|mini|imac/i.test(computer.name) ? ComputerIcon : LaptopIcon}
+            icon={computerIcon(computer)}
             size={12}
             strokeWidth={2}
             color="currentColor"
@@ -650,7 +653,7 @@ export const ChatRow = memo(function ChatRow({
   if (rowComputer)
     facts.push(
       <span key="computer" data-chat-computer className="flex min-w-0 shrink items-center gap-1 truncate">
-        <HugeiconsIcon icon={LaptopIcon} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
+        <HugeiconsIcon icon={computerIcon(rowComputer)} size={12} strokeWidth={2} color="currentColor" className="shrink-0" />
         {rowComputer.offline ? `${rowComputer.name}, offline` : rowComputer.name}
       </span>,
     );
