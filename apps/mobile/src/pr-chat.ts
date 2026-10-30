@@ -1,3 +1,5 @@
+import type { pullRequestPresentation } from "@milagre/shared/pr-blockers";
+
 // "Ask Chat" and "Send to Chat" from the PR sheet reach the Chat screen under it through this: the open
 // Chat registers how it sends and how it fills its composer, keyed like its drafts (`projectPath#id`).
 
@@ -8,12 +10,12 @@
 export type PrChoice = {
   number: number;
   title: string;
-  state: "OPEN" | "MERGED";
+  state: "OPEN" | "MERGED" | "CLOSED";
   cwd?: string;
   project?: string;
   projectPath?: string;
-  /** Its tone and icon as the row shows them (blocked, checks running, ready, merged). */
-  look?: { tone: "green" | "orange" | "red" | "purple"; icon: "merged" | "ready" | "checking" | "open" };
+  /** Its tone and icon as the row shows them (pullRequestPresentation: blocked, draft, checks running, ready, merged, closed). */
+  look?: Pick<ReturnType<typeof pullRequestPresentation>, "tone" | "icon">;
 };
 
 /** Tells apart PRs with the same number in two of a Link Chat's repositories. */

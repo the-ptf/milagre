@@ -135,7 +135,7 @@ async function readPullRequests(cwd, refs, exec = execFileAsync) {
 }
 
 function toPullRequest(pr) {
-  if (!pr || !["OPEN", "MERGED"].includes(pr.state) || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
+  if (!pr || !["OPEN", "MERGED", "CLOSED"].includes(pr.state) || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
   const url = new URL(pr.url);
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   // CLEAN means GitHub reports the PR mergeable with passing commit status. Unknown or blocked
@@ -152,6 +152,7 @@ function toPullRequest(pr) {
     url: url.href,
     state: pr.state,
     title: typeof pr.title === "string" ? pr.title : "",
+    isDraft: pr.state === "OPEN" && pr.isDraft === true,
     readyToMerge,
     hasConflicts,
     conflictStatusKnown,

@@ -302,6 +302,18 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
       // The PR sheet's bridge to the Chat is pure; opening the sheet is recorded on globalThis.openedPullRequests.
       if (base === "pr-chat" && !(id in modules)) return (globalThis.prChat = load("pr-chat.ts", modules, "", cache));
+      // A PR badge's glyph by state (pr-look.ts): each icon by its name.
+      if (base === "pr-look" && !(id in modules))
+        return {
+          PR_ICONS: {
+            merged: "GitMergeIcon",
+            closed: "GitPullRequestClosedIcon",
+            draft: "GitPullRequestDraftIcon",
+            ready: "Tick02Icon",
+            checking: "CircleDotIcon",
+            open: "GitPullRequestIcon",
+          },
+        };
       if (base === "pr-nav" && !(id in modules))
         return {
           openPullRequest: (route) => (globalThis.openedPullRequests ??= []).push(route),

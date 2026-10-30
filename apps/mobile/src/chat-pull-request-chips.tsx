@@ -1,15 +1,13 @@
 import { Pressable, Text, View } from "react-native";
 import type { ReactNode } from "react";
 import * as Linking from "expo-linking";
-import { CircleDotIcon, GitMergeIcon, GitPullRequestIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import type { PullRequest } from "@milagre/shared/model";
 import { pullRequestPresentation, rowPullRequests } from "@milagre/shared/pr-blockers";
 import { issueChipLabel, type LinearIssue } from "@milagre/shared/linear";
 import { Icon, LinearLogo } from "./icons";
 import { PullDown } from "./ui";
 import { useTheme } from "./theme";
-
-const icons = { merged: GitMergeIcon, ready: Tick02Icon, checking: CircleDotIcon, open: GitPullRequestIcon };
+import { PR_ICONS } from "./pr-look";
 
 /**
  * Desktop's two PR chips and overflow menu, with tap targets separate from the Chat title. The Worktree's Linear issue comes
@@ -55,12 +53,12 @@ export function ChatPullRequestChips({
         </Pressable>
       )}
       {ordered.slice(0, 2).map((pr) => {
-        const { tone, icon, label } = pullRequestPresentation(pr);
+        const { tone, icon, label, spoken } = pullRequestPresentation(pr);
         return (
           <Pressable
             key={pr.url}
             accessibilityRole={onOpenPullRequest ? "button" : "link"}
-            accessibilityLabel={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
+            accessibilityLabel={`Open ${spoken}`}
             accessibilityHint={pr.title}
             hitSlop={{ top: 10, bottom: 10 }}
             onPress={(event) => {
@@ -69,7 +67,7 @@ export function ChatPullRequestChips({
             }}
             style={({ pressed }) => ({ minHeight: 24, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 4, opacity: pressed ? 0.55 : 1 })}
           >
-            <Icon icon={icons[icon]} tone={tone} size={12} />
+            <Icon icon={PR_ICONS[icon]} tone={tone} size={12} />
             <Text style={{ color: colors.ink2, fontSize: 12, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
             {pullRequests.length === 1 && !!label && (
               <Text numberOfLines={1} style={{ flexShrink: 1, color: colors[tone], fontSize: 12 }}>
@@ -142,12 +140,12 @@ export function InlinePullRequestLinks({
       </Pressable>,
     );
   for (const pr of ordered.slice(0, 2)) {
-    const { tone, icon, label } = pullRequestPresentation(pr);
+    const { tone, icon, spoken } = pullRequestPresentation(pr);
     links.push(
       <Pressable
         key={pr.url}
         accessibilityRole={onOpenPullRequest ? "button" : "link"}
-        accessibilityLabel={`Open ${pr.state === "MERGED" ? "merged " : ""}pull request #${pr.number}${label ? `, ${label.toLowerCase()}` : ""}`}
+        accessibilityLabel={`Open ${spoken}`}
         accessibilityHint={pr.title}
         hitSlop={8}
         onPress={(event) => {
@@ -156,7 +154,7 @@ export function InlinePullRequestLinks({
         }}
         style={({ pressed }) => ({ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3, opacity: pressed ? 0.55 : 1 })}
       >
-        <Icon icon={icons[icon]} tone={tone} size={fontSize - 1} />
+        <Icon icon={PR_ICONS[icon]} tone={tone} size={fontSize - 1} />
         <Text style={{ color: colors.ink2, fontSize, fontVariant: ["tabular-nums"] }}>#{pr.number}</Text>
       </Pressable>,
     );
