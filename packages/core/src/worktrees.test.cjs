@@ -181,6 +181,25 @@ test("custom patterns replace the default", async (t) => {
   assert.equal(await exists(path.join(created.path, ".env")), false);
 });
 
+test("broad extra-file copy patterns skip ignored Milagre state while Git carries shared configuration", async (t) => {
+  const fx = await ignoredFixture(t, {
+    ".milagre/chats.db": "local database",
+    ".milagre/coordination.json": "{}",
+    ".milagre/details/local.json": "{}",
+    ".milagre/worktree.json": "{}",
+    "secrets/shared.json": '{"keep":true}',
+  });
+  require("./project-ignore.cjs").ensureProjectIgnore(fx.project);
+  fx.git("add", ".milagre/worktree.json");
+  fx.git("commit", "-m", "Shared setup");
+  await fs.writeFile(path.join(fx.project, ".worktreeinclude"), "*.json\n*.db\n");
+  const created = await create(fx);
+  assert.deepEqual(created.copy.copied, ["secrets/shared.json"]);
+  assert.equal(await fs.readFile(path.join(created.path, ".milagre/worktree.json"), "utf8"), "{}");
+  assert.equal(await exists(path.join(created.path, ".milagre/chats.db")), false);
+  assert.equal(await exists(path.join(created.path, ".milagre/coordination.json")), false);
+});
+
 test(".worktreeinclude wins over the setting", async (t) => {
   const fx = await ignoredFixture(t, { "secrets/a.json": "{}" });
   await fs.writeFile(path.join(fx.project, ".worktreeinclude"), "# only the local env\n.env.local\n");
