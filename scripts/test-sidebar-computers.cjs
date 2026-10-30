@@ -533,7 +533,8 @@ async function browserChecks() {
       `(() => { const box = document.querySelector('[data-prompt-editor]'); box.value = "Queued while studio sleeps"; box.dispatchEvent(new Event("input", { bubbles: true })); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); })()`,
     );
     await waitFor(`!!document.querySelector('[data-offline-tray] [data-outbox-state="queued"]')`);
-    assert.match(await evaluate(`document.querySelector('[data-offline-message]').textContent`), /Queued while studio sleeps.*Waiting/);
+    // The clock says it waits; the row shows only the message.
+    assert.equal(await evaluate(`document.querySelector('[data-offline-message]').textContent`), "Queued while studio sleeps");
     await waitFor(`[...document.querySelectorAll('[data-chat-waiting]')].some((node) => node.textContent === "1 waiting")`);
     assert.equal(await evaluate(`window.sent.length`), 0, "offline enqueue never sends to the host");
     assert.equal(await evaluate(`document.querySelector('[data-prompt-editor]').value`), "", "the composer clears after the durable write");

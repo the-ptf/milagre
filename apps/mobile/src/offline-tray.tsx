@@ -79,7 +79,7 @@ export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip:
         </View>
       )}
       {items.map((item) => (
-        <Row key={item.id} item={item} offline={target.offline} onAct={act} />
+        <Row key={item.id} item={item} onAct={act} />
       ))}
       {target.offline && chip && (
         <View style={{ flexDirection: "row", paddingHorizontal: 4, paddingTop: 4, paddingBottom: 6 }}>
@@ -111,7 +111,7 @@ export function OfflineTray({ target, chip }: { target: OfflineTrayTarget; chip:
   );
 }
 
-function Row({ item, offline, onAct }: { item: OutboxItem; offline: boolean; onAct: (work: Promise<unknown>) => void }) {
+function Row({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unknown>) => void }) {
   const { colors } = useTheme();
   const failed = item.status === "failed";
   const images = item.attachments.filter((file) => file.imageId);
@@ -123,7 +123,8 @@ function Row({ item, offline, onAct }: { item: OutboxItem; offline: boolean; onA
         ? files[0]!.name
         : `${files.length} files`
       : "";
-  const status = failed ? item.error : item.status === "sending" ? "Sending…" : offline ? "Waiting" : "Sending soon";
+  // Waiting needs no word: the clock says it. Only sending and failures do.
+  const status = failed ? item.error : item.status === "sending" ? "Sending…" : "";
   // A send that may have reached the computer is checked before it goes again; a Worktree that may exist can't be redone.
   const retry = failed && item.phase !== "creating" ? (item.phase === "dispatching" ? "Check delivery" : "Retry") : null;
   return (
@@ -135,12 +136,14 @@ function Row({ item, offline, onAct }: { item: OutboxItem; offline: boolean; onA
         <Text numberOfLines={2} style={{ color: colors.ink, fontSize: 15, lineHeight: 20 }}>
           {item.request.body.trim() || "Attachments"}
         </Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          {!!attachment && <Icon icon={images.length ? Image01Icon : Attachment01Icon} tone="ink3" size={13} />}
-          <Text numberOfLines={2} style={{ flexShrink: 1, color: failed ? colors.orangeInk : colors.ink3, fontSize: 13 }}>
-            {attachment ? `${attachment} · ${status}` : status}
-          </Text>
-        </View>
+        {!!(attachment || status) && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            {!!attachment && <Icon icon={images.length ? Image01Icon : Attachment01Icon} tone="ink3" size={13} />}
+            <Text numberOfLines={2} style={{ flexShrink: 1, color: failed ? colors.orangeInk : colors.ink3, fontSize: 13 }}>
+              {[attachment, status].filter(Boolean).join(" · ")}
+            </Text>
+          </View>
+        )}
         {retry && (
           <View style={{ flexDirection: "row", paddingTop: 2 }}>
             <TextAction label={retry} onPress={() => onAct(outbox.retry(item.id))} />

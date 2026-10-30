@@ -61,7 +61,7 @@ export function OfflineTray({
       {items.length > 0 && (
         <ul className="flex flex-col pt-0.5" aria-label={`Waiting for ${computerName}`}>
           {items.map((item) => (
-            <TrayRow key={item.id} item={item} offline={offline} onAct={act} />
+            <TrayRow key={item.id} item={item} onAct={act} />
           ))}
         </ul>
       )}
@@ -81,12 +81,13 @@ export function OfflineTray({
   );
 }
 
-function TrayRow({ item, offline, onAct }: { item: OutboxItem; offline: boolean; onAct: (work: Promise<unknown>) => void }) {
+function TrayRow({ item, onAct }: { item: OutboxItem; onAct: (work: Promise<unknown>) => void }) {
   const failed = item.status === "failed";
   const images = item.attachments.filter((file) => file.imageId);
   const files = item.attachments.filter((file) => !file.imageId);
   const attachment = images.length ? images : files;
-  const status = failed ? item.error : item.status === "sending" ? "Sending…" : offline ? "Waiting" : "Sending soon";
+  // Waiting needs no word: the clock says it. Only sending and failures do.
+  const status = failed ? item.error : item.status === "sending" ? "Sending…" : "";
   // A send that may have reached the computer is checked before it goes again; a Worktree that may exist can't be redone.
   const retry = failed && item.phase !== "creating" ? (item.phase === "dispatching" ? "Check delivery" : "Retry") : null;
   return (
@@ -96,19 +97,21 @@ function TrayRow({ item, offline, onAct }: { item: OutboxItem; offline: boolean;
       </span>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-13 leading-[18px] break-words whitespace-pre-wrap text-ink">{item.request.body.trim() || "Attachments"}</p>
-        <p className={`mt-0.5 flex min-w-0 items-center gap-1 text-12 leading-4 ${failed ? "text-orange-ink" : "text-ink-3"}`}>
-          {attachment.length > 0 && (
-            <>
-              <HugeiconsIcon icon={images.length ? Image01Icon : Attachment01Icon} size={12} strokeWidth={1.8} color="currentColor" className="shrink-0" />
-              <span className="min-w-0 truncate">
-                {attachment.length === 1 ? attachment[0]!.name : `${attachment.length} ${images.length ? "images" : "files"}`}
-                {images.length && files.length ? ` + ${files.length} file${files.length === 1 ? "" : "s"}` : ""}
-              </span>
-              <span className="shrink-0">·</span>
-            </>
-          )}
-          <span className={failed ? "min-w-0" : "shrink-0"}>{status}</span>
-        </p>
+        {(attachment.length > 0 || status) && (
+          <p className={`mt-0.5 flex min-w-0 items-center gap-1 text-12 leading-4 ${failed ? "text-orange-ink" : "text-ink-3"}`}>
+            {attachment.length > 0 && (
+              <>
+                <HugeiconsIcon icon={images.length ? Image01Icon : Attachment01Icon} size={12} strokeWidth={1.8} color="currentColor" className="shrink-0" />
+                <span className="min-w-0 truncate">
+                  {attachment.length === 1 ? attachment[0]!.name : `${attachment.length} ${images.length ? "images" : "files"}`}
+                  {images.length && files.length ? ` + ${files.length} file${files.length === 1 ? "" : "s"}` : ""}
+                </span>
+                {status && <span className="shrink-0">·</span>}
+              </>
+            )}
+            {status && <span className={failed ? "min-w-0" : "shrink-0"}>{status}</span>}
+          </p>
+        )}
       </div>
       {retry && (
         <button
