@@ -44,6 +44,8 @@ const DEVICE_METHODS = Object.freeze([
 ]);
 // A paired desktop's own channel (peer-channel.cjs): rpc / evt / part messages over the relay or the LAN.
 const DESKTOP_PEER = "desktop-peer-v1";
+// A paired desktop may open TCP streams from this computer on its channel (peer-streams.cjs).
+const PEER_TCP = "peer-tcp-v1";
 // Asked by a paired desktop, which has no phone:* methods: where it can reach this Mac (relay identity, LAN routes).
 const PEER_METHODS = Object.freeze(["peer:routes"]);
 // The desktop app's update, checked and installed from the phone or a paired desktop (host-updates.cjs).
@@ -745,6 +747,7 @@ async function startDaemon({
               SUBAGENT_TAILS,
               ARCHIVED_SUMMARIES,
               DESKTOP_PEER,
+              ...(policy === peerPolicy ? [PEER_TCP] : []),
               REMOTE_FILES,
             ],
             methods: [
