@@ -343,6 +343,9 @@ export type HandoffContext = {
  * around it; `size` is the window.
  */
 export type CompactionContext = {
+  automatic?: boolean;
+  quiet?: boolean;
+  threshold?: number;
   kind: "compaction";
   status: "preparing" | "done" | "failed";
   before?: number;

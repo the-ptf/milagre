@@ -334,6 +334,93 @@ const jsx = (type, props, key) => (type === messageActionsStub ? props.children(
 // The compiler's per-component cache uses a hook slot, just like a manual memo.
 const compilerRuntime = (host) => ({ c: (size) => host.useRef(Array(size).fill(Symbol.for("react.memo_cache_sentinel"))).current });
 
+test("context settings stay safe and unavailable on both clients without a host response", async () => {
+  const shared = await import("../packages/shared/src/context-settings.mjs");
+  for (const response of [null, undefined]) {
+    const desktop = hookHost({ effects: true });
+    const bridge = { readContextSettings: async () => response };
+    const { useContextSettings } = load("../../desktop/app/src/lib/context-settings.ts", {
+      react: desktop,
+      "@milagre/shared/context-settings": shared,
+      "./computer-bridge": { useBridge: () => bridge },
+    });
+    desktop.begin();
+    useContextSettings();
+    await new Promise(setImmediate);
+    desktop.begin();
+    const value = useContextSettings();
+    assert.equal(value.settings.autoCompact, false, "the desktop composer can read defaults without crashing");
+    assert.equal(value.ready, false, "unavailable host settings cannot be edited");
+
+    const mobile = hookHost();
+    const phone = load("context-settings.ts", {
+      react: mobile,
+      "@milagre/shared/context-settings": shared,
+      "./session": { useSession: () => ({ client: {} }) },
+      "./use-rpc": { useRpc: () => ({ data: response, error: "" }) },
+    }).useContextSettings();
+    assert.deepEqual(value.settings, phone.settings);
+    assert.equal(value.ready, phone.ready);
+    desktop.unmount();
+  }
+});
+
+test("desktop context settings handle missing methods, read failures, events and switching computers", async () => {
+  const shared = await import("../packages/shared/src/context-settings.mjs");
+  const react = hookHost({ effects: true });
+  let bridge = {};
+  const { useContextSettings } = load("../../desktop/app/src/lib/context-settings.ts", {
+    react,
+    "@milagre/shared/context-settings": shared,
+    "./computer-bridge": { useBridge: () => bridge },
+  });
+  const render = () => {
+    react.begin();
+    return useContextSettings();
+  };
+  assert.equal(render().ready, false);
+  bridge = {
+    readContextSettings: async () => {
+      throw new Error("offline");
+    },
+  };
+  render();
+  await new Promise(setImmediate);
+  assert.equal(render().error, "Could not read context settings.");
+  assert.equal(render().settings.autoCompact, false);
+  assert.equal(render().ready, false);
+
+  const pending = deferred();
+  let onChange;
+  let removed = false;
+  bridge = {
+    readContextSettings: () => pending.promise,
+    onContextSettings: (fn) => {
+      onChange = fn;
+      return () => {
+        removed = true;
+      };
+    },
+  };
+  render();
+  const enabled = { ...shared.CONTEXT_DEFAULTS, autoCompact: true };
+  onChange(enabled);
+  assert.equal(render().settings.autoCompact, true);
+  assert.equal(render().ready, true);
+  pending.resolve(null);
+  await new Promise(setImmediate);
+  assert.equal(render().settings.autoCompact, true, "a stale initial read cannot replace the newer event");
+  onChange(null);
+  assert.equal(render().settings.autoCompact, false);
+  assert.equal(render().ready, false);
+  bridge = {};
+  assert.equal(render().ready, false);
+  assert.equal(removed, true);
+  onChange(enabled);
+  assert.equal(render().settings.autoCompact, false, "late events from the old computer are ignored");
+  react.unmount();
+});
+
 test("display clocks stop off-screen and in the background, then catch up from wall time", () => {
   const host = hookHost({ effects: true });
   let focused = true,
@@ -2680,6 +2767,8 @@ function chatHost({
   localOutbox,
   computers,
   screenWidth = 402,
+  contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" },
+  contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false },
   now = new Date(2026, 9, 17, 10, 30).getTime(),
   chatDefaults = require("../apps/mobile/src/chat-defaults-store.ts").createChatDefaultsStore({ getItem: () => null, setItemAsync: async () => {} }),
   // "secondary" renders the pane as the Chat beside the routed one, with these params as its own.
@@ -2807,6 +2896,11 @@ function chatHost({
     },
   };
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "../chat-display-setting": {
+      useShowContextSize: () => [contextPreferences.showContextSize],
+      useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
+    },
+    "@milagre/shared/chat-display": require("@milagre/shared/chat-display"),
     ...(localOutbox
       ? {
           "../outbox": {
@@ -2849,6 +2943,8 @@ function chatHost({
     "../queued-messages": { QueuedMessages: "QueuedMessages" },
     "../prompt-field": { PromptField: "PromptField" },
     "../context-ring": { ContextRing: "ContextRing" },
+    "../context-settings": { useContextSettings: () => ({ settings: contextSettings }) },
+    "@milagre/shared/use-compaction-feedback": { useCompactionFeedback: () => null },
     "../theme": { hex: () => ({ surface: "#ffffff" }) },
     "../simulator": { SimulatorChip: "SimulatorChip" },
     "../browser": { useBrowserShortcut: (options) => (typeof browserShortcut === "function" ? browserShortcut(options) : browserShortcut) },
@@ -5452,6 +5548,81 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
     delete globalThis.chatPullRequest;
     delete globalThis.openedPullRequests;
   }
+});
+
+test("context size and the direct compact button are independent, follow the threshold and preserve the draft", async () => {
+  const contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" };
+  const screen = chatHost({ effects: true, contextPreferences, call: async () => ({ sessionId: 42 }) });
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 69, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const compact = (tree) => find(tree, (node) => node.props?.accessibilityLabel === "Compact context");
+  const ring = (tree) => find(tree, (node) => node.type === "ContextRing");
+  let tree = screen.render();
+  assert.ok(ring(tree));
+  assert.ok(!compact(tree));
+  chat.contextUsage.used = 70;
+  tree = screen.render();
+  assert.ok(compact(tree));
+  assert.equal(compact(tree).props.disabled, false);
+  contextPreferences.showContextSize = false;
+  tree = screen.render();
+  assert.equal(ring(tree).props.showSize, false, "a chevron replaces the size");
+  assert.ok(compact(tree));
+  chat.contextUsage.used = 20;
+  assert.ok(!compact(screen.render()));
+  contextPreferences.compactButtonDisplay = "always";
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.drafts[chatId] = "Keep this draft";
+  tree = screen.render();
+  compact(tree).props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.filter((call) => call.method === "chat:send").length, 1);
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.archived = true;
+  assert.equal(compact(screen.render()).props.disabled, true);
+  chat.archived = false;
+  screen.session.error = "Disconnected";
+  assert.equal(compact(screen.render()).props.disabled, true);
+  screen.session.error = "";
+  chat.provider = "codex";
+  assert.ok(!compact(screen.render()));
+});
+
+test("mobile compaction can be queued and cancelled during a turn, and quiet mode hides its controls", async () => {
+  const contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false };
+  const screen = chatHost({ effects: true, contextSettings, call: async () => ({ sessionId: 42 }) });
+  screen.session.refresh = async () => {};
+  screen.params.id = "42";
+  const chat = { id: 42, provider: "claude", worktree_id: 1, contextUsage: { used: 90, size: 100 } };
+  screen.session.snapshot.project.state.sessions[42] = chat;
+  const chatId = `${screen.session.snapshot.project.path}#42`;
+  screen.session.snapshot.runs.runs[chatId] = { text: "Working", steps: [], approvals: [], questions: [] };
+  screen.session.drafts[chatId] = "Keep this draft";
+  const button = (tree, label) => find(tree, (node) => node.props?.accessibilityLabel === label);
+  const compact = button(screen.render(), "Compact context");
+  assert.equal(compact.props.disabled, false);
+  compact.props.onPress();
+  screen.render();
+  await settle();
+  assert.equal(screen.calls.find((call) => call.method === "chat:send").args[0].compact, true);
+  chat.queued = [{ id: "compact-1", context: { kind: "compaction", status: "preparing" } }];
+  button(screen.render(), "Cancel queued compaction").props.onPress();
+  await settle();
+  assert.deepEqual(Array.from(screen.calls.find((call) => call.method === "chat:queue-remove").args), [chatId, "compact-1"]);
+  assert.equal(screen.session.drafts[chatId], "Keep this draft");
+  chat.queued = [];
+  contextSettings.autoCompact = true;
+  const quiet = screen.render();
+  assert.ok(!button(quiet, "Compact context"));
+  assert.ok(!find(quiet, (node) => node.type === "ContextRing"));
+  chat.provider = "codex";
+  assert.ok(
+    find(screen.render(), (node) => node.type === "ContextRing"),
+    "unsupported providers keep their usage display",
+  );
 });
 
 test("Compact now from the context sheet sends /compact to the open Chat with the compact flag and no preview", async () => {

@@ -31,6 +31,7 @@ import '/src/styles.css';
 ${data}
 updateSettings({ chatList: 'grouped' });
 window.milagre = new Proxy({
+  readContextSettings: async () => ({ buttonThreshold: 70, autoThreshold: 85, autoCompact: false }),
   simulators: { list: async ({ chatId }) => ({ chatId, supported: false, devices: [], attached: [], available: [] }) },
   getRuntimeConnection: async () => ({ connected: true }),
   getAgentPorts: async () => ({}),

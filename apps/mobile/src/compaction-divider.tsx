@@ -9,6 +9,7 @@ import { fonts, useTheme } from "./theme";
 export function CompactionDivider({ context }: { context: CompactionContext }) {
   const { colors } = useTheme();
   const label = compactionLabel(context);
+  if (context.quiet && context.status !== "failed") return null;
   return (
     <View accessible accessibilityLabel={compactionText(context)} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
       <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
