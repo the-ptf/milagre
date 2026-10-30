@@ -215,7 +215,7 @@ type SidebarNavProps = {
   /** Archive for another Project's rows (by its path): what the confirm step offers, then the archive itself. */
   onScopeArchiveCheck?: (scopeKey: string, id: string) => Promise<ArchivePlan>;
   /** `chatsHome`: the row is a Chat without a Project (the Chats group's). */
-  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan, chatsHome?: boolean) => Promise<unknown>;
+  onScopeArchive?: (scopeKey: string, id: string, mode: ArchiveMode, plan: ArchivePlan) => Promise<unknown>;
   /** Chats with an archive under way, by `projectPath#id`: their rows are gone at once, before the host answers. */
   archivingChats?: ReadonlySet<string>;
   /** The pointer rests on a chat's row: its page can be read before the click. */
@@ -916,7 +916,7 @@ export default memo(function SidebarNav({
         ...(archivable
           ? {
               onArchiveCheck: (id: string) => scopeArchive.current.check!(key, id),
-              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan, gitless),
+              onArchive: (id: string, mode: ArchiveMode, plan: ArchivePlan) => scopeArchive.current.archive!(key, id, mode, plan),
             }
           : {}),
       };
@@ -1876,7 +1876,7 @@ const sameTarget = (a: DropTarget | null, b: DropTarget | null) => a?.id === b?.
 type RowActionsNow = { recents: SidebarRecent[]; actions: ChatRowActions; sidebarLinks: ReturnType<typeof useSidebarLinks> };
 
 /**
- * A scope's row actions: pinning that can be undone from a toast, and the Link items that open the shared "Link with…"
+ * A scope's row actions: pinning, Done and deletion that can be undone from a toast, and the Link items that open the shared "Link with…"
  * and "Remove Link with…" lists. `now` reads the latest state, so one object serves every render.
  */
 function chatRowActions(
@@ -1907,6 +1907,14 @@ function chatRowActions(
         if (!latest.onDone) return;
         latest.onDone(id);
         showToast("Moved to Done", () => now().actions.onReopen?.(id));
+      }),
+    onArchive:
+      actions.onArchive &&
+      ((id, mode, plan) => {
+        const latest = now().actions;
+        const work = latest.onArchive?.(id, mode, plan);
+        showToast("Chat deleted", latest.onUndoArchive && (() => now().actions.onUndoArchive?.(id)));
+        return work;
       }),
     ...(linkProjectId
       ? {

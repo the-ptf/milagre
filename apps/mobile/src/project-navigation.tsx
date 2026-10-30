@@ -12,6 +12,7 @@ import {
   Add01Icon,
   ArrowDown01Icon,
   CheckmarkCircle02Icon,
+  Delete02Icon,
   HourglassIcon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -38,6 +39,7 @@ import type { LinearIssue } from "@milagre/shared/linear";
 import type { ChatSearchMatch, Client, RecentProject, RegisteredProject, Snapshot } from "./client";
 import { ALL_CHATS_LABEL, CHATS_GROUP_LABEL, NO_PROJECT_LABEL } from "@milagre/shared/chats-home";
 import { isLinkScopeKey } from "@milagre/shared/chat-scopes";
+import { undoDelete } from "@milagre/shared/archive";
 import { useComposer, useListSnapshot, usePendingChats, useSession, type MobilePendingChat, type Session } from "./session";
 import { savedChatDefaults, savedFoldedProjects } from "./hosts-native";
 import { newChatProjects, noProjectChoice, pickNewChatProject } from "./new-chat-project";
@@ -177,6 +179,8 @@ type BuildContext = {
   snapshot: Snapshot | null;
   pendingChats: Record<string, MobilePendingChat>;
   archiving: (projectPath: string, chatId: number) => boolean;
+  /** Deleted from the phone and not back (an Undo or a failure brings it back): out of the list. */
+  hidden: (projectPath: string, chatId: number) => boolean;
   fallback: (path: string) => ProjectCopy | undefined;
   show: Show;
 };
@@ -272,12 +276,16 @@ function buildProject(view: HostView, project: RecentProject, ctx: BuildContext,
   // Done Chats leave the list for the Done section at its bottom (only the Archived filter lists them, once archived).
   const done =
     ctx.show === "all"
-      ? entries.filter(({ chat }) => chat.done_at && !chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id)).map(toEntry)
+      ? entries
+          .filter(({ chat }) => chat.done_at && !chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id))
+          .filter(({ chat }) => !ctx.hidden(copy?.project.path ?? project.path, chat.id))
+          .map(toEntry)
       : [];
   const all: ChatEntry[] = entries
     // Like desktop's sidebar, a worktree's empty starter Chat stays out until it has a message or a turn is starting.
     // A Chat stays in its place while its archive runs, under the progress, until the archive ends.
     .filter(({ chat, run, count, mark }) => {
+      if (ctx.hidden(copy?.project.path ?? project.path, chat.id)) return false;
       if (ctx.show === "archived") return !!chat.archived && shownChat(chat, run, count, { archived: true });
       if (chat.archived && !ctx.archiving(copy?.project.path ?? project.path, chat.id)) return false;
       if (!shownChat(chat, run, count, { archived: false })) return false;
@@ -447,7 +455,7 @@ const NavigationBody = memo(function NavigationBody({
       archives.chats.has(`${projectPath}#${chatId}`) && (hostId === currentHostId || archiveRequests.has(`${hostId}|${projectPath}#${chatId}`));
     const next = views.map((view) => {
       const current = view.hostId === currentHostId;
-      const deps = [view, needle, show, pendingChats, archives.chats, current ? snapshot : null, current ? cachedProject : null, current];
+      const deps = [view, needle, show, pendingChats, archives.chats, archives.hidden, current ? snapshot : null, current ? cachedProject : null, current];
       const held = cache.get(view.hostId);
       if (held && sameDeps(held.deps, deps)) return held.build;
       const build = buildHost(view, {
@@ -456,6 +464,7 @@ const NavigationBody = memo(function NavigationBody({
         snapshot,
         pendingChats,
         archiving: archiving(view.hostId),
+        hidden: (projectPath, chatId) => archives.hidden.has(`${projectPath}#${chatId}`),
         fallback: cachedProject,
         show,
       });
@@ -464,7 +473,7 @@ const NavigationBody = memo(function NavigationBody({
     });
     for (const id of cache.keys()) if (!views.some((view) => view.hostId === id)) cache.delete(id);
     return next;
-  }, [views, needle, show, pendingChats, archives.chats, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
+  }, [views, needle, show, pendingChats, archives.chats, archives.hidden, snapshot, cachedProject, currentHostId, cache, archiveRequests]);
 
   const manyHosts = builds.length > 1;
   const { rows, searchable, projectHits } = useMemo(() => {
@@ -1404,16 +1413,23 @@ const NavigationBody = memo(function NavigationBody({
         onNewChat={() => startNewChat()}
         visible={visible}
       />
-      {doneToast ? (
+      {/* "Chat deleted" (its Undo calls the deletion off) or "Moved to Done" (its Undo reopens the Chat), floating over the
+          list without moving it. A deletion started on the Chat screen shows here, since that screen has gone. */}
+      {archives.deleted || doneToast ? (
         <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, bottom: bottomInset + 8, alignItems: "center" }}>
           <View accessibilityLiveRegion="polite" style={[s.doneToast, { backgroundColor: colors.ink }]}>
-            <Icon icon={CheckmarkCircle02Icon} tone="green" size={18} />
-            <Text style={{ flex: 1, color: colors.surface, fontSize: 15, fontWeight: "500" }}>Moved to Done</Text>
+            <Icon icon={archives.deleted ? Delete02Icon : CheckmarkCircle02Icon} tone={archives.deleted ? "red" : "green"} size={18} />
+            <Text style={{ flex: 1, color: colors.surface, fontSize: 15, fontWeight: "500" }}>{archives.deleted ? "Chat deleted" : "Moved to Done"}</Text>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Undo"
               hitSlop={10}
               onPress={() => {
+                if (archives.deleted) {
+                  undoDelete(archives.deleted);
+                  return;
+                }
+                if (!doneToast) return;
                 const { row } = doneToast;
                 setDoneToast(null);
                 void act(row, "reopen");
@@ -1421,18 +1437,6 @@ const NavigationBody = memo(function NavigationBody({
             >
               <Text style={{ color: colors.accent, fontSize: 15, fontWeight: "600" }}>Undo</Text>
             </Pressable>
-          </View>
-        </View>
-      ) : null}
-      {/* "Chat archived", like the Chat screen's toast, floating under the header without moving the list: the archive
-          finishes here, after that screen has gone. */}
-      {archives.done && !error && !archives.notice ? (
-        <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 60, alignItems: "center" }}>
-          <View
-            accessibilityLiveRegion="polite"
-            style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
-          >
-            <Text style={{ color: colors.surface, fontSize: 14 }}>{archives.done}</Text>
           </View>
         </View>
       ) : null}

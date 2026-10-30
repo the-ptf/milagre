@@ -4962,6 +4962,13 @@ async function settleAll() {
   for (let i = 0; i < 10; i++) await settle();
 }
 
+/** Lets a deletion's Undo time pass (the test's setTimeout is mocked), then the steps after it. */
+async function passUndo(t) {
+  await settleAll();
+  t.mock.timers.tick(require("@milagre/shared/archive").DELETE_UNDO_MS);
+  await settleAll();
+}
+
 test("Chat swipe directions mark Done or read status once and block unavailable rows", async () => {
   const react = hookHost();
   const calls = [];
@@ -5048,7 +5055,8 @@ test("an older Mac's rows offer no Done, and their left swipe archives as before
   }
 });
 
-test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async () => {
+test("a sidebar Chat deletes immediately and stops the turn while preserving unsaved work", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const nav = navigationHost(deferred().promise, {
@@ -5070,6 +5078,13 @@ test("a sidebar Chat deletes immediately and stops the turn while preserving uns
   more.props.onSelect("archive");
   await settleAll();
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
+  assert.equal(listsChat(nav), false, "the row leaves the list at once");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete"),
+    false,
+    "the conversation stays while the toast's Undo can bring it back",
+  );
+  await passUndo(t);
   assert.deepEqual(
     project.calls.map(([method]) => method),
     ["worktree:roots", "worktree:status", "terminal:list", "agent:interrupt", "chat:patch", "chat:delete", "refresh"],
@@ -5080,7 +5095,8 @@ test("a sidebar Chat deletes immediately and stops the turn while preserving uns
   );
 });
 
-test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async () => {
+test("the Chat screen Archive falls back to a plain Archive on an older Mac, then opens the sidebar", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const alerts = [];
   const project = archiveProject();
   const screen = chatHost({
@@ -5096,7 +5112,7 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.render();
   const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
   archive.props.onPress();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
   assert.deepEqual(
     screen.calls.map((call) => call.method),
@@ -9671,13 +9687,18 @@ test("mobile picker exposes other devices only in Attach and detach updates this
   h.cleanup();
 });
 
+/** Whether the list has a Chat row. */
+function listsChat(nav) {
+  return nav.rows().props.data.some((item) => item.kind === "chat");
+}
+
 // The progress drawn over an archiving Chat's row.
 function archiveIndicator(tree) {
   const component = find(tree, (node) => node.type === archiveProgress.ArchivingOverlay);
   return component && find(component.type(component.props), (node) => node.props.accessibilityRole === "progressbar");
 }
 
-test("sidebar archive shows progress over the Chat's row and clears it on failure", async () => {
+test("a sidebar deletion takes the Chat's row out of the list and brings it back on failure", async () => {
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9692,31 +9713,42 @@ test("sidebar archive shows progress over the Chat's row and clears it on failur
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.equal(
-    find(nav.render(), (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Archiving Chat"),
-    undefined,
-  );
-  const row = nav.row("chat");
-  assert.equal(archiveIndicator(row).props.accessibilityLabel, "Deleting Fix", "archive feedback sits on the row and survives closing the action sheet");
-  assert.ok(
-    find(archiveIndicator(row), (node) => node.type === "SpinnerRing"),
-    "the row's pill spins desktop's ring",
-  );
-  assert.equal(nav.more(row), undefined, "an archiving row offers no menu");
-  assert.equal(row.props.children.props.pointerEvents, "none");
-  // Hidden on the Mac while the worktree is still going: the row stays, under the progress.
-  project.snapshot.project.state.sessions[5].archived = true;
-  assert.ok(archiveIndicator(nav.row("chat")));
-  project.snapshot.project.state.sessions[5].archived = false;
+  assert.equal(listsChat(nav), false, "the row goes at once, with the toast's Undo");
+  assert.equal(archiveStore.archiveActivity().deleted, "/p#5");
   patch.reject(new Error("disk full"));
   await settleAll();
+  assert.ok(nav.row("chat"), "a failed deletion brings the row back");
   assert.equal(archiveIndicator(nav.row("chat")), undefined);
+  assert.equal(archiveStore.archiveActivity().deleted, "", "and its toast goes");
   assert.equal(project.calls.filter(([method]) => method === "worktree:roots").length, 1);
   assert.equal(find(nav.render(), (node) => node.type === "ErrorNotice").props.message, "Could not delete Chat: disk full");
   archiveStore.clearArchiveNotice();
 });
 
-test("archiving the open Chat from the sidebar stays in place through archive and completion", async () => {
+test("an Undo on the list's toast brings the deleted Chat back without deleting it", async () => {
+  const project = archiveProject();
+  const nav = navigationHost(deferred().promise, {
+    alert: pressDanger([]),
+    session: { client: { ...project.client, url: "mac" }, recent: [{ path: "/p" }], snapshot: project.snapshot, expectActivity() {}, refresh: async () => {} },
+  });
+  nav.more(nav.row("chat")).props.onSelect("archive");
+  await settleAll();
+  assert.ok(find(nav.render(), (node) => node.type === "Text" && node.props.children === "Chat deleted"));
+  find(nav.render(), (node) => node.type === "Pressable" && node.props.accessibilityLabel === "Undo").props.onPress();
+  await settleAll();
+  assert.ok(nav.row("chat"), "the row is back");
+  assert.equal(
+    project.calls.some(([method]) => method === "chat:delete" || method === "worktree:remove"),
+    false,
+  );
+  assert.deepEqual(
+    project.calls.filter(([method]) => method === "chat:patch").map((call) => call[3]),
+    [{ archived: true, unread: false }, { archived: false }],
+  );
+});
+
+test("deleting the open Chat from the sidebar stays in place through the deletion", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const nav = navigationHost(deferred().promise, {
@@ -9732,14 +9764,15 @@ test("archiving the open Chat from the sidebar stays in place through archive an
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  assert.deepEqual(nav.routes, [], "confirming an archive must not close or replace the sidebar");
-  assert.ok(archiveIndicator(nav.row("chat")), "progress stays on the same sidebar row");
+  assert.deepEqual(nav.routes, [], "deleting must not close or replace the sidebar");
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.deepEqual(nav.routes, []);
+  assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
 });
 
-test("the Chat screen opens its sidebar once on archive without replacing the screen", async () => {
+test("the Chat screen opens its sidebar once on archive without replacing the screen", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const project = archiveProject();
   const patch = deferred();
   const screen = chatHost({ alert: pressDanger([]), call: (method, args) => (method === "chat:patch" ? patch.promise : project.call(method, args)) });
@@ -9757,7 +9790,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   // The phone moves on to another Chat while the archive runs.
   screen.router.replaced = "/chat?id=9";
   patch.resolve();
-  await settleAll();
+  await passUndo(t);
   assert.equal(screen.router.replaced, "/chat?id=9", "the end of the archive does not pull the phone back to the list");
   assert.equal(archiveStore.archiveActivity().chats.has("/p#5"), false);
   assert.deepEqual(screen.panels.shown, ["left"], "completion must not reopen the sidebar");

@@ -385,7 +385,7 @@ function ChatPane({
   const [error, setError] = useState("");
   // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -1648,7 +1648,9 @@ function ChatPane({
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
     else if (id === "done" && chat)
-      void action(() => client.call("chat:patch", [project.path, chat.id, { done: true, unread: false }])).then((ok) => ok && showToast("Moved to Done"));
+      void action(() => client.call("chat:patch", [project.path, chat.id, { done: true, unread: false }])).then(
+        (ok) => ok && showToast("Moved to Done", () => void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]))),
+      );
     else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
@@ -1725,11 +1727,11 @@ function ChatPane({
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
   /** Picks an issue from the list and links it to this Chat's Worktree. */
-  /** A short confirmation over the transcript that goes away on its own, for results that need no answer. */
-  function showToast(message: string) {
+  /** A short confirmation over the transcript that goes away on its own; one with `undo` stays longer and offers Undo. */
+  function showToast(text: string, undo?: () => void) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = setTimeout(() => setToast(""), 3000);
+    setToast({ text, undo });
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 6000 : 3000);
   }
   function linkIssue() {
     if (!worktree) return;
@@ -2343,12 +2345,36 @@ function ChatPane({
                 )}
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
                 {toast ? (
-                  <View pointerEvents="none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
+                  <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
                     <View
                       accessibilityLiveRegion="polite"
-                      style={{ maxWidth: 360, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.ink }}
+                      style={{
+                        maxWidth: 360,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 14,
+                        borderRadius: 14,
+                        paddingHorizontal: 14,
+                        paddingVertical: 10,
+                        backgroundColor: colors.ink,
+                      }}
                     >
-                      <Text style={{ color: colors.surface, fontSize: 14 }}>{toast}</Text>
+                      <Text style={{ flexShrink: 1, color: colors.surface, fontSize: 15 }}>{toast.text}</Text>
+                      {toast.undo ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Undo"
+                          hitSlop={10}
+                          onPress={() => {
+                            const { undo } = toast;
+                            if (toastTimer.current) clearTimeout(toastTimer.current);
+                            setToast(null);
+                            undo?.();
+                          }}
+                        >
+                          <Text style={{ color: colors.accent, fontSize: 15, fontWeight: "600" }}>Undo</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 ) : null}

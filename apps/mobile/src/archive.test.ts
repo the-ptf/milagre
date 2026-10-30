@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentSession, CoordinatorState } from "@milagre/shared/model";
 import type { WorktreeStatus } from "@milagre/shared/archive";
-import { archiveActivity, archiveFromPhone, checkArchive, type ArchiveClient } from "./archive.ts";
-import { archiveChoices } from "@milagre/shared/archive";
+import { archiveActivity, archiveFromPhone as archiveNow, checkArchive, type ArchiveClient, type ArchiveRequest } from "./archive.ts";
+import { archiveChoices, undoDelete } from "@milagre/shared/archive";
 
 const clean: WorktreeStatus = { uncommitted: 0, unpushed: 0, branch: "milagre/x-1", head: "abc", removable: true };
 const dirty: WorktreeStatus = { uncommitted: 2, unpushed: 1, branch: "milagre/x-1", head: "abc", removable: false };
@@ -27,6 +27,9 @@ const state = (): CoordinatorState =>
     outputs: [],
     conflicts: [],
   }) as unknown as CoordinatorState;
+
+// The deletions here don't wait out a toast's Undo; the tests that undo pass their own window.
+const archiveFromPhone = (request: ArchiveRequest) => archiveNow({ undoMs: 0, ...request });
 
 const refusedByOldDaemon = () => Promise.reject(new Error("Command is not available from mobile"));
 
@@ -212,14 +215,13 @@ test("Chats delete immediately while preserving unsaved files in Project and pro
         assert.equal(removal, undefined, "Unsaved files and unpushed commits stay on disk");
         assert.deepEqual(calls.find((call) => call.method === "chat:delete")?.args, ["/work/shop", 2]);
       }
-      if (chatsHome) assert.equal(archiveActivity().done, "Chat deleted");
     }
   }
 });
 
-test("a Project Chat's archive says nothing when it goes", async () => {
-  const { client } = fakeClient({ "worktree:remove": () => ({ removed: true }) });
-  const result = await archiveFromPhone({
+test("an Undo on the toast calls the deletion off and brings the Chat back", async () => {
+  const { client, calls } = fakeClient({ "worktree:status": () => clean });
+  const work = archiveNow({
     client,
     projectPath: "/work/shop",
     state: state(),
@@ -227,10 +229,53 @@ test("a Project Chat's archive says nothing when it goes", async () => {
     running: false,
     notify: () => {},
     refresh: async () => {},
+    undoMs: 10_000,
   });
-  assert.equal(result, "removed");
-  // The archive cleared any earlier confirmation and left none of its own.
-  assert.equal(archiveActivity().done, "");
+  // The row leaves the list and the toast offers the Undo at once.
+  assert.ok(archiveActivity().hidden.has("/work/shop#2"));
+  assert.equal(archiveActivity().deleted, "/work/shop#2");
+  assert.equal(undoDelete("/work/shop#2"), true);
+  assert.equal(await work, "undone");
+  assert.equal(
+    calls.some((call) => call.method === "worktree:remove" || call.method === "chat:delete" || call.method === "chat:patch"),
+    false,
+    "nothing was hidden or removed",
+  );
+  assert.equal(archiveActivity().deleted, "");
+  assert.equal(archiveActivity().hidden.size, 0);
+});
+
+test("an Undo after the hide brings the Chat back without removing its worktree", async () => {
+  let release = () => {};
+  const hidden = new Promise<void>((resolve) => (release = resolve));
+  const { client, calls } = fakeClient({
+    "worktree:status": () => clean,
+    "chat:patch": () => {
+      release();
+      return undefined;
+    },
+  });
+  const work = archiveNow({
+    client,
+    projectPath: "/work/shop",
+    state: state(),
+    chat: session(2, 2),
+    running: false,
+    notify: () => {},
+    refresh: async () => {},
+    undoMs: 10_000,
+  });
+  await hidden;
+  undoDelete("/work/shop#2");
+  assert.equal(await work, "undone");
+  assert.deepEqual(
+    calls.filter((call) => call.method === "chat:patch").map((call) => call.args[2]),
+    [{ archived: true, unread: false }, { archived: false }],
+  );
+  assert.equal(
+    calls.some((call) => call.method === "worktree:remove"),
+    false,
+  );
 });
 
 test("whether to stop is read when the archive runs, not when Archive was tapped", async () => {
@@ -276,7 +321,8 @@ test("a second tap during deletion does not repeat the operation", async () => {
   });
   const request = { client, projectPath: "/work/shop", state: state(), chat: session(2, 2), running: false, notify: () => {}, refresh: async () => {} };
   const first = archiveFromPhone(request);
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  // Past the (empty) Undo window, a timer away, to the removal.
+  while (!calls.some((call) => call.method === "worktree:remove")) await new Promise((resolve) => setTimeout(resolve, 1));
   assert.equal(await archiveFromPhone(request), "busy");
   finish();
   assert.equal(await first, "removed");
