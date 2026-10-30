@@ -23,8 +23,8 @@ test("project menu actions", () => {
     projectMenuActions(true).map((a) => [a.key, a.label]),
     [
       ["reveal", "Reveal in Finder"],
-      ["copy-path", "Copy project path"],
-      ["copy-name", "Copy project name"],
+      ["copy-path", "Copy path"],
+      ["copy-name", "Copy name"],
       ["settings", "Project settings"],
     ],
   );

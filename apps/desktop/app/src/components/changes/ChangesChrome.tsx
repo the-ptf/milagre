@@ -22,14 +22,17 @@ export function DiffBar({
   onBack,
   send,
   trailing,
+  corner,
 }: {
   open: boolean;
   onBack: () => void;
   send?: { count: number; onSend: () => void };
   trailing?: React.ReactNode;
+  /** Width (px) of the corner toggles top right, which the trailing controls keep clear of. */
+  corner?: number;
 }) {
   const reduced = useReducedMotion();
-  const { bar, inset } = useControlsClearance<HTMLDivElement>(open);
+  const { bar, inset } = useControlsClearance<HTMLDivElement>(open, corner);
   return (
     <AnimatePresence initial={false}>
       {open && (

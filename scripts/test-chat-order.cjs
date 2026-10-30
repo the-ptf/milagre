@@ -75,7 +75,7 @@ async function browserChecks() {
     await waitFor('!!document.querySelector("[aria-label=\\"Chat order\\"]")');
     await delay(400);
     assert.deepEqual(await order(), ["reordering", "diff viewer", "worktrees", "chat names"], "newest chat first by default");
-    assert.match(await evaluate('document.querySelector("button[aria-label=\\"Chat order\\"]").textContent'), /Newest chat first/);
+    assert.match(await evaluate('document.querySelector("button[aria-label=\\"Chat order\\"]").textContent'), /Newest Chat first/);
     await screenshot("newest-chat-first");
     await evaluate('document.querySelector("button[aria-label=\\"Chat order\\"]").click()');
     await waitFor('!!document.querySelector("[role=listbox][aria-label=\\"Chat order\\"]")');

@@ -927,7 +927,7 @@ export function PromptComposer({
                     {selectedModel.name}
                   </span>
                   {effortLabel && (
-                    <span data-effort-label className={`flex items-center gap-1 ${orchestrating ? "text-purple-ink" : ""}`}>
+                    <span data-effort-label className={`flex items-center gap-1.5 ${orchestrating ? "text-purple-ink" : ""}`}>
                       <span className="text-ink-3">·</span>
                       <span className="hidden min-[900px]:inline">{effortLabel}</span>
                       <span className="min-[900px]:hidden">

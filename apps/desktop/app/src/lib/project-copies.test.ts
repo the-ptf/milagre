@@ -58,7 +58,7 @@ test("picker lists No project first, then Projects", () => {
   );
   // The home open as the draft's Project is No project, never a Project row of its own.
   assert.deepEqual(
-    projectPickerRows({ groups: [project(HOME, "No project"), ...groups], noProject, query: "" }).map((group) => group.key),
+    projectPickerRows({ groups: [project(HOME, "No Project"), ...groups], noProject, query: "" }).map((group) => group.key),
     [CHATS_GROUP_KEY, "/code/milagre-ade", "/code/happiergym"],
   );
   assert.deepEqual(

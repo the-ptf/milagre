@@ -12,7 +12,7 @@ import { useSession } from "./session";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { announce, CircleButton, ErrorNotice, Field, InlineError, PageScroll, PillButton, SectionLabel, SheetHeader, useStyles } from "./ui";
+import { announce, CircleButton, EmptyState, ErrorNotice, Field, InlineError, PageScroll, PillButton, SectionLabel, SheetHeader, useStyles } from "./ui";
 import { over } from "@milagre/shared/themes";
 import { lineHeight, radius, type } from "./design-tokens";
 
@@ -218,7 +218,9 @@ export function BrowserSheet({ hostId, chatId }: { hostId?: string; chatId?: str
             {!!list?.error && <ErrorNotice message={list.error} />}
             {list?.supported === false && <Text style={styles.muted}>Browsers are unavailable on this computer.</Text>}
             {list?.supported && !list.error && !list.targets.length && (
-              <Text style={styles.muted}>{"This Chat's agent has no open pages. Attach a browser below to view it here."}</Text>
+              <EmptyState icon={BrowserIcon} title="This Chat's agent has no open pages">
+                Attach a browser below to view it here.
+              </EmptyState>
             )}
             {list?.targets.map((target) => (
               <Pressable

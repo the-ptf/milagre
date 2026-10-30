@@ -14,7 +14,7 @@ export type ToastOptions = {
 };
 
 /**
- * Shows a short confirmation at the bottom centre of the window: an ink capsule that fades up and leaves after 2.6s.
+ * Shows a short confirmation at the bottom centre of the window (above the composer in a Chat): an ink capsule that fades up and leaves after 2.6s.
  * The toast is a manual popover in the top layer, and showing it again moves it to the top, so a toast from a modal
  * dialog (also in the top layer) appears over the dialog, not under its backdrop. One at a time: a new one replaces it.
  */
@@ -43,6 +43,15 @@ export function showToast(text: string, { action, attribute }: ToastOptions = {}
       action.onClick();
     });
     toast.append(button);
+  }
+  // Over a Chat it sits above the composer (the focused one when there are several), never over its text.
+  const composer =
+    [...document.querySelectorAll<HTMLElement>("[data-composer-wrap]")].find((el) => el.contains(document.activeElement)) ??
+    document.querySelector<HTMLElement>("[data-composer-wrap]");
+  const rect = composer?.getBoundingClientRect();
+  if (rect && rect.width > 0 && rect.height > 0) {
+    toast.style.bottom = `${innerHeight - rect.top + 8}px`;
+    toast.style.left = `${rect.left + rect.width / 2}px`;
   }
   document.body.append(toast);
   element = toast;

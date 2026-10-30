@@ -227,10 +227,10 @@ async function main() {
     await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
     assert.equal(await evaluate(`document.querySelectorAll('dialog input[type=checkbox]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('dialog button[type=submit]').disabled`), true, "One explicitly selected Project is insufficient");
-    await input('input[aria-label="Search projects"]', "food-web");
+    await input('input[aria-label="Search Projects"]', "food-web");
     assert.equal(await evaluate(`document.querySelectorAll('dialog input[type=checkbox]').length`), 1);
     await evaluate(`document.querySelector('dialog input[type=checkbox]').click()`);
-    await input('input[aria-label="Search projects"]', "");
+    await input('input[aria-label="Search Projects"]', "");
     await shot("create-link");
     await click("Create Link");
     await waitFor(() => evaluate(`!!document.querySelector('${linkScope}[data-current]') && !document.querySelector('#link-name')`), "selected Link");

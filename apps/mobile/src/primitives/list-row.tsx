@@ -68,7 +68,11 @@ export function ListRow({
   const valueText = value ? (
     <Text
       numberOfLines={stacked ? undefined : 1}
-      style={{ color: colors.ink3, fontSize: type.body, lineHeight: lineHeight.body, maxWidth: stacked ? undefined : "45%" }}
+      style={{
+        color: colors.ink3,
+        ...(subtitle ? { fontSize: type.footnote, lineHeight: lineHeight.footnote } : { fontSize: type.body, lineHeight: lineHeight.body }),
+        maxWidth: stacked ? undefined : "45%",
+      }}
     >
       {value}
     </Text>

@@ -754,13 +754,13 @@ function GeneralSettings({ models }: { models: ModelOption[] }) {
         </Row>
       </Group>
       <Group title="Sidebar">
-        <Row label="Chat order" description="Newest chat first keeps chats in place as replies arrive">
+        <Row label="Chat order" description="Newest Chat first keeps Chats in place as replies arrive">
           <Select<ChatOrder>
             label="Chat order"
             value={settings.chatOrder}
             onChange={(chatOrder) => updateSettings({ chatOrder })}
             options={[
-              { value: "created", label: "Newest chat first" },
+              { value: "created", label: "Newest Chat first" },
               { value: "recent", label: "Latest message first" },
             ]}
           />
@@ -883,7 +883,7 @@ function fontOptions(list: readonly FontOption[]) {
     .map((font) => ({
       value: font.id,
       label: font.label,
-      description: font.id === "system" ? "default" : undefined,
+      trailing: font.id === "system" ? "default" : undefined,
       style: { fontFamily: withBundledNames(font.stack) },
     }));
 }
@@ -895,7 +895,7 @@ function shownFont(list: readonly FontOption[], id: string) {
 }
 
 function pxOptions<T extends string>(list: readonly { id: T; px: number }[]) {
-  return list.map((size) => ({ value: size.id, label: `${size.px} px`, description: size.id === "default" ? "default" : undefined }));
+  return list.map((size) => ({ value: size.id, label: `${size.px} px`, trailing: size.id === "default" ? "default" : undefined }));
 }
 
 // The window's stripes (as on body, pinned to the viewport), so a strip painted with them is invisible over the page.

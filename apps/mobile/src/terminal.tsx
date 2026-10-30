@@ -19,9 +19,9 @@ import { useSession } from "./session";
 import { Icon, type IconData } from "./icons";
 import { fonts, useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
-import { CircleButton, ErrorNotice, PageScroll, PillButton, PullDown, SheetHeader, showActions, useStyles } from "./ui";
+import { CircleButton, EmptyState, ErrorNotice, PageScroll, PillButton, PullDown, SheetHeader, showActions, useStyles } from "./ui";
 import { confirmSheet } from "./confirm-store";
-import { duration, easing, hitSlopFor, lineHeight, radius, type } from "./design-tokens";
+import { duration, easing, hitSlopFor, lineHeight, radius, space, type } from "./design-tokens";
 import { createTerminalHtml, scriptValue, xtermTheme, type TerminalTheme, type TerminalViewMessage } from "./terminal-receiver";
 
 /** A Worktree a new Terminal can start in; a shared Chat has one per member Project. */
@@ -362,6 +362,7 @@ export function TerminalSheet({
       {profiles && !docked && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 8, gap: 4 }}>
           <PullDown
+            style={{ alignSelf: "flex-start", marginLeft: -12 }}
             label="Shell for new Terminals"
             title="Shell for new Terminals"
             nativeTrigger={{
@@ -397,7 +398,7 @@ export function TerminalSheet({
           contentInsetAdjustmentBehavior="never"
           showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0 }}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 0, paddingBottom: 8, gap: 6 }}
+          contentContainerStyle={{ paddingHorizontal: space.gutter, paddingTop: 0, paddingBottom: 8, gap: space.md }}
         >
           {terminals.map((terminal) => {
             const selected = terminal.id === shown?.id;
@@ -485,8 +486,10 @@ export function TerminalSheet({
                 void refresh();
               }}
             />
+          ) : opening || !terminals ? (
+            <Text style={[styles.muted, { padding: 16 }]}>Opening a Terminal…</Text>
           ) : (
-            <Text style={[styles.muted, { padding: 16 }]}>{opening || !terminals ? "Opening a Terminal…" : "No Terminal is open in this Chat."}</Text>
+            <EmptyState icon={ComputerTerminal01Icon} title="No Terminal open" />
           )}
         </View>
         {shown && !paused && (

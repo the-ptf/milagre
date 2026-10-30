@@ -27,8 +27,8 @@ export function buildPalette(source: ThemeSource, scheme: Scheme): ThemePalette 
     canvas: mix(page, ink, dark ? 0.025 : 0.03),
     inset: mix(page, surface, 0.5),
     // Translucent ink, so a hover darkens whatever it sits on: page, card or field.
-    hover: withAlpha(ink, dark ? 0.05 : 0.04),
-    hover2: withAlpha(ink, dark ? 0.09 : 0.08),
+    hover: withAlpha(ink, dark ? 0.05 : 0.06),
+    hover2: withAlpha(ink, dark ? 0.09 : 0.1),
     field: toward(dark ? 0.06 : 0.04),
     ink2: mix(ink, page, 0.25),
     ink3: mix(ink, page, 0.56),

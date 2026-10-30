@@ -163,7 +163,7 @@ export default function RoutinesScreen() {
               ))}
             </Group>
           ))}
-          {client && !routines.unavailable ? <Text style={[styles.caption, { paddingHorizontal: 16 }]}>{LID_HELP}</Text> : null}
+          {client && !routines.unavailable ? <Text style={[styles.footnote, { paddingHorizontal: 16 }]}>{LID_HELP}</Text> : null}
         </PageScroll>
       )}
     </>

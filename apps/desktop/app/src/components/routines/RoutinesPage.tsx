@@ -359,16 +359,22 @@ export function RoutinesPage({
                   <div className={card}>{triggers.map(row)}</div>
                 </section>
               )}
-              {empty && <EmptyState data-routines-empty icon={RepeatIcon} title="No Routines yet" className="p-0" />}
+              {empty && (
+                <EmptyState data-routines-empty icon={RepeatIcon} title="No Routines yet" className="p-0">
+                  {HELP}
+                </EmptyState>
+              )}
               {routines.length > 0 && heartbeats.length === 0 && triggers.length === 0 && (
                 <p data-routines-empty className="px-1 text-13 text-ink-3">
                   None here.
                 </p>
               )}
             </div>
-            <p data-routines-help className={`px-1 text-12 text-ink-3 ${empty ? "text-center" : "mt-5"}`}>
-              {HELP}
-            </p>
+            {!empty && (
+              <p data-routines-help className="mt-5 px-1 text-12 text-ink-3">
+                {HELP}
+              </p>
+            )}
           </>
         ) : null}
       </div>

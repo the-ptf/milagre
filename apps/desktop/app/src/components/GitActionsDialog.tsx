@@ -395,6 +395,8 @@ export function GitActionsDialog({
   const disabled = (button: DialogButton | null) => running || !button || Boolean(button.disabledReason) || Boolean(missingField(button));
   // The reason beside the buttons: git's or the agent's state first, then a missing field.
   const footerReason = primary?.disabledReason ?? secondary?.disabledReason ?? (generating ? null : missingField(primary));
+  // The PR section already says why a PR can't open; the footer doesn't repeat it.
+  const shownReason = footerReason && footerReason === mode?.prBlocked ? null : footerReason;
   const showForm = !finished;
   const prTarget = repo ? prTargetLine(repo.remotes, repo.prRepo) : null;
 
@@ -411,7 +413,7 @@ export function GitActionsDialog({
       footer="bar"
       footerStart={
         <p data-footer-reason className="min-w-0 flex-1 text-12 text-ink-3">
-          {!finished && !running ? footerReason : null}
+          {!finished && !running ? shownReason : null}
         </p>
       }
       actions={

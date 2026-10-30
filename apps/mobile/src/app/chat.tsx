@@ -128,7 +128,7 @@ import {
   type MenuSection,
 } from "../ui";
 import { Counts } from "../diff-ui";
-import { chrome, hitSlopFor, lineHeight, radius, type } from "../design-tokens";
+import { chrome, lineHeight, radius, type } from "../design-tokens";
 import { clearSentDraft } from "../draft-clear";
 import { PromptField } from "../prompt-field";
 import { createKnownFiles, mentionPaths } from "../file-mentions";
@@ -2747,7 +2747,7 @@ function ChatPane({
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                               <PullDown
                                 label="Add photos or files"
-                                hitSlop={hitSlopFor(36)}
+                                hitSlop={{ top: 4, bottom: 4 }}
                                 nativeTrigger={{ systemImage: "plus", disabled: attachmentDisabled }}
                                 sections={[
                                   {

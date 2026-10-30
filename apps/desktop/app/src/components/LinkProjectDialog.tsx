@@ -91,12 +91,12 @@ export function LinkProjectDialog({ link, onClose, onCreated }: { link?: NamedPr
         placeholder="e.g. RDFood"
         className={`${FIELD} mt-1`}
       />
-      {/* Lower-case "projects" stays: it's the field's name in test-project-links. */}
+      {/* The aria-label keeps lower-case "projects": it's the field's name in test-project-links. */}
       <input
-        aria-label="Search projects"
+        aria-label="Search Projects"
         value={search}
         onChange={(event) => setSearch(event.target.value)}
-        placeholder="Search projects"
+        placeholder="Search Projects"
         className={`${FIELD} mt-4`}
       />
       <ScrollArea aria-label="Projects" aria-busy={loading} className="mt-2 max-h-[218px] min-h-0 rounded-control border border-line p-1">

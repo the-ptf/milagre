@@ -1975,7 +1975,7 @@ function OfflineLine({ hostIds }: { hostIds: string[] }) {
         onPress={retry}
         style={({ pressed }) => [{ minHeight: 44, justifyContent: "center" }, pressStyle({ pressed, disabled: retrying })]}
       >
-        <Text style={{ color: colors.ink3, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>
+        <Text style={{ color: colors.accentInk, fontSize: type.footnote, lineHeight: lineHeight.footnote, fontWeight: "600" }}>
           {retrying ? "Retrying…" : "Retry"}
         </Text>
       </Pressable>

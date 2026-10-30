@@ -323,6 +323,7 @@ export function PromptField({
       {/* TextInput cannot receive value and attributed children together. The children mirror every accepted edit. */}
       <View>
         <Field
+          bare
           {...paste}
           onLayout={() => {
             paste.onLayout();
@@ -360,8 +361,8 @@ export function PromptField({
             onBlur?.();
           }}
           style={{
-            backgroundColor: "transparent",
             fontSize: inputSize,
+            lineHeight: Math.round(inputSize * 1.375),
             minHeight: 44,
             maxHeight: 140,
             paddingHorizontal: 12,

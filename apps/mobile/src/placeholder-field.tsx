@@ -61,6 +61,7 @@ export function PlaceholderField({
         style={{ backgroundColor: colors.surface, borderRadius: radius.sheet, borderCurve: "continuous", borderWidth: 1, borderColor: colors.line, padding: 6 }}
       >
         <Field
+          bare
           label="Prompt"
           hideLabel
           multiline
@@ -81,7 +82,6 @@ export function PlaceholderField({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           style={{
-            backgroundColor: "transparent",
             minHeight: 96,
             maxHeight: 220,
             fontSize: type.subheadline,

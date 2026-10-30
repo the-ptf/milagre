@@ -7,7 +7,7 @@ import { ChartBarLineIcon } from "@hugeicons/core-free-icons";
 import { space } from "./design-tokens";
 import { Icon } from "./icons";
 import { useSession } from "./session";
-import { Group, InlineError, ListRow, Toggle } from "./ui";
+import { Group, InlineError, ListRow } from "./ui";
 
 /** Settings › General: plan usage, the connected Mac's worktree default and its Auto update (desktop's About). */
 export function GeneralSection() {
@@ -85,7 +85,7 @@ export function GeneralSection() {
       {session.client && syncMain !== null && (
         <View style={{ gap: space.md }}>
           <Group title="Worktrees" footer={MAIN_SYNC_HINT}>
-            <Toggle title={MAIN_SYNC_TITLE} selected={syncMain} onPress={() => void changeSyncMain(!syncMain)} />
+            <ListRow title={MAIN_SYNC_TITLE} toggle={{ value: syncMain, onChange: () => void changeSyncMain(!syncMain) }} />
           </Group>
           <InlineError message={syncMainError} style={{ paddingHorizontal: 16 }} />
         </View>
@@ -93,7 +93,7 @@ export function GeneralSection() {
       {session.client && autoUpdate !== null && (
         <View style={{ gap: space.md }}>
           <Group title="Updates" footer={AUTO_UPDATE_HINT}>
-            <Toggle title={AUTO_UPDATE_TITLE} selected={autoUpdate} onPress={() => void changeAutoUpdate(!autoUpdate)} />
+            <ListRow title={AUTO_UPDATE_TITLE} toggle={{ value: autoUpdate, onChange: () => void changeAutoUpdate(!autoUpdate) }} />
           </Group>
           <InlineError message={autoUpdateError} style={{ paddingHorizontal: 16 }} />
         </View>

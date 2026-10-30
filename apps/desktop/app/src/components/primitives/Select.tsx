@@ -12,6 +12,8 @@ export type SelectOption<T extends string> = {
   value: T;
   label: string;
   description?: string;
+  /** Short text before the tick on the same line ("default"), so the row keeps one height. */
+  trailing?: string;
   /** Branch names and other long choices can wrap above their description. */
   wrapLabel?: boolean;
   icon?: ReactNode;
@@ -220,6 +222,7 @@ export function Select<T extends string>({
                     label={option.label}
                     labelStyle={option.style}
                     description={option.description}
+                    trailing={option.trailing}
                     wrapLabel={option.wrapLabel}
                     selected={option.value === value}
                     onClick={() => choose(option.value)}

@@ -71,9 +71,10 @@ export function useWindowChrome(): ChromeLayout {
 
 /**
  * Insets that keep a bar along the top of <main> clear of the window controls and the sidebar toggle, from where its
- * offset parent starts. Collapsing the sidebar moves that edge under them.
+ * offset parent starts. Collapsing the sidebar moves that edge under them. `corner` is the width (px) of the toggles
+ * pinned top right (CORNER_PITCH per button), so the bar's trailing controls stop short of them too.
  */
-export function useControlsClearance<T extends HTMLElement>(open: boolean) {
+export function useControlsClearance<T extends HTMLElement>(open: boolean, corner?: number) {
   const { controlsEnd, rightInset } = useWindowChrome();
   const bar = useRef<T>(null);
   const [inset, setInset] = useState({ paddingLeft: 0, paddingRight: 0 });
@@ -82,13 +83,16 @@ export function useControlsClearance<T extends HTMLElement>(open: boolean) {
     if (!open || !(host instanceof HTMLElement)) return;
     const update = () => {
       const rect = host.getBoundingClientRect();
-      setInset({ paddingLeft: Math.max(0, controlsEnd - rect.left - 12), paddingRight: Math.max(0, rect.right - window.innerWidth + rightInset) });
+      setInset({
+        paddingLeft: Math.max(0, controlsEnd - rect.left - 12),
+        paddingRight: Math.max(0, rect.right - window.innerWidth + rightInset + (corner ? 12 + corner + 8 : 0)),
+      });
     };
     update();
     // Collapsing the sidebar resizes <main>, which is what moves its left edge.
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [open, controlsEnd, rightInset]);
+  }, [open, controlsEnd, rightInset, corner]);
   return { bar, inset };
 }

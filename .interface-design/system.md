@@ -116,7 +116,7 @@ on every screen, header and body alike; section gap 24; overlays under the chat 
 - Press: `active:scale-press` (0.97) on filled buttons (primary, danger), pills and icon buttons; `active:bg-hover-2`
   on rows. Phone: opacity 0.6, plus scale 0.97 on filled buttons.
 - Disabled: 40% on controls, 60% on list rows (an offline Project too).
-- Hover: `hover` and `hover-2` are translucent ink (4% / 8% light, 5% / 9% dark), so they show on page, card and field
+- Hover: `hover` and `hover-2` are translucent ink (6% / 10% light, 5% / 9% dark), so they show on page, card and field
   alike. Hover is `bg-hover` everywhere, the sidebar included; `bg-hover-2` is the open or selected row, a pressed
   toggle and the menu highlight, so a hovered row never looks like the open one. (`hover-sidebar` is a deprecated alias
   of `hover`.)

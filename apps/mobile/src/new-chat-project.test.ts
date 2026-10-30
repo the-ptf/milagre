@@ -63,7 +63,7 @@ test("one repository on several computers is one row, opening on the computer la
   assert.equal(preferredCopy(app, null, "elsewhere").hostId, "mac");
 });
 
-test("newChatProjects lists No project first", () => {
+test("newChatProjects lists No Project first", () => {
   const views = [
     view("mac", "online", ["/code/a"], [], home("/Users/v/.milagre/chats")),
     view("deer", "online", ["/code/b"], [], home("/Users/d/.milagre/chats", false)),
@@ -72,12 +72,12 @@ test("newChatProjects lists No project first", () => {
   ];
   const choices = newChatChoices(views, null, "mac");
   assert.deepEqual(
-    choices.map((choice) => (choice.kind === "no-project" ? "No project" : choice.path)),
-    ["No project", "/code/a", "/code/b", "/code/c"],
+    choices.map((choice) => (choice.kind === "no-project" ? "No Project" : choice.path)),
+    ["No Project", "/code/a", "/code/b", "/code/c"],
   );
   const [first] = choices;
   assert.ok(first?.kind === "no-project");
-  assert.equal(first.name, "No project");
+  assert.equal(first.name, "No Project");
   assert.deepEqual(
     first.copies.map((copy) => [copy.hostId, copy.home.path, copy.home.exists]),
     [
@@ -94,7 +94,7 @@ test("newChatProjects lists No project first", () => {
   );
 });
 
-test("No project is offered as soon as a computer connects, before its Chats home was read", () => {
+test("No Project is offered as soon as a computer connects, before its Chats home was read", () => {
   // Just paired: the open computer answers but hasn't said where its home is yet.
   const choice = noProjectChoice([view("mac", "checking", ["/code/a"]), view("deer", "online", ["/code/b"]), view("away", "offline", ["/c"])], null, "mac");
   assert.ok(choice);
@@ -111,7 +111,7 @@ test("No project is offered as soon as a computer connects, before its Chats hom
   assert.equal(noProjectChoice([view("mac", "online", ["/code/a"], [], null)], null, "mac"), undefined);
 });
 
-test("No project defaults to the computer last used for a Chat", () => {
+test("No Project defaults to the computer last used for a Chat", () => {
   const views = [
     view("mac", "online", ["/a"], [], home("/m/chats")),
     view("deer", "online", ["/b"], [], home("/d/chats", false)),

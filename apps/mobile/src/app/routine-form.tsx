@@ -324,13 +324,14 @@ export default function RoutineFormSheet() {
             <Icon icon={PencilEdit02Icon} tone="ink3" size={20} />
             <View style={{ flex: 1 }}>
               <Field
+                bare
                 label="Name"
                 hideLabel
                 placeholder="Name this Routine"
                 autoCapitalize="sentences"
                 value={form.name}
                 onChangeText={(name) => change({ name })}
-                style={{ backgroundColor: "transparent", paddingHorizontal: 0, fontSize: type.callout, fontWeight: "500" }}
+                style={{ paddingHorizontal: 0, fontSize: type.callout, fontWeight: "500" }}
               />
             </View>
           </View>
@@ -434,6 +435,7 @@ export default function RoutineFormSheet() {
               {form.schedule.mode === "at" ? (
                 <FormRow icon={Clock01Icon} label="Time">
                   <Field
+                    bare
                     label="Time"
                     hideLabel
                     placeholder="09:00"
@@ -473,6 +475,7 @@ export default function RoutineFormSheet() {
               {form.schedule.mode === "cron" ? (
                 <FormRow icon={Clock01Icon} label="Cron">
                   <Field
+                    bare
                     label="Cron"
                     hideLabel
                     placeholder="*/15 * * * *"
@@ -603,6 +606,7 @@ export default function RoutineFormSheet() {
               {signed ? (
                 <FormRow icon={Shield01Icon} label="Signing header">
                   <Field
+                    bare
                     label="Signing header"
                     hideLabel
                     placeholder="sentry-hook-signature"
@@ -615,6 +619,7 @@ export default function RoutineFormSheet() {
               {signed ? (
                 <FormRow icon={Shield01Icon} label="Signing secret">
                   <Field
+                    bare
                     label="Signing secret"
                     hideLabel
                     secureTextEntry
@@ -770,6 +775,7 @@ export default function RoutineFormSheet() {
             {form.stop.kind === "runs" ? (
               <FormRow icon={RepeatIcon} label="Runs">
                 <Field
+                  bare
                   label="Runs"
                   hideLabel
                   keyboardType="number-pad"
@@ -832,7 +838,7 @@ function chatProject(chatId: string, projects: Targets["projects"]) {
 }
 
 const inlineField = (colors: ReturnType<typeof useTheme>["colors"]) =>
-  ({ backgroundColor: "transparent", color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 120, fontSize: type.body }) as const;
+  ({ color: colors.ink2, textAlign: "right", paddingHorizontal: 0, minWidth: 120, fontSize: type.body }) as const;
 
 /** A card of rows split by hairlines: the shared Group, taking conditional children. */
 function Card({ children }: { children: React.ReactNode }) {

@@ -38,7 +38,7 @@ export function McpSection() {
 
   return (
     <View style={{ gap: 16 }}>
-      <View style={{ gap: 6, paddingHorizontal: 4 }}>
+      <View style={{ gap: 6 }}>
         <Text accessibilityRole="header" style={styles.title}>
           MCP
         </Text>

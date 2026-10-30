@@ -4,8 +4,8 @@ export type ProjectMenuKey = "reveal" | "copy-path" | "copy-name" | "settings";
 export function projectMenuActions(isMac: boolean): Array<{ key: ProjectMenuKey; label: string }> {
   return [
     { key: "reveal", label: isMac ? "Reveal in Finder" : "Show in file manager" },
-    { key: "copy-path", label: "Copy project path" },
-    { key: "copy-name", label: "Copy project name" },
+    { key: "copy-path", label: "Copy path" },
+    { key: "copy-name", label: "Copy name" },
     { key: "settings", label: "Project settings" },
   ];
 }

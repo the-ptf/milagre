@@ -3504,6 +3504,7 @@ function App() {
                 onBack={changes.closeDiff}
                 send={{ count: diffComments.sendable.length, onSend: () => void sendDiffComments() }}
                 trailing={<DiffToolbar changes={changes} prefs={diffPrefs} />}
+                corner={((changesAvailable ? 1 : 0) + sidePanelCount(sidePanels) + (view === "chat" ? 1 : 0)) * CORNER_PITCH}
               />
               <AnimatePresence initial={false} onExitComplete={diffPresence.onExitComplete}>
                 {changes.diffOpen && <DiffView key="diff" changes={changes} prefs={diffPrefs} comments={diffComments} review={prDiffReview} />}

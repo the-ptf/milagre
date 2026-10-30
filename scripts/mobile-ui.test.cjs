@@ -10855,15 +10855,15 @@ test("mobile main sync switch re-reads the Mac's default on focus and shows a re
   assert.deepEqual(pushed, ["/usage"]);
   focused.at(-1)();
   await settle();
-  assert.equal(toggle().props.selected, false);
+  assert.equal(toggle().props.toggle.value, false);
   // Turned on from the Mac while the phone was elsewhere: coming back to the screen shows it.
   saved = true;
   focused.at(-1)();
   await settle();
-  assert.equal(toggle().props.selected, true);
-  toggle().props.onPress();
+  assert.equal(toggle().props.toggle.value, true);
+  toggle().props.toggle.onChange(!toggle().props.toggle.value);
   await settle();
-  assert.equal(toggle().props.selected, true, "a refused save puts the switch back");
+  assert.equal(toggle().props.toggle.value, true, "a refused save puts the switch back");
   assert.equal(find(render(), (n) => n.type === "InlineError").props.message, "This demo computer only opens its demo project.");
 });
 
@@ -10909,11 +10909,11 @@ test("mobile Auto update switch shows the Mac's setting, saves a change and hide
   assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
   for (const fn of focused.splice(0)) fn();
   await settle();
-  assert.equal(toggle().props.selected, false);
-  toggle().props.onPress();
+  assert.equal(toggle().props.toggle.value, false);
+  toggle().props.toggle.onChange(!toggle().props.toggle.value);
   await settle();
   assert.deepEqual(calls.at(-1), ["app-update:auto:save", true]);
-  assert.equal(toggle().props.selected, true);
+  assert.equal(toggle().props.toggle.value, true);
   older = true;
   render();
   for (const fn of focused.splice(0)) fn();

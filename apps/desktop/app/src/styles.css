@@ -291,14 +291,14 @@ html[data-floating-inbox] #root {
   --canvas: #e9f1fa;
   --surface: #ffffff;
   --inset: #f9fcff;
-  /* translucent ink (4% / 8%), so a hover darkens page, card and field alike; hover-2 is the open row */
-  --hover: #1c222b0a;
-  --hover-2: #1c222b14;
+  /* translucent ink (6% / 10%), so a hover darkens page, card and field alike; hover-2 is the open row */
+  --hover: #1c222b0f;
+  --hover-2: #1c222b1a;
 
   /* ink ramp: ink-2 and ink-3 read at 4.5:1 on page, surface, field and hover-2 */
   --ink: #1c222b;
   --ink-2: #4b515a;
-  --ink-3: #636870;
+  --ink-3: #60656d;
   --ink-4: #8c929a;
 
   /* borders — solid and crisp, not alpha */
