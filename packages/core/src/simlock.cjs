@@ -59,6 +59,8 @@ function normalize(value) {
     enabled: input.enabled === true,
     gatewayUrl: typeof input.gatewayUrl === "string" && validGatewayUrl(trimUrl(input.gatewayUrl)) ? trimUrl(input.gatewayUrl) : "",
     agentToken: typeof input.agentToken === "string" ? input.agentToken.trim().slice(0, 4096) : "",
+    // The gateway origin the token was saved for; it is sent nowhere else, even when detection later finds another.
+    tokenOrigin: typeof input.tokenOrigin === "string" ? input.tokenOrigin : "",
     maxLeases: int(input.maxLeases, 1, 20, DEFAULTS.maxLeases),
     maxLeaseMinutes: int(input.maxLeaseMinutes, 5, 240, DEFAULTS.maxLeaseMinutes),
   };
@@ -80,9 +82,11 @@ function createSimlockSettings({ file, emit = () => {}, env = process.env, home 
     const value = stored();
     const machine = machineSimlock(env, home);
     const gatewayUrl = value.gatewayUrl || machine?.gatewayUrl || "";
-    const agentToken = value.agentToken ? value.agentToken : machine && origin(machine.gatewayUrl) === origin(gatewayUrl) ? machine.agentToken : "";
-    const tokenSource = value.agentToken ? "settings" : agentToken ? machine.source : null;
-    return { ...value, gatewayUrl, agentToken, tokenSource, detected: machine ? { gatewayUrl: machine.gatewayUrl, source: machine.source } : null };
+    const saved = value.agentToken && value.tokenOrigin && value.tokenOrigin === origin(gatewayUrl) ? value.agentToken : "";
+    const agentToken = saved || (machine && origin(machine.gatewayUrl) === origin(gatewayUrl) ? machine.agentToken : "");
+    const tokenSource = saved ? "settings" : agentToken ? machine.source : null;
+    const { tokenOrigin: _origin, ...rest } = value;
+    return { ...rest, gatewayUrl, agentToken, tokenSource, detected: machine ? { gatewayUrl: machine.gatewayUrl, source: machine.source } : null };
   }
   function read() {
     const { agentToken, ...rest } = resolved();
@@ -102,8 +106,13 @@ function createSimlockSettings({ file, emit = () => {}, env = process.env, home 
       throw new Error("A lease's longest time must be a whole number of minutes from 5 to 240.");
     const current = stored();
     const next = normalize({ ...current, ...patch });
-    // A token belongs to the gateway it was entered for; a new gateway without a new token drops the old one.
+    // A token belongs to the gateway in effect when it was entered: the saved one, else the one detected on this Mac then.
+    // A new gateway without a new token drops the old one.
     if (patch.gatewayUrl !== undefined && origin(next.gatewayUrl) !== origin(current.gatewayUrl) && patch.agentToken === undefined) next.agentToken = "";
+    if (patch.agentToken !== undefined)
+      next.tokenOrigin = next.agentToken ? (origin(next.gatewayUrl || machineSimlock(env, home)?.gatewayUrl || "") ?? "") : "";
+    if (!next.agentToken) next.tokenOrigin = "";
+    if (next.agentToken && !next.tokenOrigin) throw new Error("Enter the gateway this token belongs to, or start a Simlock worker on this Mac.");
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
@@ -149,7 +158,10 @@ function cliEnvironment(env) {
   };
 }
 
-function runCli({ nodePath, entryPath }, args, { cwd, env, timeoutMs }) {
+// Past its deadline a command gets SIGTERM, then SIGKILL after this grace; the call settles at the kill either way,
+// so a child that ignores signals or a grandchild holding its pipes can never stall a release or host shutdown.
+const KILL_GRACE_MS = 3000;
+function runCli({ nodePath, entryPath }, args, { cwd, env, timeoutMs, killGraceMs = KILL_GRACE_MS }) {
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -159,22 +171,34 @@ function runCli({ nodePath, entryPath }, args, { cwd, env, timeoutMs }) {
       return;
     }
     let stdout = "",
-      stderr = "";
+      stderr = "",
+      settled = false,
+      killTimer = null;
+    const settle = (result, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+      if (error) reject(error);
+      else resolve(result);
+    };
     child.stdout.on("data", (chunk) => {
       if (stdout.length < 1_048_576) stdout += chunk;
     });
     child.stderr.on("data", (chunk) => {
       if (stderr.length < 65_536) stderr += chunk;
     });
-    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal, stdout, stderr });
-    });
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+        child.stdout.destroy();
+        child.stderr.destroy();
+        settle({ code: null, signal: "SIGKILL", stdout, stderr });
+      }, killGraceMs);
+    }, timeoutMs);
+    child.on("error", (error) => settle(null, error));
+    child.on("close", (code, signal) => settle({ code, signal, stdout, stderr }));
   });
 }
 
@@ -426,11 +450,13 @@ function createSimlockHost({
         JSON.stringify({ daemonBaseUrl: `${value.gatewayUrl}${AGENT_DEVICE_PATH}`, daemonAuthToken: value.agentToken, stateDir: dir }),
         { mode: 0o600 },
       );
-      let cwd = dir;
-      if (typeof installDirectory === "string" && installDirectory) {
-        try {
-          cwd = fs.realpathSync(installDirectory);
-        } catch {}
+      // agent-device accepts installs only from the folder `open` ran in: the Chat's own, never a fallback.
+      let cwd;
+      try {
+        cwd = fs.realpathSync(installDirectory);
+        if (!fs.statSync(cwd).isDirectory()) throw new Error("not a folder");
+      } catch {
+        throw new Error("This Chat's folder isn't available on this Mac, so a leased device couldn't install its builds.");
       }
       await cli(pending, ["connect", "proxy", "--daemon-base-url", `${value.gatewayUrl}${AGENT_DEVICE_PATH}`]);
       const opened = await cli(pending, ["open", "--platform", platform, ...(model ? ["--device", model.trim()] : [])], {
@@ -508,6 +534,7 @@ function createSimlockHost({
 
 module.exports = {
   createSimlockSettings,
+  runCli,
   createSimlockHost,
   machineSimlock,
   catalogDevices,

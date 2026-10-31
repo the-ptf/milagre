@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createSimlockSettings, createSimlockHost, machineSimlock, catalogDevices, launcherScript } = require("./simlock.cjs");
+const { createSimlockSettings, createSimlockHost, machineSimlock, catalogDevices, launcherScript, runCli } = require("./simlock.cjs");
 
 function temp(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "simlock-test-"));
@@ -165,21 +165,21 @@ test("a lease opens through agent-device in the Chat's folder and ends through i
 });
 
 test("leases stop at the limit and a failed open leaves nothing behind", async (t) => {
-  const { host } = hostFixture(t, { maxLeases: 1 });
-  await host.lease({ platform: "ios" });
-  await assert.rejects(host.lease({ platform: "ios" }), /limited to 1 device at once/);
-  await assert.rejects(host.lease({ platform: "watchos" }), /ios or android/);
+  const { host, dir } = hostFixture(t, { maxLeases: 1 });
+  await host.lease({ platform: "ios", installDirectory: dir });
+  await assert.rejects(host.lease({ platform: "ios", installDirectory: dir }), /limited to 1 device at once/);
+  await assert.rejects(host.lease({ platform: "watchos", installDirectory: dir }), /ios or android/);
 
   const failing = hostFixture(t, { failOpen: true });
-  await assert.rejects(failing.host.lease({ platform: "ios" }), /timed out waiting for a device nothing was leased/);
+  await assert.rejects(failing.host.lease({ platform: "ios", installDirectory: failing.dir }), /timed out waiting for a device nothing was leased/);
   assert.equal(failing.runs.at(-1).args[0], "close");
   assert.deepEqual(failing.host.leases(), []);
 });
 
 test("renewals keep a lease, and a lease Simlock ended is forgotten", async (t) => {
   let status = 200;
-  const { host, requests } = hostFixture(t, { renew: () => json({}, status) });
-  const lease = await host.lease({ platform: "ios" });
+  const { host, requests, dir } = hostFixture(t, { renew: () => json({}, status) });
+  const lease = await host.lease({ platform: "ios", installDirectory: dir });
   await new Promise((resolve) => setTimeout(resolve, 30));
   const renewal = requests.find((r) => r.url.endsWith("/renew"));
   assert.ok(renewal);
@@ -227,11 +227,77 @@ test("identity checks a typed token without saving it, and a refused token says 
 });
 
 test("a close that hangs on a frozen device falls back to ending the lease over HTTP", async (t) => {
-  const { host, runs, requests } = hostFixture(t, { closeHangs: true });
-  const lease = await host.lease({ platform: "ios" });
+  const { host, runs, requests, dir } = hostFixture(t, { closeHangs: true });
+  const lease = await host.lease({ platform: "ios", installDirectory: dir });
   await host.release(lease.deviceId);
   const close = runs.find((r) => r.args[0] === "close");
   assert.equal(close.timeoutMs, 20000);
   assert.ok(requests.some((r) => r.method === "DELETE" && r.url.endsWith("/v1/leases/lease1") && r.auth === "Bearer slk_t"));
   assert.deepEqual(host.leases(), []);
+});
+
+test("a saved token goes only to the gateway in effect when it was saved, even when detection changes", (t) => {
+  const home = temp(t);
+  fs.mkdirSync(path.join(home, ".simlock"));
+  const profile = (url, token) =>
+    fs.writeFileSync(
+      path.join(home, ".simlock", "agent-device-profile.json"),
+      JSON.stringify({ daemonBaseUrl: `${url}/v1/agent-device`, daemonAuthToken: token }),
+    );
+  profile("http://127.0.0.1:4701", "slk_worker_a");
+  const env = {};
+  const settings = createSimlockSettings({ file: path.join(home, "simlock.json"), env, home });
+  // Gateway left empty: the token is saved for the worker detected now, A.
+  settings.save({ enabled: true, agentToken: "slk_saved_for_a" });
+  assert.equal(settings.resolved().agentToken, "slk_saved_for_a");
+  // The profile now points at B: A's token must not follow it; B's own profile token is used instead.
+  profile("http://127.0.0.1:4801", "slk_worker_b");
+  assert.equal(settings.resolved().gatewayUrl, "http://127.0.0.1:4801");
+  assert.equal(settings.resolved().agentToken, "slk_worker_b");
+  assert.equal(settings.read().tokenSource, "worker");
+  // agent-device's variables take over with a gateway of their own: still not A's token.
+  env.AGENT_DEVICE_DAEMON_BASE_URL = "https://gateway-c.example.com/v1/agent-device";
+  env.AGENT_DEVICE_DAEMON_AUTH_TOKEN = "slk_env_c";
+  assert.equal(settings.resolved().agentToken, "slk_env_c");
+  // Without its token the variables don't count, and detection falls back to B's profile: still not A's token.
+  delete env.AGENT_DEVICE_DAEMON_AUTH_TOKEN;
+  assert.equal(settings.resolved().agentToken, "slk_worker_b");
+  // Back on A, the saved token applies again.
+  delete env.AGENT_DEVICE_DAEMON_BASE_URL;
+  profile("http://127.0.0.1:4701", "slk_worker_a");
+  assert.equal(settings.resolved().agentToken, "slk_saved_for_a");
+  // With nothing detected and no gateway, a token has nowhere it belongs.
+  fs.rmSync(path.join(home, ".simlock"), { recursive: true });
+  assert.throws(() => settings.save({ agentToken: "slk_orphan" }), /gateway this token belongs to/);
+});
+
+test("a lease needs the Chat's own folder and never falls back to another", async (t) => {
+  const { host, runs } = hostFixture(t);
+  await assert.rejects(host.lease({ platform: "ios" }), /folder isn't available/);
+  await assert.rejects(host.lease({ platform: "ios", installDirectory: "/nonexistent/worktree" }), /folder isn't available/);
+  const file = path.join(temp(t), "file");
+  fs.writeFileSync(file, "");
+  await assert.rejects(host.lease({ platform: "ios", installDirectory: file }), /folder isn't available/);
+  assert.equal(runs.filter((r) => r.args[0] === "open").length, 0);
+  assert.deepEqual(host.leases(), []);
+});
+
+test("a command that ignores SIGTERM, or holds its pipes open, still settles at its deadline", async (t) => {
+  const dir = temp(t);
+  const stubborn = path.join(dir, "stubborn.cjs");
+  fs.writeFileSync(stubborn, "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);");
+  const started = Date.now();
+  const result = await runCli({ nodePath: process.execPath, entryPath: stubborn }, [], { cwd: dir, env: process.env, timeoutMs: 100, killGraceMs: 200 });
+  assert.equal(result.signal, "SIGKILL");
+  assert.ok(Date.now() - started < 5000, "settled well within the bound");
+  // A grandchild that inherits stdout keeps the pipe open past the child's exit; the call must not wait on it.
+  const holder = path.join(dir, "holder.cjs");
+  fs.writeFileSync(
+    holder,
+    "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: ['ignore', 'inherit', 'inherit'] }); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);",
+  );
+  const begun = Date.now();
+  const held = await runCli({ nodePath: process.execPath, entryPath: holder }, [], { cwd: dir, env: process.env, timeoutMs: 100, killGraceMs: 200 });
+  assert.equal(held.signal, "SIGKILL");
+  assert.ok(Date.now() - begun < 5000, "a held pipe does not stall the call");
 });
