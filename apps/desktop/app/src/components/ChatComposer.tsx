@@ -81,6 +81,7 @@ import type { LightboxItem } from "./motion/MediaLightbox";
 import type { ImageDraft } from "./usePastedImages";
 import { PromptComposer } from "./PromptComposer";
 import { QueuedMessages } from "./QueuedMessages";
+import { ComputerUseCard } from "./agents/ComputerUseCard";
 import { HeartbeatCard } from "./routines/HeartbeatCard";
 import { NextCheck } from "./routines/NextCheck";
 import type { QueueControls } from "./QueuedMessages";
@@ -265,7 +266,7 @@ function ReplyContent({
   waitingStepIds: string[];
   credits?: number;
 }) {
-  const { setup, activity, images, artifacts, heartbeats, answer } = replyActivity(body, steps);
+  const { setup, activity, images, artifacts, heartbeats, desktop, answer } = replyActivity(body, steps);
   const thought = !streaming || asking ? unspokenThought(body, steps) : "";
   return (
     <>
@@ -276,6 +277,7 @@ function ReplyContent({
       {images.map((step) => (
         <GeneratedImage key={step.id} step={step} />
       ))}
+      {desktop.length > 0 && <ComputerUseCard steps={desktop} />}
       <ArtifactCards steps={artifacts} />
       {heartbeats.map((step) => (
         <HeartbeatCard key={step.id} step={step} />

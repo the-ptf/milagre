@@ -19,6 +19,7 @@
     "src/model-copy.ts",
     "src/provider-logos.ts",
     "src/reply-parts.ts",
+    "src/desktop-steps.ts",
     "src/streaming-markdown.ts",
     "src/streaming-blocks.ts",
     "src/markdown-fence.ts",
@@ -306,6 +307,7 @@
       "default": "./src/reconcile.mjs"
     },
     "./reply-parts": "./src/reply-parts.ts",
+    "./desktop-steps": "./src/desktop-steps.ts",
     "./streaming-markdown": "./src/streaming-markdown.ts",
     "./streaming-blocks": "./src/streaming-blocks.ts",
     "./markdown-fence": "./src/markdown-fence.ts",
