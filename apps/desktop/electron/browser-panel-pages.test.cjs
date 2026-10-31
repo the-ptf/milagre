@@ -28,6 +28,9 @@ function fakeGuest(id, host, { title = "Checkout", url = "http://localhost:5173/
     getType: () => "webview",
     getTitle: () => guest.title,
     getURL: () => guest.url,
+    reloads: [],
+    reload: () => guest.reloads.push("reload"),
+    reloadIgnoringCache: () => guest.reloads.push("ignoring cache"),
   });
   return guest;
 }
@@ -124,10 +127,20 @@ test("a DevTools connection to a page attaches its debugger for as long as it is
   ws.send(JSON.stringify({ id: 3, method: "Emulation.clearDeviceMetricsOverride", params: {} }));
   await cleared;
   assert.deepEqual(f.sent.at(-1), ["browser-panel:viewed", { from: 7, viewed: true, viewport: null }]);
+  // Page.reload through the guest's debugger would reload Milagre's window: the guest reloads itself.
+  for (const [id, params] of [
+    [4, {}],
+    [5, { ignoreCache: true }],
+  ]) {
+    const reloaded = new Promise((resolve) => ws.addEventListener("message", (message) => resolve(JSON.parse(message.data)), { once: true }));
+    ws.send(JSON.stringify({ id, method: "Page.reload", params }));
+    assert.deepEqual(await reloaded, { id, result: {} });
+  }
+  assert.deepEqual(f.guests.get(7).reloads, ["reload", "ignoring cache"]);
   assert.deepEqual(
     debug.commands.map(([method]) => method),
     ["Page.startScreencast"],
-    "no emulation reaches the guest",
+    "no emulation or reload reaches the guest's debugger",
   );
   ws.close();
   for (let i = 0; i < 50 && debug.attached; i++) await new Promise((resolve) => setTimeout(resolve, 10));
