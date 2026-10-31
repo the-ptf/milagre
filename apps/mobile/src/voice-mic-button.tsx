@@ -30,7 +30,13 @@ export const CAPSULE_WIDTH = 6 + CONTROL + 4 + CONTROL + 6;
  * tall, so a 44 capsule anchored to its bottom padding would hang over the top of the composer's own background.
  */
 const CAPSULE_HEIGHT = 36;
-export const CAPSULE_INSET = { right: 6, bottom: 4 };
+/**
+ * The composer's send button is 34pt and flush with the card's content edge (app/chat.tsx), as the field above it is: the
+ * mic, and the capsule's stop button after it, stand over its centre. Both reach a few points into the card's padding.
+ */
+const SEND_CENTER = 34 / 2;
+export const MIC_INSET = { right: SEND_CENTER - MIC_SIZE / 2, bottom: 6 };
+export const CAPSULE_INSET = { right: SEND_CENTER - 6 - CONTROL / 2, bottom: 4 };
 // The level halo swells inside the capsule and no further: 22 at rest, 35.2 at full voice, under CAPSULE_HEIGHT.
 const HALO = 22;
 const HALO_SWELL = 0.6;
