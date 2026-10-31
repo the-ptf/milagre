@@ -42,11 +42,14 @@ function createAgentCursor({ BrowserWindow, screen }) {
       focusable: false,
       skipTaskbar: true,
       fullscreenable: false,
+      // macOS keeps ordinary windows below the menu bar; the cursor needs the whole display.
+      enableLargerThanScreen: true,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
     });
     window.setIgnoreMouseEvents(true);
     window.setAlwaysOnTop(true, "screen-saver");
     window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    window.setBounds(display.bounds);
     const ready = window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(PAGE)}`).catch(() => {});
     entry = { window, display, ready };
     windows.set(display.id, entry);
@@ -65,11 +68,11 @@ function createAgentCursor({ BrowserWindow, screen }) {
     if (current && current !== entry) hideIn(current);
     current = entry;
     if (!entry.window.isVisible()) entry.window.showInactive();
-    const x = point.x - display.bounds.x - TIP.x;
-    const y = point.y - display.bounds.y - TIP.y;
-    const ring = bounds
-      ? { left: bounds.x - display.bounds.x - 3, top: bounds.y - display.bounds.y - 3, width: bounds.width + 6, height: bounds.height + 6 }
-      : null;
+    // Positions are in screen points; the page's origin is where the window really is, which macOS may have moved.
+    const origin = entry.window.getContentBounds();
+    const x = point.x - origin.x - TIP.x;
+    const y = point.y - origin.y - TIP.y;
+    const ring = bounds ? { left: bounds.x - origin.x - 3, top: bounds.y - origin.y - 3, width: bounds.width + 6, height: bounds.height + 6 } : null;
     void run(
       entry,
       `(() => {
