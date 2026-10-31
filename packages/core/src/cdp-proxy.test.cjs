@@ -82,11 +82,15 @@ test("a DevTools connection relays commands, results, errors and events, and rel
   ws.send(JSON.stringify({ id: 3, method: "Target.getTargets" }));
   ws.send(JSON.stringify({ id: 4, method: "Runtime.evaluate", params: {}, sessionId: "MAIN-WINDOW" }));
   ws.send(JSON.stringify({ id: 5, method: "Browser.getVersion" }));
+  // Nor the session's cookies: they hold the sign-ins of every Chat sharing it.
+  ws.send(JSON.stringify({ id: 6, method: "Network.getAllCookies" }));
+  ws.send(JSON.stringify({ id: 7, method: "Network.getCookies", params: { urls: ["https://github.com"] } }));
+  ws.send(JSON.stringify({ id: 8, method: "Network.setCookie", params: { name: "a", value: "b", url: "https://github.com" } }));
   const until = async (check) => {
     for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 10));
   };
-  await until(() => messages.length >= 5);
-  for (const id of [3, 4, 5]) assert.equal(messages.find((message) => message.id === id)?.error?.code, -32601, `message ${id}`);
+  await until(() => messages.length >= 8);
+  for (const id of [3, 4, 5, 6, 7, 8]) assert.equal(messages.find((message) => message.id === id)?.error?.code, -32601, `message ${id}`);
   assert.equal(f.calls.length, 2, "refused commands never reach the page");
   assert.deepEqual(f.calls[0], { method: "Page.enable", params: { a: 1 }, sessionId: undefined });
   assert.deepEqual(

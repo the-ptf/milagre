@@ -52,6 +52,7 @@ const PEER_PANEL_PAGES = "peer-panel-pages-v1";
 const PEER_METHODS = Object.freeze(["peer:routes"]);
 // The desktop app's update, checked and installed from the phone or a paired desktop (host-updates.cjs).
 const { APP_UPDATE_METHODS, createHostUpdates } = require("./host-updates.cjs");
+const { BROWSER_SIGN_IN_METHODS, createHostBrowserSignIns } = require("./host-browser-sign-ins.cjs");
 // The remote folder picker and a remote chat's images (spec "Remote-only helpers"); paired desktops may call both.
 const REMOTE_FILES = "remote-files-v1";
 const FILE_METHODS = Object.freeze(["fs:list-dirs", "media:read"]);
@@ -601,6 +602,7 @@ async function startDaemon({
       for (const listener of remoteListeners.removed) listener(id);
     },
   });
+  const browserSignIns = createHostBrowserSignIns({ desktop: desktopCommands, computers: () => computers.remote.list() });
   /**
    * One client of the daemon, whatever carries its frames: the Unix socket below, and a paired desktop's channel (peer-channel.cjs).
    * The carrier supplies `send(message, json, bytes)`, which writes one frame as wire()'s send does (it may throw
@@ -781,6 +783,7 @@ async function startDaemon({
               ...PEER_METHODS,
               ...FILE_METHODS,
               ...APP_UPDATE_METHODS,
+              ...BROWSER_SIGN_IN_METHODS,
             ].filter((method) => !policy?.denies(method)),
           };
         else if (request.method.startsWith("computers:")) {
@@ -840,6 +843,7 @@ async function startDaemon({
         else if (request.method === "devices:deny") result = phone.denyDevice(request.args[0]);
         else if (request.method === "peer:routes") result = phone.peerRoutes();
         else if (APP_UPDATE_METHODS.includes(request.method)) result = await hostUpdates.invoke(request.method);
+        else if (BROWSER_SIGN_IN_METHODS.includes(request.method)) result = await browserSignIns.invoke(request.method, request.args);
         else if (request.method === "live-activity:state") result = liveActivity.state(request.args[0]);
         else if (request.method === "live-activity:open") result = liveActivity.open(request.args[0]);
         else if (request.method === "live-activity:answer") result = await liveActivity.choose(request.args[0]);

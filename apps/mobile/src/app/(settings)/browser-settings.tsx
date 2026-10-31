@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { Stack } from "expo-router";
 import { useInternalBrowser } from "../../browser-setting";
+import { BrowserSignInsSection } from "../../browser-sign-ins-section";
 import { ErrorNotice, PageScroll, Toggle, useStyles } from "../../ui";
 
 export default function BrowserSettingsScreen() {
@@ -25,6 +26,7 @@ export default function BrowserSettingsScreen() {
           <Text style={styles.caption}>{"Open web links in this Chat's Browser. Turn off to use this device's default browser."}</Text>
           {browserError ? <ErrorNotice message={browserError} /> : null}
         </View>
+        <BrowserSignInsSection />
       </PageScroll>
     </>
   );

@@ -12,6 +12,9 @@ const MAX_MESSAGE = 4 * 1024 * 1024;
 // The page's webContents.debugger can reach past the page: Target.* attaches to other targets (Milagre's own window
 // among them) and a sessionId addresses what it attached. A client gets the page's own domains only.
 const OUT_OF_PAGE = /^(Target|Browser|SystemInfo|Tethering|Storage)\./;
+// The session's cookies, httpOnly ones included, for every site: a page's session holds the sign-ins of every Chat that
+// shares it (this Mac's Chats, or one computer's), and no browser tool reads or writes them.
+const COOKIES = /^Network\.(getCookies|getAllCookies|setCookies?|deleteCookies|clearBrowserCookies)$/;
 
 /**
  * @param {{
@@ -88,7 +91,7 @@ function createCdpProxy({ product, pages, session }) {
       if (!Number.isSafeInteger(message?.id) || typeof message.method !== "string") return;
       const refuse = (reason) => send({ id: message.id, error: { code: -32601, message: reason } });
       if (message.sessionId !== undefined) return refuse("Sessions are not available on a Browser panel page.");
-      if (OUT_OF_PAGE.test(message.method)) return refuse(`${message.method} is not available on a Browser panel page.`);
+      if (OUT_OF_PAGE.test(message.method) || COOKIES.test(message.method)) return refuse(`${message.method} is not available on a Browser panel page.`);
       page.send(message.method, message.params && typeof message.params === "object" ? message.params : {}).then(
         (result) => send({ id: message.id, result: result ?? {} }),
         (error) => send({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } }),
