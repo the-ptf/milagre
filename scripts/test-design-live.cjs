@@ -248,15 +248,16 @@ async function browserChecks() {
     await delay(400);
     // Exercise the draft handoff onto a decoded image, not only onto an iframe.
     await evaluate(
-      'document.querySelector("[data-slot=artifact-canvas]").dispatchEvent(new WheelEvent("wheel", { deltaY: 100, ctrlKey: true, bubbles: true, cancelable: true }))',
+      `(() => {
+        const canvas = document.querySelector('[data-slot=artifact-canvas]');
+        const scale = new DOMMatrixReadOnly(getComputedStyle(canvas.firstElementChild).transform).a;
+        canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: Math.log(scale / .15) * 100, ctrlKey: true, bubbles: true, cancelable: true }));
+      })()`,
     );
     await waitFor(
       `${frame("login")}.querySelector("[data-design-body] img")?.naturalWidth > 0 && !${frame("login")}.querySelector("[data-design-body] iframe")`,
     );
-    assert.ok(
-      await evaluate(`parseInt(${dock}.querySelector('[data-slot=artifact-zoom-bar]').textContent, 10) < 22`),
-      "the streamed edit starts below the image threshold",
-    );
+    await waitFor(`Number(${dock}.querySelector('[data-slot=artifact-zoom-bar]').textContent.match(/([0-9]+)%/)?.[1]) < 22`);
 
     // 1. Claude writes a design_apply: the edit builds over the frame, with Claude's cursor on the last layer it touched.
     // Paused halfway through, once the heading's operation is whole: two operations applied, the cursor on the heading.
