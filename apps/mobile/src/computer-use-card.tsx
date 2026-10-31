@@ -7,6 +7,7 @@ import type { ComputerUseFrame } from "@milagre/shared/computer-use";
 import type { ChatStep } from "@milagre/shared/model";
 import { Icon } from "./icons";
 import { useSession } from "./session";
+import { radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { showImages } from "./viewer-store";
 
@@ -62,9 +63,13 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
     else finish();
   };
   return (
-    <View style={{ borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, overflow: "hidden" }}>
+    <View style={{ borderRadius: radius.card, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, overflow: "hidden" }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, height: 40 }}>
-        {live ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green }} /> : <Icon icon={ComputerIcon} size={15} tone="ink2" />}
+        {live ? (
+          <View style={{ width: 8, height: 8, borderRadius: radius.full, backgroundColor: colors.green }} />
+        ) : (
+          <Icon icon={ComputerIcon} size={15} tone="ink2" />
+        )}
         {live && <Text style={{ color: colors.greenInk, fontSize: 13, fontWeight: "600" }}>Live</Text>}
         <Text numberOfLines={1} style={{ flex: 1, color: colors.ink2, fontSize: 13 }}>
           {[apps.join(", "), `${steps.length} ${steps.length === 1 ? "step" : "steps"}`].filter(Boolean).join(" · ")}
@@ -114,7 +119,7 @@ function Step({ step }: { step: ChatStep }) {
       )}
       <Text
         numberOfLines={1}
-        style={{ flex: 1, fontSize: 14, color: running ? colors.ink : failed ? colors.redInk : colors.ink2, fontWeight: running ? "600" : "400" }}
+        style={{ flex: 1, fontSize: type.subheadline, color: running ? colors.ink : failed ? colors.redInk : colors.ink2, fontWeight: running ? "600" : "400" }}
       >
         {desktopStepLabel(step)}
       </Text>
