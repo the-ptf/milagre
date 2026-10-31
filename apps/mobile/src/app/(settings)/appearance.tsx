@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { AppearanceSection } from "../../appearance-section";
 
 export default function AppearanceScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Appearance" }} />
-      <PageScroll>
+      <SettingsScroll>
         <AppearanceSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Findable } from "./settings-find";
 import { Pressable, StyleSheet, Text, View, type DimensionValue } from "react-native";
 import {
   ArrowDown01Icon,
@@ -40,51 +41,53 @@ export function ChoiceCards<T extends string>({
   const s = useS();
   const { colors } = useTheme();
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel={label} style={[s.cards, compact && { gap: 8 }]}>
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityRole="radio"
-            accessibilityLabel={`${option.title}. ${option.description}`}
-            accessibilityState={{ checked: selected }}
-            onPress={() => {
-              if (selected) return;
-              tap();
-              onChange(option.value);
-            }}
-            style={({ pressed }) => [
-              s.card,
-              compact && { padding: 8, gap: 8, borderRadius: radius.card, borderWidth: 2, minWidth: 0 },
-              selected ? { borderColor: colors.accent, borderWidth: 2 } : null,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-          >
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={[s.preview, compact && { minHeight: 64, height: 64, padding: 8, borderRadius: radius.chip }]}
+    <Findable title={label}>
+      <View accessibilityRole="radiogroup" accessibilityLabel={label} style={[s.cards, compact && { gap: 8 }]}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={option.value}
+              accessibilityRole="radio"
+              accessibilityLabel={`${option.title}. ${option.description}`}
+              accessibilityState={{ checked: selected }}
+              onPress={() => {
+                if (selected) return;
+                tap();
+                onChange(option.value);
+              }}
+              style={({ pressed }) => [
+                s.card,
+                compact && { padding: 8, gap: 8, borderRadius: radius.card, borderWidth: 2, minWidth: 0 },
+                selected ? { borderColor: colors.accent, borderWidth: 2 } : null,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
             >
-              {option.preview}
-            </View>
-            <View style={s.name}>
-              {selected ? (
-                <View style={[s.mark, { backgroundColor: colors.accent }]}>
-                  <Icon icon={Tick02Icon} tone="onAccent" size={12} />
-                </View>
-              ) : (
-                <View style={[s.mark, { borderWidth: 1.5, borderColor: colors.ink3 }]} />
-              )}
-              <Text numberOfLines={compact ? undefined : 1} style={s.title}>
-                {option.title}
-              </Text>
-            </View>
-            <Text style={[s.description, compact && { fontSize: type.footnote }]}>{option.description}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
+              <View
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={[s.preview, compact && { minHeight: 64, height: 64, padding: 8, borderRadius: radius.chip }]}
+              >
+                {option.preview}
+              </View>
+              <View style={s.name}>
+                {selected ? (
+                  <View style={[s.mark, { backgroundColor: colors.accent }]}>
+                    <Icon icon={Tick02Icon} tone="onAccent" size={12} />
+                  </View>
+                ) : (
+                  <View style={[s.mark, { borderWidth: 1.5, borderColor: colors.ink3 }]} />
+                )}
+                <Text numberOfLines={compact ? undefined : 1} style={s.title}>
+                  {option.title}
+                </Text>
+              </View>
+              <Text style={[s.description, compact && { fontSize: type.footnote }]}>{option.description}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </Findable>
   );
 }
 

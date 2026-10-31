@@ -355,6 +355,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
       if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
+      // Settings search: a found row renders bare, and a Settings page's scroll is the PageScroll it wraps.
+      if (base === "settings-find" && !(id in modules)) return { Findable: ({ children }) => children, SettingsScroll: "PageScroll" };
+      if (id === "@milagre/shared/settings-search" && !(id in modules)) return require("../packages/shared/src/settings-search.ts");
+      if (base === "settings-index" && !(id in modules)) return require("../apps/mobile/src/settings-index.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },
@@ -16899,6 +16903,221 @@ function splitShellHost() {
   return { split, calls, screen, render, sidebarOf };
 }
 
+test("iPad panel drags preview the divider without reflowing content and commit only on release", () => {
+  const saved = [];
+  const ticks = [];
+  const knocks = [];
+  const gesture = () => {
+    const handlers = {};
+    const chain = { handlers };
+    for (const name of ["activeOffsetX", "numberOfTaps", "onStart", "onUpdate", "onEnd", "onFinalize"])
+      chain[name] = (value) => ((handlers[name] = value), chain);
+    return chain;
+  };
+  const { resizeGesture } = load(
+    "split-layout.tsx",
+    {
+      react: hookHost(),
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": { StyleSheet: { create: (styles) => styles } },
+      "expo-router": {},
+      "./project-navigation": {},
+      "./keybindings-store": {},
+      "./session": {},
+      "react-native-reanimated": { Easing: { bezier() {} }, ReduceMotion: { System: "system" } },
+      "react-native-gesture-handler": { Gesture: { Pan: gesture, Tap: gesture, Race: (...gestures) => gestures } },
+      "react-native-worklets": { scheduleOnRN: (fn, ...args) => fn(...args) },
+      "./panel-width": { setPanelWidth: (width) => saved.push(width) },
+      "expo-haptics": {
+        selectionAsync: () => (ticks.push(preview.get()), Promise.resolve()),
+        impactAsync: (style) => (knocks.push(style), Promise.resolve()),
+        ImpactFeedbackStyle: { Light: "light" },
+      },
+    },
+    "\nexport { resizeGesture };",
+  );
+  const shared = (value) => ({
+    get: () => value,
+    set: (next) => {
+      value = next;
+    },
+  });
+  const width = shared(420),
+    preview = shared(420),
+    start = shared(420),
+    dragging = shared(false);
+  const [drag, reset] = resizeGesture(width, preview, start, dragging, 800, [420, 640]);
+  drag.handlers.onStart();
+  for (const translationX of [-1, -20, -80, -160]) drag.handlers.onUpdate({ translationX });
+  assert.equal(width.get(), 420, "neither the Chat nor the panel reflows during the drag");
+  assert.equal(preview.get(), 580);
+  assert.equal(dragging.get(), true);
+  assert.deepEqual(saved, []);
+  drag.handlers.onEnd();
+  drag.handlers.onFinalize();
+  assert.equal(width.get(), 580);
+  assert.deepEqual(saved, [580]);
+  assert.equal(dragging.get(), false);
+  drag.handlers.onStart();
+  drag.handlers.onUpdate({ translationX: -1000 });
+  assert.equal(preview.get(), 800);
+  drag.handlers.onUpdate({ translationX: 1000 });
+  assert.equal(preview.get(), 320);
+  drag.handlers.onUpdate({ translationX: -48 });
+  assert.equal(preview.get(), 640, "a drag within reach of a detent settles on it");
+  drag.handlers.onUpdate({ translationX: -52 });
+  assert.equal(preview.get(), 640, "and stays there without ticking again");
+  drag.handlers.onUpdate({ translationX: -100 });
+  assert.equal(preview.get(), 680);
+  assert.equal(ticks.length, 3, "a tick at the maximum, the minimum and the detent");
+  drag.handlers.onFinalize();
+  assert.equal(width.get(), 580, "a cancelled drag keeps the committed width");
+  assert.equal(preview.get(), 580);
+  assert.deepEqual(saved, [580]);
+  reset.handlers.onEnd();
+  assert.deepEqual(saved, [580, 420]);
+  assert.deepEqual(knocks, ["light", "light", "light"], "a knock on each pick-up and on the reset");
+});
+
+test("iOS messages select ranges inside the Chat and freeze streaming text until Done", async () => {
+  const react = hookHost({ effects: true });
+  const copied = [];
+  const platform = { OS: "ios" };
+  const { MessageActions, messageActionProps } = load("message-actions.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Platform: platform, Pressable: "Pressable", TextInput: "TextInput", View: "View" },
+    "expo-clipboard": { setStringAsync: async (value) => copied.push(value) },
+    "./plain-text": { markdownPlainText: (value) => value.replaceAll("**", "") },
+    "./ui": { PillButton: "PillButton" },
+    "./primitives/tap": { tap() {} },
+  });
+  let text = "Some **selected** words";
+  const render = () => {
+    react.begin();
+    return MessageActions({ text, markdown: true, children: (open) => jsx("Message", { ...messageActionProps(open), text }) });
+  };
+  const original = render();
+  assert.equal(original.type, "Pressable");
+  original.props.onLongPress();
+  let tree = render();
+  const field = find(tree, (node) => node.type === "TextInput");
+  assert.equal(field.props.value, "Some selected words");
+  assert.equal(field.props.editable, false);
+  assert.equal(field.props.multiline, true);
+  assert.equal(field.props.scrollEnabled, false, "the Chat owns scrolling while the text view owns selection");
+  text += " arriving later";
+  tree = render();
+  assert.equal(find(tree, (node) => node.type === "TextInput").props.value, "Some selected words");
+  await find(tree, (node) => node.props.title === "Copy all").props.onPress();
+  assert.deepEqual(copied, ["Some selected words"]);
+  find(tree, (node) => node.props.title === "Done").props.onPress();
+  assert.equal(find(render(), (node) => node.type === "Message").props.text, text);
+  find(render(), (node) => node.type === "Message").props.onAccessibilityAction();
+  assert.ok(
+    find(render(), (node) => node.type === "TextInput"),
+    "VoiceOver opens the same in-place selection",
+  );
+  platform.OS = "android";
+  assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
+});
+
+test("hardware Return retries early native attachment, rebinds on focus and cleans up pending attempts", async () => {
+  const react = hookHost({ effects: true });
+  const frames = new Map();
+  const attached = [],
+    detached = [];
+  let nextFrame = 0,
+    listener,
+    sends = 0,
+    accepts = false;
+  const native = {
+    addListener: (_event, callback) => {
+      listener = callback;
+      return {
+        remove: () => {
+          listener = null;
+        },
+      };
+    },
+    attachReturnAsync: async (tag) => {
+      attached.push(tag);
+      return accepts;
+    },
+    detachReturnAsync: async (tag) => {
+      detached.push(tag);
+    },
+  };
+  const { useReturnKey } = load(
+    "hardware-keys.ts",
+    {
+      react,
+      "react-native": { Platform: { OS: "ios" }, findNodeHandle: (ref) => ref?.tag ?? null },
+      "expo-modules-core": { requireOptionalNativeModule: () => native },
+      "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+      frames: {
+        requestAnimationFrame: (callback) => {
+          frames.set(++nextFrame, callback);
+          return nextFrame;
+        },
+        cancelAnimationFrame: (id) => frames.delete(id),
+      },
+    },
+    '\nconst { requestAnimationFrame, cancelAnimationFrame } = require("frames");',
+  );
+  const ref = { current: { tag: 10 } };
+  const render = (
+    onReturn = () => {
+      sends++;
+    },
+  ) => {
+    react.begin();
+    return useReturnKey(ref, onReturn);
+  };
+  const tick = async () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach((callback) => callback());
+    await settle();
+  };
+  let binding = render();
+  await settle();
+  assert.deepEqual(attached, [10]);
+  assert.equal(frames.size, 1, "the first layout can precede native registration");
+  accepts = true;
+  await tick();
+  assert.deepEqual(attached, [10, 10]);
+  listener({ target: 99 });
+  assert.equal(sends, 0);
+  listener({ target: 10 });
+  assert.equal(sends, 1);
+  binding.attach();
+  await settle();
+  assert.deepEqual(attached, [10, 10, 10], "focus rebinds even when Fabric kept the React tag");
+  binding = render(() => {
+    sends += 10;
+  });
+  listener({ target: 10 });
+  assert.equal(sends, 11, "the handler reads the current draft's callback");
+  ref.current = { tag: 20 };
+  binding.attach();
+  await settle();
+  assert.deepEqual(detached, [10]);
+  listener({ target: 10 });
+  assert.equal(sends, 11);
+  listener({ target: 20 });
+  assert.equal(sends, 21);
+  accepts = false;
+  binding.attach();
+  await settle();
+  assert.equal(frames.size, 1);
+  react.unmount();
+  assert.equal(frames.size, 0);
+  assert.equal(listener, null);
+  await tick();
+  assert.equal(attached.length, 5, "unmount cannot attach a retired field on a later frame");
+});
+
 test("the pinned sidebar stays mounted, hidden, when the window narrows, so a Chat it is opening still arrives", () => {
   const { split, render, sidebarOf } = splitShellHost();
   assert.equal(sidebarOf(render()).element.props.shown, true);
@@ -18930,4 +19149,122 @@ test("inline HTML replies load their immutable page without app chrome", async (
   assert.equal(requests.length, 2);
   assert.equal(requests[1][1][0].version, 1);
   react.cleanup();
+});
+
+function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async () => null } = {}) {
+  const hooks = hookHost({ effects: true });
+  let backs = 0;
+  const Screen = load("app/mcp-add.tsx", {
+    react: hooks,
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { ActivityIndicator: "ActivityIndicator", Pressable: "Pressable", Text: "Text", View: "View", Linking: { openURL: async () => {} } },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { back: () => backs++, dismissTo: () => backs++ }, useLocalSearchParams: () => params },
+    "@hugeicons/core-free-icons": { Cancel01Icon: {}, Tick02Icon: {} },
+    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
+    "../icons": { Icon: "Icon" },
+    "../mcp-headers": load("mcp-headers.ts", { "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts") }),
+    "../use-mcp": { useMcp: () => ({ saveUrl, definition }) },
+    "../ui": { CircleButton: "CircleButton", Field: "Field", PageScroll: "PageScroll" },
+  }).default;
+  const render = () => {
+    hooks.begin();
+    return Screen();
+  };
+  return {
+    render,
+    backs: () => backs,
+    field: (label) => find(render(), (n) => n.type === "Field" && n.props.label === label),
+    button: (label) => find(render(), (n) => n.type === "Pressable" && (n.props.accessibilityLabel === label || n.props.children?.props?.children === label)),
+  };
+}
+
+test("MCP catalog selects official configuration and keeps tokens out of other services", async () => {
+  const saved = [];
+  const host = mcpAddHost({ saveUrl: async (...args) => saved.push(args) });
+  assert.equal(host.button("Add"), undefined);
+  host.field("Search services").props.onChangeText("NOtIon");
+  assert.ok(host.button("Notion"));
+  assert.equal(host.button("GitHub"), undefined);
+  host.field("Search services").props.onChangeText("missing-service");
+  assert.ok(host.button("Custom MCP"));
+  host.field("Search services").props.onChangeText("");
+  host.button("GitHub").props.onPress();
+  assert.equal(host.field("URL"), undefined);
+  assert.equal(host.field("Personal access token").props.secureTextEntry, true);
+  host.button("Add").props.onPress();
+  assert.equal(saved.length, 0);
+  assert.ok(find(host.render(), (n) => n.props?.accessibilityRole === "alert"));
+  host.field("Personal access token").props.onChangeText("test-token");
+  host.button("All services").props.onPress();
+  host.button("GitHub").props.onPress();
+  assert.equal(host.field("Personal access token").props.value, "");
+  host.field("Personal access token").props.onChangeText("test-token");
+  host.button("All services").props.onPress();
+  host.button("Notion").props.onPress();
+  host.button("Add").props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(saved, [[{ name: "notion", type: "http", url: "https://mcp.notion.com/mcp", headers: {} }, "everywhere", undefined]]);
+  assert.equal(host.backs(), 1);
+});
+
+test("MCP token save reports failure, blocks duplicate submits, and allows retry", async () => {
+  const pending = deferred();
+  let attempt = 0;
+  const saved = [];
+  const host = mcpAddHost({
+    saveUrl: async (...args) => {
+      saved.push(args);
+      if (++attempt === 1) await pending.promise;
+    },
+  });
+  host.button("GitHub").props.onPress();
+  host.field("Personal access token").props.onChangeText("Bearer test-token");
+  host.button("Add").props.onPress();
+  assert.equal(host.button("Add").props.disabled, true);
+  host.button("Add").props.onPress();
+  assert.equal(saved.length, 1);
+  pending.reject(new Error("Connection lost"));
+  await new Promise(setImmediate);
+  assert.equal(host.backs(), 0);
+  assert.match(find(host.render(), (n) => n.props?.accessibilityRole === "alert").props.children, /Connection lost/);
+  assert.equal(host.field("Personal access token").props.value, "Bearer test-token");
+  host.button("Add").props.onPress();
+  await new Promise(setImmediate);
+  assert.equal(saved[1][0].headers.Authorization, "Bearer test-token");
+  assert.equal(host.backs(), 1);
+});
+
+test("editing an MCP bypasses the catalog and preserves masked headers", async () => {
+  let saved;
+  const host = mcpAddHost({
+    params: { name: "docs", target: "codex" },
+    definition: async () => ({ name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } }),
+    saveUrl: async (...args) => {
+      saved = args;
+    },
+  });
+  host.render();
+  await new Promise(setImmediate);
+  assert.equal(host.button("GitHub"), undefined);
+  assert.equal(host.field("Name").props.value, "docs");
+  host.button("Save").props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
+    { name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } },
+    "codex",
+    { name: "docs", target: "codex" },
+  ]);
+});
+
+test("MCP save without a connected computer rejects instead of closing as saved", async () => {
+  const hooks = hookHost();
+  const { useMcp } = load("use-mcp.ts", {
+    react: { ...hooks, useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    "react-native": { AppState: {} },
+    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
+    "./mcp-store": { MCP_IDLE: { entries: null, error: "", pending: {}, busy: false } },
+    "./session": { useSession: () => ({ client: null }) },
+  });
+  await assert.rejects(useMcp().saveUrl({ name: "docs", type: "http", url: "https://docs.example/mcp", headers: {} }, "everywhere"), /Connect to a computer/);
 });

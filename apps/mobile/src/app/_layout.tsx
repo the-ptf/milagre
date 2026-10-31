@@ -123,7 +123,6 @@ export default function Layout() {
                           <Stack.Screen name="activity" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                           <Stack.Screen name="background" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
                           <Stack.Screen name="handoff-brief" options={{ ...sheet, sheetAllowedDetents: [0.5, 1] }} />
-                          <Stack.Screen name="select-text" options={{ ...sheet, sheetAllowedDetents: [0.6, 1] }} />
                           <Stack.Screen
                             name="viewer"
                             options={{

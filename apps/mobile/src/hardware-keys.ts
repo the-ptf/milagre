@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { Platform, findNodeHandle, type TextInputInstance } from "react-native";
 import { requireOptionalNativeModule, type EventSubscription } from "expo-modules-core";
 import {
@@ -105,35 +105,58 @@ export function useHardwareShortcuts(rules: readonly KeybindingRule[], onShortcu
 export function useReturnKey(ref: RefObject<TextInputInstance | null>, onReturn?: () => void) {
   const target = useRef<number | null>(null);
   const latest = useRef(onReturn);
+  const revision = useRef(0);
+  const retryFrame = useRef<number | null>(null);
   const enabled = Boolean(onReturn);
   useEffect(() => {
     latest.current = onReturn;
   }, [onReturn]);
+  const attach = useCallback(() => {
+    if (!native || !enabled) return;
+    const current = ++revision.current;
+    if (retryFrame.current !== null) cancelAnimationFrame(retryFrame.current);
+    retryFrame.current = null;
+    const attempt = (remaining: number) => {
+      if (revision.current !== current) return;
+      const tag = findNodeHandle(ref.current) ?? null;
+      const retry = () => {
+        if (revision.current !== current) return;
+        target.current = null;
+        if (remaining > 0)
+          retryFrame.current = requestAnimationFrame(() => {
+            retryFrame.current = null;
+            attempt(remaining - 1);
+          });
+      };
+      if (tag === null) {
+        if (target.current !== null) void native.detachReturnAsync(target.current).catch(() => {});
+        retry();
+        return;
+      }
+      if (target.current !== null && target.current !== tag) void native.detachReturnAsync(target.current).catch(() => {});
+      target.current = tag;
+      // Fabric can replace the backing UITextView without replacing the React tag. Bind again on focus/layout instead
+      // of treating a cached tag as proof of attachment. A layout can also arrive before the native view is registered.
+      void native.attachReturnAsync(tag).then((attached) => {
+        if (!attached) retry();
+      }, retry);
+    };
+    attempt(2);
+  }, [ref, enabled]);
   useEffect(() => {
     if (!native || !enabled) return;
     const subscription = native.addListener("returnKey", (event) => {
       if (event.target === target.current) latest.current?.();
     });
+    attach();
     return () => {
+      revision.current++;
+      if (retryFrame.current !== null) cancelAnimationFrame(retryFrame.current);
+      retryFrame.current = null;
       subscription.remove();
       if (target.current !== null) void native.detachReturnAsync(target.current).catch(() => {});
       target.current = null;
     };
-  }, [enabled]);
-  const attach = () => {
-    if (!native || !latest.current) return;
-    const tag = findNodeHandle(ref.current) ?? null;
-    if (tag === null || tag === target.current) return;
-    if (target.current !== null) void native.detachReturnAsync(target.current).catch(() => {});
-    target.current = tag;
-    void native
-      .attachReturnAsync(tag)
-      .then((attached) => {
-        if (!attached && target.current === tag) target.current = null;
-      })
-      .catch(() => {
-        if (target.current === tag) target.current = null;
-      });
-  };
+  }, [enabled, attach]);
   return { attach };
 }

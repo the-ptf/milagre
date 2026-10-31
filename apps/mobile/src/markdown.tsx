@@ -47,9 +47,9 @@ type MarkdownTheme = {
   codeSize: number;
   reachable?: ReachableHost | null;
   openChatLink?: ((url: string) => boolean) | null;
-  /** False where a long press on the message offers Select text instead (chat replies on iOS). */
+  /** False where a long press switches the message to an inline selection view (chat replies on iOS). */
   selectable: boolean;
-  /** Opens the message's Copy / Select text actions; set, it is also the VoiceOver action on each text block. */
+  /** Selects the message text in place; set, it is also the VoiceOver action on each text block. */
   onMessageAction?: () => void;
   tableHeader?: boolean;
 };

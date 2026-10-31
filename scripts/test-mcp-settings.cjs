@@ -70,7 +70,7 @@ window.milagre = {
       return { provider, accountId, label: accounts.find(a => a.provider === provider && a.accountId === accountId).label, problem: null, servers };
     },
     definition: async (name) => (window.noDefinition ? null : definitions[name] ?? { name, type: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: '••••••' } }),
-    save: async (...args) => { window.saved = args; announce({ name: args[0].name }); },
+    save: async (...args) => { if (window.failSave) throw new Error('Could not save this server.'); window.saved = args; announce({ name: args[0].name }); },
     saveUrl: async (...args) => { window.saved = args; announce({ name: args[0].name }); },
     remove: async (...args) => {
       window.removeAttempts.push(args);
@@ -259,9 +259,62 @@ async function browserChecks() {
     await evaluate(`document.querySelector('[data-mcp-other]').scrollIntoView()`);
     await shot("mcp-other");
 
+    // The catalog hides raw configuration, filters by service, and isolates credentials between selections.
+    await click("[data-mcp-add]");
+    await waitFor(`!!document.querySelector('[data-mcp-catalog]')`);
+    await waitFor(`document.activeElement?.getAttribute('aria-label') === 'Search services'`);
+    await shot("mcp-catalog");
+    await evaluate("document.documentElement.classList.add('dark')");
+    await shot("mcp-catalog-dark");
+    await evaluate("document.documentElement.classList.remove('dark')");
+    await type('[aria-label="Search services"]', "NOtIon");
+    await waitFor(`document.querySelectorAll('[data-mcp-service]').length === 1`);
+    assert.equal(await evaluate(`document.querySelector('[data-mcp-service]').dataset.mcpService`), "notion");
+    await type('[aria-label="Search services"]', "missing-service");
+    await waitFor(`document.querySelector('[data-mcp-catalog]').textContent.includes('No matching services')`);
+    assert.ok(await evaluate(`!!document.querySelector('[data-mcp-custom]')`));
+    await type('[aria-label="Search services"]', "");
+    await click('[data-mcp-service="github"]');
+    await waitFor(`document.activeElement?.getAttribute('aria-label') === 'Personal access token'`);
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Personal access token"]').type`), "password");
+    assert.equal(await evaluate(`!!document.querySelector('[data-mcp-sheet] [aria-label="URL"]')`), false);
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`document.querySelector('[data-mcp-sheet] [role="alert"]')?.textContent.includes('personal access token')`);
+    assert.equal(await evaluate("window.saved === undefined"), true);
+    await type('[aria-label="Personal access token"]', "test-token");
+    await click("[data-mcp-back]");
+    await click('[data-mcp-service="github"]');
+    await waitFor(`document.querySelector('[aria-label="Personal access token"]').value === ''`);
+    await type('[aria-label="Personal access token"]', "Bearer test-token");
+    await evaluate("window.failSave = true");
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`document.querySelector('[data-mcp-sheet] [role="alert"]')?.textContent === 'Could not save this server.'`);
+    assert.equal(await evaluate(`document.querySelector('[aria-label="Personal access token"]').value`), "Bearer test-token");
+    await evaluate("window.failSave = false");
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
+    assert.deepEqual(await evaluate("window.saved.slice(0, 2)"), [
+      { name: "github", type: "http", url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer test-token" } },
+      "everywhere",
+    ]);
+    await evaluate("window.saved = undefined");
+    await click("[data-mcp-add]");
+    await click('[data-mcp-service="notion"]');
+    await waitFor(`document.querySelector('[data-mcp-sheet] h2').textContent === 'Add Notion'`);
+    assert.equal(await evaluate(`!!document.querySelector('[data-mcp-sheet] input[aria-label="Name"]')`), false);
+    await shot("mcp-preset");
+    await click('[data-mcp-sheet] button[type="submit"]');
+    await waitFor(`!document.querySelector('[data-mcp-sheet]')`);
+    assert.deepEqual(await evaluate("window.saved.slice(0, 2)"), [
+      { name: "notion", type: "http", url: "https://mcp.notion.com/mcp", headers: {} },
+      "everywhere",
+    ]);
+    await evaluate("window.saved = undefined");
+
     // Add: Everywhere by default; a bad name is refused before any save.
     await click("[data-mcp-add]");
     await waitFor(`!!document.querySelector('[data-mcp-sheet]')`);
+    await click("[data-mcp-custom]");
     assert.match(await evaluate(`document.querySelector('[data-mcp-sheet] input[type="radio"]:checked').closest('label').textContent`), /Everywhere/);
     await waitFor(`document.activeElement && document.activeElement.getAttribute('aria-label') === 'Name'`);
     // Switching URL and Command drops the headers typed for the other kind.

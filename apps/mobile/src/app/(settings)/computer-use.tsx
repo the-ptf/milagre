@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { ComputerUseSection } from "../../computer-use-section";
 
 export default function ComputerUseScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Computer use" }} />
-      <PageScroll>
+      <SettingsScroll>
         <ComputerUseSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

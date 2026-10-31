@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { SimlockSection } from "../../simlock-section";
 
 export default function SimlockScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Simlock devices" }} />
-      <PageScroll automaticallyAdjustKeyboardInsets>
+      <SettingsScroll automaticallyAdjustKeyboardInsets>
         <SimlockSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }
