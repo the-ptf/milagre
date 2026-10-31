@@ -88,6 +88,7 @@
     "asarUnpack": [
       "node_modules/@milagre/core/src/bundled-skills/**/*",
       "node_modules/agent-device/**/*",
+      "node_modules/agent-desktop/**/*",
       "node_modules/expo-device-hub/**/*",
       "node_modules/node-datachannel/**/*",
       "node_modules/node-pty/**/*",
@@ -130,7 +131,8 @@
         "NSMicrophoneUsageDescription": "Milagre uses the microphone when you dictate a message. Your voice is turned into text on this computer."
       },
       "files": [
-        "!**/node_modules/node-pty/prebuilds/win32-*/**"
+        "!**/node_modules/node-pty/prebuilds/win32-*/**",
+        "!**/node_modules/agent-desktop/bin/agent-desktop-{linux,win32}-*"
       ],
       "notarize": true
     },
@@ -139,7 +141,8 @@
     },
     "win": {
       "files": [
-        "!**/node_modules/node-pty/prebuilds/darwin-*/**"
+        "!**/node_modules/node-pty/prebuilds/darwin-*/**",
+        "!**/node_modules/agent-desktop/bin/agent-desktop-{darwin,linux,macos}-*"
       ],
       "target": [
         "nsis"

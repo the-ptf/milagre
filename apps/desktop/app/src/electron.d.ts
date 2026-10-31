@@ -279,6 +279,8 @@ export type MilagreBridge = {
   createArtifactPreview: (html: string, source?: { chatId: string; assets: import("@milagre/shared/artifact").ArtifactAsset[] }) => Promise<string>;
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
+  /** Experimental: agents operate desktop apps on this computer (Settings › Experimental). */
+  computerUse: import("@milagre/shared/computer-use").ComputerUseApi;
   /** Experimental: devices leased from a Simlock pool (Settings › Experimental). */
   simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;

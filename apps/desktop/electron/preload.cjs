@@ -72,6 +72,13 @@ function makeBridge(invoke, listen, send) {
       repair: (request) => invoke("simulator:repair", request),
       close: (request) => invoke("simulator:close", request),
     },
+    computerUse: {
+      readSettings: () => invoke("computer-use:settings:read"),
+      saveSettings: (patch) => invoke("computer-use:settings:save", patch),
+      onSettings: (callback) => listen("computer-use:settings", callback),
+      status: () => invoke("computer-use:status"),
+      guide: () => invoke("computer-use:guide"),
+    },
     simlock: {
       readSettings: () => invoke("simlock:settings:read"),
       saveSettings: (patch) => invoke("simlock:settings:save", patch),
