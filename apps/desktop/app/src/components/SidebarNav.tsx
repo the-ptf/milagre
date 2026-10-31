@@ -11,6 +11,7 @@ import {
   Fragment,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -100,6 +101,7 @@ import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
+import { OpenSubchatContext, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
 
 type HugeIconProps = { size?: number; className?: string };
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -2135,9 +2137,33 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
     for (const { list, rows } of scopes.values()) if (list.showHints) rows.slice(0, 9).forEach((row, at) => positions.set(row, at));
     return positions;
   }, [scopes]);
+  // Subchats sit under their parent's row here too; pinned rows keep their place. A subchat's row opens it beside its parent.
+  const folds = useSubchatFolds();
+  const openSubchat = useContext(OpenSubchatContext);
+  const [subchatPicks] = useState(() => new Map<string, { onPick: (item: SidebarRecent) => void; pick: (item: SidebarRecent) => void }>());
+  const pickSubchatIn = (scopeKey: string, onPick: (item: SidebarRecent) => void) => {
+    const held = subchatPicks.get(scopeKey);
+    if (held?.onPick === onPick) return held.pick;
+    const pick = (item: SidebarRecent) => {
+      if (!openSubchat?.(`${scopeKey}#${item.id}`)) onPick(item);
+    };
+    subchatPicks.set(scopeKey, { onPick, pick });
+    return pick;
+  };
+  const shownFlat = useMemo(() => {
+    const free = chats.filter((chat) => !chat.row.pinned);
+    const nested = shownChats(free, {
+      key: (chat) => `${chat.scopeKey}#${chat.row.id}`,
+      parent: (chat) => (chat.row.parent === undefined ? undefined : `${chat.scopeKey}#${chat.row.parent}`),
+      folded: folds,
+    });
+    if (free.length === chats.length) return nested;
+    const pinned: (ShownRow & { item: (typeof chats)[number] })[] = chats.filter((chat) => chat.row.pinned).map((item) => ({ item, subchat: false }));
+    return [...pinned, ...nested];
+  }, [chats, folds]);
   return (
     <div ref={listRef} data-chat-list-flat className="flex flex-col gap-px" onPointerDown={startDrag}>
-      {chats.map(({ scopeKey, row, offline }) => {
+      {shownFlat.map(({ item: { scopeKey, row, offline }, subchat, family }) => {
         const scope = scopes.get(scopeKey)!;
         const { list } = scope;
         const position = list.showHints ? (hintPositions.get(row) ?? -1) : -1;
@@ -2150,7 +2176,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               collapsed={false}
               actions={actionsOf(scopeKey, scope)}
               shortcutHint={position >= 0 && position < 9 ? keys.jump(position) : undefined}
-              onPick={list.onPick}
+              onPick={subchat ? pickSubchatIn(scopeKey, list.onPick) : list.onPick}
               onHover={list.onHover}
               computer={list.computer}
               show={list.show}
@@ -2158,6 +2184,8 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
               linked={list.linkProjectId ? sidebarLinks.endsFor(scopeKey, row) : undefined}
               bot={botMarks.get(key)}
               chatKey={key}
+              subchat={subchat}
+              family={family}
               project={inbox ? scope.name : undefined}
               dragging={dragging === key}
               {...(inbox ? scope.badge : {})}
@@ -2249,7 +2277,21 @@ function ChatList({
   const refocus = useRef<string | null>(null);
   const canDrag = !collapsed && Boolean(actions.onPin);
   const pinned = recents.filter((item) => item.pinned);
-  const rest = recents.filter((item) => !item.pinned);
+  const rest = useMemo(() => recents.filter((item) => !item.pinned), [recents]);
+  // Subchats sit under their parent's row, unless the sidebar is a rail of icons.
+  const folds = useSubchatFolds();
+  const shownRest = useMemo(
+    () => (collapsed ? rest.map((item) => ({ item, subchat: false })) : shownChats(rest, { ...rowKeys(scopeKey), folded: folds })),
+    [rest, folds, collapsed, scopeKey],
+  );
+  // A subchat's row opens it beside its parent.
+  const openSubchat = useContext(OpenSubchatContext);
+  const pickSubchat = useCallback(
+    (item: SidebarRecent) => {
+      if (!openSubchat?.(`${scopeKey}#${item.id}`)) onPick(item);
+    },
+    [openSubchat, scopeKey, onPick],
+  );
   const byId = (id: string | null) => recents.find((item) => item.id === id);
   const otherList = (scope: string | undefined) => (scope === undefined ? undefined : sidebarLinks.lists().find((handle) => handle.scopeKey === scope));
 
@@ -2591,15 +2633,17 @@ function ChatList({
   }, [recents]);
 
   const intent = drag ? intentOf(drag) : "none";
-  const row = (item: SidebarRecent, index: number) => (
+  const row = (item: SidebarRecent, index: number, shown?: ShownRow) => (
     <ChatRow
       key={item.id}
       item={item}
+      subchat={shown?.subchat}
+      family={shown?.family}
+      onPick={shown?.subchat ? pickSubchat : onPick}
       active={isActive(item)}
       collapsed={collapsed}
       actions={rowActions}
       shortcutHint={showHints && hintOffset + index < 9 ? keys.jump(hintOffset + index) : undefined}
-      onPick={onPick}
       onHover={onHover}
       // The all-Projects sidebar names the computer in the Project's header; only its pinned rows, away from it, say it.
       computer={pinnedTarget !== undefined && !item.pinned ? undefined : computer}
@@ -2682,7 +2726,7 @@ function ChatList({
       )}
       {pinned.length > 0 && (
         <div data-pinned-chats className="flex flex-col gap-px">
-          {pinned.map(row)}
+          {pinned.map((item, index) => row(item, index))}
         </div>
       )}
       {indicator(true)}
@@ -2711,14 +2755,14 @@ function ChatList({
           )}
           {pinned.length > 0 && (
             <div data-pinned-chats className="mb-2">
-              <div className="flex flex-col gap-px">{pinned.map(row)}</div>
+              <div className="flex flex-col gap-px">{pinned.map((item, index) => row(item, index))}</div>
             </div>
           )}
         </>
       )}
       {collapsed && pinned.length > 0 && <div className="mx-auto mb-2 h-px w-5 bg-line" />}
       {header}
-      <div className="flex flex-col gap-px">{rest.map((item, index) => row(item, pinned.length + index))}</div>
+      <div className="flex flex-col gap-px">{shownRest.map((shown, index) => row(shown.item, pinned.length + index, shown))}</div>
 
       {indicator(false)}
       {foreignIndicator}
