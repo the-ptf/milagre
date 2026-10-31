@@ -29,8 +29,9 @@ const snapshot = (id, app) => ({ ok: true, data: { app, snapshot_id: id, tree: {
 
 test("settings start off and save privately", () => {
   const { settings, dataDir } = setup();
-  assert.deepEqual(settings.read(), { enabled: false });
-  assert.deepEqual(settings.save({ enabled: true }), { enabled: true });
+  assert.deepEqual(settings.read(), { enabled: false, cursor: true });
+  assert.deepEqual(settings.save({ enabled: true }), { enabled: true, cursor: true });
+  assert.deepEqual(settings.save({ cursor: false }), { enabled: true, cursor: false });
   assert.equal(fs.statSync(path.join(dataDir, "computer-use.json")).mode & 0o777, 0o600);
   assert.throws(() => settings.save({ enabled: "yes" }), /on or off/);
 });
@@ -106,7 +107,7 @@ test("acting on a ref uses the app of the snapshot it came from", async () => {
   await tools().desktop_snapshot.run({ app: "Notes" });
   const result = JSON.parse(await tools().desktop_act.run({ action: "type", ref: "@sAbc1:e4", text: "hello" }));
   assert.equal(result.disposition.delivery, "delivered");
-  assert.deepEqual(calls[1].slice(0, 3), ["type", "@sAbc1:e4", "hello"]);
+  assert.deepEqual(calls.find((args) => args[0] === "type").slice(0, 3), ["type", "@sAbc1:e4", "hello"]);
   assert.equal(asked.length, 1);
   await assert.rejects(tools().desktop_act.run({ action: "click", ref: "@sZzz9:e1" }), /SNAPSHOT_NOT_FOUND/);
   await assert.rejects(tools().desktop_act.run({ action: "click", ref: "@e1" }), /INVALID_ARGS/);
@@ -173,4 +174,19 @@ test("a launch macOS's app list can't settle falls back to open -a", async () =>
   const launch = host.definitions("/p#1").find((tool) => tool.name === "desktop_launch");
   assert.equal(JSON.parse(await launch.run({ app: "TextEdit" })).via, "open -a");
   assert.deepEqual(opened, ["TextEdit"]);
+});
+
+test("acting draws Milagre's cursor with the step, once per step, unless it is turned off", async () => {
+  const { tools, calls, settings } = setup({ decisions: ["allow-for-chat"], envelopes: { snapshot: snapshot("s1", "Notes") } });
+  await tools().desktop_snapshot.run({ app: "Notes" });
+  await tools().desktop_act.run({ action: "click", ref: "@s1:e2", intent: "New note" });
+  await tools().desktop_act.run({ action: "type", ref: "@s1:e3", text: "hi", intent: "New note" });
+  const overlays = calls.filter((args) => args[0] === "cursor-overlay");
+  assert.equal(overlays.length, 1);
+  assert.ok(overlays[0].includes("--image") && overlays[0].includes("#2F6BFF"));
+  assert.equal(overlays[0][overlays[0].indexOf("--label") + 1], "New note");
+  assert.ok(calls.findIndex((args) => args[0] === "cursor-overlay") < calls.findIndex((args) => args[0] === "click"), "the cursor shows before the action");
+  settings.save({ cursor: false });
+  await tools().desktop_act.run({ action: "click", ref: "@s1:e2", intent: "Another step" });
+  assert.equal(calls.filter((args) => args[0] === "cursor-overlay").length, 1);
 });

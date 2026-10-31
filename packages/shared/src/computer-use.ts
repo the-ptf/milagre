@@ -3,6 +3,25 @@ export type ComputerUsePermission = "granted" | "denied" | "not_required" | "unk
 
 export interface ComputerUseSettings {
   enabled: boolean;
+  /** Draw Milagre's agent cursor and the current step on the screen while an agent acts. */
+  cursor: boolean;
+}
+
+/** A Chat's live screen: the window its agent last used. `seq` 0 means no frame yet. */
+export interface ComputerUseFrame {
+  seq: number;
+  /** True while the agent works in the app and frames keep coming. */
+  live: boolean;
+  app?: string;
+  title?: string | null;
+  at?: number;
+  mime?: string;
+  /** Base64 image data. */
+  image?: string;
+  width?: number | null;
+  height?: number | null;
+  /** "screen-recording": the computer has not granted Screen Recording to Milagre. */
+  error?: "screen-recording";
 }
 
 export interface ComputerUseStatus extends ComputerUseSettings {
@@ -23,6 +42,8 @@ export interface ComputerUseApi {
   status(): Promise<ComputerUseStatus>;
   /** Opens System Settings at the missing permission with agent-desktop's on-screen guide; returns at once. */
   guide(): Promise<{ guide: "started" | "already_running" | "not_needed" }>;
+  /** The Chat's frame after `after`, waiting up to 15 s while its agent works. */
+  frame(request: { chatId: string; after?: number }): Promise<ComputerUseFrame>;
 }
 
 /** A granted permission needs nothing; anything else offers the Grant button. */

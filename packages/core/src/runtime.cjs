@@ -216,10 +216,22 @@ function createRuntime(options) {
       throw new Error(`Open an existing Chat before ${action}.`);
   };
   // Experimental: agents operate desktop apps through agent-desktop, asking once per app per Chat.
-  const { createComputerUseSettings, createComputerUse } = require("./computer-use.cjs");
+  const { createComputerUseSettings, createComputerUse, agentDesktopBinary, runCli } = require("./computer-use.cjs");
   const computerUseSettings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json"), emit });
+  // The Chat's live screen: the window its agent last used, captured while it works.
+  let desktopCli;
+  const computerUseScreen = require("./computer-use-screen.cjs").createScreenFeed({
+    exec: (args, runOptions) => runCli({ ...(desktopCli ??= agentDesktopBinary()), home: path.join(dataDir, "agent-desktop") }, args, runOptions),
+    dir: path.join(dataDir, "computer-use", "frames"),
+  });
   const computerUse =
-    options.computerUse ?? createComputerUse({ dataDir, settings: computerUseSettings, approve: (chatId, request) => agents.askApproval(chatId, request) });
+    options.computerUse ??
+    createComputerUse({
+      dataDir,
+      settings: computerUseSettings,
+      approve: (chatId, request) => agents.askApproval(chatId, request),
+      onAction: ({ chatId, app, data }) => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }),
+    });
   // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
   const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
   const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
@@ -360,6 +372,7 @@ function createRuntime(options) {
   commands.handle("computer-use:settings:save", (_context, patch) => computerUseSettings.save(patch));
   commands.handle("computer-use:status", () => computerUse.status());
   commands.handle("computer-use:guide", () => computerUse.guide());
+  commands.handle("computer-use:frame", (_context, request) => computerUseScreen.next({ chatId: request?.chatId, after: Number(request?.after) || 0 }));
   commands.handle("simlock:settings:read", () => simlockSettings.read());
   commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
   commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));

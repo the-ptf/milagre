@@ -78,6 +78,7 @@ function makeBridge(invoke, listen, send) {
       onSettings: (callback) => listen("computer-use:settings", callback),
       status: () => invoke("computer-use:status"),
       guide: () => invoke("computer-use:guide"),
+      frame: (request) => invoke("computer-use:frame", request),
     },
     simlock: {
       readSettings: () => invoke("simlock:settings:read"),
