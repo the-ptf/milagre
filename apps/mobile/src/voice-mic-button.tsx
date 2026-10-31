@@ -54,18 +54,18 @@ export function VoiceMicButton({ onPress }: { onPress: () => void }) {
 /** The ring a model download fills, from the top, clockwise: 0..1. */
 export function DownloadRing({ size, stroke, progress, children }: { size: number; stroke: number; progress: number; children?: ReactNode }) {
   const { colors } = useTheme();
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
+  const arc = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * arc;
   const filled = Math.max(0, Math.min(1, progress));
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       <Svg width={size} height={size} style={{ position: "absolute", transform: [{ rotate: "-90deg" }] }}>
-        <Circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={colors.lineStrong} strokeWidth={stroke} />
+        <Circle cx={size / 2} cy={size / 2} r={arc} fill="none" stroke={colors.lineStrong} strokeWidth={stroke} />
         {filled > 0 ? (
           <Circle
             cx={size / 2}
             cy={size / 2}
-            r={radius}
+            r={arc}
             fill="none"
             stroke={colors.ink}
             strokeWidth={stroke}
