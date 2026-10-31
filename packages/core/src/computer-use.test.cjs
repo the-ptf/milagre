@@ -156,3 +156,21 @@ test("runCli parses the envelope, and a timeout kills the process", async () => 
   assert.equal((await runCli(cli, ["version"], { spawnImpl: fake("not json") })).error.code, "INTERNAL");
   assert.equal((await runCli(cli, ["wait"], { spawnImpl: fake("", { hang: true }), timeoutMs: 20 })).error.code, "TIMEOUT");
 });
+
+test("a launch macOS's app list can't settle falls back to open -a", async () => {
+  const unstable = { ok: false, error: { code: "TIMEOUT", message: "inventory", details: { kind: "application_inventory_unstable" } } };
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "computer-use-"));
+  const opened = [];
+  const host = createComputerUse({
+    dataDir,
+    settings: createComputerUseSettings({ file: path.join(dataDir, "computer-use.json") }),
+    approve: async () => "allow-for-chat",
+    run: async () => unstable,
+    open: async (app) => (opened.push(app), true),
+    cli: { binary: process.execPath, helper: null, version: "1.0.2" },
+    platform: "darwin",
+  });
+  const launch = host.definitions("/p#1").find((tool) => tool.name === "desktop_launch");
+  assert.equal(JSON.parse(await launch.run({ app: "TextEdit" })).via, "open -a");
+  assert.deepEqual(opened, ["TextEdit"]);
+});

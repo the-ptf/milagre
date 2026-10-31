@@ -121,7 +121,25 @@ function failure(envelope) {
  * The host side: status and the permission guide for Settings, and the agent tools for a Chat. `approve(chatId,
  * request)` shows Milagre's approval card and answers "allow" | "allow-for-chat" | "deny" | "cancelled".
  */
-function createComputerUse({ dataDir, settings, approve, onAction = () => {}, cli = agentDesktopBinary(), run = runCli, platform = process.platform }) {
+/** macOS's own launcher, for when agent-desktop's launch can't read the app list (a process record with pid -1). */
+function openApp(app) {
+  return new Promise((resolve) => {
+    const child = spawn("/usr/bin/open", ["-a", app], { stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+  });
+}
+
+function createComputerUse({
+  dataDir,
+  settings,
+  approve,
+  onAction = () => {},
+  cli = agentDesktopBinary(),
+  run = runCli,
+  platform = process.platform,
+  open = openApp,
+}) {
   const home = path.join(dataDir, "agent-desktop");
   const exec = (args, options) => run({ ...cli, home }, args, options);
   // chatId -> { apps: Set of app names allowed for the Chat, snapshots: Map snapshot id -> app }
@@ -307,7 +325,19 @@ function createComputerUse({ dataDir, settings, approve, onAction = () => {}, cl
         readOnly: false,
         run: async ({ app: name }) => {
           await allowApp(chatId, name);
-          return call(chatId, name, ["launch", name], { timeoutMs: 45_000 });
+          const result = await call(chatId, name, ["launch", name], { timeoutMs: 45_000 });
+          // agent-desktop 1.0.2 gives up when NSWorkspace lists a process with pid -1, which can last for minutes on a
+          // busy Mac. LaunchServices opens the app anyway; the agent's next snapshot finds its window.
+          if (platform === "darwin" && JSON.parse(result).details?.kind === "application_inventory_unstable" && (await open(name))) {
+            onAction({ chatId, app: name, command: "launch", data: {} });
+            return JSON.stringify({
+              app: name,
+              launched: true,
+              via: "open -a",
+              note: "Opened by macOS; call desktop_snapshot or desktop_wait for its window.",
+            });
+          }
+          return result;
         },
       },
       {

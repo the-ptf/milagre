@@ -199,7 +199,19 @@ function codexMcpRequest(id, params) {
 // when they widen access (local-mcp-host.cjs), with what they would do; the provider's bare "run tool?" card in front
 // of it would make the user approve twice.
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
-const SELF_GATED_TOOLS = ["request_secret", "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"];
+// Computer use asks once per app per Chat itself (computer-use.cjs), so its acting tools skip the mode's per-call card.
+const SELF_GATED_TOOLS = [
+  "request_secret",
+  "project_add",
+  "worktree_link",
+  "worktree_remove",
+  "chat_set_mode",
+  "chat_respond",
+  "delegate",
+  "desktop_act",
+  "desktop_press",
+  "desktop_launch",
+];
 // Like the plan tools, these only write the Chat's own canvas, page, Browser panel or Negotiation (design_delete stays
 // gated; so do the browser tools that act on a page, a click or a typed value).
 const OWN_CHAT_TOOLS = [
