@@ -1226,6 +1226,7 @@
               "theme.toggle",
               "sidebar.toggle",
               "canvas.open",
+              "usage.open",
               "grid.toggle",
               "grid.focusPrevious",
               "grid.focusNext",
@@ -1275,6 +1276,7 @@
               "theme.toggle",
               "sidebar.toggle",
               "canvas.open",
+              "usage.open",
               "grid.toggle",
               "grid.focusPrevious",
               "grid.focusNext",
@@ -3368,6 +3370,17 @@
           "optional": true,
           "schema": {
             "type": "string"
+          }
+        }
+      ]
+    },
+    "token-usage:read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T163"
           }
         }
       ]
@@ -7209,6 +7222,37 @@
       "additionalProperties": false
     },
     "T169": {
+      "type": "object",
+      "properties": {
+        "range": {
+          "enum": ["24h", "7d", "30d", "90d"]
+        },
+        "timeZone": {
+          "type": "string",
+          "description": "IANA time zone the days are cut in; the host's own when absent or unknown."
+        },
+        "days": {
+          "$ref": "#/$defs/T164",
+          "description": "Days picked on the calendar (\"2026-10-16\"), both included; they replace `range`. One day reads by the hour."
+        }
+      },
+      "required": ["range"],
+      "additionalProperties": false
+    },
+    "T164": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": ["from", "to"],
+      "additionalProperties": false
+    },
+    "T165": {
       "type": "object",
       "properties": {
         "days": {
