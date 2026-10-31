@@ -52,3 +52,12 @@ test("reads that clear no dismissed blocker keep the dismissals as they were", (
     dismissed,
   );
 });
+
+test("an answer edited in place by whoever passed it in still reads as new next time", () => {
+  const answer = { number: 7, state: "OPEN", checks: "running" } as unknown as PullRequest;
+  const held = withPullRequests({}, { "/w": answer });
+  delete (answer as { checks?: string }).checks;
+  const next = withPullRequests(held, { "/w": answer });
+  assert.notEqual(next, held, "the held copy kept its checks, so the edited answer is a change");
+  assert.equal((next["/w"] as { checks?: string }).checks, undefined);
+});
