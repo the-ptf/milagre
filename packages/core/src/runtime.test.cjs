@@ -667,6 +667,30 @@ function reloadAgents() {
   };
 }
 
+test("archiving a Chat stops its running turn, so the question it waits on stops asking", async (t) => {
+  const { project, make } = await fixture(t);
+  const agents = reloadAgents();
+  agents.running();
+  const runtime = make({ titleModels: {}, agentCli: async () => ({ command: "/fake" }), createSession: agents.createSession });
+  const opened = await runtime.openProject(project);
+  const chat = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${chat.id}`;
+  const runOf = async () => (await runtime.invoke("chat:runs")).runs[chatId];
+  await runtime.invoke("chat:send", [{ projectPath: project, sessionId: chat.id, body: "Ask me", provider: "claude", model: "claude-opus-5-5" }]);
+  for (let i = 0; i < 200 && !agents.sessions.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const session = agents.sessions[0];
+  session.options.emit({ type: "question-request", requestId: "q1", questions: [{ id: "0", question: "Which one?", options: [] }] });
+  for (let i = 0; i < 200 && !(await runOf())?.questions?.length; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal((await runOf()).questions.length, 1);
+
+  // A client whose copy of the runs missed the turn archives without stopping it first.
+  await runtime.invoke("chat:patch", [project, chat.id, { archived: true, unread: false }]);
+  for (let i = 0; i < 200 && (await runOf()); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(session.turnActive, false);
+  assert.equal(await runOf(), undefined);
+  await runtime.close();
+});
+
 test("chat:reload ends the agent's process, and the next message resumes its session in a new one", async (t) => {
   const { project, make } = await fixture(t);
   const agents = reloadAgents();
