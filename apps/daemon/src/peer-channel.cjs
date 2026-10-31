@@ -24,6 +24,7 @@ function openPeerChannel({ openPeer, deliver, queued, isOpen, drop, budget = PEE
   // A stream's message counts against the same budget as a frame: past it, the desktop is dropped, as for a frame.
   const streams = createPeerStreams({
     dial,
+    opener: "computer",
     send(message) {
       if (!isOpen()) return;
       const encoded = encoder.encode(JSON.stringify(message));
@@ -47,6 +48,8 @@ function openPeerChannel({ openPeer, deliver, queued, isOpen, drop, budget = PEE
     end: drop,
     destroy: drop,
     isClosed: () => !isOpen(),
+    // A stream back to the desktop, to the one place it lets this computer reach: its Browser pages' DevTools proxy.
+    openStream: (target, port) => streams.open(target, port),
   });
   return {
     receive(message) {

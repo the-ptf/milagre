@@ -2,6 +2,12 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const { createComputers } = require("./computers.cjs");
 const { createBrowserProxies } = require("./browser-proxy.cjs");
+const net = require("node:net");
+const { computerOfKey, unqualifyKey, LOCAL_COMPUTER } = require("@milagre/shared/chat-scopes");
+
+// A computer whose host takes this Mac's Browser pages for its Chats over the channel (#832). An older host would read
+// the port as one on its own loopback, so it is never sent any.
+const PEER_PANEL_PAGES = "peer-panel-pages-v1";
 const { createComputerVault } = require("./computer-vault.cjs");
 const { createComputerCaches } = require("./computer-cache.cjs");
 const { registerComputers } = require("./computers-ipc.cjs");
@@ -36,6 +42,23 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     return next;
   };
   let ipc;
+  // This Mac's Browser pages for Chats on other computers (#832): main's DevTools proxy, and each computer's pages.
+  /** @type {{ port: number; prefix: string } | null} */
+  let pagesEndpoint = null;
+  /** @type {Map<string, { id: string; chatId: string; title: string; url: string }[]>} */
+  const pagesByComputer = new Map();
+  async function sendPages(id) {
+    const pages = pagesByComputer.get(id) ?? [];
+    try {
+      const status = await computers.invoke(id, "daemon:status", []);
+      if (!status?.capabilities?.includes(PEER_PANEL_PAGES)) return;
+      const request = pages.length && pagesEndpoint ? { via: "peer", ...pagesEndpoint, pages } : { via: "peer", pages: [] };
+      await computers.invoke(id, "browser:panel-pages", [request]);
+    } catch (error) {
+      // Sent again when it comes back online.
+      console.log(`computers: ${id} did not take this Mac's Browser pages (${error?.message ?? error})`);
+    }
+  }
   // Each computer's last state, so onOnline fires once per return.
   const states = new Map();
   const computers = createComputers({
@@ -44,13 +67,21 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
     ownHostId: () => readOwnHostId(dataDir),
     // Each computer's state changes land in daemon.log: a blip leaves no trace on screen once it is over.
     log: (line) => console.log(`computers: ${line}`),
+    // A computer reaches back only to this Mac's Browser pages' DevTools proxy, on loopback.
+    acceptStream: (target, port) => {
+      if (target !== "127.0.0.1" || !pagesEndpoint || port !== pagesEndpoint.port) throw Object.assign(new Error("Refused"), { code: "ECONNREFUSED" });
+      return net.connect({ host: "127.0.0.1", port, noDelay: true });
+    },
     ...options,
     onChange: (list) => {
       ipc?.changed();
       for (const computer of list ?? []) {
         const was = states.get(computer.id);
         states.set(computer.id, computer.state);
-        if (computer.state === "online" && was !== "online") hear(() => onOnline(computer.id));
+        if (computer.state === "online" && was !== "online") {
+          hear(() => onOnline(computer.id));
+          if (pagesByComputer.has(computer.id)) void sendPages(computer.id);
+        }
       }
     },
     emit: (id, channel, payload) => {
@@ -84,6 +115,31 @@ function createComputerService({ dataDir, emit = () => {}, onRemoteEvent = () =>
   handlers.set("computers:browser-proxy", async (_context, computerId) => {
     if (typeof computerId !== "string" || !computers.list().some((computer) => computer.id === computerId)) throw new Error("Unknown computer.");
     return { port: await proxies.port(computerId) };
+  });
+  // Main's Browser panel pages for Chats on other computers: each computer's host gets its own, and serves them to its
+  // agent's browser tools and its phones through this Mac (panel-forwarders.cjs there).
+  handlers.set("computers:browser-pages", async (_context, request) => {
+    const pages = Array.isArray(request?.pages) ? request.pages : [];
+    if (pages.length > 128) throw new Error("Too many Browser panel pages.");
+    if (pages.length) {
+      const { port, prefix } = request;
+      if (!Number.isInteger(port) || port < 1 || port > 65535 || typeof prefix !== "string" || !/^\/[a-f0-9]{48}$/.test(prefix))
+        throw new Error("Invalid Browser panel endpoint.");
+      pagesEndpoint = { port, prefix };
+    }
+    const next = new Map();
+    for (const page of pages) {
+      const computerId = computerOfKey(page?.chatKey);
+      if (!computerId || computerId === LOCAL_COMPUTER || typeof page.id !== "string") continue;
+      const list = next.get(computerId) ?? [];
+      list.push({ id: page.id, chatId: unqualifyKey(page.chatKey), title: String(page.title ?? "").slice(0, 300), url: String(page.url ?? "").slice(0, 2048) });
+      next.set(computerId, list);
+    }
+    const changed = new Set([...pagesByComputer.keys(), ...next.keys()]);
+    pagesByComputer.clear();
+    for (const [id, list] of next) pagesByComputer.set(id, list);
+    await Promise.all([...changed].map((id) => sendPages(id)));
+    return { computers: next.size };
   });
   handlers.set("computers:vault-status", () => vault.status());
   handlers.set("computers:unlock", (_context, { key } = {}) => vault.unlock(key));

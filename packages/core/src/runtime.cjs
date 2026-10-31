@@ -388,10 +388,20 @@ function createRuntime(options) {
     if (!context?.clientId) throw new Error("Browser access requires an authenticated connection");
     return require("./browser-open-page.cjs").openBrowserPage(browsers, (chatId, url) => emit("browser-panel:open", { chatId, url }), request);
   });
-  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint.
-  commands.handle("browser:panel-pages", (context, request) => {
+  // The desktop's Browser panel pages: the desktop's main process registers them with its DevTools endpoint. A paired
+  // desktop's pages for this host's Chats (#832) come `via: "peer"`: the endpoint is on that desktop's loopback, reached
+  // through a forwarder here that carries each connection back over its channel.
+  const panelForwarders = require("./panel-forwarders.cjs").createPanelForwarders();
+  commands.handle("browser:panel-pages", async (context, request) => {
     if (!context?.clientId) throw new Error("Browser panel pages need an authenticated desktop connection");
-    return browsers.setPanelPages(request, context.clientId);
+    if (request?.via !== "peer") return browsers.setPanelPages(request, context.clientId);
+    if (typeof context.openStream !== "function") throw new Error("Only a paired desktop's channel carries its Browser pages.");
+    if (!Array.isArray(request.pages) || !request.pages.length) {
+      await panelForwarders.close(context.clientId);
+      return browsers.setPanelPages({ pages: [] }, context.clientId);
+    }
+    const port = await panelForwarders.forward(context.clientId, context.openStream, request.port);
+    return browsers.setPanelPages({ port, prefix: request.prefix, pages: request.pages }, context.clientId);
   });
   for (const method of ["open", "frame", "status", "control", "input", "close"]) {
     commands.handle(`browser:${method}`, (context, request) => {
@@ -3155,7 +3165,7 @@ function createRuntime(options) {
       await advisorMcp.close();
       await advisorStore.close();
       // Ending the Terminals first also answers their pending reads, which the wait for accepted commands includes.
-      await Promise.all([simulators.close(), browsers.close(), artifacts.close(), pageComments.close(), terminals.dispose()]);
+      await Promise.all([simulators.close(), browsers.close(), panelForwarders.closeAll(), artifacts.close(), pageComments.close(), terminals.dispose()]);
       // A waiting Linear sign-in is an accepted command too: end it, or the wait below lasts until its timeout.
       await linear.dispose();
       await Promise.allSettled(active);
@@ -3203,7 +3213,8 @@ function createRuntime(options) {
         return commands.invoke(method, args, context);
       });
     },
-    disconnect: (clientId) => Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId)]).then(() => undefined),
+    disconnect: (clientId) =>
+      Promise.all([simulators.disconnect(clientId), browsers.disconnect(clientId), panelForwarders.close(clientId)]).then(() => undefined),
     /** Runs the Done sweep now instead of at its next minute (tests); resolves with the Chats it archived. */
     sweepDone: () => doneSweep.sweep(),
     /** A bot's thread, or a Chat a bot opened and still runs: its completion tells no one but the bot. */

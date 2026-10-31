@@ -5,7 +5,7 @@ const { randomBytes } = require("node:crypto");
 const { createPeerStreams, dialTcp, WINDOW, MAX_STREAMS } = require("./peer-streams.cjs");
 
 /** A desktop and a computer joined as a channel does: each message JSON round-tripped and delivered later, in order. */
-function pair({ dial = dialTcp, dialMs } = {}) {
+function pair({ dial = dialTcp, dialMs, desktopDial } = {}) {
   const log = [];
   const ends = {};
   const carry = (to) => (message) => {
@@ -13,8 +13,8 @@ function pair({ dial = dialTcp, dialMs } = {}) {
     const copy = JSON.parse(JSON.stringify(message));
     setImmediate(() => ends[to].receive(copy));
   };
-  ends.computer = createPeerStreams({ send: carry("desktop"), dial, dialMs });
-  ends.desktop = createPeerStreams({ send: carry("computer") });
+  ends.computer = createPeerStreams({ send: carry("desktop"), dial, dialMs, opener: "computer" });
+  ends.desktop = createPeerStreams({ send: carry("computer"), ...(desktopDial ? { dial: desktopDial } : {}) });
   return { ...ends, log };
 }
 
@@ -149,4 +149,30 @@ test("closing the channel ends every stream on both sides: the computer's socket
   await desktopClosed;
   await serverClosed;
   await assert.rejects(desktop.open("127.0.0.1", port), /channel closed/);
+});
+
+test("the computer reaches back to the desktop only where the desktop allows, and both sides' streams live side by side", async (t) => {
+  const allowed = await server(t, echo);
+  const elsewhere = await server(t, echo);
+  const { desktop, computer, log } = pair({
+    desktopDial: (target, port) => {
+      if (target !== "127.0.0.1" || port !== allowed) throw Object.assign(new Error("no"), { code: "ECONNREFUSED" });
+      return dialTcp(target, port);
+    },
+  });
+  const forward = await desktop.open("127.0.0.1", elsewhere);
+  const back = await computer.open("127.0.0.1", allowed);
+  await assert.rejects(computer.open("127.0.0.1", elsewhere), { code: "refused" });
+  const ids = log.filter((message) => message.t === "tcp-open").map((message) => message.id);
+  assert.deepEqual(
+    ids.map((id) => id % 2),
+    [1, 0, 0],
+    "the desktop's ids are odd, the computer's even",
+  );
+  const forwardEcho = readAll(forward);
+  const backEcho = readAll(back);
+  forward.end("there");
+  back.end("and back");
+  assert.equal((await forwardEcho).toString(), "there");
+  assert.equal((await backEcho).toString(), "and back");
 });
