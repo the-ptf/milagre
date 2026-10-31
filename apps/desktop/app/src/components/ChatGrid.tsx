@@ -301,6 +301,7 @@ const ChatTile = memo(function ChatTile({
                   messages={messages}
                   messageScope={scope}
                   earlier={earlier}
+                  trimHistory={lean && !focused ? page.trim : undefined}
                   isSending={Boolean(run)}
                   streamingText={run?.text}
                   streamingSteps={run?.steps}

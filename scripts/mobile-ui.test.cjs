@@ -14835,6 +14835,26 @@ test("Artifact feedback sends from the Chat while Designs is off", async () => {
   assert.equal(outbox.peekDesignMessage("mac|/p#7"), null);
 });
 
+test("two feedback batches handed over before the Chat sends both reach the agent in order, each recorded once", async () => {
+  const outbox = require("../apps/mobile/src/design-outbox.ts");
+  const recorded = [];
+  const first = { kind: "artifacts", text: "Make the title bigger.", onSent: () => recorded.push("first") };
+  const second = { kind: "artifacts", text: "Use the brand color.", onSent: () => recorded.push("second") };
+  // The docked designs on an iPad take a second batch while the first still waits for the Chat.
+  outbox.postDesignMessage("mac|/p#8", first);
+  outbox.postDesignMessage("mac|/p#8", second);
+  assert.equal(outbox.peekDesignMessage("mac|/p#8"), first, "the oldest batch goes first");
+  const h = chatHost({ effects: true, call: async () => ({}) });
+  h.params.id = "8";
+  h.session.snapshot.project.state.sessions[8] = { id: 8, worktree_id: 1, provider: "codex" };
+  h.render();
+  for (let i = 0; i < 4; i++) await settle();
+  const sent = h.calls.filter((call) => call.method === "chat:send").map((call) => call.args[0].body);
+  assert.deepEqual(sent, ["Make the title bigger.", "Use the brand color."]);
+  assert.deepEqual(recorded, ["first", "second"]);
+  assert.equal(outbox.peekDesignMessage("mac|/p#8"), null);
+});
+
 test("mobile catalog verifies historical HTML aliases without guessing disabled structured refs", async () => {
   const { readDesignCatalog, designCatalog } = require("../apps/mobile/src/design-catalog.ts");
   const reads = [];

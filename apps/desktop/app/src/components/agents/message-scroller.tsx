@@ -1,7 +1,7 @@
 import { useReducedMotion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon } from "@hugeicons/core-free-icons";
-import { type ComponentPropsWithRef, type Ref, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ComponentPropsWithRef, type Ref, createContext, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PreviewRail, type PreviewRailItem } from "../motion/PreviewRail";
 import { messageNavigationIndices } from "@milagre/shared/message-navigation";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
@@ -76,6 +76,9 @@ export interface MessageScrollerProps extends ComponentPropsWithRef<"div"> {
   /** Compatibility with the previous local API. */
   autoScrollKey?: string | number;
 }
+
+/** Whether the scroller around a transcript follows its bottom now: read when it matters, so following renders nothing. */
+export const MessageFollowContext = createContext<{ readonly current: boolean } | null>(null);
 
 /** Dispatched on the viewport of a parked transcript that is back in the document and needs measuring again. */
 export const TRANSCRIPT_SHOWN_EVENT = "milagre:transcript-shown";
@@ -526,7 +529,7 @@ export function MessageScroller({
         className={contentClassName}
         {...contentProps}
       >
-        {children}
+        <MessageFollowContext value={followingRef}>{children}</MessageFollowContext>
       </div>
     </section>
   );

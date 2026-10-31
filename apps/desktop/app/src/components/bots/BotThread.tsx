@@ -258,6 +258,7 @@ export function BotThread({
               messageScope={bot.homePath}
               agentChatId={chatId}
               earlier={earlier}
+              trimHistory={chat.trim}
               messages={chat.messages}
               imageDraft={imageDraft}
               onSend={() => void send()}

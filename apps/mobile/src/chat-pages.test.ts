@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatMessage } from "@milagre/shared/model";
-import { mergeTail, peekChatPage, refreshChatPage, savedChange, setChatPageDisk, warmChatPages, type PageDisk } from "./chat-pages.ts";
+import {
+  mergeTail,
+  peekChatPage,
+  refreshChatPage,
+  savedChange,
+  setChatPageDisk,
+  subscribeChatPage,
+  trimChatPage,
+  warmChatPages,
+  type PageDisk,
+} from "./chat-pages.ts";
 
 const message = (id: number, body = `m${id}`) => ({ id, session_id: 1, body, role: "user", context: null }) as ChatMessage;
 const page = (ids: number[], hasMore = false, total = ids.length) => ({ messages: ids.map((id) => message(id)), hasMore, total });
@@ -106,4 +116,62 @@ test("a computer's five most recent Chats are copied to the phone, skipping curr
   await warmChatPages(client, chats);
   assert.deepEqual(reads, [3, 4, 5], "each Chat is copied once");
   setChatPageDisk(null);
+});
+
+test("a followed Chat's window stays bounded through successive refreshes, trimming after the read in flight", async () => {
+  const key = "test://trim|/p#1";
+  const server = Array.from({ length: 30 }, (_, index) => index + 1);
+  let hold: Promise<void> | null = null;
+  const client = {
+    url: "test://trim",
+    chatMessages: async (_path: string, _chatId: number, options?: { turns?: number }) => {
+      if (hold) await hold;
+      const turns = options?.turns ?? 20;
+      return page(server.slice(-turns), server.length > turns, server.length);
+    },
+  };
+  let notified = 0;
+  const stop = subscribeChatPage(key, () => notified++);
+  await refreshChatPage(key, client, "/p", 1);
+  assert.equal(peekChatPage(key)?.messages.length, 20);
+  // Each saved message reads the last turns again and grows the window a reader holds.
+  for (let id = 31; id <= 55; id++) {
+    server.push(id);
+    await refreshChatPage(key, client, "/p", 1);
+  }
+  assert.equal(peekChatPage(key)?.messages.length, 45, "a read window keeps what it showed");
+  // The screen asks to trim while the refresh bringing the next message is still on its way.
+  let release!: () => void;
+  hold = new Promise((resolve) => (release = resolve));
+  server.push(56);
+  const refresh = refreshChatPage(key, client, "/p", 1);
+  trimChatPage(key, () => true);
+  assert.equal(peekChatPage(key)?.messages.length, 45, "nothing is trimmed under a read in flight");
+  const before = notified;
+  release();
+  hold = null;
+  await refresh;
+  const trimmed = peekChatPage(key)!;
+  assert.deepEqual(
+    ids(trimmed),
+    Array.from({ length: 20 }, (_, index) => 37 + index),
+    "the read settled, then the window kept its last turns",
+  );
+  assert.equal(trimmed.hasMore, true, "the dropped turns read again on scroll");
+  assert.equal(trimmed.total, 56);
+  assert.ok(notified > before, "the reader hears of the trim");
+  // A reader who scrolled up while the read was on its way keeps everything.
+  for (let id = 57; id <= 80; id++) {
+    server.push(id);
+    await refreshChatPage(key, client, "/p", 1);
+  }
+  hold = new Promise((resolve) => (release = resolve));
+  server.push(81);
+  const second = refreshChatPage(key, client, "/p", 1);
+  trimChatPage(key, () => false);
+  release();
+  hold = null;
+  await second;
+  assert.equal(peekChatPage(key)?.messages.length, 45, "a reader scrolled up keeps the history");
+  stop();
 });
