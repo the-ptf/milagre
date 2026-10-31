@@ -54,6 +54,8 @@ import {
 } from "@milagre/shared/voice-dictation";
 import { useDictation } from "./useDictation";
 import { DictationNotice } from "./DictationNotice";
+import { DownloadRing, DroppingArrow } from "./DownloadRing";
+import Tooltip from "./primitives/Tooltip";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -920,27 +922,13 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
-          {/* Preparing, finishing and the one-time download share one slot above the words, so none of them moves them.
-              An error is a bubble over the mic instead: it belongs to the button that tries again. */}
+          {/* Preparing and finishing share one slot above the words, so neither moves them. The model download is the
+              ring on the mic, and an error a bubble over it: both belong to the button that tries again. */}
           {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
             <p role="status" data-dictation-status className="px-2 py-1 text-12 text-ink-2">
               {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
             </p>
           ) : null}
-          {dictation.download && (
-            <div role="status" data-dictation-download className="px-2 py-1">
-              <div className="h-1 w-full overflow-hidden rounded-full bg-line-strong">
-                <div
-                  className="h-full rounded-full bg-ink transition-[width] duration-200"
-                  style={{ width: `${Math.round((dictation.download.received / dictation.download.total) * 100)}%` }}
-                />
-              </div>
-              <p className="pt-1 text-11 text-ink-3">
-                Downloading the speech model, once: {Math.round((dictation.download.received / dictation.download.total) * 100)}% of{" "}
-                {Math.round(dictation.download.total / 1e6)} MB · the take starts the moment it lands
-              </p>
-            </div>
-          )}
 
           <div
             className={`grid items-end gap-x-1 gap-y-1.5 ${expanded ? "grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : "grid-cols-[28px_minmax(0,1fr)_auto_auto_auto]"} ${compactButton.visible ? "@max-[520px]:grid-cols-[28px_auto_minmax(0,1fr)_auto_auto]" : ""}`}
@@ -1098,7 +1086,25 @@ export function PromptComposer({
               )}
               <span className="relative flex shrink-0">
                 {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
-                {dictating ? (
+                {dictation.download ? (
+                  // The model downloads before the take records: an arrow dropping through a ring that fills with it.
+                  <Tooltip
+                    label={`Downloading speech model · ${Math.round((dictation.download.received / dictation.download.total) * 100)}% of ${Math.round(dictation.download.total / 1e6)} MB`}
+                    align="end"
+                  >
+                    <button
+                      type="button"
+                      data-dictation-download
+                      aria-label={`Downloading speech model, ${Math.round((dictation.download.received / dictation.download.total) * 100)}%. Cancel`}
+                      onClick={discardDictation}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink"
+                    >
+                      <DownloadRing size={28} progress={dictation.download.received / dictation.download.total}>
+                        <DroppingArrow size={14} well={20} />
+                      </DownloadRing>
+                    </button>
+                  </Tooltip>
+                ) : dictating ? (
                   // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
                   <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
                     <button

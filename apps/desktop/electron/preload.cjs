@@ -564,9 +564,12 @@ const bridge = {
   // Dictation records and transcribes on this computer, whichever computer the Chat is on (dictation.cjs).
   dictation: {
     status: () => ipcRenderer.invoke("app:dictation-status"),
-    prepare: () => ipcRenderer.invoke("app:dictation-prepare"),
+    download: (id) => ipcRenderer.invoke("app:dictation-download", id),
+    cancel: (id) => ipcRenderer.invoke("app:dictation-cancel", id),
+    remove: (id) => ipcRenderer.invoke("app:dictation-remove", id),
+    prepare: (id) => ipcRenderer.invoke("app:dictation-prepare", id),
     transcribe: (request) => ipcRenderer.invoke("app:dictation-transcribe", request),
-    onProgress: (callback) => listenHere("app:dictation-progress", callback),
+    onModel: (callback) => listenHere("app:dictation-model", callback),
     openSettings: () => ipcRenderer.invoke("app:dictation-open-settings"),
   },
 };

@@ -35,6 +35,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="appearance" options={{ title: "Appearance" }} />
       <Stack.Screen name="chat-display" options={{ title: "Chat" }} />
       <Stack.Screen name="dictation-language" options={{ title: "Dictation language" }} />
+      <Stack.Screen name="dictation-model" options={{ title: "Speech model" }} />
       <Stack.Screen name="keybindings" options={{ title: "Keybindings" }} />
       <Stack.Screen name="archived" options={{ title: "Archived Chats" }} />
       <Stack.Screen name="notifications" options={{ title: "Notifications" }} />

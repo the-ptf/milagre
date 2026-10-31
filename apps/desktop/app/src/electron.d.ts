@@ -857,18 +857,27 @@ declare global {
       onComputerAddPending: (callback: () => void) => () => void;
       /** Every computer's runtime events. */
       onComputerEvent: (callback: (event: ComputerEvent) => void) => () => void;
-      /** Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM; the model downloads on first use. */
+      /**
+       * Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM. Each model (ids from WHISPER_MODELS.desktop)
+       * downloads once; `onModel` reports every change to one, its download progress included, to every window.
+       */
       dictation: {
-        status: () => Promise<{ ready: boolean; size: number }>;
-        prepare: () => Promise<void>;
-        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
-        onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+        status: () => Promise<DictationModelState[]>;
+        download: (id: string) => Promise<void>;
+        cancel: (id: string) => Promise<void>;
+        remove: (id: string) => Promise<void>;
+        prepare: (id: string) => Promise<void>;
+        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string; model: string }) => Promise<{ text: string }>;
+        onModel: (callback: (state: DictationModelState) => void) => () => void;
         /** The system's microphone privacy settings, where a refused microphone is allowed again. */
         openSettings: () => Promise<void>;
       };
     };
   }
 }
+
+/** A speech model on this computer: downloaded, and how many bytes of its download in flight have arrived (null when none is). */
+export type DictationModelState = { id: string; ready: boolean; size: number; received: number | null };
 
 /** One folder of a computer's home folder, for the remote folder picker (fs:list-dirs). */
 export type DirListing = {

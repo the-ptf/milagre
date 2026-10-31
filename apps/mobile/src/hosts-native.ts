@@ -7,7 +7,7 @@ import {
   type CompactButtonDisplay,
   type ToolCallDisplay,
 } from "@milagre/shared/chat-display";
-import { dictationLanguage } from "@milagre/shared/dictation";
+import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
 import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 import { createChatDefaultsStore } from "./chat-defaults-store";
 import { createHostsStore } from "./hosts-store";
@@ -237,6 +237,21 @@ export async function readDictationLanguage(): Promise<string> {
 export async function saveDictationLanguage(language: string) {
   try {
     await SecureStore.setItemAsync(dictationLanguageKey, language);
+  } catch {
+    /* best effort */
+  }
+}
+const dictationModelKey = "milagre.dictation-model.v1";
+export async function readDictationModel(): Promise<string> {
+  try {
+    return whisperModelFor("phone", await SecureStore.getItemAsync(dictationModelKey)).id;
+  } catch {
+    return whisperModelFor("phone", undefined).id;
+  }
+}
+export async function saveDictationModel(id: string) {
+  try {
+    await SecureStore.setItemAsync(dictationModelKey, id);
   } catch {
     /* best effort */
   }

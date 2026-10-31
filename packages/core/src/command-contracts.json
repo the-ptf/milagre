@@ -3811,8 +3811,49 @@
     "app:dictation-status": {
       "parameters": []
     },
+    "app:dictation-download": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-cancel": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "app:dictation-remove": {
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
     "app:dictation-prepare": {
-      "parameters": []
+      "parameters": [
+        {
+          "name": "id",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "app:dictation-transcribe": {
       "parameters": [
@@ -3873,8 +3914,11 @@
     }
   },
   "native": [
+    "app:dictation-cancel",
+    "app:dictation-download",
     "app:dictation-open-settings",
     "app:dictation-prepare",
+    "app:dictation-remove",
     "app:dictation-status",
     "app:dictation-transcribe",
     "app:open-keybindings-file",
@@ -7494,9 +7538,12 @@
         },
         "prompt": {
           "type": "string"
+        },
+        "model": {
+          "type": "string"
         }
       },
-      "required": ["audio", "language", "prompt"],
+      "required": ["audio", "language", "prompt", "model"],
       "additionalProperties": false
     },
     "T183": {

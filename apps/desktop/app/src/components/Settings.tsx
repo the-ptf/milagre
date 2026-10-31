@@ -74,7 +74,7 @@ import { providerForId, resolveModel } from "../lib/models";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useWindowChrome } from "../lib/window-chrome";
 import type { ClaudeReplies, OpenLinksIn, UsageDisplay } from "../lib/settings";
-import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
+import { DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import type { ChatOrder } from "../lib/chat-list";
 import { useEditors } from "../lib/editors";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
@@ -111,6 +111,7 @@ import { isFontInstalled, withBundledNames } from "../lib/appearance";
 import { DEFAULT_THEME_ID, seedsFrom } from "@milagre/shared/themes";
 import { NOTIFICATION_CHIMES, type NotificationChime } from "@milagre/shared/notification-chimes";
 import { ChatListChoice, DictationActionChoice, ReasoningChoice, ToolCallChoice } from "./settings/ChatDisplayChoices";
+import { SpeechModelChoice } from "./settings/SpeechModelChoice";
 import { KeybindingsSettings } from "./settings/KeybindingsSettings";
 import { HostUpdateRow } from "./settings/HostUpdateRow";
 import { playNotificationChime } from "../lib/notification-chime";
@@ -641,6 +642,8 @@ function DoneRetentionSetting() {
 
 function ChatSettings() {
   const settings = useSettings();
+  const speechModel = whisperModelFor("desktop", settings.dictationModel);
+  const englishOnly = speechModel.english;
   return (
     <>
       <ContextSettings />
@@ -676,14 +679,22 @@ function ChatSettings() {
       <ChoiceGroup title="Dictation">
         <p className="mb-2 px-1 text-14 font-semibold text-ink">When dictation finishes</p>
         <DictationActionChoice value={settings.dictationAction} onChange={(dictationAction) => updateSettings({ dictationAction })} />
+        <p className="mt-4 px-1 text-14 font-semibold text-ink">Speech model</p>
+        <p className="mb-2 px-1 text-12 text-ink-3">Transcribes on this computer. Picking a model downloads it once.</p>
+        <SpeechModelChoice value={settings.dictationModel} onChange={(dictationModel) => updateSettings({ dictationModel })} />
         <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
           <Row
             label="Language"
-            description="The mic transcribes on this computer. Automatic detection is experimental and supports different languages in the same recording. Pick one language if detection guesses wrong."
+            description={
+              englishOnly
+                ? `${speechModel.purpose} only understands English. Pick an any-language model above to dictate in others.`
+                : "Automatic detection is experimental and supports different languages in the same recording. Pick one language if detection guesses wrong."
+            }
           >
             <Select
               label="Dictation language"
-              value={settings.dictationLanguage}
+              value={englishOnly ? "en" : settings.dictationLanguage}
+              disabled={englishOnly}
               onChange={(dictationLanguage) => updateSettings({ dictationLanguage })}
               options={DICTATION_LANGUAGES.map((language) => ({ value: language.code, label: language.name }))}
             />
