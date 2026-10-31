@@ -450,7 +450,11 @@
       "types": "./src/outbox.d.mts",
       "default": "./src/outbox.mjs"
     },
-    "./outbox-delivery": "./src/outbox-delivery.ts"
+    "./outbox-delivery": "./src/outbox-delivery.ts",
+    "./design-preview": {
+      "types": "./src/design-preview.d.mts",
+      "default": "./src/design-preview.mjs"
+    }
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",

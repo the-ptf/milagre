@@ -876,7 +876,7 @@ function ArtifactDock({
   const label = kind === "artifacts" ? "Artifacts" : "Designs";
   const area = useDockArea();
   const reduced = useReducedMotion();
-  // The designs' frames mount once the panel has slid in: building them while it moves is what makes it stutter.
+  // Image previews prepare while the panel slides in; full live frames wait until its motion finishes.
   const [entered, setEntered] = useState(!!reduced);
   // Dragged wider than the window now leaves room for, it narrows to keep the chat usable, down to its default width;
   // with no room for that (or for the narrower width it was dragged to) beside the chat and a docked simulator, it
@@ -1225,10 +1225,11 @@ function ArtifactDock({
             </p>
           )}
         </div>
-      ) : entered ? (
+      ) : kind === "designs" ? (
         <div className="relative flex min-h-0 flex-1 flex-col">
           <ArtifactCanvas
             ref={canvas}
+            allowLive={entered}
             chatId={chatId}
             designs={designs}
             versions={versions}

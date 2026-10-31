@@ -244,8 +244,19 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await waitFor('document.querySelector("[data-slot=artifact-card] button")?.textContent === "Open"');
     await evaluate('[...document.querySelectorAll("[data-slot=artifact-card] button")].find((b) => b.textContent === "Open").click()');
-    await waitFor(`${frame("login")}?.querySelector("[data-design-body] iframe") && ${frame("login")}.dataset.version === "1"`);
+    await waitFor(`${frame("login")}?.querySelector("[data-design-body][data-painted]") && ${frame("login")}.dataset.version === "1"`);
     await delay(400);
+    // Exercise the draft handoff onto a decoded image, not only onto an iframe.
+    await evaluate(
+      'document.querySelector("[data-slot=artifact-canvas]").dispatchEvent(new WheelEvent("wheel", { deltaY: 100, ctrlKey: true, bubbles: true, cancelable: true }))',
+    );
+    await waitFor(
+      `${frame("login")}.querySelector("[data-design-body] img")?.naturalWidth > 0 && !${frame("login")}.querySelector("[data-design-body] iframe")`,
+    );
+    assert.ok(
+      await evaluate(`parseInt(${dock}.querySelector('[data-slot=artifact-zoom-bar]').textContent, 10) < 22`),
+      "the streamed edit starts below the image threshold",
+    );
 
     // 1. Claude writes a design_apply: the edit builds over the frame, with Claude's cursor on the last layer it touched.
     // Paused halfway through, once the heading's operation is whole: two operations applied, the cursor on the heading.
@@ -278,6 +289,17 @@ async function browserChecks() {
     assert.equal(await evaluate(`!!${live("login")}`), false, "a version a draft showed being written doesn't replay");
     assert.equal(await evaluate("window.draftWatch.disconnect(), window.sawDraft"), false, "a design_apply draft never shows a new design's frame");
     await screenshot("2-apply-settled");
+    assert.ok(
+      await evaluate(
+        `${frame("login")}.querySelector("[data-design-body][data-painted] img")?.naturalWidth > 0 && !${frame("login")}.querySelector("[data-design-body] iframe")`,
+      ),
+      "the saved draft settles onto its version's decoded preview",
+    );
+    // A user zoom disables automatic fitting. Remount before the new-design checks so they still exercise auto-fit.
+    await evaluate(`${dock}.querySelector('[aria-label="Close designs"]').click()`);
+    await waitFor(`!${dock}`);
+    await evaluate('[...document.querySelectorAll("[data-slot=artifact-card] button")].filter((b) => b.textContent === "Open").at(-1).click()');
+    await waitFor(`${frame("login")}?.querySelector("[data-design-body][data-painted]") && ${frame("login")}.dataset.version === "2"`);
 
     // 2. Claude shows a new design: a placeholder frame builds it, then hands over to the new frame.
     const showText = JSON.stringify(showInput);
@@ -297,7 +319,7 @@ async function browserChecks() {
     await evaluate(
       `window.homeShown = true; window.emit({ type: "step-completed", id: "toolu_show", status: "done", artifact: { id: "home", version: 1, title: "Home", format: "design" } }); window.reply("And a home screen.", [window.step("toolu_show", { id: "home", version: 1, title: "Home" })])`,
     );
-    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body] iframe") && !${draft}`);
+    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body][data-painted]") && !${draft}`);
     assert.equal(await evaluate(`!!${live("home")}`), false, "the new design doesn't replay either");
     await screenshot("4-show-settled");
 
@@ -367,7 +389,7 @@ async function browserChecks() {
       `${drafts}.every((d) => { const f = ${dock}.querySelector('[data-slot=artifact-frame][data-artifact="' + (d.dataset.draft === "toolu_settings" ? "settings" : "profile") + '"]'); if (!f) return true; const a = d.querySelector("[data-draft-body]").getBoundingClientRect(), b = f.querySelector("[data-design-body]").getBoundingClientRect(); return Math.abs(a.left - b.left) < 2 && Math.abs(a.top - b.top) < 2; })`,
     );
     await waitFor(
-      `!!${frame("settings")}?.querySelector("[data-design-body] iframe") && !!${frame("profile")}?.querySelector("[data-design-body] iframe") && ${drafts}.length === 0`,
+      `!!${frame("settings")}?.querySelector("[data-design-body][data-painted]") && !!${frame("profile")}?.querySelector("[data-design-body][data-painted]") && ${drafts}.length === 0`,
     );
     await screenshot("6c-two-agents-settled");
 
@@ -417,7 +439,7 @@ async function browserChecks() {
     await evaluate(
       `window.homeShown = true; window.emit({ type: "step-completed", id: "toolu_first", status: "done", artifact: { id: "home", version: 1, title: "Home", format: "design" } }); window.reply("A home screen.", [window.step("toolu_first", { id: "home", version: 1, title: "Home" })]); window.emit({ type: "turn-completed" })`,
     );
-    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body] iframe") && !${draft}`);
+    await waitFor(`!!${frame("home")}?.querySelector("[data-design-body][data-painted]") && !${draft}`);
     await screenshot("8-fresh-settled");
 
     // 5. Closed by the user, the Designs open again for the next design call. Closed and opened again mid-call, the
