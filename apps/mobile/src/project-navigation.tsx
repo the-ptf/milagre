@@ -87,6 +87,7 @@ import { groupByOrigin } from "@milagre/shared/project-origin";
 import { ChatListControls, useControlsBottomInset, useControlsVisibility } from "./chat-list-controls";
 import { isDesktopComputer } from "./computer-actions";
 import { WaitingLabel } from "./offline-tray";
+import { SENT_FROM } from "./sent-from";
 
 /** Secondary screens push over the current one; a sheet also leaves the sidebar open under it, as confirmations do. */
 type Destination = (href: Href, secondary?: boolean | "sheet") => void;
@@ -1072,7 +1073,7 @@ const NavigationBody = memo(function NavigationBody({
     const turn = turnTarget(composer.preferences[key], chat.provider, composer.defaults);
     const model = selectedModel(turn.provider, turn.model || (!turn.picked ? lastUserModel(copy.project.state, chat.id) : ""), session.models);
     await client.call("chat:send", [
-      { projectPath: copy.project.path, sessionId: chat.id, worktreeId: chat.worktree_id, ...message, ...sendOptions(model, preferences) },
+      { projectPath: copy.project.path, sessionId: chat.id, worktreeId: chat.worktree_id, ...message, ...sendOptions(model, preferences), sentFrom: SENT_FROM },
     ]);
     composer.setPreferences((current) => ({
       ...current,

@@ -6903,6 +6903,10 @@
           "enum": [false, true],
           "description": "Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent."
         },
+        "sentFrom": {
+          "enum": ["phone", "tablet", "computer"],
+          "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
+        },
         "linkId": {
           "type": "string"
         },
@@ -7158,6 +7162,10 @@
         "compact": {
           "enum": [false, true],
           "description": "Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent."
+        },
+        "sentFrom": {
+          "enum": ["phone", "tablet", "computer"],
+          "description": "Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs)."
         }
       },
       "required": ["projectPath", "sessionId", "worktreeId", "body", "images", "files", "prompt", "provider", "model", "permissionMode"],
@@ -7534,11 +7542,11 @@
           "$ref": "#/$defs/T187",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2367": {
+        "__@toStringTag@2369": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2367"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2369"],
       "additionalProperties": false
     },
     "T184": {
