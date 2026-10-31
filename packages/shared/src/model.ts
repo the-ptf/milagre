@@ -207,6 +207,11 @@ export interface AgentSession {
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
   /**
+   * The Chat (session id, same Project) whose Delegation first reached this one: it shows as that Chat's subchat, nested
+   * under it in the Chat lists and opened beside it (subchats.ts). Set once by the host; absent on a top-level Chat.
+   */
+  parent?: number;
+  /**
    * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
    */

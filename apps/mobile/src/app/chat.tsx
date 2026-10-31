@@ -1,7 +1,7 @@
 import { useCompactionFeedback } from "@milagre/shared/use-compaction-feedback";
 import { useContextSettings } from "../context-settings";
 import { compactionContext } from "@milagre/shared/compaction";
-import { CleanIcon } from "@hugeicons/core-free-icons";
+import { CleanIcon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import { outbox, outboxAttachments, hasQueuedChat } from "../outbox";
 import { ComposerTray, OfflineTray } from "../offline-tray";
 import { LINK_CHAT_WORKTREES_TEXT } from "@milagre/shared/worktree-link";
@@ -156,6 +156,7 @@ import { newChatProjectGroups, preferredCopy, type NewChatProject } from "../new
 import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
+import { chatFamily } from "@milagre/shared/subchats";
 import { BesideSession, touchPane } from "../beside-session";
 import { SENT_FROM } from "../sent-from";
 
@@ -230,13 +231,15 @@ function SidebarButton() {
 }
 
 // `prefill`: a new Chat's first draft, from a search that found nothing or the Project it switched from.
-type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string };
+// `beside`: a subchat to open beside this one on a wide iPad (the list's subchat rows route to their family's top Chat).
+type ChatParams = { id?: string; worktreeId?: string; projectPath?: string; hostId?: string; draft?: string; prefill?: string; beside?: string };
 
 /**
  * The routed Chat, and on a wide iPad a second Chat beside it, of any Project on any computer, opened from a sidebar
  * row's "Open beside" (split-chats.ts). The routed Chat keeps its place in the tree as the one beside comes and goes.
  */
 const NO_MEMBERS: WorktreeBinding[] = [];
+const NO_MESSAGES: ChatMessage[] = [];
 const NO_REFS: string[] = [];
 
 export default function ChatScreen() {
@@ -257,6 +260,15 @@ export default function ChatScreen() {
   useEffect(() => {
     if (state === "ended") closeBeside();
   }, [state]);
+  // A subchat row routed here to open beside this Chat: it opens once, and the route forgets it.
+  const besideParam = params.beside;
+  const routedHost = params.hostId || session.client?.url;
+  const routedPath = params.projectPath || session.snapshot?.project.path;
+  useEffect(() => {
+    if (!besideParam || !routedHost || !routedPath) return;
+    openBeside({ hostId: routedHost, projectPath: routedPath, chatId: Number(besideParam) });
+    router.setParams({ beside: undefined });
+  }, [besideParam, routedHost, routedPath]);
   const shown = state === "shown" && beside ? beside : null;
   // Closing the routed Chat leaves the one beside it in its place.
   const promote = useCallback(() => {
@@ -1831,14 +1843,60 @@ function ChatPane({
       setError((e as Error).message);
     }
   }
+  // A Chat with subchats, or a subchat: its title opens a menu of the family, its top Chat first (subchats.ts).
+  const family = chat && !secondary ? chatFamily(project.state.sessions, `${project.path}#${chat.id}`) : null;
+  // Transcript links and the title picker share family navigation. A secondary pane keeps its own slot.
+  function openFamilyChat(key: string) {
+    if (key === `${project.path}#${chat?.id}`) return;
+    const targetFamily = !secondary && split.widthClass === "wide" && projectOfKey(key) === project.path ? chatFamily(project.state.sessions, key) : null;
+    if (targetFamily && targetFamily.root !== key) {
+      if (chat?.id === sessionIdFromKey(targetFamily.root)) openBeside({ hostId: targetHost, projectPath: project.path, chatId: sessionIdFromKey(key) });
+      else
+        router.replace({
+          pathname: "/chat",
+          params: { projectPath: project.path, hostId: targetHost, id: String(sessionIdFromKey(targetFamily.root)), beside: String(sessionIdFromKey(key)) },
+        });
+    } else openOtherChat(key);
+  }
+  const familyMenu: MenuSection[] = family
+    ? [
+        { items: [familyItem(family.root, "Parent")] },
+        { title: family.children.length === 1 ? "1 subchat" : `${family.children.length} subchats`, items: family.children.map((key) => familyItem(key)) },
+      ]
+    : [];
+  function familyItem(key: string, subtitle?: string) {
+    const member = project.state.sessions[sessionIdFromKey(key)];
+    return {
+      id: key,
+      title: member ? chatTitle(member, NO_MESSAGES) : "Chat",
+      ...(subtitle ? { subtitle } : {}),
+      checked: chat?.id === sessionIdFromKey(key),
+    };
+  }
+  const titleRow = (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
+      <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
+        {title}
+      </Text>
+      {family && <Icon icon={UnfoldMoreIcon} tone="ink3" size={13} />}
+    </View>
+  );
   const header = (
     <>
       <HeaderTitleBox actionCount={1 + Number(!!browserShortcut) + Number(!!pr)}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}>
-          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: colors.ink, fontSize: 16, fontWeight: "600", flexShrink: 1 }}>
-            {title}
-          </Text>
-        </View>
+        {family ? (
+          <PullDown
+            label={`${title}, ${family.children.length} subchat${family.children.length === 1 ? "" : "s"} in this family`}
+            title={title}
+            sections={familyMenu}
+            onSelect={openFamilyChat}
+            style={{ maxWidth: "100%" }}
+          >
+            {titleRow}
+          </PullDown>
+        ) : (
+          titleRow
+        )}
         {(paired || (!project.link && !chatsHomeOpen) || (!!pr && !!chat && !chatsHomeOpen)) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }}>
             {/* Two Chats side by side may be of two Projects, or two computers: each names its own. */}
@@ -2199,7 +2257,7 @@ function ChatPane({
                                   }
                                   onActivity={openActivity}
                                   highlighted={message.id === undoHighlight}
-                                  onOpenChat={openOtherChat}
+                                  onOpenChat={openFamilyChat}
                                 />
                               </>
                             )}

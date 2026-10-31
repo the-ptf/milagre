@@ -404,6 +404,7 @@ test('"new" opens a Chat in the linked Worktree on the Project\'s last used agen
   const received = project.state.messages.find((message) => message.context?.kind === "delegation");
   assert.equal(`${fixture.folders.web}#${received.session_id}`, target);
   assert.equal(received.model, "claude-test");
+  assert.equal(project.state.sessions[received.session_id].parent, undefined, "a Chat across a Link is no subchat");
 });
 
 test("approval follows the requesting Chat's mode: Ask shows the card, Always allow covers the Link, Deny refuses", async (t) => {
@@ -856,15 +857,18 @@ test("Delegations still open when Milagre starts again are cancelled with a noti
   assert.equal(saved.at(-1).delegations[0].report, undefined);
 });
 
-test("a Delegation with no Link (inside its own Project) to a new Chat never asks for approval, even in Ask mode", async () => {
+test("a Delegation with no Link (inside its own Project) to a new Chat never asks for approval, even in Ask mode, and nests it", async () => {
   const fake = desk({ target: async () => ({ link_id: null, link_ids: [], projectPath: "/api", projectName: "api", branch: "main" }) });
   fake.ports.permissionMode = () => "ask";
   fake.ports.approve = async () => assert.fail("no card inside the Project");
   fake.ports.chat = async (key) => ({ label: key, worktreePath: "/api", archived: false });
   fake.ports.openChat = async () => "/api#9";
+  const adopted = [];
+  fake.ports.adoptSubchat = async (to, from) => void adopted.push([to, from]);
   await fake.delegations.ready;
   assert.match(await fake.delegations.delegate("/api#1", { worktree: "/api", chat: "new", message: "Rename it" }), /^Delegation sent to /);
   assert.equal(fake.delivered[0].key, "/api#9");
+  assert.deepEqual(adopted, [["/api#9", "/api#1"]], "the new Chat becomes the requester's subchat");
   assert.equal(fake.delegations.snapshot().delegations[0].link_id, null);
 });
 
