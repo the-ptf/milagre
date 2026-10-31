@@ -171,6 +171,10 @@ const PATHS = Object.freeze({
   "app-update:state": none,
   "app-update:check": denied,
   "app-update:install": denied,
+  // The Browser panel's sign-ins name no folder. A confined phone sees whose there are; signing out reaches every
+  // Chat's pages on the Mac, so it can't.
+  "browser:sign-ins": none,
+  "browser:sign-ins:clear": denied,
   // Keybindings name no folder: a confined phone reads the rules of the Mac it is paired with and can't change them.
   "keybindings:read": none,
   "keybindings:set-command": denied,

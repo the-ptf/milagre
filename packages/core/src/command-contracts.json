@@ -4000,6 +4000,17 @@
           }
         }
       ]
+    },
+    "browser-panel:clear-sign-ins": {
+      "parameters": [
+        {
+          "name": "computerId",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
     }
   },
   "native": [
@@ -4016,6 +4027,7 @@
     "artifact-preview:register",
     "artifact-preview:release",
     "browser-panel:capture",
+    "browser-panel:clear-sign-ins",
     "browser-panel:pages",
     "browser-panel:remote-partition",
     "editor:list",

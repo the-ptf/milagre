@@ -55,6 +55,9 @@ const METHODS = new Set([
   "app-update:state",
   "app-update:check",
   "app-update:install",
+  // The Mac's Browser panel sign-ins, and signing one out (host-browser-sign-ins.cjs).
+  "browser:sign-ins",
+  "browser:sign-ins:clear",
   "computer:resources:read",
   "keybindings:read",
   "keybindings:set-command",

@@ -862,6 +862,8 @@ declare global {
        * and reaches localhost and the web from there. Rejects while the computer can't be reached.
        */
       remotePartition?: (chatKey: string) => Promise<string>;
+      /** Signs the pages of this Mac's Chats ("local") or of one computer's out of every site; open ones reload. */
+      clearSignIns?: (computerId: string) => Promise<{ cleared: true }>;
     };
     milagre: MilagreBridge & {
       /** The same calls on a paired computer, carried there by main; this Mac's own actions refuse with "Not available on a remote computer". */
