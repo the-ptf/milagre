@@ -154,10 +154,21 @@ function createComputerUse({
   const asking = new Map();
   const chat = (chatId) => {
     let state = chats.get(chatId);
-    if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map(), cursor: null }));
+    if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map(), cursor: null, session: null }));
     return state;
   };
-  const session = (chatId) => `milagre-${crypto.createHash("sha256").update(chatId).digest("hex").slice(0, 16)}`;
+  // Each Chat works in an agent-desktop session of its own: its refs, and the agent cursor (which needs a session that
+  // `session start` made). Sessions are opened once per Chat while the host runs, without tracing (it records the screen).
+  // A failed start falls back to a plain namespace, which keeps refs apart but draws no cursor.
+  const session = (chatId) => {
+    const state = chat(chatId);
+    state.session ??= exec(["session", "start", "--no-trace", "--name", "Milagre"], { timeoutMs: 15_000 }).then((envelope) =>
+      envelope.ok && typeof envelope.data?.session_id === "string"
+        ? envelope.data.session_id
+        : `milagre-${crypto.createHash("sha256").update(chatId).digest("hex").slice(0, 16)}`,
+    );
+    return state.session;
+  };
 
   async function status() {
     const supported = ["darwin", "win32", "linux"].includes(platform) && fs.existsSync(cli.binary);
@@ -226,7 +237,7 @@ function createComputerUse({
     const label = typeof intent === "string" ? intent.trim().slice(0, 80) : "";
     if (state.cursor === label) return;
     const envelope = await exec(
-      ["cursor-overlay", "enable", ...CURSOR_STYLE, ...(label ? ["--label", label, "--max-words", "8"] : []), "--session", session(chatId)],
+      ["cursor-overlay", "enable", ...CURSOR_STYLE, ...(label ? ["--label", label, "--max-words", "8"] : []), "--session", await session(chatId)],
       {
         timeoutMs: 10_000,
       },
@@ -236,7 +247,7 @@ function createComputerUse({
 
   async function call(chatId, app, args, options, intent) {
     if (intent !== undefined) await showStep(chatId, intent);
-    const envelope = await exec([...args, "--session", session(chatId)], options);
+    const envelope = await exec([...args, "--session", await session(chatId)], options);
     if (!envelope.ok) return JSON.stringify(failure(envelope));
     const snapshotId = envelope.data?.snapshot_id;
     if (snapshotId && app) chat(chatId).snapshots.set(String(snapshotId).toLowerCase(), app);
@@ -248,7 +259,8 @@ function createComputerUse({
   async function forget(chatId) {
     const state = chats.get(chatId);
     chats.delete(chatId);
-    if (state?.cursor !== null && state?.cursor !== undefined) await exec(["cursor-overlay", "disable", "--session", session(chatId)], { timeoutMs: 10_000 });
+    // Ending the session also stops its cursor.
+    if (state?.session) await exec(["session", "end", "--session", await state.session], { timeoutMs: 10_000 });
   }
 
   function definitions(chatId) {
@@ -410,7 +422,7 @@ function createComputerUse({
           await allowApp(chatId, name);
           const args = ["screenshot", "--app", name];
           if (windowId) args.push("--window-id", windowId);
-          const envelope = await exec([...args, "--session", session(chatId)]);
+          const envelope = await exec([...args, "--session", await session(chatId)]);
           if (!envelope.ok) return JSON.stringify(failure(envelope));
           const { data: base64, format = "png" } = envelope.data ?? {};
           if (typeof base64 !== "string") return JSON.stringify(envelope.data ?? {});

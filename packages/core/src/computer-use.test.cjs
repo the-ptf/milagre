@@ -13,7 +13,7 @@ function setup({ decisions = [], envelopes = {} } = {}) {
   const asked = [];
   const run = async (_cli, args) => {
     calls.push(args);
-    const reply = envelopes[args[0]];
+    const reply = args[0] === "session" ? { ok: true, data: { session_id: "run-1" } } : envelopes[args[0]];
     return typeof reply === "function" ? reply(args) : (reply ?? { ok: true, data: {} });
   };
   const approve = async (chatId, request) => {
@@ -51,8 +51,10 @@ test("the first snapshot of an app asks once, Allow for Chat keeps it", async ()
   assert.equal(asked.length, 1);
   assert.equal(asked[0].request.title, "Let the agent use Finder?");
   assert.equal(asked[0].request.allowForChat, true);
-  assert.deepEqual(calls[0].slice(0, 5), ["snapshot", "--app", "Finder", "--compact", "-i"]);
-  assert.ok(calls[0].includes("--session"), "each Chat gets its own ref namespace");
+  const snapshotCall = calls.find((args) => args[0] === "snapshot");
+  assert.deepEqual(snapshotCall.slice(0, 5), ["snapshot", "--app", "Finder", "--compact", "-i"]);
+  assert.equal(calls.filter((args) => args[0] === "session").length, 1, "one agent-desktop session per Chat");
+  assert.equal(snapshotCall[snapshotCall.indexOf("--session") + 1], "run-1", "its refs live in that session");
   assert.ok(!calls.flat().includes("--headed"), "never physical input");
 });
 
