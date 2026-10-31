@@ -101,7 +101,7 @@ import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
-import { OpenSubchatContext, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
+import { OpenSubchatContext, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
 
 type HugeIconProps = { size?: number; className?: string };
 type HugeIconData = Parameters<typeof HugeiconsIcon>[0]["icon"];
@@ -169,6 +169,8 @@ type SidebarNavProps = {
   /** The open scope's own header +: a Link's starts a Link Chat while New chat elsewhere starts on this Mac. Defaults to `onNewChat`. */
   onNewCurrentScopeChat?: () => void;
   onPick?: (id: string, label: string, prompt?: string) => void;
+  /** Current scope shortcut targets, in this sidebar mode's visible order. */
+  onJumpChatsChange?: (ids: string[]) => void;
   onOpenSettings?: () => void;
   onOpenCanvas?: () => void;
   canvasActive?: boolean;
@@ -643,6 +645,7 @@ export default memo(function SidebarNav({
   onNewChat,
   onNewCurrentScopeChat,
   onPick,
+  onJumpChatsChange,
   onOpenSettings,
   onOpenCanvas,
   canvasActive = false,
@@ -737,6 +740,14 @@ export default memo(function SidebarNav({
   });
   const [listsChanged, setListsChanged] = useState(0);
   const [collapsed, setCollapsed] = useState(() => window.matchMedia(AUTO_COLLAPSE_QUERY).matches);
+  const subchatFolds = useSubchatFolds();
+  const jumpIds = useMemo(
+    () => jumpChatRows(recents, currentKey, subchatFolds, collapsed).map((row) => row.id),
+    [recents, currentKey, subchatFolds, collapsed],
+  );
+  useLayoutEffect(() => {
+    onJumpChatsChange?.(jumpIds);
+  }, [jumpIds, onJumpChatsChange]);
   // True only while the sidebar is collapsed because the window got narrow, so widening it brings the sidebar back.
   const autoCollapsed = useRef(collapsed);
   const [expandedWidth, setExpandedWidth] = useState(readSidebarWidth);
@@ -2131,14 +2142,18 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
     made.set(scopeKey, { source: scope.list.actions, linkProjectId: scope.list.linkProjectId, actions });
     return actions;
   };
+  const folds = useSubchatFolds();
   // Where each scope's first nine rows sit in its list, the only ones with a ⌘1–9 hint: one pass per scope, not a scan per row.
   const hintPositions = useMemo(() => {
     const positions = new Map<SidebarRecent, number>();
-    for (const { list, rows } of scopes.values()) if (list.showHints) rows.slice(0, 9).forEach((row, at) => positions.set(row, at));
+    for (const [key, { list, rows }] of scopes)
+      if (list.showHints)
+        jumpChatRows(rows, key, folds)
+          .slice(0, 9)
+          .forEach((row, at) => positions.set(row, at));
     return positions;
-  }, [scopes]);
+  }, [scopes, folds]);
   // Subchats sit under their parent's row here too; pinned rows keep their place. A subchat's row opens it beside its parent.
-  const folds = useSubchatFolds();
   const openSubchat = useContext(OpenSubchatContext);
   const [subchatPicks] = useState(() => new Map<string, { onPick: (item: SidebarRecent) => void; pick: (item: SidebarRecent) => void }>());
   const pickSubchatIn = (scopeKey: string, onPick: (item: SidebarRecent) => void) => {

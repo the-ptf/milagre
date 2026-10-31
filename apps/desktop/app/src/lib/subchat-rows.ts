@@ -39,6 +39,18 @@ export const rowKeys = (scope: string) => ({
   parent: (row: Pick<SidebarRecent, "parent">) => (row.parent === undefined ? undefined : `${scope}#${row.parent}`),
 });
 
+/** The current scope's numbered shortcuts: pins first, Done omitted, nesting only in expanded lists. */
+export function jumpChatRows<T extends Pick<SidebarRecent, "id" | "parent" | "pinned" | "doneAt">>(
+  rows: readonly T[],
+  scope: string,
+  folded: ReadonlySet<string>,
+  collapsed = false,
+): T[] {
+  const live = rows.filter((row) => !row.doneAt);
+  const rest = live.filter((row) => !row.pinned);
+  return [...live.filter((row) => row.pinned), ...(collapsed ? rest : shownChats(rest, { ...rowKeys(scope), folded }).map(({ item }) => item))];
+}
+
 // One toggle per family, so a parent row's memo holds across renders.
 const toggles = new Map<string, () => void>();
 const toggleFor = (key: string) => {

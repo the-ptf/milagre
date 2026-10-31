@@ -147,7 +147,7 @@ import { createDraftStore, draftKey } from "./lib/draft-store";
 import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
-import { chatFamily, OpenSubchatContext, rowKeys, shownChats, useSubchatFolds } from "./lib/subchat-rows";
+import { chatFamily, OpenSubchatContext } from "./lib/subchat-rows";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
@@ -2687,28 +2687,26 @@ function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [run, project?.path, selectedSession?.id, view, botsShown, routineId, runPaneOpen]);
 
-  // ⌘1–9 open the rows in the sidebar's order: pinned, then the rest with each subchat under its parent, Done left out.
-  const subchatFolds = useSubchatFolds();
-  const jumpChats = useMemo(() => {
-    const listed = chats.filter((chat) => !chat.doneAt);
-    const rest = listed.filter((chat) => !chat.pinned);
-    return [...listed.filter((chat) => chat.pinned), ...shownChats(rest, { ...rowKeys(project?.path ?? ""), folded: subchatFolds }).map(({ item }) => item)];
-  }, [chats, project?.path, subchatFolds]);
+  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
+  const jumpChats = useRef<string[]>([]);
+  const setJumpChats = useEvent((ids: string[]) => {
+    jumpChats.current = ids;
+  });
+  const jumpToChat = useEvent((event: KeyboardEvent) => {
+    if (selectedLinkRef.current) return;
+    if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
+    const index = chatJumpIndex(shortcutCommand(event));
+    if (index === null) return;
+    if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
+    const chat = jumpChats.current[index];
+    if (!chat) return;
+    event.preventDefault();
+    openChat(Number(chat));
+  });
   useEffect(() => {
-    function jumpToChat(event: KeyboardEvent) {
-      if (selectedLinkRef.current) return;
-      if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
-      const index = chatJumpIndex(shortcutCommand(event));
-      if (index === null) return;
-      if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
-      const chat = jumpChats[index];
-      if (!chat) return;
-      event.preventDefault();
-      openChat(Number(chat.id));
-    }
     window.addEventListener("keydown", jumpToChat);
     return () => window.removeEventListener("keydown", jumpToChat);
-  }, [jumpChats, view]);
+  }, [jumpToChat]);
 
   // The sidebar is memo()'d: these keep one identity across renders (each runs the latest closure) so a streamed
   // batch or another pane's state change doesn't re-render it.
@@ -3690,6 +3688,7 @@ function App() {
                         : null
                     }
                     onPick={pickChat}
+                    onJumpChatsChange={setJumpChats}
                     chatActions={chatActions}
                     scopeChatActions={scopeChatActions}
                     onNewChat={startNewChatFromSidebar}

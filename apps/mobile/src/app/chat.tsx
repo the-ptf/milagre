@@ -1843,6 +1843,19 @@ function ChatPane({
   }
   // A Chat with subchats, or a subchat: its title opens a menu of the family, its top Chat first (subchats.ts).
   const family = chat && !secondary ? chatFamily(project.state.sessions, `${project.path}#${chat.id}`) : null;
+  // Transcript links and the title picker share family navigation. A secondary pane keeps its own slot.
+  function openFamilyChat(key: string) {
+    if (key === `${project.path}#${chat?.id}`) return;
+    const targetFamily = !secondary && split.widthClass === "wide" && projectOfKey(key) === project.path ? chatFamily(project.state.sessions, key) : null;
+    if (targetFamily && targetFamily.root !== key) {
+      if (chat?.id === sessionIdFromKey(targetFamily.root)) openBeside({ hostId: targetHost, projectPath: project.path, chatId: sessionIdFromKey(key) });
+      else
+        router.replace({
+          pathname: "/chat",
+          params: { projectPath: project.path, hostId: targetHost, id: String(sessionIdFromKey(targetFamily.root)), beside: String(sessionIdFromKey(key)) },
+        });
+    } else openOtherChat(key);
+  }
   const familyMenu: MenuSection[] = family
     ? [
         { items: [familyItem(family.root, "Parent")] },
@@ -1874,13 +1887,7 @@ function ChatPane({
             label={`${title}, ${family.children.length} subchat${family.children.length === 1 ? "" : "s"} in this family`}
             title={title}
             sections={familyMenu}
-            onSelect={(key) => {
-              if (chat?.id === sessionIdFromKey(key)) return;
-              // A wide iPad keeps the family's top Chat routed and opens a subchat beside it.
-              if (split.widthClass === "wide" && chat?.id === sessionIdFromKey(family.root) && key !== family.root)
-                openBeside({ hostId: targetHost, projectPath: project.path, chatId: sessionIdFromKey(key) });
-              else openOtherChat(key);
-            }}
+            onSelect={openFamilyChat}
             style={{ maxWidth: "100%" }}
           >
             {titleRow}
@@ -2239,7 +2246,7 @@ function ChatPane({
                                   limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
                                   onActivity={openActivity}
                                   highlighted={message.id === undoHighlight}
-                                  onOpenChat={openOtherChat}
+                                  onOpenChat={openFamilyChat}
                                 />
                               </>
                             )}
