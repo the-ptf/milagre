@@ -47,7 +47,6 @@ export const SHEETS_OVER_CHAT = new Set([
   "background",
   "handoff-brief",
   "routine-form",
-  "select-text",
   "viewer",
 ]);
 // Every page inside the Settings sheet (app/(settings)): the group is one sheet in the layout, so its pages share the
