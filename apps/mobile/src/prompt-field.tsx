@@ -203,13 +203,17 @@ export function PromptField({
   };
   const writeLatest = useRef(write);
   const discardLatest = useRef<() => void>(() => {});
-  const dictation = useVoiceDictation((text) => {
-    // The last words settle in place: the tint goes, nothing moves.
-    const written = writeLatest.current(text, text.length);
-    take.current = null;
-    setProvisional(null);
-    if (written && dictationAction === "send") dictatedSend.current = { value: written.value, projectPath, currentId };
-  }, projectPath ? { client, cwd: projectPath, chatTitle, provider } : undefined);
+  const dictation = useVoiceDictation(
+    (text, anchor) => {
+      // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+      take.current ??= startTake(latestDraft.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      setProvisional(null);
+      if (written && dictationAction === "send") dictatedSend.current = { value: written.value, projectPath, currentId };
+    },
+    projectPath ? { client, cwd: projectPath, chatTitle, provider } : undefined,
+  );
   const partialText = dictation.partial.text;
   const partialSettled = dictation.partial.settled;
   const discardDictation = () => {

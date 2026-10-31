@@ -170,7 +170,11 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
           transcribe: async (pcm) => {
             await prepared;
             if (!live()) return "";
-            const result = await window.milagre.dictation.transcribe({ audio: pcm, language: whisperLanguage(dictationLanguage), prompt: whisperPrompt(vocabulary, dictationLanguage) });
+            const result = await window.milagre.dictation.transcribe({
+              audio: pcm,
+              language: whisperLanguage(dictationLanguage),
+              prompt: whisperPrompt(vocabulary, dictationLanguage),
+            });
             return result.text;
           },
           onPartial: (text, settled) => {

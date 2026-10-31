@@ -17288,7 +17288,10 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   assert.ok(!find(preparing, (node) => node.props?.accessibilityLabel === "Stop dictation"));
   const finishing = DictationCapsule({ phase: "transcribing", level: { value: 0 }, onDiscard() {}, onStop() {} });
   assert.ok(find(finishing, (node) => node.props?.accessibilityLabel === "Finishing the last words"));
-  assert.ok(find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"), "a take can still be thrown away while it finishes");
+  assert.ok(
+    find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"),
+    "a take can still be thrown away while it finishes",
+  );
   assert.equal(CAPSULE_WIDTH, 72);
 });
 
@@ -17377,19 +17380,36 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   phase = "preparing";
   const preparing = render();
   assert.ok(find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"));
-  assert.ok(find(preparing, (node) => node.type === "DictationCapsule"), "the mic grew into the capsule, in its own place");
+  assert.ok(
+    find(preparing, (node) => node.type === "DictationCapsule"),
+    "the mic grew into the capsule, in its own place",
+  );
   assert.ok(!find(preparing, (node) => node.type === "VoiceMicButton"));
 
   phase = "recording";
   partial = { text: "this bit", settled: 0 };
   render();
   assert.equal(draft, "fix this bit", "the words land in the field itself, not in a preview of their own");
-  assert.deepEqual(runs(render()), [["fix ", false], ["this bit", true]], "nothing has settled, so the whole take is the tail");
+  assert.deepEqual(
+    runs(render()),
+    [
+      ["fix ", false],
+      ["this bit", true],
+    ],
+    "nothing has settled, so the whole take is the tail",
+  );
 
   partial = { text: "this bit here", settled: "this bit ".length };
   render();
   assert.equal(draft, "fix this bit here");
-  assert.deepEqual(runs(render()), [["fix this bit ", false], ["here", true]], "settled words read like anything typed");
+  assert.deepEqual(
+    runs(render()),
+    [
+      ["fix this bit ", false],
+      ["here", true],
+    ],
+    "settled words read like anything typed",
+  );
 
   // Stop: the final transcript settles in place and the tint goes, with the words where they already were.
   phase = "transcribing";
@@ -17522,14 +17542,27 @@ test("iPhone automatic detection routes to Whisper and individual languages stil
   assert.equal(await transcriber.transcribe(new ArrayBuffer(3200), { language: "auto", terms: [] }), "Olá, please review the code.");
   await transcriber.prepare("pt");
   await transcriber.prepare("en");
-  assert.deepEqual(calls, [["whisper", "auto"], ["whisper-audio", "auto"], ["apple", "pt-BR"], ["apple", "en-US"]]);
+  assert.deepEqual(calls, [
+    ["whisper", "auto"],
+    ["whisper-audio", "auto"],
+    ["apple", "pt-BR"],
+    ["apple", "en-US"],
+  ]);
 });
 
 test("older iPhones and iPads can use Whisper without an available Apple recognizer", async () => {
   const whisper = { prepare() {}, transcribe() {} };
-  for (const apple of [null, { isAvailable: () => false }, { isAvailable() { throw new Error("Unavailable"); } }]) {
+  for (const apple of [
+    null,
+    { isAvailable: () => false },
+    {
+      isAvailable() {
+        throw new Error("Unavailable");
+      },
+    },
+  ]) {
     const { getTranscriber } = load("voice-transcription.ios.ts", {
-      "react-native": { TurboModuleRegistry: { get: (name) => name === "RNWhisper" ? {} : apple } },
+      "react-native": { TurboModuleRegistry: { get: (name) => (name === "RNWhisper" ? {} : apple) } },
       "@react-native-ai/apple/src/NativeAppleTranscription": { default: apple },
       "@milagre/shared/dictation": require("@milagre/shared/dictation"),
       "./voice-transcription-queue": { serializeTranscription: (work) => work() },
@@ -17542,11 +17575,15 @@ test("older iPhones and iPads can use Whisper without an available Apple recogni
 test("a build without Whisper still offers Apple languages and explains why auto detection is unavailable", async () => {
   const native = { isAvailable: () => true, prepare: async () => {} };
   const { getTranscriber } = load("voice-transcription.ios.ts", {
-    "react-native": { TurboModuleRegistry: { get: (name) => name === "RNWhisper" ? null : native } },
+    "react-native": { TurboModuleRegistry: { get: (name) => (name === "RNWhisper" ? null : native) } },
     "@react-native-ai/apple/src/NativeAppleTranscription": { default: native },
     "@milagre/shared/dictation": require("@milagre/shared/dictation"),
     "./voice-transcription-queue": { serializeTranscription: (work) => work() },
-    "./voice-transcription-whisper": { getTranscriber: () => { throw new Error("Must not load Whisper"); } },
+    "./voice-transcription-whisper": {
+      getTranscriber: () => {
+        throw new Error("Must not load Whisper");
+      },
+    },
   });
   const transcriber = getTranscriber();
   await transcriber.prepare("pt");
@@ -17561,14 +17598,28 @@ test("the phone awaits model installation and keeps the moved model for later di
   let options;
   class Directory {
     uri = "file:///documents/whisper";
-    get exists() { return directoryReady; }
-    async create() { await Promise.resolve(); directoryReady = true; }
+    get exists() {
+      return directoryReady;
+    }
+    async create() {
+      await Promise.resolve();
+      directoryReady = true;
+    }
   }
   class File {
-    constructor(directory, name) { this.uri = `${directory.uri}/${name}`; }
-    get exists() { return files.has(this.uri); }
-    get size() { return files.get(this.uri) ?? 0; }
-    async delete() { await Promise.resolve(); files.delete(this.uri); }
+    constructor(directory, name) {
+      this.uri = `${directory.uri}/${name}`;
+    }
+    get exists() {
+      return files.has(this.uri);
+    }
+    get size() {
+      return files.get(this.uri) ?? 0;
+    }
+    async delete() {
+      await Promise.resolve();
+      files.delete(this.uri);
+    }
     async move(destination) {
       await Promise.resolve();
       assert.equal(this.exists, true, "cleanup must not race the async move");
@@ -17590,10 +17641,12 @@ test("the phone awaits model installation and keeps the moved model for later di
     "whisper.rn/index": {
       initWhisper: async ({ filePath }) => {
         assert.equal(files.has(filePath), true, "the installed model survives cleanup");
-        return { transcribeData: (_audio, opts) => {
-          options = opts;
-          return { promise: Promise.resolve({ result: "Olá, please review the code." }) };
-        } };
+        return {
+          transcribeData: (_audio, opts) => {
+            options = opts;
+            return { promise: Promise.resolve({ result: "Olá, please review the code." }) };
+          },
+        };
       },
     },
   });

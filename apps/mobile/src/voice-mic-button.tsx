@@ -97,15 +97,16 @@ export function DictationCapsule({
         >
           <Animated.View
             pointerEvents="none"
-            style={[
-              { position: "absolute", width: CONTROL, height: CONTROL, borderRadius: CONTROL / 2, backgroundColor: withAlpha(colors.red, 0.28) },
-              halo,
-            ]}
+            style={[{ position: "absolute", width: CONTROL, height: CONTROL, borderRadius: CONTROL / 2, backgroundColor: withAlpha(colors.red, 0.28) }, halo]}
           />
           <View style={{ width: 16, height: 16, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.red }} />
         </Pressable>
       ) : (
-        <View accessibilityRole="progressbar" accessibilityLabel={phase === "preparing" ? "Preparing the microphone" : "Finishing the last words"} style={{ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center" }}>
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel={phase === "preparing" ? "Preparing the microphone" : "Finishing the last words"}
+          style={{ width: CONTROL, height: CONTROL, alignItems: "center", justifyContent: "center" }}
+        >
           <MicLoadingRing />
         </View>
       )}

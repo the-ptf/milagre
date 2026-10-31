@@ -60,13 +60,19 @@ test("a clip is silent until some 100 ms of it is louder than a quiet room", asy
 test("the initial bilingual experiment migrates to automatic detection without a duplicate choice", () => {
   assert.equal(dictationLanguage("pt-en"), "auto");
   assert.equal(DICTATION_LANGUAGES[0].name, "Detect automatically (experimental)");
-  assert.equal(DICTATION_LANGUAGES.some((language) => language.code === "pt-en"), false);
+  assert.equal(
+    DICTATION_LANGUAGES.some((language) => language.code === "pt-en"),
+    false,
+  );
   assert.equal(whisperLanguage("pt-en"), "auto");
   assert.equal(whisperLanguage("pt"), "pt");
 });
 
 test("automatic detection keeps its multilingual example before long project vocabulary", () => {
-  const prompt = whisperPrompt(Array.from({ length: 200 }, (_, index) => `Term${index}`), "auto");
+  const prompt = whisperPrompt(
+    Array.from({ length: 200 }, (_, index) => `Term${index}`),
+    "auto",
+  );
   assert.ok(prompt.startsWith("Olá, vamos conversar and switch languages when needed."));
   assert.ok(prompt.length <= 601);
   assert.match(prompt, /Term\d+\.$/);

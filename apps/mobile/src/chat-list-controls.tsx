@@ -237,7 +237,12 @@ export function ChatListControls({
                     }}
                   />
                 ) : (
-                  <DictationCapsule phase={dictation.phase} level={dictation.level} onDiscard={() => void dictation.cancel()} onStop={() => void dictation.stop()} />
+                  <DictationCapsule
+                    phase={dictation.phase}
+                    level={dictation.level}
+                    onDiscard={() => void dictation.cancel()}
+                    onStop={() => void dictation.stop()}
+                  />
                 )}
               </View>
             ) : null}

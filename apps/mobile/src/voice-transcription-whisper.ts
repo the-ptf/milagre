@@ -1,11 +1,5 @@
 import { Directory, File, Paths } from "expo-file-system";
-import {
-  WHISPER_MODELS,
-  silentPcm,
-  whisperLanguage,
-  whisperPrompt,
-  whisperText,
-} from "@milagre/shared/dictation";
+import { WHISPER_MODELS, silentPcm, whisperLanguage, whisperPrompt, whisperText } from "@milagre/shared/dictation";
 import type { Transcriber } from "./voice-transcription";
 import { serializeTranscription } from "./voice-transcription-queue";
 
@@ -50,11 +44,9 @@ function prepare(onProgress?: (fraction: number) => void): Promise<void> {
     let moved = false;
     try {
       await File.downloadFileAsync(MODEL.url, partial, {
-        onProgress: ({ bytesWritten }) =>
-          onProgress?.(Math.min(1, bytesWritten / MODEL.size)),
+        onProgress: ({ bytesWritten }) => onProgress?.(Math.min(1, bytesWritten / MODEL.size)),
       });
-      if (partial.size !== MODEL.size)
-        throw new Error("The speech model download was cut off. Try again.");
+      if (partial.size !== MODEL.size) throw new Error("The speech model download was cut off. Try again.");
       if (model.exists) await model.delete();
       await partial.move(model);
       moved = true;

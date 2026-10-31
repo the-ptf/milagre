@@ -527,8 +527,9 @@ export function PromptComposer({
   const writeLatest = useRef(write);
   writeLatest.current = write;
 
-  const dictation = useDictation(projectPath, imageDraft.scope, (text) => {
-    // The last words settle in place: the tint goes, nothing moves.
+  const dictation = useDictation(projectPath, imageDraft.scope, (text, anchor) => {
+    // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+    take.current ??= startTake(draftLatest.current, anchor.selection);
     const written = writeLatest.current(text, text.length);
     take.current = null;
     setProvisional(null);
@@ -1178,7 +1179,9 @@ export function PromptComposer({
                 disabled={!canStop && (dictating || !canSend || sendBlocked || imageDraft.loading)}
                 onClick={canStop ? onStop : send}
                 className={`flex size-7 shrink-0 items-center justify-center rounded-full text-surface transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-ink-2`}
-                style={{ background: canStop || (canSend && !sendBlocked && !dictating) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)" }}
+                style={{
+                  background: canStop || (canSend && !sendBlocked && !dictating) ? (ultracodeOn ? "var(--purple)" : "var(--ink)") : "var(--line-strong)",
+                }}
               >
                 {canStop ? <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" /> : <Icon icon={ArrowUp01Icon} size={16} />}
               </button>
