@@ -314,6 +314,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
       if (base === "split-chats" && !(id in modules))
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
+      // Subchats nest under their parent's row (subchats.ts, subchat-rows.ts); both are pure.
+      if (id === "@milagre/shared/subchats" && !(id in modules)) return require("../packages/shared/src/subchats.ts");
+      if (base === "subchat-rows" && !(id in modules))
+        return load("subchat-rows.ts", { "@milagre/shared/subchats": require("../packages/shared/src/subchats.ts") }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
       // The iPad panel's dragged width, kept on the device; a test keeps the default.
