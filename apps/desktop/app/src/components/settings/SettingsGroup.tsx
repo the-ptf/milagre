@@ -9,7 +9,11 @@ export function Group({ title, action, footer, children }: { title?: string; act
     <section className="mt-6">
       {(title || action) && (
         <div className="mb-2 flex items-baseline justify-between gap-4 px-1">
-          {title && <h2 className="text-[12px] font-medium text-ink-3">{title}</h2>}
+          {title && (
+            <h2 data-settings-row className="rounded-chip text-[12px] font-medium text-ink-3">
+              {title}
+            </h2>
+          )}
           {action}
         </div>
       )}
@@ -33,6 +37,7 @@ export function Row({
 }) {
   return (
     <div
+      data-settings-row
       data-preview-row={preview ? "" : undefined}
       onPointerEnter={preview?.onEnter}
       onPointerLeave={preview?.onLeave}

@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { BabysitSection } from "../../babysit-section";
 
 export default function BabysitPrsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Babysit PRs" }} />
-      <PageScroll automaticallyAdjustKeyboardInsets>
+      <SettingsScroll automaticallyAdjustKeyboardInsets>
         <BabysitSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

@@ -1,5 +1,6 @@
 import type { ColorValue } from "react-native";
 import { Checkbox } from "./checkbox";
+import { Findable } from "../settings-find";
 
 /** An independent on/off preference, displayed as a labeled checkbox. */
 export function Toggle({
@@ -15,5 +16,9 @@ export function Toggle({
   disabled?: boolean;
   tint?: ColorValue;
 }) {
-  return <Checkbox label={title} selected={selected} onPress={onPress} disabled={disabled} tint={tint} />;
+  return (
+    <Findable title={title}>
+      <Checkbox label={title} selected={selected} onPress={onPress} disabled={disabled} tint={tint} />
+    </Findable>
+  );
 }

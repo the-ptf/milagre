@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { Text, View } from "react-native";
-import { PageScroll, useStyles } from "../../ui";
+import { useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { LinearSection } from "../../linear-section";
 
 /** Settings › Connections: services the Mac signs in to, like desktop's Connections section. Linear first; more to come. */
@@ -9,12 +10,12 @@ export default function ConnectionsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Connections" }} />
-      <PageScroll>
+      <SettingsScroll>
         <View style={{ gap: 8 }}>
           <Text style={styles.section}>Issue trackers</Text>
           <LinearSection />
         </View>
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

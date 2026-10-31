@@ -250,6 +250,22 @@ html[data-floating-inbox] #root {
   }
 }
 
+/* A Settings row a search result opened: an accent tint that holds a moment, then fades back to the row's own surface. */
+[data-settings-found] {
+  animation: settings-found 2.6s ease-out;
+}
+@keyframes settings-found {
+  0%,
+  45% {
+    background-color: color-mix(in oklab, var(--accent) 24%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 24%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
 /* Creepster (Font Diner, SIL OFL 1.1, see assets/Creepster-OFL.txt): the dripping Mortal Kombat lettering of the
  * Ultracode overlay. Used nowhere else. */
 @font-face {

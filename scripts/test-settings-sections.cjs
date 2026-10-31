@@ -1,7 +1,8 @@
 // Settings sections in Electron: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (Routines and Designs left it; Designs are always
 // on and Published pages are in Milagre), plus the Babysit PRs row, which opens its own page; Notifications holds the
 // chime picker (picking one saves and plays it; the replay button plays it again); Devices holds Drive other computers, which
-// tells main each time it flips. The legacy sidebar switch is gone everywhere.
+// tells main each time it flips. The legacy sidebar switch is gone everywhere. Search settings (⌘F) finds sections and rows
+// and opens a row lit up.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -218,7 +219,7 @@ async function browserChecks() {
     await evaluate(`document.querySelector('button[aria-label="Sidebar size"]').click()`);
     await waitFor(`!document.querySelector('[role="listbox"]')`);
     await openMenu("Interface font");
-    const search = `document.querySelector('[role="listbox"][aria-label="Interface font"]').parentElement.querySelector('input')`;
+    const search = `document.querySelector('[role="listbox"][aria-label="Interface font"]').parentElement.querySelector('input:not([data-settings-search])')`;
     await evaluate(
       `(() => { const input = ${search}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "inter"); input.dispatchEvent(new Event("input", { bubbles: true })); })()`,
     );
@@ -546,10 +547,42 @@ async function browserChecks() {
     await waitFor(`${chimeTrigger}.textContent.trim() === "Bombastic side eye"`);
     assert.equal(await evaluate("window.played.length"), 3, "the replay button plays it again, and each pick plays");
     assert.match(await evaluate("window.played[2]"), /^chime_bombastic_side_eye/);
-    assert.deepEqual(errors, []);
     await screenshot("notifications");
+
+    // Search: ⌘F focuses the field at the top of the nav; results replace the sections, name the section and card, and
+    // Return opens the first one with its row lit up; Escape clears the query and brings the sections back.
+    const searchField = `document.querySelector('[data-settings-search]')`;
+    const typeSearch = (text) =>
+      evaluate(
+        `(() => { const input = ${searchField}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(text)}); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
+      );
+    const searchKey = (key) =>
+      evaluate(`${searchField}.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true }))`);
+    const results = () => evaluate(`[...document.querySelectorAll('[data-settings-result]')].map((row) => row.innerText.replace(/\\s+/g, ' ').trim())`);
+    await evaluate(
+      `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', metaKey: true, ctrlKey: ${process.platform !== "darwin"}, bubbles: true, cancelable: true }))`,
+    );
+    assert.equal(await evaluate(`document.activeElement === ${searchField}`), true, "⌘F focuses Search settings");
+    await typeSearch("chat width");
+    await waitFor(`document.querySelectorAll('[data-settings-result]').length > 0`);
+    assert.deepEqual((await results())[0], "Chat width Appearance › Layout", "the best match comes first, with its section and card");
+    assert.equal(await evaluate(`!!document.querySelector('[data-settings-result] mark')`), true, "the matched letters are marked");
+    await screenshot("search-results");
+    await searchKey("Enter");
+    await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Appearance"`);
+    await waitFor(`document.querySelector('main [data-settings-found]')?.textContent.includes("Chat width")`);
+    await screenshot("search-found-row");
+    await typeSearch("token cost");
+    await waitFor(`document.querySelectorAll('[data-settings-result]').length > 0`);
+    assert.equal((await results())[0], "Usage", "the Usage section is found by what it holds");
+    await typeSearch("zzzz nothing");
+    await waitFor(`document.querySelector('aside')?.textContent.includes("No settings match.")`);
+    await searchKey("Escape");
+    await waitFor(`${searchField}.value === ""`);
+    await waitFor(`[...document.querySelectorAll('aside button')].some((button) => button.textContent.trim() === "Usage")`);
+    assert.deepEqual(errors, []);
     console.log(
-      "PASS: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (no Routines or Designs switch), and its Babysit PRs row opens a page that saves each change and goes Back; Milagre holds Published pages (no Designs switch) above the Milagre MCP; with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips",
+      "PASS: Experimental lists only Floating inbox, Ultracode Fatality, Bots and Delegate (no Routines or Designs switch), and its Babysit PRs row opens a page that saves each change and goes Back; Milagre holds Published pages (no Designs switch) above the Milagre MCP; with no legacy sidebar switch or Murilo mode; Bots is off by default and saves on the host; Notifications holds the chime picker, which starts on the system sound, and picking one saves and plays it; Devices holds Drive other computers, off by default, telling main each time it flips; ⌘F focuses Search settings, whose results name the section and card and open the row lit up",
     );
     app.exit(0);
   } catch (error) {

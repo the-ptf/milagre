@@ -4,6 +4,7 @@ import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { Icon, type IconData } from "./icons";
 import { useTheme } from "./theme";
 import { useStyles } from "./ui";
+import { Findable } from "./settings-find";
 
 /** A grouped list: its header, the rows in one card with inset separators, and a note under it. */
 export function Group({ title, footer, children }: { title?: string; footer?: string; children: ReactNode[] }) {
@@ -58,34 +59,36 @@ export function Row({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
-      accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={value ? `${title}. ${value}` : title}
-      accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }}
-      disabled={disabled || !onPress}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 14,
-        minHeight: 52,
-        opacity: disabled ? 0.4 : pressed ? 0.5 : 1,
-      })}
-    >
-      {leading ?? (icon ? <Icon icon={icon} tone={destructive ? "red" : "ink"} size={22} /> : null)}
-      <Text numberOfLines={1} style={{ flex: 1, color: destructive ? colors.redInk : colors.ink, fontSize: 17 }}>
-        {title}
-      </Text>
-      {trailing ?? (
-        <>
-          {value ? (
-            <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 17, maxWidth: "45%" }}>
-              {value}
-            </Text>
-          ) : null}
-          {chevron ? <Icon icon={ArrowRight01Icon} tone="ink3" size={16} /> : null}
-        </>
-      )}
-    </Pressable>
+    <Findable title={title}>
+      <Pressable
+        accessibilityRole={onPress ? "button" : undefined}
+        accessibilityLabel={value ? `${title}. ${value}` : title}
+        accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }}
+        disabled={disabled || !onPress}
+        onPress={onPress}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 14,
+          minHeight: 52,
+          opacity: disabled ? 0.4 : pressed ? 0.5 : 1,
+        })}
+      >
+        {leading ?? (icon ? <Icon icon={icon} tone={destructive ? "red" : "ink"} size={22} /> : null)}
+        <Text numberOfLines={1} style={{ flex: 1, color: destructive ? colors.redInk : colors.ink, fontSize: 17 }}>
+          {title}
+        </Text>
+        {trailing ?? (
+          <>
+            {value ? (
+              <Text numberOfLines={1} style={{ color: colors.ink3, fontSize: 17, maxWidth: "45%" }}>
+                {value}
+              </Text>
+            ) : null}
+            {chevron ? <Icon icon={ArrowRight01Icon} tone="ink3" size={16} /> : null}
+          </>
+        )}
+      </Pressable>
+    </Findable>
   );
 }

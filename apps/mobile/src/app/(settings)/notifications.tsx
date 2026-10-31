@@ -7,7 +7,8 @@ import { useActivity } from "../../live-activity";
 import { usePush } from "../../push";
 import { useSession } from "../../session";
 import { Icon } from "../../icons";
-import { ErrorNotice, ListRow, PageScroll, PillButton, PullDown, Toggle, useStyles } from "../../ui";
+import { ErrorNotice, ListRow, PillButton, PullDown, Toggle, useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { NotificationScheduleSetting } from "../../notification-schedule-setting";
 import { useTheme } from "../../theme";
 
@@ -30,7 +31,7 @@ export function NotificationsView() {
   const [attentionButton, setAttentionButton] = useAttentionButton();
   const state = push.state;
   return (
-    <PageScroll>
+    <SettingsScroll>
       <View style={[styles.card, { gap: 16 }]}>
         <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
           <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.field, alignItems: "center", justifyContent: "center" }}>
@@ -137,6 +138,6 @@ export function NotificationsView() {
         Alerts include Chat previews. Expo, Apple and Google process notification content. Your computer must stay online to send alerts.
       </Text>
       <PillButton title="Open system settings" secondary onPress={() => void Linking.openSettings()} />
-    </PageScroll>
+    </SettingsScroll>
   );
 }

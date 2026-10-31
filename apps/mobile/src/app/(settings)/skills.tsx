@@ -5,7 +5,8 @@ import type { SkillOption } from "@milagre/shared/model";
 import { SKILL_PROVIDERS, SKILL_SCOPES, filterSkills, groupSkills, shadowedBy, shortenHome, skillProviderLabel } from "@milagre/shared/skill-catalog";
 import type { SkillScope } from "@milagre/shared/skill-catalog";
 import { overrides, useSkillBadge, useSkillCatalog } from "../../use-skills";
-import { ErrorNotice, Field, PageScroll, PullDown, useStyles } from "../../ui";
+import { ErrorNotice, Field, PullDown, useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { useTheme } from "../../theme";
 
 export default function SkillsScreen() {
@@ -18,7 +19,7 @@ export default function SkillsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Skills" }} />
-      <PageScroll refreshControl={connected ? <RefreshControl refreshing={loading && !!data} onRefresh={refresh} /> : undefined}>
+      <SettingsScroll refreshControl={connected ? <RefreshControl refreshing={loading && !!data} onRefresh={refresh} /> : undefined}>
         {!connected ? (
           <Text style={styles.muted}>Connect to a computer to see its skills.</Text>
         ) : error ? (
@@ -86,7 +87,7 @@ export default function SkillsScreen() {
             )}
           </>
         )}
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }
