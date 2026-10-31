@@ -13,11 +13,13 @@ function set(state: DictationModelState) {
 }
 
 function subscribe(listener: () => void) {
-  if (!started && window.milagre?.dictation) {
+  // A bridge without dictation (a check's stubbed window.milagre) reports no models instead of throwing.
+  const dictation = window.milagre?.dictation;
+  if (!started && typeof dictation?.onModel === "function") {
     started = true;
-    window.milagre.dictation.onModel(set);
-    void window.milagre.dictation.status().then(
-      (list) => list.forEach(set),
+    dictation.onModel(set);
+    void dictation.status().then(
+      (list) => list?.forEach(set),
       () => {},
     );
   }
