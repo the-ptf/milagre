@@ -106,3 +106,22 @@ test("subscription handoff protects expanded history from trimming and cache pre
   await Promise.resolve();
   assert.equal(c.has("a"), false, "a true final release still enforces the byte budget");
 });
+
+test("a read window followed for long trims back to its last turns, only once it holds twice as many", () => {
+  const c = cache();
+  c.retain("a");
+  c.set("a", page(8));
+  assert.equal(c.trim("a"), null, "four turns is within twice the two kept");
+  assert.equal(c.get("a")!.messages.length, 8);
+  const all = page(12);
+  c.set("a", all);
+  const trimmed = c.trim("a")!;
+  assert.deepEqual(
+    trimmed.messages.map((m) => m.id),
+    [8, 9, 10, 11],
+  );
+  assert.equal(trimmed.hasMore, true, "the dropped turns can be read again");
+  assert.equal(trimmed.total, 12);
+  assert.equal(c.get("a"), trimmed);
+  assert.equal(c.trim("missing"), null);
+});

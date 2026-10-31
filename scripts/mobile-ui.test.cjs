@@ -3005,7 +3005,10 @@ function chatHost({
     "../genui/GenerativeUI": { GenerativeUIProvider: "GenerativeUIProvider" },
     // A test can stand in for a host that keeps messages by Chat with globalThis.chatPage.
     "../chat-pages": {
-      useChatPage: (...args) => globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} },
+      useChatPage: (...args) => ({
+        trim() {},
+        ...(globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} }),
+      }),
     },
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
@@ -6161,6 +6164,41 @@ test("an open Chat whose page already holds the sent follow-up shows it once", a
     transcriptMessages(screen).map((message) => message.id),
     [3, 4],
   );
+});
+
+test("a Chat followed at its bottom lets go of its history as new messages arrive, not while scrolled up", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  let page = [{ id: 1, session_id: 42, role: "user", body: "start" }];
+  let trims = 0;
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42
+      ? {
+          messages: page,
+          hasMore: false,
+          total: page.length,
+          loading: false,
+          loadEarlier: async () => {},
+          trim: () => trims++,
+        }
+      : undefined;
+  t.after(() => delete globalThis.chatPage);
+  const view = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  view();
+  await settle();
+  assert.equal(trims, 0, "opening a Chat trims nothing");
+  page = [...page, { id: 2, session_id: 42, role: "assistant", body: "reply" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a new message at the bottom trims the window");
+  view().props.onScroll({ nativeEvent: { contentOffset: { y: 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 600 } } });
+  page = [...page, { id: 3, session_id: 42, role: "assistant", body: "more" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a reader scrolled up keeps the history they are reading");
 });
 
 test("the transcript follows new content, also after the agent settings sheet opens", () => {
@@ -11332,7 +11370,7 @@ test("mobile activity sheet opens the selected call without paging and keeps app
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "../tool-row": { ToolRow: "ToolRow" },
     "../markdown": { Markdown: "Markdown" },
-    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": {
@@ -11437,7 +11475,7 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "../tool-row": { ToolRow: "ToolRow" },
     "../markdown": { Markdown: "Markdown" },
-    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": { useSession: () => session },
