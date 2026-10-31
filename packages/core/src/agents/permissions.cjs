@@ -3,6 +3,7 @@ const { PLAN_TOOL_NAMES } = require("../chat-plan-tools.cjs");
 const { ROUTINE_TOOL_NAMES } = require("../routines/tools.cjs");
 const { BOT_TOOL_NAMES } = require("../bots/tools.cjs");
 const { babysitDenial } = require("../babysit-guard.cjs");
+const { BUNDLED_SKILLS_DIRECTORY } = require("../bundled-skills.cjs");
 
 // Approval requests from both agents, in the shape of the `permission-request` event, and the
 // replies each agent expects for the user's answer. A request is
@@ -199,7 +200,19 @@ function codexMcpRequest(id, params) {
 // when they widen access (local-mcp-host.cjs), with what they would do; the provider's bare "run tool?" card in front
 // of it would make the user approve twice.
 // Codex names the tool only in the message: `Allow the milagre MCP server to run tool "tasks_set"?`.
-const SELF_GATED_TOOLS = ["request_secret", "project_add", "worktree_link", "worktree_remove", "chat_set_mode", "chat_respond", "delegate"];
+// Computer use asks once per app per Chat itself (computer-use.cjs), so its acting tools skip the mode's per-call card.
+const SELF_GATED_TOOLS = [
+  "request_secret",
+  "project_add",
+  "worktree_link",
+  "worktree_remove",
+  "chat_set_mode",
+  "chat_respond",
+  "delegate",
+  "desktop_act",
+  "desktop_press",
+  "desktop_launch",
+];
 // Like the plan tools, these only write the Chat's own canvas, page, Browser panel or Negotiation (design_delete stays
 // gated; so do the browser tools that act on a page, a click or a typed value).
 const OWN_CHAT_TOOLS = [
@@ -335,8 +348,8 @@ const PENDING_WORKTREE_MESSAGE =
  * the provider's own sandbox has it (`known`, which the provider updates with `learned`).
  */
 class WorkspaceAccess {
-  constructor({ cwd, workspaceRoots, readOnlyRoots = [] }) {
-    Object.assign(this, { cwd, roots: workspaceRoots, readOnlyRoots, known: [...(workspaceRoots ?? [])] });
+  constructor({ cwd, workspaceRoots, readOnlyRoots = [], skillsDirectory = BUNDLED_SKILLS_DIRECTORY }) {
+    Object.assign(this, { cwd, roots: workspaceRoots, readOnlyRoots, skillsDirectory, known: [...(workspaceRoots ?? [])] });
   }
 
   /** Whether every file is in the Chat's own folders: what Auto edits without asking. */
@@ -362,6 +375,8 @@ class WorkspaceAccess {
     if (!files.length) return null;
     // Root by root: a missing folder only leaves its own requests to the usual cards.
     const inside = (roots) => roots.some((root) => insideWorkspace([root], files, this.cwd));
+    // Milagre's own skills: the tool descriptions and the system prompt tell agents to read them first.
+    if (kind === "read" && inside([this.skillsDirectory])) return { decision: "allow", learn: [] };
     if (inside(this.readOnlyRoots)) {
       if (kind === "edit") return { decision: "deny", message: PENDING_WORKTREE_MESSAGE };
       return kind === "read" ? { decision: "allow", learn: [] } : null;

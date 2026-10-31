@@ -48,6 +48,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="experimental" options={{ title: "Experimental" }} />
       <Stack.Screen name="babysit-prs" options={{ title: "Babysit PRs" }} />
       <Stack.Screen name="simlock" options={{ title: "Simlock devices" }} />
+      <Stack.Screen name="computer-use" options={{ title: "Computer use" }} />
       <Stack.Screen name="project-settings" options={{ title: "Project" }} />
       <Stack.Screen name="published-pages" />
     </Stack>

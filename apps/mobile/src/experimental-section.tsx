@@ -19,6 +19,8 @@ export function ExperimentalSection() {
   const [babysit, setBabysit] = useState<boolean | null>(null);
   // Simlock devices, also kept by the Mac; null on a Mac without them.
   const [simlock, setSimlock] = useState<boolean | null>(null);
+  // Computer use, also kept by the Mac; null on a Mac without it.
+  const [computerUse, setComputerUse] = useState<boolean | null>(null);
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
@@ -31,6 +33,10 @@ export function ExperimentalSection() {
       client.call<{ enabled: boolean } | null>("simlock:settings:read", []).then(
         (value) => live && setSimlock(value ? value.enabled === true : null),
         () => live && setSimlock(null),
+      );
+      client.call<{ enabled: boolean } | null>("computer-use:settings:read", []).then(
+        (value) => live && setComputerUse(value ? value.enabled === true : null),
+        () => live && setComputerUse(null),
       );
       return () => {
         live = false;
@@ -69,6 +75,12 @@ export function ExperimentalSection() {
           <Text style={[styles.caption, { paddingBottom: 12 }]}>
             Agents lease a simulator or emulator of their own from a Simlock pool and return it wiped.
           </Text>
+        </View>
+      )}
+      {session.client && computerUse !== null && (
+        <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
+          <Row title="Computer use" value={computerUse ? "On" : "Off"} onPress={() => router.push("/computer-use")} />
+          <Text style={[styles.caption, { paddingBottom: 12 }]}>Agents see and operate apps on the Mac, asking before each new app.</Text>
         </View>
       )}
     </View>

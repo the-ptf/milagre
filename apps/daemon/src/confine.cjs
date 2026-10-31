@@ -56,6 +56,11 @@ const PATHS = Object.freeze({
   "simulator:input": denySimulator,
   "simulator:repair": denySimulator,
   "simulator:close": denySimulator,
+  // Computer use drives the owner's own desktop apps. A demo Project never reaches it.
+  "computer-use:settings:read": denied,
+  "computer-use:settings:save": denied,
+  "computer-use:status": denied,
+  "computer-use:guide": denied,
   // Simlock leases run on the owner's machines with the owner's token. A demo Project never reaches them.
   "simlock:settings:read": denySimulator,
   "simlock:settings:save": denySimulator,

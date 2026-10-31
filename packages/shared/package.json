@@ -64,6 +64,7 @@
   "type": "module",
   "exports": {
     "./after-paint": "./src/after-paint.ts",
+    "./computer-use": "./src/computer-use.ts",
     "./tool-activity": {
       "types": "./src/tool-activity.d.mts",
       "default": "./src/tool-activity.mjs"

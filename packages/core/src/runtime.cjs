@@ -215,6 +215,11 @@ function createRuntime(options) {
     if (!scope || !Number.isSafeInteger(id) || id < 1 || !scopeStates.has(scope) || !(await scopeStates.get(scope)).sessions[id])
       throw new Error(`Open an existing Chat before ${action}.`);
   };
+  // Experimental: agents operate desktop apps through agent-desktop, asking once per app per Chat.
+  const { createComputerUseSettings, createComputerUse } = require("./computer-use.cjs");
+  const computerUseSettings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json"), emit });
+  const computerUse =
+    options.computerUse ?? createComputerUse({ dataDir, settings: computerUseSettings, approve: (chatId, request) => agents.askApproval(chatId, request) });
   // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
   const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
   const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
@@ -351,6 +356,10 @@ function createRuntime(options) {
     if (lease?.chatId) await simulators.detach({ chatId: lease.chatId, deviceId: lease.deviceId }).catch(() => {});
     return released;
   }
+  commands.handle("computer-use:settings:read", () => computerUseSettings.read());
+  commands.handle("computer-use:settings:save", (_context, patch) => computerUseSettings.save(patch));
+  commands.handle("computer-use:status", () => computerUse.status());
+  commands.handle("computer-use:guide", () => computerUse.guide());
   commands.handle("simlock:settings:read", () => simlockSettings.read());
   commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
   commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
@@ -2315,6 +2324,8 @@ function createRuntime(options) {
             get: (deviceId) => simlock.get(deviceId),
           })
         : []),
+      // Experimental: desktop apps on this computer, through agent-desktop.
+      ...(computerUseSettings.read().enabled ? computerUse.definitions(chatId) : []),
       ...require("./chat-browsers.cjs").browserToolDefinitions(chatId, browsers),
       ...pageCommentToolDefinitions(chatId, pageComments),
       // Driving the Chat's browser pages; browser_open asks the desktop to open a Browser panel tab (browser-panel:open).
