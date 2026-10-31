@@ -10062,6 +10062,50 @@ test("mobile picker leases a model from the Simlock pool and returns it from the
   h.cleanup();
 });
 
+test("mobile picker says why an enabled Simlock pool can't be reached, and shows nothing for a Mac without one", async () => {
+  const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
+  for (const [settings, models, expected] of [
+    [
+      async () => ({ enabled: true }),
+      async () => Promise.reject(new Error("The Simlock gateway refused the agent token.")),
+      "The Simlock gateway refused the agent token.",
+    ],
+    [
+      async () => ({ enabled: true }),
+      async () => Promise.reject(new Error("Could not reach the Simlock gateway at http://pool:4700.")),
+      "Could not reach the Simlock gateway at http://pool:4700.",
+    ],
+    [async () => Promise.reject(new Error("Unknown command: simlock:settings:read")), async () => ({ models: [] }), null],
+  ]) {
+    const h = simulatorHost({
+      url: "mac",
+      call: async (method) => {
+        if (method === "simlock:settings:read") return settings();
+        if (method === "simlock:models") return models();
+        return { chatId: "/p#7", supported: true, devices: [a], attached: [a], available: [] };
+      },
+    });
+    const render = () => h.render("SimulatorSheet", { hostId: "mac", chatId: "/p#7" });
+    render();
+    await settle();
+    find(render(), (n) => n.props.accessibilityLabel === "My iPhone, choose simulator").props.onPress();
+    find(render(), (n) => n.props.title === "Attach simulator").props.onPress();
+    render();
+    await settle();
+    await settle();
+    const alert = find(render(), (n) => n.props.accessibilityRole === "alert" && String(n.props.children).includes("Simlock"));
+    if (expected) assert.equal(String(alert?.props.children), expected);
+    else {
+      assert.equal(alert, undefined);
+      assert.equal(
+        find(render(), (n) => n.props.accessibilityLabel === "Lease from Simlock"),
+        undefined,
+      );
+    }
+    h.cleanup();
+  }
+});
+
 test("mobile picker exposes other devices only in Attach and detach updates this Chat", async () => {
   const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
   const b = { id: "b", name: "Other device", platform: "android", version: "16" };

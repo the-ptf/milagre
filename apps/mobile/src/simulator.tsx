@@ -152,17 +152,20 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
     if (!attaching || !source) return;
     let live = true;
     void (async () => {
+      let settings: { enabled: boolean } | null;
       try {
-        const settings = await source.call<{ enabled: boolean }>("simlock:settings:read", []);
-        if (!settings?.enabled) return live && setPool(null);
+        settings = await source.call<{ enabled: boolean }>("simlock:settings:read", []);
+      } catch {
+        // A Mac without Simlock answers unknown command: show nothing rather than an error.
+        settings = null;
+      }
+      if (!settings?.enabled) return live && setPool(null);
+      try {
         const { models } = await source.call<{ models: SimlockModel[] }>("simlock:models", []);
         if (live) setPool({ models });
       } catch (error) {
-        // A Mac without Simlock answers unknown command: show nothing rather than an error.
-        if (live)
-          setPool((current) =>
-            current ? { models: current.models, error: error instanceof Error ? error.message : "Could not reach the Simlock pool." } : null,
-          );
+        // Turned on but unreachable (a refused token, a stopped gateway): say why, as desktop does.
+        if (live) setPool({ models: [], error: error instanceof Error ? error.message : "Could not reach the Simlock pool." });
       }
     })();
     return () => {
