@@ -1286,11 +1286,39 @@ function App() {
     showGit,
     archivingChats,
   ]);
-  const latest = useRef({ patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat });
-  latest.current = { patchChat, revealChat, openChatInEditor, openGitDialog, checkArchive, archiveChat, linkChatIssue, unlinkChatIssue, reloadChat };
+  const latest = useRef({
+    patchChat,
+    markChatDone,
+    revealChat,
+    openChatInEditor,
+    openGitDialog,
+    checkArchive,
+    archiveChat,
+    linkChatIssue,
+    unlinkChatIssue,
+    reloadChat,
+  });
+  latest.current = {
+    patchChat,
+    markChatDone,
+    revealChat,
+    openChatInEditor,
+    openGitDialog,
+    checkArchive,
+    archiveChat,
+    linkChatIssue,
+    unlinkChatIssue,
+    reloadChat,
+  };
   // The main process applies chat row actions to the latest state, so a turn that finished since the last render isn't lost.
   function patchChat(sessionId: number, patch: SessionPatch, path = projectRef.current?.path) {
     if (path) void reportChatAction(patchChatShowingDone(path, sessionId, patch), "Could not update Chat", setNotice);
+  }
+  // Done on the open Chat leaves it for a new Chat in the same Project, as archiving it does: the work there is
+  // finished, and the next thing starts fresh. The row keeps moving to the Done section meanwhile.
+  function markChatDone(sessionId: number) {
+    if (!selectedLinkRef.current && selectedSessionRef.current === sessionId) startNewChat();
+    patchChat(sessionId, { done: true, unread: false });
   }
 
   function controlAdvisor(action: "stop" | "retry", id: string) {
@@ -2648,7 +2676,7 @@ function App() {
       onMarkUnread: (id, unread) => latest.current.patchChat(Number(id), { unread }),
       onReload: (id) => void latest.current.reloadChat(Number(id)),
       onPin: (id, order) => latest.current.patchChat(Number(id), order == null ? { pinned: false, pin_order: undefined } : { pinned: true, pin_order: order }),
-      onDone: (id) => latest.current.patchChat(Number(id), { done: true, unread: false }),
+      onDone: (id) => latest.current.markChatDone(Number(id)),
       onReopen: (id) => latest.current.patchChat(Number(id), { done: false }),
       ...(remoteProject
         ? { remote: true }

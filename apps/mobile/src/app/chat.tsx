@@ -1695,13 +1695,19 @@ function ChatPane({
       );
     else if (id === "reload" && chat)
       void action(() => client.call("chat:reload", [chatId]), true).then((done) => done && showToast("Chat reloaded. Your next message starts a fresh agent."));
-    else if (id === "done" && chat)
-      void action(() => client.call("chat:patch", [project.path, chat.id, { done: true, unread: false }])).then(
-        (ok) => ok && showToast("Moved to Done", () => void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]))),
-      );
+    else if (id === "done" && chat) void markDone(chat);
     else if (id === "reopen" && chat) void action(() => client.call("chat:patch", [project.path, chat.id, { done: false }]));
     else if (id === "archive" && chat?.archived) void action(() => client.call("chat:patch", [project.path, chat.id, { archived: false }]));
     else if (id === "archive" && chat) void archive(chat);
+  }
+  // Done leaves the finished Chat for a new one in the same Project (the Chat beside just closes); the toast's Undo
+  // brings it back to the list.
+  async function markDone(finished: NonNullable<typeof chat>) {
+    const ok = await action(() => client.call("chat:patch", [project.path, finished.id, { done: true, unread: false }]));
+    if (!ok) return;
+    if (secondary) closeBeside();
+    else router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
+    showToast("Moved to Done", () => void action(() => client.call("chat:patch", [project.path, finished.id, { done: false }])));
   }
   // Archive starts immediately, preserves unsaved work, and stops a running turn.
   // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
