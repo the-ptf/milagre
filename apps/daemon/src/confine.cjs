@@ -56,6 +56,13 @@ const PATHS = Object.freeze({
   "simulator:input": denySimulator,
   "simulator:repair": denySimulator,
   "simulator:close": denySimulator,
+  // Simlock leases run on the owner's machines with the owner's token. A demo Project never reaches them.
+  "simlock:settings:read": denySimulator,
+  "simlock:settings:save": denySimulator,
+  "simlock:identity": denySimulator,
+  "simlock:models": denySimulator,
+  "simlock:lease": denySimulator,
+  "simlock:release": denySimulator,
   // Browsers on the host can hold the owner's signed-in sessions. A demo Project never reaches them.
   "browser:list": denied,
   "browser:attach": denied,
