@@ -27,7 +27,7 @@ export const CAPSULE_WIDTH = 6 + CONTROL + 4 + CONTROL + 6;
  * The capsule is shorter than the mic's 44pt box and sits inset from the field's edges: a one-line field is only 44
  * tall, so a 44 capsule anchored to its bottom padding would hang over the top of the composer's own background.
  */
-export const CAPSULE_HEIGHT = 36;
+const CAPSULE_HEIGHT = 36;
 export const CAPSULE_INSET = { right: 6, bottom: 4 };
 // The level halo swells inside the capsule and no further: 22 at rest, 35.2 at full voice, under CAPSULE_HEIGHT.
 const HALO = 22;
