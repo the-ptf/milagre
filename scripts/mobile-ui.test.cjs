@@ -301,7 +301,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           DictationCapsule: "DictationCapsule",
           MIC_SIZE: 32,
           CAPSULE_WIDTH: 72,
-          CAPSULE_INSET: { right: 6, bottom: 4 },
+          MIC_INSET: { right: -5, bottom: 6 },
+          CAPSULE_INSET: { right: -3, bottom: 4 },
         };
       // Icon data and the icon component are drawing; a test reads the icon's name.
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
@@ -346,7 +347,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (base === "browser-setting" && !(id in modules)) return { useInternalBrowser: () => [globalThis.internalBrowser !== false, async () => {}] };
       // Hardware keyboards belong to an iPad: no Return-to-send or shortcuts in a test.
       if (base === "hardware-keys" && !(id in modules))
-        return { useReturnKey: () => ({ attach() {} }), useHardwareShortcuts() {}, chatShortcutIndex: () => null, SHORTCUTS: [] };
+        return {
+          useReturnKey: () => ({ attach() {} }),
+          useOnScreenReturn: () => ({}),
+          useHardwareShortcuts() {},
+          chatShortcutIndex: () => null,
+          SHORTCUTS: [],
+        };
       // The PR sheet's bridge to the Chat is pure; opening the sheet is recorded on globalThis.openedPullRequests.
       if (base === "pr-chat" && !(id in modules)) return (globalThis.prChat = load("pr-chat.ts", modules, "", cache));
       // A PR badge's glyph by state (pr-look.ts): each icon by its name.
@@ -17036,6 +17043,30 @@ test("iOS messages select ranges inside the Chat and freeze streaming text until
   assert.equal(render().type, "Message", "Android keeps its native inline Text selection");
 });
 
+test("an iPad's on-screen return key sends; a hardware keyboard's shortcut bar and an iPhone keep new lines", () => {
+  const returnOn = (isPad, keyboard) =>
+    load("hardware-keys.ts", {
+      react: hookHost(),
+      "react-native": { Platform: { OS: "ios", isPad }, findNodeHandle: () => null },
+      "expo-modules-core": { requireOptionalNativeModule: () => null },
+      "react-native-keyboard-controller": { useKeyboardState: (select) => select(keyboard) },
+      "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
+    }).useOnScreenReturn;
+  let sends = 0;
+  const send = () => sends++;
+  const onScreen = returnOn(true, { isVisible: true, height: 400 })(send);
+  assert.equal(onScreen.returnKeyType, "send");
+  assert.equal(onScreen.submitBehavior, "submit");
+  onScreen.onSubmitEditing();
+  assert.equal(sends, 1, "the on-screen return key sends");
+  const bar = returnOn(true, { isVisible: true, height: 69 })(send);
+  assert.equal(bar.submitBehavior, "newline", "over a hardware keyboard Shift+Return still adds a line");
+  assert.equal(bar.onSubmitEditing, undefined);
+  assert.equal(returnOn(true, { isVisible: false, height: 0 })(send).submitBehavior, "newline");
+  assert.equal(Object.keys(returnOn(false, { isVisible: true, height: 300 })(send)).length, 0, "an iPhone keeps return for new lines");
+  assert.equal(Object.keys(returnOn(true, { isVisible: true, height: 400 })(undefined)).length, 0, "nothing to send, nothing changes");
+});
+
 test("hardware Return retries early native attachment, rebinds on focus and cleans up pending attempts", async () => {
   const react = hookHost({ effects: true });
   const frames = new Map();
@@ -17068,6 +17099,7 @@ test("hardware Return retries early native attachment, rebinds on focus and clea
       react,
       "react-native": { Platform: { OS: "ios" }, findNodeHandle: (ref) => ref?.tag ?? null },
       "expo-modules-core": { requireOptionalNativeModule: () => native },
+      "react-native-keyboard-controller": { useKeyboardState: () => false },
       "@milagre/shared/keybindings": require("@milagre/shared/keybindings"),
       frames: {
         requestAnimationFrame: (callback) => {
