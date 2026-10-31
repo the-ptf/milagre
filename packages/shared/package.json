@@ -30,6 +30,7 @@
     "src/diff-layout.ts",
     "src/usage.ts",
     "src/token-usage.ts",
+    "src/settings-search.ts",
     "src/main-sync.ts",
     "src/auto-update.ts",
     "src/browser-sign-ins.ts",
@@ -127,6 +128,7 @@
     "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
     "./token-usage": "./src/token-usage.ts",
+    "./settings-search": "./src/settings-search.ts",
     "./subagent-glance": {
       "types": "./src/subagent-glance.d.mts",
       "default": "./src/subagent-glance.mjs"

@@ -35,13 +35,14 @@ import {
   type LinearStatus,
 } from "@milagre/shared/linear";
 import { PROVIDERS, providerName } from "@milagre/shared/providers";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   BookOpen01Icon,
   BubbleChatIcon,
+  ChartColumnIcon,
   KeyboardIcon,
   ConnectIcon,
   FlaskConicalIcon,
@@ -86,6 +87,10 @@ import { isRemoteScopeHidden, setComputerHidden, setRemoteScopeHidden } from "..
 import { cloudflarePhonesNote, pairingWindow, phoneLanLine, phoneQrSrc, phoneStatusLine } from "../lib/phone";
 import { deviceName, deviceSeenLine, devicesByKind, newDeviceKeys, removeDeviceQuestion } from "../lib/devices";
 import { GlideGroup, RailButton } from "./SidebarNav";
+import { lazyView } from "../lib/lazy-view";
+import { SETTINGS_INDEX } from "../lib/settings-index";
+import { findSetting } from "../lib/settings-find";
+import { SettingsSearchField, SettingsSearchResults, useFoundRow, useSettingsSearch, type SettingsSearchItem } from "./settings/SettingsSearch";
 import { Select } from "./primitives/Select";
 import { Group, Row } from "./settings/SettingsGroup";
 import { useDoneSettings } from "../lib/done-settings";
@@ -140,6 +145,7 @@ function Icon({ icon, size = 18 }: { icon: IconData; size?: number }) {
 
 export type SettingsSection =
   | "general"
+  | "usage"
   | "project-accounts"
   | "accounts"
   | "appearance"
@@ -164,6 +170,7 @@ const SECTIONS: Array<{
   icon: ReactNode;
 }> = [
   { key: "general", label: "General", icon: <Icon icon={Settings01Icon} /> },
+  { key: "usage", label: "Usage", icon: <Icon icon={ChartColumnIcon} /> },
   { key: "accounts", label: "Accounts", icon: <Icon icon={UserCircleIcon} /> },
   { key: "project-accounts", label: "Project Accounts", icon: <Icon icon={FolderKeyIcon} /> },
   { key: "appearance", label: "Appearance", icon: <Icon icon={PaintBoardIcon} /> },
@@ -180,6 +187,28 @@ const SECTIONS: Array<{
   { key: "experimental", label: "Experimental", icon: <Icon icon={FlaskConicalIcon} /> },
   { key: "about", label: "About", icon: <Icon icon={InformationCircleIcon} /> },
 ];
+
+// Other words for a section, so the search finds it by what it holds.
+const SECTION_KEYWORDS: Partial<Record<SettingsSection, string>> = {
+  general: "worktrees plan usage default model permission mode editor",
+  usage: "token tokens cost spend dollars analytics estimated",
+  accounts: "sign in login claude codex antigravity profile",
+  "project-accounts": "per project account",
+  appearance: "theme dark light mode font size colors look",
+  chat: "messages transcript dictation voice reasoning tool calls",
+  keybindings: "shortcuts keyboard keys hotkeys",
+  browser: "links web sign-ins cookies",
+  notifications: "alerts sounds chimes push",
+  routines: "heartbeats schedule automations",
+  connections: "linear issues integrations",
+  mcp: "servers tools model context protocol",
+  "local-mcp": "milagre mcp published pages designs artifacts",
+  devices: "phone pairing computers remote qr",
+  experimental: "beta labs babysit simlock computer use",
+  about: "version update privacy support",
+};
+
+const sectionTitle = (page: string) => SECTIONS.find((item) => item.key === page)?.label ?? page;
 
 export type SettingsProject = { path: string; name: string };
 
@@ -213,8 +242,56 @@ export function SettingsNav({
       () => {},
     );
   }, []);
-  const rows = current ? projectRows({ recent, currentPath: current.path, currentName: current.name }) : [];
+  const currentPath = current?.path;
+  const currentName = current?.name;
+  const rows = useMemo(() => (currentPath ? projectRows({ recent, currentPath, currentName }) : []), [recent, currentPath, currentName]);
   const imageOf = useProjectImages(rows.map((row) => row.path));
+  const [query, setQuery] = useState("");
+  // Everything the search can open: the sections, each row in them, then the computers and Projects this nav lists.
+  const items = useMemo<SettingsSearchItem[]>(
+    () => [
+      ...SECTIONS.map((item) => ({
+        key: `section:${item.key}`,
+        page: item.key,
+        title: item.label,
+        keywords: SECTION_KEYWORDS[item.key],
+        icon: item.icon,
+        open: () => onSelect(item.key),
+      })),
+      ...SETTINGS_INDEX.map((entry) => ({
+        ...entry,
+        key: `row:${entry.page}:${entry.group ?? ""}:${entry.title}`,
+        open: () => {
+          onSelect(entry.page);
+          findSetting(entry.page, entry.title);
+        },
+      })),
+      ...computers.map((computer) => ({
+        key: `computer:${computer.id}`,
+        page: "computer",
+        title: computer.name,
+        keywords: "computer mac",
+        icon: <ComputerDot tone={computerTone(computer)} />,
+        open: () => onSelectComputer?.(computer.id),
+      })),
+      ...(showProjectSettings ? rows : []).map((row) => ({
+        key: `project:${row.path}`,
+        page: "project",
+        title: row.name,
+        keywords: "project worktree setup",
+        icon: (
+          <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-chip bg-ink text-10 font-semibold text-surface">
+            <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
+          </span>
+        ),
+        open: () => onSelectProject({ path: row.path, name: row.name }),
+      })),
+    ],
+    [onSelect, onSelectComputer, onSelectProject, computers, rows, showProjectSettings, imageOf],
+  );
+  const pageTitle = useCallback((page: string) => (page === "computer" ? "Computers" : page === "project" ? "Projects" : sectionTitle(page)), []);
+  const search = useSettingsSearch(items, query, pageTitle);
+  const searching = query.trim().length > 0;
   return (
     <aside aria-label="Settings navigation" className="relative flex h-full w-[224px] shrink-0 flex-col">
       {/* Back and the title sit in the window's top bar beside its controls, where the sidebar keeps its toggle. */}
@@ -233,48 +310,63 @@ export function SettingsNav({
         <h2 className="text-[14px] font-semibold text-ink">Settings</h2>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-window bg-surface pt-2 shadow-card">
-        <GlideGroup>
-          {SECTIONS.map((item) => (
-            <RailButton key={item.key} icon={item.icon} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
-          ))}
-        </GlideGroup>
-        {computers.length > 0 && (
-          <div data-settings-computers>
-            <div className="mx-2 mt-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">Computers</div>
+        <SettingsSearchField
+          query={query}
+          onQuery={setQuery}
+          onMove={search.move}
+          onOpen={() => {
+            const hit = search.hits[search.active];
+            if (hit) (hit.entry as SettingsSearchItem).open();
+          }}
+        />
+        {searching ? (
+          <SettingsSearchResults hits={search.hits} active={search.active} pageTitle={pageTitle} onHover={search.setActive} />
+        ) : (
+          <>
             <GlideGroup>
-              <RailButton icon={<ComputerDot tone="online" />} label={thisMac} active={false} onClick={() => onSelect("devices")} />
-              {computers.map((computer) => (
-                <RailButton
-                  key={computer.id}
-                  icon={<ComputerDot tone={computerTone(computer)} />}
-                  label={computer.name}
-                  active={section === "computer" && computerId === computer.id}
-                  onClick={() => onSelectComputer?.(computer.id)}
-                />
+              {SECTIONS.map((item) => (
+                <RailButton key={item.key} icon={item.icon} label={item.label} active={section === item.key} onClick={() => onSelect(item.key)} />
               ))}
             </GlideGroup>
-          </div>
-        )}
-        {showProjectSettings && (
-          <>
-            <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2 text-[12.5px] font-medium text-ink-3">Projects</div>
-            <ScrollArea className="min-h-0 flex-1 pb-2">
-              <GlideGroup>
-                {rows.map((row) => (
-                  <RailButton
-                    key={row.path}
-                    icon={
-                      <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-[5px] bg-ink text-[10px] font-semibold text-surface">
-                        <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
-                      </span>
-                    }
-                    label={row.name}
-                    active={section === "project" && project?.path === row.path}
-                    onClick={() => onSelectProject({ path: row.path, name: row.name })}
-                  />
-                ))}
-              </GlideGroup>
-            </ScrollArea>
+            {computers.length > 0 && (
+              <div data-settings-computers>
+                <div className="mx-2 mt-2 flex h-8 items-center px-2 text-[12.5px] font-medium text-ink-3">Computers</div>
+                <GlideGroup>
+                  <RailButton icon={<ComputerDot tone="online" />} label={thisMac} active={false} onClick={() => onSelect("devices")} />
+                  {computers.map((computer) => (
+                    <RailButton
+                      key={computer.id}
+                      icon={<ComputerDot tone={computerTone(computer)} />}
+                      label={computer.name}
+                      active={section === "computer" && computerId === computer.id}
+                      onClick={() => onSelectComputer?.(computer.id)}
+                    />
+                  ))}
+                </GlideGroup>
+              </div>
+            )}
+            {showProjectSettings && (
+              <>
+                <div className="mx-2 mt-2 flex h-8 shrink-0 items-center px-2 text-[12.5px] font-medium text-ink-3">Projects</div>
+                <ScrollArea className="min-h-0 flex-1 pb-2">
+                  <GlideGroup>
+                    {rows.map((row) => (
+                      <RailButton
+                        key={row.path}
+                        icon={
+                          <span className="flex size-[18px] items-center justify-center overflow-hidden rounded-[5px] bg-ink text-[10px] font-semibold text-surface">
+                            <WorkspaceIcon src={imageOf(row.path)} fallback={row.initial} />
+                          </span>
+                        }
+                        label={row.name}
+                        active={section === "project" && project?.path === row.path}
+                        onClick={() => onSelectProject({ path: row.path, name: row.name })}
+                      />
+                    ))}
+                  </GlideGroup>
+                </ScrollArea>
+              </>
+            )}
           </>
         )}
       </div>
@@ -2560,6 +2652,9 @@ function ProjectSettings({ project, onManageAccounts }: { project: SettingsProje
   );
 }
 
+// Settings › Usage: the token usage page, loaded when it opens (its charts stay out of the rest of Settings).
+const TokenUsagePage = lazyView(() => import("./token-usage/TokenUsagePage").then((module) => module.TokenUsagePage));
+
 export function SettingsPanel({
   section,
   project,
@@ -2569,7 +2664,10 @@ export function SettingsPanel({
   accountScope,
   computerId,
   onAddComputer,
+  onOpenUsageChat,
 }: {
+  /** Opens a Chat named on the Usage page, on the computer whose transcripts it reads. */
+  onOpenUsageChat?: (computerId: string, projectPath: string, sessionId: number) => void;
   computerId?: string;
   /** Opens Add computer, from Settings › Devices. */
   onAddComputer?: () => void;
@@ -2587,9 +2685,19 @@ export function SettingsPanel({
       : section === "computer"
         ? (computers.find((computer) => computer.id === computerId)?.name ?? "Computer")
         : SECTIONS.find((item) => item.key === section)?.label;
+  const content = useRef<HTMLDivElement>(null);
+  // A search result's row lights up once this section shows it.
+  useFoundRow(content, section);
+  // Usage is a wide page with its own title, scroll and toolbar, so it fills the panel instead of the Settings column.
+  if (section === "usage")
+    return (
+      <div ref={content} className="h-full">
+        <TokenUsagePage onOpenChat={onOpenUsageChat} />
+      </div>
+    );
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto w-full max-w-[640px] px-6 pt-14 pb-10">
+      <div ref={content} className="mx-auto w-full max-w-[640px] px-6 pt-14 pb-10">
         {/* MCP draws its own title row, with Refresh and Add server beside it; Experimental swaps it for Babysit PRs' page title. */}
         {section !== "mcp" && section !== "experimental" && <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>}
         {section === "general" && <GeneralSettings models={models} />}
