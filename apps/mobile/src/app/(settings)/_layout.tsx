@@ -39,6 +39,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="archived" options={{ title: "Archived Chats" }} />
       <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
       <Stack.Screen name="usage" options={{ title: "Plan usage" }} />
+      <Stack.Screen name="token-usage" options={{ title: "Token usage" }} />
       <Stack.Screen name="skills" options={{ title: "Skills" }} />
       <Stack.Screen name="skill" options={{ title: "Skill" }} />
       <Stack.Screen name="mcp" options={{ title: "MCP" }} />

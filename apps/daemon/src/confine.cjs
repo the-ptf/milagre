@@ -244,6 +244,8 @@ const PATHS = Object.freeze({
   "local-mcp:enableClient": denied,
   "local-mcp:disableClient": denied,
   "usage:read": (args) => (args[0] == null ? [] : [args[0]]),
+  // Token usage names every Project and folder an agent ran in on the Mac.
+  "token-usage:read": denied,
   "usage:cached": (args) => (args[0] == null ? [] : [args[0]]),
   "agent:answer-question": ([value]) => [chatProject(value?.chatId)],
   "agent:set-permission-mode": ([value]) => [chatProject(value?.chatId)],

@@ -153,6 +153,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           outboxAttachments: (items) => items,
           useOutbox: () => ({ loaded: true, items: [], error: "" }),
         };
+      if (id === "expo-haptics" && !(id in modules)) return { selectionAsync: async () => {} };
+      if (id === "@sbaiahmed1/react-native-blur" && !(id in modules)) return { LiquidGlassView: "LiquidGlassView", BlurView: "BlurView" };
       if (file === "prompt-field.tsx" && id === "expo-router" && !(id in modules)) return { useFocusEffect() {} };
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
@@ -3256,10 +3258,7 @@ test("archived-only subagents hide the mobile Chat menu action and pill", () => 
   const chat = chatHost();
   chat.params.id = "7";
   chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1, subagents: [{ id: "done", status: "completed", archived: true }] };
-  assert.equal(
-    find(chat.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Subagents"),
-    undefined,
-  );
+  assert.equal(chatMenuEntry(chat.render(), "Subagents"), undefined);
   assert.equal(
     find(chat.render(), (node) => node.type === "SubagentChip"),
     undefined,
@@ -3284,7 +3283,7 @@ test("a saved phone Chat offers Undo changes in ⋯ and /undo, both open the lis
   chat.render();
   assert.equal(chat.undo.chatId, "/p#7");
   assert.deepEqual(JSON.parse(JSON.stringify(chat.field().commands)), [{ name: "undo", description: "Undo a task's file changes" }]);
-  find(chat.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Undo changes").props.onPress();
+  chatMenuEntry(chat.render(), "Undo changes").props.onPress();
   assert.equal(chat.undo.opened, 1);
   let tree = chat.render();
   assert.ok(find(tree, (node) => node.type === "UndoPanel"));
@@ -5407,7 +5406,7 @@ test("the Chat screen Archive falls back to a plain Archive on an older Mac, the
   screen.params.id = "5";
   delete screen.params.worktreeId;
   screen.render();
-  const archive = find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
+  const archive = chatMenuEntry(screen.render(), "Delete");
   archive.props.onPress();
   await passUndo(t);
   assert.deepEqual(alerts, [], "Delete does not open a confirmation");
@@ -5692,7 +5691,7 @@ test("a PR ready to merge shows Merge #n, which opens the PR sheet, and the shee
     // The header chip and PR shortcut open it in the app too, not on GitHub.
     const title = find(tree, (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
     find(title, (node) => node.type === "HeaderPullRequestChip").props.onPress();
-    find(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel === "Pull request #90").props.onPress();
+    find(tree, (node) => node.type?.name === "HeaderAction" && node.props.label === "Pull request #90").props.onPress();
     assert.equal(globalThis.openedPullRequests.length, 3);
     assert.equal(screen.external?.length ?? 0, 0);
     screen.render();
@@ -5759,7 +5758,7 @@ test("on an iPad the PR opens in the right panel, beside Changes", () => {
     find(screen.render(), (node) => node.type === "PullRequestMerge").props.onOpen();
     assert.deepEqual(screen.panels.shown, ["right:pr:#91"]);
     assert.equal(globalThis.openedPullRequests.length, 0);
-    find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "View changes").props.onPress();
+    chatMenuEntry(screen.render(), "View changes").props.onPress();
     assert.deepEqual(screen.panels.shown, ["right:pr:#91", "right"]);
   } finally {
     delete globalThis.chatPullRequest;
@@ -10334,7 +10333,7 @@ test("the Chat screen opens its sidebar once on archive without replacing the sc
   screen.session.client.snapshot = async () => project.snapshot;
   screen.params.id = "5";
   delete screen.params.worktreeId;
-  const menuAction = () => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Delete");
+  const menuAction = () => chatMenuEntry(screen.render(), "Delete");
   menuAction().props.onPress();
   await settleAll();
   assert.equal(screen.panels.open, "left", "shows the sidebar before the archive ends");
@@ -12846,7 +12845,16 @@ function linkableChat({ linear = { active: true }, worktree = { path: "/p/wt", n
   delete screen.params.worktreeId;
   return screen;
 }
-const menuEntry = (screen, label) => find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === label);
+function chatMenuEntries(tree) {
+  const menu = find(tree, (node) => node.type === "PullDown" && node.props.label === "Chat actions");
+  return (menu?.props.sections ?? [])
+    .flatMap((section) => section.items)
+    .map((item) => ({
+      props: { ...item, children: item.title, onPress: () => menu.props.onSelect(item.id) },
+    }));
+}
+const chatMenuEntry = (tree, label) => chatMenuEntries(tree).find((entry) => entry.props.children === label);
+const menuEntry = (screen, label) => chatMenuEntry(screen.render(), label);
 
 test("a Chat's own Worktree offers Link issue only while Linear is on", () => {
   assert.ok(menuEntry(linkableChat({ linear: { active: true } }), "Link issue…"), "on shows Link");
@@ -12885,22 +12893,19 @@ test("a stored Linear issue is hidden everywhere while Linear is off", () => {
   assert.ok(!menuEntry(screen, LINK_PR_HINT("ENG-12")), "no hint");
 });
 
-test("a Worktree another Chat shares offers no Link, and Unlink uses the minus.circle symbol", () => {
+test("a Worktree another Chat shares offers no Link, and Unlink has a native link icon", () => {
   const shared = linkableChat();
   shared.session.snapshot.project.state.sessions[8] = { id: 8, worktree_id: 1, title: "Other", archived: false, subagents: [] };
   assert.ok(!menuEntry(shared, "Link issue…"), "a shared Worktree offers no Link");
   const stored = linkableChat({ worktree: { path: "/p/wt", name: "feature", linearIssue: "ENG-12" } });
-  assert.equal(menuEntry(stored, "Unlink issue").props.iconRenderingMode, "template", "Unlink shows Linear's mark, tinted like the SF Symbols");
+  assert.equal(menuEntry(stored, "Unlink issue").props.systemImage, "link");
 });
 
 test("a stored Linear issue shows Unlink, which calls worktree:unlink-issue, and the hint while the branch lacks the key", async () => {
   const { LINK_PR_HINT } = require("@milagre/shared/linear");
   const screen = linkableChat({ worktree: { path: "/p/wt", name: "feature", linearIssue: "ENG-12" } });
   assert.ok(!menuEntry(screen, "Link issue…"), "a stored issue hides Link");
-  assert.ok(
-    find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === LINK_PR_HINT("ENG-12")),
-    "hint shows",
-  );
+  assert.ok(chatMenuEntry(screen.render(), LINK_PR_HINT("ENG-12")), "hint shows");
   menuEntry(screen, "Unlink issue").props.onPress();
   await settle();
   const unlink = screen.calls.find((call) => call.method === "worktree:unlink-issue");
@@ -12910,7 +12915,7 @@ test("a stored Linear issue shows Unlink, which calls worktree:unlink-issue, and
 test("no PR hint when the branch already names the stored issue", () => {
   const { LINK_PR_HINT } = require("@milagre/shared/linear");
   const screen = linkableChat({ worktree: { path: "/p/wt", name: "eng-12-fix-login", linearIssue: "ENG-12" } });
-  assert.ok(!find(screen.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === LINK_PR_HINT("ENG-12")));
+  assert.ok(!chatMenuEntry(screen.render(), LINK_PR_HINT("ENG-12")));
 });
 
 function activityProviderHost({ enabled = true, enabledRead } = {}) {
@@ -15633,9 +15638,9 @@ test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button a
   chat.params.id = "7";
   chat.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
   const tree = chat.render();
-  const button = find(tree, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Heartbeat");
+  const button = chatMenuEntry(tree, "Heartbeat");
   assert.ok(button, "the header shows the Heartbeat button");
-  assert.equal(button.props.icon, "waveform.path.ecg");
+  assert.equal(button.props.systemImage, "waveform.path.ecg");
   button.props.onPress();
   assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine", params: { id: "hb1" } }], "it opens the Heartbeat's page");
   assert.ok(allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node) === "Next check 10:45"));
@@ -15644,10 +15649,7 @@ test("a phone Chat with an enabled Heartbeat shows the Heartbeat header button a
   paused.params.id = "7";
   paused.session.snapshot.project.state.sessions[7] = { id: 7, worktree_id: 1 };
   const off = paused.render();
-  assert.equal(
-    find(off, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Heartbeat"),
-    undefined,
-  );
+  assert.equal(chatMenuEntry(off, "Heartbeat"), undefined);
   assert.ok(!allNodes(off, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check")));
 });
 
@@ -15657,9 +15659,9 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
     const chat = chatHost({ routines: [trigger, heartbeatFor("/p#8")] });
     chat.params.id = "9";
     chat.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden } };
-    const button = find(chat.render(), (node) => node.type === "ToolbarMenuAction" && node.props.children === "Routine");
+    const button = chatMenuEntry(chat.render(), "Routine");
     assert.ok(button, "a paused Routine's Run Chat still names it");
-    assert.equal(button.props.icon, "repeat");
+    assert.equal(button.props.systemImage, "repeat");
     button.props.onPress();
     assert.deepEqual(JSON.parse(JSON.stringify(chat.router.pushed)), [{ pathname: "/routine", params: { id: "tr" } }]);
   }
@@ -15669,7 +15671,7 @@ test("a phone Run Chat, hidden or kept, shows a Routine header button that opens
   gone.session.snapshot.project.state.sessions[9] = { id: 9, worktree_id: 1, routine: { routineId: "tr", runId: "r1", hidden: true } };
   const tree = gone.render();
   assert.equal(
-    find(tree, (node) => node.type === "ToolbarMenuAction" && ["Routine", "Heartbeat"].includes(node.props.children)),
+    chatMenuEntries(tree).find((node) => ["Routine", "Heartbeat"].includes(node.props.children)),
     undefined,
   );
 });
@@ -15704,12 +15706,12 @@ test("the phone Chat header keeps its title on one line with an ellipsis, clear 
   assert.equal(header(375), 230);
   assert.equal(header(340), 196);
   const browserShortcut = { accessibilityLabel: "Browser, 1 page in this Chat", onPress() {} };
-  assert.equal(header(402, { browserShortcut }), 198);
+  assert.equal(header(402, { browserShortcut }), 214);
   globalThis.chatPullRequest = { number: 90, state: "OPEN", url: "https://github.com/o/r/pull/90" };
   try {
-    assert.equal(header(402), 198, "PR alone reserves one extra button");
-    assert.equal(header(402, { browserShortcut }), 138, "both shortcuts leave room for the title");
-    assert.equal(header(320, { browserShortcut }), 56, "narrow phone title stays clear of all three controls");
+    assert.equal(header(402), 214, "PR alone reserves one extra button");
+    assert.equal(header(402, { browserShortcut }), 170, "both shortcuts leave room for the title");
+    assert.equal(header(320, { browserShortcut }), 88, "narrow phone title stays clear of all three controls");
   } finally {
     delete globalThis.chatPullRequest;
   }
@@ -15996,7 +15998,7 @@ test("a phone Chat shows no Heartbeat button or Next check while the Mac's Routi
     if (run) chat.session.snapshot.runs.runs["/p#7"] = { startedAt: Date.now(), questions: [], approvals: [], steps: [] };
     return chat.render();
   };
-  const button = (tree) => find(tree, (node) => node.type === "ToolbarMenuAction" && node.props.children === "Heartbeat");
+  const button = (tree) => chatMenuEntry(tree, "Heartbeat");
   const nextCheck = (tree) => allNodes(tree, (node) => node.type === "Text").some((node) => textOf(node).startsWith("Next check"));
   const off = setUp({ routinesOn: false });
   assert.equal(button(off), undefined, "switch off: no button");
@@ -16609,7 +16611,7 @@ test("attention pill uses live Chat titles, excludes visible panes, counts Chats
       },
     },
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { AppState: { currentState: "active" }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native": { AppState: { currentState: "active" }, Pressable: "Pressable", Text: "Text", View: "View", StyleSheet: { absoluteFill: {} } },
     "expo-router": { router: { replace: (route) => opened.push(route) } },
     "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 59 }) },
     "@hugeicons/core-free-icons": {},
@@ -17012,16 +17014,18 @@ test("Chat header promotes only Browser and PR, with working actions and no dupl
   try {
     const tree = screen.render();
     assert.equal(shortcutOptions.openInPanel, screen.panels.openInPanel, "the header passes its own panel opener, outside the child context provider");
-    const buttons = allNodes(tree, (node) => node.type === "ToolbarButton" && node.props.accessibilityLabel !== "Show sidebar");
+    const group = find(tree, (node) => node.type?.name === "HeaderActionGroup");
+    assert.ok(group, "all promoted actions share one glass capsule");
+    const buttons = allNodes(group, (node) => node.type?.name === "HeaderAction" && node.props.onPress);
     assert.deepEqual(
-      buttons.map((node) => node.props.accessibilityLabel).filter((label) => label !== "Hide sidebar"),
+      buttons.map((node) => node.props.label),
       [shortcut.accessibilityLabel, "Pull request #90"],
     );
-    buttons.find((node) => node.props.accessibilityLabel === shortcut.accessibilityLabel).props.onPress();
-    buttons.find((node) => node.props.accessibilityLabel === "Pull request #90").props.onPress();
+    buttons.find((node) => node.props.label === shortcut.accessibilityLabel).props.onPress();
+    buttons.find((node) => node.props.label === "Pull request #90").props.onPress();
     assert.equal(opened, 1);
     assert.equal(globalThis.openedPullRequests.length, 1);
-    const menu = new Set(allNodes(tree, (node) => node.type === "ToolbarMenuAction").map((node) => node.props.children));
+    const menu = new Set(chatMenuEntries(tree).map((node) => node.props.children));
     assert.ok(menu.has("Heartbeat"));
     assert.ok(menu.has("View changes"));
     assert.ok(!menu.has("Pull request #90"));

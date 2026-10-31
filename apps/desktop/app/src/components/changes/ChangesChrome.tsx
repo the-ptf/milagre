@@ -164,7 +164,7 @@ export function AttentionButton({ label, items, offset, onOpen }: { label: strin
         aria-haspopup={many ? "menu" : undefined}
         aria-expanded={many ? open : undefined}
         onClick={() => (many ? setOpen((value) => !value) : items[0] && go(items[0].key))}
-        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control px-2.5 text-[13px] font-medium text-orange-ink transition-colors hover:bg-hover ${open ? "bg-hover" : ""}`}
+        className={`flex h-8 max-w-full items-center gap-1.5 overflow-hidden rounded-control bg-surface/90 px-2.5 text-[13px] font-medium text-orange-ink backdrop-blur-chip transition-colors hover:bg-surface ${open ? "bg-surface" : ""}`}
       >
         <span className="min-w-0 max-w-80 truncate">{label}</span>
         <HugeiconsIcon className="shrink-0" icon={many ? ArrowDown01Icon : ArrowRight02Icon} size={15} strokeWidth={2} color="currentColor" />

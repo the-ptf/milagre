@@ -768,6 +768,10 @@ export type MilagreBridge = {
   /** Whether the Mac stays awake while Milagre runs (the screen can still sleep; plugged in, also with the lid closed). */
   setKeepAwake: (enabled: boolean) => Promise<void>;
   getCachedUsage: (scopeKey?: string) => Promise<UsageSnapshot>;
+  /** The Usage page: tokens and estimated cost from this computer's Claude Code and Codex transcripts. */
+  readTokenUsage: (request: import("@milagre/shared/token-usage").TokenUsageRequest) => Promise<import("@milagre/shared/token-usage").TokenUsageReport>;
+  /** A transcript scan or a price refresh changed what readTokenUsage returns. */
+  onTokenUsageChanged: (callback: () => void) => () => void;
   /** Whether a chat that waits on the user while Milagre is in the background gets a system notification. */
   setNotifyWhenWaiting: (on: boolean) => Promise<void>;
   /** The notification chime (Settings › Notifications): a chat's notification goes silent and the window plays it (onPlayChime). */

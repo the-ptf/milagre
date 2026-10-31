@@ -28,6 +28,7 @@
     "src/diff-tree.ts",
     "src/diff-layout.ts",
     "src/usage.ts",
+    "src/token-usage.ts",
     "src/main-sync.ts",
     "src/auto-update.ts",
     "src/app-update.ts",
@@ -122,6 +123,7 @@
     "./checkpoints": "./src/checkpoints.ts",
     "./use-checkpoints": "./src/use-checkpoints.ts",
     "./model": "./src/model.ts",
+    "./token-usage": "./src/token-usage.ts",
     "./subagent-glance": {
       "types": "./src/subagent-glance.d.mts",
       "default": "./src/subagent-glance.mjs"

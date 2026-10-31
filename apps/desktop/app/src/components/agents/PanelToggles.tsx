@@ -134,7 +134,7 @@ export function PanelToggles({ right, changes, pullRequest }: { right: number; c
   return (
     <div
       data-slot="panel-toggles"
-      className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 [-webkit-app-region:no-drag]"
+      className="fixed top-[var(--window-chrome-top)] z-[60] flex gap-2 rounded-control bg-surface/90 backdrop-blur-chip [-webkit-app-region:no-drag]"
       style={{ right: right + chrome.rightInset }}
     >
       {browser && (

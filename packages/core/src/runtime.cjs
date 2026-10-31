@@ -93,6 +93,9 @@ const { createProjectRegistry } = require("./project-registry.cjs");
 const { createLinkedWorktrees } = require("./linked-worktrees.cjs");
 const { createUsageReader, readClaudeUsage, readClaudeProfileUsage, readCodexUsage, readAntigravityUsage } = require("./usage.cjs");
 const { createUsageStore, cachedSnapshot } = require("./usage-cache.cjs");
+const { createTokenUsage } = require("./token-usage.cjs");
+const { createTokenUsageScan } = require("./token-usage-scan.cjs");
+const { createTokenPricing } = require("./token-usage-pricing.cjs");
 const { createRoutines, isRunChat, withRunChatsHidden } = require("./routines/runtime-adapter.cjs");
 const { createHookStore } = require("./routines/hook-store.cjs");
 const { createAutoUpdate, hostActivity } = require("./app-auto-update.cjs");
@@ -1735,6 +1738,47 @@ function createRuntime(options) {
     const usage = usageForAccounts(scope);
     return usageWithAccounts(usage, cachedSnapshot(usage.store, Date.now()));
   });
+
+  // Token usage page: every Claude Code and Codex transcript on this computer (the connected CLI accounts' and each
+  // Account's folders), priced with LiteLLM's list and credited to the Projects and Chats Milagre knows.
+  async function tokenUsageRoots() {
+    const roots = [];
+    for (const provider of ["claude", "codex"]) {
+      const ids = ["default", ...((await accounts.list()).providers.find((group) => group.provider === provider)?.accounts ?? []).map((item) => item.id)];
+      for (const id of new Set(ids)) {
+        let home;
+        try {
+          const env = accounts.environment(provider, id);
+          home =
+            provider === "claude"
+              ? env.CLAUDE_CONFIG_DIR || path.join(require("node:os").homedir(), ".claude")
+              : env.CODEX_HOME || path.join(require("node:os").homedir(), ".codex");
+        } catch {
+          continue;
+        }
+        if (provider === "claude") roots.push({ provider, dir: path.join(home, "projects") });
+        else roots.push({ provider, dir: path.join(home, "sessions") }, { provider, dir: path.join(home, "archived_sessions") });
+      }
+    }
+    return roots;
+  }
+  const tokenUsage =
+    options.tokenUsage ??
+    createTokenUsage({
+      scan: createTokenUsageScan({ cacheFile: path.join(dataDir, "token-usage-cache.json"), roots: tokenUsageRoots }),
+      pricing: createTokenPricing({ file: path.join(dataDir, "model-prices.json"), onChange: () => emit("token-usage:changed", {}) }),
+      projects: async () =>
+        Promise.all(
+          (await projectRegistry().list()).map(async (project) => ({
+            path: project.path,
+            name: chatsHome.isHome(project.path) ? CHATS_ACCOUNT_LABEL : project.name || path.basename(project.path),
+            state: await Promise.resolve(projectStateReadOnly(project.path)).catch(() => null),
+          })),
+        ),
+      worktreeRoot: worktreeRoot(),
+      emit,
+    });
+  commands.handle("token-usage:read", (_event, request) => tokenUsage.read(request));
 
   // The "Commit and open PR" dialog: Milagre runs git and gh itself, in the chat's folder, once the login
   // environment is in (gh from a Finder launch). Its one-shot text call starts the CLI agentCli found.

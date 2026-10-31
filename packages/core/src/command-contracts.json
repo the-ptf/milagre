@@ -1246,6 +1246,7 @@
               "theme.toggle",
               "sidebar.toggle",
               "canvas.open",
+              "usage.open",
               "grid.toggle",
               "grid.focusPrevious",
               "grid.focusNext",
@@ -1295,6 +1296,7 @@
               "theme.toggle",
               "sidebar.toggle",
               "canvas.open",
+              "usage.open",
               "grid.toggle",
               "grid.focusPrevious",
               "grid.focusNext",
@@ -3392,6 +3394,17 @@
         }
       ]
     },
+    "token-usage:read": {
+      "parameters": [
+        {
+          "name": "request",
+          "optional": false,
+          "schema": {
+            "$ref": "#/$defs/T170"
+          }
+        }
+      ]
+    },
     "settings:notify-when-waiting": {
       "parameters": [
         {
@@ -3425,7 +3438,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/$defs/T170"
+                "$ref": "#/$defs/T172"
               }
             ]
           }
@@ -3449,7 +3462,7 @@
           "name": "state",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T171"
+            "$ref": "#/$defs/T173"
           }
         }
       ]
@@ -3617,7 +3630,7 @@
           "name": "notice",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T172"
+            "$ref": "#/$defs/T174"
           }
         }
       ]
@@ -3628,7 +3641,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T173"
+            "$ref": "#/$defs/T175"
           }
         }
       ]
@@ -3686,7 +3699,7 @@
           "name": "options",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T174"
+            "$ref": "#/$defs/T176"
           }
         }
       ]
@@ -3749,10 +3762,10 @@
           "schema": {
             "anyOf": [
               {
-                "$ref": "#/$defs/T175"
+                "$ref": "#/$defs/T177"
               },
               {
-                "$ref": "#/$defs/T176"
+                "$ref": "#/$defs/T178"
               }
             ]
           }
@@ -3772,7 +3785,7 @@
           "name": "entry",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T178"
+            "$ref": "#/$defs/T180"
           }
         }
       ]
@@ -3804,7 +3817,7 @@
           "name": "request",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T179"
+            "$ref": "#/$defs/T181"
           }
         }
       ]
@@ -3820,7 +3833,7 @@
           "schema": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/T185"
+              "$ref": "#/$defs/T187"
             }
           }
         }
@@ -3839,7 +3852,7 @@
           "name": "rect",
           "optional": false,
           "schema": {
-            "$ref": "#/$defs/T186"
+            "$ref": "#/$defs/T188"
           }
         }
       ]
@@ -7240,6 +7253,37 @@
     "T170": {
       "type": "object",
       "properties": {
+        "range": {
+          "enum": ["24h", "7d", "30d", "90d"]
+        },
+        "timeZone": {
+          "type": "string",
+          "description": "IANA time zone the days are cut in; the host's own when absent or unknown."
+        },
+        "days": {
+          "$ref": "#/$defs/T171",
+          "description": "Days picked on the calendar (\"2026-10-16\"), both included; they replace `range`. One day reads by the hour."
+        }
+      },
+      "required": ["range"],
+      "additionalProperties": false
+    },
+    "T171": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": ["from", "to"],
+      "additionalProperties": false
+    },
+    "T172": {
+      "type": "object",
+      "properties": {
         "days": {
           "type": "array",
           "items": {
@@ -7259,7 +7303,7 @@
       "required": ["days", "start", "end", "timeZone"],
       "additionalProperties": false
     },
-    "T171": {
+    "T173": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -7291,7 +7335,7 @@
       "required": ["projectPath", "activeChatId", "unread", "notifyOnCompletion", "showDockBadge"],
       "additionalProperties": false
     },
-    "T172": {
+    "T174": {
       "type": "object",
       "properties": {
         "chatId": {
@@ -7304,7 +7348,7 @@
       "required": ["chatId", "title"],
       "additionalProperties": false
     },
-    "T173": {
+    "T175": {
       "type": "object",
       "properties": {
         "projectPath": {
@@ -7332,7 +7376,7 @@
       "required": ["projectPath"],
       "additionalProperties": false
     },
-    "T174": {
+    "T176": {
       "type": "object",
       "properties": {
         "name": {
@@ -7341,7 +7385,7 @@
       },
       "additionalProperties": false
     },
-    "T175": {
+    "T177": {
       "type": "object",
       "properties": {
         "kind": {
@@ -7355,7 +7399,7 @@
       "required": ["kind", "scope", "state"],
       "additionalProperties": false
     },
-    "T176": {
+    "T178": {
       "type": "object",
       "properties": {
         "kind": {
@@ -7368,13 +7412,13 @@
           "type": "number"
         },
         "window": {
-          "$ref": "#/$defs/T177"
+          "$ref": "#/$defs/T179"
         }
       },
       "required": ["kind", "scope", "chatId", "window"],
       "additionalProperties": false
     },
-    "T177": {
+    "T179": {
       "type": "object",
       "properties": {
         "messages": {
@@ -7391,7 +7435,7 @@
       "required": ["messages", "hasMore", "total"],
       "additionalProperties": false
     },
-    "T178": {
+    "T180": {
       "type": "object",
       "properties": {
         "kind": {
@@ -7407,11 +7451,11 @@
       "required": ["kind", "scope", "chatId"],
       "additionalProperties": false
     },
-    "T179": {
+    "T181": {
       "type": "object",
       "properties": {
         "audio": {
-          "$ref": "#/$defs/T180"
+          "$ref": "#/$defs/T182"
         },
         "language": {
           "type": "string"
@@ -7423,7 +7467,7 @@
       "required": ["audio", "language", "prompt"],
       "additionalProperties": false
     },
-    "T180": {
+    "T182": {
       "type": "object",
       "properties": {
         "byteLength": {
@@ -7431,7 +7475,7 @@
           "description": "Read-only. The length of the ArrayBuffer (in bytes)."
         },
         "slice": {
-          "$ref": "#/$defs/T181",
+          "$ref": "#/$defs/T183",
           "description": "Returns a section of an ArrayBuffer."
         },
         "maxByteLength": {
@@ -7443,7 +7487,7 @@
           "description": "Returns true if this ArrayBuffer can be resized.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resizable)"
         },
         "resize": {
-          "$ref": "#/$defs/T182",
+          "$ref": "#/$defs/T184",
           "description": "Resizes the ArrayBuffer to the specified size (in bytes).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/resize)"
         },
         "detached": {
@@ -7451,28 +7495,18 @@
           "description": "Returns a boolean indicating whether or not this buffer has been detached (transferred).\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/detached)"
         },
         "transfer": {
-          "$ref": "#/$defs/T183",
+          "$ref": "#/$defs/T185",
           "description": "Creates a new ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transfer)"
         },
         "transferToFixedLength": {
-          "$ref": "#/$defs/T184",
+          "$ref": "#/$defs/T186",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2350": {
+        "__@toStringTag@2364": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2350"],
-      "additionalProperties": false
-    },
-    "T181": {
-      "type": "object",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "T182": {
-      "type": "object",
-      "properties": {},
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2364"],
       "additionalProperties": false
     },
     "T183": {
@@ -7487,6 +7521,16 @@
     },
     "T185": {
       "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T186": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "T187": {
+      "type": "object",
       "properties": {
         "contentsId": {
           "type": "number"
@@ -7498,7 +7542,7 @@
       "required": ["contentsId", "chatKey"],
       "additionalProperties": false
     },
-    "T186": {
+    "T188": {
       "type": "object",
       "properties": {
         "x": {
