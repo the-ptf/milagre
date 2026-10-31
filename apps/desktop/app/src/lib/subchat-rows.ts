@@ -62,7 +62,7 @@ function readFolds(): ReadonlySet<string> {
 }
 
 /** Folds or unfolds the family under the Chat `key`. */
-export function toggleSubchats(key: string) {
+function toggleSubchats(key: string) {
   const next = new Set(folds);
   if (next.has(key)) next.delete(key);
   else next.add(key);
