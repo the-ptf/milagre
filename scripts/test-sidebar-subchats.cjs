@@ -60,7 +60,9 @@ async function browserChecks() {
     fs.writeFileSync(path.join(process.env.MILAGRE_SCREENSHOT_DIR, name + ".png"), (await window.webContents.capturePage()).toPNG());
   };
   const hints = async () => {
-    await evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Meta", metaKey: true }))`);
+    // The hints follow the platform's shortcut modifier: ⌘ on a Mac, Ctrl on the Linux and Windows runners.
+    const held = process.platform === "darwin" ? `{ key: "Meta", metaKey: true }` : `{ key: "Control", ctrlKey: true }`;
+    await evaluate(`window.dispatchEvent(new KeyboardEvent("keydown", ${held}))`);
     await waitFor(`document.querySelector('[data-chat-id="1"] [data-shortcut-hint]')`);
     return evaluate(`[...document.querySelectorAll('[data-chat-id]')].flatMap(row => {
       const hint = row.querySelector('[data-shortcut-hint]');
