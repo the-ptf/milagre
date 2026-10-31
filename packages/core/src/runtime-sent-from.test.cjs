@@ -73,7 +73,11 @@ test("the agent hears where each message was typed, and when the user is back at
   assert.match(phone, /don't ask them to/);
   assert.match(await f.send({ sentFrom: "tablet" }), /sent this from their iPad/);
   assert.match(await f.send({ sentFrom: "computer" }), /sent this from another computer, through Milagre/);
-  assert.equal(await f.send({}), "check the build\n\n<milagre_note>The user is back at this computer.</milagre_note>");
+  assert.match(phone, /computer use\), do the step and show a screenshot/);
+  assert.equal(
+    await f.send({}),
+    "check the build\n\n<milagre_note>The user is back at this computer. Ask before taking over its mouse, keyboard or screen with computer use.</milagre_note>",
+  );
   assert.equal(await f.send({}), "check the build");
   // The Chat shows what the user typed; only the agent gets the note.
   assert.ok((await f.messages()).every((message) => message.body === "check the build"));

@@ -6,8 +6,9 @@ const PLACES = { phone: "their phone", tablet: "their iPad", computer: "another 
 const MAX_AWAY = 1000;
 
 const awayNote = (place) =>
-  `<milagre_note>The user sent this from ${place}, not from this computer. They can't open this computer's files, folders, apps or windows, so don't ask them to: show what they need in your reply, an artifact, a design or the Browser panel.</milagre_note>`;
-const BACK_NOTE = "<milagre_note>The user is back at this computer.</milagre_note>";
+  `<milagre_note>The user sent this from ${place}, not from this computer. They can't open this computer's files, folders, apps or windows, so don't ask them to: show what they need in your reply, an artifact, a design or the Browser panel. If you can use this computer's screen yourself (computer use), do the step and show a screenshot; nobody is using it now.</milagre_note>`;
+// Back at the screen, the user is using the mouse and keyboard computer use would take over.
+const BACK_NOTE = "<milagre_note>The user is back at this computer. Ask before taking over its mouse, keyboard or screen with computer use.</milagre_note>";
 
 /** The device a message names, or null for this computer's own window (anything unknown counts as this computer). */
 function sentFromDevice(value) {
