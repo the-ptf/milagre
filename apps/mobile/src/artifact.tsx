@@ -672,12 +672,21 @@ export function ArtifactSheet({
       kind: "artifacts",
       text: designFeedbackMessage({ comments }),
       onSent: () => {
-        source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
+        source
+          .call("artifact:add-comments", [{ chatId, comments }])
+          .then(() => source.call<ArtifactComment[]>("artifact:comments", [{ chatId }]))
+          .then((all) => Array.isArray(all) && setSent(all))
+          .catch(() => {});
       },
     });
-    // Docked beside the Chat, the Chat is on screen already and sends it now.
-    if (onClose) sendDesignMessageNow(`${hostId}|${chatId}`);
-    close();
+    if (!onClose) {
+      close();
+      return;
+    }
+    // Docked beside the Chat, the Chat is on screen already and sends it now; the page stays open, its pins turn sent.
+    sendDesignMessageNow(`${hostId}|${chatId}`);
+    setComposer(null);
+    setNotes([]);
   };
   const openShare = () => {
     if (hostId && chatId) router.push({ pathname: "/design-share-sheet", params: { hostId, chatId, kind: "artifacts" } });

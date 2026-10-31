@@ -4,6 +4,8 @@ import { NotificationScheduleSetting } from "./NotificationScheduleSetting";
 import { DesignPageShareDialog } from "./agents/DesignPageShareDialog";
 import { useBots } from "../lib/bots-store";
 import { useRemoteDelegationEnabled } from "../lib/remote-delegation";
+import { useDeviceNotesEnabled } from "../lib/device-notes";
+import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 import { PRIVACY_URL, SUPPORT_URL } from "@milagre/shared/site-links";
 import { showUpdateNotice } from "./UpdateNotice";
 import { ProjectAccountsGroup, ProjectAccountsSettings } from "./ProjectAccountsSettings";
@@ -605,6 +607,29 @@ function RemoteDelegationSettings() {
   );
 }
 
+function DeviceNotesSettings() {
+  const setting = useDeviceNotesEnabled();
+  if (!setting.available) return null;
+  return (
+    <div data-slot="device-notes-setting">
+      <Row label={DEVICE_NOTES_LABEL} description={DEVICE_NOTES_DESCRIPTION}>
+        <SettingCheckbox
+          label={DEVICE_NOTES_LABEL}
+          checked={setting.enabled}
+          disabled={!setting.ready || setting.saving}
+          onChange={(enabled) => void setting.save(enabled)}
+        />
+      </Row>
+      <p className="px-4 pb-3 text-12 text-orange-ink">{DEVICE_NOTES_WARNING}</p>
+      {setting.error && (
+        <p role="alert" className="px-4 pb-3 text-12 text-red-ink">
+          {setting.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BotsSettings() {
   const bots = useBots();
   return (
@@ -760,6 +785,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
         </Row>
         <BotsSettings />
         <RemoteDelegationSettings />
+        <DeviceNotesSettings />
         <SimlockSettings />
         <ComputerUseRow onOpen={() => setPage("computer-use")} />
         <BabysitPrsRow onOpen={() => setPage("babysit-prs")} />

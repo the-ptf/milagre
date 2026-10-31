@@ -995,7 +995,12 @@ export interface ChatSendRequest {
   linearIssue?: { key: string; workspace?: string; note?: string };
   /** Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent. */
   compact?: boolean;
+  /** Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs). */
+  sentFrom?: SentFrom;
 }
+
+/** The device a message came from: a phone, an iPad, or another computer's Milagre. */
+export type SentFrom = "phone" | "tablet" | "computer";
 
 /** A code editor found on this Mac. */
 export interface EditorInfo {

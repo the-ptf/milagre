@@ -293,6 +293,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
       if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
       if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
+      // Settings › Experimental's Device notes copy is plain text.
+      if (id === "@milagre/shared/device-notes" && !(id in modules)) return require("@milagre/shared/device-notes");
+      // Where this device's messages say they came from (sent-from.ts): a phone in a test.
+      if (base === "sent-from" && !(id in modules)) return { SENT_FROM: "phone" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
       if (base === "all-computers" && !(id in modules))
@@ -3005,7 +3009,10 @@ function chatHost({
     "../genui/GenerativeUI": { GenerativeUIProvider: "GenerativeUIProvider" },
     // A test can stand in for a host that keeps messages by Chat with globalThis.chatPage.
     "../chat-pages": {
-      useChatPage: (...args) => globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} },
+      useChatPage: (...args) => ({
+        trim() {},
+        ...(globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} }),
+      }),
     },
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
@@ -4273,6 +4280,58 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   listener();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(render()["/next"].branch.number, 248, "foreground resumes PR lookup");
+  react.cleanup();
+});
+
+test("unchanged PR answers and rebuilt targets leave the readers alone", async () => {
+  const react = hookHost();
+  const wait = () => new Promise((resolve) => setImmediate(resolve));
+  let notifies = 0;
+  let subscribed = false;
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      calls.push(method);
+      return method === "worktree:pull-request" ? { number: 7, state: "OPEN" } : [{ number: 8, state: "OPEN" }];
+    },
+  };
+  const status = require("../apps/mobile/src/pr-status.ts");
+  const hooks = load("use-chat-pull-requests.ts", {
+    react: {
+      useCallback: (...args) => react.useCallback(...args),
+      useMemo: (...args) => react.useMemo(...args),
+      useSyncExternalStore: (listen, read) => {
+        if (!subscribed) listen(() => notifies++);
+        subscribed = true;
+        return read();
+      },
+    },
+    "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "./pr-status": status,
+  });
+  // The drawer rebuilds this list on every row change: equal content is the same reads.
+  const targets = () => [{ hostId: "mac", client, targets: ["/a", "/b"].map((path) => ({ path, refs: ["8"] })) }];
+  const render = () => {
+    react.begin();
+    return hooks.useComputerChatPullRequests(targets());
+  };
+  render();
+  react.flush();
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(render().mac["/b"].found["8"].number, 8);
+  assert.equal(calls.length, 4);
+  assert.ok(notifies >= 1 && notifies < 4, `four answers re-render the readers fewer than four times (${notifies})`);
+  const settled = notifies;
+  render();
+  react.flush();
+  await wait();
+  assert.equal(calls.length, 4, "an equal target list does not restart the reads");
+  status.pullRequestsChanged(client);
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(calls.length, 8, "the Mac's change signal reads again");
+  assert.equal(notifies, settled, "the same answers do not re-render anyone");
   react.cleanup();
 });
 
@@ -6109,6 +6168,41 @@ test("an open Chat whose page already holds the sent follow-up shows it once", a
     transcriptMessages(screen).map((message) => message.id),
     [3, 4],
   );
+});
+
+test("a Chat followed at its bottom lets go of its history as new messages arrive, not while scrolled up", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  let page = [{ id: 1, session_id: 42, role: "user", body: "start" }];
+  let trims = 0;
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42
+      ? {
+          messages: page,
+          hasMore: false,
+          total: page.length,
+          loading: false,
+          loadEarlier: async () => {},
+          trim: () => trims++,
+        }
+      : undefined;
+  t.after(() => delete globalThis.chatPage);
+  const view = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  view();
+  await settle();
+  assert.equal(trims, 0, "opening a Chat trims nothing");
+  page = [...page, { id: 2, session_id: 42, role: "assistant", body: "reply" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a new message at the bottom trims the window");
+  view().props.onScroll({ nativeEvent: { contentOffset: { y: 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 600 } } });
+  page = [...page, { id: 3, session_id: 42, role: "assistant", body: "more" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a reader scrolled up keeps the history they are reading");
 });
 
 test("the transcript follows new content, also after the agent settings sheet opens", () => {
@@ -11280,7 +11374,7 @@ test("mobile activity sheet opens the selected call without paging and keeps app
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "../tool-row": { ToolRow: "ToolRow" },
     "../markdown": { Markdown: "Markdown" },
-    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": {
@@ -11385,7 +11479,7 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "../tool-row": { ToolRow: "ToolRow" },
     "../markdown": { Markdown: "Markdown" },
-    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": { useSession: () => session },
@@ -12316,6 +12410,236 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     find(render(), (n) => n.props?.title === "Routines"),
     undefined,
   );
+});
+
+test("mobile Experimental shows the Mac's Device notes switch with its token warning, off by default, and saves a tap", async () => {
+  const react = hookHost({ effects: true });
+  const focused = [];
+  const calls = [];
+  let saved = { enabled: false };
+  let failSave = false;
+  let olderHost = false;
+  const client = {
+    async call(method, args) {
+      calls.push([method, args]);
+      if (method === "device-notes:read") {
+        if (olderHost) throw new Error("Unknown command: device-notes:read");
+        return saved;
+      }
+      if (method === "device-notes:save") {
+        if (failSave) throw new Error("Device notes save failed");
+        return (saved = { enabled: args[0] });
+      }
+      return null;
+    },
+  };
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Adds about 100 tokens to every message you send from another device."));
+  toggle().props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["device-notes:save", [true]]));
+  assert.equal(toggle().props.selected, true);
+  failSave = true;
+  toggle().props.onPress();
+  await settle();
+  assert.equal(toggle().props.selected, true, "failed save restores the daemon's value");
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Device notes save failed"));
+  failSave = false;
+  toggle().props.onPress();
+  await settle();
+  assert.equal(toggle().props.selected, false, "retry saves successfully");
+  assert.equal(
+    find(render(), (n) => n.type === "Text" && n.props.children === "Device notes save failed"),
+    undefined,
+  );
+  saved = { enabled: true };
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, true, "returning to the screen reads changes made on desktop");
+  olderHost = true;
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle(), undefined, "an older host hides the unsupported setting");
+});
+
+test("desktop Device notes guards same-render saves and ignores stale initial reads", async () => {
+  const react = hookHost({ effects: true });
+  const initialRead = deferred();
+  const requests = [];
+  let changed;
+  const bridge = {
+    readDeviceNotesEnabled: () => initialRead.promise,
+    onDeviceNotesEnabledChanged: (fn) => {
+      changed = fn;
+      return () => {};
+    },
+    saveDeviceNotesEnabled: (enabled) => {
+      const reply = deferred();
+      requests.push({ enabled, ...reply });
+      return reply.promise;
+    },
+  };
+  const { useDeviceNotesEnabled } = load(
+    "../../desktop/app/src/lib/device-notes.ts",
+    { react, "test-bridge": bridge },
+    '\nconst window = { milagre: require("test-bridge") };',
+  );
+  const render = () => {
+    react.begin();
+    return useDeviceNotesEnabled();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  render();
+  changed({ enabled: true });
+  const setting = render();
+  const pending = setting.save(false);
+  await setting.save(true);
+  assert.equal(requests.length, 1, "same-render calls cannot overlap before the checkbox disables");
+  assert.equal(render().saving, true);
+  assert.equal(render().enabled, true);
+  requests[0].reject(new Error("Device notes save failed"));
+  await pending;
+  assert.equal(render().enabled, true);
+  assert.equal(render().error, "Device notes save failed");
+  const retry = render().save(false);
+  requests[1].resolve({ enabled: false });
+  await retry;
+  initialRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(render().enabled, false, "a delayed initial read cannot replace a later event/save");
+  assert.equal(render().saving, false);
+  assert.equal(render().error, "");
+  const final = render().save(true);
+  const beforeUnmount = render();
+  react.unmount();
+  requests[2].resolve({ enabled: true });
+  await final;
+  assert.equal(render().enabled, beforeUnmount.enabled, "late save reply is ignored after unmount");
+});
+
+test("mobile Device notes serializes taps, retains confirmed values and ignores replies from a previous Mac", async () => {
+  const react = hookHost({ effects: true });
+  let focus;
+  let blur;
+  const requests = [];
+  const makeClient = (name) => ({
+    call(method, args) {
+      if (!method.startsWith("device-notes:")) return Promise.resolve(null);
+      const reply = deferred();
+      requests.push({ name, method, args, ...reply });
+      return reply.promise;
+    },
+  });
+  let client = makeClient("A");
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": {
+      useFocusEffect: (fn) => {
+        focus = fn;
+      },
+      router: { push() {} },
+    },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const refocus = () => {
+    blur?.();
+    render();
+    blur = focus();
+  };
+  refocus();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  const first = toggle();
+  first.props.onPress();
+  first.props.onPress(); // Same render: a state-only guard is too late.
+  toggle().props.onPress();
+  assert.equal(requests.filter((r) => r.method === "device-notes:save").length, 1, "only one write may be pending");
+  assert.equal(toggle().props.disabled, true);
+  assert.equal(toggle().props.selected, false, "pending save retains the confirmed value, like desktop");
+  const firstSave = requests.at(-1);
+  refocus();
+  assert.equal(requests.at(-1), firstSave, "focus cannot race a pending write with an older read");
+  firstSave.reject(new Error("Device notes save failed"));
+  await settle();
+  assert.equal(toggle().props.disabled, false);
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.props?.children === "Device notes save failed"));
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, true, "retry confirms the saved value");
+
+  refocus();
+  const delayedRead = requests.at(-1);
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  delayedRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, false, "a read started before a save cannot overwrite its acknowledgement");
+
+  for (const fail of [false, true]) {
+    toggle().props.onPress();
+    const oldSave = requests.at(-1);
+    client = makeClient(fail ? "C" : "B");
+    refocus();
+    assert.equal(toggle(), undefined, "a new Mac does not display the previous Mac's value");
+    requests.at(-1).resolve({ enabled: false });
+    await settle();
+    toggle().props.onPress();
+    const newSave = requests.at(-1);
+    if (fail) oldSave.reject(new Error("Previous Mac failed"));
+    else oldSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, false);
+    assert.equal(toggle().props.disabled, true, "old replies cannot unlock the new Mac's pending save");
+    assert.equal(
+      find(render(), (n) => n.props?.children === "Previous Mac failed"),
+      undefined,
+    );
+    newSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, true);
+    assert.equal(toggle().props.disabled, false);
+  }
+  toggle().props.onPress();
+  const finalSave = requests.at(-1);
+  blur?.();
+  react.unmount();
+  finalSave.reject(new Error("Unmounted save"));
+  await settle();
 });
 
 test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {

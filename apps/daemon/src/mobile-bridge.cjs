@@ -98,6 +98,8 @@ const METHODS = new Set([
   "simulator:close",
   "computer-use:settings:read",
   "computer-use:settings:save",
+  "device-notes:read",
+  "device-notes:save",
   "computer-use:status",
   "computer-use:guide",
   "computer-use:frame",
