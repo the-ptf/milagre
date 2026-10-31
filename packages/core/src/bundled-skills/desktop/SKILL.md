@@ -24,7 +24,9 @@ probably working on this computer while you act, so keep it that way.
 3. Observe: `desktop_find` when you know the role or name (`role: "button", name: "Save"`); otherwise
    `desktop_snapshot`. For a dense app take `skeleton: true` first, then drill in with `root` set to a region's ref.
    Pass `surface: "menubar"` for File, Edit and View menus, `"sheet"` or `"alert"` for dialogs.
-4. Act with `desktop_act` on one qualified ref (`@s8f3k2p9:e12`): `click`, `type`, `set-value`, `select`, `toggle`,
+4. Act with `desktop_act` on one qualified ref, with `intent` naming the step in a few words ("Typing the new name").
+   Milagre shows it beside its agent cursor on screen and in the Chat's live screen, so the user can follow along.
+   The ref looks like `@s8f3k2p9:e12`; the actions are: `click`, `type`, `set-value`, `select`, `toggle`,
    `check`, `expand`, `scroll`, and the rest. `desktop_press` sends a key combo to an app.
 5. Verify: snapshot the same region again, or `desktop_find` the result. A success reply doesn't prove the effect.
 6. After anything asynchronous (a save, a load, a new window), `desktop_wait` for its text or window instead of
