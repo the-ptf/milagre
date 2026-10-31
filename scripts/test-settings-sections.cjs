@@ -560,7 +560,7 @@ async function browserChecks() {
       evaluate(`${searchField}.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true }))`);
     const results = () => evaluate(`[...document.querySelectorAll('[data-settings-result]')].map((row) => row.innerText.replace(/\\s+/g, ' ').trim())`);
     await evaluate(
-      `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', metaKey: true, ctrlKey: ${process.platform !== "darwin"}, bubbles: true, cancelable: true }))`,
+      `window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', metaKey: ${process.platform === "darwin"}, ctrlKey: ${process.platform !== "darwin"}, bubbles: true, cancelable: true }))`,
     );
     assert.equal(await evaluate(`document.activeElement === ${searchField}`), true, "⌘F focuses Search settings");
     await typeSearch("chat width");

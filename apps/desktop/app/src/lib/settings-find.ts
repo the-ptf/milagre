@@ -17,12 +17,6 @@ export function findSetting(section: string, title: string) {
   emit();
 }
 
-export function clearSettingsFind() {
-  if (!target) return;
-  target = null;
-  emit();
-}
-
 export function useSettingsFindTarget(): SettingsFindTarget | null {
   return useSyncExternalStore(
     (listener) => {

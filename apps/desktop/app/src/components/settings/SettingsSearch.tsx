@@ -82,7 +82,7 @@ export function SettingsSearchField({
 }
 
 /** The query's letters in bold ink, the rest as they were. */
-export function Marked({ text, ranges }: { text: string; ranges: [number, number][] }) {
+function Marked({ text, ranges }: { text: string; ranges: [number, number][] }) {
   const parts: ReactNode[] = [];
   let at = 0;
   for (const [start, end] of ranges) {
