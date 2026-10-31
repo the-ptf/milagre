@@ -409,12 +409,23 @@ export function DesignsSheet({
       kind: "designs",
       text: designFeedbackMessage({ choice, comments }),
       onSent: () => {
-        if (comments.length) source.call("artifact:add-comments", [{ chatId, comments }]).catch(() => {});
+        if (!comments.length) return;
+        source
+          .call("artifact:add-comments", [{ chatId, comments }])
+          .then(() => source.call<ArtifactComment[]>("artifact:comments", [{ chatId }]))
+          .then((all) => Array.isArray(all) && setSent(all))
+          .catch(() => {});
       },
     });
-    // Docked beside the Chat, the Chat is on screen already and sends it now.
-    if (onClose) sendDesignMessageNow(`${hostId}|${chatId}`);
-    close();
+    if (!onClose) {
+      close();
+      return;
+    }
+    // Docked beside the Chat, the Chat is on screen already and sends it now; the canvas stays open, its pins turn sent.
+    sendDesignMessageNow(`${hostId}|${chatId}`);
+    setComposer(null);
+    setNotes([]);
+    setChoice(null);
   };
   const remove = (design: Artifact) =>
     Alert.alert(`Delete ${design.title}?`, "Every version of this design and the comments on it are deleted.", [
