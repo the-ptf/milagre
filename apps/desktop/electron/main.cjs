@@ -1,4 +1,5 @@
 // @ts-check
+const { createAgentCursor } = require("./agent-cursor.cjs");
 const { createQuitHandler } = require("./quit.cjs");
 const { createEditorOpener } = require("./editor-open.cjs");
 const {
@@ -434,7 +435,7 @@ async function startDesktop() {
         // The agent opened a page (browser_open): the window with the Chat's Browser panel opens it in a tab.
         // Computer use: an agent acts on an app here; Milagre's agent cursor shows where (agent-cursor.cjs).
         if (channel === "computer-use:cursor" && payload && typeof payload === "object") {
-          agentCursor ??= require("./agent-cursor.cjs").createAgentCursor({ BrowserWindow, screen });
+          agentCursor ??= createAgentCursor({ BrowserWindow, screen });
           if (payload.hide) agentCursor.hide();
           else agentCursor.show({ bounds: payload.bounds ?? null, label: typeof payload.label === "string" ? payload.label : "" });
         }

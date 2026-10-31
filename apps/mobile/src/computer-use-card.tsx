@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, Text, View, type View as ViewInstance } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { router } from "expo-router";
 import { Cancel01Icon, CircleIcon, ComputerIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { desktopStepApps, desktopStepLabel, frameFitsSteps } from "@milagre/shared/desktop-steps";
