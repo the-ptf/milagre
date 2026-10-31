@@ -12,8 +12,6 @@ import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@mil
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
-import { AlertCircleIcon } from "@hugeicons/core-free-icons";
-import { Icon } from "./icons";
 import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
@@ -31,7 +29,8 @@ import {
 } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { useDictationAction } from "./chat-display-setting";
-import { CAPSULE_WIDTH, DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { CAPSULE_INSET, CAPSULE_WIDTH, DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { DictationNotice } from "./dictation-notice";
 
 const NO_CHATS: readonly MentionChat[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
@@ -472,7 +471,18 @@ export function PromptField({
           </Text>
         </Field>
         {dictation.available ? (
-          <View style={{ position: "absolute", right: 4, bottom: 6 }}>
+          <View style={{ position: "absolute", right: dictating ? CAPSULE_INSET.right : 4, bottom: dictating ? CAPSULE_INSET.bottom : 6 }}>
+            {dictationError ? (
+              <DictationNotice
+                error={dictationError}
+                micSize={MIC_SIZE}
+                onDismiss={dismissDictationError}
+                onOpenSettings={() => {
+                  dismissDictationError();
+                  void Linking.openSettings();
+                }}
+              />
+            ) : null}
             {dictating ? (
               <DictationCapsule phase={dictation.phase} level={dictation.level} onDiscard={discardDictation} onStop={() => void dictation.stop()} />
             ) : (
@@ -490,36 +500,9 @@ export function PromptField({
           </View>
         ) : null}
       </View>
-      {/* One status slot for the whole take: it sits under the words, so it never pushes them around. */}
-      {dictationError ? (
-        <View
-          accessibilityRole="alert"
-          accessibilityLiveRegion="polite"
-          style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 12, marginTop: 6, marginBottom: 6, minHeight: 32 }}
-        >
-          <Icon icon={AlertCircleIcon} size={16} tone="redInk" />
-          <Text style={{ flex: 1, color: colors.redInk, fontSize: 13, fontWeight: "500" }}>{dictationError.message}</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={dictationError.kind === "permission" ? "Open Settings" : "Dismiss"}
-            hitSlop={12}
-            onPress={() => {
-              dismissDictationError();
-              if (dictationError.kind === "permission") void Linking.openSettings();
-            }}
-            style={({ pressed }) => ({
-              minHeight: 32,
-              justifyContent: "center",
-              paddingHorizontal: 10,
-              borderRadius: 10,
-              borderCurve: "continuous",
-              backgroundColor: pressed ? colors.hover2 : colors.hover,
-            })}
-          >
-            <Text style={{ color: colors.ink, fontSize: 13, fontWeight: "600" }}>{dictationError.kind === "permission" ? "Open Settings" : "Dismiss"}</Text>
-          </Pressable>
-        </View>
-      ) : dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
+      {/* Preparing, finishing and the one-time download share one slot under the words, so none of them moves them.
+          An error is a bubble over the mic instead: it belongs to the button that tries again. */}
+      {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
         <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
           {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
         </Text>
