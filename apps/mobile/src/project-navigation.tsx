@@ -1012,8 +1012,9 @@ const NavigationBody = memo(function NavigationBody({
         expectActivity: session.expectActivity,
         notify: showArchiveNotice,
       });
-      // Done on the open Chat leaves it for a new Chat in its Project, as on the desktop.
-      if (action === "done" && isCurrent && projectPath === currentPath && chat.id === activeChatId && alive.current)
+      // Done on the open Chat leaves it for a new Chat in its Project beside the pinned sidebar, as on the desktop.
+      // A phone stays on the sidebar.
+      if (action === "done" && docked && isCurrent && projectPath === currentPath && chat.id === activeChatId && alive.current)
         onNavigate({ pathname: "/chat", params: { projectPath, hostId } });
     } catch (e) {
       if (action === "done" && alive.current) setDoneToast((toast) => (toast?.row.chat.id === chat.id && toast.row.path === projectPath ? null : toast));
