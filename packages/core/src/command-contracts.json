@@ -5617,6 +5617,13 @@
           "enum": ["design", "html"],
           "description": "Older transcript entries have no format; resolve them through the host's catalog."
         },
+        "inline": {
+          "enum": [false, true],
+          "description": "An immutable HTML reply displayed in the transcript, independent of the live Artifact page."
+        },
+        "height": {
+          "type": "number"
+        },
         "group": {
           "type": "string",
           "description": "The part of the app a design belongs to; the canvas lays out one row per group."

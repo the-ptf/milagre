@@ -10698,6 +10698,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+      "./html-reply": { HtmlReply: "HtmlReply" },
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
       "./design-page-share": { DesignPageShareSheet: "DesignPageShareSheet" },
       "./panel-tabs": { usePanelTabs: () => openTab },
@@ -10826,6 +10827,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "expo-file-system": { File, Paths: { cache: "/cache" } },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
+      "./html-reply": { HtmlReply: "HtmlReply" },
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
       "./session": { useSession: () => ({ client, designs: feature, reconnects }) },
       "./use-design-catalog": { markDesignDeleted() {} },
@@ -18870,4 +18872,62 @@ test("subchat report links preserve compact phones and secondary-pane navigation
       delete globalThis.chatPage;
     }
   }
+});
+
+test("inline HTML replies load their immutable page without app chrome", async () => {
+  const page = { id: "inline", title: "Chart", version: 1, inline: true, format: "html", height: 320 };
+  const steps = [{ id: "call", kind: "artifact", status: "done", tool: "html_render", artifact: page }];
+  const cards = artifactHost({ url: "html-cards", call: async () => [] });
+  const tree = cards.render("ArtifactCards", { steps, chatId: "/p#2" });
+  assert.ok(find(tree, (node) => node.type === "HtmlReply" && node.props.page.id === "inline"));
+
+  const react = hookHost({ effects: true });
+  const requests = [],
+    pushes = [];
+  let fail = true;
+  const client = {
+    call: async (method, args) => {
+      requests.push([method, args]);
+      if (fail) throw Error("offline");
+      return { ...page, html: "<button>Hi</button>" };
+    },
+  };
+  const source = load("html-reply.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Linking: { openURL: async () => {} } },
+    "expo-router": { router: { push: (route) => pushes.push(route), back() {} }, useLocalSearchParams: () => ({}) },
+    "expo-file-system": {},
+    "@expo/dom-webview": { DomWebView: "DomWebView" },
+    "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) },
+    "@milagre/shared/html-render": require("../packages/shared/src/html-render.mjs"),
+    "./session": { useSession: () => ({ client }) },
+  });
+  const render = () => {
+    react.begin();
+    return source.HtmlReply({ chatId: "/p#2", page });
+  };
+  render();
+  await new Promise(setImmediate);
+  const failed = render();
+  const retry = find(failed, (node) => node.props?.accessibilityRole === "button" && typeof node.props.onPress === "function");
+  assert.ok(retry, "an offline page is retryable");
+  fail = false;
+  retry.props.onPress();
+  render();
+  await new Promise(setImmediate);
+  const loaded = render();
+  assert.equal(
+    find(loaded, (node) => node.props?.accessibilityLabel === "Expand Chart"),
+    undefined,
+  );
+  assert.equal(
+    find(loaded, (node) => node.props?.accessibilityRole === "button"),
+    undefined,
+    "a loaded page has no app buttons around it",
+  );
+  assert.equal(pushes.length, 0);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1][1][0].version, 1);
+  react.cleanup();
 });

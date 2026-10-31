@@ -58,7 +58,10 @@ function createLinkedMcpServer({ toolsFor }) {
       const messages = Array.isArray(message) ? message : [message];
       // Only a single design-writing call gets the larger wire budget. Other tools and multi-call batches
       // keep their original bound; the document and operation schemas still validate the contents.
-      const designCall = messages.length === 1 && messages[0]?.method === "tools/call" && ["design_show", "design_apply"].includes(messages[0]?.params?.name);
+      const designCall =
+        messages.length === 1 &&
+        messages[0]?.method === "tools/call" &&
+        ["design_show", "design_apply", "html_preview", "html_render"].includes(messages[0]?.params?.name);
       if (bytes > MAX_BODY && !designCall) return tooLarge(MAX_BODY);
       Promise.all(messages.map((item) => answer(chatId, item))).then(
         (answers) => {

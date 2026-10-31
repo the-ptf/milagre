@@ -2425,6 +2425,7 @@ function createRuntime(options) {
             () => [],
           ),
       }),
+      ...require("./html-render.cjs").htmlRenderToolDefinitions(chatId, artifacts),
       ...artifactCommentToolDefinitions(chatId, artifacts),
       ...require("./advisor-tools.cjs").advisorToolDefinitions(chatId, advisors),
       ...require("./link-worktree-tools.cjs").linkWorktreeToolDefinitions(chatId, createLinkWorktree),

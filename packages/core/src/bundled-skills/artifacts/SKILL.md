@@ -5,7 +5,7 @@ description: Create or update the Chat's single live HTML page for explanations,
 
 # The live artifact page
 
-Use `artifact_show` for a page explaining a topic, a report or an interactive explainer. For UI screens, mockups and visual design work, use `design_show` and the design skill. The user's explicit choice of another tool takes precedence.
+Use `artifact_show` for a standalone page, report or interactive explainer to revise in place. For a visual explanation embedded in a reply, use `html_preview` to inspect a screenshot and console messages, then `html_render` to publish it. Each `html_render` call saves a separate immutable page in the conversation, displayed directly on desktop and phone without a card or title bar; it does not replace the live Artifact. An HTML reply reads as part of the message, so write it like one: semantic HTML that inherits the chat's text, controls and colors, no outer card, padding or page title, charts as SVG with labeled axes in `var(--muted)` and series in `var(--chart-1)` onward, and a layout that reflows at 340px. Preview at 720 and 340 widths before publishing, and pass the measured `contentHeight` to `html_render`. For UI screens, mockups and visual design work, use `design_show` and the design skill. The user's explicit choice of another tool takes precedence.
 
 Each Chat has one live HTML page. Every `artifact_show` call updates that page in place. Do not create variants or promise version history. To revise existing content, use `artifact_list` to find its id and `artifact_read` to read the current page first. Preserve content the user has not asked to change.
 
