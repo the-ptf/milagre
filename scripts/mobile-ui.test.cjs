@@ -280,7 +280,13 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           }),
         };
       if (base === "voice-mic-button" && !(id in modules))
-        return { VoiceMicButton: "VoiceMicButton", DictationCapsule: "DictationCapsule", MIC_SIZE: 32, CAPSULE_WIDTH: 72 };
+        return {
+          VoiceMicButton: "VoiceMicButton",
+          DictationCapsule: "DictationCapsule",
+          MIC_SIZE: 32,
+          CAPSULE_WIDTH: 72,
+          CAPSULE_INSET: { right: 6, bottom: 4 },
+        };
       // Icon data and the icon component are drawing; a test reads the icon's name.
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
       if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
@@ -17226,7 +17232,7 @@ test("mobile Ports obey the external preference and explain a loopback-only serv
 });
 
 test("the mic is a 44 point target and the take's capsule can discard it or stop it", () => {
-  const { VoiceMicButton, DictationCapsule, MIC_SIZE, CAPSULE_WIDTH } = load("voice-mic-button.tsx", {
+  const { VoiceMicButton, DictationCapsule, MIC_SIZE, CAPSULE_WIDTH, CAPSULE_INSET } = load("voice-mic-button.tsx", {
     react: { useEffect() {} },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": { Pressable: "Pressable", View: "View" },
@@ -17242,6 +17248,7 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
     },
     "@hugeicons/core-free-icons": { Cancel01Icon: "Cancel01Icon", Mic01Icon: "Mic01Icon" },
     "@milagre/shared/themes": { withAlpha: (color) => color },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
     "./icons": { Icon: "Icon" },
     "./theme": { useTheme: () => ({ colors: fakePalette, motionScale: 1 }) },
   });
@@ -17257,8 +17264,13 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
 
   let discards = 0;
   let stops = 0;
-  const recording = DictationCapsule({ phase: "recording", level: { value: 0 }, onDiscard: () => discards++, onStop: () => stops++ });
-  assert.equal(recording.props.style.height, 44, "the capsule keeps the mic's 44 point row");
+  const recording = DictationCapsule({ phase: "recording", level: { value: 1 }, onDiscard: () => discards++, onStop: () => stops++ });
+  // The field is only 44 tall with one line of text, so the capsule has to fit inside it with room at both edges.
+  const capsuleHeight = recording.props.style.height;
+  const fieldHeight = 44;
+  const top = fieldHeight - CAPSULE_INSET.bottom - capsuleHeight;
+  assert.ok(top >= 4, `the capsule leaves ${top}px above it inside a one-line field, not overhanging its background`);
+  assert.ok(capsuleHeight + CAPSULE_INSET.bottom <= fieldHeight, "and never reaches past the field's own height");
   const buttons = [];
   find(recording, (node) => {
     if (node.props?.accessibilityRole === "button") buttons.push(node);
@@ -17279,8 +17291,15 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   assert.equal(discards, 1);
   assert.equal(stops, 1);
 
+  // The halo swells with the voice; at full level it must still sit inside the capsule's own background.
+  // The halo is the only layer with an animated style: its base size and the scale the shared level drives.
+  const haloNode = find(recording, (node) => Array.isArray(node.props?.style) && node.props.style[0]?.position === "absolute");
+  const haloBase = haloNode.props.style[0].height;
+  const haloScale = haloNode.props.style[1].transform[0].scale;
+  assert.ok(haloBase * haloScale <= capsuleHeight, `a full-voice halo is ${haloBase * haloScale}px inside a ${capsuleHeight}px capsule`);
+
   const preparing = DictationCapsule({ phase: "preparing", level: { value: 0 }, onDiscard() {}, onStop() {} });
-  assert.equal(preparing.props.style.height, 44, "the capsule is the same width and height in every phase");
+  assert.equal(preparing.props.style.height, capsuleHeight, "the capsule is the same width and height in every phase");
   assert.ok(
     find(preparing, (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Preparing the microphone"),
     "no stop before there is anything to stop",
@@ -17465,6 +17484,69 @@ test("phone dictation writes into the field as it hears, tints only the revisabl
   blocked = false;
   render();
   assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+  react.cleanup();
+});
+
+test("a take's error is a bubble over the mic, not a line that moves the words", () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  let error = null;
+  let dismissed = 0;
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Linking: { openSettings() {} }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./chat-display-setting": { useDictationAction: () => ["paste"] },
+    "./voice-dictation-hook": {
+      useVoiceDictation: () => ({
+        available: true,
+        phase: "idle",
+        error,
+        partial: { text: "", settled: 0 },
+        download: null,
+        level: { value: 0 },
+        start() {},
+        stop() {},
+        cancel() {},
+        dismiss() {
+          dismissed++;
+        },
+      }),
+    },
+  });
+  const render = () => {
+    react.begin();
+    const tree = PromptField({ client: { call: async () => [] }, projectPath: "/project", draft: "keep this", onChangeText() {} });
+    react.flush();
+    return tree;
+  };
+  const quiet = render();
+  assert.ok(!find(quiet, (node) => node.type === "DictationNotice"));
+
+  error = { kind: "no-speech", message: "I didn't hear you. Try again." };
+  const heard = render();
+  const notice = find(heard, (node) => node.type === "DictationNotice");
+  assert.ok(notice, "the message is the bubble the mic has always used");
+  assert.equal(notice.props.error.message, "I didn't hear you. Try again.");
+  assert.ok(notice.props.micSize > 0, "the bubble is told the mic's size so its arrow points at it");
+  // The bubble floats out of the mic's own wrapper, so it can never become a row that pushes the draft.
+  const wrapper = find(heard, (node) => {
+    const children = [node.props?.children].flat(Infinity).filter(Boolean);
+    return children.some((child) => child?.type === "DictationNotice") && children.some((child) => child?.type === "VoiceMicButton");
+  });
+  assert.ok(wrapper, "it sits in the mic's wrapper, beside the mic itself");
+  assert.equal(wrapper.props.style.position, "absolute", "which is pinned over the field, not laid out in the column");
+  notice.props.onDismiss();
+  assert.equal(dismissed, 1);
+
+  error = { kind: "permission", message: "Allow the microphone to dictate." };
+  const refused = find(render(), (node) => node.type === "DictationNotice");
+  assert.equal(typeof refused.props.onOpenSettings, "function", "a refused microphone keeps its way to Settings");
   react.cleanup();
 });
 

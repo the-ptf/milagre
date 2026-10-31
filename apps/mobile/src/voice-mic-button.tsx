@@ -23,6 +23,15 @@ const SIZE = 32;
 const CONTROL = 28;
 /** How wide the trailing control gets once the mic grows into the capsule. */
 export const CAPSULE_WIDTH = 6 + CONTROL + 4 + CONTROL + 6;
+/**
+ * The capsule is shorter than the mic's 44pt box and sits inset from the field's edges: a one-line field is only 44
+ * tall, so a 44 capsule anchored to its bottom padding would hang over the top of the composer's own background.
+ */
+const CAPSULE_HEIGHT = 36;
+export const CAPSULE_INSET = { right: 6, bottom: 4 };
+// The level halo swells inside the capsule and no further: 22 at rest, 35.2 at full voice, under CAPSULE_HEIGHT.
+const HALO = 22;
+const HALO_SWELL = 0.6;
 
 /** The mic at the trailing edge of the composer: tap to record. While a take runs the capsule stands in its place. */
 export function VoiceMicButton({ onPress }: { onPress: () => void }) {
@@ -61,7 +70,7 @@ export function DictationCapsule({
     // With motion off the halo holds still at a middling size: recording still reads, nothing moves.
     if (motionScale <= 0) return { transform: [{ scale: 1.25 }] };
     return {
-      transform: [{ scale: withTiming(1 + level.value * 0.7, { duration: Math.round(80 * motionScale), reduceMotion: ReduceMotion.System }) }],
+      transform: [{ scale: withTiming(1 + level.value * HALO_SWELL, { duration: Math.round(80 * motionScale), reduceMotion: ReduceMotion.System }) }],
     };
   });
   return (
@@ -70,7 +79,7 @@ export function DictationCapsule({
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        height: MIC_SIZE,
+        height: CAPSULE_HEIGHT,
         paddingHorizontal: 6,
         borderRadius: 999,
         borderCurve: "continuous",
@@ -97,7 +106,7 @@ export function DictationCapsule({
         >
           <Animated.View
             pointerEvents="none"
-            style={[{ position: "absolute", width: CONTROL, height: CONTROL, borderRadius: CONTROL / 2, backgroundColor: withAlpha(colors.red, 0.28) }, halo]}
+            style={[{ position: "absolute", width: HALO, height: HALO, borderRadius: HALO / 2, backgroundColor: withAlpha(colors.red, 0.28) }, halo]}
           />
           <View style={{ width: 16, height: 16, borderRadius: radius.chip, borderCurve: "continuous", backgroundColor: colors.red }} />
         </Pressable>

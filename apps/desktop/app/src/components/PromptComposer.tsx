@@ -8,7 +8,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   CleanIcon,
-  AlertCircleIcon,
   Cancel01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
@@ -54,6 +53,7 @@ import {
   type Selection as TextRange,
 } from "@milagre/shared/voice-dictation";
 import { useDictation } from "./useDictation";
+import { DictationNotice } from "./DictationNotice";
 
 type IconData = ComponentProps<typeof HugeiconsIcon>["icon"];
 
@@ -920,33 +920,9 @@ export function PromptComposer({
               {imageDraft.error}
             </div>
           )}
-          {/* One status slot for the whole take: it never pushes the words around, because it sits above them. */}
-          {dictationError ? (
-            <div role="alert" data-dictation-status className="flex items-center gap-2 px-2 py-1">
-              <span className="flex shrink-0 text-red-ink">
-                <Icon icon={AlertCircleIcon} size={14} />
-              </span>
-              <span className="min-w-0 flex-1 text-12 font-medium text-red-ink">{dictationError.message}</span>
-              {dictationError.kind === "permission" ? (
-                <button
-                  type="button"
-                  onClick={dictation.openSettings}
-                  className="flex h-7 shrink-0 items-center rounded-control border border-line-strong px-2 text-12 font-semibold text-ink transition-colors hover:bg-hover"
-                >
-                  Open Settings
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  aria-label="Dismiss"
-                  onClick={dismissDictationError}
-                  className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                >
-                  <Icon icon={Cancel01Icon} size={14} />
-                </button>
-              )}
-            </div>
-          ) : dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
+          {/* Preparing, finishing and the one-time download share one slot above the words, so none of them moves them.
+              An error is a bubble over the mic instead: it belongs to the button that tries again. */}
+          {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
             <p role="status" data-dictation-status className="px-2 py-1 text-12 text-ink-2">
               {dictation.phase === "preparing" ? "Preparing the microphone…" : "Finishing the last words…"}
             </p>
@@ -1120,59 +1096,63 @@ export function PromptComposer({
                   </div>
                 )
               )}
-              {dictating ? (
-                // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
-                <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
+              <span className="relative flex shrink-0">
+                {dictationError && <DictationNotice error={dictationError} onOpenSettings={dictation.openSettings} />}
+                {dictating ? (
+                  // The mic grew into the capsule, in its own place: discard the take, or stop it. Nothing else moved.
+                  <span data-dictation-capsule className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-hover px-1">
+                    <button
+                      type="button"
+                      aria-label="Discard dictation"
+                      title="Discard dictation"
+                      onClick={discardDictation}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                    >
+                      <Icon icon={Cancel01Icon} size={14} />
+                    </button>
+                    {dictation.phase === "recording" ? (
+                      <button
+                        ref={(node) => {
+                          dictation.meter.current = node;
+                        }}
+                        type="button"
+                        aria-label="Stop dictation"
+                        title="Stop dictation"
+                        onClick={() => void dictation.stop()}
+                        className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
+                      >
+                        {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
+                        <span
+                          aria-hidden
+                          // 20px at rest and 27.6px at full voice, so it never bleeds past the 28px capsule.
+                          className="absolute inset-0.5 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
+                          style={{ transform: "scale(calc(1 + var(--level, 0) * 0.38))" }}
+                        />
+                        <span aria-hidden className="relative block size-2.5 rounded-[2px] bg-red" />
+                      </button>
+                    ) : (
+                      <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
+                        <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
+                      </span>
+                    )}
+                  </span>
+                ) : (
                   <button
                     type="button"
-                    aria-label="Discard dictation"
-                    title="Discard dictation"
-                    onClick={discardDictation}
-                    className="flex size-6 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors hover:text-ink"
+                    aria-label={DICTATION_LABELS.idle}
+                    title={DICTATION_LABELS.idle}
+                    onClick={() => {
+                      const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
+                      take.current = startTake(draftLatest.current, selection);
+                      setProvisional(null);
+                      void dictation.start({ selection });
+                    }}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
                   >
-                    <Icon icon={Cancel01Icon} size={14} />
+                    <Icon icon={Mic01Icon} size={16} />
                   </button>
-                  {dictation.phase === "recording" ? (
-                    <button
-                      ref={(node) => {
-                        dictation.meter.current = node;
-                      }}
-                      type="button"
-                      aria-label="Stop dictation"
-                      title="Stop dictation"
-                      onClick={() => void dictation.stop()}
-                      className="relative flex size-6 shrink-0 items-center justify-center rounded-full"
-                    >
-                      {/* The halo swells with the voice (--level, 0..1, set each frame by useDictation). */}
-                      <span
-                        aria-hidden
-                        className="absolute inset-0 rounded-full bg-red/25 motion-safe:transition-transform motion-safe:duration-75"
-                        style={{ transform: "scale(calc(1 + var(--level, 0) * 0.6))" }}
-                      />
-                      <span aria-hidden className="relative block size-2.5 rounded-[2px] bg-red" />
-                    </button>
-                  ) : (
-                    <span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
-                      <span className="block size-4 rounded-full border-2 border-line border-t-ink-2 border-r-ink-2 motion-safe:animate-spin" />
-                    </span>
-                  )}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  aria-label={DICTATION_LABELS.idle}
-                  title={DICTATION_LABELS.idle}
-                  onClick={() => {
-                    const selection = inputRef.current?.getSelection() ?? { start: caret, end: caret };
-                    take.current = startTake(draftLatest.current, selection);
-                    setProvisional(null);
-                    void dictation.start({ selection });
-                  }}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-hover hover:text-ink"
-                >
-                  <Icon icon={Mic01Icon} size={16} />
-                </button>
-              )}
+                )}
+              </span>
               <button
                 type="button"
                 aria-label={canStop ? "Stop agent" : offlineName ? "Queue message" : "Send"}
