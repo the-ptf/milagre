@@ -408,7 +408,7 @@ async function browserChecks() {
     const frames = `${dock}.querySelectorAll("[data-slot=artifact-frame]")`;
     const frame = (id) => `${dock}.querySelector("[data-slot=artifact-frame][data-artifact=${id}]")`;
     await evaluate(`window.holdHealth = true; window.sharingOffline = true; ${thumb("login")}.click()`);
-    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("iframe"))`);
+    await waitFor(`${frames}?.length === 2 && [...${frames}].every((f) => f.querySelector("[data-design-body][data-painted]"))`);
     assert.match(await evaluate(`${frame("login")}.textContent`), /Login screen, warmer.*v2 of 2/);
     // The chat's room springs open with the panel, to the panel's width and its gap.
     await waitFor('getComputedStyle((document.querySelector("[data-dock-layer]") ?? document.body)).getPropertyValue("--artifact-dock").trim() === "572px"');
@@ -657,6 +657,7 @@ async function browserChecks() {
     });
     await waitFor(`${frame("login")}.querySelector("[data-design-body]").dataset.active === "true"`);
     assert.equal(await evaluate(`!!${frame("login")}.querySelector("[data-slot=artifact-shield]")`), false, "the design has the mouse");
+    await waitFor(`(() => { const iframe = ${frame("login")}.querySelector("iframe"); return iframe && !iframe.closest("[inert]"); })()`);
     // A click in the design gives it the focus, so the window never sees the key: Escape still leaves the design.
     window.webContents.sendInputEvent({
       type: "mouseDown",
@@ -1151,8 +1152,9 @@ async function browserChecks() {
     // In comment mode a click on the page pins a comment there; its bubble opens in the dock, at the pin.
     await evaluate(`${dock}.querySelector('button[aria-label="Comment on the page"]').click()`);
     await waitFor(`${dock}.querySelector('button[aria-label="Stop commenting"]')?.getAttribute("aria-pressed") === "true"`);
+    // Leave room for the 264px bubble so this checks anchoring rather than its right-edge clamp.
     const heading = await evaluate(
-      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 60), y: Math.round(r.top + 40) }; })()`,
+      `(() => { const r = ${dock}.querySelector("[data-slot=artifact-page] iframe").getBoundingClientRect(); return { x: Math.round(r.left + 20), y: Math.round(r.top + 40) }; })()`,
     );
     // The page's helper may still be starting: click until the bubble opens.
     // sendInputEvent stops at the page's frame; input through the DevTools protocol is hit-tested into it, as a real click.
