@@ -112,9 +112,34 @@ function run(key: string, work: () => Promise<void>): Promise<void> {
     const queued = again.get(key);
     again.delete(key);
     if (queued) void run(key, queued);
+    else settleTrim(key);
   });
   busy.set(key, next);
   return next;
+}
+
+// A trim asked for while the Chat's window is being read waits for the read: the refresh that brings the new message
+// is still on its way when the screen asks. `canTrim` is asked again then: the reader may have scrolled up meanwhile.
+const pendingTrims = new Map<string, () => boolean>();
+function settleTrim(key: string) {
+  if (busy.has(key) || earlierLoads.has(key)) return;
+  const canTrim = pendingTrims.get(key);
+  pendingTrims.delete(key);
+  if (canTrim?.()) trimNow(key);
+}
+function trimNow(key: string) {
+  if (!windows.trim(key)) return;
+  for (const listener of Array.from(listeners.get(key) ?? [])) listener();
+}
+
+/** Trims Chat `key`'s window to its last turns, now or once the read on its way settles, while `canTrim` says so. */
+export function trimChatPage(key: string, canTrim: () => boolean) {
+  if (busy.has(key) || earlierLoads.has(key)) {
+    pendingTrims.set(key, canTrim);
+    return;
+  }
+  pendingTrims.delete(key);
+  if (canTrim()) trimNow(key);
 }
 
 async function load(key: string, client: PageClient, projectPath: string, chatId: number) {
@@ -201,6 +226,19 @@ export async function warmChatPages(client: PageClient, chats: WarmChat[], limit
   }
 }
 
+/** Tells `listener` of Chat `key`'s window changes; its window keeps all it read while someone listens. */
+export function subscribeChatPage(key: string, listener: () => void) {
+  let set = listeners.get(key);
+  if (!set) listeners.set(key, (set = new Set()));
+  set.add(listener);
+  windows.retain(key);
+  return () => {
+    set!.delete(listener);
+    if (!set!.size) listeners.delete(key);
+    windows.release(key);
+  };
+}
+
 /**
  * The window of Chat `chatId`'s messages, read when first shown and its last turns again whenever `changed` (the
  * Project state, or a snapshot: see savedChange) changes; none while `client` (only a host that keeps messages by Chat),
@@ -216,21 +254,7 @@ export function useChatPage(
   reconnected?: number,
 ) {
   const key = client && projectPath && typeof chatId === "number" && chatId > 0 ? `${client.url}|${projectPath}#${chatId}` : null;
-  const subscribe = useCallback(
-    (listener: () => void) => {
-      if (!key) return () => {};
-      let set = listeners.get(key);
-      if (!set) listeners.set(key, (set = new Set()));
-      set.add(listener);
-      windows.retain(key);
-      return () => {
-        set!.delete(listener);
-        if (!set!.size) listeners.delete(key);
-        windows.release(key);
-      };
-    },
-    [key],
-  );
+  const subscribe = useCallback((listener: () => void) => (key ? subscribeChatPage(key, listener) : () => {}), [key]);
   const page = useSyncExternalStore(subscribe, () => (key ? (windows.get(key) ?? EMPTY) : NONE));
   const saved = savedChange(changed);
   useEffect(() => {
@@ -251,16 +275,15 @@ export function useChatPage(
         const next = prependChatPage(latest, first.id, earlier);
         if (next && next !== latest) set(key, next);
       })
-      .finally(() => earlierLoads.delete(key));
+      .finally(() => {
+        earlierLoads.delete(key);
+        settleTrim(key);
+      });
     earlierLoads.set(key, request);
     return request;
   }, [key, client, projectPath, chatId]);
   // Followed at its bottom, the window drops what it read beyond its last turns; scrolling up reads them again.
-  const trim = useCallback(() => {
-    if (!key || busy.has(key) || earlierLoads.has(key)) return;
-    const next = windows.trim(key);
-    if (next) for (const listener of Array.from(listeners.get(key) ?? [])) listener();
-  }, [key]);
+  const trim = useCallback((canTrim: () => boolean) => (key ? trimChatPage(key, canTrim) : undefined), [key]);
   return {
     ...page,
     loadEarlier,

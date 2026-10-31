@@ -777,6 +777,7 @@ export function LinkWorkspace({
                           return true;
                         }}
                         earlier={earlierMessages}
+                        trimHistory={lean ? chatWindow.trim : undefined}
                         messages={shownMessages}
                         limitPending={session?.limitResume}
                         limitSourceMessageId={session?.limitTurn?.sourceMessageId}

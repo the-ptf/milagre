@@ -3874,6 +3874,8 @@ function App() {
                         projectPath={selectedWorktree?.path ?? project.path}
                         messageScope={project.path}
                         earlier={earlierMessages}
+                        // A draft becoming its saved Chat shows that Chat's window, not the selected one's.
+                        trimHistory={lean && !(pendingHere && pendingCanonicalId !== null) ? chatWindow.trim : undefined}
                         onSend={() => void sendMessage()}
                         onCompact={
                           selectedSession && providerCapabilities(selectedSession.provider ?? "claude").compact && !readOnly

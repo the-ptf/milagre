@@ -28,10 +28,14 @@ const windows = new ChatWindowCache<ChatWindow>({ maxChats: 8, maxBytes: 8 * 102
 const listeners = new Map<string, Set<() => void>>();
 const keyOf = (scope: string, chatId: number) => `${scope}#${chatId}`;
 
-function set(key: string, next: ChatWindow) {
-  windows.set(key, next);
+function notify(key: string) {
   // A copy: a listener can resubscribe while it is told, and a live Set would then be walked forever.
   for (const listener of Array.from(listeners.get(key) ?? [])) listener();
+}
+
+function set(key: string, next: ChatWindow) {
+  windows.set(key, next);
+  notify(key);
   // A remote chat's window is its computer's offline copy too.
   if (!next.loading && !next.error) {
     const at = key.lastIndexOf("#");
@@ -126,17 +130,19 @@ function load(scope: string, chatId: number) {
         },
       )
       .finally(() => {
-        if (loads.get(key) !== loading) return;
-        loads.delete(key);
-        if (stale.delete(key)) void load(scope, chatId);
+        if (loads.get(key) === loading) {
+          loads.delete(key);
+          if (stale.delete(key)) void load(scope, chatId);
+        }
+        settleTrim(key);
       });
     loads.set(key, loading);
   }
   return loading;
 }
 
-/** Reads the turns before the window; resolves once they're in. */
-async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
+/** Reads the turns before the window; resolves once they're in. Exported for its tests. */
+export async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
   const key = keyOf(scope, chatId);
   const pending = earlierLoads.get(key);
   if (pending) return pending;
@@ -153,9 +159,39 @@ async function loadEarlier(scope: string, chatId: number, turns = TURNS) {
     })
     .finally(() => {
       if (earlierLoads.get(key) === request) earlierLoads.delete(key);
+      settleTrim(key);
     });
   earlierLoads.set(key, request);
   return request;
+}
+
+// Trims asked for while their Chat's window was being read, with the reader's check of whether it still wants one.
+const pendingTrims = new Map<string, () => boolean>();
+const reading = (key: string) => loads.has(key) || earlierLoads.has(key);
+
+function trimNow(key: string, canTrim: () => boolean) {
+  if (canTrim() && windows.trim(key)) notify(key);
+}
+
+/**
+ * Followed at its bottom, Chat `chatId`'s window drops what it holds beyond its last turns once it holds more than twice
+ * as many (ChatWindowCache.trim); scrolling up reads them again. A read on its way answers for the window as it was, so
+ * a trim asked for meanwhile waits for it, and then asks `canTrim` again: the reader may have scrolled up since.
+ */
+export function trimChatWindow(scope: string, chatId: number, canTrim: () => boolean) {
+  const key = keyOf(scope, chatId);
+  if (reading(key)) pendingTrims.set(key, canTrim);
+  else {
+    pendingTrims.delete(key);
+    trimNow(key, canTrim);
+  }
+}
+
+function settleTrim(key: string) {
+  const canTrim = pendingTrims.get(key);
+  if (!canTrim || reading(key)) return;
+  pendingTrims.delete(key);
+  trimNow(key, canTrim);
 }
 
 /** Reads every message of the Chat (find in chat searches all of it). */
@@ -289,24 +325,24 @@ function warmNext(): Promise<void> {
 /** Chat `chatId`'s window as held now, without reading it. Exported for its tests. */
 export const peekChatWindow = (scope: string, chatId: number): ChatWindow | undefined => windows.get(keyOf(scope, chatId));
 
+/** Tells `listener` of each change to Chat `chatId`'s window, which stays whole while anyone reads it. Exported for its tests. */
+export function watchChatWindow(scope: string, chatId: number, listener: () => void) {
+  const key = keyOf(scope, chatId);
+  let heard = listeners.get(key);
+  if (!heard) listeners.set(key, (heard = new Set()));
+  heard.add(listener);
+  windows.retain(key);
+  return () => {
+    heard.delete(listener);
+    if (!heard.size) listeners.delete(key);
+    windows.release(key);
+  };
+}
+
 /** The window of Chat `chatId`'s messages, read when first shown; none while `scope` or `chatId` is missing. */
 export function useChatMessages(scope: string | null | undefined, chatId: number | null | undefined) {
   const key = scope && typeof chatId === "number" && chatId > 0 ? keyOf(scope, chatId) : null;
-  const subscribe = useCallback(
-    (listener: () => void) => {
-      if (!key) return () => {};
-      let set = listeners.get(key);
-      if (!set) listeners.set(key, (set = new Set()));
-      set.add(listener);
-      windows.retain(key);
-      return () => {
-        set!.delete(listener);
-        if (!set!.size) listeners.delete(key);
-        windows.release(key);
-      };
-    },
-    [key],
-  );
+  const subscribe = useCallback((listener: () => void) => (key ? watchChatWindow(scope!, chatId!, listener) : () => {}), [key, scope, chatId]);
   const chat = useSyncExternalStore(subscribe, () => (key ? (windows.get(key) ?? EMPTY) : NONE));
   useEffect(() => {
     if (!key) return;
@@ -318,5 +354,6 @@ export function useChatMessages(scope: string | null | undefined, chatId: number
     retry: useCallback(() => (key ? load(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
     loadEarlier: useCallback(() => (key ? loadEarlier(scope!, chatId!) : Promise.resolve()), [key, scope, chatId]),
     loadAll: useCallback((signal?: AbortSignal) => (key ? loadAll(scope!, chatId!, signal) : Promise.resolve()), [key, scope, chatId]),
+    trim: useCallback((canTrim: () => boolean) => (key ? trimChatWindow(scope!, chatId!, canTrim) : undefined), [key, scope, chatId]),
   };
 }

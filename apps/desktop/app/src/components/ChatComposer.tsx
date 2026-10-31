@@ -124,7 +124,7 @@ import { LinkedMessageHeader, linkedContext } from "./LinkedMessage";
 import { isHandoff } from "@milagre/shared/handoff";
 import { isCompaction } from "@milagre/shared/compaction";
 import { isWorktreeLinked } from "@milagre/shared/worktree-link";
-import { MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
+import { MessageFollowContext, MessageScroller, TRANSCRIPT_SHOWN_EVENT } from "./agents/message-scroller";
 import { RecommendationCard } from "./agents/recommendation-card";
 import { parseRecommendation } from "../lib/recommendation";
 import { StepRow } from "./agents/StepRow";
@@ -560,6 +560,8 @@ const MessageSection = memo(function MessageSection({
 // A Chat's first render mounts only its last few messages, so the window paints them at once; the rest of the page
 // follows in a transition (TAIL_FIRST is enough to fill a tall window's viewport).
 const TAIL_FIRST = 6;
+// The messages a Chat mounts at first, and each Show earlier adds.
+const PAGE = 40;
 
 // Background turns and draft edits must not rebuild a long, unchanged transcript.
 const MessageTranscript = memo(function MessageTranscript({
@@ -583,6 +585,7 @@ const MessageTranscript = memo(function MessageTranscript({
   findOpen,
   models,
   earlier,
+  trimHistory,
   undoable,
   undoBlocked = false,
   onUndo,
@@ -598,6 +601,7 @@ const MessageTranscript = memo(function MessageTranscript({
 } & Pick<
   ChatComposerProps,
   | "earlier"
+  | "trimHistory"
   | "messages"
   | "pendingMessageId"
   | "isSending"
@@ -627,8 +631,8 @@ const MessageTranscript = memo(function MessageTranscript({
     openingMessages.current = { chat: chatId, ids: openingMessages.current.chat === "new" ? new Set() : new Set(messages.map((message) => message.id)) };
   }
   // Keep the same recent-history page size as mobile. New messages extend the page without dropping its first row.
-  const [page, setPage] = useState(() => ({ chat: chatId, firstId: messages[Math.max(0, messages.length - 40)]?.id }));
-  let firstId = page.chat === chatId ? page.firstId : messages[Math.max(0, messages.length - 40)]?.id;
+  const [page, setPage] = useState(() => ({ chat: chatId, firstId: messages[Math.max(0, messages.length - PAGE)]?.id }));
+  let firstId = page.chat === chatId ? page.firstId : messages[Math.max(0, messages.length - PAGE)]?.id;
   if (findOpen) firstId = messages[0]?.id;
   if (page.chat !== chatId || page.firstId !== firstId) setPage({ chat: chatId, firstId });
   const start = Math.max(
@@ -683,7 +687,7 @@ const MessageTranscript = memo(function MessageTranscript({
     if (element && viewport) anchor.current = { element, viewport, top: element.getBoundingClientRect().top };
     try {
       if (start > 0 || !earlier) {
-        setPage({ chat: chatId, firstId: messages[Math.max(0, start - 40)]?.id });
+        setPage({ chat: chatId, firstId: messages[Math.max(0, start - PAGE)]?.id });
         return;
       }
       await earlier.load();
@@ -701,6 +705,19 @@ const MessageTranscript = memo(function MessageTranscript({
   const loadOnScroll = useEvent(() => {
     if (!historyError) void showEarlier();
   });
+  // A Chat followed at its bottom as new messages arrive lets go of the history it showed, as on the phone: past twice a
+  // page its rows unmount back to one, and its window keeps its last turns (trimHistory), so a Chat open for hours costs
+  // what a fresh one does. Scrolling up reads them again. Not while Find searches the whole Chat or earlier messages load.
+  const following = useContext(MessageFollowContext);
+  const canTrim = useEvent(() => !findOpen && following?.current === true && !historyRead.current && !anchor.current);
+  const seen = useRef({ chat: chatId, count: messages.length });
+  useEffect(() => {
+    const grew = seen.current.chat === chatId && messages.length > seen.current.count;
+    seen.current = { chat: chatId, count: messages.length };
+    if (!grew || !canTrim()) return;
+    if (messages.length - start > PAGE * 2) setPage({ chat: chatId, firstId: messages[messages.length - PAGE]?.id });
+    trimHistory?.(canTrim);
+  }, [messages, chatId, start, canTrim, trimHistory]);
   useEffect(() => {
     const viewport = earlierButton.current?.closest<HTMLElement>('[aria-label="Conversation"]');
     if (!viewport || start + remote <= 0 || findOpen) return;
@@ -860,6 +877,8 @@ interface ChatComposerProps {
   projectPath: string;
   /** Messages of the Chat the host holds before `messages` (chat-pages-v1): how many, and reading them. */
   earlier?: { count: number; load: () => Promise<void>; loadAll: (signal?: AbortSignal) => Promise<void> };
+  /** Drops the Chat's window back to its last turns once `canTrim` (asked again if a read is on its way) still says so. */
+  trimHistory?: (canTrim: () => boolean) => void;
   /** The Project or Link (scope key) the messages belong to, for step output the host keeps out of the state. */
   messageScope?: string;
   /** The open conversation keeps its scroll view when a draft gets its saved Chat id. */
@@ -1273,6 +1292,7 @@ export function ChatComposer({
   messageScope,
   scrollKey,
   earlier,
+  trimHistory,
   messages,
   loading = false,
   loadError,
@@ -1644,6 +1664,7 @@ export function ChatComposer({
                           <MessageTranscript
                             findOpen={findOpen}
                             earlier={earlier}
+                            trimHistory={trimHistory}
                             messages={messages}
                             pendingMessageId={pendingMessageId}
                             isSending={isSending}
@@ -1914,6 +1935,7 @@ export function ChatTranscript({
   messages,
   messageScope,
   earlier,
+  trimHistory,
   isSending,
   streamingText,
   streamingSteps,
@@ -1923,7 +1945,17 @@ export function ChatTranscript({
   models,
 }: { chatKey: string; mentionContext?: ChatMentionScope } & Pick<
   ChatComposerProps,
-  "messages" | "messageScope" | "earlier" | "isSending" | "streamingText" | "streamingSteps" | "asking" | "waitingStepIds" | "runStartedAt" | "models"
+  | "messages"
+  | "messageScope"
+  | "earlier"
+  | "trimHistory"
+  | "isSending"
+  | "streamingText"
+  | "streamingSteps"
+  | "asking"
+  | "waitingStepIds"
+  | "runStartedAt"
+  | "models"
 >) {
   const history = chatHistory(messages);
   const steps = useMemo(() => (streamingSteps?.length ? [...history.steps, ...streamingSteps] : history.steps), [history.steps, streamingSteps]);
@@ -1943,6 +1975,7 @@ export function ChatTranscript({
           <StepDetailsScope scope={messageScope}>
             <MessageTranscript
               earlier={earlier}
+              trimHistory={trimHistory}
               messages={messages}
               isSending={isSending}
               streamingText={streamingText}

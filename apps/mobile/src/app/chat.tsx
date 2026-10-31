@@ -82,7 +82,7 @@ import { PortsChip, useChatPorts } from "../ports";
 import { TerminalChip, TerminalDock, terminalPlaces } from "../terminal";
 import { KeyboardChatScrollView, KeyboardStickyView, useKeyboardState, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { ChatReply } from "../chat-reply";
-import { designMessageSent, onSendDesignMessageNow, peekDesignMessage } from "../design-outbox";
+import { designMessageSent, onSendDesignMessageNow, peekDesignMessage, type DesignMessage } from "../design-outbox";
 import { PanelTabsContext } from "../panel-tabs";
 import { chosenDesign, designActivity } from "@milagre/shared/artifact";
 import { handoffSides } from "../handoff-sides";
@@ -708,7 +708,7 @@ function ChatPane({
     seenCount.current = messages.length;
     if (!grew || !following.current || historyRead.current || historyAnchor.current) return;
     if (visible > PAGE) setShown({ key: scrollKey, count: PAGE });
-    trimHistory();
+    trimHistory(() => following.current && !historyRead.current && !historyAnchor.current);
   }, [messages.length, visible, scrollKey, trimHistory]);
   // Quiet heartbeats fold into one line and their replies drop out.
   const groupedMessages = useMemo(() => groupQuietRuns(messages), [messages]);
@@ -912,6 +912,7 @@ function ChatPane({
   const sendGenui = useRef<(text: string) => Promise<boolean | "busy">>(async () => false);
   const genuiSend = useCallback((text: string) => sendGenui.current(text), []);
   const designDeferred = useRef(false);
+  const designSending = useRef<DesignMessage | null>(null);
   const designKey = session.client && session.snapshot ? `${session.client.url}|${session.snapshot.project.path}#${params.id}` : null;
   useFocusEffect(
     useCallback(() => {
@@ -1353,11 +1354,21 @@ function ChatPane({
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref for design messages.
   sendDesign.current = () => {
     const message = designKey ? peekDesignMessage(designKey) : null;
-    if (!message || !designKey || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
-    void send(message.text, false).then((sent) => {
-      designDeferred.current = sent === "busy";
-      if (sent === true) designMessageSent(designKey, message);
-    });
+    // One batch at a time, oldest first: a batch handed over while one is on its way goes after it.
+    if (!message || !designKey || designSending.current === message || (message.kind !== "artifacts" && session.designs.enabled !== true)) return;
+    designSending.current = message;
+    void send(message.text, false)
+      .then((sent) => {
+        designSending.current = null;
+        designDeferred.current = sent === "busy";
+        if (sent !== true) return;
+        designMessageSent(designKey, message);
+        // The next batch goes now, or waits for the turn this one started like any message sent to a busy Chat.
+        sendDesign.current();
+      })
+      .catch(() => {
+        designSending.current = null;
+      });
   };
   // eslint-disable-next-line react-hooks/refs -- latest-callback ref, read only when an issue is picked in the choice sheet.
   startIssue.current = (issue) => void send(issueFirstMessage(issue, draft), true, undefined, issue);
