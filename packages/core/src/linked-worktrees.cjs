@@ -309,6 +309,7 @@ function createLinkedWorktrees({
         if (!worktree) throw new Error("That Worktree is no longer in its Project.");
         return chatKey(projectPath, await chats.emptyChat(projectPath, worktree.id));
       },
+      adoptSubchat: (toChat, fromChat) => chats.adoptSubchat(toChat, fromChat),
       status: (key) => runStatus(chats.runs[key]),
       pendingResults: async (key) => {
         const session = (await project(projectOfKey(key))).sessions[sessionIdFromKey(key)];

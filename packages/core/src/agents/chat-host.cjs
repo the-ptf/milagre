@@ -261,6 +261,36 @@ class ChatHost {
   }
 
   /**
+   * Makes `childKey` a subchat of `parentKey`: a Delegation inside one Project went from the parent to it (ADR-0002).
+   * Saved as `parent` on the child once, the first time: a Chat that already has a parent keeps it. Never across
+   * Projects, never on itself, and never when the parent already descends from the child, so the chain can't loop.
+   * Resolves true when it saved.
+   */
+  async adoptSubchat(childKey, parentKey) {
+    const projectPath = projectOfKey(childKey);
+    if (projectPath !== projectOfKey(parentKey) || childKey === parentKey) return false;
+    const childId = sessionIdFromKey(childKey);
+    const parentId = sessionIdFromKey(parentKey);
+    let adopted = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const child = latest.sessions[childId];
+        if (!child || child.parent !== undefined || !latest.sessions[parentId]) return latest;
+        for (let id = parentId, seen = new Set(); id !== undefined && !seen.has(id); id = latest.sessions[id]?.parent) {
+          if (id === childId) return latest;
+          seen.add(id);
+        }
+        adopted = true;
+        return { ...latest, sessions: { ...latest.sessions, [childId]: { ...child, parent: parentId } } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+    return adopted;
+  }
+
+  /**
    * A mode change from the composer: `live(chatId, mode)` hands it to the running agent, and the chat saves it whatever
    * that says. When both fail, the agent's error is the one reported.
    */
