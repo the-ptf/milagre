@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ChatList, CompactButtonDisplay, ToolCallDisplay } from "@milagre/shared/chat-display";
+import { whisperModelFor } from "@milagre/shared/dictation";
 import type { DictationActionPreference } from "@milagre/shared/voice-dictation";
 import {
   readChatList,
@@ -9,11 +10,13 @@ import {
   saveCompactButtonDisplay,
   readDictationLanguage,
   readDictationAction,
+  readDictationModel,
   readExpandReasoning,
   readToolCallDisplay,
   saveChatList,
   saveDictationLanguage,
   saveDictationAction,
+  saveDictationModel,
   saveExpandReasoning,
   saveToolCallDisplay,
 } from "./hosts-native";
@@ -64,5 +67,8 @@ export const useChatList = phoneSetting<ChatList>("list", readChatList, saveChat
 
 /** Desktop's Dictation language: what the mic listens for, a language code or "auto". */
 export const useDictationLanguage = phoneSetting<string>("auto", readDictationLanguage, saveDictationLanguage);
+
+/** Settings › Chat › Dictation › Speech model: the Whisper model this phone runs, an id from WHISPER_MODELS.phone. */
+export const useDictationModel = phoneSetting<string>(whisperModelFor("phone", undefined).id, readDictationModel, saveDictationModel);
 
 export const useDictationAction = phoneSetting<DictationActionPreference>("paste", readDictationAction, saveDictationAction);

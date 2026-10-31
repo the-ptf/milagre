@@ -112,6 +112,7 @@ class Delegations {
    *     Worktree; link_ids are every Link that reaches it, link_id the one it routes along, and both empty (null, [])
    *     for a Worktree of the Chat's own Project, which needs no Link
    *   chat(chatKey) -> { label, worktreePath, archived } | null; openChat(projectPath, worktreePath) -> a new Chat's key
+   *   adoptSubchat(toChat, fromChat) -> nests a Chat of the requester's own Project under it (ChatHost.adoptSubchat)
    *   status(chatKey) -> "idle" | "working" | "waiting"
    *   pendingResults(chatKey) -> whether advisor results still need a turn, including saved queued results
    *   deliver(chatKey, { body, prompt, context }) -> { started }, once the message is saved; `started` resolves with
@@ -252,6 +253,8 @@ class Delegations {
     if (decision === "cancelled") throw new Error("The approval card closed before the user answered, so nothing was sent.");
     const toChat = chat === "new" ? await this.ports.openChat(target.projectPath, worktree) : chat;
     if (toChat === fromChat) throw new Error('A Chat can\'t delegate to itself. Pick another Chat, or "new".');
+    // Inside one Project the receiving Chat becomes the requester's subchat; across a Link it stays a Chat of its own.
+    if (!target.link_id) await this.ports.adoptSubchat?.(toChat, fromChat).catch((error) => console.warn("Milagre couldn't nest a subchat:", error.message));
     const record = negotiation
       ? {
           id: this.id(),

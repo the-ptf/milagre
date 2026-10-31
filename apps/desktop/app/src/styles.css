@@ -1244,6 +1244,39 @@ code.step-running.step-sweep {
   }
 }
 
+/* COMPONENT-SPECIFIC — DownloadRing: the arrow falls into the ring, rests and drops out below it, again and again, while a
+ * speech model downloads. The ring clips it, so it reads as one arrow going down and down. Reduced motion holds it still. */
+@keyframes download-drop {
+  0% {
+    transform: translateY(-115%);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  35% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  62% {
+    transform: translateY(0);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4);
+  }
+  100% {
+    transform: translateY(115%);
+    opacity: 0;
+  }
+}
+
+.download-drop {
+  animation: download-drop 1.3s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-drop {
+    animation: none;
+  }
+}
+
 /* COMPONENT-SPECIFIC — ThinkingIndicator: the Milagre mark twinkling, lit like the old pixel loader. On a 2.4s cycle
  * the legs and the sparkle take turns: while the sparkle holds, the legs light up, left then right, from 15% ink; once
  * they are dim again the sparkle swells, turns and settles back (four-fold symmetry, so the quarter turn loops seamlessly).

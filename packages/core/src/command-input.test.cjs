@@ -49,3 +49,10 @@ test("nullable fields retain explicit null and reserved names do not change CLI 
   const channel = contractFor("update:set-channel", { desktop: true });
   assert.deepEqual(argumentsFor(channel, inputForFlags(channel.inputSchema, [["arg-channel", "beta"]])), ["beta"]);
 });
+
+test("Git diff contracts accept a null commit as an omitted selection", () => {
+  for (const channel of ["git:diff-files", "git:diff-file"]) {
+    const request = { cwd: "/project", mode: "uncommitted", commit: null, ...(channel === "git:diff-file" ? { path: "file.txt" } : {}) };
+    assert.deepEqual(argumentsFor(contractFor(channel), request), [request]);
+  }
+});

@@ -21,6 +21,7 @@ import {
 import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  ArrowDown01Icon,
   Delete02Icon,
   BubbleChatIcon,
   EthernetPortIcon,
@@ -133,6 +134,8 @@ export type SidebarRecent = {
   pinOrder?: number;
   /** When the chat was marked Done: it leaves the list for the Done section at the bottom (done.mjs). */
   doneAt?: number;
+  /** The id of the Chat whose Delegation reached this one, in the same scope: the row shows under it (subchat-rows.ts). */
+  parent?: string;
   /** An enabled heartbeat checks back on this Chat: its hover-card line, "Heartbeat · every 15 min · next 10:45". */
   heartbeat?: string;
   details?: ChatDetails;
@@ -441,6 +444,8 @@ function InboxLine({
   computer,
   archiving,
   waiting = 0,
+  family,
+  subchat = false,
 }: {
   item: SidebarRecent;
   project: string;
@@ -453,6 +458,10 @@ function InboxLine({
   archiving: boolean;
   /** Messages waiting on this Mac for the chat's offline computer. */
   waiting?: number;
+  /** A parent row's "5 subchats" toggle, after the Project. */
+  family?: ReactNode;
+  /** The row is indented as a subchat. */
+  subchat?: boolean;
 }) {
   const shown = pullRequests.slice(0, ROW_PR_LIMIT);
   const hidden = pullRequests.length - shown.length;
@@ -472,6 +481,7 @@ function InboxLine({
         </span>
       ),
   });
+  if (family) parts.push({ key: "subchats", node: family });
   if (bot)
     parts.push({
       key: "bot",
@@ -532,7 +542,7 @@ function InboxLine({
     <div
       data-chat-prs
       data-chat-line
-      className={`sidebar-copy pointer-events-none absolute left-[50px] right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
+      className={`sidebar-copy pointer-events-none absolute ${subchat ? "left-[66px]" : "left-[50px]"} right-4 top-[27px] z-20 flex h-4 min-w-0 items-center overflow-hidden text-[length:calc(12px+var(--sidebar-delta))] leading-4 text-ink-2 ${archiving ? "opacity-30" : ""}`}
     >
       {parts.map((part, index) => (
         <Fragment key={part.key}>
@@ -588,6 +598,8 @@ export const ChatRow = memo(function ChatRow({
   projectInitial,
   linkProjects,
   chatKey,
+  subchat = false,
+  family,
 }: {
   item: SidebarRecent;
   active: boolean;
@@ -620,6 +632,10 @@ export const ChatRow = memo(function ChatRow({
   linkProjects?: number;
   /** The row's chat key (scope#id): messages waiting on this Mac for it show as "· 2 waiting". */
   chatKey?: string;
+  /** A subchat, indented under its parent's row (subchat-rows.ts). */
+  subchat?: boolean;
+  /** A parent's subchats: "5 subchats" on its second line folds and unfolds them. */
+  family?: { count: number; folded: boolean; onToggle: () => void };
 }) {
   const [archiving, setArchiving] = useState(false);
   const archivePending = useRef(false);
@@ -662,6 +678,31 @@ export const ChatRow = memo(function ChatRow({
   const projectName = collapsed ? undefined : project;
   // The One list's rows: see `project`.
   const inbox = projectName !== undefined;
+  const shownFamily = collapsed ? undefined : family;
+  const familyToggle = shownFamily && (
+    <button
+      key="subchats"
+      type="button"
+      data-subchat-toggle
+      aria-expanded={!shownFamily.folded}
+      aria-label={`${shownFamily.folded ? "Show" : "Hide"} ${shownFamily.count} subchat${shownFamily.count === 1 ? "" : "s"} of ${item.label}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        shownFamily.onToggle();
+      }}
+      className="pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-inline hover:text-ink focus-visible:text-ink"
+    >
+      <HugeiconsIcon
+        icon={ArrowDown01Icon}
+        size={12}
+        strokeWidth={2}
+        color="currentColor"
+        className={`shrink-0 transition-transform duration-150 ${shownFamily.folded ? "-rotate-90" : ""}`}
+      />
+      {shownFamily.count} subchat{shownFamily.count === 1 ? "" : "s"}
+    </button>
+  );
+  if (familyToggle && !inbox) facts.unshift(familyToggle);
   const factLine = Boolean(projectName) || facts.length > 0 || Boolean(branch || diff || lastAt !== undefined) || hasChips;
   if (item.worktreeCount !== undefined && factLine)
     facts.push(
@@ -779,7 +820,8 @@ export const ChatRow = memo(function ChatRow({
       <div
         ref={rowRef}
         data-chat-id={item.id}
-        className={`group/row relative ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
+        data-subchat={subchat && !collapsed ? "" : undefined}
+        className={`group/row relative ${subchat && !collapsed ? "pl-4" : ""} ${dragging ? "opacity-50" : ""} ${computer?.offline && dimOffline ? "opacity-50" : ""}`}
         onPointerEnter={() => {
           if (doneable) hoveredDone = ownDone.current;
           showCardSoon();
@@ -921,6 +963,7 @@ export const ChatRow = memo(function ChatRow({
           </button>
         )}
 
+        {subchat && !collapsed && <span aria-hidden data-subchat-guide className="pointer-events-none absolute inset-y-0 left-[19px] w-px bg-line" />}
         {inbox && !renaming && (
           <InboxLine
             item={item}
@@ -933,13 +976,15 @@ export const ChatRow = memo(function ChatRow({
             computer={rowComputer}
             archiving={archiving}
             waiting={waiting}
+            family={familyToggle || undefined}
+            subchat={subchat}
           />
         )}
 
         {!inbox && factLine && !renaming && (
           <div
             data-chat-prs
-            className={`sidebar-copy absolute bottom-1 left-9 z-20 flex max-w-[calc(100%-72px)] min-w-0 items-center gap-2 ${archiving ? "opacity-30" : ""}`}
+            className={`sidebar-copy absolute bottom-1 ${subchat && !collapsed ? "left-[52px] max-w-[calc(100%-88px)]" : "left-9 max-w-[calc(100%-72px)]"} z-20 flex min-w-0 items-center gap-2 ${archiving ? "opacity-30" : ""}`}
           >
             {facts.map((fact, index) => (
               <Fragment key={(fact as { key: string | null }).key}>

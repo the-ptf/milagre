@@ -1,4 +1,5 @@
 // @ts-check
+const { createAgentCursor } = require("./agent-cursor.cjs");
 const { createQuitHandler } = require("./quit.cjs");
 const { createEditorOpener } = require("./editor-open.cjs");
 const {
@@ -47,6 +48,8 @@ protocol.registerSchemesAsPrivileged([
 async function startDesktop() {
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
+  // Computer use: the agent cursor, made on first use (agent-cursor.cjs).
+  let agentCursor = null;
   let runtime;
   let computerUnlock;
   /** @type {ReturnType<typeof createComputersLane> | null} */
@@ -295,19 +298,19 @@ async function startDesktop() {
       name,
     );
   // Dictation runs on this computer even when the window shows a paired one: the microphone is here.
-  // Its model download reports progress to the window that asked.
-  const dictation = createDictation({ dataDir: app.getPath("userData") });
-  ipcMain.handle("app:dictation-status", async () => ({ ready: await dictation.ready(), size: dictation.size }));
-  ipcMain.handle("app:dictation-prepare", (event) =>
-    dictation.prepare((received, total) => {
-      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
-    }),
-  );
-  ipcMain.handle("app:dictation-transcribe", (event, request) =>
-    dictation.transcribe(request ?? {}, (received, total) => {
-      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
-    }),
-  );
+  // Every window hears each model's download progress, so Settings and the composer show the same ring.
+  const dictation = createDictation({
+    dataDir: app.getPath("userData"),
+    onChange: (state) => {
+      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send("app:dictation-model", state);
+    },
+  });
+  ipcMain.handle("app:dictation-status", () => dictation.status());
+  ipcMain.handle("app:dictation-download", (_event, id) => dictation.download(id));
+  ipcMain.handle("app:dictation-cancel", (_event, id) => dictation.cancel(id));
+  ipcMain.handle("app:dictation-remove", (_event, id) => dictation.remove(id));
+  ipcMain.handle("app:dictation-prepare", (_event, id) => dictation.prepare(id));
+  ipcMain.handle("app:dictation-transcribe", (_event, request) => dictation.transcribe(request ?? {}));
   ipcMain.handle("app:dictation-open-settings", () =>
     shell.openExternal(
       process.platform === "win32" ? "ms-settings:privacy-microphone" : "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
@@ -442,6 +445,12 @@ async function startDesktop() {
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
         // The agent opened a page (browser_open): the window with the Chat's Browser panel opens it in a tab.
+        // Computer use: an agent acts on an app here; Milagre's agent cursor shows where (agent-cursor.cjs).
+        if (channel === "computer-use:cursor" && payload && typeof payload === "object") {
+          agentCursor ??= createAgentCursor({ BrowserWindow, screen });
+          if (payload.hide) agentCursor.hide();
+          else agentCursor.show({ bounds: payload.bounds ?? null, label: typeof payload.label === "string" ? payload.label : "" });
+        }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
         if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);

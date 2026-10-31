@@ -21,7 +21,8 @@ const { providerCapabilities } = require("@milagre/shared/provider-capabilities"
 const { backgroundBusyMessage, processWork } = require("@milagre/shared/chat-activity");
 const { summarizeStep } = require("@milagre/shared/tool-activity");
 const { providerName } = require("@milagre/shared/providers");
-const { accountSwitchText } = require("@milagre/shared/usage-limit");
+const { accountSwitchText, limitResetText } = require("@milagre/shared/usage-limit");
+const { eligibleLimitTurn, DAY_MS, RESET_ALLOWANCE_MS, RESET_PROMPT } = require("../limit-resume.cjs");
 const { PERMISSION_MODES } = require("./permissions.cjs");
 const { compactionMessage } = require("@milagre/shared/compaction");
 const { CONTEXT_DEFAULTS, shouldAutoCompact } = require("@milagre/shared/context-settings");
@@ -29,6 +30,16 @@ const { routineRunOf } = require("@milagre/shared/routines");
 
 // A chat stopped longer ago than this waits for the user instead of continuing by itself.
 const RESUME_WINDOW_MS = 24 * 60 * 60 * 1000;
+// Host-owned metadata never goes through patchSession's deliberately restricted renderer fields.
+function withLimitFields(state, sessionId, fields) {
+  const session = state.sessions[sessionId];
+  const next = { ...session };
+  for (const [name, value] of Object.entries(fields)) {
+    if (value === undefined) delete next[name];
+    else next[name] = value;
+  }
+  return { ...state, sessions: { ...state.sessions, [sessionId]: next } };
+}
 /** The answer to a send that was already saved: its Chat, and no turn to start. */
 function duplicateSend(message) {
   return { sessionId: message.session_id, started: Promise.resolve(null), duplicate: true };
@@ -50,7 +61,15 @@ const LIMIT_PROMPT =
 // folded into the runs is numbered, so a window that loads mid-turn takes the runs (see `snapshot`)
 // and skips the events they already hold.
 // A message the user sends replaces the brief waiting as a draft and any resume a quit left.
-const withoutDraft = ({ handoverDraft: _handoverDraft, resumeTurn: _resumeTurn, suggestion: _suggestion, suggestionTurnId: _suggestionTurn, ...rest }) => rest;
+const withoutDraft = ({
+  handoverDraft: _handoverDraft,
+  resumeTurn: _resumeTurn,
+  limitResume: _limitResume,
+  limitTurn: _limitTurn,
+  suggestion: _suggestion,
+  suggestionTurnId: _suggestionTurn,
+  ...rest
+}) => rest;
 
 const withLead = (lead, prompt) => [lead, prompt].filter((part) => part?.trim()).join("\n\n");
 
@@ -186,6 +205,9 @@ class ChatHost {
     // Stop and quit abort it (see cancelHandoff); a send meanwhile waits on `done` (see send).
     this.preparing = new Map();
     this.pendingSends = new Map();
+    this.limitResumeGenerations = new Map();
+    this.limitResumeFlights = new Map();
+    this.limitResumeReasons = new Map();
     this.subagentRecoveries = new Map();
     this.runs = {};
     this.images = new ChatImages({ states, runs: () => this.runs, broadcast });
@@ -261,6 +283,36 @@ class ChatHost {
   }
 
   /**
+   * Makes `childKey` a subchat of `parentKey`: a Delegation inside one Project went from the parent to it (ADR-0002).
+   * Saved as `parent` on the child once, the first time: a Chat that already has a parent keeps it. Never across
+   * Projects, never on itself, and never when the parent already descends from the child, so the chain can't loop.
+   * Resolves true when it saved.
+   */
+  async adoptSubchat(childKey, parentKey) {
+    const projectPath = projectOfKey(childKey);
+    if (projectPath !== projectOfKey(parentKey) || childKey === parentKey) return false;
+    const childId = sessionIdFromKey(childKey);
+    const parentId = sessionIdFromKey(parentKey);
+    let adopted = false;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const child = latest.sessions[childId];
+        if (!child || child.parent !== undefined || !latest.sessions[parentId]) return latest;
+        for (let id = parentId, seen = new Set(); id !== undefined && !seen.has(id); id = latest.sessions[id]?.parent) {
+          if (id === childId) return latest;
+          seen.add(id);
+        }
+        adopted = true;
+        return { ...latest, sessions: { ...latest.sessions, [childId]: { ...child, parent: parentId } } };
+      },
+      { chats: [] },
+    );
+    if (changed) this.broadcast(projectPath, state);
+    return adopted;
+  }
+
+  /**
    * A mode change from the composer: `live(chatId, mode)` hands it to the running agent, and the chat saves it whatever
    * that says. When both fail, the agent's error is the one reported.
    */
@@ -295,10 +347,20 @@ class ChatHost {
       (latest) => {
         const session = latest.sessions[sessionId];
         const queued = session?.queued?.some((entry) => entry.turn?.permissionMode === "bot");
-        if (!session || (session.permissionMode !== "bot" && session.resumeTurn?.permissionMode !== "bot" && !queued)) return latest;
+        if (
+          !session ||
+          (session.permissionMode !== "bot" &&
+            session.resumeTurn?.permissionMode !== "bot" &&
+            session.limitTurn?.turn?.permissionMode !== "bot" &&
+            session.limitResume?.turn?.permissionMode !== "bot" &&
+            !queued)
+        )
+          return latest;
         const left = {
           ...asked(session),
           ...(session.resumeTurn ? { resumeTurn: asked(session.resumeTurn) } : {}),
+          ...(session.limitTurn ? { limitTurn: { ...session.limitTurn, turn: asked(session.limitTurn.turn) } } : {}),
+          ...(session.limitResume ? { limitResume: { ...session.limitResume, turn: asked(session.limitResume.turn) } } : {}),
           ...(queued ? { queued: session.queued.map((entry) => (entry.turn ? { ...entry, turn: asked(entry.turn) } : entry)) } : {}),
         };
         return { ...latest, sessions: { ...latest.sessions, [sessionId]: left } };
@@ -310,6 +372,7 @@ class ChatHost {
 
   /** Forgets what this run knows of a chat that was deleted. */
   forget(chatId) {
+    this.invalidateLimitResume(projectOfKey(chatId), sessionIdFromKey(chatId));
     this.routineTurns.delete(chatId);
   }
 
@@ -520,7 +583,7 @@ class ChatHost {
    * save that adds it to the chat, so it runs once. Resolves false when it is gone or another turn took the chat first:
    * then it stays queued, and the end of that turn moves the queue on.
    */
-  async startQueued(chatId, id) {
+  async startQueued(chatId, id, token) {
     const projectPath = projectOfKey(chatId);
     const sessionId = sessionIdFromKey(chatId);
     if (this.runs[chatId] || this.preparing.has(chatId) || this.startingTurns.has(chatId)) return false;
@@ -543,8 +606,13 @@ class ChatHost {
         ...(clientMessageId ? { clientMessageId } : {}),
         ...(operationId ? { operationId } : {}),
         fromQueue: id,
+        ...(token ? { canStart: token.valid, queueReleaseToken: true, queueReleaseEntry: entry } : {}),
       });
     } catch (error) {
+      if (token && !token.valid()) {
+        if (this.limitResumeReasons.get(chatId) !== "send") await this.holdQueue(chatId);
+        return false;
+      }
       if (error.queueBusy) return false;
       throw error;
     }
@@ -655,7 +723,26 @@ class ChatHost {
           if (unread && result.state.sessions[sessionId]?.unread !== true) Object.defineProperty(event, "markedUnread", { value: true, configurable: true });
           const next = unread ? patchSession(result.state, sessionId, { unread: true }) : result.state;
           // Subagents that ended during the turn are archived with it, so the track only lists what is still running.
-          const recorded = isTurnEnd(event) ? this.withNotes(archiveFinishedSubagents(next, sessionId, { keepAdvisors: true }), chatId) : next;
+          let recorded = isTurnEnd(event) ? this.withNotes(archiveFinishedSubagents(next, sessionId, { keepAdvisors: true }), chatId) : next;
+          const turn = this.turns.get(chatId);
+          if (result.changed && event.type === "turn-failed" && event.limit?.accountId && turn) {
+            const session = recorded.sessions[sessionId];
+            const source = next.messages.findLast((message) => message.session_id === sessionId);
+            const { prompt, ...options } = turn;
+            if (source?.context?.kind === "limit")
+              recorded = withLimitFields(recorded, sessionId, {
+                limitTurn: {
+                  provider: event.limit.provider,
+                  accountId: event.limit.accountId,
+                  at: event.limit.resetsAt,
+                  sourceMessageId: source.id,
+                  inputMessageId: next.messages.findLast((message) => message.session_id === sessionId && message.role === "user")?.id,
+                  stoppedAt: this.now(),
+                  automatic: true,
+                  turn: { ...options, ...(session.native_session_id ? {} : { prompt }) },
+                },
+              });
+          }
           const previousIds = new Set(state.messages.map((message) => message.id));
           added = recorded.messages.filter((message) => !previousIds.has(message.id) && message.role === "assistant");
           return recorded;
@@ -853,6 +940,7 @@ class ChatHost {
     // A message for a running turn its provider can't steer waits in the chat's queue instead (see afterTurn).
     let queuedEntry = null;
     let duplicate = null;
+    let recoveryToken;
     const saving = this.states.update(
       projectPath,
       (latest) => {
@@ -874,6 +962,18 @@ class ChatHost {
         }
         let session = request.sessionId == null ? undefined : latest.sessions[request.sessionId];
         if (request.sessionId != null && !session) throw new Error("That chat is no longer in the project.");
+        if (request.limitResumeId) {
+          const pending = session?.limitResume;
+          if (
+            !pending ||
+            pending.sendId !== request.limitResumeId ||
+            !this.limitTurnIdle(projectPath, session.id) ||
+            !eligibleLimitTurn(latest, session, pending) ||
+            this.now() > pending.expiresAt ||
+            (request.canStart && !request.canStart())
+          )
+            throw Object.assign(new Error("This continuation was cancelled or superseded."), { limitResumeStale: true });
+        }
         // A chat runs in its own worktree; a new one goes to the worktree asked for.
         const worktree = session?.workspacePath ? { path: session.workspacePath } : latest.worktrees[session?.worktree_id ?? request.worktreeId];
         if (!worktree) throw new Error("That worktree is no longer in the project.");
@@ -884,6 +984,8 @@ class ChatHost {
         // A handed-over chat's first message carries its brief; the body is only what the user typed.
         brief = firstMessage ? session.handoverDraft : undefined;
         const chatId = chatKey(projectPath, session.id);
+        if (!request.limitResumeId && !request.limitSwitchToken && !request.queueReleaseToken) this.invalidateLimitResume(projectPath, session.id, "send");
+        recoveryToken = this.limitResumeToken(projectPath, session.id);
         const withSession = started.state;
         if (compaction) {
           // Check again inside the serialized state update: a user send or a settings change may have won the race.
@@ -1059,7 +1161,19 @@ class ChatHost {
         projectPath,
         (latest) => {
           const session = { ...latest.sessions[target.sessionId] };
-          for (const field of ["provider", "titlePending", "handoverDraft", "resumeTurn", "native_session_id", "native_sessions", "queued", "queueHeld"]) {
+          for (const field of [
+            "provider",
+            "titlePending",
+            "handoverDraft",
+            "resumeTurn",
+            "limitResume",
+            "limitTurn",
+            "native_session_id",
+            "native_sessions",
+            "queued",
+            "queueHeld",
+          ]) {
+            if (["limitResume", "limitTurn"].includes(field) && recoveryToken && !recoveryToken.valid()) continue;
             if (session[field] !== stagedSession[field]) continue;
             if (Object.hasOwn(originalSession, field)) session[field] = originalSession[field];
             else delete session[field];
@@ -1149,12 +1263,32 @@ class ChatHost {
           })
         : Promise.resolve("");
     const started = ready
-      .then((handoffBrief) => {
+      .then(async (handoffBrief) => {
         // null: the handoff was cancelled or failed (see abandonHandoff), so no agent starts.
-        if (handoffBrief === null || (request.canStart && !request.canStart())) return null;
+        if (handoffBrief === null) return null;
+        if (request.canStart && !request.canStart()) {
+          if (request.limitResumeId || request.limitSwitchToken || request.queueReleaseToken)
+            await this.cancelLimitStart(target.chatId, turn, pendingId, request.queueReleaseEntry);
+          return null;
+        }
         const prompt = withLead(framedBrief(handoffBrief), turn.prompt);
-        this.turns.set(target.chatId, { ...turn, prompt });
-        return this.startTurn({ ...turn, prompt, ...execution, chatId: target.chatId, cwd: target.cwd, images, resumeId: target.resumeId });
+        const launchedTurn = { ...turn, prompt };
+        this.turns.set(target.chatId, launchedTurn);
+        const result = await this.startTurn({
+          ...turn,
+          prompt,
+          ...execution,
+          chatId: target.chatId,
+          cwd: target.cwd,
+          images,
+          resumeId: target.resumeId,
+          ...(request.limitResumeId || request.limitSwitchToken || request.queueReleaseToken
+            ? { canStart: request.canStart, expectedAccountId: request.expectedAccountId }
+            : {}),
+        });
+        if ((request.limitResumeId || request.limitSwitchToken || request.queueReleaseToken) && result?.cancelled)
+          await this.cancelLimitStart(target.chatId, launchedTurn, pendingId, request.queueReleaseEntry);
+        return result;
       })
       .catch((error) => {
         void this.receive(target.chatId, { type: "turn-failed", message: ipcErrorMessage(error) });
@@ -1438,17 +1572,206 @@ class ChatHost {
     return true;
   }
 
+  invalidateLimitResume(projectPath, sessionId, reason = "cancel") {
+    const key = chatKey(projectPath, sessionId);
+    this.limitResumeGenerations.set(key, (this.limitResumeGenerations.get(key) ?? 0) + 1);
+    this.limitResumeReasons.set(key, reason);
+  }
+
+  limitResumeToken(projectPath, sessionId) {
+    const key = chatKey(projectPath, sessionId);
+    const generation = this.limitResumeGenerations.get(key) ?? 0;
+    this.limitResumeGenerations.set(key, generation);
+    return { valid: () => !this.quitting && (this.limitResumeGenerations.get(key) ?? 0) === generation };
+  }
+
+  limitTurnIdle(projectPath, sessionId) {
+    const key = chatKey(projectPath, sessionId);
+    return !this.runs[key] && !this.startingTurns.has(key) && !this.preparing.has(key);
+  }
+
+  async cancelLimitResume(projectPath, sessionId, expectedSendId, reason = "cancel") {
+    if (!expectedSendId) this.invalidateLimitResume(projectPath, sessionId, reason);
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        if (
+          expectedSendId &&
+          session?.limitResume?.sendId !== expectedSendId &&
+          this.limitResumeFlights.get(chatKey(projectPath, sessionId))?.sendId !== expectedSendId
+        )
+          return latest;
+        if (expectedSendId) this.invalidateLimitResume(projectPath, sessionId);
+        if (!session || (!session.limitResume && (!session.limitTurn || session.limitTurn.automatic === false))) return latest;
+        const { limitResume: _pending, ...rest } = session;
+        return withLimitFields(latest, sessionId, {
+          ...rest,
+          limitResume: undefined,
+          ...(session.limitTurn ? { limitTurn: { ...session.limitTurn, automatic: false } } : {}),
+        });
+      },
+      { chats: [] },
+    );
+    if (changed) {
+      await this.states.flush(projectPath);
+      this.broadcast(projectPath, state);
+    }
+    return changed;
+  }
+
+  async scheduleLimitResume(projectPath, sessionId, { mode, accountId, token = this.limitResumeToken(projectPath, sessionId) }) {
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        const session = latest.sessions[sessionId];
+        const stopped = session?.limitTurn;
+        const at = Date.parse(stopped?.at);
+        if (
+          !token.valid() ||
+          (token.sourceMessageId !== undefined && stopped?.sourceMessageId !== token.sourceMessageId) ||
+          !this.limitTurnIdle(projectPath, sessionId) ||
+          !eligibleLimitTurn(latest, session, stopped) ||
+          !Number.isFinite(at) ||
+          at <= this.now() ||
+          stopped.accountId !== accountId ||
+          (mode === "automatic" && (!stopped.automatic || at - stopped.stoppedAt > DAY_MS))
+        )
+          return latest;
+        if (session.limitResume) return latest;
+        return withLimitFields(latest, sessionId, {
+          limitResume: {
+            ...stopped,
+            mode,
+            sendId: randomUUID(),
+            expiresAt: at + RESET_ALLOWANCE_MS + DAY_MS,
+          },
+        });
+      },
+      { chats: [sessionId] },
+    );
+    if (changed) {
+      await this.states.flush(projectPath);
+      this.broadcast(projectPath, state);
+    }
+    return changed;
+  }
+
+  async runLimitResume(projectPath, sessionId, { accountId, token = this.limitResumeToken(projectPath, sessionId), sendId }) {
+    const state = await this.states.load(projectPath, [sessionId]);
+    const session = state.sessions[sessionId];
+    const pending = session?.limitResume;
+    if (!pending || pending.sendId !== sendId || !token.valid()) return false;
+    if (!eligibleLimitTurn(state, session, pending)) {
+      await this.cancelLimitResume(projectPath, sessionId, sendId);
+      return false;
+    }
+    if (!this.limitTurnIdle(projectPath, sessionId)) return false;
+    if (
+      pending.accountId !== accountId ||
+      this.now() > pending.expiresAt ||
+      !Number.isFinite(Date.parse(pending.at)) ||
+      (pending.mode === "automatic" && Date.parse(pending.at) - pending.stoppedAt > DAY_MS)
+    ) {
+      await this.cancelLimitResume(projectPath, sessionId);
+      return false;
+    }
+    if (this.now() < Date.parse(pending.at) + RESET_ALLOWANCE_MS) return false;
+    const canStart = () => token.valid();
+    const key = chatKey(projectPath, sessionId);
+    if (this.limitResumeFlights.has(key)) return false;
+    const flight = { sendId };
+    this.limitResumeFlights.set(key, flight);
+    try {
+      // Native conversations already own their inputs. A first turn instead needs its durable
+      // user message, including attachments, even after the daemon and upload buffers are gone.
+      // Older retries omitted attachments from reset dividers, so find the original user message.
+      const input = session.native_session_id
+        ? null
+        : state.messages.findLast(
+            (message) =>
+              message.session_id === sessionId &&
+              message.role === "user" &&
+              (pending.inputMessageId == null
+                ? message.id < pending.sourceMessageId && message.context?.kind !== "limit-reset"
+                : message.id === pending.inputMessageId),
+          );
+      if (!session.native_session_id && !input) throw new Error("Cannot continue after the usage limit: the original message is unavailable.");
+      const images = await queuedImages(input?.images);
+      if (images.length !== (input?.images?.length ?? 0))
+        throw new Error("Cannot continue after the usage limit: an original image is unavailable. Restore it or send the request again.");
+      const sent = await this.send({
+        ...pending.turn,
+        projectPath,
+        sessionId,
+        body: limitResetText(),
+        context: { kind: "limit-reset" },
+        permissionMode: session.permissionMode ?? pending.turn.permissionMode,
+        prompt: session.native_session_id ? RESET_PROMPT : (pending.turn.prompt ?? RESET_PROMPT),
+        images,
+        files: input?.files ?? [],
+        clientMessageId: pending.sendId,
+        limitResumeId: pending.sendId,
+        expectedAccountId: pending.accountId,
+        canStart,
+      });
+      // Provider setup can wait for approval; other schedules and shutdown must keep progressing.
+      void sent.started.finally(() => {
+        if (this.limitResumeFlights.get(key) === flight) this.limitResumeFlights.delete(key);
+      });
+      return !sent.duplicate;
+    } catch (error) {
+      if (this.limitResumeFlights.get(key) === flight) this.limitResumeFlights.delete(key);
+      if (error.limitResumeStale) await this.cancelLimitResume(projectPath, sessionId, sendId);
+      if (error.limitResumeStale || !token.valid()) return false;
+      throw error;
+    }
+  }
+
+  async cancelLimitStart(chatId, turn, messageId, queueEntry) {
+    const projectPath = projectOfKey(chatId);
+    let event;
+    const { state, changed } = await this.states.update(
+      projectPath,
+      (latest) => {
+        if (this.turns.get(chatId) !== turn) return latest;
+        const source = latest.messages.find((message) => message.id === messageId);
+        if (!source || latest.messages.some((message) => message.session_id === source.session_id && message.id > source.id && message.role === "user"))
+          return latest;
+        event = { type: "turn-cancelled", limitResumeAborted: true, messageId };
+        const { [chatId]: _run, ...runs } = this.runs;
+        this.runs = runs;
+        const session = latest.sessions[source.session_id];
+        const restored =
+          queueEntry && !session.queued?.some((entry) => entry.id === queueEntry.id)
+            ? {
+                ...latest,
+                sessions: { ...latest.sessions, [source.session_id]: { ...session, queueHeld: true, queued: [queueEntry, ...(session.queued ?? [])] } },
+              }
+            : latest;
+        return { ...restored, messages: latest.messages.filter((message) => message.id !== source.id) };
+      },
+      { chats: [sessionIdFromKey(chatId)] },
+    );
+    if (changed) {
+      this.publish(chatId, event, state, ++this.seq);
+      const queued = state.sessions[sessionIdFromKey(chatId)]?.queued?.[0];
+      const session = state.sessions[sessionIdFromKey(chatId)];
+      if (queued && !this.quitting && !session.archived && !session.queueHeld && this.limitResumeReasons.get(chatId) === "send")
+        await this.startQueued(chatId, queued.id, this.limitResumeToken(projectPath, sessionIdFromKey(chatId)));
+    }
+  }
+
   /**
    * Continues a chat whose last turn the plan's usage limit stopped, after its Project moved to `provider`'s account
    * named `label`, on that turn's options. Its message shows as a line, not as something the user typed. Resolves false when nothing is known of the turn (Milagre restarted since) or
    * the chat runs again: the user sends their message again then.
    */
-  async continueAfterLimit(projectPath, sessionId, provider, label) {
+  async continueAfterLimit(projectPath, sessionId, provider, label, token) {
     const chatId = chatKey(projectPath, sessionId);
-    const turn = this.turns.get(chatId);
-    if (this.runs[chatId] || !turn) return false;
     const session = (await this.states.get(projectPath)).sessions[sessionId];
-    if (!session) return false;
+    const turn = this.turns.get(chatId) ?? session?.limitTurn?.turn;
+    if (!session || !this.limitTurnIdle(projectPath, sessionId) || !turn || (token && !token.valid())) return false;
     const { prompt, ...options } = turn;
     // A session holds the message the limit stopped; one that never started gets the message again.
     const context = { kind: "account-switch", provider, label };
@@ -1457,6 +1780,7 @@ class ChatHost {
       projectPath,
       sessionId,
       body: accountSwitchText(context),
+      ...(token ? { canStart: token.valid, limitSwitchToken: true } : {}),
       context,
       prompt: session.native_session_id ? LIMIT_PROMPT : prompt,
       images: [],

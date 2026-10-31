@@ -1919,17 +1919,64 @@ test('an attention notice for a project-less Chat is titled "No project"', async
 });
 
 async function homeChatOnWorktree(t) {
-  const { make, chatsHome } = await fixture(t);
+  const { make, chatsHome, dataDir } = await fixture(t);
   const runtime = make({ worktreeRoot: path.join(path.dirname(chatsHome), "worktrees") });
   await runtime.invoke("chats:ensure");
   const made = await runtime.invoke("worktree:create", [{ projectPath: chatsHome, baseBranch: "main", prompt: "" }]);
   const worktree = made.project.state.worktrees[made.worktreeId];
   const session = Object.values(made.project.state.sessions).find((item) => item.worktree_id === worktree.id);
-  return { runtime, chatsHome, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
+  return { runtime, chatsHome, dataDir, worktree, chatId: `${chatsHome}#${session.id}`, sessionId: session.id };
 }
 
+async function savedScreen(dataDir, chatId, image = "SAVED_SCREEN") {
+  const dir = path.join(dataDir, "computer-use", "frames");
+  const name = require("node:crypto").createHash("sha256").update(chatId).digest("hex").slice(0, 24);
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, `${name}.json`);
+  await fs.writeFile(file, JSON.stringify({ seq: 1, image, at: Date.now() }));
+  return file;
+}
+
+test("chat:delete removes its screen and rejects pending, later and restarted viewers", async (t) => {
+  const { make, project, dataDir } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${session.id}`;
+  const file = await savedScreen(dataDir, chatId);
+  assert.equal((await runtime.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
+  const pending = assert.rejects(runtime.invoke("computer-use:frame", [{ chatId, after: 1 }]), /existing Chat/);
+  await new Promise((resolve) => setImmediate(resolve));
+  await runtime.invoke("chat:delete", [project, session.id]);
+  await pending;
+  await assert.rejects(fs.stat(file), { code: "ENOENT" });
+  await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+  await runtime.close();
+  const restarted = make();
+  await restarted.invoke("project:current");
+  await assert.rejects(restarted.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
+});
+
+test("screen requests refuse unopened and nonexistent Chats but keep existing Chats' frames", async (t) => {
+  const { make, project, dataDir } = await fixture(t);
+  const runtime = make();
+  const opened = await runtime.invoke("project:current");
+  const session = Object.values(opened.state.sessions)[0];
+  const chatId = `${project}#${session.id}`;
+  await savedScreen(dataDir, chatId);
+  for (const missing of ["/unopened#1", `${project}#999999`]) {
+    await savedScreen(dataDir, missing);
+    await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId: missing }]), /existing Chat/);
+  }
+  await runtime.close();
+  const restarted = make();
+  await restarted.invoke("project:current");
+  assert.equal((await restarted.invoke("computer-use:frame", [{ chatId }])).image, "SAVED_SCREEN");
+});
+
 test("worktree:remove removes a Chats home worktree and drops its Chat", async (t) => {
-  const { runtime, chatsHome, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  const { runtime, chatsHome, dataDir, worktree, chatId, sessionId } = await homeChatOnWorktree(t);
+  const screenFile = await savedScreen(dataDir, chatId);
   const seen = await runtime.invoke("worktree:status", [worktree.path, "main"]);
   assert.equal(seen.removable, true);
   const result = await runtime.invoke("worktree:remove", [worktree.path, { projectPath: chatsHome, base: "main", seen, force: false, chatId }]);
@@ -1938,6 +1985,8 @@ test("worktree:remove removes a Chats home worktree and drops its Chat", async (
   const state = (await runtime.invoke("project:snapshot", [chatsHome])).state;
   assert.equal(state.worktrees[worktree.id], undefined);
   assert.equal(state.sessions[sessionId], undefined);
+  await assert.rejects(fs.stat(screenFile), { code: "ENOENT" });
+  await assert.rejects(runtime.invoke("computer-use:frame", [{ chatId }]), /existing Chat/);
   // The home itself stays.
   assert.ok((await fs.stat(chatsHome)).isDirectory());
 });
@@ -1990,7 +2039,9 @@ test("secret submissions bypass provider answers, summaries, persistence and rep
   const saved = JSON.parse(await result);
   assert.equal(await fs.readFile(saved.path, "utf8"), sentinel);
   assert.equal(await runtime.invoke("agent:answer-question", [args]), false);
+  const cancelled = tool.run({ title: "Another token", description: "This request will be stopped." });
   await runtime.invoke("agent:interrupt", [chatId]);
+  assert.match(await cancelled, /cancelled/);
   const snapshot = await runtime.invoke("project:snapshot", [project]);
   assert.ok(!JSON.stringify(snapshot).includes(sentinel));
   assert.ok(!JSON.stringify(events).includes(sentinel));

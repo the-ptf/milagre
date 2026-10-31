@@ -41,16 +41,15 @@ export function getTranscriber(): Transcriber | null {
   if (!native || !appleAvailable) return whisper;
   const unavailable = () => Promise.reject(new Error("Automatic dictation isn't available in this build. Choose a language or update Milagre."));
   return {
-    prepare: (preference, onProgress) => {
+    missingModel: (preference, model) => (dictationLanguage(preference) === "auto" ? (whisper?.missingModel(preference, model) ?? null) : null),
+    prepare: (preference, model) => {
       const language = dictationLanguage(preference);
-      return language === "auto"
-        ? (whisper?.prepare(language, onProgress) ?? unavailable())
-        : serializeTranscription(() => native.prepare(appleLocale(language)));
+      return language === "auto" ? (whisper?.prepare(language, model) ?? unavailable()) : serializeTranscription(() => native.prepare(appleLocale(language)));
     },
-    transcribe: (audio, { language: preference, terms }) => {
+    transcribe: (audio, { language: preference, terms, model }) => {
       const language = dictationLanguage(preference);
       return language === "auto"
-        ? (whisper?.transcribe(audio, { language, terms }) ?? unavailable())
+        ? (whisper?.transcribe(audio, { language, terms, model }) ?? unavailable())
         : serializeTranscription(async () => {
             const result = await native.transcribe(dictationWav(audio), appleLocale(language), terms.join("\n"));
             return joinSegments(result.segments);

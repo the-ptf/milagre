@@ -20,7 +20,7 @@ import { applyAppearance } from "./appearance.ts";
 import { DEFAULT_APPEARANCE, parseAppearance, type Appearance } from "@milagre/shared/appearance";
 
 import { parseNotificationSchedule, type NotificationSchedule } from "@milagre/shared/notification-schedule";
-import { dictationLanguage } from "@milagre/shared/dictation";
+import { dictationLanguage, whisperModelFor } from "@milagre/shared/dictation";
 import { parseDictationAction, type DictationActionPreference } from "@milagre/shared/voice-dictation";
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -87,6 +87,8 @@ export interface AppSettings {
   appearance: Appearance;
   /** Settings › Chat: the language dictation listens for, a Whisper code, or "auto" to detect it each take. */
   dictationLanguage: string;
+  /** Settings › Chat: the Whisper model dictation uses on this computer, an id from WHISPER_MODELS.desktop. */
+  dictationModel: string;
   dictationAction: DictationActionPreference;
 }
 
@@ -130,6 +132,7 @@ const DEFAULTS: AppSettings = {
   routineNudges: true,
   appearance: DEFAULT_APPEARANCE,
   dictationLanguage: "auto",
+  dictationModel: whisperModelFor("desktop", undefined).id,
   dictationAction: "paste",
 };
 
@@ -183,6 +186,7 @@ function load(): AppSettings {
       routineNudges: typeof saved.routineNudges === "boolean" ? saved.routineNudges : DEFAULTS.routineNudges,
       appearance: parseAppearance(saved.appearance),
       dictationLanguage: dictationLanguage(saved.dictationLanguage),
+      dictationModel: whisperModelFor("desktop", saved.dictationModel).id,
       dictationAction: parseDictationAction(saved.dictationAction),
     };
   } catch {

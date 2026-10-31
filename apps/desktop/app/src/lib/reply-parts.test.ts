@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ChatStep } from "../model";
+import { desktopStepApps, desktopStepLabel } from "@milagre/shared/desktop-steps";
 import { activitySummary, isHeartbeatCard, replyActivity, replyParts, titleSpans, unspokenThought } from "./reply-parts.ts";
 
 const step = (id: string, offset?: number): ChatStep => ({
@@ -84,18 +85,20 @@ test("a reply's last text is its answer; everything before it is activity, in or
     images: [],
     artifacts: [],
     heartbeats: [],
+    desktop: [],
     answer: "\n\nDone.",
   });
 });
 
 test("a reply without steps is all answer; steps alone are all activity", () => {
-  assert.deepEqual(replyActivity("Hello"), { setup: [], activity: [], images: [], artifacts: [], heartbeats: [], answer: "Hello" });
+  assert.deepEqual(replyActivity("Hello"), { setup: [], activity: [], images: [], artifacts: [], heartbeats: [], desktop: [], answer: "Hello" });
   assert.deepEqual(replyActivity("", [step("a", 0)]), {
     setup: [],
     activity: [{ type: "step", step: step("a", 0) }],
     images: [],
     artifacts: [],
     heartbeats: [],
+    desktop: [],
     answer: "",
   });
 });
@@ -107,6 +110,7 @@ test("text before steps that end the reply is still its answer", () => {
     images: [],
     artifacts: [],
     heartbeats: [],
+    desktop: [],
     answer: "Running it now.",
   });
 });
@@ -185,11 +189,20 @@ test("the worktree setup is pulled out of the activity and left out of its summa
     images: [],
     artifacts: [],
     heartbeats: [],
+    desktop: [],
     answer: "Done.",
   });
   assert.deepEqual(activitySummary(steps), { text: "Thought for 4s · ran 1 command", failed: 0 });
   assert.deepEqual(activitySummary([setupStep("failed")]), { text: "", failed: 0 });
-  assert.deepEqual(replyActivity("", [setupStep()]), { setup: [setupStep()], activity: [], images: [], artifacts: [], heartbeats: [], answer: "" });
+  assert.deepEqual(replyActivity("", [setupStep()]), {
+    setup: [setupStep()],
+    activity: [],
+    images: [],
+    artifacts: [],
+    heartbeats: [],
+    desktop: [],
+    answer: "",
+  });
 });
 
 test("replyActivity: generated images come back apart from the activity", () => {
@@ -218,4 +231,29 @@ test("only a finished heartbeat_create step is a card; a running or failed one s
     assert.deepEqual(reply.heartbeats, []);
     assert.deepEqual(reply.activity, [{ type: "step", step: beat }]);
   }
+});
+
+test("computer use steps leave the activity for their own card", () => {
+  const desktopStep = (id: string, name: string, input: object, offset = 0): ChatStep => ({
+    id,
+    kind: "other",
+    title: `Used \`${name}\` from milagre`,
+    status: "done",
+    offset,
+    source: { name, server: "milagre" },
+    input: JSON.stringify(input),
+  });
+  const launch = desktopStep("d1", "desktop_launch", { app: "TextEdit" });
+  const act = desktopStep("d2", "desktop_act", { action: "type", ref: "@s1:e2", text: "Hello", intent: "Typing the greeting" });
+  const read = step("r1");
+  const reply = replyActivity("Done.", [launch, read, act]);
+  assert.deepEqual(reply.desktop, [launch, act]);
+  assert.deepEqual(
+    reply.activity.map((entry) => (entry.type === "step" ? entry.step.id : entry.text)),
+    ["r1"],
+  );
+  assert.equal(desktopStepLabel(launch), "Opened TextEdit");
+  assert.equal(desktopStepLabel(act), "Typing the greeting");
+  assert.equal(desktopStepLabel(desktopStep("d3", "desktop_act", { action: "type", text: "Hi" })), 'Typed "Hi"');
+  assert.deepEqual(desktopStepApps([launch, act]), ["TextEdit"]);
 });

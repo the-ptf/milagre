@@ -627,6 +627,35 @@ test("cancels a turn interrupted while the SDK is still loading", async (t) => {
   assert.deepEqual(sdk.calls.prompts, []);
 });
 
+test("a continuation cancelled during Claude SDK initialization submits no prompt", async (t) => {
+  const sdk = fakeSdk(scripts.reply);
+  let release;
+  let allowed = true;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const events = [];
+  const session = new ClaudeSession({
+    cwd: "/repo",
+    command: "/usr/local/bin/claude",
+    emit: (event) => events.push(event),
+    loadSdk: async () => {
+      await gate;
+      return sdk.loadSdk();
+    },
+  });
+  t.after(() => session.close());
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  release();
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
+  assert.deepEqual(sdk.calls.prompts, []);
+});
+
 test("close() ends a running turn even when Claude never answers", async (t) => {
   const { session, events } = claude(t, { script: scripts.unresponsive });
   await session.startTurn(TURN);

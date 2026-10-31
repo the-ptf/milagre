@@ -36,12 +36,12 @@ export function ComputerUseSection() {
     };
   }, [client]);
   useFocusEffect(refresh);
-  const save = async (enabled: boolean) => {
+  const save = async (patch: Partial<ComputerUseSettings>) => {
     if (!client) return;
     setSaving(true);
     setError("");
     try {
-      await client.call<ComputerUseSettings>("computer-use:settings:save", [{ enabled }]);
+      await client.call<ComputerUseSettings>("computer-use:settings:save", [patch]);
       refresh();
     } catch (cause) {
       setError(message(cause));
@@ -78,7 +78,7 @@ export function ComputerUseSection() {
           selected={status.enabled}
           disabled={saving || !status.supported}
           tint={colors.accent}
-          onPress={() => void save(!status.enabled)}
+          onPress={() => void save({ enabled: !status.enabled })}
         />
         <Text style={styles.caption}>
           {status.supported
@@ -86,6 +86,21 @@ export function ComputerUseSection() {
             : "Not available on this Mac."}
         </Text>
       </View>
+      {status.enabled && status.supported && (
+        <View style={[styles.card, { gap: 4 }]}>
+          <Toggle
+            title="Show the agent's cursor"
+            selected={status.cursor}
+            disabled={saving}
+            tint={colors.accent}
+            onPress={() => void save({ cursor: !status.cursor })}
+          />
+          <Text style={styles.caption}>
+            Draw Milagre&apos;s cursor and the current step on the Mac&apos;s screen while an agent acts. The pointer never moves. Not drawing yet on macOS 27
+            with agent-desktop 1.0.2.
+          </Text>
+        </View>
+      )}
       {status.enabled && status.supported && status.permissions && (
         <Group
           title="Permissions on the Mac"

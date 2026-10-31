@@ -15,6 +15,9 @@ const OUTPUT_LIMIT = 4 * 1024 * 1024;
 // Apps an agent never drives: Milagre itself, shells that run anything, the OS's own settings and password stores.
 const BLOCKED_APPS = ["Milagre", "Terminal", "iTerm2", "Ghostty", "Warp", "System Settings", "System Preferences", "Passwords", "Keychain Access", "1Password"];
 const REF = /^@(s[a-z0-9]+):e\d+$/i;
+// The agent cursor gets a moment to travel to the element before the action lands, so the user sees what it acts on.
+const CURSOR_DWELL_MS = 350;
+const CURSOR_HIDE_MS = 4000;
 const ACTIONS = ["click", "type", "set-value", "clear", "select", "toggle", "check", "uncheck", "expand", "collapse", "focus", "scroll", "scroll-to"];
 
 const normalizeName = (name) =>
@@ -34,17 +37,21 @@ function agentDesktopBinary({ platform = process.platform, arch = process.arch }
 
 /** The switch in Settings › Experimental, kept by the host. */
 function createComputerUseSettings({ file, emit = () => {} }) {
+  // `cursor`: draw Milagre's agent cursor and the step beside it on the screen while an agent acts (on by default).
   function read() {
     try {
-      return { enabled: JSON.parse(fs.readFileSync(file, "utf8"))?.enabled === true };
+      const stored = JSON.parse(fs.readFileSync(file, "utf8"));
+      return { enabled: stored?.enabled === true, cursor: stored?.cursor !== false };
     } catch {
-      return { enabled: false };
+      return { enabled: false, cursor: true };
     }
   }
   function save(patch) {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("Computer use settings must be an object.");
-    if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") throw new Error("Computer use is on or off.");
-    const next = { ...read(), ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }) };
+    for (const key of ["enabled", "cursor"])
+      if (patch[key] !== undefined && typeof patch[key] !== "boolean") throw new Error(`Computer use ${key} is on or off.`);
+    const next = { ...read() };
+    for (const key of ["enabled", "cursor"]) if (patch[key] !== undefined) next[key] = patch[key];
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const temporary = `${file}.${crypto.randomUUID()}.tmp`;
     try {
@@ -135,6 +142,8 @@ function createComputerUse({
   settings,
   approve,
   onAction = () => {},
+  emit = () => {},
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   cli = agentDesktopBinary(),
   run = runCli,
   platform = process.platform,
@@ -147,10 +156,20 @@ function createComputerUse({
   const asking = new Map();
   const chat = (chatId) => {
     let state = chats.get(chatId);
-    if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map() }));
+    if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map(), cursorTimer: null, session: null }));
     return state;
   };
-  const session = (chatId) => `milagre-${crypto.createHash("sha256").update(chatId).digest("hex").slice(0, 16)}`;
+  // Each Chat works in an agent-desktop session of its own, for its refs. Sessions are opened once per Chat while the
+  // host runs, without tracing (it records the screen). A failed start falls back to a plain namespace.
+  const session = (chatId) => {
+    const state = chat(chatId);
+    state.session ??= exec(["session", "start", "--no-trace", "--name", "Milagre"], { timeoutMs: 15_000 }).then((envelope) =>
+      envelope.ok && typeof envelope.data?.session_id === "string"
+        ? envelope.data.session_id
+        : `milagre-${crypto.createHash("sha256").update(chatId).digest("hex").slice(0, 16)}`,
+    );
+    return state.session;
+  };
 
   async function status() {
     const supported = ["darwin", "win32", "linux"].includes(platform) && fs.existsSync(cli.binary);
@@ -209,18 +228,54 @@ function createComputerUse({
     return app;
   }
 
-  async function call(chatId, app, args, options) {
-    const envelope = await exec([...args, "--session", session(chatId)], options);
+  /**
+   * Before an action: where it lands, for Milagre's agent cursor on the screen (the desktop app draws it, design
+   * cu-cursor). `ref` puts the cursor on its element; without one the cursor stays and only the step changes. A failure
+   * never stops the action, it only costs the user the cursor.
+   */
+  async function showStep(chatId, app, intent, ref) {
+    if (!settings.read().cursor) return;
+    const state = chat(chatId);
+    const label = typeof intent === "string" ? intent.trim().slice(0, 80) : "";
+    let bounds = null;
+    if (ref) {
+      const envelope = await exec(["get", ref, "--property", "bounds", "--session", await session(chatId)], { timeoutMs: 5000 });
+      const value = envelope.ok ? envelope.data?.value : null;
+      if (value && [value.x, value.y, value.width, value.height].every(Number.isFinite)) bounds = value;
+    }
+    emit("computer-use:cursor", { chatId, app, label, bounds });
+    clearTimeout(state.cursorTimer);
+    state.cursorTimer = setTimeout(() => emit("computer-use:cursor", { chatId, hide: true }), CURSOR_HIDE_MS);
+    state.cursorTimer.unref?.();
+    if (bounds) await sleep(CURSOR_DWELL_MS);
+  }
+
+  async function call(chatId, app, args, options, intent, ref) {
+    if (intent !== undefined) await showStep(chatId, app, intent, ref);
+    const envelope = await exec([...args, "--session", await session(chatId)], options);
     if (!envelope.ok) return JSON.stringify(failure(envelope));
     const snapshotId = envelope.data?.snapshot_id;
     if (snapshotId && app) chat(chatId).snapshots.set(String(snapshotId).toLowerCase(), app);
-    onAction({ chatId, app, command: args[0], data: envelope.data });
+    onAction({ chatId, app, command: args[0], data: envelope.data, intent });
     return JSON.stringify(envelope.data ?? {});
+  }
+
+  /** The Chat ended or was archived: its grants go, and so does its cursor. */
+  async function forget(chatId) {
+    const state = chats.get(chatId);
+    chats.delete(chatId);
+    clearTimeout(state?.cursorTimer);
+    if (state?.session) await exec(["session", "end", "--session", await state.session], { timeoutMs: 10_000 });
   }
 
   function definitions(chatId) {
     const app = z.string().min(1).max(200);
     const ref = z.string().min(3).max(100);
+    const intent = z
+      .string()
+      .max(80)
+      .optional()
+      .describe("The step in a few words, such as 'Typing the new name'. Shown beside the agent cursor on screen and in the Chat.");
     return [
       {
         name: "desktop_apps",
@@ -288,9 +343,10 @@ function createComputerUse({
           text: z.string().max(10_000).optional(),
           direction: z.enum(["up", "down", "left", "right"]).optional(),
           amount: z.number().int().min(1).max(50).optional(),
+          intent,
         },
         readOnly: false,
-        run: async ({ action, ref: target, text, direction, amount }) => {
+        run: async ({ action, ref: target, text, direction, amount, intent: step }) => {
           const name = appOfRef(chatId, target);
           await allowApp(chatId, name);
           const args = [action, target];
@@ -302,30 +358,30 @@ function createComputerUse({
             if (direction) args.push("--direction", direction);
             if (amount) args.push("--amount", String(amount));
           }
-          return call(chatId, name, args);
+          return call(chatId, name, args, undefined, step ?? "", target);
         },
       },
       {
         name: "desktop_press",
         description:
           "Send a key combo (return, escape, tab, cmd+s, shift+tab) to an app's process without focusing it. Quit shortcuts are refused; there is no way to force them.",
-        input: { app, keys: z.string().min(1).max(60), windowId: z.string().max(100).optional() },
+        input: { app, keys: z.string().min(1).max(60), windowId: z.string().max(100).optional(), intent },
         readOnly: false,
-        run: async ({ app: name, keys, windowId }) => {
+        run: async ({ app: name, keys, windowId, intent: step }) => {
           await allowApp(chatId, name);
           const args = ["press", keys, "--app", name];
           if (windowId) args.push("--window-id", windowId);
-          return call(chatId, name, args);
+          return call(chatId, name, args, undefined, step ?? "");
         },
       },
       {
         name: "desktop_launch",
         description: "Open an app by its name or bundle id (or attach to it when it already runs) and wait for its window.",
-        input: { app },
+        input: { app, intent },
         readOnly: false,
-        run: async ({ app: name }) => {
+        run: async ({ app: name, intent: step }) => {
           await allowApp(chatId, name);
-          const result = await call(chatId, name, ["launch", name], { timeoutMs: 45_000 });
+          const result = await call(chatId, name, ["launch", name], { timeoutMs: 45_000 }, step ?? `Opening ${name}`);
           // agent-desktop 1.0.2 gives up when NSWorkspace lists a process with pid -1, which can last for minutes on a
           // busy Mac. LaunchServices opens the app anyway; the agent's next snapshot finds its window.
           if (platform === "darwin" && JSON.parse(result).details?.kind === "application_inventory_unstable" && (await open(name))) {
@@ -371,7 +427,7 @@ function createComputerUse({
           await allowApp(chatId, name);
           const args = ["screenshot", "--app", name];
           if (windowId) args.push("--window-id", windowId);
-          const envelope = await exec([...args, "--session", session(chatId)]);
+          const envelope = await exec([...args, "--session", await session(chatId)]);
           if (!envelope.ok) return JSON.stringify(failure(envelope));
           const { data: base64, format = "png" } = envelope.data ?? {};
           if (typeof base64 !== "string") return JSON.stringify(envelope.data ?? {});
@@ -382,7 +438,7 @@ function createComputerUse({
     ];
   }
 
-  return { status, guide, definitions, forget: (chatId) => chats.delete(chatId), allowApp, session };
+  return { status, guide, definitions, forget, allowApp, session };
 }
 
 module.exports = { BLOCKED_APPS, agentDesktopBinary, createComputerUseSettings, createComputerUse, runCli };

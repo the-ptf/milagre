@@ -1,4 +1,4 @@
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import {
@@ -28,6 +28,8 @@ import { designLayout, designNodeAt } from "@milagre/shared/design";
 import { CommentLayer, CommentPin } from "./CommentPin";
 import { LiveDesignLayer, LiveDesignWaiting, LiveDraftFrames } from "./LiveDesignFrame";
 import { useLiveDesign } from "./design-live";
+import { designPreviews, designPreviewKey, designLiveZoom, designPreviewScale } from "./design-preview-cache";
+import { createDesignVisibility, designDensity, subscribeDesignDensity } from "./design-visibility";
 
 /** A comment the user pinned on a design and hasn't sent yet. */
 export type DesignPin = {
@@ -133,6 +135,7 @@ export function readArtifact(chatId: string, id: string, version: number | null)
         for (const old of versionsKept.keys()) {
           if (versionsKept.size <= KEEP) break;
           versionsKept.delete(old);
+          designPreviews.delete(old);
           versionsRead.delete(old);
         }
       },
@@ -210,6 +213,7 @@ export function ArtifactFrame({
   onPage,
   frameRef,
   files,
+  onLoad,
 }: {
   html: string;
   title: string;
@@ -220,6 +224,7 @@ export function ArtifactFrame({
   page?: PageState;
   onPage?: (message: ArtifactPageMessage) => void;
   frameRef?: React.RefObject<HTMLIFrameElement | null>;
+  onLoad?: () => void;
 }) {
   const document = useMemo(() => artifactDocument(html, { page: format === "html" }), [html, format]);
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -308,6 +313,7 @@ export function ArtifactFrame({
   return (
     <iframe
       ref={setFrame}
+      onLoad={onLoad}
       title={title}
       srcDoc={isolated ? undefined : document}
       src={isolated ? url : undefined}
@@ -330,6 +336,8 @@ export const ArtifactCanvas = forwardRef<
   CanvasHandle,
   {
     chatId: string;
+    /** Images prepare during panel entry; full live frames wait for its animation. */
+    allowLive?: boolean;
     designs: ArtifactRef[];
     versions: Record<string, number | null>;
     onVersion: (id: string, version: number | null) => void;
@@ -340,9 +348,14 @@ export const ArtifactCanvas = forwardRef<
     choice: ChoiceControls;
     onView: (view: CanvasView) => void;
   }
->(function ArtifactCanvas({ chatId, designs, versions, onVersion, focus, commenting, comments, choice, onView }, handle) {
+>(function ArtifactCanvas({ chatId, allowLive = true, designs, versions, onVersion, focus, commenting, comments, choice, onView }, handle) {
   const viewport = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
+  const visibility = useMemo(() => createDesignVisibility(), []);
+  const pixelRatio = useSyncExternalStore(subscribeDesignDensity, designDensity);
+  useLayoutEffect(() => {
+    if (viewport.current) return visibility.connect(viewport.current);
+  }, [visibility]);
   const [view, setView] = useState<CanvasView>({ x: 40, y: 40, scale: 0.4 });
   // One block per group once any design has one; until then the frames stay in one row, numbered across the blocks.
   const rows = useMemo(() => designGroups(designs), [designs]);
@@ -619,7 +632,7 @@ export const ArtifactCanvas = forwardRef<
             >
               {row.designs.map((design, offset) => (
                 <DesignFrame
-                  key={design.id}
+                  key={`${chatId}\n${design.id}`}
                   chatId={chatId}
                   design={design}
                   number={rows.slice(0, index).reduce((total, row) => total + row.designs.length, 0) + offset + 1}
@@ -631,6 +644,9 @@ export const ArtifactCanvas = forwardRef<
                   onSized={settled}
                   active={active === design.id}
                   scale={view.scale}
+                  allowLive={allowLive}
+                  visibility={visibility}
+                  pixelRatio={pixelRatio}
                 />
               ))}
               <LiveDraftFrames chatId={chatId} designs={designs} group={row.group} scale={view.scale} gap={GAP} header={HEADER} onSized={showDraft} />
@@ -665,6 +681,9 @@ const DesignFrame = memo(function DesignFrame({
   onSized,
   scale,
   active,
+  visibility,
+  allowLive,
+  pixelRatio,
 }: {
   chatId: string;
   design: ArtifactRef;
@@ -679,11 +698,26 @@ const DesignFrame = memo(function DesignFrame({
   active: boolean;
   /** The canvas zoom: a frame's title row stays this size on screen however far the canvas zooms. */
   scale: number;
+  visibility: ReturnType<typeof createDesignVisibility>;
+  allowLive: boolean;
+  pixelRatio: number;
 }) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(false);
+  const [liveZoom, setLiveZoom] = useState(false);
+  useLayoutEffect(() => {
+    if (frame.current) return visibility.watch(frame.current, setInView);
+  }, [visibility]);
+  useEffect(() => {
+    const timer = setTimeout(() => setLiveZoom((previous) => designLiveZoom(previous, scale)), 150);
+    return () => clearTimeout(timer);
+  }, [scale]);
+  const [painted, setPainted] = useState<Artifact | null>(null);
   // Following the newest unless the user stepped back; a revision the agent shows replaces what is in the frame, after
   // the change plays back over it (`hold`, design-live.ts).
   const { live, hold } = useLiveDesign(chatId, design, version === null);
   const { artifact, error } = useArtifact(chatId, design.id, design.format === "html" ? null : (hold ?? version ?? design.version));
+  const markPainted = useCallback((ready: boolean) => setPainted(ready ? artifact : null), [artifact]);
   const [editing, setEditing] = useState<DesignArtifact | null>(null);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editError, setEditError] = useState("");
@@ -854,7 +888,14 @@ const DesignFrame = memo(function DesignFrame({
     </>
   );
   return (
-    <div data-slot="artifact-frame" data-artifact={design.id} data-version={shown.version} className="group/frame flex shrink-0 flex-col" style={{ width }}>
+    <div
+      ref={frame}
+      data-slot="artifact-frame"
+      data-artifact={design.id}
+      data-version={shown.version}
+      className="group/frame flex shrink-0 flex-col"
+      style={{ width }}
+    >
       <div
         className={`relative shrink-0 ${compact ? "group-focus-within/frame:z-20 group-hover/frame:z-20" : ""}`}
         style={{ height: (narrow ? HEADER * 2 : HEADER) / scale }}
@@ -889,18 +930,38 @@ const DesignFrame = memo(function DesignFrame({
       <div className="relative" style={{ width, height }}>
         <div
           data-design-body
+          data-painted={(!!artifact && painted === artifact) || undefined}
           data-active={active || undefined}
           className={`size-full overflow-hidden rounded-[12px] border-2 bg-white shadow-raised ${isChosen || active ? "border-accent" : "border-line"} ${active ? "" : "[&_iframe]:pointer-events-none"}`}
         >
           {artifact ? (
-            <ArtifactFrame html={artifact.html} title={shown.title} format={artifact.format} files={pageFiles(chatId, artifact)} />
+            <CanvasDesignBody
+              key={designPreviewKey(chatId, artifact.id, artifact.version)}
+              artifact={artifact}
+              files={pageFiles(chatId, artifact)}
+              title={shown.title ?? "Design"}
+              previewKey={designPreviewKey(chatId, artifact.id, artifact.version)}
+              pixelRatio={pixelRatio}
+              allowLive={allowLive}
+              scale={scale}
+              live={active || (liveZoom && inView) || artifact.format === "html"}
+              onPainted={markPainted}
+            />
           ) : (
             <div className="grid size-full place-items-center text-ink-3" style={{ fontSize: 24 }}>
               {error ?? "Loading…"}
             </div>
           )}
         </div>
-        <LiveDesignLayer chatId={chatId} live={live} shown={artifact?.version ?? null} width={width} height={height} scale={scale} />
+        <LiveDesignLayer
+          chatId={chatId}
+          live={live}
+          shown={artifact?.version ?? null}
+          savedPainted={!!artifact && painted === artifact}
+          width={width}
+          height={height}
+          scale={scale}
+        />
         {!active && !commenting && (
           // Over a design that doesn't have the mouse: wheel and drag reach the canvas, and a click (see endDrag) hands it the mouse.
           <div data-slot="artifact-shield" aria-label={`Interact with ${shown.title}`} className="absolute inset-0 cursor-grab" />
@@ -940,3 +1001,150 @@ const DesignFrame = memo(function DesignFrame({
     </div>
   );
 });
+
+/** Keyed by the artifact actually shown, including a live edit's held version. Readiness never crosses versions. */
+function CanvasDesignBody({
+  artifact,
+  files,
+  title,
+  previewKey,
+  scale,
+  pixelRatio,
+  allowLive,
+  live,
+  onPainted,
+}: {
+  artifact: Artifact;
+  files?: PageFiles;
+  title: string;
+  previewKey: string;
+  scale: number;
+  pixelRatio: number;
+  allowLive: boolean;
+  live: boolean;
+  onPainted: (ready: boolean) => void;
+}) {
+  type Preview = { key: string; result: NonNullable<ReturnType<typeof designPreviews.get>> };
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [readyPreview, setReadyPreview] = useState<{ key: string; src: string } | null>(null);
+  const [settledScale, setSettledScale] = useState<number | null>(null);
+  // Initial Fit runs in a parent layout effect. Follow it before the first paint; later gestures keep the painted
+  // image while their resolution settles, rather than rasterizing every bucket crossed along the way.
+  const previewScale = readyPreview && settledScale !== null ? settledScale : designPreviewScale(scale);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledScale(designPreviewScale(scale)), 150);
+    return () => clearTimeout(timer);
+  }, [scale]);
+  const cacheKey = `${previewKey}\n${pixelRatio}\n${previewScale}`;
+  const [imageFailed, setImageFailed] = useState<string | null>(null);
+  const [framePainted, setFramePainted] = useState(false);
+  const [document] = useState(() => (artifact.format === "design" ? artifact.document : undefined));
+  const decoded = !!readyPreview;
+  const useFrame = (allowLive && (live || !document || (preview && "error" in preview.result) || imageFailed === cacheKey)) || (!decoded && framePainted);
+  useLayoutEffect(() => {
+    if (!document) return;
+    return designPreviews.request(
+      cacheKey,
+      document,
+      (result) => setPreview({ key: cacheKey, result }),
+      () => versionsKept.has(previewKey),
+      pixelRatio,
+      previewScale,
+      previewKey,
+    );
+  }, [cacheKey, document, previewKey, pixelRatio, previewScale]);
+  const painted = useFrame ? framePainted || decoded : decoded;
+  useEffect(() => {
+    onPainted(painted);
+  }, [painted, onPainted]);
+  if (artifact.format === "html")
+    return allowLive ? <ArtifactFrame html={artifact.html} title={title} format="html" files={files} onLoad={() => setFramePainted(true)} /> : null;
+  return (
+    <div className="relative size-full" data-painted={painted || undefined} data-slot="design-renderer">
+      {readyPreview && readyPreview.key !== preview?.key && <img src={readyPreview.src} alt="" aria-hidden draggable={false} className="block size-full" />}
+      {preview && "src" in preview.result && (
+        <DecodedPreviewImage
+          key={preview.key}
+          resourceKey={preview.key}
+          src={preview.result.src}
+          title={title}
+          hidden={framePainted}
+          painted={readyPreview?.key === preview.key}
+          onDecoded={setReadyPreview}
+          onFailed={setImageFailed}
+        />
+      )}
+      {useFrame && <PaintedFrame key={previewKey} artifact={artifact} title={title} onPainted={setFramePainted} />}
+    </div>
+  );
+}
+
+/** Request decode when src commits, so PNG loading and decoding overlap instead of waiting for load first. */
+const DecodedPreviewImage = memo(function DecodedPreviewImage({
+  resourceKey,
+  src,
+  title,
+  hidden,
+  painted,
+  onDecoded,
+  onFailed,
+}: {
+  resourceKey: string;
+  src: string;
+  title: string;
+  hidden: boolean;
+  painted: boolean;
+  onDecoded: (value: { key: string; src: string }) => void;
+  onFailed: (key: string) => void;
+}) {
+  const receive = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (!image) return;
+      void image.decode().then(
+        () => {
+          if (image.isConnected) onDecoded({ key: resourceKey, src });
+          return null;
+        },
+        () => {
+          if (image.isConnected) onFailed(resourceKey);
+          return null;
+        },
+      );
+    },
+    [resourceKey, src, onDecoded, onFailed],
+  );
+  return (
+    <img
+      ref={receive}
+      src={src}
+      alt={title}
+      aria-hidden={hidden || undefined}
+      draggable={false}
+      decoding="async"
+      className="absolute inset-0 block size-full"
+      style={{ opacity: painted ? 1 : 0 }}
+      onError={(event) => {
+        if (event.currentTarget.isConnected) onFailed(resourceKey);
+      }}
+    />
+  );
+});
+
+/** Unmount on the way back to an image. Every new iframe starts hidden and fades over the decoded preview. */
+function PaintedFrame({ artifact, title, onPainted }: { artifact: Artifact; title: string; onPainted: (painted: boolean) => void }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    onPainted(ready);
+    return () => onPainted(false);
+  }, [ready, onPainted]);
+  return (
+    <div
+      inert={!ready}
+      aria-hidden={!ready || undefined}
+      className="absolute inset-0 transition-opacity duration-[120ms] motion-reduce:transition-none"
+      style={{ opacity: ready ? 1 : 0 }}
+    >
+      <ArtifactFrame html={artifact.html} title={title} format={artifact.format} onLoad={() => setReady(true)} />
+    </div>
+  );
+}

@@ -189,6 +189,10 @@ export interface AgentSession {
   handoverDraft?: string;
   /** Set when a quit stopped this chat's turn: when, so a stale one waits for Continue instead of resuming by itself. */
   resumeTurn?: { stoppedAt?: number };
+  /** The daemon's persisted continuation after a usage limit; shared by all clients. */
+  limitResume?: LimitResume;
+  /** The stopped reply eligible for scheduling; turn options remain host-owned. */
+  limitTurn?: { sourceMessageId: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
   /** Claude's predicted follow-up, accepted into the draft without sending. */
@@ -202,6 +206,11 @@ export interface AgentSession {
   routine?: { routineId: string; runId: string; hidden?: boolean };
   /** The permission mode the Chat's composer last set (a pick, or a person's message); a heartbeat's beat runs in it. */
   permissionMode?: PermissionMode;
+  /**
+   * The Chat (session id, same Project) whose Delegation first reached this one: it shows as that Chat's subchat, nested
+   * under it in the Chat lists and opened beside it (subchats.ts). Set once by the host; absent on a top-level Chat.
+   */
+  parent?: number;
   /**
    * Messages sent while a turn ran on a provider that can't steer (provider-capabilities `steer`), oldest first. Each
    * starts a turn of its own when the one before it completes; Send now and Remove act on one (chat-host.cjs).
@@ -590,6 +599,7 @@ export type ChatContext =
   | LinearIssueContext
   | UsageLimitContext
   | AccountSwitchContext
+  | { kind: "limit-reset" }
   | ChatReloadContext
   | BotContext
   | RoutineRunContext
@@ -664,6 +674,7 @@ export interface ArtifactRef {
 
 /** One tool call in an agent's reply (a `setup` step is the worktree's setup command, which Milagre ran, not the agent) (a command, an edit, a read, a search or another tool), or a stretch of its thinking. */
 export interface ChatStep {
+  /** Identifies one step across start, output and completion. A viewed snapshot needs a distinct ID from its source Read step. */
   id: string;
   kind: StepKind;
   /** Host time when this step first started. Older hosts omit it; clients show no duration for the running step. */
@@ -690,8 +701,12 @@ export interface ChatStep {
    * fetch until the turn ends.
    */
   hasDetail?: boolean;
-  /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, the generated image. */
+  /** The file a read or edit worked on, as the tool named it; the title shows only its name. For an image step, its generated image or snapshot. */
   file?: string;
+  /** An image snapshot of a file the agent viewed, rather than an image it generated. */
+  imageOrigin?: "viewed";
+  /** Provenance of a viewed snapshot only; never grants access to this file. */
+  sourceFile?: string;
   /** Muted text after the title, e.g. "3s" or "exited with code 1 after 4s". */
   note?: string;
   /** How long the step took, measured by the host or reported by the provider. */
@@ -910,7 +925,7 @@ export type AgentEvent =
   | { type: "turn-started"; turnId: string | null; continues?: string }
   /** `startsMessage`: a provider message boundary, distinct from a streamed paragraph break. */
   | { type: "text-delta"; messageId: string | null; text: string; startsMessage?: boolean }
-  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "tool" | "agent" | "startedAt"> }
+  | { type: "step-started"; step: Pick<ChatStep, "id" | "kind" | "title" | "detail" | "file" | "imageOrigin" | "sourceFile" | "tool" | "agent" | "startedAt"> }
   | { type: "step-output"; id: string; text: string }
   /**
    * Claude's input to a Milagre design tool while the model writes it (design-drafts.cjs), for the Designs canvas to
@@ -959,6 +974,17 @@ export type UsageLimitContext = { kind: "limit" } & UsageLimit;
 /** The message that continued a Chat on another account after the usage limit, shown as a line like a handoff. `label` names the account. */
 export type AccountSwitchContext = { kind: "account-switch"; provider: ModelProvider; label: string };
 
+export interface LimitResume {
+  at: string;
+  provider: ModelProvider;
+  accountId: string;
+  sourceMessageId: number;
+  sendId: string;
+  mode: "automatic" | "manual";
+  stoppedAt: number;
+  expiresAt: number;
+}
+
 /** A message for a chat. The main process saves it, then starts or steers the chat's turn. */
 export interface ChatSendRequest {
   projectPath: string;
@@ -990,7 +1016,12 @@ export interface ChatSendRequest {
   linearIssue?: { key: string; workspace?: string; note?: string };
   /** Compact the Chat's context now (Claude only). Milagre writes the body, prompt and context itself, ignoring the ones sent. */
   compact?: boolean;
+  /** Where the user typed it, when not in the Chat's own computer's window. The agent is told (packages/core/src/sent-from.cjs). */
+  sentFrom?: SentFrom;
 }
+
+/** The device a message came from: a phone, an iPad, or another computer's Milagre. */
+export type SentFrom = "phone" | "tablet" | "computer";
 
 /** A code editor found on this Mac. */
 export interface EditorInfo {

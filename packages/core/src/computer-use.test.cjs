@@ -13,7 +13,7 @@ function setup({ decisions = [], envelopes = {} } = {}) {
   const asked = [];
   const run = async (_cli, args) => {
     calls.push(args);
-    const reply = envelopes[args[0]];
+    const reply = args[0] === "session" ? { ok: true, data: { session_id: "run-1" } } : envelopes[args[0]];
     return typeof reply === "function" ? reply(args) : (reply ?? { ok: true, data: {} });
   };
   const approve = async (chatId, request) => {
@@ -29,8 +29,9 @@ const snapshot = (id, app) => ({ ok: true, data: { app, snapshot_id: id, tree: {
 
 test("settings start off and save privately", () => {
   const { settings, dataDir } = setup();
-  assert.deepEqual(settings.read(), { enabled: false });
-  assert.deepEqual(settings.save({ enabled: true }), { enabled: true });
+  assert.deepEqual(settings.read(), { enabled: false, cursor: true });
+  assert.deepEqual(settings.save({ enabled: true }), { enabled: true, cursor: true });
+  assert.deepEqual(settings.save({ cursor: false }), { enabled: true, cursor: false });
   assert.equal(fs.statSync(path.join(dataDir, "computer-use.json")).mode & 0o777, 0o600);
   assert.throws(() => settings.save({ enabled: "yes" }), /on or off/);
 });
@@ -50,8 +51,10 @@ test("the first snapshot of an app asks once, Allow for Chat keeps it", async ()
   assert.equal(asked.length, 1);
   assert.equal(asked[0].request.title, "Let the agent use Finder?");
   assert.equal(asked[0].request.allowForChat, true);
-  assert.deepEqual(calls[0].slice(0, 5), ["snapshot", "--app", "Finder", "--compact", "-i"]);
-  assert.ok(calls[0].includes("--session"), "each Chat gets its own ref namespace");
+  const snapshotCall = calls.find((args) => args[0] === "snapshot");
+  assert.deepEqual(snapshotCall.slice(0, 5), ["snapshot", "--app", "Finder", "--compact", "-i"]);
+  assert.equal(calls.filter((args) => args[0] === "session").length, 1, "one agent-desktop session per Chat");
+  assert.equal(snapshotCall[snapshotCall.indexOf("--session") + 1], "run-1", "its refs live in that session");
   assert.ok(!calls.flat().includes("--headed"), "never physical input");
 });
 
@@ -106,7 +109,7 @@ test("acting on a ref uses the app of the snapshot it came from", async () => {
   await tools().desktop_snapshot.run({ app: "Notes" });
   const result = JSON.parse(await tools().desktop_act.run({ action: "type", ref: "@sAbc1:e4", text: "hello" }));
   assert.equal(result.disposition.delivery, "delivered");
-  assert.deepEqual(calls[1].slice(0, 3), ["type", "@sAbc1:e4", "hello"]);
+  assert.deepEqual(calls.find((args) => args[0] === "type").slice(0, 3), ["type", "@sAbc1:e4", "hello"]);
   assert.equal(asked.length, 1);
   await assert.rejects(tools().desktop_act.run({ action: "click", ref: "@sZzz9:e1" }), /SNAPSHOT_NOT_FOUND/);
   await assert.rejects(tools().desktop_act.run({ action: "click", ref: "@e1" }), /INVALID_ARGS/);
@@ -173,4 +176,41 @@ test("a launch macOS's app list can't settle falls back to open -a", async () =>
   const launch = host.definitions("/p#1").find((tool) => tool.name === "desktop_launch");
   assert.equal(JSON.parse(await launch.run({ app: "TextEdit" })).via, "open -a");
   assert.deepEqual(opened, ["TextEdit"]);
+});
+
+test("before acting on a ref, the cursor goes to its element with the step, unless it is turned off", async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "computer-use-"));
+  const settings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json") });
+  const events = [];
+  const calls = [];
+  const host = createComputerUse({
+    dataDir,
+    settings,
+    approve: async () => "allow-for-chat",
+    emit: (channel, payload) => events.push({ channel, payload, before: calls.at(-1)?.[0] }),
+    sleep: async () => {},
+    run: async (_cli, args) => {
+      calls.push(args);
+      if (args[0] === "session") return { ok: true, data: { session_id: "run-1" } };
+      if (args[0] === "snapshot") return snapshot("s1", "Notes");
+      if (args[0] === "get") return { ok: true, data: { value: { x: 10, y: 20, width: 30, height: 12 } } };
+      return { ok: true, data: {} };
+    },
+    cli: { binary: process.execPath, helper: null, version: "1.0.2" },
+  });
+  const tools = Object.fromEntries(host.definitions("/p#1").map((tool) => [tool.name, tool]));
+  await tools.desktop_snapshot.run({ app: "Notes" });
+  await tools.desktop_act.run({ action: "click", ref: "@s1:e2", intent: "New note" });
+  assert.deepEqual(events[0], {
+    channel: "computer-use:cursor",
+    payload: { chatId: "/p#1", app: "Notes", label: "New note", bounds: { x: 10, y: 20, width: 30, height: 12 } },
+    before: "get",
+  });
+  assert.ok(calls.findIndex((args) => args[0] === "get") < calls.findIndex((args) => args[0] === "click"), "the cursor moves before the action");
+  await tools.desktop_press.run({ app: "Notes", keys: "return", intent: "Saving" });
+  assert.equal(events.at(-1).payload.bounds, null, "a key press keeps the cursor where it is");
+  settings.save({ cursor: false });
+  await tools.desktop_act.run({ action: "click", ref: "@s1:e2", intent: "Another step" });
+  assert.equal(events.length, 2);
+  await host.forget("/p#1");
 });

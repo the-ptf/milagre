@@ -80,3 +80,16 @@ test("a failure ends the take with its message until it is dismissed or the next
   assert.deepEqual(dictationReducer(failed, { type: "dismiss" }), IDLE);
   assert.deepEqual(dictationReducer(failed, { type: "start" }), { phase: "preparing", error: null });
 });
+
+test("a take whose model is missing downloads it before it records", () => {
+  let state = dictationReducer(IDLE, { type: "start" });
+  state = dictationReducer(state, { type: "download" });
+  assert.equal(state.phase, "downloading");
+  // Nothing records while the model downloads.
+  assert.equal(dictationReducer(state, { type: "recording" }), state);
+  state = dictationReducer(state, { type: "downloaded" });
+  assert.equal(state.phase, "preparing");
+  assert.equal(dictationReducer(state, { type: "recording" }).phase, "recording");
+  assert.equal(dictationReducer(IDLE, { type: "download" }), IDLE);
+  assert.deepEqual(dictationReducer({ phase: "downloading", error: null }, { type: "done" }), IDLE);
+});

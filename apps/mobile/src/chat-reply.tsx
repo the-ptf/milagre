@@ -6,7 +6,7 @@ import { ActivitySources } from "./activity-source";
 import { router } from "expo-router";
 import { Alert02Icon, ArrowRight01Icon, Link04Icon } from "@hugeicons/core-free-icons";
 import type { AgentRun } from "@milagre/shared/agent-runs";
-import type { ChatMessage, ChatStep, LinkedContext } from "@milagre/shared/model";
+import type { ChatMessage, ChatStep, LinkedContext, LimitResume } from "@milagre/shared/model";
 import { linkedContext, linkedHeading } from "@milagre/shared/linked-message";
 import { activitySummary, replyActivity, unspokenThought } from "@milagre/shared/reply-parts";
 import { FileChip } from "./file-chip";
@@ -33,6 +33,7 @@ import { PullRequestActionCard } from "./pr-action-card";
 import { isPullRequestAction } from "@milagre/shared/pr-action";
 import { isLinearIssueContext } from "@milagre/shared/linear-issue";
 import { LinearIssueCard } from "./linear-issue-card";
+import { ComputerUseCard } from "./computer-use-card";
 import { HeartbeatCard } from "./heartbeat-card";
 import { usageLimitOf } from "@milagre/shared/usage-limit";
 import { UsageLimitCard } from "./usage-limit-card";
@@ -264,6 +265,9 @@ export const ChatReply = memo(function ChatReply({
   designChoice,
   designsMoved,
   limitProjectPath,
+  limitPending,
+  limitResumeBlocked,
+  limitResumeAvailable,
   highlighted = false,
   onOpenChat,
 }: {
@@ -285,6 +289,9 @@ export const ChatReply = memo(function ChatReply({
   designsMoved?: number;
   /** Set when a usage-limit reply is the Chat's last message with no turn running: its card then offers other accounts for this Project. */
   limitProjectPath?: string;
+  limitPending?: LimitResume;
+  limitResumeBlocked?: boolean;
+  limitResumeAvailable?: boolean;
 }) {
   const { colors, textPx } = useTheme();
   const styles = useStyles();
@@ -488,6 +495,7 @@ export const ChatReply = memo(function ChatReply({
           <GeneratedImage step={step} media={savedMedia} />
         </View>
       ))}
+      {reply.desktop.length > 0 && <ComputerUseCard steps={reply.desktop} chatId={chatId} />}
       <ArtifactCards steps={reply.artifacts} chatId={chatId} chosen={designChoice} />
       {!!reply.answer.trim() && (
         <MessageActions text={reply.answer} markdown>
@@ -517,7 +525,17 @@ export const ChatReply = memo(function ChatReply({
         </MessageActions>
       )}
       {!run && message?.outcome === "cancelled" && <Text style={styles.muted}>Turn stopped</Text>}
-      {limit && message && <UsageLimitCard limit={limit} sessionId={message.session_id} projectPath={limitProjectPath} />}
+      {limit && message && (
+        <UsageLimitCard
+          limit={limit}
+          sessionId={message.session_id}
+          projectPath={limitProjectPath}
+          pending={limitPending}
+          sourceMessageId={message.id}
+          resumeAvailable={limitResumeAvailable}
+          resumeBlocked={limitResumeBlocked}
+        />
+      )}
       {!run && !limit && message?.outcome === "failed" && (
         <Text accessibilityRole="alert" style={{ color: colors.error }}>
           The turn failed. Review the response before trying again.

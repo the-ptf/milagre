@@ -396,6 +396,10 @@ export type MilagreBridge = {
   /** Settings › Accounts: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
   readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
+  readLimitResumeAtReset: () => Promise<{ resumeAtReset: boolean }>;
+  saveLimitResumeAtReset: (value: boolean) => Promise<{ resumeAtReset: boolean }>;
+  scheduleLimitResume: (projectPath: string, sessionId: number, sourceMessageId: number) => Promise<boolean>;
+  cancelLimitResume: (projectPath: string, sessionId: number, sendId: string) => Promise<boolean>;
   /** Settings › About: install a downloaded update by itself once no Chat or Routine runs and the Mac sits unused for 5 minutes. Kept by the host, so a paired desktop or the phone flips it too. */
   readAutoUpdate: () => Promise<{ autoUpdate: boolean }>;
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;
@@ -509,10 +513,18 @@ export type MilagreBridge = {
       limit?: number;
     }) => Promise<import("@milagre/shared/git-diff").GitHistory>;
     changes: (request: { cwd: string; base?: string }) => Promise<GitChanges>;
-    /** Files a chat's folder changed: `uncommitted` against HEAD (untracked included), `committed` since the merge-base with the base branch. */
-    diffFiles: (request: { cwd: string; base?: string; mode: DiffMode }) => Promise<DiffFilesResult>;
+    /** Files changed against HEAD or the comparison branch. With `commit`, compares that immutable SHA with its first parent (or the empty tree). */
+    diffFiles: (request: { cwd: string; base?: string; commit?: string | null; mode: DiffMode }) => Promise<DiffFilesResult>;
     /** One file's unified patch. Rejects for a path that is absolute or climbs out of the folder. */
-    diffFile: (request: { cwd: string; base?: string; mode: DiffMode; path: string; oldPath?: string; untracked?: boolean }) => Promise<DiffFileResult>;
+    diffFile: (request: {
+      cwd: string;
+      base?: string;
+      commit?: string | null;
+      mode: DiffMode;
+      path: string;
+      oldPath?: string;
+      untracked?: boolean;
+    }) => Promise<DiffFileResult>;
     /** Never rejects for a model failure: `ok: false` carries the note the dialog shows. */
     generate: (request: { cwd: string; base?: string; provider?: ModelProvider; chat: GitChatContext }) => Promise<GitTextResult>;
     commit: (request: { cwd: string; message: string }) => Promise<GitCommitResult>;
@@ -634,6 +646,9 @@ export type MilagreBridge = {
   readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
+  readDeviceNotesEnabled: () => Promise<{ enabled: boolean }>;
+  saveDeviceNotesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onDeviceNotesEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app shortcut (⌘⇧ plus a letter, or ⌘,) pressed in any frame, forwarded by the main process. */
   onAppShortcut: (callback: (shortcut: { key: string; code?: string; meta: boolean; control: boolean; alt: boolean; shift: boolean }) => void) => () => void;
@@ -859,18 +874,27 @@ declare global {
       onComputerAddPending: (callback: () => void) => () => void;
       /** Every computer's runtime events. */
       onComputerEvent: (callback: (event: ComputerEvent) => void) => () => void;
-      /** Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM; the model downloads on first use. */
+      /**
+       * Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM. Each model (ids from WHISPER_MODELS.desktop)
+       * downloads once; `onModel` reports every change to one, its download progress included, to every window.
+       */
       dictation: {
-        status: () => Promise<{ ready: boolean; size: number }>;
-        prepare: () => Promise<void>;
-        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
-        onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
+        status: () => Promise<DictationModelState[]>;
+        download: (id: string) => Promise<void>;
+        cancel: (id: string) => Promise<void>;
+        remove: (id: string) => Promise<void>;
+        prepare: (id: string) => Promise<void>;
+        transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string; model: string }) => Promise<{ text: string }>;
+        onModel: (callback: (state: DictationModelState) => void) => () => void;
         /** The system's microphone privacy settings, where a refused microphone is allowed again. */
         openSettings: () => Promise<void>;
       };
     };
   }
 }
+
+/** A speech model on this computer: downloaded, and how many bytes of its download in flight have arrived (null when none is). */
+export type DictationModelState = { id: string; ready: boolean; size: number; received: number | null };
 
 /** One folder of a computer's home folder, for the remote folder picker (fs:list-dirs). */
 export type DirListing = {

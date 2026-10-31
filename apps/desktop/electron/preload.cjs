@@ -78,6 +78,7 @@ function makeBridge(invoke, listen, send) {
       onSettings: (callback) => listen("computer-use:settings", callback),
       status: () => invoke("computer-use:status"),
       guide: () => invoke("computer-use:guide"),
+      frame: (request) => invoke("computer-use:frame", request),
     },
     simlock: {
       readSettings: () => invoke("simlock:settings:read"),
@@ -196,6 +197,8 @@ function makeBridge(invoke, listen, send) {
     saveLinearMoveToStarted: (value) => invoke("linear:move-to-started:save", value),
     readLimitAutoSwitch: () => invoke("limits:auto-switch:read"),
     saveLimitAutoSwitch: (value) => invoke("limits:auto-switch:save", value),
+    readLimitResumeAtReset: () => invoke("limits:resume-at-reset:read"),
+    saveLimitResumeAtReset: (value) => invoke("limits:resume-at-reset:save", value),
     readAutoUpdate: () => invoke("app-update:auto:read"),
     saveAutoUpdate: (value) => invoke("app-update:auto:save", value),
     onAutoUpdate: (callback) => listen("app-update:auto", callback),
@@ -340,6 +343,9 @@ function makeBridge(invoke, listen, send) {
     readRemoteDelegationEnabled: () => invoke("linked:remote-enabled:read"),
     saveRemoteDelegationEnabled: (value) => invoke("linked:remote-enabled:save", value),
     onRemoteDelegationEnabledChanged: (callback) => listen("linked:remote-enabled-changed", callback),
+    readDeviceNotesEnabled: () => invoke("device-notes:read"),
+    saveDeviceNotesEnabled: (value) => invoke("device-notes:save", value),
+    onDeviceNotesEnabledChanged: (callback) => listen("device-notes:changed", callback),
     stopNegotiation: (id) => invoke("linked:stop-negotiation", id),
     onAppShortcut: (callback) => listen("app:shortcut", callback),
     onLinkedWork: (callback) => listen("linked:changed", callback),
@@ -360,6 +366,8 @@ function makeBridge(invoke, listen, send) {
     sendQueuedNow: (chatId, id) => invoke("chat:queue-send", chatId, id),
     removeQueued: (chatId, id) => invoke("chat:queue-remove", chatId, id),
     switchAccountAfterLimit: (projectPath, sessionId, provider, accountId) => invoke("chat:limit-switch", projectPath, sessionId, provider, accountId),
+    scheduleLimitResume: (projectPath, sessionId, sourceMessageId) => invoke("chat:limit-resume", projectPath, sessionId, sourceMessageId),
+    cancelLimitResume: (projectPath, sessionId, sendId) => invoke("chat:limit-resume:cancel", projectPath, sessionId, sendId),
     patchChat: (projectPath, sessionId, patch) => invoke("chat:patch", projectPath, sessionId, patch),
     deleteChat: (projectPath, sessionId) => invoke("chat:delete", projectPath, sessionId),
     archiveSubagent: (projectPath, sessionId, id, archived) => invoke("chat:archive-subagent", projectPath, sessionId, id, archived),
@@ -515,6 +523,15 @@ const local = makeBridge(
 
 /** @type {Map<string, import("../app/src/electron.d.ts").MilagreBridge>} */
 const remotes = new Map();
+// A message for a paired computer's Chat was typed on this one: that Chat's agent is told (packages/core/src/sent-from.cjs).
+const SENDS = new Set(["chat:send", "link:send"]);
+/**
+ * @param {string} channel
+ * @param {unknown[]} args
+ * @returns {unknown[]}
+ */
+const sentFromHere = (channel, args) =>
+  SENDS.has(channel) && args[0] && typeof args[0] === "object" ? [{ ...args[0], sentFrom: "computer" }, ...args.slice(1)] : args;
 /**
  * A paired computer's bridge (spec "Routing"): the same calls, carried by main to that computer (computers-ipc.cjs), and
  * its events, tagged with it. This Mac's own actions refuse with NOT_REMOTE.
@@ -526,7 +543,8 @@ function remote(computerId) {
   let bridge = remotes.get(id);
   if (!bridge) {
     bridge = makeBridge(
-      (channel, ...args) => (isLocalOnly(channel) ? Promise.reject(new Error(NOT_REMOTE)) : ipcRenderer.invoke("computers:invoke", id, channel, args)),
+      (channel, ...args) =>
+        isLocalOnly(channel) ? Promise.reject(new Error(NOT_REMOTE)) : ipcRenderer.invoke("computers:invoke", id, channel, sentFromHere(channel, args)),
       (channel, callback) => listenComputer(id, channel, callback),
       () => {},
     );
@@ -564,9 +582,12 @@ const bridge = {
   // Dictation records and transcribes on this computer, whichever computer the Chat is on (dictation.cjs).
   dictation: {
     status: () => ipcRenderer.invoke("app:dictation-status"),
-    prepare: () => ipcRenderer.invoke("app:dictation-prepare"),
+    download: (id) => ipcRenderer.invoke("app:dictation-download", id),
+    cancel: (id) => ipcRenderer.invoke("app:dictation-cancel", id),
+    remove: (id) => ipcRenderer.invoke("app:dictation-remove", id),
+    prepare: (id) => ipcRenderer.invoke("app:dictation-prepare", id),
     transcribe: (request) => ipcRenderer.invoke("app:dictation-transcribe", request),
-    onProgress: (callback) => listenHere("app:dictation-progress", callback),
+    onModel: (callback) => listenHere("app:dictation-model", callback),
     openSettings: () => ipcRenderer.invoke("app:dictation-open-settings"),
   },
 };

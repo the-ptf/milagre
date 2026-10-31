@@ -293,6 +293,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
       if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
       if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
+      // Settings › Experimental's Device notes copy is plain text.
+      if (id === "@milagre/shared/device-notes" && !(id in modules)) return require("@milagre/shared/device-notes");
+      // Where this device's messages say they came from (sent-from.ts): a phone in a test.
+      if (base === "sent-from" && !(id in modules)) return { SENT_FROM: "phone" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
       if (base === "all-computers" && !(id in modules))
@@ -314,6 +318,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
       if (base === "split-chats" && !(id in modules))
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
+      // Subchats nest under their parent's row (subchats.ts, subchat-rows.ts); both are pure.
+      if (id === "@milagre/shared/subchats" && !(id in modules)) return require("../packages/shared/src/subchats.ts");
+      if (base === "subchat-rows" && !(id in modules))
+        return load("subchat-rows.ts", { "@milagre/shared/subchats": require("../packages/shared/src/subchats.ts") }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
       // The iPad panel's dragged width, kept on the device; a test keeps the default.
@@ -356,6 +364,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     Date,
     URL,
     TextDecoder,
+    // React Native provides it globally; downloads cancel through it.
+    AbortController,
     fetch: () => {
       throw new Error("Unexpected network request in mobile UI test");
     },
@@ -2847,6 +2857,7 @@ function chatHost({
   localOutbox,
   computers,
   screenWidth = 402,
+  split = phoneSplit,
   contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" },
   contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false },
   now = new Date(2026, 9, 17, 10, 30).getTime(),
@@ -2975,7 +2986,13 @@ function chatHost({
       router.backs = (router.backs ?? 0) + 1;
     },
   };
+  const beside = [];
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "../split-context": { useSplit: () => split, useSplitLayout: () => split },
+    "../split-chats": {
+      ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
+      openBeside: (target) => beside.push(target),
+    },
     "../chat-display-setting": {
       useShowContextSize: () => [contextPreferences.showContextSize],
       useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
@@ -3001,7 +3018,10 @@ function chatHost({
     "../genui/GenerativeUI": { GenerativeUIProvider: "GenerativeUIProvider" },
     // A test can stand in for a host that keeps messages by Chat with globalThis.chatPage.
     "../chat-pages": {
-      useChatPage: (...args) => globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} },
+      useChatPage: (...args) => ({
+        trim() {},
+        ...(globalThis.chatPage?.(...args) ?? { messages: [], hasMore: false, total: 0, loading: false, loadEarlier: async () => {} }),
+      }),
     },
     "@sbaiahmed1/react-native-blur": { LiquidGlassView: "LiquidGlassView" },
     "expo-crypto": { randomUUID: require("node:crypto").randomUUID },
@@ -3161,7 +3181,7 @@ function chatHost({
   };
   const send = () =>
     find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up", "Queue message"].includes(node.props.label)).props.onPress();
-  return { session, sending, params, field, send, render, router, calls, choices, panels, undo };
+  return { session, sending, params, field, send, render, router, calls, choices, panels, undo, beside };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -4269,6 +4289,58 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   listener();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(render()["/next"].branch.number, 248, "foreground resumes PR lookup");
+  react.cleanup();
+});
+
+test("unchanged PR answers and rebuilt targets leave the readers alone", async () => {
+  const react = hookHost();
+  const wait = () => new Promise((resolve) => setImmediate(resolve));
+  let notifies = 0;
+  let subscribed = false;
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      calls.push(method);
+      return method === "worktree:pull-request" ? { number: 7, state: "OPEN" } : [{ number: 8, state: "OPEN" }];
+    },
+  };
+  const status = require("../apps/mobile/src/pr-status.ts");
+  const hooks = load("use-chat-pull-requests.ts", {
+    react: {
+      useCallback: (...args) => react.useCallback(...args),
+      useMemo: (...args) => react.useMemo(...args),
+      useSyncExternalStore: (listen, read) => {
+        if (!subscribed) listen(() => notifies++);
+        subscribed = true;
+        return read();
+      },
+    },
+    "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "./pr-status": status,
+  });
+  // The drawer rebuilds this list on every row change: equal content is the same reads.
+  const targets = () => [{ hostId: "mac", client, targets: ["/a", "/b"].map((path) => ({ path, refs: ["8"] })) }];
+  const render = () => {
+    react.begin();
+    return hooks.useComputerChatPullRequests(targets());
+  };
+  render();
+  react.flush();
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(render().mac["/b"].found["8"].number, 8);
+  assert.equal(calls.length, 4);
+  assert.ok(notifies >= 1 && notifies < 4, `four answers re-render the readers fewer than four times (${notifies})`);
+  const settled = notifies;
+  render();
+  react.flush();
+  await wait();
+  assert.equal(calls.length, 4, "an equal target list does not restart the reads");
+  status.pullRequestsChanged(client);
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(calls.length, 8, "the Mac's change signal reads again");
+  assert.equal(notifies, settled, "the same answers do not re-render anyone");
   react.cleanup();
 });
 
@@ -6105,6 +6177,41 @@ test("an open Chat whose page already holds the sent follow-up shows it once", a
     transcriptMessages(screen).map((message) => message.id),
     [3, 4],
   );
+});
+
+test("a Chat followed at its bottom lets go of its history as new messages arrive, not while scrolled up", async (t) => {
+  const screen = chatHost({ effects: true });
+  screen.params.id = "42";
+  const state = screen.session.snapshot.project.state;
+  state.messagesInChats = true;
+  state.sessions[42] = { id: 42, worktree_id: 1, provider: "codex", status: "Created", summary: { count: 1 } };
+  let page = [{ id: 1, session_id: 42, role: "user", body: "start" }];
+  let trims = 0;
+  globalThis.chatPage = (client, _path, id) =>
+    client && id === 42
+      ? {
+          messages: page,
+          hasMore: false,
+          total: page.length,
+          loading: false,
+          loadEarlier: async () => {},
+          trim: () => trims++,
+        }
+      : undefined;
+  t.after(() => delete globalThis.chatPage);
+  const view = () => find(screen.render(), (node) => node.type === "KeyboardChatScrollView");
+  view();
+  await settle();
+  assert.equal(trims, 0, "opening a Chat trims nothing");
+  page = [...page, { id: 2, session_id: 42, role: "assistant", body: "reply" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a new message at the bottom trims the window");
+  view().props.onScroll({ nativeEvent: { contentOffset: { y: 0 }, contentSize: { height: 5000 }, layoutMeasurement: { height: 600 } } });
+  page = [...page, { id: 3, session_id: 42, role: "assistant", body: "more" }];
+  view();
+  await settle();
+  assert.equal(trims, 1, "a reader scrolled up keeps the history they are reading");
 });
 
 test("the transcript follows new content, also after the agent settings sheet opens", () => {
@@ -11105,6 +11212,7 @@ test("a reply shows the thinking it wrote nothing after, once it waits on a ques
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -11216,6 +11324,7 @@ test("mobile Full detail shows each tool call and the notes between them in the 
       "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
       "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
       "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+      "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
       "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
       "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
       "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -11274,7 +11383,7 @@ test("mobile activity sheet opens the selected call without paging and keeps app
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "../tool-row": { ToolRow: "ToolRow" },
     "../markdown": { Markdown: "Markdown" },
-    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": {
@@ -11379,7 +11488,7 @@ test("mobile tool output retries after reconnect and clears the failed-read cont
     "@milagre/shared/reply-parts": require("@milagre/shared/reply-parts"),
     "../tool-row": { ToolRow: "ToolRow" },
     "../markdown": { Markdown: "Markdown" },
-    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false }) },
+    "../chat-pages": { useChatPage: () => ({ messages: [], loading: false, trim() {} }) },
     "../questions": { Approval: "Approval" },
     "../ui": { CircleButton: "CircleButton", PageScroll: "PageScroll", PillButton: "PillButton" },
     "../session": { useSession: () => session },
@@ -12203,9 +12312,16 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   const react = hookHost();
   const focused = [];
   const saves = [];
+  const resumeSaves = [];
   let refuse = false;
   const client = {
     async call(method, args) {
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "limits:resume-at-reset:save") {
+        resumeSaves.push(args[0]);
+        if (refuse) throw new Error("This computer does not allow changing this setting from a phone.");
+        return { resumeAtReset: args[0] };
+      }
       if (method === "limits:auto-switch:read") return { autoSwitch: false };
       if (method === "limits:auto-switch:save") {
         saves.push(args[0]);
@@ -12244,7 +12360,22 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
   await settle();
   assert.deepEqual(saves, [true]);
   assert.equal(find(render(), (n) => n.props?.title === title).props.selected, true);
+  const resumeTitle = "Continue when the limit resets";
+  const resumeControl = () => find(render(), (n) => n.props?.title === resumeTitle);
+  assert.equal(resumeControl().props.selected, true);
+  resumeControl().props.onPress();
+  assert.equal(resumeControl().props.disabled, true, "the checkbox cannot submit twice while saving");
+  await settle();
+  assert.equal(resumeControl().props.selected, false);
+  resumeControl().props.onPress();
+  await settle();
+  assert.equal(resumeControl().props.selected, true);
+  assert.deepEqual(resumeSaves, [false, true]);
   refuse = true;
+  resumeControl().props.onPress();
+  await settle();
+  assert.equal(resumeControl().props.selected, true, "a refused save preserves the checked value");
+  assert.equal(resumeControl().props.disabled, false);
   find(render(), (n) => n.props?.title === title).props.onPress();
   await settle();
   tree = render();
@@ -12261,6 +12392,12 @@ test("mobile Accounts page shows the Mac's usage-limit auto-switch, saved on the
     find(older(), (n) => n.props?.title === title),
     undefined,
     "an older Mac answers null: no switch",
+  );
+  react.begin();
+  assert.equal(
+    find(older(), (n) => n.props?.title === resumeTitle),
+    undefined,
+    "an older Mac hides continuation too",
   );
 });
 
@@ -12310,6 +12447,236 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     find(render(), (n) => n.props?.title === "Routines"),
     undefined,
   );
+});
+
+test("mobile Experimental shows the Mac's Device notes switch with its token warning, off by default, and saves a tap", async () => {
+  const react = hookHost({ effects: true });
+  const focused = [];
+  const calls = [];
+  let saved = { enabled: false };
+  let failSave = false;
+  let olderHost = false;
+  const client = {
+    async call(method, args) {
+      calls.push([method, args]);
+      if (method === "device-notes:read") {
+        if (olderHost) throw new Error("Unknown command: device-notes:read");
+        return saved;
+      }
+      if (method === "device-notes:save") {
+        if (failSave) throw new Error("Device notes save failed");
+        return (saved = { enabled: args[0] });
+      }
+      return null;
+    },
+  };
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Adds about 100 tokens to every message you send from another device."));
+  toggle().props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["device-notes:save", [true]]));
+  assert.equal(toggle().props.selected, true);
+  failSave = true;
+  toggle().props.onPress();
+  await settle();
+  assert.equal(toggle().props.selected, true, "failed save restores the daemon's value");
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Device notes save failed"));
+  failSave = false;
+  toggle().props.onPress();
+  await settle();
+  assert.equal(toggle().props.selected, false, "retry saves successfully");
+  assert.equal(
+    find(render(), (n) => n.type === "Text" && n.props.children === "Device notes save failed"),
+    undefined,
+  );
+  saved = { enabled: true };
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, true, "returning to the screen reads changes made on desktop");
+  olderHost = true;
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle(), undefined, "an older host hides the unsupported setting");
+});
+
+test("desktop Device notes guards same-render saves and ignores stale initial reads", async () => {
+  const react = hookHost({ effects: true });
+  const initialRead = deferred();
+  const requests = [];
+  let changed;
+  const bridge = {
+    readDeviceNotesEnabled: () => initialRead.promise,
+    onDeviceNotesEnabledChanged: (fn) => {
+      changed = fn;
+      return () => {};
+    },
+    saveDeviceNotesEnabled: (enabled) => {
+      const reply = deferred();
+      requests.push({ enabled, ...reply });
+      return reply.promise;
+    },
+  };
+  const { useDeviceNotesEnabled } = load(
+    "../../desktop/app/src/lib/device-notes.ts",
+    { react, "test-bridge": bridge },
+    '\nconst window = { milagre: require("test-bridge") };',
+  );
+  const render = () => {
+    react.begin();
+    return useDeviceNotesEnabled();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  render();
+  changed({ enabled: true });
+  const setting = render();
+  const pending = setting.save(false);
+  await setting.save(true);
+  assert.equal(requests.length, 1, "same-render calls cannot overlap before the checkbox disables");
+  assert.equal(render().saving, true);
+  assert.equal(render().enabled, true);
+  requests[0].reject(new Error("Device notes save failed"));
+  await pending;
+  assert.equal(render().enabled, true);
+  assert.equal(render().error, "Device notes save failed");
+  const retry = render().save(false);
+  requests[1].resolve({ enabled: false });
+  await retry;
+  initialRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(render().enabled, false, "a delayed initial read cannot replace a later event/save");
+  assert.equal(render().saving, false);
+  assert.equal(render().error, "");
+  const final = render().save(true);
+  const beforeUnmount = render();
+  react.unmount();
+  requests[2].resolve({ enabled: true });
+  await final;
+  assert.equal(render().enabled, beforeUnmount.enabled, "late save reply is ignored after unmount");
+});
+
+test("mobile Device notes serializes taps, retains confirmed values and ignores replies from a previous Mac", async () => {
+  const react = hookHost({ effects: true });
+  let focus;
+  let blur;
+  const requests = [];
+  const makeClient = (name) => ({
+    call(method, args) {
+      if (!method.startsWith("device-notes:")) return Promise.resolve(null);
+      const reply = deferred();
+      requests.push({ name, method, args, ...reply });
+      return reply.promise;
+    },
+  });
+  let client = makeClient("A");
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": {
+      useFocusEffect: (fn) => {
+        focus = fn;
+      },
+      router: { push() {} },
+    },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const refocus = () => {
+    blur?.();
+    render();
+    blur = focus();
+  };
+  refocus();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  const first = toggle();
+  first.props.onPress();
+  first.props.onPress(); // Same render: a state-only guard is too late.
+  toggle().props.onPress();
+  assert.equal(requests.filter((r) => r.method === "device-notes:save").length, 1, "only one write may be pending");
+  assert.equal(toggle().props.disabled, true);
+  assert.equal(toggle().props.selected, false, "pending save retains the confirmed value, like desktop");
+  const firstSave = requests.at(-1);
+  refocus();
+  assert.equal(requests.at(-1), firstSave, "focus cannot race a pending write with an older read");
+  firstSave.reject(new Error("Device notes save failed"));
+  await settle();
+  assert.equal(toggle().props.disabled, false);
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.props?.children === "Device notes save failed"));
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, true, "retry confirms the saved value");
+
+  refocus();
+  const delayedRead = requests.at(-1);
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  delayedRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, false, "a read started before a save cannot overwrite its acknowledgement");
+
+  for (const fail of [false, true]) {
+    toggle().props.onPress();
+    const oldSave = requests.at(-1);
+    client = makeClient(fail ? "C" : "B");
+    refocus();
+    assert.equal(toggle(), undefined, "a new Mac does not display the previous Mac's value");
+    requests.at(-1).resolve({ enabled: false });
+    await settle();
+    toggle().props.onPress();
+    const newSave = requests.at(-1);
+    if (fail) oldSave.reject(new Error("Previous Mac failed"));
+    else oldSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, false);
+    assert.equal(toggle().props.disabled, true, "old replies cannot unlock the new Mac's pending save");
+    assert.equal(
+      find(render(), (n) => n.props?.children === "Previous Mac failed"),
+      undefined,
+    );
+    newSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, true);
+    assert.equal(toggle().props.disabled, false);
+  }
+  toggle().props.onPress();
+  const finalSave = requests.at(-1);
+  blur?.();
+  react.unmount();
+  finalSave.reject(new Error("Unmounted save"));
+  await settle();
 });
 
 test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
@@ -12505,6 +12872,7 @@ test("mobile ChatReply shows the usage-limit card instead of the failed line, wi
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -12562,6 +12930,7 @@ test("mobile ChatReply marks a Delegation and its report with their sender, neve
     "./pr-action-card": { PullRequestActionCard: "PullRequestActionCard" },
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -12607,6 +12976,8 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   const client = {
     async call(method, args) {
       calls.push([method, args]);
+      if (method === "limits:resume-at-reset:read") return { resumeAtReset: true };
+      if (method === "chat:limit-resume" || method === "chat:limit-resume:cancel") return true;
       if (method === "accounts:scope") return snapshot;
       if (method === "chat:limit-switch") {
         if (failSwitch) throw new Error(failSwitch);
@@ -12658,7 +13029,7 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
   react.unmount();
   let tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   await settle();
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(["accounts:scope", ["/work/app", false]]));
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "accounts:scope")), JSON.stringify(["accounts:scope", ["/work/app", false]]));
   tree = render({ limit, sessionId: 4, projectPath: "/work/app" });
   const choices = rows(tree);
   assert.equal(choices.length, 2);
@@ -12710,6 +13081,31 @@ test("mobile usage-limit card lists the other accounts, switches on tap, and off
     button.props.onPress();
     assert.equal(pushed.at(-1), "/accounts");
   }
+  react.unmount();
+  Object.assign(react, hookHost({ effects: true }));
+  const props = { limit, sessionId: 4, projectPath: "/work/app", sourceMessageId: 9, resumeAvailable: true };
+  render(props);
+  await settle();
+  let card = render(props);
+  let resume = find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at"));
+  assert.ok(resume);
+  await resume.props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.find(([method]) => method === "chat:limit-resume")), JSON.stringify(["chat:limit-resume", ["/work/app", 4, 9]]));
+  const pending = { at: limit.resetsAt, sourceMessageId: 9, sendId: "schedule-9" };
+  card = render({ ...props, pending });
+  assert.ok(texts(card).some((text) => text.startsWith("Continues at")));
+  await find(card, (n) => n.type === "PillButton" && n.props.title === "Cancel").props.onPress();
+  await settle();
+  assert.equal(
+    JSON.stringify(calls.find(([method]) => method === "chat:limit-resume:cancel")),
+    JSON.stringify(["chat:limit-resume:cancel", ["/work/app", 4, "schedule-9"]]),
+  );
+  card = render({ ...props, resumeBlocked: true });
+  assert.equal(
+    find(card, (n) => n.type === "PillButton" && n.props.title?.startsWith("Continue at")),
+    undefined,
+  );
 });
 
 test("mobile Appearance Custom theme switch selects Custom on, Milagre Blue off, and shows the editor only while on", () => {
@@ -15868,6 +16264,7 @@ test("mobile ChatReply turns a heartbeat_create step into the Heartbeat set card
     "./linear-issue-card": { LinearIssueCard: "LinearIssueCard" },
     "./advisor-result-card": { AdvisorResultCard: "AdvisorResultCard" },
     "./heartbeat-card": { HeartbeatCard: "HeartbeatCard" },
+    "./computer-use-card": { ComputerUseCard: "ComputerUseCard" },
     "./usage-limit-card": { UsageLimitCard: "UsageLimitCard" },
     "@milagre/shared/usage-limit": require("@milagre/shared/usage-limit"),
     "@milagre/shared/pr-action": require("@milagre/shared/pr-action"),
@@ -16861,6 +17258,10 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   let picker;
   let deleted = false;
   let unrelated = false;
+  let rootCommit = false;
+  let truncatedCommitFiles = false;
+  let legacyCommitFiles = false;
+  let commitFilesError = "";
   let phoneClient = {};
   const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
   const commit = {
@@ -16919,8 +17320,15 @@ test("phone changes choose a comparison branch and keep its base when opening a 
                   commits: request.limit ? [commit] : [],
                   hasMore: false,
                 }
-              : { isRepo: true, base: request.mode === "committed" ? base : null, files: request.mode === "committed" ? [file] : [] },
-          error: "",
+              : {
+                  isRepo: true,
+                  commit: legacyCommitFiles ? undefined : request.commit,
+                  commitParent: rootCommit ? null : "b".repeat(40),
+                  truncated: truncatedCommitFiles,
+                  base: request.mode === "committed" ? base : null,
+                  files: request.mode === "committed" ? [file] : [],
+                },
+          error: method === "git:diff-files" && request.commit ? commitFilesError : "",
           refresh() {},
         };
       },
@@ -16951,17 +17359,66 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   tree = render();
   assert.ok(find(tree, (node) => node.type === CommitCard));
   assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
+  find(tree, (node) => node.type === CommitCard).props.onShowFiles();
+  tree = render();
+  assert.ok(textOf(tree).includes(commit.sha.slice(0, 8)));
+  const commitFiles = find(tree, (node) => node.type?.name === "CommitFiles");
+  const filesTree = commitFiles.type(commitFiles.props);
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files").request.commit, commit.sha);
+  find(filesTree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[1], [file, "committed", null, commit.sha, "b".repeat(40)]);
+  assert.ok(textOf(filesTree).includes("Compared with first parent"));
+  rootCommit = true;
+  truncatedCommitFiles = true;
+  const rootFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(rootFiles).includes("First commit"));
+  assert.ok(textOf(rootFiles).includes("1+ files"));
+  assert.equal(textOf(rootFiles).includes("Compared with first parent"), false);
+  rootCommit = false;
+  truncatedCommitFiles = false;
+  legacyCommitFiles = true;
+  const legacyFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(legacyFiles).includes("needs an update"));
+  assert.equal(
+    find(legacyFiles, (node) => node.type?.name === "ChangeTree"),
+    undefined,
+  );
+  legacyCommitFiles = false;
+  commitFilesError = "Commit was removed";
+  assert.equal(find(commitFiles.type(commitFiles.props), (node) => node.type === "ErrorNotice").props.message, commitFilesError);
+  commitFilesError = "";
+  const { diffTarget } = load("change-tree.tsx", modules);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1", memberId: "project" }, commit.sha).commit, commit.sha);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, null).commitParent, "");
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, "b".repeat(40)).commitParent, "b".repeat(40));
+
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Back to commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
   const cardReact = hookHost();
   const card = load("change-tree.tsx", { ...modules, react: cardReact }, "\nexport { CommitCard };").CommitCard;
   cardReact.begin();
-  let details = card({ commit });
+  let showedFiles = false;
+  let details = card({
+    commit,
+    onShowFiles: () => {
+      showedFiles = true;
+    },
+  });
   find(details, (node) => node.type === "Pressable").props.onPress();
   cardReact.begin();
-  details = card({ commit });
+  details = card({
+    commit,
+    onShowFiles: () => {
+      showedFiles = true;
+    },
+  });
   assert.ok(textOf(details).includes("maria@example.com"));
   assert.ok(textOf(details).includes("Detailed explanation"));
   find(details, (node) => node.props?.accessibilityLabel === "Copy SHA").props.onPress();
   assert.deepEqual(copied, [commit.sha]);
+  find(details, (node) => node.type === "Pressable" && textOf(node) === "Show files in this commit").props.onPress();
+  assert.equal(showedFiles, true);
   assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
   unrelated = true;
   tree = render();
@@ -17115,6 +17572,56 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+test("phone commit diffs preserve their SHA and member scope when reading the patch", () => {
+  const react = hookHost();
+  const calls = [];
+  const client = {};
+  const { DiffView } = load("app/diff.tsx", {
+    react: { ...react, memo: (component) => component },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "react-native": { FlatList: "FlatList", Text: "Text", View: "View" },
+    "expo-router": { Redirect: "Redirect", Stack: "Stack", useLocalSearchParams: () => ({}) },
+    "../display-clock": { useScreenActive: () => true },
+    "../session": { useSession: () => ({ client, snapshot: { project: {} } }) },
+    "../chat-scope": {
+      memberForDiff: (_project, worktreeId, memberId) => {
+        assert.equal(worktreeId, 1);
+        assert.equal(memberId, "member");
+        return { path: "/member/worktree" };
+      },
+    },
+    "../use-rpc": {
+      useRpc: (connection, method, [request]) => {
+        calls.push({ connection, method, request });
+        return { data: { patch: "@@ -1 +1 @@\n-old\n+new\n", binary: false, tooLarge: false } };
+      },
+    },
+    "../diff-rows": { LARGE_DIFF_LINES: 3000, diffRows: () => [{ key: "1" }], wordSegments: () => [] },
+    "../diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "../ui": { ...uiHooks, ErrorNotice: "ErrorNotice", PillButton: "PillButton" },
+    "../theme": { ...themeHooks, fonts: { mono: "monospace" } },
+  });
+  react.begin();
+  const commit = "a".repeat(40);
+  const tree = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit } });
+  assert.equal(calls[0].connection, client);
+  assert.equal(calls[0].method, "git:diff-file");
+  assert.equal(calls[0].request.cwd, "/member/worktree");
+  assert.equal(calls[0].request.commit, commit);
+  assert.equal(calls[0].request.path, "old.txt");
+  assert.ok(textOf(tree.props.ListHeaderComponent).includes("Commit aaaaaaaa"));
+  for (const [commitParent, expected] of [
+    ["", "First commit"],
+    ["b".repeat(40), "Compared with first parent"],
+    [undefined, "Commit changes"],
+  ]) {
+    react.begin();
+    const view = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit, commitParent } });
+    assert.ok(textOf(view.props.ListHeaderComponent).includes(expected));
+  }
 });
 
 test("Chat header promotes only Browser and PR, with working actions and no duplicate overflow entries", () => {
@@ -17340,13 +17847,15 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
     "react-native-reanimated": {
       default: { View: "AnimatedView" },
       cancelAnimation() {},
-      Easing: { linear() {} },
+      Easing: { linear() {}, bezier() {} },
       ReduceMotion: { System: "system" },
       useAnimatedStyle: (callback) => callback(),
       useSharedValue: (initial) => ({ value: initial, get: () => initial, set() {} }),
       withRepeat: (value) => value,
+      withSequence: (...values) => values.at(-1),
       withTiming: (value) => value,
     },
+    "react-native-svg": { __esModule: true, default: "Svg", Circle: "Circle", Path: "Path" },
     "@hugeicons/core-free-icons": { Cancel01Icon: "Cancel01Icon", Mic01Icon: "Mic01Icon" },
     "@milagre/shared/themes": { withAlpha: (color) => color },
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
@@ -17365,7 +17874,9 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
 
   let discards = 0;
   let stops = 0;
-  const recording = DictationCapsule({ phase: "recording", level: { value: 1 }, onDiscard: () => discards++, onStop: () => stops++ });
+  // DictationCapsule picks the control for the phase; render the one it picked.
+  const render = (element) => element.type(element.props);
+  const recording = render(DictationCapsule({ phase: "recording", level: { value: 1 }, download: null, onDiscard: () => discards++, onStop: () => stops++ }));
   // The field is only 44 tall with one line of text, so the capsule has to fit inside it with room at both edges.
   const capsuleHeight = recording.props.style.height;
   const fieldHeight = 44;
@@ -17399,20 +17910,30 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   const haloScale = haloNode.props.style[1].transform[0].scale;
   assert.ok(haloBase * haloScale <= capsuleHeight, `a full-voice halo is ${haloBase * haloScale}px inside a ${capsuleHeight}px capsule`);
 
-  const preparing = DictationCapsule({ phase: "preparing", level: { value: 0 }, onDiscard() {}, onStop() {} });
+  const preparing = render(DictationCapsule({ phase: "preparing", level: { value: 0 }, download: null, onDiscard() {}, onStop() {} }));
   assert.equal(preparing.props.style.height, capsuleHeight, "the capsule is the same width and height in every phase");
   assert.ok(
     find(preparing, (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Preparing the microphone"),
     "no stop before there is anything to stop",
   );
   assert.ok(!find(preparing, (node) => node.props?.accessibilityLabel === "Stop dictation"));
-  const finishing = DictationCapsule({ phase: "transcribing", level: { value: 0 }, onDiscard() {}, onStop() {} });
+  const finishing = render(DictationCapsule({ phase: "transcribing", level: { value: 0 }, download: null, onDiscard() {}, onStop() {} }));
   assert.ok(find(finishing, (node) => node.props?.accessibilityLabel === "Finishing the last words"));
   assert.ok(
     find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"),
     "a take can still be thrown away while it finishes",
   );
   assert.equal(CAPSULE_WIDTH, 72);
+
+  // While the model downloads, the mic keeps its 44 point box: a ring filling around a dropping arrow, which cancels.
+  const downloading = render(DictationCapsule({ phase: "downloading", level: { value: 0 }, download: 0.4, onDiscard: () => discards++, onStop() {} }));
+  assert.equal(downloading.props.accessibilityLabel, "Downloading speech model, 40 percent");
+  const downloadStyle = downloading.props.style({ pressed: false });
+  assert.equal(downloadStyle.width, 44);
+  assert.equal(downloadStyle.height, 44);
+  assert.ok(!find(downloading, (node) => node.props?.accessibilityLabel === "Stop dictation"), "nothing records while the model downloads");
+  downloading.props.onPress();
+  assert.equal(discards, 2);
 });
 
 test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", () => {
@@ -17684,6 +18205,7 @@ test("phone dictation language opens a checked list and saves the chosen languag
           language = next;
         },
       ],
+      useDictationModel: () => ["small", () => {}],
     },
     "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
     "../icons": { Icon: "Icon" },
@@ -17776,9 +18298,13 @@ test("a build without Whisper still offers Apple languages and explains why auto
 test("the phone awaits model installation and keeps the moved model for later dictation", async () => {
   const files = new Map();
   const shared = require("@milagre/shared/dictation");
+  const small = shared.whisperModelFor("phone", "small");
+  const english = shared.whisperModelFor("phone", "small-en");
   let directoryReady = false;
   let downloads = 0;
   let options;
+  let releases = 0;
+  let hold = null;
   class Directory {
     uri = "file:///documents/whisper";
     get exists() {
@@ -17810,14 +18336,19 @@ test("the phone awaits model installation and keeps the moved model for later di
       files.delete(this.uri);
       this.uri = destination.uri; // Expo updates the source object's URI after moving it.
     }
-    static async downloadFileAsync(_url, destination) {
+    static async downloadFileAsync(url, destination, { signal, onProgress }) {
       assert.equal(directoryReady, true, "the destination directory must exist before downloading");
       downloads++;
-      files.set(destination.uri, shared.WHISPER_MODELS.phone.size);
+      const model = shared.WHISPER_MODELS.phone.find((item) => url.endsWith(item.file));
+      onProgress({ bytesWritten: model.size / 2 });
+      if (hold) await hold;
+      if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      files.set(destination.uri, model.size);
       return destination;
     }
   }
-  const { getTranscriber } = load("voice-transcription-whisper.ts", {
+  const { getTranscriber, downloadWhisperModel, cancelWhisperModel, deleteWhisperModel } = load("voice-transcription-whisper.ts", {
+    react: { useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
     "expo-file-system": { Directory, File, Paths: { document: {} } },
     "@milagre/shared/dictation": shared,
     "./voice-transcription-queue": { serializeTranscription: (work) => work() },
@@ -17829,20 +18360,44 @@ test("the phone awaits model installation and keeps the moved model for later di
             options = opts;
             return { promise: Promise.resolve({ result: "Olá, please review the code." }) };
           },
+          release: async () => {
+            releases++;
+          },
         };
       },
     },
   });
   const transcriber = getTranscriber();
-  await transcriber.prepare("auto");
-  await transcriber.prepare("auto");
+  assert.equal(transcriber.missingModel("auto", "small"), "small", "a model that isn't on the phone has to download first");
+  await transcriber.prepare("auto", "small");
+  await transcriber.prepare("auto", "small");
   assert.equal(downloads, 1);
+  assert.equal(transcriber.missingModel("auto", "small"), null);
   const audio = new Int16Array(3200).fill(3000).buffer;
-  assert.equal(await transcriber.transcribe(audio, { language: "auto", terms: ["Milagre"] }), "Olá, please review the code.");
+  assert.equal(await transcriber.transcribe(audio, { language: "auto", terms: ["Milagre"], model: "small" }), "Olá, please review the code.");
   assert.equal(downloads, 1);
   assert.equal(options.language, "auto");
   assert.equal(options.translate, false);
   assert.match(options.prompt, /switch languages/);
+
+  // A cancelled download leaves nothing behind; an English-only model always listens for English.
+  let open;
+  hold = new Promise((resolve) => {
+    open = resolve;
+  });
+  const running = downloadWhisperModel(english.id);
+  await Promise.resolve();
+  cancelWhisperModel(english.id);
+  open();
+  await assert.rejects(running, (error) => error.name === "AbortError");
+  assert.equal(transcriber.missingModel("pt", english.id), english.id);
+  hold = null;
+  await transcriber.transcribe(audio, { language: "pt", terms: [], model: english.id });
+  assert.equal(options.language, "en");
+  assert.equal(releases, 1, "switching models frees the last one");
+
+  await deleteWhisperModel(small.id);
+  assert.equal(transcriber.missingModel("auto", small.id), small.id, "a deleted model downloads again on its next take");
 });
 
 test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {
@@ -18186,5 +18741,113 @@ test("a native transition ending first cancels the queued sidebar arrival", () =
     assert.equal(host.render().open, "left", "a completed arrival cannot dismiss a reopened sidebar");
   } finally {
     host.cleanup();
+  }
+});
+
+test("the actual phone computer-use card receives the delayed first frame, opens the measured viewer and keeps the final image", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const frames = [];
+  const routes = [];
+  const calls = [];
+  let answer = { seq: 0, live: false };
+  const session = { client: { call: async (method, args) => (calls.push([method, args]), answer) } };
+  const { ComputerUseCard } = load("computer-use-card.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Image: "Image", ActivityIndicator: "ActivityIndicator" },
+    "expo-router": { router: { push: (route) => routes.push(route) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "@milagre/shared/desktop-steps": require("../packages/shared/src/desktop-steps.ts"),
+    "@milagre/shared/computer-use": require("../packages/shared/src/computer-use.ts"),
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => session },
+    "./viewer-store": { showImages: (images, index) => frames.push({ images, index }) },
+  });
+  t.after(() => react.unmount());
+  const steps = [{ id: "first", kind: "other", status: "running", title: "Read TextEdit", startedAt: 1000, input: '{"app":"TextEdit"}' }];
+  const render = () => {
+    react.begin();
+    return ComputerUseCard({ steps, chatId: "/p#1" });
+  };
+  assert.equal(find(render(), (node) => node.type === "Pressable").props.disabled, true);
+  await new Promise(setImmediate);
+  answer = { seq: 1, live: true, image: "FIRST", app: "TextEdit", at: 1100, width: 100, height: 80 };
+  steps[0].status = "done";
+  steps[0].endedAt = 1200;
+  render();
+  t.mock.timers.tick(1000);
+  await new Promise(setImmediate);
+  let card = render();
+  assert.equal(find(card, (node) => node.type === "Image").props.source.uri, "data:image/png;base64,FIRST");
+  const button = find(card, (node) => node.type === "Pressable");
+  button.props.ref.current = { measureInWindow: (done) => done(10, 20, 100, 80) };
+  button.props.onPress();
+  assert.deepEqual(routes, ["/viewer"]);
+  assert.equal(frames[0].images[0].source.uri, "data:image/png;base64,FIRST");
+  assert.equal(JSON.stringify(frames[0].images[0].from), JSON.stringify({ x: 10, y: 20, width: 100, height: 80 }));
+  answer = { ...answer, live: false };
+  t.mock.timers.tick(0);
+  await new Promise(setImmediate);
+  card = render();
+  assert.ok(find(card, (node) => node.type === "Image"));
+  assert.equal(
+    find(card, (node) => node.type === "Text" && node.props.children === "Live"),
+    undefined,
+  );
+  assert.equal(calls.length, 3, "one step, no remount, initial/live/final reads");
+});
+
+test("subchat report links keep the parent on wide iPad and switch only the child", () => {
+  const host = chatHost({ split: { ...phoneSplit, widthClass: "wide" }, screenWidth: 1400 });
+  host.params.id = "1";
+  host.session.snapshot.project.state.sessions = { 1: { id: 1, title: "Parent" }, 2: { id: 2, parent: 1 }, 3: { id: 3, parent: 1 } };
+  globalThis.chatPage = () => ({
+    messages: [{ id: 10, session_id: 1, role: "assistant", body: "Done", context: { kind: "delegation-report", from: "/p#2" } }],
+  });
+  host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+  try {
+    const report = () => find(host.render(), (node) => node.type === "ChatReply").props;
+    report().onOpenChat("/p#2");
+    assert.equal(host.router.replaced, undefined, "report keeps parent routed");
+    assert.equal(host.beside.at(-1).chatId, 2);
+    report().onOpenChat("/p#3");
+    assert.equal(host.router.replaced, undefined, "switching children keeps parent routed");
+    assert.equal(host.beside.at(-1).chatId, 3);
+    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    menu.props.onSelect("/p#2");
+    assert.equal(host.beside.at(-1).chatId, 2, "title and report use the same navigation");
+    host.params.id = "2";
+    host.session.snapshot.project.state.messages.push({ id: 11, session_id: 2, role: "assistant", body: "Sibling report", context: null });
+    report().onOpenChat("/p#3");
+    assert.equal(host.router.replaced.params.id, "1", "opening a sibling from the child routes its parent");
+    assert.equal(host.router.replaced.params.beside, "3");
+    report().onOpenChat("/other#2");
+    assert.equal(host.router.replaced.params.projectPath, "/other", "same id in another Project navigates normally");
+  } finally {
+    delete globalThis.chatPage;
+  }
+});
+
+test("subchat report links preserve compact phones and secondary-pane navigation", () => {
+  for (const secondary of [false, true]) {
+    const host = chatHost(secondary ? { pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } } : {});
+    host.params.id = "1";
+    host.session.snapshot.project.state.sessions = { 1: { id: 1 }, 2: { id: 2, parent: 1 } };
+    globalThis.chatPage = () => ({ messages: [{ id: 10, session_id: 1, role: "assistant", body: "Done", context: null }] });
+    host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+    try {
+      find(host.render(), (node) => node.type === "ChatReply").props.onOpenChat("/p#2");
+      if (secondary) {
+        assert.equal(host.router.replaced, undefined);
+        assert.equal(host.beside.at(-1).chatId, 2);
+      } else {
+        assert.equal(host.router.replaced.params.id, "2");
+        assert.equal(host.beside.length, 0);
+      }
+    } finally {
+      delete globalThis.chatPage;
+    }
   }
 });

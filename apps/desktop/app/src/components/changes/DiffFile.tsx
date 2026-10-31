@@ -11,7 +11,7 @@ import type { DiffHunk, DiffLine } from "../../lib/diff-parse";
 import type { PullRequestThread } from "@milagre/shared/pull-request-review";
 import { threadsOnLine, unplacedThreads } from "../../lib/pull-request-view";
 import { highlight, isLanguageReady, loadLanguage } from "../markdown/highlighter";
-import { Counts, StatusBox } from "./ChangesPanel";
+import { Counts, StatusBox } from "./DiffIndicators";
 import { CommentCard, CommentEditor, CommentSlot } from "./DiffComments";
 import type { CommentActions, CommentView, Draft } from "./useDiffComments";
 import { hunksOf, isLarge, type PatchState } from "./useDiffFiles";
@@ -149,7 +149,7 @@ function Unified({
   hunks: DiffHunk[];
   decorations: Map<DiffLine, Decorated>;
   wrap: boolean;
-  commenting: Commenting;
+  commenting?: Commenting;
 }) {
   return (
     <div className="w-max min-w-full">
@@ -157,24 +157,24 @@ function Unified({
         <Fragment key={index}>
           <HunkHeader hunk={hunk} />
           {hunk.lines.map((line, lineIndex) => {
-            const selected = commenting.selected(index, lineIndex);
+            const selected = commenting?.selected(index, lineIndex);
             return (
               <Fragment key={lineIndex}>
                 <div
                   data-diff-row={line.kind}
                   data-selected={selected ? "" : undefined}
-                  onMouseOver={() => commenting.actions.over({ path: commenting.path, hunk: index, line: lineIndex })}
+                  onMouseOver={() => commenting?.actions.over({ path: commenting.path, hunk: index, line: lineIndex })}
                   className={`group/row relative isolate flex min-h-5 ${TINT[line.kind]}`}
                 >
                   <Gutter value={line.oldNumber} />
                   <Gutter value={line.newNumber} />
                   <span className={`w-4 shrink-0 select-none text-center ${MARKER_COLOR[line.kind]}`}>{MARKER[line.kind]}</span>
                   <Text line={line} decoration={decorations.get(line)} wrap={wrap} />
-                  <AddButton commenting={commenting} hunk={index} line={lineIndex} />
+                  {commenting && <AddButton commenting={commenting} hunk={index} line={lineIndex} />}
                   {selected && <Selected />}
                 </div>
-                {commenting.threads(line)}
-                {commenting.slot(index, lineIndex)}
+                {commenting?.threads(line)}
+                {commenting?.slot(index, lineIndex)}
               </Fragment>
             );
           })}
@@ -195,31 +195,31 @@ function Half({
   line?: DiffLine;
   side: "left" | "right";
   decoration?: Decorated;
-  commenting: Commenting;
+  commenting?: Commenting;
   hunk: number;
   index: number;
 }) {
   const border = side === "left" ? "border-r border-line" : "";
   if (!line) return <div data-diff-filler className={`min-h-5 bg-inset ${border}`} />;
   const column = side === "left" ? "old" : "new";
-  const selected = commenting.selected(hunk, index, column);
+  const selected = commenting?.selected(hunk, index, column);
   return (
     <div
       data-diff-cell={side}
       data-selected={selected ? "" : undefined}
-      onMouseOver={() => commenting.actions.over({ path: commenting.path, hunk, line: index, side: column })}
+      onMouseOver={() => commenting?.actions.over({ path: commenting.path, hunk, line: index, side: column })}
       className={`group/row relative isolate flex min-h-5 min-w-0 ${TINT[line.kind]} ${border}`}
     >
       <Gutter value={side === "left" ? line.oldNumber : line.newNumber} />
       <span className={`w-4 shrink-0 select-none text-center ${MARKER_COLOR[line.kind]}`}>{MARKER[line.kind]}</span>
       <Text line={line} decoration={decoration} wrap />
-      <AddButton commenting={commenting} hunk={hunk} line={index} side={column} />
+      {commenting && <AddButton commenting={commenting} hunk={hunk} line={index} side={column} />}
       {selected && <Selected />}
     </div>
   );
 }
 
-function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorations: Map<DiffLine, Decorated>; commenting: Commenting }) {
+function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorations: Map<DiffLine, Decorated>; commenting?: Commenting }) {
   return (
     // Two equal columns that always wrap: sized to the longest line, a narrow window pushed the new side off screen.
     <div className="grid w-full grid-cols-2">
@@ -233,9 +233,9 @@ function Split({ hunks, decorations, commenting }: { hunks: DiffHunk[]; decorati
             {splitRows(hunk).map((row, rowIndex) => {
               const left = row.left && indexes.get(row.left);
               const right = row.right && indexes.get(row.right);
-              const slots = [left, right !== left ? right : undefined].map((line) => (line === undefined ? null : commenting.slot(index, line)));
+              const slots = [left, right !== left ? right : undefined].map((line) => (line === undefined ? null : commenting?.slot(index, line)));
               // A context row is the same line in both halves: its threads come once.
-              const threads = [row.left, row.right !== row.left ? row.right : undefined].map((line) => (line ? commenting.threads(line) : null));
+              const threads = [row.left, row.right !== row.left ? row.right : undefined].map((line) => (line ? commenting?.threads(line) : null));
               return (
                 <Fragment key={rowIndex}>
                   <Half line={row.left} side="left" decoration={row.left && decorations.get(row.left)} commenting={commenting} hunk={index} index={left ?? 0} />
@@ -283,13 +283,18 @@ function Message({ children, action }: { children: ReactNode; action?: ReactNode
   );
 }
 
+const NO_COMMENTS: CommentView[] = [];
+type CommentProps =
+  | { readOnly: true; comments?: never; draft?: never; draftText?: never; actions?: never }
+  | { readOnly?: false; comments: CommentView[]; draft: Draft | null; draftText: MutableRefObject<string>; actions: CommentActions };
+
 export const DiffFile = memo(function DiffFile({
   file,
   patch,
   layout,
   wrap,
-  comments,
-  draft,
+  comments = NO_COMMENTS,
+  draft = null,
   draftText,
   actions,
   collapsed,
@@ -303,11 +308,6 @@ export const DiffFile = memo(function DiffFile({
   patch: PatchState | undefined;
   layout: DiffLayout;
   wrap: boolean;
-  /** This file's comments and, when it is the one being commented on, the selection; all stable between unrelated changes. */
-  comments: CommentView[];
-  draft: Draft | null;
-  draftText: MutableRefObject<string>;
-  actions: CommentActions;
   collapsed: boolean;
   onToggle: (path: string) => void;
   onVisible: (file: DiffFileEntry) => void;
@@ -315,7 +315,7 @@ export const DiffFile = memo(function DiffFile({
   /** A PR's review threads on this file, drawn by `renderThreads` (stable) under their lines. */
   threads?: PullRequestThread[];
   renderThreads?: (threads: PullRequestThread[]) => ReactNode;
-}) {
+} & CommentProps) {
   const ref = useRef<HTMLElement>(null);
   const [, setLoadedCount] = useState(0);
   const language = resolveCodeLanguage(extensionOf(file.path));
@@ -396,58 +396,61 @@ export const DiffFile = memo(function DiffFile({
   }
   const lines = useMemo(() => hunks.flatMap((hunk) => hunk.lines), [hunks]);
   const looseThreads = useMemo(() => (threads?.length && hunks.length ? unplacedThreads(threads, lines) : []), [threads, lines, hunks.length]);
-  const commenting: Commenting = {
-    path: file.path,
-    actions,
-    // oxlint-disable-next-line react/no-unstable-nested-components -- render callback for the rows, not a component
-    threads: (line) => {
-      if (!threads?.length || !renderThreads) return null;
-      const found = threadsOnLine(threads, line);
-      return found.length ? <CommentSlot>{renderThreads(found)}</CommentSlot> : null;
-    },
-    selected: (h, line, side) => draft !== null && draft.hunk === h && line >= lo && line <= hi && draft.side === side,
-    // oxlint-disable-next-line react/no-unstable-nested-components -- slot is a render callback invoked by the diff library, not a component
-    slot: (h, line) => {
-      const key = `${h}:${line}`;
-      const cards = (placed.get(key) ?? []).filter((comment) => comment.id !== draft?.editing);
-      const editing = editorAt === key && draft;
-      if (!cards.length && !editing) return null;
-      return (
-        <CommentSlot>
-          {cards.map((comment) => (
-            <CommentCard
-              key={comment.id}
-              comment={comment}
-              onDelete={() => actions.remove(comment.id)}
-              onEdit={() => {
-                const found = locateComment(comment, hunks);
-                if (found) actions.edit(comment, found.hunk, found.lines, layout === "split" ? comment.side : undefined);
-              }}
-            />
-          ))}
-          {editing && (
-            <CommentEditor
-              text={draftText}
-              onCancel={actions.cancel}
-              onSave={(text) => {
-                const target = hunks[editing.hunk];
-                if (target) actions.save(selectionFromRows(target, editing.anchor, editing.head, editing.side), file.path, text, editing.editing);
-              }}
-              onAddToReview={
-                actions.addToReview && !editing.editing
-                  ? (text) => {
+  const commenting: Commenting | undefined =
+    actions && draftText
+      ? {
+          path: file.path,
+          actions,
+          // oxlint-disable-next-line react/no-unstable-nested-components -- render callback for the rows, not a component
+          threads: (line) => {
+            if (!threads?.length || !renderThreads) return null;
+            const found = threadsOnLine(threads, line);
+            return found.length ? <CommentSlot>{renderThreads(found)}</CommentSlot> : null;
+          },
+          selected: (h, line, side) => draft !== null && draft.hunk === h && line >= lo && line <= hi && draft.side === side,
+          // oxlint-disable-next-line react/no-unstable-nested-components -- slot is a render callback invoked by the diff library, not a component
+          slot: (h, line) => {
+            const key = `${h}:${line}`;
+            const cards = (placed.get(key) ?? []).filter((comment) => comment.id !== draft?.editing);
+            const editing = editorAt === key && draft;
+            if (!cards.length && !editing) return null;
+            return (
+              <CommentSlot>
+                {cards.map((comment) => (
+                  <CommentCard
+                    key={comment.id}
+                    comment={comment}
+                    onDelete={() => actions.remove(comment.id)}
+                    onEdit={() => {
+                      const found = locateComment(comment, hunks);
+                      if (found) actions.edit(comment, found.hunk, found.lines, layout === "split" ? comment.side : undefined);
+                    }}
+                  />
+                ))}
+                {editing && (
+                  <CommentEditor
+                    text={draftText}
+                    onCancel={actions.cancel}
+                    onSave={(text) => {
                       const target = hunks[editing.hunk];
-                      const selection = target && selectionFromRows(target, editing.anchor, editing.head, editing.side);
-                      if (selection) actions.addToReview?.(selection, file.path, text);
+                      if (target) actions.save(selectionFromRows(target, editing.anchor, editing.head, editing.side), file.path, text, editing.editing);
+                    }}
+                    onAddToReview={
+                      actions.addToReview && !editing.editing
+                        ? (text) => {
+                            const target = hunks[editing.hunk];
+                            const selection = target && selectionFromRows(target, editing.anchor, editing.head, editing.side);
+                            if (selection) actions.addToReview?.(selection, file.path, text);
+                          }
+                        : undefined
                     }
-                  : undefined
-              }
-            />
-          )}
-        </CommentSlot>
-      );
-    },
-  };
+                  />
+                )}
+              </CommentSlot>
+            );
+          },
+        }
+      : undefined;
 
   let body: ReactNode;
   if (file.binary) body = <Message>Binary file</Message>;
@@ -484,7 +487,7 @@ export const DiffFile = memo(function DiffFile({
         {stale.length > 0 && (
           <CommentSlot>
             {stale.map((comment) => (
-              <CommentCard key={comment.id} comment={comment} onDelete={() => actions.remove(comment.id)} />
+              <CommentCard key={comment.id} comment={comment} onDelete={() => actions?.remove(comment.id)} />
             ))}
           </CommentSlot>
         )}

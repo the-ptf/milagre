@@ -19,6 +19,7 @@
     "src/model-copy.ts",
     "src/provider-logos.ts",
     "src/reply-parts.ts",
+    "src/desktop-steps.ts",
     "src/streaming-markdown.ts",
     "src/streaming-blocks.ts",
     "src/markdown-fence.ts",
@@ -40,6 +41,7 @@
     "src/use-provider-updates.ts",
     "src/linear.ts",
     "src/chat-row.ts",
+    "src/subchats.ts",
     "src/chat-display.ts",
     "src/canvas.ts",
     "src/simulator.ts",
@@ -191,6 +193,10 @@
       "types": "./src/done.d.mts",
       "default": "./src/done.mjs"
     },
+    "./device-notes": {
+      "types": "./src/device-notes.d.mts",
+      "default": "./src/device-notes.mjs"
+    },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"
@@ -307,6 +313,7 @@
       "default": "./src/reconcile.mjs"
     },
     "./reply-parts": "./src/reply-parts.ts",
+    "./desktop-steps": "./src/desktop-steps.ts",
     "./streaming-markdown": "./src/streaming-markdown.ts",
     "./streaming-blocks": "./src/streaming-blocks.ts",
     "./markdown-fence": "./src/markdown-fence.ts",
@@ -389,6 +396,7 @@
     "./use-task-output": "./src/use-task-output.ts",
     "./themes": "./src/themes/index.ts",
     "./chat-row": "./src/chat-row.ts",
+    "./subchats": "./src/subchats.ts",
     "./chats-home": {
       "types": "./src/chats-home.d.mts",
       "default": "./src/chats-home.mjs"
@@ -446,7 +454,11 @@
       "types": "./src/outbox.d.mts",
       "default": "./src/outbox.mjs"
     },
-    "./outbox-delivery": "./src/outbox-delivery.ts"
+    "./outbox-delivery": "./src/outbox-delivery.ts",
+    "./design-preview": {
+      "types": "./src/design-preview.d.mts",
+      "default": "./src/design-preview.mjs"
+    }
   },
   "scripts": {
     "test": "node --test src/*.test.ts src/*.test.mjs",
