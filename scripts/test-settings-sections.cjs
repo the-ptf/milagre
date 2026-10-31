@@ -288,6 +288,7 @@ async function browserChecks() {
     );
     await evaluate(`window.holdDeviceNotesSave = true; ${deviceNotes}.click()`);
     await waitFor(`${deviceNotes}.disabled && typeof window.finishDeviceNotesSave === "function"`);
+    assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "false", "pending save retains the confirmed value, like mobile");
     await evaluate(`${deviceNotes}.click()`);
     assert.deepEqual(await evaluate(`window.deviceNotesSaves`), [true], "pending saves cannot be repeated");
     await evaluate(`window.holdDeviceNotesSave = false; window.finishDeviceNotesSave()`);

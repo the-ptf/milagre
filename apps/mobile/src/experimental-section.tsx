@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useFloatingInbox, useFloatingInboxActivity } from "./floating-inbox-setting";
 import { useSession } from "./session";
+import type { Client } from "./client";
 import { Row } from "./settings-list";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { Toggle, useStyles } from "./ui";
@@ -27,6 +28,23 @@ export function ExperimentalSection() {
   // Device notes, also kept by the Mac (its agents get the notes); null on a Mac without them.
   const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
   const [deviceNotesError, setDeviceNotesError] = useState("");
+  const [deviceNotesSaving, setDeviceNotesSaving] = useState(false);
+  const [deviceNotesClient, setDeviceNotesClient] = useState(session.client);
+  if (deviceNotesClient !== session.client) {
+    setDeviceNotesClient(session.client);
+    setDeviceNotes(null);
+    setDeviceNotesError("");
+    setDeviceNotesSaving(false);
+  }
+  // Keep a pending write across blur/focus, but never apply its reply to a different connection.
+  const deviceNotesScope = useRef<{ client: Client; saving: boolean; revision: number } | null>(null);
+  useEffect(() => {
+    const client = session.client;
+    deviceNotesScope.current = client ? { client, saving: false, revision: 0 } : null;
+    return () => {
+      deviceNotesScope.current = null;
+    };
+  }, [session.client]);
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
@@ -44,10 +62,15 @@ export function ExperimentalSection() {
         (value) => live && setComputerUse(value ? value.enabled === true : null),
         () => live && setComputerUse(null),
       );
-      client.call<{ enabled: boolean } | null>("device-notes:read", []).then(
-        (value) => live && setDeviceNotes(value ? value.enabled === true : null),
-        () => live && setDeviceNotes(null),
-      );
+      const scope = deviceNotesScope.current;
+      if (scope && scope.client === client && !scope.saving) {
+        const revision = ++scope.revision;
+        const current = () => live && deviceNotesScope.current === scope && scope.revision === revision;
+        client.call<{ enabled: boolean } | null>("device-notes:read", []).then(
+          (value) => current() && setDeviceNotes(value ? value.enabled === true : null),
+          () => current() && setDeviceNotes(null),
+        );
+      }
       return () => {
         live = false;
       };
@@ -79,21 +102,31 @@ export function ExperimentalSection() {
           <Text style={[styles.caption, { paddingBottom: 12 }]}>Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</Text>
         </View>
       )}
-      {session.client && deviceNotes !== null && (
+      {session.client && deviceNotesClient === session.client && deviceNotes !== null && (
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle
             title={DEVICE_NOTES_LABEL}
             selected={deviceNotes}
+            disabled={deviceNotesSaving}
             onPress={() => {
-              const client = session.client;
-              if (!client) return;
+              const scope = deviceNotesScope.current;
+              if (!scope || scope.client !== session.client || scope.saving) return;
+              scope.saving = true;
+              ++scope.revision; // A read started before this write must not replace its acknowledgement.
               const next = !deviceNotes;
-              setDeviceNotes(next);
+              setDeviceNotesSaving(true);
               setDeviceNotesError("");
-              client.call<{ enabled: boolean }>("device-notes:save", [next]).then(
-                (value) => setDeviceNotes(value.enabled === true),
+              scope.client.call<{ enabled: boolean }>("device-notes:save", [next]).then(
+                (value) => {
+                  if (deviceNotesScope.current !== scope) return;
+                  scope.saving = false;
+                  setDeviceNotesSaving(false);
+                  setDeviceNotes(value.enabled === true);
+                },
                 (error: Error) => {
-                  setDeviceNotes(!next);
+                  if (deviceNotesScope.current !== scope) return;
+                  scope.saving = false;
+                  setDeviceNotesSaving(false);
                   setDeviceNotesError(error.message || "Could not change this setting.");
                 },
               );

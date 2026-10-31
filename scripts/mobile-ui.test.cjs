@@ -12319,7 +12319,7 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
 });
 
 test("mobile Experimental shows the Mac's Device notes switch with its token warning, off by default, and saves a tap", async () => {
-  const react = hookHost();
+  const react = hookHost({ effects: true });
   const focused = [];
   const calls = [];
   let saved = { enabled: false };
@@ -12386,6 +12386,166 @@ test("mobile Experimental shows the Mac's Device notes switch with its token war
   for (const effect of focused.splice(0)) effect();
   await settle();
   assert.equal(toggle(), undefined, "an older host hides the unsupported setting");
+});
+
+test("desktop Device notes guards same-render saves and ignores stale initial reads", async () => {
+  const react = hookHost({ effects: true });
+  const initialRead = deferred();
+  const requests = [];
+  let changed;
+  const bridge = {
+    readDeviceNotesEnabled: () => initialRead.promise,
+    onDeviceNotesEnabledChanged: (fn) => {
+      changed = fn;
+      return () => {};
+    },
+    saveDeviceNotesEnabled: (enabled) => {
+      const reply = deferred();
+      requests.push({ enabled, ...reply });
+      return reply.promise;
+    },
+  };
+  const { useDeviceNotesEnabled } = load(
+    "../../desktop/app/src/lib/device-notes.ts",
+    { react, "test-bridge": bridge },
+    '\nconst window = { milagre: require("test-bridge") };',
+  );
+  const render = () => {
+    react.begin();
+    return useDeviceNotesEnabled();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  render();
+  changed({ enabled: true });
+  const setting = render();
+  const pending = setting.save(false);
+  await setting.save(true);
+  assert.equal(requests.length, 1, "same-render calls cannot overlap before the checkbox disables");
+  assert.equal(render().saving, true);
+  assert.equal(render().enabled, true);
+  requests[0].reject(new Error("Device notes save failed"));
+  await pending;
+  assert.equal(render().enabled, true);
+  assert.equal(render().error, "Device notes save failed");
+  const retry = render().save(false);
+  requests[1].resolve({ enabled: false });
+  await retry;
+  initialRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(render().enabled, false, "a delayed initial read cannot replace a later event/save");
+  assert.equal(render().saving, false);
+  assert.equal(render().error, "");
+  const final = render().save(true);
+  const beforeUnmount = render();
+  react.unmount();
+  requests[2].resolve({ enabled: true });
+  await final;
+  assert.equal(render().enabled, beforeUnmount.enabled, "late save reply is ignored after unmount");
+});
+
+test("mobile Device notes serializes taps, retains confirmed values and ignores replies from a previous Mac", async () => {
+  const react = hookHost({ effects: true });
+  let focus;
+  let blur;
+  const requests = [];
+  const makeClient = (name) => ({
+    call(method, args) {
+      if (!method.startsWith("device-notes:")) return Promise.resolve(null);
+      const reply = deferred();
+      requests.push({ name, method, args, ...reply });
+      return reply.promise;
+    },
+  });
+  let client = makeClient("A");
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": {
+      useFocusEffect: (fn) => {
+        focus = fn;
+      },
+      router: { push() {} },
+    },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const refocus = () => {
+    blur?.();
+    render();
+    blur = focus();
+  };
+  refocus();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  const first = toggle();
+  first.props.onPress();
+  first.props.onPress(); // Same render: a state-only guard is too late.
+  toggle().props.onPress();
+  assert.equal(requests.filter((r) => r.method === "device-notes:save").length, 1, "only one write may be pending");
+  assert.equal(toggle().props.disabled, true);
+  assert.equal(toggle().props.selected, false, "pending save retains the confirmed value, like desktop");
+  const firstSave = requests.at(-1);
+  refocus();
+  assert.equal(requests.at(-1), firstSave, "focus cannot race a pending write with an older read");
+  firstSave.reject(new Error("Device notes save failed"));
+  await settle();
+  assert.equal(toggle().props.disabled, false);
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.props?.children === "Device notes save failed"));
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, true, "retry confirms the saved value");
+
+  refocus();
+  const delayedRead = requests.at(-1);
+  toggle().props.onPress();
+  requests.at(-1).resolve({ enabled: false });
+  await settle();
+  delayedRead.resolve({ enabled: true });
+  await settle();
+  assert.equal(toggle().props.selected, false, "a read started before a save cannot overwrite its acknowledgement");
+
+  for (const fail of [false, true]) {
+    toggle().props.onPress();
+    const oldSave = requests.at(-1);
+    client = makeClient(fail ? "C" : "B");
+    refocus();
+    assert.equal(toggle(), undefined, "a new Mac does not display the previous Mac's value");
+    requests.at(-1).resolve({ enabled: false });
+    await settle();
+    toggle().props.onPress();
+    const newSave = requests.at(-1);
+    if (fail) oldSave.reject(new Error("Previous Mac failed"));
+    else oldSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, false);
+    assert.equal(toggle().props.disabled, true, "old replies cannot unlock the new Mac's pending save");
+    assert.equal(
+      find(render(), (n) => n.props?.children === "Previous Mac failed"),
+      undefined,
+    );
+    newSave.resolve({ enabled: true });
+    await settle();
+    assert.equal(toggle().props.selected, true);
+    assert.equal(toggle().props.disabled, false);
+  }
+  toggle().props.onPress();
+  const finalSave = requests.at(-1);
+  blur?.();
+  react.unmount();
+  finalSave.reject(new Error("Unmounted save"));
+  await settle();
 });
 
 test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {
