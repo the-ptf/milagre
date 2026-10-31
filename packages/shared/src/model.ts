@@ -668,6 +668,9 @@ export interface ArtifactRef {
   title: string;
   /** Older transcript entries have no format; resolve them through the host's catalog. */
   format?: "design" | "html";
+  /** An immutable HTML reply displayed in the transcript, independent of the live Artifact page. */
+  inline?: boolean;
+  height?: number;
   /** The part of the app a design belongs to; the canvas lays out one row per group. */
   group?: string;
 }
@@ -716,7 +719,7 @@ export interface ChatStep {
   /** For an artifact step, the design it showed. */
   artifact?: ArtifactRef;
   /** For an artifact step, the Milagre tool it called: the Designs canvas opens when a design tool starts. */
-  tool?: "design_show" | "design_apply" | "artifact_show";
+  tool?: "design_show" | "design_apply" | "artifact_show" | "html_render";
   /** For an artifact step a subagent made, the subagent: the id of the Agent call that started it (Subagent.id). */
   agent?: string;
   /** For a heartbeat_create step, the Routine it set (the tool result's first line names it), so the card can stop it. */

@@ -80,7 +80,10 @@ function createLocalMcpServer({ authenticate, toolsFor, internalConnection }) {
       } finally {
         chunks.length = 0;
       }
-      const designCall = !Array.isArray(message) && message?.method === "tools/call" && ["design_show", "design_apply"].includes(message?.params?.name);
+      const designCall =
+        !Array.isArray(message) &&
+        message?.method === "tools/call" &&
+        ["design_show", "design_apply", "html_preview", "html_render"].includes(message?.params?.name);
       if (bytes > MAX_BODY && !designCall) return tooLarge(MAX_BODY);
       if (!message || Array.isArray(message) || message.jsonrpc !== "2.0" || typeof message.method !== "string") return reject(400);
       if (message.id === undefined) {

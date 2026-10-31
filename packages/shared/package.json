@@ -67,6 +67,10 @@
   ],
   "type": "module",
   "exports": {
+    "./html-render": {
+      "types": "./src/html-render.d.mts",
+      "default": "./src/html-render.mjs"
+    },
     "./after-paint": "./src/after-paint.ts",
     "./computer-use": "./src/computer-use.ts",
     "./tool-activity": {

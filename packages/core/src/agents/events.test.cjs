@@ -21,7 +21,8 @@ test("the instructions always carry the Designs paragraph next to the explanator
   const instructions = milagreInstructions(true, "Project context");
   assert.match(instructions, /Designs: when the user asks to see a UI, screen, mockup or visual design, create an editable document with milagre design_show/);
   assert.match(instructions, /design_read|design_apply|bundled design skill/);
-  assert.match(instructions, /Artifacts: when the user wants a page explaining something/);
+  assert.match(instructions, /Artifacts: use milagre artifact_show for a standalone HTML page/);
+  assert.match(instructions, /Inline visuals in replies: check the HTML with html_preview at 720 and 340 widths, then show it with html_render/);
   assert.doesNotMatch(instructions, /Designs are off|when Designs is off/);
   assert.match(instructions, /Project context/);
 });

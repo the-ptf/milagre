@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.cjs", "scripts/*.sh", "scripts/site-demo/*.cjs"],
+      "entry": ["scripts/*.cjs", "scripts/*.sh", "scripts/site-demo/*.cjs", "scripts/html-eval/*.cjs"],
       "project": ["scripts/**"],
       "ignoreDependencies": ["expo", "expo-router", "vite", "app-builder-lib", "builder-util", "expo-device-hub"],
       "ignore": ["scripts/fixtures/mobile-prompt-skills.tsx"]

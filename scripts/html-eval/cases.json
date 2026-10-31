@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "revenue-goal",
+      "title": "Receita versus meta",
+      "category": "bar-chart",
+      "prompt": "Compare visualmente receita e meta do trimestre: Jan receita 40 meta 50; Fev 65 meta 60; Mar 90 meta 80, tudo em R$ mil. Mostre onde ficamos acima ou abaixo e permita alternar valores e percentual da meta.",
+      "expected": [
+        "Receita total R$195 mil; meta total R$190 mil; diferença +R$5 mil; atingimento total 102,631578…%.",
+        "Janeiro: 40/50=80%, diferença −R$10 mil ou −20 pontos percentuais.",
+        "Fevereiro: 65/60=108,333333…%, diferença +R$5 mil ou +8,333333… pontos percentuais.",
+        "Março: 90/80=112,5%, diferença +R$10 mil ou +12,5 pontos percentuais.",
+        "Arredondamentos identificáveis até uma casa decimal são aceitáveis; unidades não podem confundir percentual com pontos percentuais."
+      ],
+      "interactions": ["Alternar valores para percentual e voltar; conferir números, legendas e estado selecionado."]
+    },
+    {
+      "id": "approval-flow",
+      "title": "Fluxo de aprovação",
+      "category": "flow",
+      "prompt": "Explique visualmente nosso fluxo de aprovação: Pedido -> análise; valor até R$500 vai ao gestor, acima vai ao financeiro; aprovado segue para pagamento, recusado volta para correção. Quero entender os caminhos no celular.",
+      "expected": [
+        "Pedido passa por análise; valor menor ou igual a R$500 segue ao gestor; acima de R$500 segue ao financeiro.",
+        "Tanto gestor quanto financeiro podem aprovar para pagamento ou recusar para correção.",
+        "Correção retorna ao pedido/análise; não significa pagamento ou encerramento definitivo."
+      ],
+      "interactions": [
+        "Se houver controles de valor/resultado, examinar as quatro combinações gestor/financeiro × aprovado/recusado.",
+        "Se houver entrada de valor, verificar R$500 e R$501; um fluxo estático correto também atende ao pedido original."
+      ]
+    },
+    {
+      "id": "monthly-cost",
+      "title": "Calculadora de custo mensal",
+      "category": "calculator",
+      "prompt": "Faça uma calculadora de custo mensal: R$49 de base mais R$12 por usuário. Deixe escolher de 1 a 50 usuários e compare com plano fixo de R$299. Mostre quando o fixo fica mais barato.",
+      "expected": [
+        "Custo variável C(n)=49+12n, n inteiro de1 a50; plano fixo R$299.",
+        "n=1 → R$61; n=20 → R$289; n=21 → R$301; n=50 → R$649.",
+        "Fixo é mais barato para n≥21; variável é mais barato para n≤20; não há empate para n inteiro.",
+        "Economia mensal em n=1/20/21/50: R$238/R$10/R$2/R$350; se houver economia anual, multiplicar por12."
+      ],
+      "interactions": [
+        "Selecionar1,20,21,50; conferir preço, recomendação, gráfico e economia após cada mudança.",
+        "Tentar selecionar20 e21 por toque; registrar precisão, acesso por teclado e limites do controle."
+      ]
+    },
+    {
+      "id": "signed-long-labels",
+      "title": "Variações com nomes longos",
+      "category": "signed-chart",
+      "prompt": "Compare em um gráfico a variação de resultado por área, em R$ mil: Atendimento a clientes internacionais e parceiros = -18; Infraestrutura e confiabilidade da plataforma = 0; Produtos para pequenas e médias empresas = 32; Pesquisa aplicada e novos negócios = -7; Operações e distribuição regional = 13. Quero identificar ganhos, perdas e o saldo conjunto.",
+      "expected": [
+        "Cinco categorias preservadas e identificáveis; valores −18,0,+32,−7,+13 em R$ mil.",
+        "Saldo total +R$20 mil; ganhos +R$45 mil; perdas −R$25 mil.",
+        "Zero não deve parecer valor ausente nem negativo; representação distingue ambos os lados do zero.",
+        "Rótulos completos permanecem acessíveis, inclusive se houver abreviação visual."
+      ],
+      "interactions": [
+        "Ler nomes e sinais nas duas larguras; conferir como o zero aparece.",
+        "Se houver legenda interativa ou detalhes, ativar e retornar ao estado inicial."
+      ]
+    },
+    {
+      "id": "orders-table",
+      "title": "Tabela de pedidos",
+      "category": "data-table",
+      "prompt": "Monte uma tabela para consultar estes pedidos. Colunas: código, cliente, região, status e valor em reais. P01, Aurora Pesquisa e Desenvolvimento, Sul, Pago, 1200; P02, Associação Cultural Caminhos do Mar, Norte, Pendente, 85; P03, Mercado Vila Nova, Sul, Pago, 250; P04, Oficina Horizonte, Leste, Cancelado, 990; P05, Cooperativa de Artesãos do Vale, Norte, Pendente, 1500; P06, Clínica Boa Vista, Oeste, Pago, 75; P07, Biblioteca Comunitária Sementes, Leste, Pendente, 400; P08, Escola Ponte do Saber, Oeste, Cancelado, 60. Preciso ordenar por valor e filtrar por status, vendo quantidade e soma dos pedidos exibidos.",
+      "expected": [
+        "Todos:8 pedidos, soma R$4560; Pago:3 pedidos, R$1525; Pendente:3 pedidos, R$1985; Cancelado:2 pedidos, R$1050.",
+        "Ordem crescente de valor: P08,P06,P02,P03,P07,P04,P01,P05; decrescente é a ordem inversa.",
+        "Pendente crescente: P02,P07,P05; Pago crescente: P06,P03,P01; Cancelado crescente: P08,P04.",
+        "Códigos, nomes, regiões e status não devem trocar de linha ao ordenar."
+      ],
+      "interactions": [
+        "Ordenar crescente e decrescente; filtrar cada status e voltar a todos.",
+        "Combinar filtro Pendente com ordem crescente; conferir contagem, soma e associação das células.",
+        "No celular, acessar todas as colunas sem perder conteúdo; rolagem horizontal confinada à tabela é aceitável se evidente e utilizável."
+      ]
+    },
+    {
+      "id": "release-timeline",
+      "title": "Cronograma com dependências",
+      "category": "timeline",
+      "prompt": "Organize uma linha do tempo do lançamento de novembro de 2026: Pesquisa de 02 a 06/11; Protótipo de 05 a 10/11; Revisão de acessibilidade de 11 a 13/11; Piloto com clientes de 16 a 20/11; Ajustes finais de 19 a 24/11; Lançamento em 25/11. O piloto só começa depois da revisão; o lançamento só acontece depois dos ajustes. Quero ver o que se sobrepõe e entender a sequência pelo celular.",
+      "expected": [
+        "Seis etapas com datas preservadas; novembro de2026.",
+        "Pesquisa e Protótipo se sobrepõem de05 a06/11; Piloto e Ajustes finais se sobrepõem de19 a20/11.",
+        "Revisão termina13/11 antes de Piloto iniciar16/11; Ajustes terminam24/11 antes de Lançamento25/11.",
+        "Lançamento é marco em25/11, não intervalo prolongado; não inventar datas ou dependências adicionais como fatos."
+      ],
+      "interactions": [
+        "Ler todas as etapas e sobreposições em375px e720px.",
+        "Se houver expansão ou seleção de etapa, conferir datas mostradas e voltar ao estado inicial."
+      ]
+    },
+    {
+      "id": "expandable-checklist",
+      "title": "Checklist com detalhes expansíveis",
+      "category": "dynamic-height",
+      "prompt": "Crie um checklist para preparar uma oficina com quatro etapas. Local: confirmar endereço, capacidade para 20 pessoas, acesso sem escadas, banheiro acessível, iluminação, tomadas e rota de saída. Materiais: 20 cadernos, 20 canetas, projetor, adaptador HDMI, extensão e cópia offline dos slides. Comunicação: enviar convite, confirmar presença, informar horário, transporte e contato de emergência. Encerramento: recolher materiais, pedir feedback, compartilhar slides e registrar próximos passos. Quero marcar etapas concluídas e abrir os detalhes de cada uma quando precisar.",
+      "expected": [
+        "Quatro etapas e todos os detalhes preservados, incluindo capacidade20,20 cadernos e20 canetas.",
+        "Conclusão inicial0 de4; concluir todas4 de4; desmarcar uma3 de4. Se aparecer percentual,0%,100%,75% respectivamente.",
+        "Abrir detalhes e marcar conclusão são ações distintas; expansão não altera conclusão.",
+        "Ao expandir, o Chat acomoda o conteúdo sem corte, sobreposição, espaço residual excessivo ou perda dos controles seguintes."
+      ],
+      "interactions": [
+        "Abrir e fechar cada etapa; abrir várias, se permitido; repetir um ciclo.",
+        "Marcar todas e desmarcar Comunicação; conferir progresso e preservação do estado ao abrir detalhes.",
+        "Rolar a conversa começando sobre a região expandida; conferir o fim da resposta e a mensagem seguinte."
+      ]
+    },
+    {
+      "id": "sine-explorer",
+      "title": "Explorador de função seno",
+      "category": "svg-canvas-theme",
+      "prompt": "Me ajude a visualizar y=A·sen(t), com t em radianos de 0 a 2π. Quero alternar a amplitude A entre 1, 2 e 3 e destacar o valor da curva em t=π/2. Inclua os pontos de referência 0, π/2, π, 3π/2 e 2π para eu entender a forma da curva.",
+      "expected": [
+        "Para A=1/2/3, os cinco valores de referência são respectivamente [0,1,0,-1,0], [0,2,0,-2,0], [0,3,0,-3,0].",
+        "O valor destacado emπ/2 corresponde à amplitude selecionada; valores numéricos próximos de zero por ponto flutuante podem ser formatados como0.",
+        "Eixos e curva permanecem visíveis em claro/escuro; rótulos em radianos, não graus.",
+        "Troca de tema não deve perder a amplitude selecionada; SVG ou Canvas são ambos aceitáveis."
+      ],
+      "interactions": [
+        "Selecionar amplitudes1,2,3 e conferir valor destacado, escala e pontos de referência.",
+        "Com amplitude3, alternar tema claro/escuro ao vivo e redimensionar; conferir curva, rótulos e seleção."
+      ]
+    },
+    {
+      "id": "compact-empty-state",
+      "title": "Resumo compacto e estado vazio",
+      "category": "compact-empty",
+      "prompt": "Mostre um resumo compacto de pendências: neste momento não há nenhuma. Quero alternar entre esse estado e um exemplo com 2 pendências, “Revisar orçamento” e “Confirmar local”, e voltar ao estado vazio.",
+      "expected": [
+        "Estado inicial indica0 pendências, sem dados inventados.",
+        "Estado de exemplo contém exatamente2 pendências: Revisar orçamento e Confirmar local.",
+        "Voltar ao vazio remove as duas pendências e volta a0; não fica contagem antiga.",
+        "A altura acompanha o conteúdo curto e a alternância sem uma área vazia desproporcional dentro da mensagem."
+      ],
+      "interactions": [
+        "Alternar vazio→exemplo→vazio três vezes; conferir conteúdo, contagem, altura e disponibilidade do controle.",
+        "Rolar a conversa após voltar ao vazio; conferir posição da mensagem seguinte."
+      ]
+    }
+  ]
+}

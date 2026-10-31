@@ -1556,7 +1556,7 @@ test("Codex tool image blocks become visible image steps, including dynamic tool
   assert.ok(events.some((event) => event.type === "step-started" && event.step.kind === "image"));
 });
 
-test("a design tool's rendered PNG is not repeated as an image step, but another server's image still is", async (t) => {
+test("internal design renders and HTML previews stay out of image steps, including nested exec calls", async (t) => {
   const events = [];
   const session = new CodexSession({ emit: (event) => events.push(event) });
   session.state.threadId = "parent";
@@ -1570,10 +1570,16 @@ test("a design tool's rendered PNG is not repeated as an image step, but another
     });
   complete("show", "milagre", "design_show");
   complete("apply", "milagre", "design_apply");
+  complete("preview", "milagre", "html_preview");
+  // A real functions.exec call surfaces its nested tool with MCP provenance, not as a generic dynamic image.
+  complete("exec-a750cdfe-7781-4832-a7f7-bc4ad1d2e7fb", "milagre", "html_preview");
   assert.equal(events.filter((event) => event.step?.kind === "image").length, 0);
+  assert.ok(events.some((event) => event.type === "step-completed" && event.id === "preview" && event.status === "done"));
+  assert.deepEqual(content, [{ type: "image", data, mimeType: "image/png" }], "the model's original preview result is untouched");
   complete("other", "browser", "design_show");
+  complete("other-preview", "browser", "html_preview");
   complete("shot", "milagre", "screenshot");
-  assert.equal(events.filter((event) => event.step?.kind === "image").length, 2);
+  assert.equal(events.filter((event) => event.step?.kind === "image").length, 3);
 });
 
 test("Everywhere servers and the off list reach thread config", async (t) => {

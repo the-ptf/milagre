@@ -1,3 +1,4 @@
+import { HtmlReply } from "./html-reply";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
@@ -238,6 +239,16 @@ export function ArtifactCards({ steps, chatId, chosen }: { steps: ArtifactStep[]
     feature.enabled === true,
   );
   const openTab = usePanelTabs();
+  const inline = steps.filter((step) => step.artifact.inline);
+  if (inline.length)
+    return (
+      <View style={{ gap: 8 }}>
+        {inline.map((step) => (
+          <HtmlReply key={step.id} chatId={chatId} page={step.artifact} />
+        ))}
+        <ArtifactCards steps={steps.filter((step) => !step.artifact.inline)} chatId={chatId} chosen={chosen} />
+      </View>
+    );
   const html = steps.findLast((step) => format(step.artifact) === "html");
   const designs = steps.filter((step) => format(step.artifact) === "design");
   if (html)

@@ -1,3 +1,4 @@
+import { HtmlReply } from "./HtmlReply";
 import { createContext, memo, useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "motion/react";
@@ -440,6 +441,16 @@ function FeedbackComment({ comment, number, onOpen }: { comment: DesignComment; 
 /** The designs one reply showed: a card for one, a strip of thumbnails for several. */
 export function ArtifactCards({ steps }: { steps: (ChatStep & { artifact: ArtifactRef })[] }) {
   const { chatId, openAll, enabled, latest } = useContext(Artifacts);
+  const inline = steps.filter((step) => step.artifact.inline);
+  if (inline.length)
+    return (
+      <>
+        {inline.map((step) => (
+          <HtmlReply key={step.id} chatId={chatId} page={step.artifact} />
+        ))}
+        <ArtifactCards steps={steps.filter((step) => !step.artifact.inline)} />
+      </>
+    );
   const visibleSteps = steps.filter((step) => latest.has(step.artifact.id));
   const htmlSteps = visibleSteps.filter((step) => latest.get(step.artifact.id)?.format === "html");
   const designSteps = visibleSteps.filter((step) => latest.get(step.artifact.id)?.format === "design");

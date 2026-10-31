@@ -9,7 +9,7 @@ const SECRET = /(?:password|secret|token|authorization|api[_-]?key|credential)/i
 export function toolMetadata(server, name, input) {
   const source = { name: String(name).slice(0, 160), ...(server ? { server: String(server).slice(0, 160) } : {}) };
   let args;
-  if (input != null && !["design_show", "design_apply", "artifact_show"].includes(name)) {
+  if (input != null && !["design_show", "design_apply", "artifact_show", "html_render", "html_preview"].includes(name)) {
     try {
       args = JSON.stringify(input, (key, value) => (SECRET.test(key) ? "[redacted]" : value), 2);
       if (args?.length > INPUT_LIMIT) args = `${args.slice(0, INPUT_LIMIT)}\n… input truncated`;

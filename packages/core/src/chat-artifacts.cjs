@@ -112,6 +112,7 @@ const summary = (artifact, entry) => ({
   width: entry.width ?? VIEWPORT.width,
   height: entry.height ?? VIEWPORT.height,
   format: formatOf(entry),
+  ...(entry.inline ? { inline: true } : {}),
   ...(entry.group ? { group: entry.group } : {}),
 });
 
@@ -316,7 +317,9 @@ function createChatArtifacts({ directory, validateChat }) {
     const names = await fs.readdir(folder).catch((error) => (error.code === "ENOENT" ? [] : Promise.reject(error)));
     const ids = new Set(names.map((name) => (name.endsWith(".json") ? name.slice(0, -5) : name)).filter((name) => ID.test(name) && name !== COMMENTS));
     const entries = await Promise.all([...ids].map((id) => load(folder, id)));
-    const visible = entries.filter((entry) => entry?.versions.length && (!format || formatOf(entry.versions.at(-1)) === format));
+    const visible = entries.filter(
+      (entry) => entry?.versions.length && !entry.versions.at(-1).inline && (!format || formatOf(entry.versions.at(-1)) === format),
+    );
     const html = visible
       .filter((entry) => formatOf(entry.versions.at(-1)) === "html")
       .toSorted((a, b) => (b.versions.at(-1).createdAt ?? 0) - (a.versions.at(-1).createdAt ?? 0) || a.id.localeCompare(b.id))[0];
@@ -336,6 +339,7 @@ function createChatArtifacts({ directory, validateChat }) {
       if (request.html?.length > MAX_HTML) throw Error(`Artifact HTML is limited to ${MAX_HTML} characters.`);
       if (request.id) {
         const named = await load(folder, request.id);
+        if (named?.versions.at(-1)?.inline) throw Error("HTML replies are immutable. Publish a new reply with html_render.");
         editable(named, "html");
       }
       const current = (await activeArtifacts(folder, "html"))[0];
@@ -383,6 +387,20 @@ function createChatArtifacts({ directory, validateChat }) {
   }
 
   return {
+    // A visual reply is an immutable attachment. It never replaces the Chat's live Artifact page.
+    render: (request, { assertActive } = {}) =>
+      serial(async () => {
+        await assertActive?.();
+        const folder = await chat(request?.chatId);
+        const { html, title, height = 400 } = request;
+        if (typeof html !== "string" || !html.trim() || html.length > MAX_HTML) throw Error(`Send HTML between 1 and ${MAX_HTML} characters.`);
+        if (typeof title !== "string" || !title.trim() || title.length > 120) throw Error("Use a title between 1 and 120 characters.");
+        if (!Number.isInteger(height) || height < 24 || height > 2000) throw Error("Height must be between 24 and 2000 pixels.");
+        const id = randomUUID();
+        const entry = { version: 1, title: title.trim(), format: "html", inline: true, width: 720, height, createdAt: Date.now() };
+        const artifact = await writeVersion(folder, id, [], entry, html, undefined, assertActive);
+        return summary(artifact, entry);
+      }),
     // Capture every latest version under one store lock. No private Chat or comment fields leave the store.
     pageSnapshot: (request) =>
       serial(async () => {
@@ -521,7 +539,7 @@ function createChatArtifacts({ directory, validateChat }) {
         checkFormat(request.format);
         if (request.format && formatOf(artifact.versions.at(-1)) !== request.format) throw Error(FORMAT_MISMATCH);
         const isHtml = formatOf(artifact.versions.at(-1)) === "html";
-        if (isHtml) artifact = (await activeArtifacts(folder, "html"))[0] ?? artifact;
+        if (isHtml && !artifact.versions.at(-1).inline) artifact = (await activeArtifacts(folder, "html"))[0] ?? artifact;
         const current = await readVersion(folder, artifact, isHtml ? undefined : request.version);
         if (!Array.isArray(request.fonts?.have) || current.format !== "design") return current;
         // Only the generated designHtml head has this shape. Legacy/custom HTML stays self-contained.
