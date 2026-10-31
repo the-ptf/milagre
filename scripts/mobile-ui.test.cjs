@@ -159,6 +159,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
       if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
+      if (relative === "design-font-cache")
+        return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",
@@ -10659,6 +10661,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
 
 /** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
 function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
+  let reconnects = 0;
   const react = hookHost({ effects: true }),
     files = new Map(),
     injected = [],
@@ -10717,7 +10720,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
-      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./session": { useSession: () => ({ client, designs: feature, reconnects }) },
       "./use-design-catalog": { markDesignDeleted() {} },
       "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
       "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {} },
@@ -10731,6 +10734,9 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
     shareAvailabilityChanged: (...args) => share.shareAvailabilityChanged(...args),
     setClient(next) {
       client = next;
+    },
+    reconnect() {
+      reconnects++;
     },
     appState(status) {
       for (const listener of appListeners) listener(status);
@@ -10822,7 +10828,102 @@ test("structured designs on mobile open on their canvas, with versions in the me
   h.render("DesignsSheet", props);
   await settle();
   assert.equal(calls.at(-1)[0], "artifact:get");
-  assert.equal(calls.at(-1)[1].version, undefined, "returning to the latest version reads the latest saved design");
+  assert.equal(calls.at(-1)[1].version, 2, "returning to the latest version pins the current summary's saved design");
+  h.cleanup();
+});
+
+test("canvas fonts are injected once per page and replayed before documents after reload", async () => {
+  const { createExampleDesign } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const designs = ["one", "two", "three", "four"].map((id) => ({
+    id,
+    version: 1,
+    latest: 1,
+    versions: 1,
+    title: id,
+    format: "design",
+    width: 390,
+    height: 844,
+    document,
+    html: "<html><head></head><body></body></html>",
+  }));
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      if (method === "artifact:list") return designs;
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      calls.push(request);
+      return {
+        ...designs.find((item) => item.id === request.id),
+        fontKey: "shared",
+        ...(request.fonts.have.includes("shared") ? {} : { fontCss: "@font-face{test:yes}" }),
+      };
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  let tree = await h.open(props);
+  await settle();
+  tree = h.render("DesignsSheet", props);
+  const first = h.commands();
+  assert.equal(first.filter((command) => command.t === "fonts").length, 1);
+  assert.equal(first.filter((command) => command.t === "html").length, 4);
+  assert.ok(first.findIndex((command) => command.t === "fonts") < first.findIndex((command) => command.t === "html"));
+  assert.ok(
+    calls.slice(1).every((request) => request.fonts.have.includes("shared")),
+    "the opened design warms all lanes",
+  );
+  h.say(tree, { t: "ready" });
+  h.render("DesignsSheet", props);
+  const replay = h.commands().slice(first.length);
+  assert.equal(replay.filter((command) => command.t === "fonts").length, 1);
+  assert.equal(replay.filter((command) => command.t === "html").length, 4);
+  assert.ok(replay.findIndex((command) => command.t === "fonts") < replay.findIndex((command) => command.t === "html"));
+  h.cleanup();
+});
+
+test("a superseding canvas effect reuses an outstanding design read", async () => {
+  const { createExampleDesign } = require("../packages/shared/src/design.mjs");
+  const design = {
+    id: "one",
+    version: 1,
+    latest: 1,
+    versions: 1,
+    title: "One",
+    format: "design",
+    width: 390,
+    height: 844,
+    document: createExampleDesign(),
+    html: "<html><head></head></html>",
+  };
+  let finish;
+  let gets = 0;
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      gets++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  await h.open(props);
+  assert.equal(gets, 1);
+  h.reconnect();
+  h.render("DesignsSheet", props);
+  await settle();
+  assert.equal(gets, 1, "the new effect subscribes to the original read");
+  finish(design);
+  await settle();
+  h.render("DesignsSheet", props);
+  assert.equal(h.commands().filter((command) => command.t === "html").length, 1);
   h.cleanup();
 });
 
@@ -10864,7 +10965,7 @@ test("the designs sheet loads the version it opened, on a canvas page that runs 
   const h = designsHost(client);
   await h.open({ hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(([method]) => method === "artifact:get"))), [
-    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1 }]],
+    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1, fonts: { have: [] } }]],
   ]);
   for (const method of ["artifact:sharing-status", "artifact:list", "artifact:comments"])
     assert.ok(

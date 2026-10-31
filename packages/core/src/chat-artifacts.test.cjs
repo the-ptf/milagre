@@ -924,3 +924,62 @@ test("a page shows files the agent attaches from the Chat's Worktree, keeps them
   assert.equal((await api.get({ chatId: CHAT, id: first.id })).assets, undefined);
   assert.deepEqual(await fs.readdir(folder), []);
 });
+
+test("opt-in design transport strips generated fonts, preserves exact HTML, and honors held keys", async (t) => {
+  const { api } = await fixture(t);
+  for (const [id, fontFamily] of [
+    ["inter", "Inter"],
+    ["catalog", "EB Garamond"],
+  ]) {
+    const document = designDocument();
+    document.nodes[1].fontFamily = fontFamily;
+    await api.showDesign({ chatId: CHAT, id, title: fontFamily, document });
+    const request = { chatId: CHAT, id };
+    const full = await api.get(request);
+    const split = await api.get({ ...request, fonts: { have: [] } });
+    assert.match(split.fontKey, /^[a-f0-9]{64}$/);
+    assert.match(split.fontCss, new RegExp(`font-family:"${fontFamily}"`));
+    assert.ok(split.html.length < full.html.length);
+    assert.equal(split.html.replace("</head>", `<style>${split.fontCss}</style></head>`), full.html);
+    const { artifactDocument } = require("@milagre/shared/artifact-document");
+    assert.equal(artifactDocument(split.html).replace("</head>", `<style>${split.fontCss}</style></head>`), artifactDocument(full.html));
+    const held = await api.get({ ...request, fonts: { have: [split.fontKey] } });
+    assert.equal(held.html, split.html);
+    assert.equal(held.fontKey, split.fontKey);
+    assert.equal(held.fontCss, undefined);
+    assert.deepEqual(await api.get(request), full, "disk and default callers stay unchanged");
+    for (const fonts of [null, {}, { have: null }, { have: "key" }]) {
+      assert.deepEqual(await api.get({ ...request, fonts }), full, "malformed inventories stay self-contained");
+    }
+  }
+});
+
+test("fontless designs, non-generated heads and HTML artifacts stay self-contained", async (t) => {
+  const { api, directory } = await fixture(t);
+  const document = designDocument();
+  document.nodes = document.nodes.slice(0, 1);
+  await api.showDesign({ chatId: CHAT, id: "fontless", title: "Fontless", document });
+  const request = { chatId: CHAT, id: "fontless" };
+  assert.deepEqual(await api.get({ ...request, fonts: { have: [] } }), await api.get(request));
+  const file = path.join(await chatFolder(directory), "fontless", "v1.html");
+  for (const html of [
+    "<html><head><style>@font-face{custom:yes}</style></head><body></body></html>",
+    '<!doctype html><html><head><style>base</style><style>@font-face{custom:yes}</style></head><body><main id="design-root">',
+    '<!doctype html><html><head></head><body><style>@font-face{font-family:"Inter"}</style></body></html>',
+  ]) {
+    await fs.writeFile(file, html);
+    const read = await api.get({ ...request, fonts: { have: [] } });
+    assert.equal(read.html, html);
+    assert.equal(read.fontKey, undefined);
+  }
+  const { designHtml } = require("@milagre/shared/design");
+  const html = designHtml(designDocument());
+  await fs.writeFile(
+    path.join(await chatFolder(directory), "legacy.json"),
+    JSON.stringify({ id: "legacy", versions: [{ version: 1, title: "Legacy", html, createdAt: 1 }] }),
+  );
+  const read = await api.get({ chatId: CHAT, id: "legacy", fonts: { have: [] } });
+  assert.equal(read.format, "html");
+  assert.equal(read.html, html);
+  assert.equal(read.fontKey, undefined);
+});
