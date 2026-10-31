@@ -157,6 +157,7 @@ import { ChatsHomeIcon, ProjectIcon } from "../project-icon";
 import { panelWorktree } from "../project-surfaces";
 import { besideState, closeBeside, openBeside, useBesideChat } from "../split-chats";
 import { BesideSession, touchPane } from "../beside-session";
+import { SENT_FROM } from "../sent-from";
 
 const PAGE = 40;
 const KEEP_VISIBLE_POSITION = { minIndexForVisible: 0 };
@@ -1561,6 +1562,7 @@ function ChatPane({
                 ...media,
                 prompt: attachmentPrompt(sent, media.files),
                 ...options,
+                sentFrom: SENT_FROM,
               },
             ])
           : client.call<{ sessionId: number }>("chat:send", [
@@ -1573,6 +1575,7 @@ function ChatPane({
                 // A Mac that predates PR actions ignores prAction and sends this prompt as it is.
                 prompt: prAction ? pullRequestActionPrompt(prAction) : attachmentPrompt(sent, media.files),
                 ...options,
+                sentFrom: SENT_FROM,
                 ...(prAction ? { prAction: { action: prAction.action, pr: prAction.pr, url: prAction.url } } : {}),
                 // A Mac that predates issue cards ignores linearIssue and sends the body as a plain message.
                 ...(issue ? { linearIssue: linearIssueRequest({ key: issue.key, workspace: issue.workspace, note: draft })! } : {}),

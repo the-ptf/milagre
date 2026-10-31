@@ -191,6 +191,10 @@
       "types": "./src/done.d.mts",
       "default": "./src/done.mjs"
     },
+    "./device-notes": {
+      "types": "./src/device-notes.d.mts",
+      "default": "./src/device-notes.mjs"
+    },
     "./routine-prompt": {
       "types": "./src/routine-prompt.d.mts",
       "default": "./src/routine-prompt.mjs"

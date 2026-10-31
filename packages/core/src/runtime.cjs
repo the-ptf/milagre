@@ -67,6 +67,7 @@ const { WorktreeSetups, resolveSetupCommand } = require("./worktree-setup.cjs");
 const { SetupReview } = require("./setup-review.cjs");
 const { readDiffStat } = require("./diffstat.cjs");
 const { registerCheckpoints } = require("./checkpoint-runtime.cjs");
+const { createSentFromNotes } = require("./sent-from.cjs");
 const { registerGitHandlers } = require("./git-ipc.cjs");
 const { createPullRequestReader, readPullRequestState, readPullRequests } = require("./pull-request.cjs");
 const { background: inBackgroundLane } = require("./process-lanes.cjs");
@@ -1362,6 +1363,16 @@ function createRuntime(options) {
   // What Milagre tells a Chat's agent with its next message and nobody typed, such as files the user undid (a
   // <milagre_note> after the message). Kept in memory: a restart before the next message drops it.
   const agentNotes = new Map();
+  // Where the user typed each message, when it isn't this computer's window (sent-from.cjs). Settings › Experimental,
+  // off unless turned on: each note costs up to DEVICE_NOTE_TOKENS (shared/device-notes.mjs) on every message sent away from this computer.
+  const deviceNotes = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "device-notes.json"), { name: "Device notes", missing: false });
+  const sentFromNotes = createSentFromNotes({ enabled: () => deviceNotes.enabled() });
+  commands.handle("device-notes:read", () => ({ enabled: deviceNotes.enabled() }));
+  commands.handle("device-notes:save", (_event, value) => {
+    const result = deviceNotes.save(value);
+    emit("device-notes:changed", result);
+    return result;
+  });
   async function startAgentTurn(request) {
     if (closing) return { turnId: null, steered: false, cancelled: true };
     const permissionMode = request.permissionMode ?? agents.permissionMode(request.chatId, "ask");
@@ -1854,7 +1865,7 @@ function createRuntime(options) {
     }
     // Only Milagre marks a message as coming from another Chat. A PR-blocker pill and a Chat started from a Linear issue
     // are the contexts a renderer can ask for, and Milagre checks them and writes their message and prompt itself.
-    const { prAction, linearIssue, compact, ...rest } = request;
+    const { prAction, linearIssue, compact, sentFrom, ...rest } = request;
     const action = prAction === undefined ? null : pullRequestActionContext(prAction);
     if (prAction !== undefined && !action) throw new Error("That pull request action isn't valid.");
     if (compact && rest.sessionId == null) throw new Error("Open a chat before compacting it.");
@@ -1865,7 +1876,11 @@ function createRuntime(options) {
         : linearIssue !== undefined
           ? await linearIssueMessage(rest, linearIssue)
           : { ...rest, context: undefined };
-    const { sessionId } = await chats.send(message);
+    // A compact is a command to the agent's CLI, not a message: it says nothing of where the user is.
+    const { sessionId } = await chats.send(
+      compact ? message : sentFromNotes.message({ ...message, sentFrom }, rest.sessionId == null ? null : chatKey(rest.projectPath, rest.sessionId)),
+    );
+    if (!compact) sentFromNotes.sent(chatKey(rest.projectPath, sessionId), sentFrom);
     // A message from a composer, desktop or phone (its bridge calls this command), a PR-action pill or a compact is the
     // user taking a Run Chat over. Milagre's own sends (a Routine's beat, an MCP chat_start, a Delegation) call chats.send
     // directly and never keep one.
@@ -2583,6 +2598,7 @@ function createRuntime(options) {
     store: linkStore,
     workspaces: linkWorkspaces,
     chats,
+    sentFromNotes,
     broadcast: broadcastProjectState,
     titles: chatTitles,
   });

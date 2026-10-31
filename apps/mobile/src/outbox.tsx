@@ -6,6 +6,7 @@ import { deliverOutbox } from "@milagre/shared/outbox-delivery";
 import { createClient, type Client, type OpenProject } from "./client";
 import { relayRuntime } from "./relay-native";
 import { useSession } from "./session";
+import { SENT_FROM } from "./sent-from";
 
 const folder = new Directory(Paths.document, "outbox-v1");
 let hosts: ReturnType<typeof useSession>["hosts"] = [];
@@ -53,8 +54,8 @@ export const outbox = createOutbox({
       receipt: (id) => client.call("chat:send-status", [item.owner, id]),
       create: (request) => client.call<{ project: OpenProject; worktreeId: number }>("worktree:create", [request]),
       upload: (name, base64) => client.upload(item.owner, name, base64),
-      send: (request) => client.call("chat:send", [request]),
-      sendLink: (request) => client.call("link:send", [request]),
+      send: (request) => client.call("chat:send", [{ ...request, sentFrom: SENT_FROM }]),
+      sendLink: (request) => client.call("link:send", [{ ...request, sentFrom: SENT_FROM }]),
     });
   },
 });
