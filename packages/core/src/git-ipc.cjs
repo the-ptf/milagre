@@ -84,9 +84,9 @@ function registerGitHandlers(
   ipcMain.handle("git:history", async (_event, { cwd, base, recordedBase, branchesVersion, limit } = {}) =>
     diff.history({ cwd: await folder(cwd), base, recordedBase, branchesVersion, limit }),
   );
-  ipcMain.handle("git:diff-files", async (_event, { cwd, base, mode } = {}) => diff.listDiffFiles({ cwd: await folder(cwd), base, mode }));
-  ipcMain.handle("git:diff-file", async (_event, { cwd, base, mode, path: file, oldPath, untracked } = {}) =>
-    diff.readDiffFile({ cwd: await folder(cwd), base, mode, path: file, oldPath, untracked }),
+  ipcMain.handle("git:diff-files", async (_event, { cwd, base, mode, commit } = {}) => diff.listDiffFiles({ cwd: await folder(cwd), base, mode, commit }));
+  ipcMain.handle("git:diff-file", async (_event, { cwd, base, mode, commit, path: file, oldPath, untracked } = {}) =>
+    diff.readDiffFile({ cwd: await folder(cwd), base, mode, commit, path: file, oldPath, untracked }),
   );
   // The PR a Chat's branch opened: its detail, its diff, and every review write, all through gh in the Chat's folder.
   ipcMain.handle("pr:detail", async (_event, { cwd, number } = {}) => review.detail({ cwd: await folder(cwd), number }));

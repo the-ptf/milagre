@@ -17278,6 +17278,10 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   let picker;
   let deleted = false;
   let unrelated = false;
+  let rootCommit = false;
+  let truncatedCommitFiles = false;
+  let legacyCommitFiles = false;
+  let commitFilesError = "";
   let phoneClient = {};
   const file = { path: "current.txt", status: "added", added: 2, removed: 0, binary: false };
   const commit = {
@@ -17336,8 +17340,15 @@ test("phone changes choose a comparison branch and keep its base when opening a 
                   commits: request.limit ? [commit] : [],
                   hasMore: false,
                 }
-              : { isRepo: true, base: request.mode === "committed" ? base : null, files: request.mode === "committed" ? [file] : [] },
-          error: "",
+              : {
+                  isRepo: true,
+                  commit: legacyCommitFiles ? undefined : request.commit,
+                  commitParent: rootCommit ? null : "b".repeat(40),
+                  truncated: truncatedCommitFiles,
+                  base: request.mode === "committed" ? base : null,
+                  files: request.mode === "committed" ? [file] : [],
+                },
+          error: method === "git:diff-files" && request.commit ? commitFilesError : "",
           refresh() {},
         };
       },
@@ -17368,17 +17379,66 @@ test("phone changes choose a comparison branch and keep its base when opening a 
   tree = render();
   assert.ok(find(tree, (node) => node.type === CommitCard));
   assert.equal(calls.findLast((call) => call.method === "git:history").request.limit, 30);
+  find(tree, (node) => node.type === CommitCard).props.onShowFiles();
+  tree = render();
+  assert.ok(textOf(tree).includes(commit.sha.slice(0, 8)));
+  const commitFiles = find(tree, (node) => node.type?.name === "CommitFiles");
+  const filesTree = commitFiles.type(commitFiles.props);
+  assert.equal(calls.findLast((call) => call.method === "git:diff-files").request.commit, commit.sha);
+  find(filesTree, (node) => node.type?.name === "ChangeTree").props.onOpen(file);
+  assert.deepEqual(opened[1], [file, "committed", null, commit.sha, "b".repeat(40)]);
+  assert.ok(textOf(filesTree).includes("Compared with first parent"));
+  rootCommit = true;
+  truncatedCommitFiles = true;
+  const rootFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(rootFiles).includes("First commit"));
+  assert.ok(textOf(rootFiles).includes("1+ files"));
+  assert.equal(textOf(rootFiles).includes("Compared with first parent"), false);
+  rootCommit = false;
+  truncatedCommitFiles = false;
+  legacyCommitFiles = true;
+  const legacyFiles = commitFiles.type(commitFiles.props);
+  assert.ok(textOf(legacyFiles).includes("needs an update"));
+  assert.equal(
+    find(legacyFiles, (node) => node.type?.name === "ChangeTree"),
+    undefined,
+  );
+  legacyCommitFiles = false;
+  commitFilesError = "Commit was removed";
+  assert.equal(find(commitFiles.type(commitFiles.props), (node) => node.type === "ErrorNotice").props.message, commitFilesError);
+  commitFilesError = "";
+  const { diffTarget } = load("change-tree.tsx", modules);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1", memberId: "project" }, commit.sha).commit, commit.sha);
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, null).commitParent, "");
+  assert.equal(diffTarget(file, "committed", null, { worktreeId: "1" }, commit.sha, "b".repeat(40)).commitParent, "b".repeat(40));
+
+  find(tree, (node) => node.type === "Pressable" && textOf(node) === "Back to commits").props.onPress();
+  tree = render();
+  assert.ok(find(tree, (node) => node.type === CommitCard));
   const cardReact = hookHost();
   const card = load("change-tree.tsx", { ...modules, react: cardReact }, "\nexport { CommitCard };").CommitCard;
   cardReact.begin();
-  let details = card({ commit });
+  let showedFiles = false;
+  let details = card({
+    commit,
+    onShowFiles: () => {
+      showedFiles = true;
+    },
+  });
   find(details, (node) => node.type === "Pressable").props.onPress();
   cardReact.begin();
-  details = card({ commit });
+  details = card({
+    commit,
+    onShowFiles: () => {
+      showedFiles = true;
+    },
+  });
   assert.ok(textOf(details).includes("maria@example.com"));
   assert.ok(textOf(details).includes("Detailed explanation"));
   find(details, (node) => node.props?.accessibilityLabel === "Copy SHA").props.onPress();
   assert.deepEqual(copied, [commit.sha]);
+  find(details, (node) => node.type === "Pressable" && textOf(node) === "Show files in this commit").props.onPress();
+  assert.equal(showedFiles, true);
   assert.ok(find(details, (node) => node.type === "Counts" && node.props.added === 2));
   unrelated = true;
   tree = render();
@@ -17532,6 +17592,56 @@ test("older hosts without git history keep phone file diffs usable; network erro
   const retry = find(render(), (node) => node.type === "ErrorNotice");
   assert.equal(retry.props.message, historyError);
   assert.equal(typeof retry.props.retry, "function");
+});
+
+test("phone commit diffs preserve their SHA and member scope when reading the patch", () => {
+  const react = hookHost();
+  const calls = [];
+  const client = {};
+  const { DiffView } = load("app/diff.tsx", {
+    react: { ...react, memo: (component) => component },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "@milagre/shared/git-diff": require("../packages/shared/src/git-diff.ts"),
+    "react-native": { FlatList: "FlatList", Text: "Text", View: "View" },
+    "expo-router": { Redirect: "Redirect", Stack: "Stack", useLocalSearchParams: () => ({}) },
+    "../display-clock": { useScreenActive: () => true },
+    "../session": { useSession: () => ({ client, snapshot: { project: {} } }) },
+    "../chat-scope": {
+      memberForDiff: (_project, worktreeId, memberId) => {
+        assert.equal(worktreeId, 1);
+        assert.equal(memberId, "member");
+        return { path: "/member/worktree" };
+      },
+    },
+    "../use-rpc": {
+      useRpc: (connection, method, [request]) => {
+        calls.push({ connection, method, request });
+        return { data: { patch: "@@ -1 +1 @@\n-old\n+new\n", binary: false, tooLarge: false } };
+      },
+    },
+    "../diff-rows": { LARGE_DIFF_LINES: 3000, diffRows: () => [{ key: "1" }], wordSegments: () => [] },
+    "../diff-ui": { Counts: "Counts", StatusBox: "StatusBox" },
+    "../ui": { ...uiHooks, ErrorNotice: "ErrorNotice", PillButton: "PillButton" },
+    "../theme": { ...themeHooks, fonts: { mono: "monospace" } },
+  });
+  react.begin();
+  const commit = "a".repeat(40);
+  const tree = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit } });
+  assert.equal(calls[0].connection, client);
+  assert.equal(calls[0].method, "git:diff-file");
+  assert.equal(calls[0].request.cwd, "/member/worktree");
+  assert.equal(calls[0].request.commit, commit);
+  assert.equal(calls[0].request.path, "old.txt");
+  assert.ok(textOf(tree.props.ListHeaderComponent).includes("Commit aaaaaaaa"));
+  for (const [commitParent, expected] of [
+    ["", "First commit"],
+    ["b".repeat(40), "Compared with first parent"],
+    [undefined, "Commit changes"],
+  ]) {
+    react.begin();
+    const view = DiffView({ target: { worktreeId: "1", memberId: "member", path: "old.txt", mode: "committed", commit, commitParent } });
+    assert.ok(textOf(view.props.ListHeaderComponent).includes(expected));
+  }
 });
 
 test("Chat header promotes only Browser and PR, with working actions and no duplicate overflow entries", () => {

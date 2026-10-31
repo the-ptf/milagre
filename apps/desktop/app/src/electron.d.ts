@@ -513,10 +513,18 @@ export type MilagreBridge = {
       limit?: number;
     }) => Promise<import("@milagre/shared/git-diff").GitHistory>;
     changes: (request: { cwd: string; base?: string }) => Promise<GitChanges>;
-    /** Files a chat's folder changed: `uncommitted` against HEAD (untracked included), `committed` since the merge-base with the base branch. */
-    diffFiles: (request: { cwd: string; base?: string; mode: DiffMode }) => Promise<DiffFilesResult>;
+    /** Files changed against HEAD or the comparison branch. With `commit`, compares that immutable SHA with its first parent (or the empty tree). */
+    diffFiles: (request: { cwd: string; base?: string; commit?: string | null; mode: DiffMode }) => Promise<DiffFilesResult>;
     /** One file's unified patch. Rejects for a path that is absolute or climbs out of the folder. */
-    diffFile: (request: { cwd: string; base?: string; mode: DiffMode; path: string; oldPath?: string; untracked?: boolean }) => Promise<DiffFileResult>;
+    diffFile: (request: {
+      cwd: string;
+      base?: string;
+      commit?: string | null;
+      mode: DiffMode;
+      path: string;
+      oldPath?: string;
+      untracked?: boolean;
+    }) => Promise<DiffFileResult>;
     /** Never rejects for a model failure: `ok: false` carries the note the dialog shows. */
     generate: (request: { cwd: string; base?: string; provider?: ModelProvider; chat: GitChatContext }) => Promise<GitTextResult>;
     commit: (request: { cwd: string; message: string }) => Promise<GitCommitResult>;
