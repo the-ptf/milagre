@@ -37,13 +37,14 @@ function agentDesktopBinary({ platform = process.platform, arch = process.arch }
 
 /** The switch in Settings › Experimental, kept by the host. */
 function createComputerUseSettings({ file, emit = () => {} }) {
-  // `cursor`: draw Milagre's agent cursor and the step beside it on the screen while an agent acts (on by default).
+  // `cursor`: draw Milagre's agent cursor and the step beside it on the screen while an agent acts. Off by default:
+  // agent-desktop 1.0.2 reports the overlay rendered but draws nothing on macOS 27 (QA 2026-10-31).
   function read() {
     try {
       const stored = JSON.parse(fs.readFileSync(file, "utf8"));
-      return { enabled: stored?.enabled === true, cursor: stored?.cursor !== false };
+      return { enabled: stored?.enabled === true, cursor: stored?.cursor === true };
     } catch {
-      return { enabled: false, cursor: true };
+      return { enabled: false, cursor: false };
     }
   }
   function save(patch) {

@@ -29,9 +29,9 @@ const snapshot = (id, app) => ({ ok: true, data: { app, snapshot_id: id, tree: {
 
 test("settings start off and save privately", () => {
   const { settings, dataDir } = setup();
-  assert.deepEqual(settings.read(), { enabled: false, cursor: true });
-  assert.deepEqual(settings.save({ enabled: true }), { enabled: true, cursor: true });
-  assert.deepEqual(settings.save({ cursor: false }), { enabled: true, cursor: false });
+  assert.deepEqual(settings.read(), { enabled: false, cursor: false });
+  assert.deepEqual(settings.save({ enabled: true }), { enabled: true, cursor: false });
+  assert.deepEqual(settings.save({ cursor: true }), { enabled: true, cursor: true });
   assert.equal(fs.statSync(path.join(dataDir, "computer-use.json")).mode & 0o777, 0o600);
   assert.throws(() => settings.save({ enabled: "yes" }), /on or off/);
 });
@@ -180,6 +180,7 @@ test("a launch macOS's app list can't settle falls back to open -a", async () =>
 
 test("acting draws Milagre's cursor with the step, once per step, unless it is turned off", async () => {
   const { tools, calls, settings } = setup({ decisions: ["allow-for-chat"], envelopes: { snapshot: snapshot("s1", "Notes") } });
+  settings.save({ cursor: true });
   await tools().desktop_snapshot.run({ app: "Notes" });
   await tools().desktop_act.run({ action: "click", ref: "@s1:e2", intent: "New note" });
   await tools().desktop_act.run({ action: "type", ref: "@s1:e3", text: "hi", intent: "New note" });

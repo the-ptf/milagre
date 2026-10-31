@@ -96,7 +96,8 @@ export function ComputerUseSection() {
             onPress={() => void save({ cursor: !status.cursor })}
           />
           <Text style={styles.caption}>
-            Draw Milagre&apos;s cursor and the current step on the Mac&apos;s screen while an agent acts. The pointer never moves.
+            Draw Milagre&apos;s cursor and the current step on the Mac&apos;s screen while an agent acts. The pointer never moves. Not drawing yet on macOS 27
+            with agent-desktop 1.0.2.
           </Text>
         </View>
       )}
