@@ -336,4 +336,4 @@ function createPullRequestWatch({
   };
 }
 
-module.exports = { createPullRequestWatch, queries, ALIASES, RUNNING_MS, SHOWN_MS, IDLE_MS, LEASE_MS, FORGET_MS, POKE_MS };
+module.exports = { createPullRequestWatch, queries, ALIASES, RUNNING_MS, SHOWN_MS, IDLE_MS, LEASE_MS, FORGET_MS };

@@ -202,7 +202,6 @@ module.exports = {
   readPullRequestState,
   readPullRequests,
   createPullRequestReader,
-  toPullRequest,
   fromGraphql,
   PULL_REQUEST_FIELDS,
   PR_REF,
