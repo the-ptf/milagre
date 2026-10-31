@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
+const { pathToFileURL } = require("node:url");
 const { setTimeout: delay } = require("node:timers/promises");
 const { createBrowserAdapter } = require("./browsers-cdp.cjs");
 const { htmlRenderShell, htmlRenderHeight, HTML_RENDER_THEMES, HTML_RENDER_MIN_HEIGHT, HTML_RENDER_MAX_HEIGHT } = require("@milagre/shared/html-render");
@@ -135,8 +136,10 @@ async function previewHtml({ html, width = 720, appearance = "light" }) {
     await session.send("Runtime.enable");
     await session.send("Page.enable");
     await session.send("Emulation.setDeviceMetricsOverride", { width, height: 120, deviceScaleFactor: 1, mobile: false });
-    const { frameTree } = await session.send("Page.getFrameTree");
-    await session.send("Page.setDocumentContent", { frameId: frameTree.frame.id, html: htmlRenderShell(html, HTML_RENDER_THEMES[appearance]) });
+    // Navigate normally: document.write through setDocumentContent can stall when Chromium creates the sandboxed child frame.
+    const documentFile = path.join(directory, "preview.html");
+    await fs.writeFile(documentFile, htmlRenderShell(html, HTML_RENDER_THEMES[appearance]), { mode: 0o600 });
+    await session.send("Page.navigate", { url: pathToFileURL(documentFile).href });
     let height;
     while (!height) {
       const { result } = await session.send("Runtime.evaluate", { expression: "window.htmlRenderContentHeight", returnByValue: true });

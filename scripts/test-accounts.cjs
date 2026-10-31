@@ -114,7 +114,7 @@ async function browserChecks() {
     await waitFor(`document.querySelectorAll('[role=radio][aria-label="work@example.test"]').length===2`);
     await click("Add account");
     await evaluate(
-      `(()=>{const input=document.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Second account');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
+      `(()=>{const input=document.querySelector('input[placeholder="Personal or work"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Second account');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
     );
     await shot("add-account");
     await click("Continue to sign in");
