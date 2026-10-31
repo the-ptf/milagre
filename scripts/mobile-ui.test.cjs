@@ -18871,3 +18871,121 @@ test("subchat report links preserve compact phones and secondary-pane navigation
     }
   }
 });
+
+function mcpAddHost({ params = {}, saveUrl = async () => {}, definition = async () => null } = {}) {
+  const hooks = hookHost({ effects: true });
+  let backs = 0;
+  const Screen = load("app/mcp-add.tsx", {
+    react: hooks,
+    "react-native-svg": { default: "Svg", Path: "Path" },
+    "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
+    "react-native": { ActivityIndicator: "ActivityIndicator", Pressable: "Pressable", Text: "Text", View: "View", Linking: { openURL: async () => {} } },
+    "expo-router": { Stack: { Screen: "Screen" }, router: { back: () => backs++, dismissTo: () => backs++ }, useLocalSearchParams: () => params },
+    "@hugeicons/core-free-icons": { Cancel01Icon: {}, Tick02Icon: {} },
+    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
+    "../icons": { Icon: "Icon" },
+    "../mcp-headers": load("mcp-headers.ts", { "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts") }),
+    "../use-mcp": { useMcp: () => ({ saveUrl, definition }) },
+    "../ui": { CircleButton: "CircleButton", Field: "Field", PageScroll: "PageScroll" },
+  }).default;
+  const render = () => {
+    hooks.begin();
+    return Screen();
+  };
+  return {
+    render,
+    backs: () => backs,
+    field: (label) => find(render(), (n) => n.type === "Field" && n.props.label === label),
+    button: (label) => find(render(), (n) => n.type === "Pressable" && (n.props.accessibilityLabel === label || n.props.children?.props?.children === label)),
+  };
+}
+
+test("MCP catalog selects official configuration and keeps tokens out of other services", async () => {
+  const saved = [];
+  const host = mcpAddHost({ saveUrl: async (...args) => saved.push(args) });
+  assert.equal(host.button("Add"), undefined);
+  host.field("Search services").props.onChangeText("NOtIon");
+  assert.ok(host.button("Notion"));
+  assert.equal(host.button("GitHub"), undefined);
+  host.field("Search services").props.onChangeText("missing-service");
+  assert.ok(host.button("Custom MCP"));
+  host.field("Search services").props.onChangeText("");
+  host.button("GitHub").props.onPress();
+  assert.equal(host.field("URL"), undefined);
+  assert.equal(host.field("Personal access token").props.secureTextEntry, true);
+  host.button("Add").props.onPress();
+  assert.equal(saved.length, 0);
+  assert.ok(find(host.render(), (n) => n.props?.accessibilityRole === "alert"));
+  host.field("Personal access token").props.onChangeText("test-token");
+  host.button("All services").props.onPress();
+  host.button("GitHub").props.onPress();
+  assert.equal(host.field("Personal access token").props.value, "");
+  host.field("Personal access token").props.onChangeText("test-token");
+  host.button("All services").props.onPress();
+  host.button("Notion").props.onPress();
+  host.button("Add").props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(saved, [[{ name: "notion", type: "http", url: "https://mcp.notion.com/mcp", headers: {} }, "everywhere", undefined]]);
+  assert.equal(host.backs(), 1);
+});
+
+test("MCP token save reports failure, blocks duplicate submits, and allows retry", async () => {
+  const pending = deferred();
+  let attempt = 0;
+  const saved = [];
+  const host = mcpAddHost({
+    saveUrl: async (...args) => {
+      saved.push(args);
+      if (++attempt === 1) await pending.promise;
+    },
+  });
+  host.button("GitHub").props.onPress();
+  host.field("Personal access token").props.onChangeText("Bearer test-token");
+  host.button("Add").props.onPress();
+  assert.equal(host.button("Add").props.disabled, true);
+  host.button("Add").props.onPress();
+  assert.equal(saved.length, 1);
+  pending.reject(new Error("Connection lost"));
+  await new Promise(setImmediate);
+  assert.equal(host.backs(), 0);
+  assert.match(find(host.render(), (n) => n.props?.accessibilityRole === "alert").props.children, /Connection lost/);
+  assert.equal(host.field("Personal access token").props.value, "Bearer test-token");
+  host.button("Add").props.onPress();
+  await new Promise(setImmediate);
+  assert.equal(saved[1][0].headers.Authorization, "Bearer test-token");
+  assert.equal(host.backs(), 1);
+});
+
+test("editing an MCP bypasses the catalog and preserves masked headers", async () => {
+  let saved;
+  const host = mcpAddHost({
+    params: { name: "docs", target: "codex" },
+    definition: async () => ({ name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } }),
+    saveUrl: async (...args) => {
+      saved = args;
+    },
+  });
+  host.render();
+  await new Promise(setImmediate);
+  assert.equal(host.button("GitHub"), undefined);
+  assert.equal(host.field("Name").props.value, "docs");
+  host.button("Save").props.onPress();
+  await new Promise(setImmediate);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [
+    { name: "docs", type: "sse", url: "https://docs.example/sse", headers: { Authorization: "••••••" } },
+    "codex",
+    { name: "docs", target: "codex" },
+  ]);
+});
+
+test("MCP save without a connected computer rejects instead of closing as saved", async () => {
+  const hooks = hookHost();
+  const { useMcp } = load("use-mcp.ts", {
+    react: { ...hooks, useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
+    "react-native": { AppState: {} },
+    "@milagre/shared/mcp": require("../packages/shared/src/mcp.ts"),
+    "./mcp-store": { MCP_IDLE: { entries: null, error: "", pending: {}, busy: false } },
+    "./session": { useSession: () => ({ client: null }) },
+  });
+  await assert.rejects(useMcp().saveUrl({ name: "docs", type: "http", url: "https://docs.example/mcp", headers: {} }, "everywhere"), /Connect to a computer/);
+});
