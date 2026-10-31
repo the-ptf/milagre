@@ -5,7 +5,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DomWebView, type DomWebViewRef } from "@expo/dom-webview";
 import { File, Paths } from "expo-file-system";
 import { ArrowDown01Icon, ArrowLeft01Icon, Cancel01Icon, SmartphoneIcon } from "@hugeicons/core-free-icons";
-import type { SimulatorDevice, SimulatorFrame, SimulatorList } from "@milagre/shared/simulator";
+import {
+  SIMLOCK_DEVICE_PREFIX,
+  type SimlockLease,
+  type SimlockModel,
+  type SimulatorDevice,
+  type SimulatorFrame,
+  type SimulatorList,
+} from "@milagre/shared/simulator";
 import {
   createSimulatorBridge,
   createSimulatorReceiverHtml,
@@ -20,6 +27,7 @@ import { useTheme } from "./theme";
 import { StatusPill } from "./status-pill";
 import { CircleButton, PageScroll, PillButton, useStyles } from "./ui";
 import { usePanelTabs } from "./panel-tabs";
+import { radius } from "./design-tokens";
 
 /** Poll discovery only while this screen is visible. Discovery never starts a video session. */
 function useSimulators(client: Client | null, chatId?: string) {
@@ -137,6 +145,47 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
       };
     }, [pause, resume]),
   );
+  // Experimental: the Mac's Simlock pool, read when the attach list opens; null when it is off or the Mac lacks it.
+  const [pool, setPool] = useState<{ models: SimlockModel[]; error?: string } | null>(null);
+  const [leasing, setLeasing] = useState(false);
+  useEffect(() => {
+    if (!attaching || !source) return;
+    let live = true;
+    void (async () => {
+      try {
+        const settings = await source.call<{ enabled: boolean }>("simlock:settings:read", []);
+        if (!settings?.enabled) return live && setPool(null);
+        const { models } = await source.call<{ models: SimlockModel[] }>("simlock:models", []);
+        if (live) setPool({ models });
+      } catch (error) {
+        // A Mac without Simlock answers unknown command: show nothing rather than an error.
+        if (live)
+          setPool((current) =>
+            current ? { models: current.models, error: error instanceof Error ? error.message : "Could not reach the Simlock pool." } : null,
+          );
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [attaching, source]);
+  const lease = async (model: SimlockModel) => {
+    if (!source || !chatId || busy) return;
+    setBusy(true);
+    setLeasing(true);
+    try {
+      const leased = await source.call<SimlockLease>("simlock:lease", [{ chatId, platform: model.platform, model: model.model }]);
+      setList(await source.call<SimulatorList>("simulator:list", [{ chatId }]));
+      setAttaching(false);
+      setChoosing(false);
+      setSelected({ id: leased.deviceId, name: `${leased.name} (Simlock)`, platform: leased.platform, version: leased.version });
+    } catch (error) {
+      setPool((current) => ({ models: current?.models ?? [], error: error instanceof Error ? error.message : "Could not lease a device." }));
+    } finally {
+      setLeasing(false);
+      setBusy(false);
+    }
+  };
   const mutate = async (method: "attach" | "detach", device: SimulatorDevice) => {
     if (!source || !chatId || busy) return;
     setBusy(true);
@@ -309,7 +358,8 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
                   </Pressable>
                   {!attaching && (
                     <CircleButton
-                      label={`Detach ${device.name} from Chat`}
+                      // Detaching a Simlock lease returns it to the pool, wiped (the Mac releases it).
+                      label={device.id.startsWith(SIMLOCK_DEVICE_PREFIX) ? `Return ${device.name} to the Simlock pool` : `Detach ${device.name} from Chat`}
                       icon={Cancel01Icon}
                       onPress={busy ? undefined : () => void mutate("detach", device)}
                     />
@@ -318,6 +368,41 @@ export function SimulatorSheet({ hostId, chatId, onClose = goBack }: { hostId?: 
               );
             })}
             {!attaching && <PillButton title="Attach simulator" onPress={() => setAttaching(true)} />}
+            {attaching && pool && (
+              <View accessibilityLabel="Lease from Simlock" style={{ gap: 8, paddingTop: 8 }}>
+                <Text style={styles.caption}>Lease from Simlock: a fresh device of its own, returned wiped</Text>
+                {!!pool.error && (
+                  <Text accessibilityRole="alert" style={{ color: colors.redInk }}>
+                    {pool.error}
+                  </Text>
+                )}
+                {leasing && <Text style={styles.muted}>Leasing... Simlock boots the device and may queue behind other agents.</Text>}
+                {pool.models.map((model) => (
+                  <Pressable
+                    key={`${model.platform}:${model.model}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Lease ${model.model}`}
+                    disabled={busy}
+                    onPress={() => void lease(model)}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      padding: 14,
+                      gap: 10,
+                      borderRadius: radius.card,
+                      opacity: busy ? 0.5 : 1,
+                      backgroundColor: pressed ? colors.hover : docked ? colors.page : colors.surface,
+                    })}
+                  >
+                    <Icon icon={SmartphoneIcon} size={18} tone="ink2" />
+                    <Text style={{ flex: 1, color: colors.ink, fontSize: 15 }}>{model.model}</Text>
+                    <Text style={styles.muted}>
+                      {model.platform === "android" ? "Android" : "iOS"} {model.version}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
           </PageScroll>
         )}
       </View>
