@@ -2496,6 +2496,20 @@
         }
       ]
     },
+    "device-notes:read": {
+      "parameters": []
+    },
+    "device-notes:save": {
+      "parameters": [
+        {
+          "name": "value",
+          "optional": false,
+          "schema": {
+            "enum": [false, true]
+          }
+        }
+      ]
+    },
     "linked:stop-negotiation": {
       "parameters": [
         {
@@ -7542,11 +7556,11 @@
           "$ref": "#/$defs/T187",
           "description": "Creates a new non-resizable ArrayBuffer with the same byte content as this buffer, then detaches this buffer.\n\n[MDN](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/transferToFixedLength)"
         },
-        "__@toStringTag@2369": {
+        "__@toStringTag@2374": {
           "const": "ArrayBuffer"
         }
       },
-      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2369"],
+      "required": ["byteLength", "slice", "maxByteLength", "resizable", "resize", "detached", "transfer", "transferToFixedLength", "__@toStringTag@2374"],
       "additionalProperties": false
     },
     "T184": {

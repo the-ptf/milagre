@@ -6,6 +6,7 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { createRuntime } = require("./runtime.cjs");
 const { waitUntil } = require("./agents/test-helpers.cjs");
+const { createSentFromNotes } = require("./sent-from.cjs");
 
 async function fixture(t) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "milagre-sent-from-")));
@@ -62,17 +63,28 @@ async function fixture(t) {
     return prompt.slice(prompt.lastIndexOf("check the build"));
   };
   const messages = async () => (await runtime.invoke("project:snapshot", [project])).state.messages.filter((m) => m.role === "user");
-  return { send, messages };
+  return { send, messages, runtime };
 }
+
+test("device notes are off until the user turns them on in Settings › Experimental", async (t) => {
+  const f = await fixture(t);
+  assert.deepEqual(await f.runtime.invoke("device-notes:read", []), { enabled: false });
+  assert.equal(await f.send({ sentFrom: "phone" }), "check the build");
+  assert.deepEqual(await f.runtime.invoke("device-notes:save", [true]), { enabled: true });
+  assert.match(await f.send({ sentFrom: "phone" }), /sent this from their phone/);
+  await f.runtime.invoke("device-notes:save", [false]);
+  assert.equal(await f.send({ sentFrom: "phone" }), "check the build");
+});
 
 test("the agent hears where each message was typed, and when the user is back at this computer", async (t) => {
   const f = await fixture(t);
+  await f.runtime.invoke("device-notes:save", [true]);
   assert.equal(await f.send({}), "check the build");
   const phone = await f.send({ sentFrom: "phone" });
   assert.ok(phone.startsWith("check the build\n\n<milagre_note>The user sent this from their phone, not from this computer."));
   assert.match(phone, /don't ask them to/);
   assert.match(await f.send({ sentFrom: "tablet" }), /sent this from their iPad/);
-  assert.match(await f.send({ sentFrom: "computer" }), /sent this from another computer, through Milagre/);
+  assert.match(await f.send({ sentFrom: "computer" }), /sent this from another computer, not/);
   assert.match(phone, /computer use\), do the step and show a screenshot/);
   assert.equal(
     await f.send({}),
@@ -85,5 +97,15 @@ test("the agent hears where each message was typed, and when the user is back at
 
 test("an unknown device counts as this computer", async (t) => {
   const f = await fixture(t);
+  await f.runtime.invoke("device-notes:save", [true]);
   assert.equal(await f.send({ sentFrom: "watch" }), "check the build");
+});
+
+test("a note stays within the tokens Settings warns about", async () => {
+  const { DEVICE_NOTE_TOKENS } = await import("@milagre/shared/device-notes");
+  const notes = createSentFromNotes();
+  for (const sentFrom of ["phone", "tablet", "computer"]) {
+    const note = notes.message({ body: "x", prompt: "x", sentFrom }, null).prompt.slice("x\n\n".length);
+    assert.ok(Math.ceil(note.length / 4) <= DEVICE_NOTE_TOKENS, `the ${sentFrom} note is ${note.length} characters`);
+  }
 });

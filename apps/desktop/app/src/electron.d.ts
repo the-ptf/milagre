@@ -634,6 +634,9 @@ export type MilagreBridge = {
   readRemoteDelegationEnabled: () => Promise<{ enabled: boolean }>;
   saveRemoteDelegationEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
   onRemoteDelegationEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
+  readDeviceNotesEnabled: () => Promise<{ enabled: boolean }>;
+  saveDeviceNotesEnabled: (value: boolean) => Promise<{ enabled: boolean }>;
+  onDeviceNotesEnabledChanged: (callback: (value: { enabled: boolean }) => void) => () => void;
   onLinkedWork: (callback: (work: LinkedWork) => void) => () => void;
   /** An app shortcut (⌘⇧ plus a letter, or ⌘,) pressed in any frame, forwarded by the main process. */
   onAppShortcut: (callback: (shortcut: { key: string; code?: string; meta: boolean; control: boolean; alt: boolean; shift: boolean }) => void) => () => void;

@@ -156,6 +156,8 @@ const ALLOWED: Record<string, string[]> = {
   "lib/linked-work.ts": ["getLinkedWork", "onLinkedWork"],
   // This Mac's own switch for its Chats delegating to other computers.
   "lib/remote-delegation.ts": ["readRemoteDelegationEnabled", "saveRemoteDelegationEnabled", "onRemoteDelegationEnabledChanged"],
+  // This Mac's own switch for telling its Chats' agents which device a message came from.
+  "lib/device-notes.ts": ["readDeviceNotesEnabled", "saveDeviceNotesEnabled", "onDeviceNotesEnabledChanged"],
   // This Mac's own Babysit PRs settings, which its daemon's poller follows.
   "lib/babysit-settings.ts": ["readBabysitSettings", "saveBabysitSettings", "onBabysitSettings"],
   "lib/terminal-sessions.ts": ["setTerminalFocused"],

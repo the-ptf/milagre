@@ -1,7 +1,7 @@
 // Where the user typed a message (ChatSendRequest.sentFrom): their phone, their iPad, or another computer's Milagre. A
 // message with none was typed in this computer's own window. The agent is told after the message, so it doesn't ask
 // someone texting from their phone to open a folder or an app on this computer.
-const PLACES = { phone: "their phone", tablet: "their iPad", computer: "another computer, through Milagre" };
+const PLACES = { phone: "their phone", tablet: "their iPad", computer: "another computer" };
 // Chats remembered as last written from another device, so the message that comes back to this computer says so.
 const MAX_AWAY = 1000;
 
@@ -15,7 +15,8 @@ function sentFromDevice(value) {
   return typeof value === "string" && Object.hasOwn(PLACES, value) ? value : null;
 }
 
-function createSentFromNotes() {
+/** `enabled()`: Settings › Experimental › Device notes, off by default. While off, no message carries a note. */
+function createSentFromNotes({ enabled = () => true } = {}) {
   const away = new Set();
   return {
     /**
@@ -24,6 +25,7 @@ function createSentFromNotes() {
      */
     message(request, chatId) {
       const { sentFrom, ...message } = request;
+      if (!enabled()) return message;
       const device = sentFromDevice(sentFrom);
       const note = device ? awayNote(PLACES[device]) : chatId && away.has(chatId) ? BACK_NOTE : null;
       const prompt = message.prompt || message.body;

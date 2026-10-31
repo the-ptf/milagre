@@ -56,6 +56,9 @@ const PATHS = Object.freeze({
   "simulator:input": denySimulator,
   "simulator:repair": denySimulator,
   "simulator:close": denySimulator,
+  // The owner's Experimental switch for device notes.
+  "device-notes:read": denied,
+  "device-notes:save": denied,
   // Computer use drives the owner's own desktop apps. A demo Project never reaches it.
   "computer-use:settings:read": denied,
   "computer-use:settings:save": denied,

@@ -293,6 +293,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
       if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
       if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
+      // Settings › Experimental's Device notes copy is plain text.
+      if (id === "@milagre/shared/device-notes" && !(id in modules)) return require("@milagre/shared/device-notes");
       // Where this device's messages say they came from (sent-from.ts): a phone in a test.
       if (base === "sent-from" && !(id in modules)) return { SENT_FROM: "phone" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
@@ -12312,6 +12314,47 @@ test("mobile Experimental page has no Routines switch (Routines left Experimenta
     find(render(), (n) => n.props?.title === "Routines"),
     undefined,
   );
+});
+
+test("mobile Experimental shows the Mac's Device notes switch with its token warning, off by default, and saves a tap", async () => {
+  const react = hookHost();
+  const focused = [];
+  const calls = [];
+  let saved = { enabled: false };
+  const client = {
+    async call(method, args) {
+      calls.push([method, args]);
+      if (method === "device-notes:read") return saved;
+      if (method === "device-notes:save") return (saved = { enabled: args[0] });
+      return null;
+    },
+  };
+  const { ExperimentalSection } = load("experimental-section.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text" },
+    "expo-router": { useFocusEffect: (fn) => focused.push(fn), router: { push() {} } },
+    "./ultracode-fatality-setting": { useUltracodeFatality: () => [false, () => {}] },
+    "./floating-inbox-setting": { useFloatingInbox: () => [false, () => {}], useFloatingInboxActivity: () => [true, () => {}] },
+    "./session": { useSession: () => ({ client }) },
+    "./settings-list": { Row: "Row" },
+    "./ui": { Toggle: "Toggle" },
+  });
+  const render = () => {
+    react.begin();
+    return ExperimentalSection();
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const toggle = () => find(render(), (n) => n.type === "Toggle" && n.props.title === "Device notes");
+  assert.equal(toggle(), undefined, "nothing shows before the Mac answers");
+  for (const effect of focused.splice(0)) effect();
+  await settle();
+  assert.equal(toggle().props.selected, false);
+  assert.ok(find(render(), (n) => n.type === "Text" && n.props.children === "Adds about 100 tokens to every message you send from another device."));
+  toggle().props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["device-notes:save", [true]]));
+  assert.equal(toggle().props.selected, true);
 });
 
 test("mobile Experimental shows a Babysit PRs row that opens its page, hidden for an older Mac", async () => {

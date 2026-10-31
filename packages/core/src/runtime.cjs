@@ -1337,8 +1337,16 @@ function createRuntime(options) {
   // What Milagre tells a Chat's agent with its next message and nobody typed, such as files the user undid (a
   // <milagre_note> after the message). Kept in memory: a restart before the next message drops it.
   const agentNotes = new Map();
-  // Where the user typed each message, when it isn't this computer's window (sent-from.cjs).
-  const sentFromNotes = createSentFromNotes();
+  // Where the user typed each message, when it isn't this computer's window (sent-from.cjs). Settings › Experimental,
+  // off unless turned on: each note costs up to DEVICE_NOTE_TOKENS (shared/device-notes.mjs) on every message sent away from this computer.
+  const deviceNotes = require("./design-settings.cjs").createDesignSettings(path.join(dataDir, "device-notes.json"), { name: "Device notes", missing: false });
+  const sentFromNotes = createSentFromNotes({ enabled: () => deviceNotes.enabled() });
+  commands.handle("device-notes:read", () => ({ enabled: deviceNotes.enabled() }));
+  commands.handle("device-notes:save", (_event, value) => {
+    const result = deviceNotes.save(value);
+    emit("device-notes:changed", result);
+    return result;
+  });
   async function startAgentTurn(request) {
     if (closing) return { turnId: null, steered: false, cancelled: true };
     const permissionMode = request.permissionMode ?? agents.permissionMode(request.chatId, "ask");

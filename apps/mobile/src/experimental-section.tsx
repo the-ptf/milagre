@@ -6,10 +6,13 @@ import { useSession } from "./session";
 import { Row } from "./settings-list";
 import { useUltracodeFatality } from "./ultracode-fatality-setting";
 import { Toggle, useStyles } from "./ui";
+import { useTheme } from "./theme";
+import { DEVICE_NOTES_DESCRIPTION, DEVICE_NOTES_LABEL, DEVICE_NOTES_WARNING } from "@milagre/shared/device-notes";
 
 /** Settings › Experimental: this phone's experimental features, like desktop's Experimental section. */
 export function ExperimentalSection() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const [floatingInbox, setFloatingInbox] = useFloatingInbox();
   const [inboxActivity, setInboxActivity] = useFloatingInboxActivity();
   const [fatality, setFatality] = useUltracodeFatality();
@@ -21,6 +24,9 @@ export function ExperimentalSection() {
   const [simlock, setSimlock] = useState<boolean | null>(null);
   // Computer use, also kept by the Mac; null on a Mac without it.
   const [computerUse, setComputerUse] = useState<boolean | null>(null);
+  // Device notes, also kept by the Mac (its agents get the notes); null on a Mac without them.
+  const [deviceNotes, setDeviceNotes] = useState<boolean | null>(null);
+  const [deviceNotesError, setDeviceNotesError] = useState("");
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
@@ -37,6 +43,10 @@ export function ExperimentalSection() {
       client.call<{ enabled: boolean } | null>("computer-use:settings:read", []).then(
         (value) => live && setComputerUse(value ? value.enabled === true : null),
         () => live && setComputerUse(null),
+      );
+      client.call<{ enabled: boolean } | null>("device-notes:read", []).then(
+        (value) => live && setDeviceNotes(value ? value.enabled === true : null),
+        () => live && setDeviceNotes(null),
       );
       return () => {
         live = false;
@@ -67,6 +77,31 @@ export function ExperimentalSection() {
         <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
           <Row title="Babysit PRs" value={babysit ? "On" : "Off"} onPress={() => router.push("/babysit-prs")} />
           <Text style={[styles.caption, { paddingBottom: 12 }]}>Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</Text>
+        </View>
+      )}
+      {session.client && deviceNotes !== null && (
+        <View style={[styles.card, { gap: 4 }]}>
+          <Toggle
+            title={DEVICE_NOTES_LABEL}
+            selected={deviceNotes}
+            onPress={() => {
+              const client = session.client;
+              if (!client) return;
+              const next = !deviceNotes;
+              setDeviceNotes(next);
+              setDeviceNotesError("");
+              client.call<{ enabled: boolean }>("device-notes:save", [next]).then(
+                (value) => setDeviceNotes(value.enabled === true),
+                (error: Error) => {
+                  setDeviceNotes(!next);
+                  setDeviceNotesError(error.message || "Could not change this setting.");
+                },
+              );
+            }}
+          />
+          <Text style={styles.caption}>{DEVICE_NOTES_DESCRIPTION}</Text>
+          <Text style={[styles.caption, { color: colors.orangeInk }]}>{DEVICE_NOTES_WARNING}</Text>
+          {!!deviceNotesError && <Text style={[styles.caption, { color: colors.redInk }]}>{deviceNotesError}</Text>}
         </View>
       )}
       {session.client && simlock !== null && (
