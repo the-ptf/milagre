@@ -88,6 +88,7 @@ import { useDoneSettings } from "../lib/done-settings";
 import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
+import { SimlockSettings } from "./settings/SimlockSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
@@ -757,6 +758,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
         </Row>
         <BotsSettings />
         <RemoteDelegationSettings />
+        <SimlockSettings />
         <BabysitPrsRow onOpen={() => setPage("babysit-prs")} />
       </Group>
     </>

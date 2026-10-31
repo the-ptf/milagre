@@ -279,6 +279,8 @@ export type MilagreBridge = {
   createArtifactPreview: (html: string, source?: { chatId: string; assets: import("@milagre/shared/artifact").ArtifactAsset[] }) => Promise<string>;
   releaseArtifactPreview: (url: string) => Promise<void>;
   simulators: SimulatorApi;
+  /** Experimental: devices leased from a Simlock pool (Settings › Experimental). */
+  simlock: import("@milagre/shared/simulator").SimlockApi;
   browsers: BrowserApi;
   pageComments: import("@milagre/shared/page-comments").PageCommentsApi;
   terminals: TerminalApi;

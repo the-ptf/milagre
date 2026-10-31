@@ -1192,8 +1192,10 @@ async function browserChecks() {
     // A card's preview mounts only once it nears the view, and the first reply's card sits above the fold: scroll to it
     // once the new reply has landed, or the transcript follows that reply down again.
     await waitFor('!!document.querySelector("[data-artifact=current-artifact]")');
-    await evaluate('document.querySelector("[data-artifact=legacy]").scrollIntoView()');
-    await waitFor('document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2")');
+    // Scroll on every check: on a slow runner the transcript can follow the new reply down again before the preview mounts.
+    await waitFor(
+      '(document.querySelector("[data-artifact=legacy]").scrollIntoView(), document.querySelector("[data-artifact=legacy] iframe")?.srcdoc.includes("How this works 2"))',
+    );
     await waitFor(
       '[...document.querySelectorAll("[data-slot=design-feedback-comment]")].filter(node => /Keep the original wording|Explain the next step/.test(node.textContent)).every(node => node.querySelector("iframe")?.srcdoc.includes("How this works 2"))',
     );

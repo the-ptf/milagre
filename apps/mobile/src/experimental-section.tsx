@@ -17,6 +17,8 @@ export function ExperimentalSection() {
   // Babysit PRs lives on the connected Mac; null until it answers, and an older Mac never has it. Re-read on focus: its
   // page or the Mac may have changed it.
   const [babysit, setBabysit] = useState<boolean | null>(null);
+  // Simlock devices, also kept by the Mac; null on a Mac without them.
+  const [simlock, setSimlock] = useState<boolean | null>(null);
   useFocusEffect(
     useCallback(() => {
       const client = session.client;
@@ -25,6 +27,10 @@ export function ExperimentalSection() {
       client.call<{ enabled: boolean } | null>("babysit:settings:read", []).then(
         (value) => live && setBabysit(value ? value.enabled === true : null),
         () => live && setBabysit(null),
+      );
+      client.call<{ enabled: boolean } | null>("simlock:settings:read", []).then(
+        (value) => live && setSimlock(value ? value.enabled === true : null),
+        () => live && setSimlock(null),
       );
       return () => {
         live = false;
@@ -55,6 +61,14 @@ export function ExperimentalSection() {
         <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
           <Row title="Babysit PRs" value={babysit ? "On" : "Off"} onPress={() => router.push("/babysit-prs")} />
           <Text style={[styles.caption, { paddingBottom: 12 }]}>Watch every PR a Chat opens and fix review comments, failed checks and conflicts.</Text>
+        </View>
+      )}
+      {session.client && simlock !== null && (
+        <View style={[styles.card, { gap: 4, paddingVertical: 4 }]}>
+          <Row title="Simlock devices" value={simlock ? "On" : "Off"} onPress={() => router.push("/simlock")} />
+          <Text style={[styles.caption, { paddingBottom: 12 }]}>
+            Agents lease a simulator or emulator of their own from a Simlock pool and return it wiped.
+          </Text>
         </View>
       )}
     </View>
