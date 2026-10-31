@@ -60,6 +60,9 @@ test("the endpoint answers like a debugging browser, only on its token path and 
   assert.equal((await get(port, `/${"0".repeat(48)}/json/list`)).status, 404);
   // A name rebound to 127.0.0.1 by a web page carries its own Host.
   assert.equal((await get(port, `/${token}/json/list`, `evil.example:${port}`)).status, 403);
+  assert.equal((await get(port, `/${token}/json/list`, `localhost:${port}`)).status, 403, "a name, never: DNS rebinding");
+  // A paired computer comes through its own loopback forwarder (panel-forwarders.cjs), with that port in Host.
+  assert.equal((await get(port, `/${token}/json/list`, "127.0.0.1:61234")).status, 200);
 });
 
 test("a DevTools connection relays commands, results, errors and events, and releases the page when it closes", async (t) => {

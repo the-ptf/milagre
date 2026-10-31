@@ -211,7 +211,25 @@ async function startDesktop() {
   // the agent. An older host has no such command; its pages simply stay in the panel.
   const panelPages = createBrowserPanelPages({
     fromId: (id) => require("electron").webContents.fromId(id),
-    publish: (request) => (runtime ? runtime.invoke("browser:panel-pages", [request]) : Promise.reject(new Error("No host"))),
+    // This Mac's Chats' pages go to its own host; a Chat on another computer's go to that computer's host, which reaches
+    // them back through this Mac (#832).
+    publish: async (request) => {
+      if (!runtime) throw new Error("No host");
+      const remote = request.pages.filter((page) => computerOfKey(page.chatId) !== LOCAL_COMPUTER);
+      const local = request.pages.filter((page) => computerOfKey(page.chatId) === LOCAL_COMPUTER);
+      await Promise.all([
+        runtime.invoke("browser:panel-pages", [local.length ? { ...request, pages: local } : { pages: [] }]),
+        runtime
+          .invoke("computers:browser-pages", [
+            {
+              port: request.port,
+              prefix: request.prefix,
+              pages: remote.map((page) => ({ id: page.id, chatKey: page.chatId, title: page.title, url: page.url })),
+            },
+          ])
+          .catch((error) => console.warn("Browser pages for other computers:", error.message)),
+      ]);
+    },
   });
   ipcMain.handle("browser-panel:pages", (event, list) => panelPages.setPages(event.sender, list));
   // A Chat on another computer: its pages draw here and reach the web from that computer (#832).

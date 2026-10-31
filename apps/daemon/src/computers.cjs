@@ -157,7 +157,7 @@ async function stop(entry) {
  *   allowLocalRelay?: boolean; createSocket?: (url: string) => any; fetch?: typeof globalThis.fetch;
  *   now?: () => number; random?: (n: number) => Uint8Array; reconnectMs?: number; switchWaitMs?: number;
  *   offlineAfterMs?: number; checkEveryMs?: number; networkMs?: number; backoffMs?: number[]; lanWaitMs?: number;
- *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void;
+ *   networkSignature?: () => string; reconnectWaitMs?: number; log?: (line: string) => void; acceptStream?: (target: string, port: number) => import("node:net").Socket;
  * }} options
  */
 function createComputers({
@@ -183,6 +183,8 @@ function createComputers({
   networkSignature = defaultNetworkSignature,
   reconnectWaitMs = RECONNECT_WAIT_MS,
   log = () => {},
+  // A computer may open streams back to this Mac only where this lets it (peer-streams.cjs): the Browser pages' proxy.
+  acceptStream,
 }) {
   const store = createComputersStore({ file: path.join(dataDir, "computers.json"), now, allowLocalRelay });
   const keys = credentials ?? createComputerKeys({ file: path.join(dataDir, "computer-keys.json"), safeStorage, random });
@@ -197,7 +199,7 @@ function createComputers({
   let adding = null;
   let checkTimer = null;
   let networkTimer = null;
-  const socketOption = createSocket ? { createSocket } : {};
+  const socketOption = { ...(createSocket ? { createSocket } : {}), ...(acceptStream ? { acceptStream } : {}) };
 
   function view(computer) {
     const entry = entries.get(computer.id);

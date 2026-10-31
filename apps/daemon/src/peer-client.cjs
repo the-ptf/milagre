@@ -73,7 +73,7 @@ const defaultSocket = (url) => new WebSocket(url);
  * @param {{
  *   url: string; hostId: string; hostKey: string; token: string; identity: any; name?: string;
  *   onPending?: () => void; signal?: AbortSignal; random?: (n: number) => Uint8Array; createSocket?: (url: string) => any;
- *   timeoutMs?: number; maxPagedChars?: number;
+ *   timeoutMs?: number; maxPagedChars?: number; acceptStream?: (target: string, port: number) => import("node:net").Socket;
  * }} options
  */
 async function connectPeer({
@@ -87,6 +87,7 @@ async function connectPeer({
   signal,
   random = defaultRandom,
   createSocket = defaultSocket,
+  acceptStream,
   timeoutMs = 30_000,
   maxPagedChars = MAX_PAGED_CHARS,
 }) {
@@ -126,6 +127,8 @@ async function connectPeer({
   let nextId = 0;
   // TCP streams this Mac opens from the computer; open ones keep a closeWhenIdle waiting, as calls do.
   const streams = createPeerStreams({
+    // The computer may open streams back only where `acceptStream` dials them (it throws everywhere else).
+    ...(acceptStream ? { dial: acceptStream } : {}),
     send: (message) => {
       if (channel && !client.closed) send(channel.seal(message));
     },

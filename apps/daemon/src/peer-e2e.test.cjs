@@ -338,3 +338,66 @@ test("a paired desktop opens TCP streams from the computer, over the relay and t
   t.after(() => lan.close());
   assert.ok((await fetchThrough(lan)).endsWith(page));
 });
+
+test("a desktop's Browser page for this Mac's Chat is reached back over its channel, by the agent and the phone alike", async (t) => {
+  const net = require("node:net");
+  const { boxKeyPair } = require("@milagre/shared/relay-crypto");
+  const { connectPeer } = require("./peer-client.cjs");
+  const { random } = require("./relay-test-kit.cjs");
+  const { createCdpProxy } = require("@milagre/core/cdp-proxy");
+  // The desktop's real DevTools proxy for its panel pages (cdp-proxy.cjs), on its own loopback, over a stand-in page.
+  const pageId = "B".repeat(32);
+  const asked = [];
+  const proxy = createCdpProxy({
+    product: "test",
+    pages: () => [{ id: pageId, title: "Checkout", url: "http://localhost:5173/" }],
+    session: () => ({
+      send: async (method) => {
+        asked.push(method);
+        return method === "Page.getNavigationHistory" ? { currentIndex: 0, entries: [{ id: 1, url: "http://localhost:5173/", title: "Checkout" }] } : {};
+      },
+      onEvent: () => () => {},
+      release() {},
+    }),
+  });
+  const { port: endpoint, token } = await proxy.start();
+  t.after(() => proxy.close());
+  const prefix = `/${token}`;
+  const mac = await startTestMac(t);
+  const elsewhere = net.createServer();
+  await new Promise((resolve) => elsewhere.listen(0, "127.0.0.1", resolve));
+  t.after(() => elsewhere.close());
+  const desktop = await within(
+    connectPeer({
+      url: mac.relay.url,
+      hostId: mac.identity.hostId,
+      hostKey: b64url(mac.identity.box.publicKey),
+      token: mac.token,
+      identity: boxKeyPair(random),
+      name: "studio",
+      // As computer-service.cjs: only the panel pages' proxy.
+      acceptStream: (target, port) => {
+        if (target !== "127.0.0.1" || port !== endpoint) throw Object.assign(new Error("no"), { code: "ECONNREFUSED" });
+        return net.connect({ host: target, port });
+      },
+    }),
+    "the desktop",
+  );
+  t.after(() => desktop.close());
+  assert.ok(desktop.status.capabilities.includes("peer-panel-pages-v1"));
+  const chatId = `${mac.project}#7`;
+  await desktop.call("browser:panel-pages", [
+    { via: "peer", port: endpoint, prefix, pages: [{ id: pageId, chatId, title: "Checkout", url: "http://localhost:5173/" }] },
+  ]);
+  const listed = await mac.client.call("browser:list", [{ chatId }]);
+  const target = listed.targets.find((item) => item.source === "panel");
+  assert.equal(target?.url, "http://localhost:5173/");
+  // The Mac's own viewer (as the phone's) opens it: the DevTools session goes back over the desktop's channel.
+  const viewer = await within(mac.client.call("browser:open", [{ chatId, targetId: target.id }]), "the viewer");
+  assert.ok(viewer.viewerId);
+  await until(async () => asked.includes("Page.startScreencast"), "the screencast starts on the desktop's page");
+  await mac.client.call("browser:close", [{ viewerId: viewer.viewerId }]);
+  // The desktop going takes its pages away.
+  desktop.close();
+  await until(async () => !(await mac.client.call("browser:list", [{ chatId }])).targets.some((item) => item.source === "panel"), "the page is gone");
+});
