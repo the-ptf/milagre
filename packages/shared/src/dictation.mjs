@@ -116,24 +116,58 @@ export function whisperPrompt(terms, language) {
   return `${hint}${prompt ? `${prompt}.` : ""}`.trimEnd();
 }
 
-/** Normalize saved language preferences, including the first automatic-detection experiment. */
-export function whisperLanguage(language) {
-  return dictationLanguage(language);
+/**
+ * The language Whisper is told to listen for: the saved preference, or English for a model that only knows English
+ * (which never detects or transcribes anything else).
+ */
+export function whisperLanguage(language, model) {
+  return model?.english ? "en" : dictationLanguage(language);
 }
 
-// whisper.cpp's multilingual models, pinned to one revision and checked by hash. The desktop runs large-v3-turbo, the most
-// accurate with accents and mixed languages that a laptop transcribes in seconds; a phone's CPU gets small.
+// whisper.cpp's models, pinned to one revision and checked by hash. Each platform offers four, named for what they are
+// good at: the most accurate one that still transcribes in seconds on that hardware, its English-only counterpart, and
+// two quicker ones. A phone's CPU tops out at small.
 const WHISPER_REVISION = "5359861c739e955e79d9a303bcbc70fb988958b1";
-const whisperModel = (file, size, sha256) => ({
+const whisperModel = (id, purpose, name, file, size, sha256, { english = false, accuracy, speed }) => ({
+  id,
+  purpose,
+  name,
+  english,
+  accuracy,
+  speed,
   file,
   size,
   sha256,
   url: `https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_REVISION}/${file}`,
 });
+const TURBO = ["ggml-large-v3-turbo-q5_0.bin", 574041195, "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"];
+const MEDIUM_EN = ["ggml-medium.en-q5_0.bin", 539225533, "76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0"];
+const SMALL = ["ggml-small-q5_1.bin", 190085487, "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"];
+const SMALL_EN = ["ggml-small.en-q5_1.bin", 190098681, "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30"];
+const BASE = ["ggml-base-q5_1.bin", 59707625, "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"];
+const TINY = ["ggml-tiny-q5_1.bin", 32152673, "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7"];
+
+/** Each platform's models, best first; the first is the default. `accuracy` and `speed` are 1..3, relative on that platform. */
 export const WHISPER_MODELS = {
-  desktop: whisperModel("ggml-large-v3-turbo-q5_0.bin", 574041195, "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
-  phone: whisperModel("ggml-small-q5_1.bin", 190085487, "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"),
+  desktop: [
+    whisperModel("large-v3-turbo", "Best, any language", "Large v3 Turbo", ...TURBO, { accuracy: 3, speed: 2 }),
+    whisperModel("medium-en", "Best for English", "Medium English", ...MEDIUM_EN, { english: true, accuracy: 3, speed: 2 }),
+    whisperModel("small", "Balanced, any language", "Small", ...SMALL, { accuracy: 2, speed: 3 }),
+    whisperModel("base", "Fastest, any language", "Base", ...BASE, { accuracy: 1, speed: 3 }),
+  ],
+  phone: [
+    whisperModel("small", "Best, any language", "Small", ...SMALL, { accuracy: 3, speed: 1 }),
+    whisperModel("small-en", "Best for English", "Small English", ...SMALL_EN, { english: true, accuracy: 3, speed: 1 }),
+    whisperModel("base", "Fast, any language", "Base", ...BASE, { accuracy: 2, speed: 2 }),
+    whisperModel("tiny", "Fastest, any language", "Tiny", ...TINY, { accuracy: 1, speed: 3 }),
+  ],
 };
+
+/** A saved model id as one of the platform's models: the default for anything unknown. */
+export function whisperModelFor(platform, id) {
+  const models = WHISPER_MODELS[platform];
+  return models.find((model) => model.id === id) ?? models[0];
+}
 
 // Whisper's stand-ins for silence and noise, and the lines it invents on a silent clip.
 const NON_SPEECH = /\[(?:BLANK_AUDIO|MUSIC|NOISE|SILENCE|INAUDIBLE)[^\]]*\]|\((?:music|silence|noise|inaudible)[^)]*\)/gi;

@@ -286,19 +286,19 @@ async function startDesktop() {
       name,
     );
   // Dictation runs on this computer even when the window shows a paired one: the microphone is here.
-  // Its model download reports progress to the window that asked.
-  const dictation = createDictation({ dataDir: app.getPath("userData") });
-  ipcMain.handle("app:dictation-status", async () => ({ ready: await dictation.ready(), size: dictation.size }));
-  ipcMain.handle("app:dictation-prepare", (event) =>
-    dictation.prepare((received, total) => {
-      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
-    }),
-  );
-  ipcMain.handle("app:dictation-transcribe", (event, request) =>
-    dictation.transcribe(request ?? {}, (received, total) => {
-      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
-    }),
-  );
+  // Every window hears each model's download progress, so Settings and the composer show the same ring.
+  const dictation = createDictation({
+    dataDir: app.getPath("userData"),
+    onChange: (state) => {
+      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send("app:dictation-model", state);
+    },
+  });
+  ipcMain.handle("app:dictation-status", () => dictation.status());
+  ipcMain.handle("app:dictation-download", (_event, id) => dictation.download(id));
+  ipcMain.handle("app:dictation-cancel", (_event, id) => dictation.cancel(id));
+  ipcMain.handle("app:dictation-remove", (_event, id) => dictation.remove(id));
+  ipcMain.handle("app:dictation-prepare", (_event, id) => dictation.prepare(id));
+  ipcMain.handle("app:dictation-transcribe", (_event, request) => dictation.transcribe(request ?? {}));
   ipcMain.handle("app:dictation-open-settings", () =>
     shell.openExternal(
       process.platform === "win32" ? "ms-settings:privacy-microphone" : "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",

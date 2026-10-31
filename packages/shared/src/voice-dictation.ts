@@ -17,7 +17,7 @@ export function parseDictationAction(value: unknown): DictationActionPreference 
 
 export type Selection = { start: number; end: number };
 
-export type DictationPhase = "idle" | "preparing" | "recording" | "transcribing";
+export type DictationPhase = "idle" | "preparing" | "downloading" | "recording" | "transcribing";
 
 export type DictationErrorKind = "permission" | "no-speech" | "failed" | "interrupted";
 
@@ -27,6 +27,8 @@ export type Dictation = { phase: DictationPhase; error: DictationError | null };
 
 export type DictationAction =
   | { type: "start" }
+  | { type: "download" }
+  | { type: "downloaded" }
   | { type: "recording" }
   | { type: "stop" }
   | { type: "done" }
@@ -45,11 +47,19 @@ export const ERRORS = {
   interrupted: { kind: "interrupted", message: "Dictation stopped when you left Milagre. Nothing was added." },
 } as const satisfies Record<DictationErrorKind, DictationError>;
 
-/** A take moves idle > preparing > recording > transcribing > idle; anything out of order is ignored. `fail` and `done` end it from any phase. */
+/**
+ * A take moves idle > preparing > recording > transcribing > idle; anything out of order is ignored. `fail` and `done` end
+ * it from any phase. When the speech model isn't on the device yet, preparing first goes through downloading and back:
+ * the take records only once the model has landed.
+ */
 export function dictationReducer(state: Dictation, action: DictationAction): Dictation {
   switch (action.type) {
     case "start":
       return state.phase === "idle" ? { phase: "preparing", error: null } : state;
+    case "download":
+      return state.phase === "preparing" ? { phase: "downloading", error: null } : state;
+    case "downloaded":
+      return state.phase === "downloading" ? { phase: "preparing", error: null } : state;
     case "recording":
       return state.phase === "preparing" ? { phase: "recording", error: null } : state;
     case "stop":

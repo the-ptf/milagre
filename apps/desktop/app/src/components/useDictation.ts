@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import captureWorklet from "../lib/dictation-worklet.js?url&no-inline";
-import { whisperLanguage, whisperPrompt } from "@milagre/shared/dictation";
+import { whisperLanguage, whisperModelFor, whisperPrompt } from "@milagre/shared/dictation";
 import { ipcErrorMessage } from "@milagre/shared/result";
 import {
   ERRORS,
@@ -19,6 +19,7 @@ import {
 } from "@milagre/shared/voice-dictation";
 import { useBridge } from "../lib/computer-bridge";
 import { useSettings } from "../lib/settings";
+import { useDictationModels } from "./useDictationModels";
 
 export type DictationAnchor = { selection: Selection };
 
@@ -35,7 +36,6 @@ type Take = {
   processor: AudioWorkletNode;
   transcript: StreamingDictation;
   finishCapture: () => Promise<void>;
-  unlisten: () => void;
   limit: ReturnType<typeof setTimeout> | null;
 };
 
@@ -43,13 +43,17 @@ function closeAudio(audio: AudioContext) {
   if (audio.state !== "closed") void audio.close().catch(() => {});
 }
 
-/** Local PCM capture and partial inference while speaking. Only the final transcript edits or sends the draft. */
+/**
+ * Local PCM capture and partial inference while speaking. Only the final transcript edits or sends the draft. A take whose
+ * model isn't on this computer yet downloads it first (`downloading`, with `download` progress) and records once it lands.
+ */
 export function useDictation(cwd: string, scope: string, onTranscript: (text: string, anchor: DictationAnchor) => void) {
   const bridge = useBridge();
-  const { dictationLanguage } = useSettings();
+  const { dictationLanguage, dictationModel } = useSettings();
+  const model = whisperModelFor("desktop", dictationModel);
+  const models = useDictationModels();
   const [state, setState] = useState<Dictation>(IDLE);
   const [partial, setPartial] = useState<DictationPartial>(NO_PARTIAL);
-  const [download, setDownload] = useState<{ received: number; total: number } | null>(null);
   const phase = useRef<Dictation>(IDLE);
   const take = useRef<Take | null>(null);
   const counter = useRef(0);
@@ -70,7 +74,6 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
     counter.current += 1;
     if (!current) return;
     current.transcript.cancel();
-    current.unlisten();
     if (current.limit) clearTimeout(current.limit);
     current.processor.port.close();
     current.processor.disconnect();
@@ -79,16 +82,17 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
   }, []);
 
   const cancel = useCallback(() => {
+    // Cancelling while the model downloads stops the download too: the take was the only reason for it.
+    if (phase.current.phase === "downloading") void window.milagre.dictation.cancel(model.id).catch(() => {});
+    counter.current += 1;
     abandon();
-    setDownload(null);
     setPartial(NO_PARTIAL);
     move({ type: "done" });
-  }, [abandon, move]);
+  }, [abandon, model.id, move]);
 
   const fail = useCallback(
     (error: DictationError) => {
       abandon();
-      setDownload(null);
       setPartial(NO_PARTIAL);
       move({ type: "fail", error });
     },
@@ -110,10 +114,8 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
       if (!live()) return;
       const text = await current.transcript.finish();
       if (!live()) return;
-      current.unlisten();
       current.processor.port.close();
       take.current = null;
-      setDownload(null);
       setPartial(NO_PARTIAL);
       if (!text) return move({ type: "fail", error: ERRORS["no-speech"] });
       move({ type: "done" });
@@ -131,9 +133,23 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
       const id = (counter.current += 1);
       let stream: MediaStream | null = null;
       let audio: AudioContext | null = null;
-      let unlisten = () => {};
       const live = () => counter.current === id;
+      const language = whisperLanguage(dictationLanguage, model);
       try {
+        // The model downloads before the microphone opens: nothing is recorded that would wait minutes for it.
+        const status = await window.milagre.dictation.status();
+        if (!live()) return;
+        if (!status.find((item) => item.id === model.id)?.ready) {
+          move({ type: "download" });
+          try {
+            await window.milagre.dictation.download(model.id);
+          } catch (error) {
+            if (live()) fail({ kind: "failed", message: ipcErrorMessage(error) || ERRORS.failed.message });
+            return;
+          }
+          if (!live()) return;
+          move({ type: "downloaded" });
+        }
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
         if (!live()) return void stream.getTracks().forEach((track) => track.stop());
         let vocabulary: string[] = [];
@@ -143,11 +159,8 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
             vocabulary = context.terms;
           })
           .catch(() => []);
-        unlisten = window.milagre.dictation.onProgress((progress) => {
-          if (live()) setDownload(progress.received < progress.total ? progress : null);
-        });
-        // Download and initialize during capture, rather than after Stop.
-        const prepared = window.milagre.dictation.prepare();
+        // Load the model during capture, rather than after Stop.
+        const prepared = window.milagre.dictation.prepare(model.id);
         prepared.catch(() => {});
         // Chromium's silent sink renders the capture graph without opening the speakers or depending on an output device.
         const options: AudioContextOptions & { sinkId: { type: "none" } } = { sampleRate: DICTATION_SAMPLE_RATE, sinkId: { type: "none" } };
@@ -155,7 +168,6 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
         await audio.audioWorklet.addModule(captureWorklet);
         await audio.resume();
         if (!live()) {
-          unlisten();
           stream.getTracks().forEach((track) => track.stop());
           closeAudio(audio);
           return;
@@ -172,8 +184,9 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
             if (!live()) return "";
             const result = await window.milagre.dictation.transcribe({
               audio: pcm,
-              language: whisperLanguage(dictationLanguage),
-              prompt: whisperPrompt(vocabulary, dictationLanguage),
+              language,
+              prompt: whisperPrompt(vocabulary, language),
+              model: model.id,
             });
             return result.text;
           },
@@ -194,7 +207,6 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
           audio,
           processor,
           transcript,
-          unlisten,
           limit: null,
           finishCapture: () =>
             new Promise<void>((resolve, reject) => {
@@ -226,13 +238,12 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
           if (take.current === current) void stop();
         }, RECORDING_LIMIT_SECONDS * 1000);
       } catch (error) {
-        unlisten();
         stream?.getTracks().forEach((track) => track.stop());
         if (audio) closeAudio(audio);
         if (live()) fail(error instanceof DOMException && error.name === "NotAllowedError" ? ERRORS.permission : ERRORS.failed);
       }
     },
-    [bridge, cwd, dictationLanguage, fail, move, stop],
+    [bridge, cwd, dictationLanguage, fail, model, move, stop],
   );
 
   useEffect(
@@ -244,12 +255,11 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
   );
   useEffect(() => {
     setState(IDLE);
-    setDownload(null);
     setPartial(NO_PARTIAL);
   }, [cwd, scope]);
 
   useEffect(() => {
-    if (state.phase !== "preparing") return;
+    if (state.phase !== "preparing" && state.phase !== "downloading") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -259,10 +269,12 @@ export function useDictation(cwd: string, scope: string, onTranscript: (text: st
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state.phase, cancel]);
 
+  const downloading = models[model.id]?.received;
   return {
     phase: state.phase,
     error: state.error,
-    download,
+    /** How far the take's model download is, while the take waits on it. */
+    download: state.phase === "downloading" ? { received: downloading ?? 0, total: model.size } : null,
     partial,
     meter,
     start,

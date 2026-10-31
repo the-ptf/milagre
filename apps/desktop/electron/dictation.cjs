@@ -7,23 +7,42 @@ const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { WHISPER_MODELS, silentPcm, whisperText } = require("@milagre/shared/dictation");
 
-// Dictation on this computer: whisper.cpp transcribes the window's recording here, so the voice never leaves it. The model
-// downloads once, on the first dictation, and stays loaded for a few minutes after the last one.
+// Dictation on this computer: whisper.cpp transcribes the window's recording here, so the voice never leaves it. Each
+// model downloads once, picked in Settings or on the first take that needs it, and the one in use stays loaded for a
+// few minutes after the last take.
 const IDLE_RELEASE_MS = 3 * 60 * 1000;
+// Progress reaches the windows at most this often; a download writes thousands of chunks a second.
+const PROGRESS_MS = 100;
 
 /**
- * @param {{ dataDir: string, model?: import("@milagre/shared/dictation").WhisperModel, fetch?: typeof globalThis.fetch,
- *   loadWhisper?: () => Promise<{ initWhisper: (options: { filePath: string, useGpu?: boolean }) => Promise<any> }> }} options
+ * @typedef {{ id: string, file: string, size: number, sha256?: string, url?: string }} Model
+ * @typedef {{ id: string, ready: boolean, size: number, received: number | null }} ModelState
+ * @param {{ dataDir: string, models?: readonly Model[], fetch?: typeof globalThis.fetch,
+ *   loadWhisper?: () => Promise<{ initWhisper: (options: { filePath: string, useGpu?: boolean }) => Promise<any> }>,
+ *   onChange?: (state: ModelState) => void }} options
  */
-function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = globalThis.fetch, loadWhisper = async () => require("@fugood/whisper.node") }) {
-  const file = path.join(dataDir, "dictation", model.file);
-  /** @type {Promise<void> | null} */
-  let download = null;
-  /** @type {Promise<any> | null} */
+function createDictation({
+  dataDir,
+  models = WHISPER_MODELS.desktop,
+  fetch = globalThis.fetch,
+  loadWhisper = async () => require("@fugood/whisper.node"),
+  onChange = () => {},
+}) {
+  const folder = path.join(dataDir, "dictation");
+  const fileOf = (/** @type {Model} */ model) => path.join(folder, model.file);
+  /** @type {Map<string, { promise: Promise<void>, controller: AbortController, received: number }>} */
+  const downloads = new Map();
+  /** @type {{ id: string, whisper: Promise<any> } | null} */
   let context = null;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let idle = null;
   let tail = Promise.resolve();
+
+  function modelOf(id) {
+    const model = models.find((item) => item.id === id) ?? (id === undefined ? models[0] : undefined);
+    if (!model) throw new Error(`There is no speech model named ${id}.`);
+    return model;
+  }
 
   // Several windows can dictate, or a take can be cancelled while its inference is still finishing.
   function serial(work) {
@@ -34,39 +53,61 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
     return next;
   }
 
-  const ready = () =>
-    fsp.stat(file).then(
+  const ready = (/** @type {Model} */ model) =>
+    fsp.stat(fileOf(model)).then(
       (stat) => stat.size === model.size,
       () => false,
     );
 
-  /** Downloads the model once, checked against its hash; `onProgress` gets the bytes so far of the download in flight. */
-  function prepare(onProgress = (_received, _total) => {}) {
-    download ??= (async () => {
-      if (await ready()) return;
-      await fsp.mkdir(path.dirname(file), { recursive: true });
-      const partial = `${file}.${randomUUID()}.part`;
+  /** @returns {Promise<ModelState>} */
+  async function stateOf(model) {
+    return { id: model.id, ready: await ready(model), size: model.size, received: downloads.get(model.id)?.received ?? null };
+  }
+
+  const announce = (model) => void stateOf(model).then(onChange, () => {});
+
+  /** Downloads a model once, checked against its hash. A second call while it downloads joins the first. */
+  function download(id) {
+    const model = modelOf(id);
+    const running = downloads.get(model.id);
+    if (running) return running.promise;
+    const controller = new AbortController();
+    const entry = { controller, received: 0, promise: Promise.resolve() };
+    entry.promise = (async () => {
+      if (await ready(model)) return;
+      await fsp.mkdir(folder, { recursive: true });
+      const partial = `${fileOf(model)}.${randomUUID()}.part`;
       try {
-        const response = await fetch(model.url);
+        const response = await fetch(/** @type {string} */ (model.url), { signal: controller.signal });
         if (!response.ok || !response.body) throw new Error(`The speech model didn't download (HTTP ${response.status}).`);
         const hash = createHash("sha256");
-        let received = 0;
+        let reported = 0;
         const body = Readable.fromWeb(/** @type {any} */ (response.body));
         body.on("data", (chunk) => {
           hash.update(chunk);
-          received += chunk.length;
-          onProgress(received, model.size);
+          entry.received += chunk.length;
+          if (Date.now() - reported < PROGRESS_MS) return;
+          reported = Date.now();
+          onChange({ id: model.id, ready: false, size: model.size, received: entry.received });
         });
-        await pipeline(body, fs.createWriteStream(partial));
+        await pipeline(body, fs.createWriteStream(partial), { signal: controller.signal });
         if (hash.digest("hex") !== model.sha256) throw new Error("The speech model download was damaged. Try again.");
-        await fsp.rename(partial, file);
+        await fsp.rename(partial, fileOf(model));
       } finally {
         await fsp.rm(partial, { force: true });
       }
     })().finally(() => {
-      download = null;
+      downloads.delete(model.id);
+      announce(model);
     });
-    return download;
+    downloads.set(model.id, entry);
+    onChange({ id: model.id, ready: false, size: model.size, received: 0 });
+    return entry.promise;
+  }
+
+  /** Stops a model's download; its promise rejects with an AbortError. */
+  function cancel(id) {
+    downloads.get(modelOf(id).id)?.controller.abort();
   }
 
   function release() {
@@ -74,17 +115,22 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
     idle = null;
     const current = context;
     context = null;
-    return current?.then((whisper) => whisper.release()).catch(() => {});
+    return current?.whisper.then((whisper) => whisper.release()).catch(() => {});
   }
 
-  async function warm(onProgress = (_received, _total) => {}) {
-    await prepare(onProgress);
-    context ??= loadWhisper().then((whisper) => whisper.initWhisper({ filePath: file, useGpu: true }));
-    const loading = context;
-    loading.catch(() => {
-      if (context === loading) context = null;
-    });
-    return loading;
+  async function warm(model) {
+    await download(model.id);
+    // One model in memory at a time: switching models frees the last one first.
+    if (context && context.id !== model.id) await release();
+    if (!context) {
+      const whisper = loadWhisper().then((native) => native.initWhisper({ filePath: fileOf(model), useGpu: true }));
+      const loading = { id: model.id, whisper };
+      context = loading;
+      whisper.catch(() => {
+        if (context === loading) context = null;
+      });
+    }
+    return context.whisper;
   }
 
   function keepWarm() {
@@ -95,12 +141,12 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
 
   /**
    * The text of a recording: 16 kHz mono 16-bit PCM. `language` is a Whisper code or "auto"; `prompt` the project's words.
-   * @param {{ audio: ArrayBuffer, language?: string, prompt?: string }} request
+   * @param {{ audio: ArrayBuffer, language?: string, prompt?: string, model?: string }} request
    */
-  async function transcribe({ audio, language = "auto", prompt = "" }, onProgress = (_received, _total) => {}) {
+  async function transcribe({ audio, language = "auto", prompt = "", model: id }) {
     if (!(audio instanceof ArrayBuffer) || audio.byteLength < 3200 || silentPcm(new Int16Array(audio, 0, audio.byteLength >> 1))) return { text: "" };
     if (idle) clearTimeout(idle);
-    const whisper = await warm(onProgress);
+    const whisper = await warm(modelOf(id));
     try {
       const { promise } = whisper.transcribeData(audio, {
         language,
@@ -115,16 +161,31 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
     }
   }
 
+  /** Deletes a downloaded model, cancelling its download and freeing it from memory first. */
+  async function remove(id) {
+    const model = modelOf(id);
+    cancel(model.id);
+    await downloads.get(model.id)?.promise.catch(() => {});
+    await serial(async () => {
+      if (context?.id === model.id) await release();
+      await fsp.rm(fileOf(model), { force: true });
+    });
+    announce(model);
+  }
+
   return {
-    prepare: (onProgress) =>
+    status: () => Promise.all(models.map(stateOf)),
+    download,
+    cancel,
+    remove,
+    /** Downloads the model if it must and loads it, so the take's first words don't wait for either. */
+    prepare: (id) =>
       serial(async () => {
-        await warm(onProgress);
+        await warm(modelOf(id));
         keepWarm();
       }),
-    transcribe: (request, onProgress) => serial(() => transcribe(request, onProgress)),
+    transcribe: (request) => serial(() => transcribe(request)),
     release: () => serial(release),
-    ready,
-    size: model.size,
   };
 }
 

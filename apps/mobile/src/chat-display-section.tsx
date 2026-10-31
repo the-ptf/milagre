@@ -1,11 +1,11 @@
 import { ContextSettingsSection } from "./context-settings-section";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
-import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
+import { DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import { DICTATION_ACTION_OPTIONS } from "@milagre/shared/voice-dictation";
 import { CHAT_LIST_TITLE, type ChatList, type ToolCallDisplay } from "@milagre/shared/chat-display";
 import { CHAT_ROW_FIELDS } from "@milagre/shared/chat-row";
-import { useChatList, useDictationLanguage, useDictationAction, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
+import { useChatList, useDictationLanguage, useDictationAction, useDictationModel, useExpandReasoning, useToolCallDisplay } from "./chat-display-setting";
 import { saveChatRowShow, useChatRowShow } from "./chat-row-store";
 import {
   ByProjectPreview,
@@ -32,6 +32,7 @@ export function ChatDisplaySection() {
   const [chatList, setChatList] = useChatList();
   const rowShow = useChatRowShow();
   const [dictation] = useDictationLanguage();
+  const speechModel = whisperModelFor("phone", useDictationModel()[0]);
   const [dictationAction, setDictationAction] = useDictationAction();
   return (
     <View style={{ gap: 10 }}>
@@ -99,6 +100,13 @@ export function ChatDisplaySection() {
           title="Dictation language"
           subtitle={DICTATION_LANGUAGES.find((item) => item.code === dictation)?.name}
           onPress={() => router.push("/dictation-language")}
+        />
+        <View style={styles.separator} />
+        <ListRow
+          inlineSubtitle
+          title="Speech model"
+          subtitle={`${speechModel.name} · ${Math.round(speechModel.size / 1e6)} MB`}
+          onPress={() => router.push("/dictation-model")}
         />
       </View>
     </View>

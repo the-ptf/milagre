@@ -20,6 +20,13 @@ window.milagre = {
   listEditors: async () => [],
   listRecentProjects: async () => [],
   listProjects: async () => [],
+  dictation: {
+    status: async () => [{ id: 'large-v3-turbo', ready: true, size: 574041195, received: null }],
+    download: async () => {},
+    cancel: async () => {},
+    remove: async () => {},
+    onModel: () => () => {},
+  },
 };
 const step = (id, title, kind = 'shell', detail) => ({ id, kind, title, status: 'done', note: '1s', detail });
 const entries = [
@@ -84,7 +91,20 @@ async function browserChecks() {
     await window.loadURL(process.argv[2]);
     await openChat();
     assert.equal(await evaluate(`document.querySelector('h1').textContent`), "Chat");
-    assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"] [role="radio"]').length`), 8, "four settings, two choices each");
+    assert.equal(
+      await evaluate(`document.querySelectorAll('[role="radiogroup"]:not([aria-label="Speech model"]) [role="radio"]').length`),
+      8,
+      "four settings, two choices each",
+    );
+    // Speech model: four models named for what they're good at, the best any-language one by default.
+    assert.equal(await evaluate(`document.querySelectorAll('[role="radiogroup"][aria-label="Speech model"] [role="radio"]').length`), 4);
+    assert.equal(await evaluate(checked("Speech model")), "Best, any language");
+    await evaluate(`${card("Speech model", "Best for English")}.click()`);
+    assert.equal((await saved()).dictationModel, "medium-en", "the picked speech model is saved");
+    await waitFor(`document.querySelector('[aria-label="Dictation language"]')?.disabled === true`);
+    await evaluate(`${card("Speech model", "Best, any language")}.click()`);
+    assert.equal((await saved()).dictationModel, "large-v3-turbo");
+    await waitFor(`document.querySelector('[aria-label="Dictation language"]')?.disabled === false`);
     assert.equal(await evaluate(checked("Reasoning")), "Folded", "reasoning starts folded");
     assert.equal(await evaluate(checked("Tool calls")), "Compact", "tool calls start compact");
     assert.equal(await evaluate(`!!${reply("many", "[data-slot=activity]")}`), true, "Compact folds the activity into one line");

@@ -360,6 +360,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
     Date,
     URL,
     TextDecoder,
+    // React Native provides it globally; downloads cancel through it.
+    AbortController,
     fetch: () => {
       throw new Error("Unexpected network request in mobile UI test");
     },
@@ -17669,13 +17671,15 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
     "react-native-reanimated": {
       default: { View: "AnimatedView" },
       cancelAnimation() {},
-      Easing: { linear() {} },
+      Easing: { linear() {}, bezier() {} },
       ReduceMotion: { System: "system" },
       useAnimatedStyle: (callback) => callback(),
       useSharedValue: (initial) => ({ value: initial, get: () => initial, set() {} }),
       withRepeat: (value) => value,
+      withSequence: (...values) => values.at(-1),
       withTiming: (value) => value,
     },
+    "react-native-svg": { __esModule: true, default: "Svg", Circle: "Circle", Path: "Path" },
     "@hugeicons/core-free-icons": { Cancel01Icon: "Cancel01Icon", Mic01Icon: "Mic01Icon" },
     "@milagre/shared/themes": { withAlpha: (color) => color },
     "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
@@ -17694,7 +17698,9 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
 
   let discards = 0;
   let stops = 0;
-  const recording = DictationCapsule({ phase: "recording", level: { value: 1 }, onDiscard: () => discards++, onStop: () => stops++ });
+  // DictationCapsule picks the control for the phase; render the one it picked.
+  const render = (element) => element.type(element.props);
+  const recording = render(DictationCapsule({ phase: "recording", level: { value: 1 }, download: null, onDiscard: () => discards++, onStop: () => stops++ }));
   // The field is only 44 tall with one line of text, so the capsule has to fit inside it with room at both edges.
   const capsuleHeight = recording.props.style.height;
   const fieldHeight = 44;
@@ -17728,20 +17734,30 @@ test("the mic is a 44 point target and the take's capsule can discard it or stop
   const haloScale = haloNode.props.style[1].transform[0].scale;
   assert.ok(haloBase * haloScale <= capsuleHeight, `a full-voice halo is ${haloBase * haloScale}px inside a ${capsuleHeight}px capsule`);
 
-  const preparing = DictationCapsule({ phase: "preparing", level: { value: 0 }, onDiscard() {}, onStop() {} });
+  const preparing = render(DictationCapsule({ phase: "preparing", level: { value: 0 }, download: null, onDiscard() {}, onStop() {} }));
   assert.equal(preparing.props.style.height, capsuleHeight, "the capsule is the same width and height in every phase");
   assert.ok(
     find(preparing, (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Preparing the microphone"),
     "no stop before there is anything to stop",
   );
   assert.ok(!find(preparing, (node) => node.props?.accessibilityLabel === "Stop dictation"));
-  const finishing = DictationCapsule({ phase: "transcribing", level: { value: 0 }, onDiscard() {}, onStop() {} });
+  const finishing = render(DictationCapsule({ phase: "transcribing", level: { value: 0 }, download: null, onDiscard() {}, onStop() {} }));
   assert.ok(find(finishing, (node) => node.props?.accessibilityLabel === "Finishing the last words"));
   assert.ok(
     find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"),
     "a take can still be thrown away while it finishes",
   );
   assert.equal(CAPSULE_WIDTH, 72);
+
+  // While the model downloads, the mic keeps its 44 point box: a ring filling around a dropping arrow, which cancels.
+  const downloading = render(DictationCapsule({ phase: "downloading", level: { value: 0 }, download: 0.4, onDiscard: () => discards++, onStop() {} }));
+  assert.equal(downloading.props.accessibilityLabel, "Downloading speech model, 40 percent");
+  const downloadStyle = downloading.props.style({ pressed: false });
+  assert.equal(downloadStyle.width, 44);
+  assert.equal(downloadStyle.height, 44);
+  assert.ok(!find(downloading, (node) => node.props?.accessibilityLabel === "Stop dictation"), "nothing records while the model downloads");
+  downloading.props.onPress();
+  assert.equal(discards, 2);
 });
 
 test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", () => {
@@ -18013,6 +18029,7 @@ test("phone dictation language opens a checked list and saves the chosen languag
           language = next;
         },
       ],
+      useDictationModel: () => ["small", () => {}],
     },
     "@hugeicons/core-free-icons": { Tick02Icon: "tick" },
     "../icons": { Icon: "Icon" },
@@ -18105,9 +18122,13 @@ test("a build without Whisper still offers Apple languages and explains why auto
 test("the phone awaits model installation and keeps the moved model for later dictation", async () => {
   const files = new Map();
   const shared = require("@milagre/shared/dictation");
+  const small = shared.whisperModelFor("phone", "small");
+  const english = shared.whisperModelFor("phone", "small-en");
   let directoryReady = false;
   let downloads = 0;
   let options;
+  let releases = 0;
+  let hold = null;
   class Directory {
     uri = "file:///documents/whisper";
     get exists() {
@@ -18139,14 +18160,19 @@ test("the phone awaits model installation and keeps the moved model for later di
       files.delete(this.uri);
       this.uri = destination.uri; // Expo updates the source object's URI after moving it.
     }
-    static async downloadFileAsync(_url, destination) {
+    static async downloadFileAsync(url, destination, { signal, onProgress }) {
       assert.equal(directoryReady, true, "the destination directory must exist before downloading");
       downloads++;
-      files.set(destination.uri, shared.WHISPER_MODELS.phone.size);
+      const model = shared.WHISPER_MODELS.phone.find((item) => url.endsWith(item.file));
+      onProgress({ bytesWritten: model.size / 2 });
+      if (hold) await hold;
+      if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      files.set(destination.uri, model.size);
       return destination;
     }
   }
-  const { getTranscriber } = load("voice-transcription-whisper.ts", {
+  const { getTranscriber, downloadWhisperModel, cancelWhisperModel, deleteWhisperModel } = load("voice-transcription-whisper.ts", {
+    react: { useSyncExternalStore: (_subscribe, snapshot) => snapshot() },
     "expo-file-system": { Directory, File, Paths: { document: {} } },
     "@milagre/shared/dictation": shared,
     "./voice-transcription-queue": { serializeTranscription: (work) => work() },
@@ -18158,20 +18184,44 @@ test("the phone awaits model installation and keeps the moved model for later di
             options = opts;
             return { promise: Promise.resolve({ result: "Olá, please review the code." }) };
           },
+          release: async () => {
+            releases++;
+          },
         };
       },
     },
   });
   const transcriber = getTranscriber();
-  await transcriber.prepare("auto");
-  await transcriber.prepare("auto");
+  assert.equal(transcriber.missingModel("auto", "small"), "small", "a model that isn't on the phone has to download first");
+  await transcriber.prepare("auto", "small");
+  await transcriber.prepare("auto", "small");
   assert.equal(downloads, 1);
+  assert.equal(transcriber.missingModel("auto", "small"), null);
   const audio = new Int16Array(3200).fill(3000).buffer;
-  assert.equal(await transcriber.transcribe(audio, { language: "auto", terms: ["Milagre"] }), "Olá, please review the code.");
+  assert.equal(await transcriber.transcribe(audio, { language: "auto", terms: ["Milagre"], model: "small" }), "Olá, please review the code.");
   assert.equal(downloads, 1);
   assert.equal(options.language, "auto");
   assert.equal(options.translate, false);
   assert.match(options.prompt, /switch languages/);
+
+  // A cancelled download leaves nothing behind; an English-only model always listens for English.
+  let open;
+  hold = new Promise((resolve) => {
+    open = resolve;
+  });
+  const running = downloadWhisperModel(english.id);
+  await Promise.resolve();
+  cancelWhisperModel(english.id);
+  open();
+  await assert.rejects(running, (error) => error.name === "AbortError");
+  assert.equal(transcriber.missingModel("pt", english.id), english.id);
+  hold = null;
+  await transcriber.transcribe(audio, { language: "pt", terms: [], model: english.id });
+  assert.equal(options.language, "en");
+  assert.equal(releases, 1, "switching models frees the last one");
+
+  await deleteWhisperModel(small.id);
+  assert.equal(transcriber.missingModel("auto", small.id), small.id, "a deleted model downloads again on its next take");
 });
 
 test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {

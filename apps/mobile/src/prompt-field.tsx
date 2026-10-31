@@ -227,6 +227,8 @@ export function PromptField({
     onChangeText(back.value);
   };
   const dictating = dictation.phase !== "idle";
+  // While the model downloads the mic keeps its own size and place: the capsule only grows once the take records.
+  const capsule = dictating && dictation.phase !== "downloading";
   useEffect(() => {
     writeLatest.current = write;
     discardLatest.current = discardDictation;
@@ -419,7 +421,7 @@ export function PromptField({
             maxHeight: 140,
             paddingHorizontal: 10,
             paddingVertical: 6,
-            ...(dictation.available ? { paddingRight: 10 + (dictating ? CAPSULE_WIDTH + 2 : MIC_WIDTH) } : null),
+            ...(dictation.available ? { paddingRight: 10 + (capsule ? CAPSULE_WIDTH + 2 : MIC_WIDTH) } : null),
           }}
         >
           <Text style={{ fontSize: inputSize, color: colors.ink }}>
@@ -471,7 +473,7 @@ export function PromptField({
           </Text>
         </Field>
         {dictation.available ? (
-          <View style={{ position: "absolute", right: dictating ? CAPSULE_INSET.right : 4, bottom: dictating ? CAPSULE_INSET.bottom : 6 }}>
+          <View style={{ position: "absolute", right: capsule ? CAPSULE_INSET.right : 4, bottom: capsule ? CAPSULE_INSET.bottom : 6 }}>
             {dictationError ? (
               <DictationNotice
                 error={dictationError}
@@ -484,7 +486,13 @@ export function PromptField({
               />
             ) : null}
             {dictating ? (
-              <DictationCapsule phase={dictation.phase} level={dictation.level} onDiscard={discardDictation} onStop={() => void dictation.stop()} />
+              <DictationCapsule
+                phase={dictation.phase}
+                level={dictation.level}
+                download={dictation.download}
+                onDiscard={discardDictation}
+                onStop={() => void dictation.stop()}
+              />
             ) : (
               <VoiceMicButton
                 onPress={() => {
@@ -500,22 +508,12 @@ export function PromptField({
           </View>
         ) : null}
       </View>
-      {/* Preparing, finishing and the one-time download share one slot under the words, so none of them moves them.
-          An error is a bubble over the mic instead: it belongs to the button that tries again. */}
+      {/* Preparing and finishing share one slot under the words, so neither moves them. The model download is the ring on
+          the mic, and an error a bubble over it: both belong to the button that tries again. */}
       {dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
         <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
           {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
         </Text>
-      ) : null}
-      {dictation.download !== null ? (
-        <View accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, gap: 4 }}>
-          <View style={{ height: 4, borderRadius: 999, overflow: "hidden", backgroundColor: colors.lineStrong }}>
-            <View style={{ height: 4, borderRadius: 999, backgroundColor: colors.ink, width: `${Math.round(dictation.download * 100)}%` }} />
-          </View>
-          <Text style={{ color: colors.ink3, fontSize: 12 }}>
-            Downloading the speech model, once: {Math.round(dictation.download * 100)}% · the take starts the moment it lands
-          </Text>
-        </View>
       ) : null}
       {skill && !query ? (
         <View

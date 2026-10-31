@@ -240,6 +240,7 @@ export function ChatListControls({
                   <DictationCapsule
                     phase={dictation.phase}
                     level={dictation.level}
+                    download={dictation.download}
                     onDiscard={() => void dictation.cancel()}
                     onStop={() => void dictation.stop()}
                   />

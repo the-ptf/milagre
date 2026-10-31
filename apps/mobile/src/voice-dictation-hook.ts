@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { tap } from "./primitives/tap";
+import { whisperModelFor } from "@milagre/shared/dictation";
 import {
   ERRORS,
   IDLE,
@@ -16,7 +17,8 @@ import {
 import { askForMicrophone, newVoiceTake, type VoiceTake } from "./voice-recorder";
 import { createMicrophone } from "./voice-take";
 import { getTranscriber } from "./voice-transcription";
-import { useDictationLanguage } from "./chat-display-setting";
+import { cancelWhisperModel, downloadWhisperModel, useWhisperModels } from "./voice-transcription-whisper";
+import { useDictationLanguage, useDictationModel } from "./chat-display-setting";
 import type { Client } from "./client";
 
 /** Where the transcript goes: the draft and caret as they were when the mic was tapped. */
@@ -37,16 +39,20 @@ const microphone = createMicrophone();
  * Speech is transcribed locally while recording; tap again to finish. `onTranscript` gets the final text and anchor.
  * With a `chat`, the project's words go straight to the recognizer.
  * Backgrounding the app, leaving the screen or a recorder failure throws the take away. `available` is false where the phone
- * cannot transcribe on device (a build without a usable native recognizer). `download` is how far the first
- * take's model download is, 0..1, or null.
+ * cannot transcribe on device (a build without a usable native recognizer). A take whose Whisper model isn't on the phone
+ * yet downloads it first (`downloading`) and records once it lands; `download` is how far that download is, 0..1, or null.
  */
 export function useVoiceDictation(onTranscript: (text: string, anchor: DictationAnchor) => void, chat?: DictationChat) {
   const [transcriber] = useState(getTranscriber);
   const [owner] = useState(Symbol);
   const [state, setState] = useState<Dictation>(IDLE);
-  const [download, setDownload] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
   const [partial, setPartial] = useState<DictationPartial>(NO_PARTIAL);
   const [language] = useDictationLanguage();
+  const [model] = useDictationModel();
+  const models = useWhisperModels();
+  /** The take waiting on a model download, and the model: cancelling the take cancels the download. */
+  const fetching = useRef<{ id: number; model: string } | null>(null);
   const level = useSharedValue(0);
   const phase = useRef<Dictation>(IDLE);
   const take = useRef<{
@@ -93,7 +99,6 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       stopMeter();
       current?.stream.cancel();
       setPartial(NO_PARTIAL);
-      setDownload(null);
       return current ? current.recorder.discard(uri) : Promise.resolve();
     },
     [release, stopMeter],
@@ -101,11 +106,22 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
 
   /** Throws the take away without a message: the sidebar hid, or another field took the microphone. Settles once it is released. */
   const cancel = useCallback((): Promise<void> => {
+    const waiting = fetching.current;
+    if (waiting) {
+      // The take was the only reason for the download, so it stops too.
+      fetching.current = null;
+      cancelWhisperModel(waiting.model);
+      counter.current += 1;
+      release();
+      setDownloading(null);
+      move({ type: "done" });
+      return Promise.resolve();
+    }
     if (!take.current) return Promise.resolve();
     const gone = abandon();
     move({ type: "done" });
     return gone;
-  }, [abandon, move]);
+  }, [abandon, move, release]);
 
   const fail = useCallback(
     (error: (typeof ERRORS)[keyof typeof ERRORS]) => {
@@ -160,14 +176,27 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
       move({ type: "start" });
       const id = (counter.current += 1);
       setPartial(NO_PARTIAL);
-      // The language model downloads while the user talks; the transcript waits for it, the recording does not.
-      const prepared = transcriber
-        .prepare(language, (fraction) => {
-          if (take.current?.id === id) setDownload(fraction < 1 ? fraction : null);
-        })
-        .finally(() => {
-          if (take.current?.id === id) setDownload(null);
-        });
+      // A missing model downloads before the microphone opens: nothing is recorded that would wait minutes for it.
+      const missing = transcriber.missingModel(language, model);
+      if (missing) {
+        fetching.current = { id, model: missing };
+        setDownloading(missing);
+        move({ type: "download" });
+        try {
+          await downloadWhisperModel(missing);
+        } catch (error) {
+          if (fetching.current?.id !== id) return;
+          fetching.current = null;
+          setDownloading(null);
+          release();
+          return move({ type: "fail", error: { kind: "failed", message: error instanceof Error && error.message ? error.message : ERRORS.failed.message } });
+        }
+        if (fetching.current?.id !== id) return;
+        fetching.current = null;
+        setDownloading(null);
+        move({ type: "downloaded" });
+      }
+      const prepared = transcriber.prepare(language, model);
       prepared.catch(() => {});
       const target = chatRef.current;
       // The project's words are read while the user talks too.
@@ -185,7 +214,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
         transcribe: async (audio) => {
           await prepared;
           if (take.current?.id !== id) return "";
-          return transcriber.transcribe(audio, { language, terms: vocabulary });
+          return transcriber.transcribe(audio, { language, terms: vocabulary, model });
         },
         onPartial: (text, settled) => {
           if (take.current?.id === id) setPartial({ text, settled });
@@ -216,7 +245,7 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
         if (live()) fail(ERRORS.failed);
       }
     },
-    [cancel, fail, language, level, move, owner, stop, transcriber],
+    [cancel, fail, language, level, model, move, owner, release, stop, transcriber],
   );
 
   useEffect(() => {
@@ -231,16 +260,20 @@ export function useVoiceDictation(onTranscript: (text: string, anchor: Dictation
 
   useEffect(
     () => () => {
+      // Leaving the screen mid-download stops the download, so its take can't start recording here afterwards.
+      if (fetching.current) cancelWhisperModel(fetching.current.model);
+      fetching.current = null;
       void abandon();
     },
     [abandon],
   );
 
+  const received = downloading ? models[downloading]?.received : null;
   return {
     available: transcriber !== null,
     phase: state.phase,
     error: state.error,
-    download,
+    download: state.phase === "downloading" && downloading ? (received ?? 0) / whisperModelFor("phone", downloading).size : null,
     partial,
     level,
     start,

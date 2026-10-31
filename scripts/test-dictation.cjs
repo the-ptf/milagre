@@ -15,6 +15,7 @@ import { updateSettings } from '/src/lib/settings';
 window.calls = []; window.delivered = []; window.hold = false;
 window.requests = []; window.setDictationLanguage = language => updateSettings({dictationLanguage:language});
 window.holdMic = false; window.pendingStreams = []; window.draft = 'original draft';
+window.modelMissing = false; window.downloads = []; window.cancelled = [];
 const context = new AudioContext({sampleRate:48000,sinkId:{type:'none'}});
 const oscillator = context.createOscillator();
 const gain = context.createGain();
@@ -44,8 +45,15 @@ window.milagre = {
   // A slow/offline computer must not hold up local recognition.
   dictationContext: () => new Promise(() => {}),
   dictation: {
-    prepare: async () => { window.warmed = true; },
-    onProgress: () => () => {},
+    status: async () => [{id:'large-v3-turbo', ready: !window.modelMissing, size: 574041195, received: null}],
+    download: (id) => new Promise((resolve, reject) => {
+      window.downloads.push(id);
+      window.finishDownload = () => { window.modelMissing = false; resolve(); };
+      window.failDownload = reject;
+    }),
+    cancel: async (id) => { window.cancelled.push(id); window.failDownload?.(Object.assign(new Error('aborted'), {name:'AbortError'})); },
+    onModel: () => () => {},
+    prepare: async (id) => { window.warmed = id; },
     transcribe: async ({audio, language, prompt}) => {
       window.calls.push(audio.byteLength);
       window.requests.push({language,prompt});
@@ -104,7 +112,7 @@ async function checks() {
     await until("window.dictation.partial.text === 'Corrija o Milagre.'");
     assert.equal(await evaluate("window.dictation.partial.settled"), 0, "an open segment is provisional: nothing has settled");
     assert.equal(await evaluate("window.dictation.phase"), "recording");
-    assert.equal(await evaluate("window.warmed"), true);
+    assert.equal(await evaluate("window.warmed"), "large-v3-turbo", "the picked model is the one loaded");
     assert.equal(await evaluate("window.requests[0].language"), "auto", "automatic preference reaches Whisper as auto detection");
     assert.match(await evaluate("window.requests[0].prompt"), /switch languages/, "multilingual hint reaches the recognizer");
     assert.equal(await evaluate("window.delivered.length"), 0, "partials never submit or edit the draft");
@@ -161,9 +169,32 @@ async function checks() {
     await delay(100);
     assert.equal(await evaluate("window.delivered.length"), 1, "leaving the Chat discards late recognition");
     assert.equal(await evaluate("window.dictation.partial.text"), "");
+
+    // A missing model downloads before the microphone opens; Escape cancels the download, and a finished one starts the take.
+    await evaluate(
+      "window.hold = false; window.modelMissing = true; window.streamCountBeforeDownload = window.pendingStreams.length; void window.dictation.start({selection:{start:0,end:0}})",
+    );
+    await until("window.dictation.phase === 'downloading' && window.downloads.length === 1");
+    assert.deepEqual(await evaluate("window.dictation.download"), { received: 0, total: 574041195 }, "the take reports its model download");
+    assert.equal(
+      await evaluate("window.pendingStreams.length"),
+      await evaluate("window.streamCountBeforeDownload"),
+      "nothing records while the model downloads",
+    );
+    await evaluate("window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',cancelable:true}))");
+    await until("window.dictation.phase === 'idle'");
+    assert.deepEqual(await evaluate("window.cancelled"), ["large-v3-turbo"], "cancelling the take cancels its download");
+    assert.equal(await evaluate("window.dictation.error"), null, "a cancelled download is not an error");
+    const deliveredBefore = await evaluate("window.delivered.length");
+    await evaluate("void window.dictation.start({selection:{start:0,end:0}})");
+    await until("window.dictation.phase === 'downloading' && window.downloads.length === 2");
+    await evaluate("window.finishDownload()");
+    await until("window.dictation.phase === 'recording' && window.dictation.partial.text === 'Corrija o Milagre.'");
+    await evaluate("void window.dictation.stop()");
+    await until(`window.delivered.length === ${deliveredBefore + 1}`);
     assert.deepEqual(errors, []);
     console.log(
-      `PASS: ${production ? "production file fixture under renderer CSP" : "dev-server fixture"}, synthetic PCM, real audio worklet, live preview, final delivery, pending-start cancellation`,
+      `PASS: ${production ? "production file fixture under renderer CSP" : "dev-server fixture"}, synthetic PCM, real audio worklet, live preview, final delivery, pending-start cancellation, download before recording`,
     );
     app.exit(0);
   } catch (error) {
