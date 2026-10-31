@@ -3,7 +3,7 @@ import { AUTO_UPDATE_HINT, AUTO_UPDATE_TITLE } from "@milagre/shared/auto-update
 import { MAIN_SYNC_HINT, MAIN_SYNC_TITLE } from "@milagre/shared/main-sync";
 import { Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { ChartBarLineIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { ChartBarLineIcon, ChartColumnIcon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { Row } from "./settings-list";
 import { Icon } from "./icons";
 import { useSession } from "./session";
@@ -84,7 +84,7 @@ export function GeneralSection() {
   }
   return (
     <View style={{ gap: 8 }}>
-      <Text style={styles.section}>Plan usage</Text>
+      <Text style={styles.section}>Usage</Text>
       <View style={[styles.card, { paddingVertical: 4, gap: 0 }]}>
         <ListRow
           compact
@@ -92,6 +92,13 @@ export function GeneralSection() {
           subtitle="Claude, Codex and Antigravity plan limits"
           leading={<Icon icon={ChartBarLineIcon} tone="ink" size={20} />}
           onPress={() => router.push("/usage")}
+        />
+        <ListRow
+          compact
+          title="Token usage"
+          subtitle="Tokens and estimated cost by Project, Chat and model"
+          leading={<Icon icon={ChartColumnIcon} tone="ink" size={20} />}
+          onPress={() => router.push("/token-usage")}
         />
       </View>
       {session.client && syncMain !== null && (

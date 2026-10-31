@@ -6,6 +6,7 @@ import {
   BubbleChatIcon,
   Bug01Icon,
   BubbleChatSearchIcon,
+  ChartColumnIcon,
   CodeIcon,
   Copy01Icon,
   FolderOpenIcon,
@@ -36,6 +37,7 @@ const icons = {
   message: BubbleChatSearchIcon,
   reload: Refresh01Icon,
   routines: RepeatIcon,
+  usage: ChartColumnIcon,
   newChat: PencilEdit02Icon,
   triage: Bug01Icon,
 };

@@ -179,6 +179,7 @@ const METHODS = new Set([
   "accounts:remove",
   "usage:read",
   "usage:cached",
+  "token-usage:read",
   "agent:answer-question",
   "agent:set-permission-mode",
   "agent:models",
@@ -675,6 +676,7 @@ async function startMobileBridge({
       const types = [];
       if (entry.kinds.has("accounts")) types.push("accounts");
       if (entry.kinds.has("usage")) types.push("usage");
+      if (entry.kinds.has("token-usage")) types.push("token-usage");
       if (entry.kinds.has("mcp")) types.push("mcp");
       if (entry.kinds.has("designs")) types.push("designs");
       if (entry.kinds.has("keybindings")) types.push("keybindings");
@@ -729,6 +731,7 @@ async function startMobileBridge({
     for (const entry of live) {
       if (channel === "accounts:changed" && !confine) signal(entry, "accounts", 0);
       if (channel === "usage:changed" && !confine) signal(entry, "usage", 0);
+      if (channel === "token-usage:changed" && !confine) signal(entry, "token-usage", 0);
       if ((channel === "mcp:changed" || channel === "local-mcp:changed") && !confine) signal(entry, "mcp", 0);
       if (channel === "designs:enabled-changed") signal(entry, "designs", 0);
       // A hand edit of keybindings.json or a change from Settings: the phone reads keybindings:read again.
