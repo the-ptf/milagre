@@ -1,8 +1,9 @@
-import { File } from "expo-file-system";
 import { TurboModuleRegistry } from "react-native";
-import { appleLocale } from "@milagre/shared/dictation";
-import { joinSegments } from "@milagre/shared/voice-dictation";
+import { appleLocale, dictationLanguage } from "@milagre/shared/dictation";
+import { dictationWav, joinSegments } from "@milagre/shared/voice-dictation";
 import type { Transcriber } from "./voice-transcription";
+import { serializeTranscription } from "./voice-transcription-queue";
+import { getTranscriber as getWhisperTranscriber } from "./voice-transcription-whisper";
 
 type Native = {
   isAvailable(language: string): boolean;
@@ -30,20 +31,30 @@ function loadNative(): Native | null {
 
 export function getTranscriber(): Transcriber | null {
   const native = loadNative();
-  if (!native) return null;
+  const whisper = TurboModuleRegistry.get("RNWhisper") ? getWhisperTranscriber() : null;
+  let appleAvailable = false;
   try {
-    if (!native.isAvailable("")) return null;
+    appleAvailable = native?.isAvailable("") ?? false;
   } catch {
-    return null;
+    // Apple dictation needs iOS 26; automatic detection and older devices can use Whisper independently.
   }
-  // "" is the phone's own language, which the native side reads (patched to resolve a supported locale each time).
+  if (!native || !appleAvailable) return whisper;
+  const unavailable = () => Promise.reject(new Error("Automatic dictation isn't available in this build. Choose a language or update Milagre."));
   return {
-    polish: true,
-    prepare: (language) => native.prepare(appleLocale(language)),
-    transcribe: async (uri, { language, terms }) => {
-      const audio = await new File(uri).arrayBuffer();
-      const result = await native.transcribe(audio, appleLocale(language), terms.join("\n"));
-      return joinSegments(result.segments);
+    prepare: (preference, onProgress) => {
+      const language = dictationLanguage(preference);
+      return language === "auto"
+        ? (whisper?.prepare(language, onProgress) ?? unavailable())
+        : serializeTranscription(() => native.prepare(appleLocale(language)));
+    },
+    transcribe: (audio, { language: preference, terms }) => {
+      const language = dictationLanguage(preference);
+      return language === "auto"
+        ? (whisper?.transcribe(audio, { language, terms }) ?? unavailable())
+        : serializeTranscription(async () => {
+            const result = await native.transcribe(dictationWav(audio), appleLocale(language), terms.join("\n"));
+            return joinSegments(result.segments);
+          });
     },
   };
 }

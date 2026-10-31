@@ -49,3 +49,22 @@ export function onAnyAgentEvent(callback: (payload: AgentEventPayload) => void) 
     offRemote?.();
   };
 }
+
+/** Connection metadata comes from this Mac, even when the reader belongs to a paired computer. */
+export function onComputerConnection(key: string, reconnect: () => void, removed: () => void) {
+  const computerId = computerOfKey(key);
+  let online = false;
+  let unsubscribe: (() => void) | undefined;
+  unsubscribe = window.milagre.onComputersChanged?.(({ computers }) => {
+    const computer = computers.find((computer) => computer.id === computerId);
+    if (!computer) {
+      unsubscribe?.();
+      removed();
+      return;
+    }
+    const next = computer.state === "online";
+    if (next && !online) reconnect();
+    online = next;
+  });
+  return () => unsubscribe?.();
+}

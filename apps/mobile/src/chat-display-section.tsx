@@ -1,5 +1,5 @@
 import { ContextSettingsSection } from "./context-settings-section";
-import { Platform, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
 import { DICTATION_ACTION_OPTIONS } from "@milagre/shared/voice-dictation";
@@ -97,7 +97,7 @@ export function ChatDisplaySection() {
         <ListRow
           inlineSubtitle
           title="Dictation language"
-          subtitle={dictation === "auto" && Platform.OS === "ios" ? "Phone language" : DICTATION_LANGUAGES.find((item) => item.code === dictation)?.name}
+          subtitle={DICTATION_LANGUAGES.find((item) => item.code === dictation)?.name}
           onPress={() => router.push("/dictation-language")}
         />
       </View>

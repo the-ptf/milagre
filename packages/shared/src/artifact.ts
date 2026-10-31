@@ -1,6 +1,7 @@
 import type { ArtifactRef } from "./model.ts";
 import type { DesignDocument, DesignOperation } from "./design.mjs";
 import type { ArtifactAsset } from "./artifact-assets.mjs";
+export { createDesignFontReader, restoreDesignFonts } from "./design-font-cache.mjs";
 
 export type { ArtifactAsset };
 
@@ -8,7 +9,15 @@ export type { ArtifactAsset };
 export type ArtifactSummary = ArtifactRef & { versions: number; width: number; height: number; format: "design" | "html" };
 
 /** One version of a design an agent showed, as `artifact:get` returns it. */
-export type DesignArtifact = ArtifactSummary & { format: "design"; latest: number; html: string; document: DesignDocument };
+export type DesignArtifact = ArtifactSummary & {
+  format: "design";
+  latest: number;
+  html: string;
+  document: DesignDocument;
+  /** Opt-in transport: HTML omits this block; fontCss is absent when the caller already holds fontKey. */
+  fontKey?: string;
+  fontCss?: string;
+};
 /** One tab of an Artifact page: a page of its own, under a title in the page's tab bar. */
 export type ArtifactTab = { id: string; title: string; html: string };
 /** `html` is the page, or its first tab when the agent split it into `tabs`. `assets` are the files its HTML shows as `assets/<name>`. */
@@ -53,7 +62,7 @@ export interface ArtifactApi {
   /** The page is named after its Chat on the host; `title` only satisfies hosts from before that, which require one. */
   sharePage(request: { chatId: string; title?: string; acknowledgePublic: true; kind?: ArtifactPageKind }): Promise<DesignPageShare>;
   revokePageShare(request: { chatId: string; id: string; kind?: ArtifactPageKind }): Promise<void>;
-  get(request: { chatId: string; id: string; version?: number }): Promise<Artifact>;
+  get(request: { chatId: string; id: string; version?: number; fonts?: { have: string[] } }): Promise<Artifact>;
   /** Part of a file of the Chat's Artifact page, by its name; `length` caps the bytes (256 KB at most). */
   asset(request: { chatId: string; name: string; offset?: number; length?: number }): Promise<ArtifactAssetChunk>;
   list(request: { chatId: string; format?: "design" | "html" }): Promise<ArtifactSummary[]>;

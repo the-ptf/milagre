@@ -23,6 +23,16 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
   let context = null;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let idle = null;
+  let tail = Promise.resolve();
+
+  // Several windows can dictate, or a take can be cancelled while its inference is still finishing.
+  function serial(work) {
+    if (idle) clearTimeout(idle);
+    idle = null;
+    const next = tail.then(work);
+    tail = next.catch(() => {});
+    return next;
+  }
 
   const ready = () =>
     fsp.stat(file).then(
@@ -67,19 +77,30 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
     return current?.then((whisper) => whisper.release()).catch(() => {});
   }
 
+  async function warm(onProgress = (_received, _total) => {}) {
+    await prepare(onProgress);
+    context ??= loadWhisper().then((whisper) => whisper.initWhisper({ filePath: file, useGpu: true }));
+    const loading = context;
+    loading.catch(() => {
+      if (context === loading) context = null;
+    });
+    return loading;
+  }
+
+  function keepWarm() {
+    if (idle) clearTimeout(idle);
+    idle = setTimeout(() => void serial(release), IDLE_RELEASE_MS);
+    idle.unref?.();
+  }
+
   /**
    * The text of a recording: 16 kHz mono 16-bit PCM. `language` is a Whisper code or "auto"; `prompt` the project's words.
    * @param {{ audio: ArrayBuffer, language?: string, prompt?: string }} request
    */
   async function transcribe({ audio, language = "auto", prompt = "" }, onProgress = (_received, _total) => {}) {
     if (!(audio instanceof ArrayBuffer) || audio.byteLength < 3200 || silentPcm(new Int16Array(audio, 0, audio.byteLength >> 1))) return { text: "" };
-    await prepare(onProgress);
     if (idle) clearTimeout(idle);
-    context ??= loadWhisper().then((whisper) => whisper.initWhisper({ filePath: file, useGpu: true }));
-    context.catch(() => {
-      context = null;
-    });
-    const whisper = await context;
+    const whisper = await warm(onProgress);
     try {
       const { promise } = whisper.transcribeData(audio, {
         language,
@@ -90,12 +111,21 @@ function createDictation({ dataDir, model = WHISPER_MODELS.desktop, fetch = glob
       const { result } = await promise;
       return { text: whisperText(result) };
     } finally {
-      idle = setTimeout(() => void release(), IDLE_RELEASE_MS);
-      idle.unref?.();
+      keepWarm();
     }
   }
 
-  return { prepare, transcribe, release, ready, size: model.size };
+  return {
+    prepare: (onProgress) =>
+      serial(async () => {
+        await warm(onProgress);
+        keepWarm();
+      }),
+    transcribe: (request, onProgress) => serial(() => transcribe(request, onProgress)),
+    release: () => serial(release),
+    ready,
+    size: model.size,
+  };
 }
 
 module.exports = { createDictation };

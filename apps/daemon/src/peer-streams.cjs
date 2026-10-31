@@ -51,14 +51,15 @@ const validTarget = (host, port) => typeof host === "string" && host.length <= 2
  * the other side may open streams, each dialed and piped to its socket; without it (the desktop) only `open` makes
  * them. `receive(message)` takes each stream message and throws on one that breaks the protocol, for the carrier to
  * drop the channel. `close()` ends every stream when the channel goes.
- * @param {{ send: (message: object) => void; dial?: (host: string, port: number) => import("node:net").Socket; onIdle?: () => void; dialMs?: number }} options
+ * Either side may open streams: the desktop's ids are odd and the computer's even (`opener`), so the two never collide.
+ * @param {{ send: (message: object) => void; dial?: (host: string, port: number) => import("node:net").Socket; onIdle?: () => void; dialMs?: number; opener?: "desktop" | "computer" }} options
  */
-function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS }) {
+function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS, opener = "desktop" }) {
   /** @type {Map<number, { stream: Duplex | null; take(data: Buffer): void; acked(n: number): void; ended(): void; closed(code?: string): void }>} */
   const streams = new Map();
   /** @type {Map<number, { resolve: (stream: Duplex) => void; reject: (error: Error) => void }>} */
   const opening = new Map();
-  let nextId = 0;
+  let nextId = opener === "desktop" ? -1 : 0;
   let shut = false;
 
   /** The Duplex for stream `id`: its writes go to the other side, the other side's data comes out of it. */
@@ -245,7 +246,7 @@ function createPeerStreams({ send, dial, onIdle = () => {}, dialMs = DIAL_MS }) 
       if (!validTarget(host, port)) return Promise.reject(new Error("Invalid address"));
       if (streams.size + opening.size >= MAX_STREAMS)
         return Promise.reject(Object.assign(new Error("Too many connections to this computer"), { code: "busy" }));
-      const id = ++nextId;
+      const id = (nextId += 2);
       return new Promise((resolve, reject) => {
         opening.set(id, { resolve, reject });
         send({ t: "tcp-open", id, host, port });

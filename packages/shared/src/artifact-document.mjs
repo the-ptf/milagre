@@ -192,7 +192,7 @@ export const DESIGNS_CANVAS_SCRIPT = `(function(){
 var port=document.getElementById("port"),world=document.getElementById("world"),marks=document.getElementById("marks");
 var still=matchMedia("(prefers-reduced-motion: reduce)");
 var GAP=80,EDGE=48,PAD=16,HOLD=450;
-var boards=new Map(),order=[],rows=[],W=1,H=1,pins=[],pinNodes=new Map(),labels=[];
+var boards=new Map(),fonts=new Map(),order=[],rows=[],W=1,H=1,pins=[],pinNodes=new Map(),labels=[];
 var x=0,y=0,s=1,pad={top:0,bottom:0},ink="#888",accent="#888",current=null,mode="design",sent="",placed=false;
 var flight=0,glide=0,points=new Map(),track=[],down=null,lastTap=null,hold=0,pinched=false;
 var ring=document.createElement("div");ring.className="ring";marks.appendChild(ring);
@@ -216,7 +216,8 @@ H=Math.max(1,top-gap);
 labels.forEach(function(l){l.el.remove()});labels=[];
 rows.forEach(function(row){if(!row.group)return;var el=document.createElement("div");el.className="label";el.textContent=row.group;el.style.color=ink;marks.insertBefore(el,ring);labels.push({el:el,row:row})});
 if(current&&!boards.has(current))current=null}
-function setDoc(id,doc){var b=boards.get(id);if(!b)return;
+function setDoc(id,doc,font){var b=boards.get(id);if(!b)return;
+if(font){var at=doc.toLowerCase().indexOf("</head>");if(!fonts.has(font)||at<0)return;doc=doc.slice(0,at)+"<style>"+fonts.get(font)+"</style>"+doc.slice(at)}
 if(!b.frame){var f=document.createElement("iframe");f.setAttribute("sandbox","");f.setAttribute("referrerpolicy","no-referrer");f.setAttribute("tabindex","-1");f.width=b.w;f.height=b.h;f.style.width=b.w+"px";f.style.height=b.h+"px";f.addEventListener("load",function(){if(!b.doc)return;b.el.classList.add("ready");post({t:"painted",id:b.id})});b.el.appendChild(f);b.frame=f}
 if(b.doc!==doc){b.doc=doc;b.el.classList.remove("ready");b.frame.srcdoc=doc}}
 function setPins(next){pinNodes.forEach(function(el){el.remove()});pinNodes.clear();pins=Array.isArray(next)?next:[];
@@ -275,7 +276,8 @@ new ResizeObserver(function(){if(!placed)return;stop();track=[];var b=boards.get
 window.milagreCanvas={run:function(c){if(!c||typeof c!=="object")return;
 if(c.t==="set"){if(c.ink)ink=String(c.ink);if(c.accent)accent=String(c.accent);if(c.pad)pad={top:+c.pad.top||0,bottom:+c.pad.bottom||0};var was=boards.get(current),wx=was&&was.x,wy=was&&was.y;layout(Array.isArray(c.rows)?c.rows:[]);if(was&&boards.get(current)===was){x-=(was.x-wx)*s;y-=(was.y-wy)*s}if(Array.isArray(c.pins))setPins(c.pins);
 var b=boards.get(String(c.focus||""))||boards.get(current)||order[0];if(b&&(!placed||!boards.has(current))){current=b.id;var v=focusView(b);x=v.x;y=v.y;s=v.s;placed=true}paint()}
-else if(c.t==="html")setDoc(String(c.id),String(c.doc||""));
+else if(c.t==="fonts"){if(typeof c.key==="string"&&typeof c.css==="string"&&c.css)fonts.set(c.key,c.css)}
+else if(c.t==="html")setDoc(String(c.id),String(c.doc||""),c.font);
 else if(c.t==="pins")setPins(c.pins);
 else if(c.t==="focus"){var f=boards.get(String(c.id));if(f){current=f.id;fly(focusView(f))}}
 else if(c.t==="overview")fly(overview());
@@ -283,7 +285,7 @@ else if(c.t==="reveal"){var r=boards.get(String(c.id));if(!r)return;var rx=unit(
 fly({s:s,x:x+tx-px,y:y+ty-py},function(){post({t:"anchor",sx:x+(r.x+rx*r.w)*s,sy:y+(r.y+ry*r.h)*s})})}}};
 post({t:"ready"})})()`;
 // Hash of DESIGNS_CANVAS_SCRIPT; artifact.test.ts checks it.
-const DESIGNS_CANVAS_HASH = "sha256-XLOjDqxIeRW3wWoNIHhdVHITOtsUFHCk9fCTZ3d1Cck=";
+const DESIGNS_CANVAS_HASH = "sha256-MDgC7d0mQR7sb+NREt9ONsNGcLF0EteM54SI3rSQbQ0=";
 const CANVAS_BACKGROUND = /^(#[0-9a-f]{3,8}|rgba?\([\d.,%\s/]+\))$/i;
 
 /**

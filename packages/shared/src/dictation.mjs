@@ -2,9 +2,9 @@
 // expect. Whisper (desktop, Android) takes the words as its prompt; Apple's DictationTranscriber (iOS) as contextual strings,
 // and the AI fix-up as its vocabulary.
 
-/** "auto" lets Whisper detect the language. Apple can't: it uses the phone's language. `locale` is Apple's default region. */
+/** "auto" lets Whisper detect languages. Explicit languages can use Apple dictation; `locale` is its default region. */
 export const DICTATION_LANGUAGES = [
-  { code: "auto", name: "Detect automatically", locale: null },
+  { code: "auto", name: "Detect automatically (experimental)", locale: null },
   { code: "en", name: "English", locale: "en-US" },
   { code: "pt", name: "Portuguese", locale: "pt-BR" },
   { code: "es", name: "Spanish", locale: "es-ES" },
@@ -40,6 +40,8 @@ const CODES = new Set(DICTATION_LANGUAGES.map((language) => language.code));
 
 /** A saved setting as a known code, "auto" for anything else. */
 export function dictationLanguage(value) {
+  // The first automatic-detection experiment was named after the two languages used to test it.
+  if (value === "pt-en") return "auto";
   return typeof value === "string" && CODES.has(value) ? value : "auto";
 }
 
@@ -101,14 +103,22 @@ export function dictationTerms({ projectName, branch, chatTitle, files = [] } = 
 const PROMPT_CHARACTERS = 600;
 
 /** Whisper's prompt: the terms as a comma list, cut at a term boundary so the most telling ones stay. */
-export function whisperPrompt(terms) {
+export function whisperPrompt(terms, language) {
+  // An example of switching languages helps preserve the original speech instead of translating minority-language words.
+  // It is example text, not a forced language list. Keep it before vocabulary so long project names cannot crowd it out.
+  const hint = language && dictationLanguage(language) === "auto" ? "Olá, vamos conversar and switch languages when needed. " : "";
   let prompt = "";
   for (const term of terms) {
     const next = prompt ? `${prompt}, ${term}` : term;
-    if (next.length > PROMPT_CHARACTERS) break;
+    if (hint.length + next.length > PROMPT_CHARACTERS) break;
     prompt = next;
   }
-  return prompt ? `${prompt}.` : "";
+  return `${hint}${prompt ? `${prompt}.` : ""}`.trimEnd();
+}
+
+/** Normalize saved language preferences, including the first automatic-detection experiment. */
+export function whisperLanguage(language) {
+  return dictationLanguage(language);
 }
 
 // whisper.cpp's multilingual models, pinned to one revision and checked by hash. The desktop runs large-v3-turbo, the most

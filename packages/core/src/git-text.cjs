@@ -342,8 +342,6 @@ function codexModel({
 }
 
 module.exports = {
-  CLAUDE_MODEL,
-  CODEX_MODEL,
   DIFF_LIMIT,
   GENERATION_FAILED,
   SYSTEM,

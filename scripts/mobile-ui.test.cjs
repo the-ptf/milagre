@@ -159,6 +159,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
       if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
+      if (relative === "design-font-cache")
+        return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
       if (relative === "secret-question")
         return load(
           "secret-question.tsx",
@@ -266,9 +268,30 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (file === "prompt-field.tsx" && base === "chat-display-setting" && !(id in modules)) return { useDictationAction: () => ["paste"] };
       if (base === "voice-dictation-hook" && !(id in modules))
         return {
-          useVoiceDictation: () => ({ available: false, phase: "idle", error: null, level: { value: 0 }, start() {}, stop() {}, cancel() {}, dismiss() {} }),
+          useVoiceDictation: () => ({
+            available: false,
+            phase: "idle",
+            error: null,
+            partial: { text: "", settled: 0 },
+            download: null,
+            level: { value: 0 },
+            start() {},
+            stop() {},
+            cancel() {},
+            dismiss() {},
+          }),
         };
-      if (base === "voice-mic-button" && !(id in modules)) return { VoiceMicButton: "VoiceMicButton", MIC_SIZE: 32 };
+      if (base === "voice-mic-button" && !(id in modules))
+        return {
+          VoiceMicButton: "VoiceMicButton",
+          DictationCapsule: "DictationCapsule",
+          MIC_SIZE: 32,
+          CAPSULE_WIDTH: 72,
+          CAPSULE_INSET: { right: 6, bottom: 4 },
+        };
+      // Icon data and the icon component are drawing; a test reads the icon's name.
+      if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
+      if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
       if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
@@ -10638,6 +10661,7 @@ function artifactHost(client, pushes = [], router = { back() {} }, feature = des
 
 /** DesignsSheet with its native pieces faked; `open` walks it to a loaded design on a canvas page that said ready. */
 function designsHost(client, router = { back() {} }, feature = designsOn, pushes = []) {
+  let reconnects = 0;
   const react = hookHost({ effects: true }),
     files = new Map(),
     injected = [],
@@ -10696,7 +10720,7 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts"),
       "./design-outbox": require("../apps/mobile/src/design-outbox.ts"),
-      "./session": { useSession: () => ({ client, designs: feature }) },
+      "./session": { useSession: () => ({ client, designs: feature, reconnects }) },
       "./use-design-catalog": { markDesignDeleted() {} },
       "./icons": { Icon: "Icon", SpinnerRing: "SpinnerRing" },
       "./ui": { PillButton: "PillButton", PullDown: "PullDown", tap() {} },
@@ -10710,6 +10734,9 @@ function designsHost(client, router = { back() {} }, feature = designsOn, pushes
     shareAvailabilityChanged: (...args) => share.shareAvailabilityChanged(...args),
     setClient(next) {
       client = next;
+    },
+    reconnect() {
+      reconnects++;
     },
     appState(status) {
       for (const listener of appListeners) listener(status);
@@ -10801,7 +10828,102 @@ test("structured designs on mobile open on their canvas, with versions in the me
   h.render("DesignsSheet", props);
   await settle();
   assert.equal(calls.at(-1)[0], "artifact:get");
-  assert.equal(calls.at(-1)[1].version, undefined, "returning to the latest version reads the latest saved design");
+  assert.equal(calls.at(-1)[1].version, 2, "returning to the latest version pins the current summary's saved design");
+  h.cleanup();
+});
+
+test("canvas fonts are injected once per page and replayed before documents after reload", async () => {
+  const { createExampleDesign } = require("../packages/shared/src/design.mjs");
+  const document = createExampleDesign();
+  const designs = ["one", "two", "three", "four"].map((id) => ({
+    id,
+    version: 1,
+    latest: 1,
+    versions: 1,
+    title: id,
+    format: "design",
+    width: 390,
+    height: 844,
+    document,
+    html: "<html><head></head><body></body></html>",
+  }));
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method, [request] = []) => {
+      if (method === "artifact:list") return designs;
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      calls.push(request);
+      return {
+        ...designs.find((item) => item.id === request.id),
+        fontKey: "shared",
+        ...(request.fonts.have.includes("shared") ? {} : { fontCss: "@font-face{test:yes}" }),
+      };
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  let tree = await h.open(props);
+  await settle();
+  tree = h.render("DesignsSheet", props);
+  const first = h.commands();
+  assert.equal(first.filter((command) => command.t === "fonts").length, 1);
+  assert.equal(first.filter((command) => command.t === "html").length, 4);
+  assert.ok(first.findIndex((command) => command.t === "fonts") < first.findIndex((command) => command.t === "html"));
+  assert.ok(
+    calls.slice(1).every((request) => request.fonts.have.includes("shared")),
+    "the opened design warms all lanes",
+  );
+  h.say(tree, { t: "ready" });
+  h.render("DesignsSheet", props);
+  const replay = h.commands().slice(first.length);
+  assert.equal(replay.filter((command) => command.t === "fonts").length, 1);
+  assert.equal(replay.filter((command) => command.t === "html").length, 4);
+  assert.ok(replay.findIndex((command) => command.t === "fonts") < replay.findIndex((command) => command.t === "html"));
+  h.cleanup();
+});
+
+test("a superseding canvas effect reuses an outstanding design read", async () => {
+  const { createExampleDesign } = require("../packages/shared/src/design.mjs");
+  const design = {
+    id: "one",
+    version: 1,
+    latest: 1,
+    versions: 1,
+    title: "One",
+    format: "design",
+    width: 390,
+    height: 844,
+    document: createExampleDesign(),
+    html: "<html><head></head></html>",
+  };
+  let finish;
+  let gets = 0;
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      if (method === "artifact:list") return [design];
+      if (method === "artifact:comments") return [];
+      if (method === "artifact:sharing-status") return { available: false };
+      gets++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const h = designsHost(client);
+  const props = { hostId: "mac", chatId: "/p#7", id: "one" };
+  await h.open(props);
+  assert.equal(gets, 1);
+  h.reconnect();
+  h.render("DesignsSheet", props);
+  await settle();
+  assert.equal(gets, 1, "the new effect subscribes to the original read");
+  finish(design);
+  await settle();
+  h.render("DesignsSheet", props);
+  assert.equal(h.commands().filter((command) => command.t === "html").length, 1);
   h.cleanup();
 });
 
@@ -10843,7 +10965,7 @@ test("the designs sheet loads the version it opened, on a canvas page that runs 
   const h = designsHost(client);
   await h.open({ hostId: "mac", chatId: "/p#7", id: "login", version: "1" });
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(([method]) => method === "artifact:get"))), [
-    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1 }]],
+    ["artifact:get", [{ chatId: "/p#7", id: "login", version: 1, fonts: { have: [] } }]],
   ]);
   for (const method of ["artifact:sharing-status", "artifact:list", "artifact:comments"])
     assert.ok(
@@ -17215,18 +17337,106 @@ test("mobile Ports obey the external preference and explain a loopback-only serv
   assert.match(JSON.stringify(render()), /Enable Open links in Milagre in Settings > Browser/);
 });
 
-test("phone dictation pastes by default, sends the completed draft once, and preserves blocked drafts", () => {
+test("the mic is a 44 point target and the take's capsule can discard it or stop it", () => {
+  const { VoiceMicButton, DictationCapsule, MIC_SIZE, CAPSULE_WIDTH, CAPSULE_INSET } = load("voice-mic-button.tsx", {
+    react: { useEffect() {} },
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Pressable: "Pressable", View: "View" },
+    "react-native-reanimated": {
+      default: { View: "AnimatedView" },
+      cancelAnimation() {},
+      Easing: { linear() {} },
+      ReduceMotion: { System: "system" },
+      useAnimatedStyle: (callback) => callback(),
+      useSharedValue: (initial) => ({ value: initial, get: () => initial, set() {} }),
+      withRepeat: (value) => value,
+      withTiming: (value) => value,
+    },
+    "@hugeicons/core-free-icons": { Cancel01Icon: "Cancel01Icon", Mic01Icon: "Mic01Icon" },
+    "@milagre/shared/themes": { withAlpha: (color) => color },
+    "./design-tokens": require("../apps/mobile/src/design-tokens.ts"),
+    "./icons": { Icon: "Icon" },
+    "./theme": { useTheme: () => ({ colors: fakePalette, motionScale: 1 }) },
+  });
+  assert.equal(MIC_SIZE, 44);
+  let starts = 0;
+  const idle = VoiceMicButton({ onPress: () => starts++ });
+  const targetStyle = idle.props.style({ pressed: false });
+  assert.equal(targetStyle.width, 44);
+  assert.equal(targetStyle.height, 44);
+  assert.equal(idle.props.accessibilityLabel, "Dictate");
+  idle.props.onPress();
+  assert.equal(starts, 1);
+
+  let discards = 0;
+  let stops = 0;
+  const recording = DictationCapsule({ phase: "recording", level: { value: 1 }, onDiscard: () => discards++, onStop: () => stops++ });
+  // The field is only 44 tall with one line of text, so the capsule has to fit inside it with room at both edges.
+  const capsuleHeight = recording.props.style.height;
+  const fieldHeight = 44;
+  const top = fieldHeight - CAPSULE_INSET.bottom - capsuleHeight;
+  assert.ok(top >= 4, `the capsule leaves ${top}px above it inside a one-line field, not overhanging its background`);
+  assert.ok(capsuleHeight + CAPSULE_INSET.bottom <= fieldHeight, "and never reaches past the field's own height");
+  const buttons = [];
+  find(recording, (node) => {
+    if (node.props?.accessibilityRole === "button") buttons.push(node);
+    return false;
+  });
+  assert.deepEqual(
+    buttons.map((node) => node.props.accessibilityLabel),
+    ["Discard dictation", "Stop dictation"],
+  );
+  // Each visual is 28 points with hitSlop 8 on every side, so the target is 44.
+  for (const button of buttons) {
+    const style = button.props.style({ pressed: false });
+    assert.equal(style.width + button.props.hitSlop * 2, 44);
+    assert.equal(style.height + button.props.hitSlop * 2, 44);
+  }
+  buttons[0].props.onPress();
+  buttons[1].props.onPress();
+  assert.equal(discards, 1);
+  assert.equal(stops, 1);
+
+  // The halo swells with the voice; at full level it must still sit inside the capsule's own background.
+  // The halo is the only layer with an animated style: its base size and the scale the shared level drives.
+  const haloNode = find(recording, (node) => Array.isArray(node.props?.style) && node.props.style[0]?.position === "absolute");
+  const haloBase = haloNode.props.style[0].height;
+  const haloScale = haloNode.props.style[1].transform[0].scale;
+  assert.ok(haloBase * haloScale <= capsuleHeight, `a full-voice halo is ${haloBase * haloScale}px inside a ${capsuleHeight}px capsule`);
+
+  const preparing = DictationCapsule({ phase: "preparing", level: { value: 0 }, onDiscard() {}, onStop() {} });
+  assert.equal(preparing.props.style.height, capsuleHeight, "the capsule is the same width and height in every phase");
+  assert.ok(
+    find(preparing, (node) => node.props?.accessibilityRole === "progressbar" && node.props.accessibilityLabel === "Preparing the microphone"),
+    "no stop before there is anything to stop",
+  );
+  assert.ok(!find(preparing, (node) => node.props?.accessibilityLabel === "Stop dictation"));
+  const finishing = DictationCapsule({ phase: "transcribing", level: { value: 0 }, onDiscard() {}, onStop() {} });
+  assert.ok(find(finishing, (node) => node.props?.accessibilityLabel === "Finishing the last words"));
+  assert.ok(
+    find(finishing, (node) => node.props?.accessibilityLabel === "Discard dictation"),
+    "a take can still be thrown away while it finishes",
+  );
+  assert.equal(CAPSULE_WIDTH, 72);
+});
+
+test("phone dictation writes into the field as it hears, tints only the revisable tail, and discards just the take", () => {
   const react = hookHost();
   react.useEffect = react.effect;
   let draft = "fix";
   let action = "paste";
   let deliver;
   let blocked = false;
+  let partial = { text: "", settled: 0 };
+  let phase = "idle";
+  let cancels = 0;
+  let starts = 0;
+  let stops = 0;
   const sent = [];
   const { PromptField } = load("prompt-field.tsx", {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
-    "react-native": { Text: "Text", View: "View" },
+    "react-native": { Linking: { openSettings() {} }, Pressable: "Pressable", Text: "Text", View: "View" },
     "react-native-reanimated": reanimatedStub,
     "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
     "./use-rpc": { useRpc: () => ({ data: null }) },
@@ -17236,14 +17446,31 @@ test("phone dictation pastes by default, sends the completed draft once, and pre
     "./voice-dictation-hook": {
       useVoiceDictation: (callback) => {
         deliver = callback;
-        return { available: false, error: null, dismiss() {} };
+        return {
+          available: true,
+          phase,
+          error: null,
+          partial,
+          download: null,
+          level: { value: 0 },
+          start() {
+            starts++;
+          },
+          stop() {
+            stops++;
+          },
+          cancel() {
+            cancels++;
+          },
+          dismiss() {},
+        };
       },
     },
   });
   const render = () => {
     react.begin();
     const renderedDraft = draft;
-    PromptField({
+    const tree = PromptField({
       client: { call: async () => [] },
       projectPath: "/project",
       draft,
@@ -17257,25 +17484,105 @@ test("phone dictation pastes by default, sends the completed draft once, and pre
       },
     });
     react.flush();
+    return tree;
   };
   const hear = (text) => deliver(text, { draft, selection: { start: draft.length, end: draft.length } });
+  // The words in the field: every run of the attributed text, with whether it is the provisional tail.
+  const runs = (tree) => {
+    const field = find(tree, (node) => node.type === "Field");
+    const out = [];
+    find(field, (node) => {
+      if (node.type === "Text" && typeof node.props.children === "string") out.push([node.props.children, node.props.style?.color === fakePalette.ink2]);
+      return false;
+    });
+    return out;
+  };
   render();
-  hear("this");
+  // Tapping the mic opens the take; the draft is untouched until the first words arrive.
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  assert.equal(starts, 1);
+  assert.equal(draft, "fix");
+  phase = "preparing";
+  const preparing = render();
+  assert.ok(find(preparing, (node) => node.type === "Text" && node.props.children === "Preparing the microphone\u2026"));
+  assert.ok(
+    find(preparing, (node) => node.type === "DictationCapsule"),
+    "the mic grew into the capsule, in its own place",
+  );
+  assert.ok(!find(preparing, (node) => node.type === "VoiceMicButton"));
+
+  phase = "recording";
+  partial = { text: "this bit", settled: 0 };
   render();
-  assert.equal(draft, "fix this");
-  assert.deepEqual(sent, []);
+  assert.equal(draft, "fix this bit", "the words land in the field itself, not in a preview of their own");
+  assert.deepEqual(
+    runs(render()),
+    [
+      ["fix ", false],
+      ["this bit", true],
+    ],
+    "nothing has settled, so the whole take is the tail",
+  );
+
+  partial = { text: "this bit here", settled: "this bit ".length };
+  render();
+  assert.equal(draft, "fix this bit here");
+  assert.deepEqual(
+    runs(render()),
+    [
+      ["fix this bit ", false],
+      ["here", true],
+    ],
+    "settled words read like anything typed",
+  );
+
+  // Stop: the final transcript settles in place and the tint goes, with the words where they already were.
+  phase = "transcribing";
+  find(render(), (node) => node.type === "DictationCapsule").props.onStop();
+  assert.equal(stops, 1);
+  partial = { text: "", settled: 0 };
+  phase = "idle";
+  hear("this bit here");
+  render();
+  assert.equal(draft, "fix this bit here", "finishing changes nothing on screen");
+  assert.deepEqual(runs(render()), [["fix this bit here", false]]);
+  assert.deepEqual(sent, [], "paste is the default: the message waits for the user");
+
+  // Discard takes out only the take, and puts back the draft and the caret it replaced.
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  phase = "recording";
+  partial = { text: "throw this away", settled: 0 };
+  render();
+  assert.equal(draft, "fix this bit here throw this away");
+  find(render(), (node) => node.type === "DictationCapsule").props.onDiscard();
+  render();
+  assert.equal(cancels, 1);
+  assert.equal(draft, "fix this bit here", "the draft the user had is back, whole");
+  phase = "idle";
+  partial = { text: "", settled: 0 };
+  render();
+
+  // Send now: one message, once the parent has the final draft.
   action = "send";
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  phase = "recording";
   render();
+  phase = "idle";
   hear("please");
   assert.deepEqual(sent, [], "wait for the updated parent render");
   render();
   render();
-  assert.deepEqual(sent, ["fix this please"]);
+  assert.deepEqual(sent, ["fix this bit here please"]);
   assert.equal(draft, "");
   hear("  ");
   render();
   assert.equal(sent.length, 1);
+
   blocked = true;
+  find(render(), (node) => node.type === "VoiceMicButton").props.onPress();
+  phase = "recording";
+  render();
+  phase = "idle";
   hear("keep this");
   render();
   assert.equal(draft, "keep this");
@@ -17283,6 +17590,69 @@ test("phone dictation pastes by default, sends the completed draft once, and pre
   blocked = false;
   render();
   assert.equal(sent.length, 1, "unblocking does not send a stale transcript");
+  react.cleanup();
+});
+
+test("a take's error is a bubble over the mic, not a line that moves the words", () => {
+  const react = hookHost();
+  react.useEffect = react.effect;
+  let error = null;
+  let dismissed = 0;
+  const { PromptField } = load("prompt-field.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { Linking: { openSettings() {} }, Pressable: "Pressable", Text: "Text", View: "View" },
+    "react-native-reanimated": reanimatedStub,
+    "@milagre/shared/prompt-skills": require("@milagre/shared/prompt-skills"),
+    "./use-rpc": { useRpc: () => ({ data: null }) },
+    "./use-image-paste": { useImagePaste: () => ({ onFocus() {} }) },
+    "./ui": { Field: "Field", ListRow: "ListRow", PageScroll: "PageScroll" },
+    "./chat-display-setting": { useDictationAction: () => ["paste"] },
+    "./voice-dictation-hook": {
+      useVoiceDictation: () => ({
+        available: true,
+        phase: "idle",
+        error,
+        partial: { text: "", settled: 0 },
+        download: null,
+        level: { value: 0 },
+        start() {},
+        stop() {},
+        cancel() {},
+        dismiss() {
+          dismissed++;
+        },
+      }),
+    },
+  });
+  const render = () => {
+    react.begin();
+    const tree = PromptField({ client: { call: async () => [] }, projectPath: "/project", draft: "keep this", onChangeText() {} });
+    react.flush();
+    return tree;
+  };
+  const quiet = render();
+  assert.ok(!find(quiet, (node) => node.type === "DictationNotice"));
+
+  error = { kind: "no-speech", message: "I didn't hear you. Try again." };
+  const heard = render();
+  const notice = find(heard, (node) => node.type === "DictationNotice");
+  assert.ok(notice, "the message is the bubble the mic has always used");
+  assert.equal(notice.props.error.message, "I didn't hear you. Try again.");
+  assert.ok(notice.props.micSize > 0, "the bubble is told the mic's size so its arrow points at it");
+  // The bubble floats out of the mic's own wrapper, so it can never become a row that pushes the draft.
+  const wrapper = find(heard, (node) => {
+    const children = [node.props?.children].flat(Infinity).filter(Boolean);
+    return children.some((child) => child?.type === "DictationNotice") && children.some((child) => child?.type === "VoiceMicButton");
+  });
+  assert.ok(wrapper, "it sits in the mic's wrapper, beside the mic itself");
+  assert.equal(wrapper.props.style.position, "absolute", "which is pinned over the field, not laid out in the column");
+  notice.props.onDismiss();
+  assert.equal(dismissed, 1);
+
+  error = { kind: "permission", message: "Allow the microphone to dictate." };
+  const refused = find(render(), (node) => node.type === "DictationNotice");
+  assert.equal(typeof refused.props.onOpenSettings, "function", "a refused microphone keeps its way to Settings");
   react.cleanup();
 });
 
@@ -17325,11 +17695,159 @@ test("phone dictation language opens a checked list and saves the chosen languag
     "../ui": { PageScroll: "PageScroll" },
   });
   const row = (name) => find(Screen(), (node) => node.props.title === name);
-  assert.equal(row("Phone language").props.selected, true);
+  assert.equal(row("Detect automatically (experimental)").props.selected, true);
   row("Portuguese").props.onPress();
   assert.equal(language, "pt");
   assert.equal(row("Portuguese").props.selected, true);
-  assert.equal(row("Phone language").props.selected, false);
+  assert.equal(row("Detect automatically (experimental)").props.selected, false);
+  row("Detect automatically (experimental)").props.onPress();
+  assert.equal(language, "auto");
+  assert.equal(row("Detect automatically (experimental)").props.selected, true);
+});
+
+test("iPhone automatic detection routes to Whisper and individual languages still use Apple", async () => {
+  const calls = [];
+  const native = {
+    isAvailable: () => true,
+    prepare: async (language) => calls.push(["apple", language]),
+  };
+  const whisper = {
+    prepare: async (language) => calls.push(["whisper", language]),
+    transcribe: async (_audio, options) => {
+      calls.push(["whisper-audio", options.language]);
+      return "Olá, please review the code.";
+    },
+  };
+  const { getTranscriber } = load("voice-transcription.ios.ts", {
+    "react-native": { TurboModuleRegistry: { get: () => native } },
+    "@react-native-ai/apple/src/NativeAppleTranscription": { default: native },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+    "./voice-transcription-whisper": { getTranscriber: () => whisper },
+  });
+  const transcriber = getTranscriber();
+  await transcriber.prepare("auto");
+  assert.equal(await transcriber.transcribe(new ArrayBuffer(3200), { language: "auto", terms: [] }), "Olá, please review the code.");
+  await transcriber.prepare("pt");
+  await transcriber.prepare("en");
+  assert.deepEqual(calls, [
+    ["whisper", "auto"],
+    ["whisper-audio", "auto"],
+    ["apple", "pt-BR"],
+    ["apple", "en-US"],
+  ]);
+});
+
+test("older iPhones and iPads can use Whisper without an available Apple recognizer", async () => {
+  const whisper = { prepare() {}, transcribe() {} };
+  for (const apple of [
+    null,
+    { isAvailable: () => false },
+    {
+      isAvailable() {
+        throw new Error("Unavailable");
+      },
+    },
+  ]) {
+    const { getTranscriber } = load("voice-transcription.ios.ts", {
+      "react-native": { TurboModuleRegistry: { get: (name) => (name === "RNWhisper" ? {} : apple) } },
+      "@react-native-ai/apple/src/NativeAppleTranscription": { default: apple },
+      "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+      "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+      "./voice-transcription-whisper": { getTranscriber: () => whisper },
+    });
+    assert.equal(getTranscriber(), whisper);
+  }
+});
+
+test("a build without Whisper still offers Apple languages and explains why auto detection is unavailable", async () => {
+  const native = { isAvailable: () => true, prepare: async () => {} };
+  const { getTranscriber } = load("voice-transcription.ios.ts", {
+    "react-native": { TurboModuleRegistry: { get: (name) => (name === "RNWhisper" ? null : native) } },
+    "@react-native-ai/apple/src/NativeAppleTranscription": { default: native },
+    "@milagre/shared/dictation": require("@milagre/shared/dictation"),
+    "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+    "./voice-transcription-whisper": {
+      getTranscriber: () => {
+        throw new Error("Must not load Whisper");
+      },
+    },
+  });
+  const transcriber = getTranscriber();
+  await transcriber.prepare("pt");
+  await assert.rejects(transcriber.prepare("auto"), /Choose a language or update Milagre/);
+});
+
+test("the phone awaits model installation and keeps the moved model for later dictation", async () => {
+  const files = new Map();
+  const shared = require("@milagre/shared/dictation");
+  let directoryReady = false;
+  let downloads = 0;
+  let options;
+  class Directory {
+    uri = "file:///documents/whisper";
+    get exists() {
+      return directoryReady;
+    }
+    async create() {
+      await Promise.resolve();
+      directoryReady = true;
+    }
+  }
+  class File {
+    constructor(directory, name) {
+      this.uri = `${directory.uri}/${name}`;
+    }
+    get exists() {
+      return files.has(this.uri);
+    }
+    get size() {
+      return files.get(this.uri) ?? 0;
+    }
+    async delete() {
+      await Promise.resolve();
+      files.delete(this.uri);
+    }
+    async move(destination) {
+      await Promise.resolve();
+      assert.equal(this.exists, true, "cleanup must not race the async move");
+      files.set(destination.uri, this.size);
+      files.delete(this.uri);
+      this.uri = destination.uri; // Expo updates the source object's URI after moving it.
+    }
+    static async downloadFileAsync(_url, destination) {
+      assert.equal(directoryReady, true, "the destination directory must exist before downloading");
+      downloads++;
+      files.set(destination.uri, shared.WHISPER_MODELS.phone.size);
+      return destination;
+    }
+  }
+  const { getTranscriber } = load("voice-transcription-whisper.ts", {
+    "expo-file-system": { Directory, File, Paths: { document: {} } },
+    "@milagre/shared/dictation": shared,
+    "./voice-transcription-queue": { serializeTranscription: (work) => work() },
+    "whisper.rn/index": {
+      initWhisper: async ({ filePath }) => {
+        assert.equal(files.has(filePath), true, "the installed model survives cleanup");
+        return {
+          transcribeData: (_audio, opts) => {
+            options = opts;
+            return { promise: Promise.resolve({ result: "Olá, please review the code." }) };
+          },
+        };
+      },
+    },
+  });
+  const transcriber = getTranscriber();
+  await transcriber.prepare("auto");
+  await transcriber.prepare("auto");
+  assert.equal(downloads, 1);
+  const audio = new Int16Array(3200).fill(3000).buffer;
+  assert.equal(await transcriber.transcribe(audio, { language: "auto", terms: ["Milagre"] }), "Olá, please review the code.");
+  assert.equal(downloads, 1);
+  assert.equal(options.language, "auto");
+  assert.equal(options.translate, false);
+  assert.match(options.prompt, /switch languages/);
 });
 
 test("secret form masks input, preserves bytes, clears drafts and declines without a summary", () => {

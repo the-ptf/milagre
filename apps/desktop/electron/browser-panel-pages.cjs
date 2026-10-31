@@ -51,6 +51,14 @@ function createBrowserPanelPages({ fromId, publish, product = `Milagre Browser p
             if (!host.isDestroyed()) host.send("browser-panel:viewed", { from: contentsId, viewed: true, viewport });
             return Promise.resolve({});
           }
+          // Page.reload through a webview's debugger reloads the window that holds it, Milagre's own, so the guest
+          // reloads itself (the agent's browser_navigate reload, a viewer's Reload).
+          if (!sessionId && method === "Page.reload") {
+            if (guest.isDestroyed()) return Promise.reject(new Error("The page is gone."));
+            if (/** @type {{ ignoreCache?: unknown }} */ (params ?? {}).ignoreCache === true) guest.reloadIgnoringCache();
+            else guest.reload();
+            return Promise.resolve({});
+          }
           return debug.sendCommand(method, params, sessionId);
         },
         onEvent(listener) {

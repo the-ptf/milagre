@@ -202,3 +202,44 @@ test("Left and Right step over a chip as one character", () => {
   assert.equal(caretStep(value, parts, 6, 1), 6);
   assert.equal(caretStep("😀", [{ kind: "text", text: "😀" }], 2, -1), 0);
 });
+
+test("the dictation tail is laid out as pieces of its own, and its span counts as plain text", () => {
+  const parts: PromptPart[] = [{ kind: "text", text: "check this and that" }];
+  assert.deepEqual(editorLayout("check this and that", parts, { start: 11, end: 19 }), [
+    { kind: "text", text: "check this " },
+    { kind: "text", text: "and that", provisional: true },
+    { kind: "break" },
+  ]);
+  assert.deepEqual(editorLayout("check this and that", parts, null), [{ kind: "text", text: "check this and that" }, { kind: "break" }]);
+
+  // What the editor renders for that layout: the tail in an inline span. The draft's offsets must not move.
+  const before = text("check this ");
+  const inner = text("and that");
+  const tail = el("SPAN", { "data-provisional": "" }, inner);
+  const root = el("DIV", {}, before, tail, br());
+  assert.equal(textOf(root), "check this and that", "the span adds no character");
+  assert.equal(domOffsetToText(root, inner, 4), 15, "a caret inside the tail is an ordinary text offset");
+  assert.deepEqual(textOffsetToDom(root, 15), { node: inner, offset: 4 });
+  assert.deepEqual(textOffsetToDom(root, 19), { node: inner, offset: 8 }, "the end of the take is the end of the draft");
+  assert.deepEqual(
+    replaceRange("check this and that", parts, 11, 19, ""),
+    { value: "check this ", caret: 11, chip: false },
+    "discarding the tail is a plain range edit",
+  );
+});
+
+test("the tail never cuts a chip, and a take beside one keeps the chip whole", () => {
+  const parts: PromptPart[] = [
+    { kind: "text", text: "run " },
+    { kind: "skill", text: "/undo" },
+    { kind: "text", text: " then this" },
+  ];
+  assert.deepEqual(editorLayout("run /undo then this", parts, { start: 2, end: 15 }), [
+    { kind: "text", text: "ru" },
+    { kind: "text", text: "n ", provisional: true },
+    { kind: "chip", part: parts[1] },
+    { kind: "text", text: " then ", provisional: true },
+    { kind: "text", text: "this" },
+    { kind: "break" },
+  ]);
+});

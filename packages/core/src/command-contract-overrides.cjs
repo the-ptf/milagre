@@ -77,6 +77,8 @@ module.exports = {
   "computers:vault-status": [],
   // The loopback SOCKS5 port a remote Chat's Browser pages reach the web through (browser-proxy.cjs).
   "computers:browser-proxy": [p("computerId")],
+  // Main's Browser pages for Chats on other computers, with its DevTools proxy (computer-service.cjs).
+  "computers:browser-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatKey: s, title: s, url: s }, ["id", "chatKey"])) }, ["pages"]),
   "computers:unlock": request({ key: s }),
   "computers:setup-key": request({ file: s }),
   "computers:import-keys": request({
