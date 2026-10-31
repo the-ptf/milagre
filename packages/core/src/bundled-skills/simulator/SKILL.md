@@ -16,7 +16,7 @@ The same device may be explicitly attached to multiple Chats. Attachment is an a
 
 ## Simlock leases (when offered)
 
-When the user turned on Simlock devices, you also have `simulator_lease`, `simulator_lease_models` and `simulator_release`. A lease is a device of this Chat's own: no other agent touches it, Simlock boots and slims it, and it comes back wiped. Prefer it to sharing a running simulator when several agents test at once.
+When the user turned on Simlock devices, you also have `simulator_lease`, `simulator_lease_models` and `simulator_release`. A lease is a device of this Chat's own: no other agent touches it, Simlock boots it and wipes it when it comes back. Whether it is slimmed depends on the worker's own slim mode (`ios.defaultMode`), which can fail on some iOS runtimes; Milagre doesn't slim or verify leased devices, and simslim can't reach them in Simlock's device set. Prefer it to sharing a running simulator when several agents test at once.
 
 1. Call `simulator_lease` with `platform` (`ios` or `android`) and, if the task needs one, a `model` from `simulator_lease_models`. It can wait in Simlock's queue. The device is attached to this Chat for the user to watch.
 2. Drive it only with the `launcher` the tool returns: the agent-device CLI already bound to the lease. Run `<launcher> --help` for its commands. simctl, adb, argent and Xcode cannot reach it, because it may run on another computer. Install apps only from the returned `installDirectory` or below, and point the app at addresses its machine can reach, not this Mac's localhost.
