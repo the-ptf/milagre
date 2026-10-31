@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   groupMcpRows,
+  MCP_CATALOG,
+  mcpCatalogDefinition,
   mcpChipLine,
   mcpEditTarget,
   mcpRemoveTargets,
@@ -172,4 +174,14 @@ test("remove targets read as the places they live", () => {
   assert.equal(mcpTargetPlaces(["everywhere"]), "Everywhere");
   assert.equal(mcpTargetPlaces(["claude", "codex"]), "Claude’s config and Codex’s config");
   assert.equal(mcpTargetPlaces(["everywhere", "claude", "codex"]), "Everywhere, Claude’s config and Codex’s config");
+});
+
+test("catalog tokens are required, normalized, and never carried to a browser-auth service", () => {
+  const github = MCP_CATALOG.find((entry) => entry.id === "github")!;
+  const notion = MCP_CATALOG.find((entry) => entry.id === "notion")!;
+  for (const invalid of ["", "   ", "••••••", "Bearer ", "token\r\nInjected: header"]) {
+    assert.throws(() => mcpCatalogDefinition(github, invalid), /valid personal access token/);
+  }
+  assert.deepEqual(mcpCatalogDefinition(github, "  Bearer test-token  ").headers, { Authorization: "Bearer test-token" });
+  assert.deepEqual(mcpCatalogDefinition(notion, "test-token").headers, {});
 });

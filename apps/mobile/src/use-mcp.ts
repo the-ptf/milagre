@@ -54,6 +54,7 @@ export function useMcp() {
     toggle: (chip: McpChip, name: string, on: boolean) => store?.toggle(chip, name, on),
     remove: (name: string, targets: McpTarget[]) => store?.remove(name, targets),
     definition: (name: string, target: McpTarget) => store?.definition(name, target) ?? Promise.resolve(null),
-    saveUrl: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) => store?.saveUrl(def, target, previous),
+    saveUrl: (def: McpServerDefinition, target: McpTarget, previous?: { name: string; target: McpTarget }) =>
+      store ? store.saveUrl(def, target, previous) : Promise.reject(new Error("Connect to a computer before adding an MCP server.")),
   };
 }
