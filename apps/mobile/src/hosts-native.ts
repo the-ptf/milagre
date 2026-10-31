@@ -226,7 +226,7 @@ export async function saveDictationAction(action: DictationActionPreference) {
     /* best effort */
   }
 }
-/** Settings › Chat › Dictation: a language code, or "auto" (the phone's language on iPhone, detected each take on Android). */
+/** Settings › Chat › Dictation: a language code, or "auto" for experimental local language detection. */
 export async function readDictationLanguage(): Promise<string> {
   try {
     return dictationLanguage(await SecureStore.getItemAsync(dictationLanguageKey));

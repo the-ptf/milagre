@@ -1,4 +1,5 @@
 import type { PromptPart } from "@milagre/shared/prompt-parts";
+import { splitProvisional, type Selection } from "@milagre/shared/voice-dictation";
 
 /**
  * The prompt editor's text model. The draft is a plain string; the editor's DOM is text nodes, `<br>` for line breaks
@@ -211,23 +212,28 @@ export function textOffsetToDom(root: EditorNode, offset: number): Point {
 }
 
 export type EditorPiece =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; provisional?: boolean }
   | { kind: "break" }
   | { kind: "filler" }
   | { kind: "chip"; part: Exclude<PromptPart, { kind: "text" }> };
 
-/** What the editor renders for `value`: its parts, split at line breaks, a filler after each chip that ends a line, and the closing break. */
-export function editorLayout(value: string, parts: readonly PromptPart[]): EditorPiece[] {
+/**
+ * What the editor renders for `value`: its parts, split at line breaks, a filler after each chip that ends a line, and
+ * the closing break. `provisional` is the range a dictation take may still rewrite; its text is cut into pieces of its
+ * own so the editor can tint it without changing a character of the draft.
+ */
+export function editorLayout(value: string, parts: readonly PromptPart[], provisional: Selection | null = null): EditorPiece[] {
   const usable = parts.map((part) => part.text).join("") === value ? parts : [{ kind: "text" as const, text: value }];
   const pieces: EditorPiece[] = [];
-  for (const part of usable) {
+  for (const piece of splitProvisional(usable, provisional)) {
+    const part = piece.part;
     if (part.kind !== "text") {
       pieces.push({ kind: "chip", part });
       continue;
     }
-    part.text.split("\n").forEach((line, index) => {
+    piece.text.split("\n").forEach((line, index) => {
       if (index > 0) pieces.push({ kind: "break" });
-      if (line) pieces.push({ kind: "text", text: line });
+      if (line) pieces.push(piece.provisional ? { kind: "text", text: line, provisional: true } : { kind: "text", text: line });
     });
   }
   pieces.push({ kind: "break" });

@@ -3811,6 +3811,9 @@
     "app:dictation-status": {
       "parameters": []
     },
+    "app:dictation-prepare": {
+      "parameters": []
+    },
     "app:dictation-transcribe": {
       "parameters": [
         {
@@ -3871,6 +3874,7 @@
   },
   "native": [
     "app:dictation-open-settings",
+    "app:dictation-prepare",
     "app:dictation-status",
     "app:dictation-transcribe",
     "app:open-keybindings-file",

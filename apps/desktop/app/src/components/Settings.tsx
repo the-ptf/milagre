@@ -679,7 +679,7 @@ function ChatSettings() {
         <div className="mt-4 overflow-hidden rounded-card bg-surface shadow-card">
           <Row
             label="Language"
-            description="The mic in the composer transcribes on this computer. Detect automatically handles accents and mixed languages; pick one if it guesses wrong."
+            description="The mic transcribes on this computer. Automatic detection is experimental and supports different languages in the same recording. Pick one language if detection guesses wrong."
           >
             <Select
               label="Dictation language"

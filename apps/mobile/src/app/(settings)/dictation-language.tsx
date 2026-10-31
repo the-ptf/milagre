@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { Platform, View } from "react-native";
+import { Text, View } from "react-native";
 import { DICTATION_LANGUAGES } from "@milagre/shared/dictation";
 import { useDictationLanguage } from "../../chat-display-setting";
 import { ChoiceRow } from "../../primitives/choice-row";
@@ -12,11 +12,12 @@ export default function DictationLanguageScreen() {
     <>
       <Stack.Screen options={{ title: "Dictation language" }} />
       <PageScroll>
+        <Text style={styles.text}>Automatic detection is experimental and supports different languages in the same recording. It downloads a 190 MB speech model once and transcribes on this device.</Text>
         <View style={styles.card} accessibilityRole="radiogroup">
           {DICTATION_LANGUAGES.map((item) => (
             <ChoiceRow
               key={item.code}
-              title={item.code === "auto" && Platform.OS === "ios" ? "Phone language" : item.name}
+              title={item.name}
               selected={language === item.code}
               onPress={() => setLanguage(item.code)}
             />
