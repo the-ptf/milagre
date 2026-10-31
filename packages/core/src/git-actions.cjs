@@ -454,8 +454,6 @@ module.exports = {
   NOT_REPO,
   NOT_TOP,
   NO_ORIGIN,
-  PUSH_REJECTED_HINT,
   createGitActions,
-  isLockfile,
   looksSecret,
 };
