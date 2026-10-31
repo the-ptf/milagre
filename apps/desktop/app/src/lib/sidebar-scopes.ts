@@ -115,6 +115,7 @@ export function scopeChats(
       pinned: Boolean(session.pinned),
       pinOrder: session.pin_order,
       ...(session.done_at ? { doneAt: session.done_at } : {}),
+      ...("parent" in session && session.parent !== undefined ? { parent: String(session.parent) } : {}),
       unread: Boolean(session.unread),
       mark: chatMark({
         asking: asking.has(chatKey),

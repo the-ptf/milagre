@@ -409,6 +409,25 @@ test("a note for an idle chat is published immediately and saved by flush", asyn
   assert.equal(broadcasts.at(-1).state.messages.at(-1).body, "Pushed to origin");
 });
 
+test("a Delegation's Chat in the same Project becomes a subchat once, never across Projects or in a loop", async () => {
+  const { host, saved } = harness({ failStart: "no agent" });
+  const parent = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const child = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const other = await host.emptyChat(ALPHA, 1, { fresh: true });
+  const elsewhere = await host.emptyChat(BETA, 1, { fresh: true });
+
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${parent}`), true);
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${child}`, `${ALPHA}#${other}`), false, "a subchat keeps its first parent");
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${parent}`, `${ALPHA}#${child}`), false, "no loops");
+  assert.equal(await host.adoptSubchat(`${BETA}#${elsewhere}`, `${ALPHA}#${parent}`), false, "no other Projects");
+  assert.equal(await host.adoptSubchat(`${ALPHA}#${parent}`, `${ALPHA}#${parent}`), false);
+  await host.states.flush();
+
+  assert.equal(saved.get(ALPHA).sessions[child].parent, parent);
+  assert.equal(saved.get(ALPHA).sessions[parent].parent, undefined);
+  assert.equal(saved.get(BETA)?.sessions[elsewhere]?.parent, undefined);
+});
+
 test("answers to a question are saved as the user's message after the reply so far, and can be taken back", async (t) => {
   const { host, manager, saved, published, session } = harness();
   t.after(() => manager.closeAll());

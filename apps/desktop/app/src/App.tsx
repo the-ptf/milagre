@@ -81,7 +81,7 @@ import { ChangesPanel, firstSection } from "./components/changes/ChangesPanel";
 import { chatJumpIndex, setKeyContext, shortcutCommand } from "./lib/keybindings";
 import { PanelToggles, sidePanelCount, useSidePanels } from "./components/agents/PanelToggles";
 import { ChangesPanelSlot } from "./components/changes/ChangesPanelSlot";
-import { AttentionButton, DiffBar, LayoutToggle } from "./components/changes/ChangesChrome";
+import { AttentionButton, DiffBar, LayoutToggle, SubchatsButton } from "./components/changes/ChangesChrome";
 import { AnimatePresence } from "motion/react";
 import { useDiffComments } from "./components/changes/useDiffComments";
 import { formatCommentsMessage } from "./lib/diff-comments";
@@ -147,6 +147,7 @@ import { createDraftStore, draftKey } from "./lib/draft-store";
 import { restoredChatsNotice } from "./lib/restored-chats";
 import { lazyView } from "./lib/lazy-view";
 import { MediaLightbox } from "./components/motion/LazyMediaLightbox";
+import { chatFamily, OpenSubchatContext } from "./lib/subchat-rows";
 import { reuseRows, useEvent, useStableSet } from "./lib/stable";
 import { canOpenRunChat, unreadRunChats, unreadRunChatsOf, unreadRunRoutines } from "@milagre/shared/routines";
 import { RoutineChip } from "./components/routines/RoutineChip";
@@ -486,6 +487,8 @@ function App() {
   useEffect(() => saveSplitChats(localStorage, splitKeys), [splitKeys]);
   // The split tile being closed while focus moves to its neighbour: it leaves the split once focus has left it.
   const [closingTile, setClosingTile] = useState<string | null>(null);
+  // A subchat opening beside its parent (openBesideParent): the split waits for it instead of ending while it loads.
+  const [splitTarget, setSplitTarget] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   useEffect(() => {
@@ -1079,9 +1082,18 @@ function App() {
     [split, gridStates, gridFocusKey],
   );
   const splitShown = layout === "split" && gridFocusKey !== null && liveSplit.length > 1 && liveSplit.includes(gridFocusKey);
+  if (splitTarget !== null && gridFocusKey === splitTarget) setSplitTarget(null);
   // A split down to one Chat, or one the open Chat isn't in (after a reload), ends: the view shows that Chat alone. A new
   // Chat's draft focus doesn't end it, since the window shows one while it restores the open Chat.
-  if (layout === "split" && view === "chat" && !splitShown && closingTile === null && gridFocusKey !== null && !isDraftTileKey(gridFocusKey)) {
+  if (
+    layout === "split" &&
+    view === "chat" &&
+    !splitShown &&
+    closingTile === null &&
+    splitTarget === null &&
+    gridFocusKey !== null &&
+    !isDraftTileKey(gridFocusKey)
+  ) {
     split = NO_KEYS;
     setLayout("single");
   }
@@ -1141,6 +1153,42 @@ function App() {
     }
     setClosingTile(key);
     openLinkedChat(neighbour);
+  });
+  // Subchats (subchat-rows.ts): the focused Chat's family, a subchat opened beside its parent, and the whole family at once.
+  const focusedFamily = useMemo(
+    () => (focusedChatKey ? chatFamily(gridStates[projectOfKey(focusedChatKey)]?.sessions, focusedChatKey) : null),
+    [gridStates, focusedChatKey],
+  );
+  const familyShown =
+    splitOn &&
+    focusedFamily !== null &&
+    liveSplit.length === focusedFamily.children.length + 1 &&
+    liveSplit.includes(focusedFamily.root) &&
+    focusedFamily.children.every((key) => liveSplit.includes(key));
+  // A subchat opens beside its parent in the split; one already on screen is only focused. False when `key` has no parent.
+  const openBesideParent = useEvent((key: string) => {
+    const family = chatFamily(gridStates[projectOfKey(key)]?.sessions, key);
+    if (!family || family.root === key || selectedLinkRef.current) return false;
+    if (!(layoutRef.current === "split" && shownTilesRef.current.includes(key) && shownTilesRef.current.includes(family.root))) {
+      setSplitKeys([family.root, key]);
+      setLayout("split");
+    }
+    if (key !== gridFocusKeyRef.current) setSplitTarget(key);
+    void openCanvasChat(projectOfKey(key), sessionIdFromKey(key));
+    return true;
+  });
+  // The Subchats button: the parent and every subchat side by side, or back to the open subchat beside its parent (the
+  // parent alone when it is the open one).
+  const toggleFamily = useEvent(() => {
+    if (!focusedFamily) return;
+    if (familyShown) {
+      const focused = gridFocusKeyRef.current;
+      if (focused && focused !== focusedFamily.root) setSplitKeys([focusedFamily.root, focused]);
+      else setLayout("single");
+      return;
+    }
+    setSplitKeys([focusedFamily.root, ...focusedFamily.children]);
+    setLayout("split");
   });
   useEffect(
     () =>
@@ -1230,6 +1278,7 @@ function App() {
         pinned: Boolean(session.pinned),
         pinOrder: session.pin_order,
         ...(session.done_at ? { doneAt: session.done_at } : {}),
+        ...(session.parent !== undefined ? { parent: String(session.parent) } : {}),
         mark: chatMark({
           asking: asking.has(session.id),
           waiting: waiting.has(session.id),
@@ -2638,21 +2687,26 @@ function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [run, project?.path, selectedSession?.id, view, botsShown, routineId, runPaneOpen]);
 
+  // The sidebar owns the visible order, including folds, pins, Done and its collapsed rail.
+  const jumpChats = useRef<string[]>([]);
+  const setJumpChats = useEvent((ids: string[]) => {
+    jumpChats.current = ids;
+  });
+  const jumpToChat = useEvent((event: KeyboardEvent) => {
+    if (selectedLinkRef.current) return;
+    if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
+    const index = chatJumpIndex(shortcutCommand(event));
+    if (index === null) return;
+    if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
+    const chat = jumpChats.current[index];
+    if (!chat) return;
+    event.preventDefault();
+    openChat(Number(chat));
+  });
   useEffect(() => {
-    function jumpToChat(event: KeyboardEvent) {
-      if (selectedLinkRef.current) return;
-      if (view !== "chat" || event.defaultPrevented || event.isComposing) return;
-      const index = chatJumpIndex(shortcutCommand(event));
-      if (index === null) return;
-      if (isModalOpen() || document.querySelector('[role="menu"], [aria-label="Chat name"]')) return;
-      const chat = chats[index];
-      if (!chat) return;
-      event.preventDefault();
-      openChat(Number(chat.id));
-    }
     window.addEventListener("keydown", jumpToChat);
     return () => window.removeEventListener("keydown", jumpToChat);
-  }, [chats, view]);
+  }, [jumpToChat]);
 
   // The sidebar is memo()'d: these keep one identity across renders (each runs the latest closure) so a streamed
   // batch or another pane's state change doesn't re-render it.
@@ -2901,6 +2955,10 @@ function App() {
   const openCommandPalette = useEvent(() => setCommandPaletteOpen(true));
   // Saved message cards also receive this callback: keep their memoization during sends and streamed updates.
   const openLinkedChat = useEvent((key: string) => void openCanvasChat(projectOfKey(key), sessionIdFromKey(key)));
+  // A Delegation's header in a transcript: a subchat opens beside its parent, any other Chat as itself.
+  const openMessageChat = useEvent((key: string) => {
+    if (!openBesideParent(key)) openLinkedChat(key);
+  });
   // A Run's row on its Routine's page opens the Run's Chat beside the Runs, in the window's own Chat pane.
   // It remembers the Chat the window had, which closing the pane brings back (a Run Chat in another Project switches the
   // window's Project, and the Routines view stays).
@@ -3574,6 +3632,14 @@ function App() {
               onToggle={toggleLayout}
             />
           )}
+          {view === "chat" && !botsShown && focusedFamily && focusedFamily.children.length > 0 && (
+            <SubchatsButton
+              count={focusedFamily.children.length}
+              shown={familyShown}
+              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + 1}
+              onToggle={toggleFamily}
+            />
+          )}
           {showAttentionButton && !floatingInbox && !botsShown && attentionTitles[0] && (
             <AttentionButton
               label={attentionLabel(attentionTitles.map((item) => item.title || "Chat"))}
@@ -3582,7 +3648,11 @@ function App() {
                 asking: !agentRuns.runs[item.key]?.approvals.length,
                 waitingFor: waitingFor(agentRuns.runs[item.key]),
               }))}
-              offset={sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) + (view === "chat" ? 1 : 0)}
+              offset={
+                sidePanelCount(sidePanels, changesAvailable, changesAvailable && !!prNumber) +
+                (view === "chat" ? 1 : 0) +
+                (view === "chat" && focusedFamily && focusedFamily.children.length > 0 ? 1 : 0)
+              }
               onOpen={openChatByKey}
             />
           )}
@@ -3596,64 +3666,67 @@ function App() {
               className={`min-h-0 shrink-0 pt-[var(--window-chrome-height)] pb-3 pl-3 ${view === "chat" || view === "canvas" || view === "routines" || view === "usage" ? "flex" : "hidden"}`}
             >
               <PullRequestOpenContext.Provider value={openRowPullRequest}>
-                <SidebarNav
-                  fill
-                  workspaceName={surfaces.name}
-                  workspaceImage={projectImage(project.path)}
-                  onSwitchLink={switchLinkFromSidebar}
-                  onLinkProject={linkProjectFromSidebar}
-                  onAddComputer={addComputerFromSidebar}
-                  onOpenComputerSettings={openComputerSettings}
-                  onEditLink={editLinkFromSidebar}
-                  onOpenProject={openProjectFromSidebar}
-                  recents={chats}
-                  activeId={
-                    view === "chat"
-                      ? pendingHere && pendingSend
-                        ? String(pendingCanonicalId ?? pendingSend.session.id)
-                        : selectedSession
-                          ? String(selectedSession.id)
-                          : null
-                      : null
-                  }
-                  onPick={pickChat}
-                  chatActions={chatActions}
-                  scopeChatActions={scopeChatActions}
-                  onNewChat={startNewChatFromSidebar}
-                  onOpenSettings={openSettings}
-                  onOpenCanvas={openCanvas}
-                  canvasActive={view === "canvas"}
-                  onOpenRoutines={openRoutines}
-                  routinesActive={view === "routines"}
-                  onOpenUsage={openUsage}
-                  usageActive={view === "usage"}
-                  routinesUnread={unreadRunRoutineIds.size > 0}
-                  onOpenCommands={openCommandPalette}
-                  hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
-                  projectPath={project.path}
-                  projectKind={project.kind}
-                  onNewChatWithoutProject={newChatWithoutProject}
-                  onSwitchProject={switchProjectFromSidebar}
-                  attentionPaths={attentionPaths}
-                  onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}
-                  onNewChatInScope={newChatInScope}
-                  usage={sidebarUsage}
-                  runningKeys={sidebarRunKeys.running}
-                  waitingKeys={sidebarRunKeys.waiting}
-                  askingKeys={sidebarRunKeys.asking}
-                  onOpenScopeChat={openScopeChat}
-                  onScopeArchiveCheck={checkScopeArchive}
-                  onScopeArchive={archiveScopeChat}
-                  archivingChats={archivingChats}
-                  onHoverChat={hoverChat}
-                  onAskChat={askLinkedChat}
-                  sidebarMode={sidebarMode}
-                  onSidebarMode={setSidebarMode}
-                  selectedBotId={selectedBotId}
-                  onPickBot={pickBot}
-                  models={models}
-                  defaultModel={selectedModel}
-                />
+                <OpenSubchatContext.Provider value={openBesideParent}>
+                  <SidebarNav
+                    fill
+                    workspaceName={surfaces.name}
+                    workspaceImage={projectImage(project.path)}
+                    onSwitchLink={switchLinkFromSidebar}
+                    onLinkProject={linkProjectFromSidebar}
+                    onAddComputer={addComputerFromSidebar}
+                    onOpenComputerSettings={openComputerSettings}
+                    onEditLink={editLinkFromSidebar}
+                    onOpenProject={openProjectFromSidebar}
+                    recents={chats}
+                    activeId={
+                      view === "chat"
+                        ? pendingHere && pendingSend
+                          ? String(pendingCanonicalId ?? pendingSend.session.id)
+                          : selectedSession
+                            ? String(selectedSession.id)
+                            : null
+                        : null
+                    }
+                    onPick={pickChat}
+                    onJumpChatsChange={setJumpChats}
+                    chatActions={chatActions}
+                    scopeChatActions={scopeChatActions}
+                    onNewChat={startNewChatFromSidebar}
+                    onOpenSettings={openSettings}
+                    onOpenCanvas={openCanvas}
+                    canvasActive={view === "canvas"}
+                    onOpenRoutines={openRoutines}
+                    routinesActive={view === "routines"}
+                    onOpenUsage={openUsage}
+                    usageActive={view === "usage"}
+                    routinesUnread={unreadRunRoutineIds.size > 0}
+                    onOpenCommands={openCommandPalette}
+                    hintsEnabled={view === "chat" && !commandPaletteOpen && !gitDialog}
+                    projectPath={project.path}
+                    projectKind={project.kind}
+                    onNewChatWithoutProject={newChatWithoutProject}
+                    onSwitchProject={switchProjectFromSidebar}
+                    attentionPaths={attentionPaths}
+                    onOpenProjectSettings={surfaces.settings ? openProjectSettings : undefined}
+                    onNewChatInScope={newChatInScope}
+                    usage={sidebarUsage}
+                    runningKeys={sidebarRunKeys.running}
+                    waitingKeys={sidebarRunKeys.waiting}
+                    askingKeys={sidebarRunKeys.asking}
+                    onOpenScopeChat={openScopeChat}
+                    onScopeArchiveCheck={checkScopeArchive}
+                    onScopeArchive={archiveScopeChat}
+                    archivingChats={archivingChats}
+                    onHoverChat={hoverChat}
+                    onAskChat={askLinkedChat}
+                    sidebarMode={sidebarMode}
+                    onSidebarMode={setSidebarMode}
+                    selectedBotId={selectedBotId}
+                    onPickBot={pickBot}
+                    models={models}
+                    defaultModel={selectedModel}
+                  />
+                </OpenSubchatContext.Provider>
               </PullRequestOpenContext.Provider>
             </div>
             {view === "settings" && (
@@ -3895,7 +3968,7 @@ function App() {
                             ? queueControls(bridgeForKey(project.path), chatKey(project.path, selectedSession.id), selectedSession, Boolean(run), setNotice)
                             : undefined
                         }
-                        onOpenLinkedChat={openLinkedChat}
+                        onOpenLinkedChat={openMessageChat}
                         onOpenAccounts={openAccounts}
                         models={models}
                         cliStatus={cliStatus}

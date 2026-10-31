@@ -318,6 +318,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // The Chat open beside another (split-chats.ts) is pure plus a small store; with a phone's width it never shows.
       if (base === "split-chats" && !(id in modules))
         return load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }, "", cache);
+      // Subchats nest under their parent's row (subchats.ts, subchat-rows.ts); both are pure.
+      if (id === "@milagre/shared/subchats" && !(id in modules)) return require("../packages/shared/src/subchats.ts");
+      if (base === "subchat-rows" && !(id in modules))
+        return load("subchat-rows.ts", { "@milagre/shared/subchats": require("../packages/shared/src/subchats.ts") }, "", cache);
       // A Chat beside of another Project reads its own session (beside-session.tsx); none shows at a phone's width.
       if (base === "beside-session" && !(id in modules)) return { BesideSession: ({ children }) => children, touchPane() {} };
       // The iPad panel's dragged width, kept on the device; a test keeps the default.
@@ -2853,6 +2857,7 @@ function chatHost({
   localOutbox,
   computers,
   screenWidth = 402,
+  split = phoneSplit,
   contextPreferences = { showContextSize: true, compactButtonDisplay: "threshold" },
   contextSettings = { buttonThreshold: 70, autoThreshold: 85, autoCompact: false },
   now = new Date(2026, 9, 17, 10, 30).getTime(),
@@ -2981,7 +2986,13 @@ function chatHost({
       router.backs = (router.backs ?? 0) + 1;
     },
   };
+  const beside = [];
   const { default: ChatScreen } = load("app/chat.tsx", {
+    "../split-context": { useSplit: () => split, useSplitLayout: () => split },
+    "../split-chats": {
+      ...load("split-chats.ts", { react: { useSyncExternalStore: (_subscribe, read) => read() } }),
+      openBeside: (target) => beside.push(target),
+    },
     "../chat-display-setting": {
       useShowContextSize: () => [contextPreferences.showContextSize],
       useCompactButtonDisplay: () => [contextPreferences.compactButtonDisplay],
@@ -3170,7 +3181,7 @@ function chatHost({
   };
   const send = () =>
     find(render(), (node) => node.type === "IconButton" && ["Send message", "Send follow-up", "Queue message"].includes(node.props.label)).props.onPress();
-  return { session, sending, params, field, send, render, router, calls, choices, panels, undo };
+  return { session, sending, params, field, send, render, router, calls, choices, panels, undo, beside };
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -18620,4 +18631,58 @@ test("the actual phone computer-use card receives the delayed first frame, opens
     undefined,
   );
   assert.equal(calls.length, 3, "one step, no remount, initial/live/final reads");
+});
+
+test("subchat report links keep the parent on wide iPad and switch only the child", () => {
+  const host = chatHost({ split: { ...phoneSplit, widthClass: "wide" }, screenWidth: 1400 });
+  host.params.id = "1";
+  host.session.snapshot.project.state.sessions = { 1: { id: 1, title: "Parent" }, 2: { id: 2, parent: 1 }, 3: { id: 3, parent: 1 } };
+  globalThis.chatPage = () => ({
+    messages: [{ id: 10, session_id: 1, role: "assistant", body: "Done", context: { kind: "delegation-report", from: "/p#2" } }],
+  });
+  host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+  try {
+    const report = () => find(host.render(), (node) => node.type === "ChatReply").props;
+    report().onOpenChat("/p#2");
+    assert.equal(host.router.replaced, undefined, "report keeps parent routed");
+    assert.equal(host.beside.at(-1).chatId, 2);
+    report().onOpenChat("/p#3");
+    assert.equal(host.router.replaced, undefined, "switching children keeps parent routed");
+    assert.equal(host.beside.at(-1).chatId, 3);
+    const title = find(host.render(), (node) => node.type === "Screen" && typeof node.props.options?.headerTitle === "function").props.options.headerTitle();
+    const menu = find(title, (node) => node.type === "PullDown" && node.props.label?.includes("in this family"));
+    menu.props.onSelect("/p#2");
+    assert.equal(host.beside.at(-1).chatId, 2, "title and report use the same navigation");
+    host.params.id = "2";
+    host.session.snapshot.project.state.messages.push({ id: 11, session_id: 2, role: "assistant", body: "Sibling report", context: null });
+    report().onOpenChat("/p#3");
+    assert.equal(host.router.replaced.params.id, "1", "opening a sibling from the child routes its parent");
+    assert.equal(host.router.replaced.params.beside, "3");
+    report().onOpenChat("/other#2");
+    assert.equal(host.router.replaced.params.projectPath, "/other", "same id in another Project navigates normally");
+  } finally {
+    delete globalThis.chatPage;
+  }
+});
+
+test("subchat report links preserve compact phones and secondary-pane navigation", () => {
+  for (const secondary of [false, true]) {
+    const host = chatHost(secondary ? { pane: "secondary", split: { ...phoneSplit, widthClass: "wide" } } : {});
+    host.params.id = "1";
+    host.session.snapshot.project.state.sessions = { 1: { id: 1 }, 2: { id: 2, parent: 1 } };
+    globalThis.chatPage = () => ({ messages: [{ id: 10, session_id: 1, role: "assistant", body: "Done", context: null }] });
+    host.session.snapshot.project.state.messages = globalThis.chatPage().messages;
+    try {
+      find(host.render(), (node) => node.type === "ChatReply").props.onOpenChat("/p#2");
+      if (secondary) {
+        assert.equal(host.router.replaced, undefined);
+        assert.equal(host.beside.at(-1).chatId, 2);
+      } else {
+        assert.equal(host.router.replaced.params.id, "2");
+        assert.equal(host.beside.length, 0);
+      }
+    } finally {
+      delete globalThis.chatPage;
+    }
+  }
 });
