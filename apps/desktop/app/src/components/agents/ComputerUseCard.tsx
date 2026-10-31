@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
-import { Cancel01Icon, CircleIcon, ComputerIcon, Loading03Icon, Maximize02Icon, Minimize02Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, CircleIcon, ComputerIcon, Loading03Icon, ArrowExpand01Icon, ArrowShrink01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { desktopStepApps, desktopStepLabel, frameFitsSteps } from "@milagre/shared/desktop-steps";
 import type { ComputerUseApi, ComputerUseFrame } from "@milagre/shared/computer-use";
 import type { ChatStep } from "../../model";
@@ -11,6 +11,8 @@ import { useReplyChatId } from "./ArtifactCard";
 const Icon = ({ icon, size = 14, className }: { icon: IconSvgElement; size?: number; className?: string }) => (
   <HugeiconsIcon icon={icon} size={size} strokeWidth={1.8} color="currentColor" className={className} />
 );
+
+const VISIBLE_STEPS = 8;
 
 const seconds = (steps: ChatStep[]) => {
   const start = steps[0]?.startedAt;
@@ -55,6 +57,9 @@ export function ComputerUseCard({ steps }: { steps: ChatStep[] }) {
   const chatId = useReplyChatId();
   const frame = useScreen(chatId, steps.length);
   const [large, setLarge] = useState(false);
+  const [allSteps, setAllSteps] = useState(false);
+  // The newest steps beside the screen; earlier ones behind a button, so a long run doesn't stretch the card.
+  const hidden = allSteps ? 0 : Math.max(0, steps.length - VISIBLE_STEPS);
   const shown = frame && frameFitsSteps(frame.at, steps) ? frame : null;
   // The host keeps capturing for a while after the last step, then says the feed is no longer live.
   const live = !!shown?.live;
@@ -95,7 +100,7 @@ export function ComputerUseCard({ steps }: { steps: ChatStep[] }) {
           onClick={() => setLarge((value) => !value)}
           className="flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-colors hover:bg-hover hover:text-ink"
         >
-          <Icon icon={large ? Minimize02Icon : Maximize02Icon} />
+          <Icon icon={large ? ArrowShrink01Icon : ArrowExpand01Icon} />
         </button>
       </div>
       {large ? (
@@ -103,7 +108,14 @@ export function ComputerUseCard({ steps }: { steps: ChatStep[] }) {
       ) : (
         <div className="grid grid-cols-[minmax(0,260px)_minmax(0,1fr)] border-t border-line">
           <ol className="grid content-start gap-2.5 border-r border-line p-3.5">
-            {steps.map((step) => (
+            {hidden > 0 && (
+              <li>
+                <button type="button" onClick={() => setAllSteps(true)} className="text-12 text-ink-3 transition-colors hover:text-ink">
+                  {hidden} earlier {hidden === 1 ? "step" : "steps"}
+                </button>
+              </li>
+            )}
+            {steps.slice(hidden).map((step) => (
               <Step key={step.id} step={step} />
             ))}
           </ol>

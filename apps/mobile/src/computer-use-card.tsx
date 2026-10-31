@@ -11,6 +11,9 @@ import { radius, type } from "./design-tokens";
 import { useTheme } from "./theme";
 import { showImages } from "./viewer-store";
 
+// The newest steps under the screen; earlier ones behind a button, as on desktop.
+const VISIBLE_STEPS = 6;
+
 /**
  * The Chat's live screen, as on desktop: long-polls the Mac for the next frame while its agent works, and keeps the
  * last one. Starts again when the reply gets a new desktop step.
@@ -46,6 +49,7 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
   const { colors } = useTheme();
   const frame = useScreen(chatId, steps.length);
   const thumb = useRef<ViewInstance>(null);
+  const [allSteps, setAllSteps] = useState(false);
   const shown = frame && frameFitsSteps(frame.at, steps) ? frame : null;
   // The host keeps capturing for a while after the last step, then says the feed is no longer live.
   const live = !!shown?.live;
@@ -94,7 +98,14 @@ export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?:
         )}
       </Pressable>
       <View style={{ paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}>
-        {steps.map((step) => (
+        {steps.length > VISIBLE_STEPS && !allSteps && (
+          <Pressable accessibilityRole="button" onPress={() => setAllSteps(true)} hitSlop={8}>
+            <Text style={{ color: colors.ink3, fontSize: type.footnote }}>
+              {`${steps.length - VISIBLE_STEPS} earlier ${steps.length - VISIBLE_STEPS === 1 ? "step" : "steps"}`}
+            </Text>
+          </Pressable>
+        )}
+        {(allSteps ? steps : steps.slice(-VISIBLE_STEPS)).map((step) => (
           <Step key={step.id} step={step} />
         ))}
       </View>
