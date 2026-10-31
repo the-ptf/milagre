@@ -4272,6 +4272,58 @@ test("mobile list PR lookups combine branch and historical statuses and stop whi
   react.cleanup();
 });
 
+test("unchanged PR answers and rebuilt targets leave the readers alone", async () => {
+  const react = hookHost();
+  const wait = () => new Promise((resolve) => setImmediate(resolve));
+  let notifies = 0;
+  let subscribed = false;
+  const calls = [];
+  const client = {
+    url: "mac",
+    call: async (method) => {
+      calls.push(method);
+      return method === "worktree:pull-request" ? { number: 7, state: "OPEN" } : [{ number: 8, state: "OPEN" }];
+    },
+  };
+  const status = require("../apps/mobile/src/pr-status.ts");
+  const hooks = load("use-chat-pull-requests.ts", {
+    react: {
+      useCallback: (...args) => react.useCallback(...args),
+      useMemo: (...args) => react.useMemo(...args),
+      useSyncExternalStore: (listen, read) => {
+        if (!subscribed) listen(() => notifies++);
+        subscribed = true;
+        return read();
+      },
+    },
+    "expo-router": { useFocusEffect: (fn) => react.effect(fn, [fn]) },
+    "react-native": { AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) } },
+    "./pr-status": status,
+  });
+  // The drawer rebuilds this list on every row change: equal content is the same reads.
+  const targets = () => [{ hostId: "mac", client, targets: ["/a", "/b"].map((path) => ({ path, refs: ["8"] })) }];
+  const render = () => {
+    react.begin();
+    return hooks.useComputerChatPullRequests(targets());
+  };
+  render();
+  react.flush();
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(render().mac["/b"].found["8"].number, 8);
+  assert.equal(calls.length, 4);
+  assert.ok(notifies >= 1 && notifies < 4, `four answers re-render the readers fewer than four times (${notifies})`);
+  const settled = notifies;
+  render();
+  react.flush();
+  await wait();
+  assert.equal(calls.length, 4, "an equal target list does not restart the reads");
+  status.pullRequestsChanged(client);
+  for (let i = 0; i < 4; i++) await wait();
+  assert.equal(calls.length, 8, "the Mac's change signal reads again");
+  assert.equal(notifies, settled, "the same answers do not re-render anyone");
+  react.cleanup();
+});
+
 test("PRs stay scoped to each computer through switches, delayed reads, offline failures and remounts", async () => {
   let react = hookHost();
   let offline = false;
