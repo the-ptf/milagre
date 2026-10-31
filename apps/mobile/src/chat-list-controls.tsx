@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 import {
   Linking,
   StyleSheet,
+  Text,
   TextInput,
   useWindowDimensions,
   View,
@@ -24,7 +25,7 @@ import { useTheme } from "./theme";
 import { pinsControls, shownHidden } from "./chat-list-controls-pin";
 import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
-import { MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
+import { DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 import { DictationNotice } from "./dictation-notice";
 
 /** How tall the floating controls are, and the room the list keeps under its last row. */
@@ -194,6 +195,28 @@ export function ChatListControls({
             />
             {dictation.available ? (
               <View>
+                {dictation.partial.text || dictation.phase === "preparing" ? (
+                  <View
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      bottom: MIC_SIZE + 8,
+                      width: 260,
+                      padding: 12,
+                      borderRadius: 14,
+                      borderCurve: "continuous",
+                      backgroundColor: colors.surface,
+                    }}
+                  >
+                    <Text
+                      accessibilityLabel={dictation.phase === "preparing" ? "Preparing the microphone" : `Dictation preview: ${dictation.partial.text}`}
+                      numberOfLines={3}
+                      style={{ color: colors.ink2, fontSize: 15 }}
+                    >
+                      {dictation.partial.text || "Preparing the microphone\u2026"}
+                    </Text>
+                  </View>
+                ) : null}
                 {dictationError ? (
                   <DictationNotice
                     error={dictationError}
@@ -205,16 +228,22 @@ export function ChatListControls({
                     }}
                   />
                 ) : null}
-                <VoiceMicButton
-                  phase={dictation.phase}
-                  level={dictation.level}
-                  onPress={() => {
-                    if (dictation.phase === "recording") return void dictation.stop();
-                    // Where the words land is fixed now, at the caret the user left, or at the end before there is one.
-                    const end = query.length;
-                    void dictation.start({ draft: query, selection: caret.current ?? { start: end, end } });
-                  }}
-                />
+                {dictation.phase === "idle" ? (
+                  <VoiceMicButton
+                    onPress={() => {
+                      // Where the words land is fixed now, at the caret the user left, or at the end before there is one.
+                      const end = query.length;
+                      void dictation.start({ draft: query, selection: caret.current ?? { start: end, end } });
+                    }}
+                  />
+                ) : (
+                  <DictationCapsule
+                    phase={dictation.phase}
+                    level={dictation.level}
+                    onDiscard={() => void dictation.cancel()}
+                    onStop={() => void dictation.stop()}
+                  />
+                )}
               </View>
             ) : null}
           </View>

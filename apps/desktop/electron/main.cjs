@@ -286,6 +286,11 @@ async function startDesktop() {
   // Its model download reports progress to the window that asked.
   const dictation = createDictation({ dataDir: app.getPath("userData") });
   ipcMain.handle("app:dictation-status", async () => ({ ready: await dictation.ready(), size: dictation.size }));
+  ipcMain.handle("app:dictation-prepare", (event) =>
+    dictation.prepare((received, total) => {
+      if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });
+    }),
+  );
   ipcMain.handle("app:dictation-transcribe", (event, request) =>
     dictation.transcribe(request ?? {}, (received, total) => {
       if (!event.sender.isDestroyed()) event.sender.send("app:dictation-progress", { received, total });

@@ -860,6 +860,7 @@ declare global {
       /** Whisper on this computer: `audio` is 16 kHz mono 16-bit PCM; the model downloads on first use. */
       dictation: {
         status: () => Promise<{ ready: boolean; size: number }>;
+        prepare: () => Promise<void>;
         transcribe: (request: { audio: ArrayBuffer; language: string; prompt: string }) => Promise<{ text: string }>;
         onProgress: (callback: (progress: { received: number; total: number }) => void) => () => void;
         /** The system's microphone privacy settings, where a refused microphone is allowed again. */

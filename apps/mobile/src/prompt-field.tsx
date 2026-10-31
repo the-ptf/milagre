@@ -12,16 +12,26 @@ import { promptSkillAtSelection, promptSkillParts, promptSkillQuery } from "@mil
 import type { Client } from "./client";
 import { fileQueryAt, isOldMacError, mentionPaths, type KnownFiles } from "./file-mentions";
 import { useRpc } from "./use-rpc";
+import { AlertCircleIcon } from "@hugeicons/core-free-icons";
+import { Icon } from "./icons";
 import { Field, ListRow, PageScroll } from "./ui";
 import { useTheme } from "./theme";
 import { useImagePaste } from "./use-image-paste";
 import { useReturnKey } from "./hardware-keys";
 import type { PastedImage } from "./attachment-picker";
-import { insertDictation, NOTICE_SECONDS } from "@milagre/shared/voice-dictation";
+import {
+  NOTICE_SECONDS,
+  provisionalRange,
+  revertTake,
+  splitProvisional,
+  startTake,
+  writeTake,
+  type DictationTake,
+  type Selection as TextRange,
+} from "@milagre/shared/voice-dictation";
 import { useVoiceDictation } from "./voice-dictation-hook";
 import { useDictationAction } from "./chat-display-setting";
-import { MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
-import { DictationNotice } from "./dictation-notice";
+import { CAPSULE_WIDTH, DictationCapsule, MIC_SIZE, VoiceMicButton } from "./voice-mic-button";
 
 const NO_CHATS: readonly MentionChat[] = [];
 const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
@@ -31,8 +41,8 @@ const OLD_MAC_ROW = "Update Milagre on your Mac to mention files.";
 const GLYPHS = "MilagreChipGlyphs";
 const GLYPH_FONT = { [GLYPHS]: require("../assets/fonts/MilagreChipGlyphs.ttf") };
 const IMAGE_ICON = "#26a69a";
-// The mic sits over the field's trailing edge; the text stops short of it.
-const MIC_WIDTH = 34;
+// The mic sits over the field's trailing edge; the text stops short of it. The capsule needs a little more room.
+const MIC_WIDTH = MIC_SIZE + 2;
 
 function useChipGlyphs() {
   const [ready, setReady] = useState(() => Font.isLoaded(GLYPHS));
@@ -175,18 +185,60 @@ export function PromptField({
     dictatedSend.current = null;
     if (pending.value === draft && pending.projectPath === projectPath && pending.currentId === currentId && dictationAction === "send") onSubmit?.();
   });
+  // The take's words live in the field itself, rewritten in place as the recognizer revises them.
+  const take = useRef<DictationTake | null>(null);
+  const [provisional, setProvisional] = useState<TextRange | null>(null);
+  const write = (text: string, settled: number) => {
+    const current = take.current;
+    if (!current) return null;
+    const written = writeTake(current, latestDraft.current, text, settled);
+    if (!written) return null;
+    take.current = written.take;
+    setProvisional(provisionalRange(written.take));
+    const caret = { start: written.caret, end: written.caret };
+    setRequested({ draft: written.value, selection: caret });
+    setSelection(caret);
+    onChangeText(written.value);
+    return written;
+  };
+  const writeLatest = useRef(write);
+  const discardLatest = useRef<() => void>(() => {});
   const dictation = useVoiceDictation(
     (text, anchor) => {
-      const edit = insertDictation(draft, anchor.selection, text);
-      if (!edit) return;
-      if (dictationAction === "send") dictatedSend.current = { value: edit.value, projectPath, currentId };
-      const caret = { start: edit.caret, end: edit.caret };
-      setRequested({ draft: edit.value, selection: caret });
-      setSelection(caret);
-      onChangeText(edit.value);
+      // The last words settle in place: the tint goes, nothing moves. A take that never opened lands at its anchor.
+      take.current ??= startTake(latestDraft.current, anchor.selection);
+      const written = writeLatest.current(text, text.length);
+      take.current = null;
+      setProvisional(null);
+      if (written && dictationAction === "send") dictatedSend.current = { value: written.value, projectPath, currentId };
     },
     projectPath ? { client, cwd: projectPath, chatTitle, provider } : undefined,
   );
+  const partialText = dictation.partial.text;
+  const partialSettled = dictation.partial.settled;
+  const discardDictation = () => {
+    const current = take.current;
+    void dictation.cancel();
+    take.current = null;
+    setProvisional(null);
+    if (!current) return;
+    const back = revertTake(current, latestDraft.current);
+    setRequested({ draft: back.value, selection: back.selection });
+    setSelection(back.selection);
+    onChangeText(back.value);
+  };
+  const dictating = dictation.phase !== "idle";
+  useEffect(() => {
+    writeLatest.current = write;
+    discardLatest.current = discardDictation;
+  });
+  useEffect(() => {
+    if (take.current && partialText) writeLatest.current(partialText, partialSettled);
+  }, [partialText, partialSettled]);
+  // A take that ended without delivering (the app lost the microphone, the recognizer failed) leaves no half transcript.
+  useEffect(() => {
+    if (!dictating && take.current) discardLatest.current();
+  }, [dictating]);
   const { error: dictationError, dismiss: dismissDictationError } = dictation;
   useEffect(() => {
     // A permission refusal stays until the user acts on it; the other messages clear themselves (and on the next take).
@@ -368,14 +420,15 @@ export function PromptField({
             maxHeight: 140,
             paddingHorizontal: 10,
             paddingVertical: 6,
-            ...(dictation.available ? { paddingRight: 10 + MIC_WIDTH } : null),
+            ...(dictation.available ? { paddingRight: 10 + (dictating ? CAPSULE_WIDTH + 2 : MIC_WIDTH) } : null),
           }}
         >
           <Text style={{ fontSize: inputSize, color: colors.ink }}>
-            {marks.map((part, index) =>
+            {splitProvisional(marks, provisional).map(({ part, text, provisional: revising }, index) =>
               part.kind === "text" ? (
-                <Text key={index} style={{ color: colors.ink }}>
-                  {part.text}
+                // The dictated tail the recognizer may still rewrite: settled words are plain ink, like anything typed.
+                <Text key={index} style={revising ? { color: colors.ink2, backgroundColor: colors.hover } : { color: colors.ink }}>
+                  {text}
                 </Text>
               ) : glyphs ? (
                 // Like desktop's chips: skills tinted with a wand, files and images on the hover gray with their icon.
@@ -420,34 +473,66 @@ export function PromptField({
         </Field>
         {dictation.available ? (
           <View style={{ position: "absolute", right: 4, bottom: 6 }}>
-            {dictationError ? (
-              <DictationNotice
-                error={dictationError}
-                micSize={MIC_SIZE}
-                onDismiss={dismissDictationError}
-                onOpenSettings={() => {
-                  dismissDictationError();
-                  void Linking.openSettings();
+            {dictating ? (
+              <DictationCapsule phase={dictation.phase} level={dictation.level} onDiscard={discardDictation} onStop={() => void dictation.stop()} />
+            ) : (
+              <VoiceMicButton
+                onPress={() => {
+                  // Where the words land is fixed now, while the caret is where the user left it.
+                  const end = draft.length;
+                  const anchor = placed.current ? selection : { start: end, end };
+                  take.current = startTake(draft, anchor);
+                  setProvisional(null);
+                  void dictation.start({ draft, selection: anchor });
                 }}
               />
-            ) : null}
-            <VoiceMicButton
-              phase={dictation.phase}
-              level={dictation.level}
-              onPress={() => {
-                if (dictation.phase === "recording") return void dictation.stop();
-                // Where the words land is fixed now, while the caret is where the user left it.
-                const end = draft.length;
-                void dictation.start({ draft, selection: placed.current ? selection : { start: end, end } });
-              }}
-            />
+            )}
           </View>
         ) : null}
       </View>
-      {dictation.download !== null ? (
-        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 6, color: colors.ink3, fontSize: 13 }}>
-          Downloading the speech model, once: {Math.round(dictation.download * 100)}%
+      {/* One status slot for the whole take: it sits under the words, so it never pushes them around. */}
+      {dictationError ? (
+        <View
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 12, marginTop: 6, marginBottom: 6, minHeight: 32 }}
+        >
+          <Icon icon={AlertCircleIcon} size={16} tone="redInk" />
+          <Text style={{ flex: 1, color: colors.redInk, fontSize: 13, fontWeight: "500" }}>{dictationError.message}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={dictationError.kind === "permission" ? "Open Settings" : "Dismiss"}
+            hitSlop={12}
+            onPress={() => {
+              dismissDictationError();
+              if (dictationError.kind === "permission") void Linking.openSettings();
+            }}
+            style={({ pressed }) => ({
+              minHeight: 32,
+              justifyContent: "center",
+              paddingHorizontal: 10,
+              borderRadius: 10,
+              borderCurve: "continuous",
+              backgroundColor: pressed ? colors.hover2 : colors.hover,
+            })}
+          >
+            <Text style={{ color: colors.ink, fontSize: 13, fontWeight: "600" }}>{dictationError.kind === "permission" ? "Open Settings" : "Dismiss"}</Text>
+          </Pressable>
+        </View>
+      ) : dictation.phase === "preparing" || dictation.phase === "transcribing" ? (
+        <Text accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, color: colors.ink2, fontSize: 13 }}>
+          {dictation.phase === "preparing" ? "Preparing the microphone\u2026" : "Finishing the last words\u2026"}
         </Text>
+      ) : null}
+      {dictation.download !== null ? (
+        <View accessibilityLiveRegion="polite" style={{ marginHorizontal: 14, marginBottom: 8, gap: 4 }}>
+          <View style={{ height: 4, borderRadius: 999, overflow: "hidden", backgroundColor: colors.lineStrong }}>
+            <View style={{ height: 4, borderRadius: 999, backgroundColor: colors.ink, width: `${Math.round(dictation.download * 100)}%` }} />
+          </View>
+          <Text style={{ color: colors.ink3, fontSize: 12 }}>
+            Downloading the speech model, once: {Math.round(dictation.download * 100)}% · the take starts the moment it lands
+          </Text>
+        </View>
       ) : null}
       {skill && !query ? (
         <View

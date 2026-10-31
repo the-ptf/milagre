@@ -49,6 +49,8 @@ interface PromptEditorProps {
   onOpenImage?(index: number): void;
   /** The Chat the draft belongs to; a new key starts a new undo history. */
   resetKey?: string;
+  /** The range a dictation take may still rewrite. Its text is tinted; the draft itself is untouched. */
+  provisional?: { start: number; end: number } | null;
   label?: string;
   className?: string;
   placeholderClassName?: string;
@@ -102,6 +104,7 @@ export function PromptEditor({
   skillDescriptions,
   onOpenImage,
   resetKey,
+  provisional = null,
   label = "Prompt",
   className = "",
   placeholderClassName = "",
@@ -131,7 +134,7 @@ export function PromptEditor({
   const placed = useRef<Selection | null>(null);
   const hosts = useRef(new Map<string, HTMLSpanElement>());
 
-  const layout = useMemo(() => editorLayout(value, parts), [value, parts]);
+  const layout = useMemo(() => editorLayout(value, parts, provisional), [value, parts, provisional]);
   // Re-render only when what is shown changes, not on every new `parts` array (that would reset a drag selection).
   const signature = JSON.stringify(layout);
 
@@ -229,7 +232,16 @@ export function PromptEditor({
     const nextChips: Chip[] = [];
     const seen = new Map<string, number>();
     const nodes = layout.map((piece) => {
-      if (piece.kind === "text") return document.createTextNode(piece.text);
+      if (piece.kind === "text") {
+        const text = document.createTextNode(piece.text);
+        // A dictation take's revisable tail: an inline span, so the draft's text offsets are exactly what they were.
+        if (!piece.provisional) return text;
+        const tail = document.createElement("span");
+        tail.dataset.provisional = "";
+        tail.className = "rounded-inline bg-hover text-ink-2";
+        tail.append(text);
+        return tail;
+      }
       if (piece.kind === "break") return document.createElement("br");
       if (piece.kind === "filler") {
         const filler = document.createTextNode(FILLER);
