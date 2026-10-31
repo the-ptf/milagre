@@ -28,6 +28,7 @@ import {
   ArrowDown01Icon,
   BubbleChatIcon,
   Cancel01Icon,
+  ChartColumnIcon,
   CloudOffIcon,
   Copy01Icon,
   FolderAddIcon,
@@ -172,6 +173,9 @@ type SidebarNavProps = {
   /** Opens the Routines page; its button sits between Search and Filters. */
   onOpenRoutines?: () => void;
   routinesActive?: boolean;
+  /** The Usage page: tokens and estimated cost. */
+  onOpenUsage?: () => void;
+  usageActive?: boolean;
   /** Projects or Bots; the switch shows only while Bots is on (Settings › Experimental) and this is given. */
   sidebarMode?: SidebarMode;
   onSidebarMode?: (mode: SidebarMode) => void;
@@ -284,6 +288,7 @@ function useSidebarKeys() {
     search: shortcutLabel(rules, "commandPalette.toggle"),
     addProject: shortcutLabel(rules, "project.add"),
     settings: shortcutLabel(rules, "settings.open"),
+    usage: shortcutLabel(rules, "usage.open"),
     jump: (index: number) => shortcutLabel(rules, chatJumpCommand(index)),
   };
 }
@@ -641,6 +646,8 @@ export default memo(function SidebarNav({
   canvasActive = false,
   onOpenRoutines,
   routinesActive = false,
+  onOpenUsage,
+  usageActive = false,
   sidebarMode = "projects",
   onSidebarMode,
   selectedBotId = null,
@@ -1607,6 +1614,20 @@ export default memo(function SidebarNav({
                       <span aria-hidden data-routines-unread className="absolute -top-1 -right-1 size-2 rounded-full bg-accent ring-2 ring-canvas" />
                     )}
                   </span>
+                </button>
+              </Tooltip>
+            )}
+            {onOpenUsage && (
+              <Tooltip label="Usage" side="bottom" shortcut={keys.usage}>
+                <button
+                  type="button"
+                  aria-label="Usage"
+                  aria-pressed={usageActive}
+                  data-sidebar-usage
+                  onClick={onOpenUsage}
+                  className={`${TOOL_BUTTON} size-8 ${usageActive ? "bg-hover-2 text-ink" : ""}`}
+                >
+                  <HugeIcon icon={ChartColumnIcon} size={16} />
                 </button>
               </Tooltip>
             )}
