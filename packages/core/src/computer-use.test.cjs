@@ -29,9 +29,9 @@ const snapshot = (id, app) => ({ ok: true, data: { app, snapshot_id: id, tree: {
 
 test("settings start off and save privately", () => {
   const { settings, dataDir } = setup();
-  assert.deepEqual(settings.read(), { enabled: false, cursor: false });
-  assert.deepEqual(settings.save({ enabled: true }), { enabled: true, cursor: false });
-  assert.deepEqual(settings.save({ cursor: true }), { enabled: true, cursor: true });
+  assert.deepEqual(settings.read(), { enabled: false, cursor: true });
+  assert.deepEqual(settings.save({ enabled: true }), { enabled: true, cursor: true });
+  assert.deepEqual(settings.save({ cursor: false }), { enabled: true, cursor: false });
   assert.equal(fs.statSync(path.join(dataDir, "computer-use.json")).mode & 0o777, 0o600);
   assert.throws(() => settings.save({ enabled: "yes" }), /on or off/);
 });
@@ -178,18 +178,39 @@ test("a launch macOS's app list can't settle falls back to open -a", async () =>
   assert.deepEqual(opened, ["TextEdit"]);
 });
 
-test("acting draws Milagre's cursor with the step, once per step, unless it is turned off", async () => {
-  const { tools, calls, settings } = setup({ decisions: ["allow-for-chat"], envelopes: { snapshot: snapshot("s1", "Notes") } });
-  settings.save({ cursor: true });
-  await tools().desktop_snapshot.run({ app: "Notes" });
-  await tools().desktop_act.run({ action: "click", ref: "@s1:e2", intent: "New note" });
-  await tools().desktop_act.run({ action: "type", ref: "@s1:e3", text: "hi", intent: "New note" });
-  const overlays = calls.filter((args) => args[0] === "cursor-overlay");
-  assert.equal(overlays.length, 1);
-  assert.ok(overlays[0].includes("--image") && overlays[0].includes("#2F6BFF"));
-  assert.equal(overlays[0][overlays[0].indexOf("--label") + 1], "New note");
-  assert.ok(calls.findIndex((args) => args[0] === "cursor-overlay") < calls.findIndex((args) => args[0] === "click"), "the cursor shows before the action");
+test("before acting on a ref, the cursor goes to its element with the step, unless it is turned off", async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "computer-use-"));
+  const settings = createComputerUseSettings({ file: path.join(dataDir, "computer-use.json") });
+  const events = [];
+  const calls = [];
+  const host = createComputerUse({
+    dataDir,
+    settings,
+    approve: async () => "allow-for-chat",
+    emit: (channel, payload) => events.push({ channel, payload, before: calls.at(-1)?.[0] }),
+    sleep: async () => {},
+    run: async (_cli, args) => {
+      calls.push(args);
+      if (args[0] === "session") return { ok: true, data: { session_id: "run-1" } };
+      if (args[0] === "snapshot") return snapshot("s1", "Notes");
+      if (args[0] === "get") return { ok: true, data: { value: { x: 10, y: 20, width: 30, height: 12 } } };
+      return { ok: true, data: {} };
+    },
+    cli: { binary: process.execPath, helper: null, version: "1.0.2" },
+  });
+  const tools = Object.fromEntries(host.definitions("/p#1").map((tool) => [tool.name, tool]));
+  await tools.desktop_snapshot.run({ app: "Notes" });
+  await tools.desktop_act.run({ action: "click", ref: "@s1:e2", intent: "New note" });
+  assert.deepEqual(events[0], {
+    channel: "computer-use:cursor",
+    payload: { chatId: "/p#1", app: "Notes", label: "New note", bounds: { x: 10, y: 20, width: 30, height: 12 } },
+    before: "get",
+  });
+  assert.ok(calls.findIndex((args) => args[0] === "get") < calls.findIndex((args) => args[0] === "click"), "the cursor moves before the action");
+  await tools.desktop_press.run({ app: "Notes", keys: "return", intent: "Saving" });
+  assert.equal(events.at(-1).payload.bounds, null, "a key press keeps the cursor where it is");
   settings.save({ cursor: false });
-  await tools().desktop_act.run({ action: "click", ref: "@s1:e2", intent: "Another step" });
-  assert.equal(calls.filter((args) => args[0] === "cursor-overlay").length, 1);
+  await tools.desktop_act.run({ action: "click", ref: "@s1:e2", intent: "Another step" });
+  assert.equal(events.length, 2);
+  await host.forget("/p#1");
 });

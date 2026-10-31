@@ -15,9 +15,9 @@ const OUTPUT_LIMIT = 4 * 1024 * 1024;
 // Apps an agent never drives: Milagre itself, shells that run anything, the OS's own settings and password stores.
 const BLOCKED_APPS = ["Milagre", "Terminal", "iTerm2", "Ghostty", "Warp", "System Settings", "System Preferences", "Passwords", "Keychain Access", "1Password"];
 const REF = /^@(s[a-z0-9]+):e\d+$/i;
-// Milagre's agent cursor (design cu-cursor, option A): blue arrow, white rim, blue glow; the click point is its tip.
-const CURSOR_IMAGE = path.join(__dirname, "assets", "agent-cursor.png").replace(/([\\/])app\.asar([\\/])/, "$1app.asar.unpacked$2");
-const CURSOR_STYLE = ["--image", CURSOR_IMAGE, "--hotspot", "10,6", "--size", "0.5", "--accent", "#2F6BFF"];
+// The agent cursor gets a moment to travel to the element before the action lands, so the user sees what it acts on.
+const CURSOR_DWELL_MS = 350;
+const CURSOR_HIDE_MS = 4000;
 const ACTIONS = ["click", "type", "set-value", "clear", "select", "toggle", "check", "uncheck", "expand", "collapse", "focus", "scroll", "scroll-to"];
 
 const normalizeName = (name) =>
@@ -37,14 +37,13 @@ function agentDesktopBinary({ platform = process.platform, arch = process.arch }
 
 /** The switch in Settings › Experimental, kept by the host. */
 function createComputerUseSettings({ file, emit = () => {} }) {
-  // `cursor`: draw Milagre's agent cursor and the step beside it on the screen while an agent acts. Off by default:
-  // agent-desktop 1.0.2 reports the overlay rendered but draws nothing on macOS 27 (QA 2026-10-31).
+  // `cursor`: draw Milagre's agent cursor and the step beside it on the screen while an agent acts (on by default).
   function read() {
     try {
       const stored = JSON.parse(fs.readFileSync(file, "utf8"));
-      return { enabled: stored?.enabled === true, cursor: stored?.cursor === true };
+      return { enabled: stored?.enabled === true, cursor: stored?.cursor !== false };
     } catch {
-      return { enabled: false, cursor: false };
+      return { enabled: false, cursor: true };
     }
   }
   function save(patch) {
@@ -143,6 +142,8 @@ function createComputerUse({
   settings,
   approve,
   onAction = () => {},
+  emit = () => {},
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   cli = agentDesktopBinary(),
   run = runCli,
   platform = process.platform,
@@ -155,12 +156,11 @@ function createComputerUse({
   const asking = new Map();
   const chat = (chatId) => {
     let state = chats.get(chatId);
-    if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map(), cursor: null, session: null }));
+    if (!state) chats.set(chatId, (state = { apps: new Set(), snapshots: new Map(), cursorTimer: null, session: null }));
     return state;
   };
-  // Each Chat works in an agent-desktop session of its own: its refs, and the agent cursor (which needs a session that
-  // `session start` made). Sessions are opened once per Chat while the host runs, without tracing (it records the screen).
-  // A failed start falls back to a plain namespace, which keeps refs apart but draws no cursor.
+  // Each Chat works in an agent-desktop session of its own, for its refs. Sessions are opened once per Chat while the
+  // host runs, without tracing (it records the screen). A failed start falls back to a plain namespace.
   const session = (chatId) => {
     const state = chat(chatId);
     state.session ??= exec(["session", "start", "--no-trace", "--name", "Milagre"], { timeoutMs: 15_000 }).then((envelope) =>
@@ -229,25 +229,29 @@ function createComputerUse({
   }
 
   /**
-   * Before an action: Milagre's agent cursor on the screen, with the step beside it. Re-enabled only when the step
-   * changes; a failure never stops the action, it only costs the user the cursor.
+   * Before an action: where it lands, for Milagre's agent cursor on the screen (the desktop app draws it, design
+   * cu-cursor). `ref` puts the cursor on its element; without one the cursor stays and only the step changes. A failure
+   * never stops the action, it only costs the user the cursor.
    */
-  async function showStep(chatId, intent) {
+  async function showStep(chatId, app, intent, ref) {
     if (!settings.read().cursor) return;
     const state = chat(chatId);
     const label = typeof intent === "string" ? intent.trim().slice(0, 80) : "";
-    if (state.cursor === label) return;
-    const envelope = await exec(
-      ["cursor-overlay", "enable", ...CURSOR_STYLE, ...(label ? ["--label", label, "--max-words", "8"] : []), "--session", await session(chatId)],
-      {
-        timeoutMs: 10_000,
-      },
-    );
-    state.cursor = envelope.ok ? label : null;
+    let bounds = null;
+    if (ref) {
+      const envelope = await exec(["get", ref, "--property", "bounds", "--session", await session(chatId)], { timeoutMs: 5000 });
+      const value = envelope.ok ? envelope.data?.value : null;
+      if (value && [value.x, value.y, value.width, value.height].every(Number.isFinite)) bounds = value;
+    }
+    emit("computer-use:cursor", { chatId, app, label, bounds });
+    clearTimeout(state.cursorTimer);
+    state.cursorTimer = setTimeout(() => emit("computer-use:cursor", { chatId, hide: true }), CURSOR_HIDE_MS);
+    state.cursorTimer.unref?.();
+    if (bounds) await sleep(CURSOR_DWELL_MS);
   }
 
-  async function call(chatId, app, args, options, intent) {
-    if (intent !== undefined) await showStep(chatId, intent);
+  async function call(chatId, app, args, options, intent, ref) {
+    if (intent !== undefined) await showStep(chatId, app, intent, ref);
     const envelope = await exec([...args, "--session", await session(chatId)], options);
     if (!envelope.ok) return JSON.stringify(failure(envelope));
     const snapshotId = envelope.data?.snapshot_id;
@@ -260,7 +264,7 @@ function createComputerUse({
   async function forget(chatId) {
     const state = chats.get(chatId);
     chats.delete(chatId);
-    // Ending the session also stops its cursor.
+    clearTimeout(state?.cursorTimer);
     if (state?.session) await exec(["session", "end", "--session", await state.session], { timeoutMs: 10_000 });
   }
 
@@ -354,7 +358,7 @@ function createComputerUse({
             if (direction) args.push("--direction", direction);
             if (amount) args.push("--amount", String(amount));
           }
-          return call(chatId, name, args, undefined, step ?? "");
+          return call(chatId, name, args, undefined, step ?? "", target);
         },
       },
       {

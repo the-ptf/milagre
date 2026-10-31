@@ -130,7 +130,7 @@ export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
             {on && (
               <Row
                 label="Show the agent's cursor"
-                description="Draw Milagre's cursor and the current step on the screen while an agent acts. Your own pointer never moves. Not drawing yet on macOS 27 with agent-desktop 1.0.2."
+                description="Draw Milagre's cursor and the current step on the screen while an agent acts. Your own pointer never moves."
               >
                 <SettingCheckbox label="Show the agent's cursor" checked={status.cursor} onChange={(cursor) => void computerUse.save({ cursor })} />
               </Row>

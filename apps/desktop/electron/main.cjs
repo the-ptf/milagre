@@ -47,6 +47,8 @@ protocol.registerSchemesAsPrivileged([
 async function startDesktop() {
   /** @type {Electron.BrowserWindow | null} */
   let mainWindow = null;
+  // Computer use: the agent cursor, made on first use (agent-cursor.cjs).
+  let agentCursor = null;
   let runtime;
   let computerUnlock;
   /** @type {ReturnType<typeof createComputersLane> | null} */
@@ -430,6 +432,12 @@ async function startDesktop() {
         if (channel === "app-update:auto") updates.setAuto(payload?.autoUpdate === true);
         if (channel === "keybindings:changed" && payload?.rules) setForwardedRules(payload.rules);
         // The agent opened a page (browser_open): the window with the Chat's Browser panel opens it in a tab.
+        // Computer use: an agent acts on an app here; Milagre's agent cursor shows where (agent-cursor.cjs).
+        if (channel === "computer-use:cursor" && payload && typeof payload === "object") {
+          agentCursor ??= require("./agent-cursor.cjs").createAgentCursor({ BrowserWindow, screen });
+          if (payload.hide) agentCursor.hide();
+          else agentCursor.show({ bounds: payload.bounds ?? null, label: typeof payload.label === "string" ? payload.label : "" });
+        }
         if (channel === "browser-panel:open" && typeof payload?.chatId === "string" && typeof payload?.url === "string" && /^https?:\/\//i.test(payload.url))
           mainWindow?.webContents.send("browser-panel:open-url", { chatKey: payload.chatId, url: payload.url });
         if (channel === "devices:pending" && Notification.isSupported()) notifier.notifyComputerWaiting(payload?.requests);

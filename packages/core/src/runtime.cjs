@@ -230,6 +230,8 @@ function createRuntime(options) {
       dataDir,
       settings: computerUseSettings,
       approve: (chatId, request) => agents.askApproval(chatId, request),
+      // The desktop app on this computer draws the agent cursor (apps/desktop/electron/agent-cursor.cjs).
+      emit,
       onAction: ({ chatId, app, data }) => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }),
     });
   // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
