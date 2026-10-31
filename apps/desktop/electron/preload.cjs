@@ -515,6 +515,15 @@ const local = makeBridge(
 
 /** @type {Map<string, import("../app/src/electron.d.ts").MilagreBridge>} */
 const remotes = new Map();
+// A message for a paired computer's Chat was typed on this one: that Chat's agent is told (packages/core/src/sent-from.cjs).
+const SENDS = new Set(["chat:send", "link:send"]);
+/**
+ * @param {string} channel
+ * @param {unknown[]} args
+ * @returns {unknown[]}
+ */
+const sentFromHere = (channel, args) =>
+  SENDS.has(channel) && args[0] && typeof args[0] === "object" ? [{ ...args[0], sentFrom: "computer" }, ...args.slice(1)] : args;
 /**
  * A paired computer's bridge (spec "Routing"): the same calls, carried by main to that computer (computers-ipc.cjs), and
  * its events, tagged with it. This Mac's own actions refuse with NOT_REMOTE.
@@ -526,7 +535,8 @@ function remote(computerId) {
   let bridge = remotes.get(id);
   if (!bridge) {
     bridge = makeBridge(
-      (channel, ...args) => (isLocalOnly(channel) ? Promise.reject(new Error(NOT_REMOTE)) : ipcRenderer.invoke("computers:invoke", id, channel, args)),
+      (channel, ...args) =>
+        isLocalOnly(channel) ? Promise.reject(new Error(NOT_REMOTE)) : ipcRenderer.invoke("computers:invoke", id, channel, sentFromHere(channel, args)),
       (channel, callback) => listenComputer(id, channel, callback),
       () => {},
     );

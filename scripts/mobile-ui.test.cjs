@@ -293,6 +293,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       if (id === "@hugeicons/core-free-icons" && !(id in modules)) return new Proxy({}, { get: (_target, name) => String(name) });
       if (base === "icons" && !(id in modules)) return { Icon: "Icon", SpinnerRing: "SpinnerRing" };
       if (base === "dictation-notice" && !(id in modules)) return { DictationNotice: "DictationNotice" };
+      // Where this device's messages say they came from (sent-from.ts): a phone in a test.
+      if (base === "sent-from" && !(id in modules)) return { SENT_FROM: "phone" };
       // The archived count in Settings comes from the computers the sidebar has read; none are read in a test.
       // New Chat's Project choices come from the same store: none unless a test says so.
       if (base === "all-computers" && !(id in modules))
