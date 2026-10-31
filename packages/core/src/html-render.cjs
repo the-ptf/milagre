@@ -40,7 +40,7 @@ function htmlRenderToolDefinitions(chatId, artifacts, { preview = previewHtml } 
       description: `Show a finished HTML page, chart or interactive explainer directly in this Chat above your reply. Call html_preview to check it first. Each call saves a separate immutable page in the conversation; it does not replace the live Artifact page. It renders directly in the conversation on desktop and phone, without a card, title bar or toolbar. ${GUIDE} Use design_show for editable UI designs and artifact_show for a live report to revise in place.`,
       input: {
         html: htmlInput,
-        title: z.string().min(1).max(120),
+        title: z.string().min(1).max(120).describe("Non-empty internal label for this saved reply; it is not displayed as a heading or frame."),
         height: z
           .number()
           .int()
