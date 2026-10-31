@@ -30,11 +30,6 @@ export function useDictationModels() {
   return useSyncExternalStore(subscribe, () => states);
 }
 
-/** The latest state of one model, outside React. */
-export function dictationModelState(id: string): DictationModelState | undefined {
-  return states[id];
-}
-
 export const dictationModels = {
   download: (id: string) => window.milagre.dictation.download(id),
   cancel: (id: string) => window.milagre.dictation.cancel(id),
