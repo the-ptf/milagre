@@ -23,10 +23,20 @@ HTMLMediaElement.prototype.play = function () { window.played.push(this.src.spli
 window.savedShare = { id: "orphan", url: "https://share.milagre.cloud/s/orphan", title: "Deleted Chat page", createdAt: 1780000000000, designCount: 2 };
 window.shareCalls = [];
 window.botsSaves = [];
+window.deviceNotes = { enabled: false };
+window.deviceNotesSaves = [];
 // Babysit PRs as the host keeps it: saves merge shallowly, like babysit-settings.cjs.
 window.babysit = { enabled: false, intervalMinutes: 1, wake: ["comments", "checks", "conflicts"], level: 3, resolveThreads: true, stopWhenGreen: true, stopAfterDays: { on: true, days: 7 }, stopAfterFailures: { on: false, times: 3 }, ownRule: false, ownRuleText: "", instructions: "" };
 window.babysitSaves = [];
 window.milagre = {
+  readDeviceNotesEnabled: async () => window.deviceNotes,
+  saveDeviceNotesEnabled: async (enabled) => {
+    window.deviceNotesSaves.push(enabled);
+    if (window.holdDeviceNotesSave) await new Promise(resolve => { window.finishDeviceNotesSave = resolve; });
+    if (window.failDeviceNotesSave) { window.failDeviceNotesSave = false; throw new Error("Device notes save failed"); }
+    return (window.deviceNotes = { enabled });
+  },
+  onDeviceNotesEnabledChanged: (listener) => { window.deviceNotesListener = listener; return () => { window.deviceNotesListener = null; }; },
   readBabysitSettings: async () => window.babysit,
   saveBabysitSettings: async (patch) => {
     // The test sets failBabysitSave to make the next save fail, as when the daemon is down.
@@ -266,9 +276,37 @@ async function browserChecks() {
     await delay(300);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Floating inbox", "Ultracode Fatality"],
-      "Experimental lists only Delegate to other computers, Floating inbox, Ultracode Fatality and Bots",
+      ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
+      "Experimental retains Device notes alongside the other settings",
     );
+    const deviceNotes = `document.querySelector('main [role="checkbox"][aria-label="Device notes"]')`;
+    assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "false", "device notes default off");
+    assert.ok(
+      await evaluate(
+        `document.querySelector('[data-slot="device-notes-setting"]').textContent.includes("Adds about 100 tokens to every message you send from another device.")`,
+      ),
+    );
+    await evaluate(`window.holdDeviceNotesSave = true; ${deviceNotes}.click()`);
+    await waitFor(`${deviceNotes}.disabled && typeof window.finishDeviceNotesSave === "function"`);
+    await evaluate(`${deviceNotes}.click()`);
+    assert.deepEqual(await evaluate(`window.deviceNotesSaves`), [true], "pending saves cannot be repeated");
+    await evaluate(`window.holdDeviceNotesSave = false; window.finishDeviceNotesSave()`);
+    await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "true" && !${deviceNotes}.disabled`);
+    await evaluate(`window.failDeviceNotesSave = true; ${deviceNotes}.click()`);
+    await waitFor(`document.querySelector('[data-slot="device-notes-setting"] [role="alert"]')?.textContent === "Device notes save failed"`);
+    assert.equal(await evaluate(`${deviceNotes}.getAttribute("aria-checked")`), "true", "failed save retains the daemon's value");
+    await evaluate(`${deviceNotes}.click()`);
+    await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "false" && !${deviceNotes}.disabled`);
+    await evaluate(`window.deviceNotesListener({ enabled: true })`);
+    await waitFor(`${deviceNotes}.getAttribute("aria-checked") === "true"`);
+    await openSection("Appearance");
+    await evaluate(`window.deviceNotesRead = window.milagre.readDeviceNotesEnabled; delete window.milagre.readDeviceNotesEnabled`);
+    await openSection("Experimental");
+    assert.equal(await evaluate(`!!${deviceNotes}`), false, "a bridge without device notes hides the setting");
+    await openSection("Appearance");
+    await evaluate(`window.milagre.readDeviceNotesEnabled = window.deviceNotesRead; void 0`);
+    await openSection("Experimental");
+    await waitFor(`${deviceNotes}?.getAttribute("aria-checked") === "false"`);
     assert.equal(
       await evaluate(
         `/legacy sidebar|Notification chime|Custom theme|usage limits|Linear|Published pages/i.test(document.querySelector("main").textContent) || /Other computers|Designs/.test(document.querySelector("main").textContent)`,
@@ -387,7 +425,7 @@ async function browserChecks() {
     await waitFor(`document.querySelector('main h1')?.textContent.trim() === "Experimental"`);
     assert.deepEqual(
       [...(await switches())].sort(),
-      ["Bots", "Delegate to other computers", "Floating inbox", "Ultracode Fatality"],
+      ["Bots", "Delegate to other computers", "Device notes", "Floating inbox", "Ultracode Fatality"],
       "Back returns to Experimental",
     );
     // Designs are always on now: Settings › Milagre has no switch, only Published pages, above the Milagre MCP.

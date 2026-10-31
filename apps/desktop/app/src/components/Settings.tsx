@@ -91,7 +91,7 @@ import { DONE_RETENTION_OPTIONS, retentionLabel } from "@milagre/shared/done";
 import { ComputerResourceList, type ResourceComputer } from "./settings/ComputerResources";
 import { BabysitPrsRow, BabysitPrsSettings } from "./settings/BabysitPrsSettings";
 import { SimlockSettings } from "./settings/SimlockSettings";
-import { ComputerUseSettings } from "./settings/ComputerUseSettings";
+import { ComputerUseRow, ComputerUseSettings } from "./settings/ComputerUseSettings";
 import { ModeControl, ThemePicker } from "./settings/ThemePicker";
 import { CustomThemeEditor } from "./settings/CustomThemeEditor";
 import { AppearanceWindowPreview, type PreviewArea } from "./settings/AppearanceWindowPreview";
@@ -746,8 +746,9 @@ function BrowserSettings() {
 function ExperimentalSettings({ title }: { title?: string }) {
   const settings = useSettings();
   // Babysit PRs opens as a page of its own inside Experimental, with its own title row and a way back.
-  const [page, setPage] = useState<"experimental" | "babysit-prs">("experimental");
+  const [page, setPage] = useState<"experimental" | "babysit-prs" | "computer-use">("experimental");
   if (page === "babysit-prs") return <BabysitPrsSettings onBack={() => setPage("experimental")} />;
+  if (page === "computer-use") return <ComputerUseSettings onBack={() => setPage("experimental")} />;
   return (
     <>
       <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
@@ -786,7 +787,7 @@ function ExperimentalSettings({ title }: { title?: string }) {
         <RemoteDelegationSettings />
         <DeviceNotesSettings />
         <SimlockSettings />
-        <ComputerUseSettings />
+        <ComputerUseRow onOpen={() => setPage("computer-use")} />
         <BabysitPrsRow onOpen={() => setPage("babysit-prs")} />
       </Group>
     </>

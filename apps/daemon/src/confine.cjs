@@ -64,6 +64,7 @@ const PATHS = Object.freeze({
   "computer-use:settings:save": denied,
   "computer-use:status": denied,
   "computer-use:guide": denied,
+  "computer-use:frame": denied,
   // Simlock leases run on the owner's machines with the owner's token. A demo Project never reaches them.
   "simlock:settings:read": denySimulator,
   "simlock:settings:save": denySimulator,

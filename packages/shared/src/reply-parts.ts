@@ -1,3 +1,4 @@
+import { isDesktopStep } from "./desktop-steps.ts";
 import type { ChatStep } from "./model.ts";
 
 export type ReplyPart = { type: "text"; text: string } | { type: "steps"; steps: ChatStep[] };
@@ -40,12 +41,21 @@ export type ActivityEntry = { type: "text"; text: string } | { type: "step"; ste
  * The worktree's setup is neither: it comes back apart, to show as a row of its own before both.
  * Generated images come back apart too, to show between the activity and the answer, and so do the designs the agent
  * showed, once each at the newest version this reply made (an artifact step still running, or one that failed, stays in
- * the activity as a row). So do the Heartbeats it set, each as a card.
+ * the activity as a row). So do the Heartbeats it set, each as a card, and its computer use steps (`desktop`), which
+ * show as one card with the app's live screen.
  */
 export function replyActivity(
   body: string,
   allSteps: ChatStep[] = [],
-): { setup: ChatStep[]; activity: ActivityEntry[]; images: ChatStep[]; artifacts: ArtifactStep[]; heartbeats: HeartbeatStep[]; answer: string } {
+): {
+  setup: ChatStep[];
+  activity: ActivityEntry[];
+  images: ChatStep[];
+  artifacts: ArtifactStep[];
+  heartbeats: HeartbeatStep[];
+  desktop: ChatStep[];
+  answer: string;
+} {
   const setup = allSteps.filter((step) => step.kind === "setup");
   const images = allSteps.filter((step) => step.kind === "image");
   // One entry per design, at its newest version in this reply, where it was first shown.
@@ -56,9 +66,10 @@ export function replyActivity(
     else if (artifacts[at]!.artifact.version < step.artifact.version) artifacts[at] = step;
   }
   const heartbeats = allSteps.filter(isHeartbeatCard);
+  const desktop = allSteps.filter(isDesktopStep);
   const parts = replyParts(
     body,
-    allSteps.filter((step) => step.kind !== "setup" && step.kind !== "image" && !isArtifactCard(step) && !isHeartbeatCard(step)),
+    allSteps.filter((step) => step.kind !== "setup" && step.kind !== "image" && !isArtifactCard(step) && !isHeartbeatCard(step) && !isDesktopStep(step)),
   );
   const answerIndex = parts.map((part) => part.type).lastIndexOf("text");
   const activity = parts.flatMap((part, index): ActivityEntry[] => {
@@ -66,7 +77,7 @@ export function replyActivity(
     return part.type === "text" ? [part] : part.steps.map((step) => ({ type: "step", step }));
   });
   const answer = answerIndex === -1 ? "" : (parts[answerIndex] as { text: string }).text;
-  return { setup, activity, images, artifacts, heartbeats, answer };
+  return { setup, activity, images, artifacts, heartbeats, desktop, answer };
 }
 
 /**

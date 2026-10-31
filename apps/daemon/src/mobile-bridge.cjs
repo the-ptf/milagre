@@ -102,6 +102,7 @@ const METHODS = new Set([
   "device-notes:save",
   "computer-use:status",
   "computer-use:guide",
+  "computer-use:frame",
   "simlock:settings:read",
   "simlock:settings:save",
   "simlock:identity",
