@@ -7985,6 +7985,7 @@ function simulatorHost(client, file = "simulator.tsx", { modules = {}, native: n
       "expo-clipboard": { setStringAsync: async () => {} },
       "@hugeicons/core-free-icons": {},
       "@milagre/shared/simulator-receiver": require("../packages/shared/src/simulator-receiver.mjs"),
+      "@milagre/shared/simulator": { SIMLOCK_DEVICE_PREFIX: "simlock:" },
       "./session": { useSession: () => ({ client }) },
       "./icons": { Icon: "Icon" },
       "./status-pill": { StatusPill: "StatusPill" },
@@ -10017,6 +10018,50 @@ test("mobile simulator pill disappears after the last attachment is removed", as
   assert.equal(render(), null);
 });
 
+test("mobile picker leases a model from the Simlock pool and returns it from the list", async () => {
+  const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
+  const leased = { id: "simlock:l1", name: "iPhone 17 (Simlock)", platform: "ios", version: "27.0" };
+  let attached = [a];
+  const calls = [];
+  const h = simulatorHost({
+    url: "mac",
+    call: async (method, args) => {
+      calls.push([method, args]);
+      if (method === "simlock:settings:read") return { enabled: true };
+      if (method === "simlock:models") return { models: [{ platform: "ios", model: "iPhone 17", version: "27.0", kind: "phone" }], leases: [] };
+      if (method === "simlock:lease") {
+        attached = [...attached, leased];
+        return { deviceId: leased.id, leaseId: "l1", platform: "ios", name: "iPhone 17", version: "27.0", chatId: "/p#7" };
+      }
+      if (method === "simulator:detach") attached = attached.filter((d) => d.id !== args[0].deviceId);
+      return { chatId: "/p#7", supported: true, devices: attached, attached, available: [] };
+    },
+  });
+  const render = () => h.render("SimulatorSheet", { hostId: "mac", chatId: "/p#7" });
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "My iPhone, choose simulator").props.onPress();
+  find(render(), (n) => n.props.title === "Attach simulator").props.onPress();
+  render();
+  await settle();
+  find(render(), (n) => n.props.accessibilityLabel === "Lease iPhone 17").props.onPress();
+  await settle();
+  // The sheet runs in the harness's own realm: compare plain values.
+  assert.equal(
+    JSON.stringify(calls.find(([method]) => method === "simlock:lease")[1]),
+    JSON.stringify([{ chatId: "/p#7", platform: "ios", model: "iPhone 17" }]),
+  );
+  assert.ok(
+    find(render(), (n) => n.props.deviceId === "simlock:l1"),
+    "the leased device opens",
+  );
+  find(render(), (n) => n.props.accessibilityLabel === "iPhone 17 (Simlock), choose simulator").props.onPress();
+  find(render(), (n) => n.props.label === "Return iPhone 17 (Simlock) to the Simlock pool").props.onPress();
+  await settle();
+  assert.equal(JSON.stringify(calls.at(-1)), JSON.stringify(["simulator:detach", [{ chatId: "/p#7", deviceId: "simlock:l1" }]]));
+  h.cleanup();
+});
+
 test("mobile picker exposes other devices only in Attach and detach updates this Chat", async () => {
   const a = { id: "a", name: "My iPhone", platform: "ios", version: "27" };
   const b = { id: "b", name: "Other device", platform: "android", version: "16" };
@@ -10055,7 +10100,12 @@ test("mobile picker exposes other devices only in Attach and detach updates this
     find(render(), (n) => n.props.label === "Detach Other device from Chat"),
     undefined,
   );
-  for (const [, args] of calls) assert.equal(args[0].chatId, "/p#7");
+  // Simulator calls are this Chat's; the attach list also reads the Mac's Simlock pool, which isn't per Chat.
+  for (const [method, args] of calls) if (method.startsWith("simulator:")) assert.equal(args[0].chatId, "/p#7");
+  assert.ok(
+    calls.some(([method]) => method === "simlock:settings:read"),
+    "Attach looks for a Simlock pool",
+  );
   h.cleanup();
 });
 
