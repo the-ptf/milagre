@@ -31,7 +31,8 @@ const { revealFolder } = require("./reveal.cjs");
 const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-background.cjs");
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
-const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests } = require("./browser-guests.cjs");
+const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession } = require("./browser-guests.cjs");
+const { createRemoteBrowserSessions } = require("./browser-remote-sessions.cjs");
 const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
@@ -213,6 +214,16 @@ async function startDesktop() {
     publish: (request) => (runtime ? runtime.invoke("browser:panel-pages", [request]) : Promise.reject(new Error("No host"))),
   });
   ipcMain.handle("browser-panel:pages", (event, list) => panelPages.setPages(event.sender, list));
+  // A Chat on another computer: its pages draw here and reach the web from that computer (#832).
+  const remoteBrowserSessions = createRemoteBrowserSessions({
+    fromPartition: (partition) => electronSession.fromPartition(partition),
+    proxyPort: async (computerId) => {
+      if (!runtime) throw new Error("Milagre's host isn't connected yet.");
+      return (await runtime.invoke("computers:browser-proxy", [computerId]))?.port;
+    },
+    harden: hardenBrowserSession,
+  });
+  ipcMain.handle("browser-panel:remote-partition", (_event, chatKey) => remoteBrowserSessions.prepare(chatKey));
   // The keys caught from every frame follow this Mac's keybindings.json; an older host has none, so the defaults stay.
   const readKeybindings = () =>
     void runtime
@@ -409,6 +420,7 @@ async function startDesktop() {
             readAutoUpdate();
             readKeybindings();
             panelPages.republish();
+            void remoteBrowserSessions.refresh();
             void computerUnlock?.prepare().catch((error) => console.warn("Computer credentials:", error.message));
             void deviceNotices.connected();
           }
@@ -584,6 +596,7 @@ async function startDesktop() {
     hardenBrowserGuests(window.webContents, {
       session: electronSession.fromPartition(BROWSER_PARTITION),
       openExternal: (url) => shell.openExternal(url).catch(() => {}),
+      remoteReady: remoteBrowserSessions.isReady,
     });
     forwardAppShortcuts(window.webContents, process.platform, electronIpcMain, () => void confirmQuit(window));
     // A reload keeps every turn running: the main process saves them, and the renderer takes the

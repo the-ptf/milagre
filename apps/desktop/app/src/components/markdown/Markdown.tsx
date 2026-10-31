@@ -181,7 +181,8 @@ function Link({ href, children }: { href?: string; children?: ReactNode }) {
         onClick={(event) => {
           if (!reachable || !/^https?:\/\//i.test(reachable) || event.shiftKey || !opensInPanel(event)) return;
           event.preventDefault();
-          if (!openInBrowserPanel(reachable)) window.open(reachable, "_blank", "noreferrer");
+          // The panel of a Chat on another computer reaches the web from there (#832): it takes the link as written.
+          if (!openInBrowserPanel(isRemoteKey(scope) && href ? href : reachable)) window.open(reachable, "_blank", "noreferrer");
         }}
         className={LINK_CLASS}
       >

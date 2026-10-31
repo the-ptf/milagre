@@ -79,23 +79,31 @@ const SWIPE_SCRIPT = `(() => {
   }, { passive: true });
 })()`;
 
+/** What a page's session may grant: the same few permissions for the shared session and each remote Chat's. */
+function hardenBrowserSession(session) {
+  session.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
+  session.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+}
+
 /**
  * Locks down the window's <webview> guests and wires each page to the window's renderer: a new window becomes a tab
  * ("browser-panel:open-tab"), and the app's shortcuts, ⌘L and ⌘R pressed in a page reach the renderer as if pressed
  * there ("app:shortcut", "browser-panel:key").
+ * A page of a Chat on another computer attaches in that Chat's own session, once `remoteReady` says its proxy is set
+ * (browser-remote-sessions.cjs); every other page in the shared one.
  * @param {Electron.WebContents} host The main window's webContents.
- * @param {{ session: Electron.Session; openExternal: (url: string) => void; platform?: NodeJS.Platform }} options
+ * @param {{ session: Electron.Session; openExternal: (url: string) => void; platform?: NodeJS.Platform; remoteReady?: (partition: string | undefined) => boolean }} options
  */
-function hardenBrowserGuests(host, { session, openExternal, platform = process.platform }) {
-  session.setPermissionRequestHandler((_contents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)));
-  session.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+function hardenBrowserGuests(host, { session, openExternal, platform = process.platform, remoteReady = () => false }) {
+  hardenBrowserSession(session);
   host.on("will-attach-webview", (event, webPreferences, params) => {
-    if (params.partition !== BROWSER_PARTITION || !isPageUrl(params.src)) {
+    const partition = params.partition === BROWSER_PARTITION || remoteReady(params.partition) ? params.partition : null;
+    if (!partition || !isPageUrl(params.src)) {
       event.preventDefault();
       return;
     }
     // The renderer's webpreferences attribute lands here too: the session is set again, so it can't name another.
-    webPreferences.partition = BROWSER_PARTITION;
+    webPreferences.partition = partition;
     delete webPreferences.preload;
     webPreferences.nodeIntegration = false;
     webPreferences.nodeIntegrationInSubFrames = false;
@@ -175,4 +183,4 @@ async function captureBrowserPage(host, contentsId, rect) {
   return (image.getSize().width > 800 ? image.resize({ width: 800 }) : image).toDataURL();
 }
 
-module.exports = { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, isPageUrl, swipeTracker };
+module.exports = { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession, isPageUrl, swipeTracker };

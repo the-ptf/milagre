@@ -185,3 +185,16 @@ test("each page document gets the swipe script in a world of its own", () => {
   assert.notEqual(runs[0][0], 0);
   assert.match(runs[0][1], /history\.back\(\)/);
 });
+
+test("a remote Chat's page attaches in its own session only once that session goes through its computer", () => {
+  const host = fakeContents(1);
+  const routed = new Set(["persist:milagre-browser-chat-0123456789abcdef01234567"]);
+  hardenBrowserGuests(host, { session: fakeSession(), openExternal: () => {}, platform: "darwin", remoteReady: (partition) => routed.has(partition) });
+  const own = attach(host, { partition: "persist:milagre-browser-chat-0123456789abcdef01234567" });
+  assert.equal(own.prevented, false);
+  assert.equal(own.webPreferences.partition, "persist:milagre-browser-chat-0123456789abcdef01234567");
+  assert.equal(own.webPreferences.sandbox, true);
+  // Not routed yet: it would reach this Mac's network instead of its computer's.
+  assert.equal(attach(host, { partition: "persist:milagre-browser-chat-ffffffffffffffffffffffff" }).prevented, true);
+  assert.equal(attach(host, {}).prevented, false, "the shared session still attaches");
+});

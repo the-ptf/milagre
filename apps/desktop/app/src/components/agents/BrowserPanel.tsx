@@ -89,7 +89,7 @@ export function BrowserPanel({
   onSendComments?: SendPageComments;
 }) {
   const chat = useChatBrowser(chatKey);
-  const streamed = useChatBrowserTargets(viewerChatId, chat.open);
+  const listed = useChatBrowserTargets(viewerChatId, chat.open);
   // The streamed page picked, over the page of its own then on show: another of its own coming on show (picked, opened
   // from a link or a new tab) takes over.
   const [picked, setPicked] = useState<{ target: string; over: string | null } | null>(null);
@@ -97,6 +97,12 @@ export function BrowserPanel({
   const setViewing = useCallback((target: string | null) => setPicked(target ? { target, over: chatBrowser(chatKey).active } : null), [chatKey]);
   // What each streamed page reported last: its title and address follow the page as it navigates.
   const [pages, setPages] = useState<Record<string, { title: string; url: string }>>({});
+  // A remote Chat's own tab at an address is that page drawn here (#832): the copy streamed from its computer's panel goes.
+  const ownPages = new Set(chat.tabs.map((tab) => samePage(tab.url)));
+  const streamed: ChatBrowserTargets = {
+    ...listed,
+    targets: listed.targets.filter((target) => target.source !== "panel" || !ownPages.has(samePage(pages[target.id]?.url || target.url))),
+  };
   const own = chat.tabs.find((tab) => tab.id === chat.active) ?? null;
   // The streamed page on show: the one picked, or the first while the panel has no page of its own.
   const viewer = streamed.targets.find((target) => target.id === viewing) ?? (own ? null : (streamed.targets[0] ?? null));
@@ -474,6 +480,9 @@ function TabIcon({ tab }: { tab: BrowserTab }) {
   if (tab.favicon && !broken) return <img src={tab.favicon} alt="" className="size-3.5 shrink-0 rounded-inline" onError={() => setBroken(true)} />;
   return <HugeiconsIcon icon={Globe02Icon} size={14} className="shrink-0 text-ink-3" aria-hidden />;
 }
+
+/** An address as a page: its fragment and a trailing slash don't make another one. */
+const samePage = (url: string) => url.replace(/#.*$/, "").replace(/\/$/, "");
 
 const hostLabel = (url: string) => {
   try {

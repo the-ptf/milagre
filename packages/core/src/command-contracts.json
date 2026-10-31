@@ -3773,6 +3773,17 @@
           }
         }
       ]
+    },
+    "browser-panel:remote-partition": {
+      "parameters": [
+        {
+          "name": "chatKey",
+          "optional": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
     }
   },
   "native": [
@@ -3786,6 +3797,7 @@
     "artifact-preview:release",
     "browser-panel:capture",
     "browser-panel:pages",
+    "browser-panel:remote-partition",
     "editor:list",
     "editor:open",
     "floating-inbox:close",

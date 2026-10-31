@@ -703,6 +703,14 @@ function createComputers({
       if (!entry?.runtime || entry.state !== "online") throw new Error(`${store.get(id)?.name ?? "That computer"} is offline.`);
       return entry.runtime.invoke(method, args);
     },
+    /** A TCP stream from computer `id` to `target:port` as it sees them, for its Chats' Browser pages (browser-proxy.cjs). */
+    async openStream(id, target, port) {
+      const entry = entries.get(id);
+      if (entry && (entry.state === "connecting" || entry.state === "reconnecting")) await whenOnline(entry, reconnectWaitMs);
+      if (!entry?.runtime || entry.state !== "online")
+        throw Object.assign(new Error(`${store.get(id)?.name ?? "That computer"} is offline.`), { code: "offline" });
+      return entry.runtime.openStream(target, port);
+    },
     /** The window gained or lost focus: every connected computer's daemon is told, and a later connection is too. */
     setFocused(value) {
       focused = value === true;

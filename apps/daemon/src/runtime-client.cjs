@@ -380,6 +380,14 @@ async function connectDesktopRuntime(options) {
     hostMethods: () => [...hostMethods],
     environmentReady: Promise.resolve(),
     invoke,
+    /** A TCP stream from a paired computer to `target:port` as it sees them (peer-streams.cjs); its own host has none. */
+    async openStream(target, port) {
+      if (closed || !client || recovering) throw new Error("Milagre host is disconnected.");
+      // A paired computer's client (peer-client.cjs) has openStream; this Mac's socket client doesn't.
+      const peer = /** @type {any} */ (client);
+      if (typeof peer.openStream !== "function") throw new Error("This host doesn't carry streams.");
+      return peer.openStream(target, port);
+    },
     openProject: (projectPath) => invoke("project:open", [projectPath, { takeNotice: true }]),
     resumeRecentProjects: async () => {}, // The daemon resumes once, before it announces startup.
     focused: () => invoke("daemon:focus", [{ focused: true }]),
