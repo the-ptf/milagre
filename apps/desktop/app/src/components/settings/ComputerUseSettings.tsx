@@ -76,10 +76,10 @@ export function ComputerUseRow({ onOpen }: { onOpen: () => void }) {
       className="flex min-h-12 w-full items-center justify-between gap-6 px-4 py-2 text-left transition-colors hover:bg-hover"
     >
       <span className="grid min-w-0 gap-0.5">
-        <span className="text-[13.5px] font-medium text-ink">Computer use</span>
-        <span className="text-[12px] text-ink-3">Agents see and operate apps on this computer, asking before each new app.</span>
+        <span className="text-13 font-medium text-ink">Computer use</span>
+        <span className="text-12 text-ink-3">Agents see and operate apps on this computer, asking before each new app.</span>
       </span>
-      <span className="flex shrink-0 items-center gap-1 text-[13px] text-ink-2">
+      <span className="flex shrink-0 items-center gap-1 text-13 text-ink-2">
         {computerUse.status.enabled ? "On" : "Off"}
         <span className="text-ink-3">
           <Icon icon={ArrowRight01Icon} />
@@ -101,11 +101,11 @@ export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
           type="button"
           aria-label="Back to Experimental"
           onClick={onBack}
-          className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-field text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+          className="flex size-7 shrink-0 items-center justify-center rounded-control bg-field text-ink-2 transition-colors hover:bg-hover hover:text-ink"
         >
           <Icon icon={ArrowLeft01Icon} />
         </button>
-        <h1 className="flex min-w-0 items-center gap-2 text-[22px] font-semibold tracking-[-0.01em] text-ink">
+        <h1 className="flex min-w-0 items-center gap-2 text-22 font-semibold tracking-[-0.01em] text-ink">
           <span className="text-ink-3">Experimental</span>
           <span className="text-ink-3">
             <Icon icon={ArrowRight01Icon} />
@@ -144,7 +144,7 @@ export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
           )}
           {on && (
             <Group title="Never used by agents" footer={`Uses agent-desktop ${status.version} by Vercel Labs. Apps you allow stay allowed only in that Chat.`}>
-              <p className="px-4 py-3 text-[13px] text-ink-2">{status.blockedApps.join(", ")}</p>
+              <p className="px-4 py-3 text-13 text-ink-2">{status.blockedApps.join(", ")}</p>
             </Group>
           )}
           {on && (
@@ -152,7 +152,7 @@ export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
               href={AGENT_DESKTOP_URL}
               target="_blank"
               rel="noreferrer"
-              className="mt-3 inline-block px-1 text-[12px] text-ink-2 underline-offset-2 hover:underline"
+              className="mt-3 inline-block px-1 text-12 text-ink-2 underline-offset-2 hover:underline"
             >
               About agent-desktop
             </a>
@@ -160,7 +160,7 @@ export function ComputerUseSettings({ onBack }: { onBack: () => void }) {
         </>
       )}
       {computerUse?.error && (
-        <p role="alert" className="mt-3 px-1 text-[12px] text-red-ink">
+        <p role="alert" className="mt-3 px-1 text-12 text-red-ink">
           {computerUse.error}
         </p>
       )}
@@ -175,13 +175,13 @@ function Permission({ label, state, onGrant }: { label: string; state: ComputerU
       <span className={missing ? "text-orange-ink" : "text-green-ink"}>
         <Icon icon={missing ? AlertCircleIcon : CheckmarkCircle02Icon} />
       </span>
-      <span className="min-w-0 flex-1 text-[13.5px] text-ink">{label}</span>
+      <span className="min-w-0 flex-1 text-13 text-ink">{label}</span>
       {missing ? (
-        <button type="button" onClick={onGrant} className="rounded-control bg-field px-3 py-1 text-[12px] font-medium text-ink hover:bg-hover">
+        <button type="button" onClick={onGrant} className="rounded-control bg-field px-3 py-1 text-12 font-medium text-ink hover:bg-hover">
           Grant
         </button>
       ) : (
-        <span className="text-[12px] text-ink-3">Granted</span>
+        <span className="text-12 text-ink-3">Granted</span>
       )}
     </div>
   );
