@@ -215,11 +215,13 @@ function createRuntime(options) {
   // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
   const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
   const simlockSettings = createSimlockSettings({ file: path.join(dataDir, "simlock.json"), emit });
-  const simlock = createSimlockHost({
-    settings: simlockSettings,
-    directory: path.join(dataDir, "simlock"),
-    log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
-  });
+  const simlock =
+    options.simlock ??
+    createSimlockHost({
+      settings: simlockSettings,
+      directory: path.join(dataDir, "simlock"),
+      log: (message, fields) => console.warn(`Simlock: ${message}`, fields),
+    });
   const simulators = createChatSimulators({
     simulators:
       options.simulators ??
@@ -326,12 +328,12 @@ function createRuntime(options) {
   async function leaseSimlock(request) {
     const chatId = request?.chatId;
     await existingChat("leasing a Simlock device")(chatId);
-    const leased = await simlock.lease({
-      platform: request?.platform,
-      model: request?.model || undefined,
-      chatId,
-      installDirectory: projectOfKey(chatId),
-    });
+    // Installs come from the Chat's own Worktree (a shared Chat's workspace), the folder its agent works in.
+    const roots = await chatWorktrees(chatId);
+    const session = (await scopeStates.get(projectOfKey(chatId))).sessions[sessionIdFromKey(chatId)];
+    const installDirectory = isLinkScopeKey(projectOfKey(chatId)) ? (session?.workspacePath ?? roots[0]?.path) : roots[0]?.path;
+    if (!installDirectory) throw new Error("This Chat has no Worktree yet. Send it a message first, then lease a device.");
+    const leased = await simlock.lease({ platform: request?.platform, model: request?.model || undefined, chatId, installDirectory });
     try {
       await simulators.attach({ chatId, deviceId: leased.deviceId });
     } catch (error) {
