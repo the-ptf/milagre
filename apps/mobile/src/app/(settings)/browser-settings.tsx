@@ -3,7 +3,8 @@ import { Text, View } from "react-native";
 import { Stack } from "expo-router";
 import { useInternalBrowser } from "../../browser-setting";
 import { BrowserSignInsSection } from "../../browser-sign-ins-section";
-import { ErrorNotice, PageScroll, Toggle, useStyles } from "../../ui";
+import { ErrorNotice, Toggle, useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 
 export default function BrowserSettingsScreen() {
   const styles = useStyles();
@@ -12,7 +13,7 @@ export default function BrowserSettingsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Browser" }} />
-      <PageScroll>
+      <SettingsScroll>
         <Text style={[styles.section, { marginTop: 12 }]}>Browser on this device</Text>
         <View style={[styles.card, { gap: 4 }]}>
           <Toggle
@@ -27,7 +28,7 @@ export default function BrowserSettingsScreen() {
           {browserError ? <ErrorNotice message={browserError} /> : null}
         </View>
         <BrowserSignInsSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

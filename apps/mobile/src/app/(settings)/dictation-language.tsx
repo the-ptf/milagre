@@ -3,7 +3,8 @@ import { Platform, Text, View } from "react-native";
 import { DICTATION_LANGUAGES, whisperModelFor } from "@milagre/shared/dictation";
 import { useDictationLanguage, useDictationModel } from "../../chat-display-setting";
 import { ChoiceRow } from "../../primitives/choice-row";
-import { PageScroll, useStyles } from "../../ui";
+import { useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 
 export default function DictationLanguageScreen() {
   const styles = useStyles();
@@ -14,7 +15,7 @@ export default function DictationLanguageScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Dictation language" }} />
-      <PageScroll>
+      <SettingsScroll>
         {englishOnly ? (
           <Text style={styles.text}>{model.purpose} only understands English. Pick an any-language speech model to dictate in others.</Text>
         ) : null}
@@ -27,7 +28,7 @@ export default function DictationLanguageScreen() {
             <ChoiceRow key={item.code} title={item.name} selected={language === item.code} onPress={() => setLanguage(item.code)} />
           ))}
         </View>
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

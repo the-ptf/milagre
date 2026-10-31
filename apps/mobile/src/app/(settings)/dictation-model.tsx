@@ -6,7 +6,8 @@ import { useDictationModel } from "../../chat-display-setting";
 import { radius, type } from "../../design-tokens";
 import { Icon } from "../../icons";
 import { useTheme } from "../../theme";
-import { PageScroll, useStyles } from "../../ui";
+import { useStyles } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { DownloadRing } from "../../voice-mic-button";
 import { cancelWhisperModel, deleteWhisperModel, downloadWhisperModel, useWhisperModels, type WhisperModelState } from "../../voice-transcription-whisper";
 
@@ -120,7 +121,7 @@ export default function DictationModelScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Speech model" }} />
-      <PageScroll>
+      <SettingsScroll>
         <Text style={styles.muted}>
           {Platform.OS === "ios"
             ? "Whisper transcribes on this iPhone when Dictation language is Detect automatically. A picked language uses Apple's built-in recognizer, no download."
@@ -143,7 +144,7 @@ export default function DictationModelScreen() {
           ))}
         </View>
         <Text style={{ color: colors.ink3, fontSize: type.footnote, marginHorizontal: 16 }}>English-only models always listen for English.</Text>
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

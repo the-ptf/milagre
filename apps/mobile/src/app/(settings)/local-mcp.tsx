@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { PublishedPagesSection } from "../../published-pages-section";
 import { LocalMcpSection } from "../../local-mcp-section";
 import { useTheme } from "../../theme";
@@ -16,7 +16,7 @@ export default function MilagreScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Milagre" }} />
-      <PageScroll>
+      <SettingsScroll>
         <View style={{ gap: 28 }}>
           <View style={{ gap: 8 }}>
             {header("Designs and artifacts")}
@@ -27,7 +27,7 @@ export default function MilagreScreen() {
             <LocalMcpSection />
           </View>
         </View>
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

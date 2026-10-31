@@ -355,6 +355,10 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
         };
       // The Chat reads its open PR's detail for the Review pill; a test stubs the store with no threads unless it sets one.
       if (base === "pr-store" && !(id in modules)) return { usePrDetail: () => ({ pr: globalThis.prDetail ?? null, error: "", loading: false, refresh() {} }) };
+      // Settings search: a found row renders bare, and a Settings page's scroll is the PageScroll it wraps.
+      if (base === "settings-find" && !(id in modules)) return { Findable: ({ children }) => children, SettingsScroll: "PageScroll" };
+      if (id === "@milagre/shared/settings-search" && !(id in modules)) return require("../packages/shared/src/settings-search.ts");
+      if (base === "settings-index" && !(id in modules)) return require("../apps/mobile/src/settings-index.ts");
       assert.ok(id in modules, `Unexpected import: ${id}`);
       return modules[id];
     },

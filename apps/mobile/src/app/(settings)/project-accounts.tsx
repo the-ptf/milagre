@@ -1,14 +1,14 @@
 import { Stack } from "expo-router";
-import { PageScroll } from "../../ui";
+import { SettingsScroll } from "../../settings-find";
 import { ProjectAccountsSection } from "../../project-accounts-section";
 
 export default function ProjectAccountsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Project Accounts" }} />
-      <PageScroll>
+      <SettingsScroll>
         <ProjectAccountsSection />
-      </PageScroll>
+      </SettingsScroll>
     </>
   );
 }

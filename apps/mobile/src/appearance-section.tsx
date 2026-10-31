@@ -1,4 +1,5 @@
 import { Platform, Pressable, Text, View } from "react-native";
+import { Findable } from "./settings-find";
 import * as Haptics from "expo-haptics";
 import { DIFF_PAIRS, MOTION_SPEEDS, PHONE_CODE_SIZES, PHONE_TEXT_SIZES, PROVIDER_ICON_STYLES } from "@milagre/shared/appearance";
 import { DEFAULT_THEME_ID, seedsFrom, themes, themeSwatch, type ThemeChoice, type ThemeGroup } from "@milagre/shared/themes";
@@ -38,23 +39,25 @@ function Choice({
   const styles = useStyles();
   const current = options.find((option) => option.value === value)?.title ?? "";
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ color: colors.ink, fontSize: 17 }}>{label}</Text>
-        <Text style={styles.caption}>{detail}</Text>
+    <Findable title={label}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: colors.ink, fontSize: 17 }}>{label}</Text>
+          <Text style={styles.caption}>{detail}</Text>
+        </View>
+        <PullDown
+          label={label}
+          title={label}
+          sections={[{ items: options.map((option) => ({ id: option.value, title: option.title, checked: option.value === value })) }]}
+          nativeTrigger={{ title: current, systemImage: "chevron.up.chevron.down", showIcon: false, maxWidth: 160 }}
+          onSelect={(id) => {
+            if (id !== value && options.some((option) => option.value === id)) onChange(id);
+          }}
+        >
+          <Text style={styles.text}>{current}</Text>
+        </PullDown>
       </View>
-      <PullDown
-        label={label}
-        title={label}
-        sections={[{ items: options.map((option) => ({ id: option.value, title: option.title, checked: option.value === value })) }]}
-        nativeTrigger={{ title: current, systemImage: "chevron.up.chevron.down", showIcon: false, maxWidth: 160 }}
-        onSelect={(id) => {
-          if (id !== value && options.some((option) => option.value === id)) onChange(id);
-        }}
-      >
-        <Text style={styles.text}>{current}</Text>
-      </PullDown>
-    </View>
+    </Findable>
   );
 }
 
