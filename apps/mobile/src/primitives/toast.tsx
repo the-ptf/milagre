@@ -6,10 +6,22 @@ import { radius, type } from "../design-tokens";
 import { useTheme } from "../theme";
 
 /**
- * Every toast's look, matching desktop's (lib/toast.ts): an ink pill, its icon, text and Undo all in onInk. Status
- * colours and the accent fall under 3:1 on ink in some themes, so the icon says what happened by its shape alone.
+ * Every toast's look, matching desktop's sidebar toast (SidebarToast.tsx): one line on the strongest ink, its icon, text
+ * and the Undo or Redo label all in onInk. Status colours and the accent fall under 3:1 on ink in some themes, so the
+ * icon says what happened by its shape alone; Done's check sits in a solid badge so it reads at a glance.
  */
-export function ToastPill({ text, icon, onUndo }: { text: string; icon?: IconData; onUndo?: () => void }) {
+export function ToastPill({
+  text,
+  icon,
+  badge,
+  action,
+}: {
+  text: string;
+  icon?: IconData;
+  /** Shows `icon` inside a solid onInk circle (Done's check). */
+  badge?: boolean;
+  action?: { label: string; onPress: () => void };
+}) {
   const { colors } = useTheme();
   return (
     <View
@@ -19,8 +31,10 @@ export function ToastPill({ text, icon, onUndo }: { text: string; icon?: IconDat
         alignItems: "center",
         gap: 12,
         maxWidth: 360,
-        minHeight: 48,
-        paddingHorizontal: 16,
+        alignSelf: "stretch",
+        minHeight: 52,
+        paddingLeft: 16,
+        paddingRight: action ? 8 : 16,
         paddingVertical: 12,
         borderRadius: radius.full,
         borderCurve: "continuous",
@@ -28,25 +42,32 @@ export function ToastPill({ text, icon, onUndo }: { text: string; icon?: IconDat
         boxShadow: "0 8px 28px #00000017",
       }}
     >
-      {icon ? <Icon icon={icon} color={colors.onInk} size={18} /> : null}
-      <Text style={{ flexShrink: 1, color: colors.onInk, fontSize: type.subheadline, fontWeight: "500" }}>{text}</Text>
-      {onUndo ? (
+      {icon && badge ? (
+        <View style={{ width: 22, height: 22, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: colors.onInk }}>
+          <Icon icon={icon} color={colors.ink} size={14} strokeWidth={2.6} />
+        </View>
+      ) : icon ? (
+        <Icon icon={icon} color={colors.onInk} size={18} />
+      ) : null}
+      <Text style={{ flex: 1, color: colors.onInk, fontSize: type.subheadline, fontWeight: "600" }}>{text}</Text>
+      {action ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Undo"
+          accessibilityLabel={action.label}
           hitSlop={12}
-          onPress={onUndo}
+          onPress={action.onPress}
           // A thumb-sized target: a missed Undo leaves the Chat deleted or Done.
           style={({ pressed }) => ({
-            minWidth: 44,
+            minWidth: 56,
             minHeight: 44,
             marginVertical: -10,
+            paddingHorizontal: 8,
             alignItems: "center",
             justifyContent: "center",
             opacity: pressed ? 0.6 : 1,
           })}
         >
-          <Text style={{ color: colors.onInk, fontSize: type.subheadline, fontWeight: "600" }}>Undo</Text>
+          <Text style={{ color: colors.onInk, fontSize: type.subheadline, fontWeight: "600" }}>{action.label}</Text>
         </Pressable>
       ) : null}
     </View>

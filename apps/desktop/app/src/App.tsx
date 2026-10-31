@@ -2747,7 +2747,7 @@ function App() {
       onArchiveCheck: (id) => latest.current.checkArchive(Number(id)),
       // The row shows the progress until this settles.
       onArchive: (id, mode, plan) => latest.current.archiveChat(Number(id), mode, plan),
-      onUndoArchive: (id) => void (projectRef.current && undoDelete(chatKey(projectRef.current.path, Number(id)))),
+      onUndoArchive: (id) => !!projectRef.current && undoDelete(chatKey(projectRef.current.path, Number(id))),
       onLinkIssue: (id, key, workspace) => void latest.current.linkChatIssue(Number(id), key, workspace),
       onUnlinkIssue: (id) => void latest.current.unlinkChatIssue(Number(id)),
     }),

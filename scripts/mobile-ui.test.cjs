@@ -115,6 +115,17 @@ const designsOn = {
 const phoneSplit = { widthClass: "compact", available: true, dockable: false, pinned: false, hidden: false, toggle() {} };
 /** A Chat with no listening ports (useChatPorts in ports.tsx). */
 const noPorts = { ports: [], error: "", refresh: () => {}, drop: () => {} };
+let undoHistoryLoaded;
+/** The phone's undo history, loaded once for every screen; its toast hook reads the store without a timer. */
+function undoHistoryModule() {
+  return (undoHistoryLoaded ??= load("undo-history.ts", {
+    react: { useSyncExternalStore: (_subscribe, read) => read(), useEffect() {} },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_target, name) => String(name) }),
+    "@milagre/shared/archive": require("@milagre/shared/archive"),
+    "@milagre/shared/undo-history": require("@milagre/shared/undo-history"),
+  }));
+}
+
 function load(file, modules, extra = "", cache = new Map(), reactCompiler = false) {
   if (cache.has(file)) return cache.get(file);
   // These helpers stay private in production; the source harness exposes them only to tests.
@@ -159,6 +170,8 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
       // Follow the real primitive graph, including the compatibility barrel; keep native modules at the boundary.
       const relative = id.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(file), id)) : null;
       if (relative === "design-tokens") return require("../apps/mobile/src/design-tokens.ts");
+      // The undo history (undo-history.ts over the shared one) is one store, as on the phone; its toast reads it directly.
+      if (relative === "undo-history" && !(id in modules)) return undoHistoryModule();
       if (relative === "design-font-cache")
         return load("design-font-cache.ts", { "@milagre/shared/artifact": require("../packages/shared/src/artifact.ts") }, "", cache);
       if (relative === "secret-question")
@@ -250,6 +263,7 @@ function load(file, modules, extra = "", cache = new Map(), reactCompiler = fals
           "@milagre/shared/read-timeout",
           "@milagre/shared/qa-personas",
           "@milagre/shared/voice-dictation",
+          "@milagre/shared/undo-history",
         ].includes(id) &&
         !(id in modules)
       )
@@ -10380,7 +10394,7 @@ test("deleting a Chat hides and undoes only its own Computer's row when another 
   await settleAll();
   same(hosts(), ["studio"], "Studio's Chat stays listed while the Mac's is deleted");
   assert.equal(archiveStore.archiveActivity().deleted, "mac|/p#5");
-  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  toastPill(nav.render(), "Chat deleted").props.action.onPress();
   await settleAll();
   same(hosts().sort(), ["mac", "studio"]);
   assert.equal(
@@ -10421,7 +10435,7 @@ test("an Undo on the list's toast brings the deleted Chat back without deleting 
   });
   nav.more(nav.row("chat")).props.onSelect("archive");
   await settleAll();
-  toastPill(nav.render(), "Chat deleted").props.onUndo();
+  toastPill(nav.render(), "Chat deleted").props.action.onPress();
   await settleAll();
   assert.ok(nav.row("chat"), "the row is back");
   assert.equal(

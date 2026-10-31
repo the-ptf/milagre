@@ -205,6 +205,31 @@ async function browserChecks() {
     assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
     await waitFor(`!${row(7)} && !!document.querySelector('[data-done-row="7"]')`);
     await waitFor(`[...document.querySelectorAll("[role=status], [data-chat-toast]")].some((node) => node.textContent.includes("Moved to Done"))`);
+    // The toast sits inside the sidebar, just above its bottom bar, not beside it.
+    assert.equal(
+      await evaluate(`(() => {
+        const toast = document.querySelector("[data-chat-toast]").getBoundingClientRect();
+        const aside = document.querySelector("aside").getBoundingClientRect();
+        return toast.left >= aside.left && toast.right <= aside.right && toast.bottom <= aside.bottom;
+      })()`),
+      true,
+      "the toast sits inside the sidebar",
+    );
+    await screenshot("one-list-done-toast");
+    // ⌘Z (Ctrl+Z off a Mac) takes the Done back from anywhere outside a field, and ⇧⌘Z does it again.
+    const undoKey = (shift) =>
+      evaluate(`(() => {
+        const mac = /Mac/.test(navigator.userAgent);
+        const init = { key: ${JSON.stringify(shift ? "Z" : "z")}, shiftKey: ${shift}, metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true };
+        return document.body.dispatchEvent(new KeyboardEvent("keydown", init));
+      })()`);
+    await undoKey(false);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: false }]);
+    await waitFor(`!!${row(7)} && document.querySelector("[data-chat-toast]")?.textContent.includes("Back in Chats")`);
+    assert.equal(await evaluate(`!!document.querySelector("[data-chat-toast-redo]")`), true, "the undone toast offers Redo");
+    await undoKey(true);
+    assert.deepEqual(await evaluate(`window.patches.at(-1)`), ["/work/shop", 7, { done: true, unread: false }]);
+    await waitFor(`!${row(7)} && document.querySelector("[data-chat-toast]")?.textContent.includes("Moved to Done")`);
     // Diff stats are off by default; the branch is on but never shows here.
     assert.equal(await evaluate(`!!${row(1)}.querySelector("[data-chat-diff]")`), false);
     assert.equal(await evaluate(`${row(1)}.textContent.includes("fix-login")`), false, "No branch name on the row");

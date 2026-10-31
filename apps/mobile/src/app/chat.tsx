@@ -130,6 +130,7 @@ import { ContextRing } from "../context-ring";
 import { PlanPanel, PlanPill, usePlanPanel } from "../plan-pill";
 import { useTheme } from "../theme";
 import { ToastPill } from "../primitives/toast";
+import { undoHistory, useHistoryToast } from "../undo-history";
 import { archiveFromPhone, showArchiveNotice } from "../archive";
 import { randomUUID } from "expo-crypto";
 import { runChatAction } from "../chat-actions";
@@ -406,7 +407,8 @@ function ChatPane({
   const [error, setError] = useState("");
   // Bumped after a link or unlink so the Linear issues of the Worktrees are read again.
   const [linkVersion, setLinkVersion] = useState(0);
-  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
+  const [toast, setToast] = useState<{ text: string } | null>(null);
+  const historyToast = useHistoryToast("chat");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -1744,7 +1746,9 @@ function ChatPane({
     if (!ok) return;
     if (secondary) closeBeside();
     else router.setParams({ id: undefined, worktreeId: undefined, draft: undefined, prefill: undefined });
-    showToast("Moved to Done", () => void action(() => client.call("chat:patch", [project.path, finished.id, { done: false }])));
+    const patch = (done: boolean) => () =>
+      void action(() => client.call("chat:patch", [project.path, finished.id, { done, ...(done ? { unread: false } : {}) }]));
+    undoHistory.record({ text: "Moved to Done", kind: "done", undoneText: "Back in Chats", place: "chat", undo: patch(false), redo: patch(true) });
   }
   // Archive starts immediately, preserves unsaved work, and stops a running turn.
   // The sidebar opens and the archive finishes there, on the Chat's row. Keeping the same sidebar mounted
@@ -1819,11 +1823,11 @@ function ChatPane({
   const storedIssue = linearActive && !chatsHomeOpen ? worktree?.linearIssue : undefined;
   const linkHint = storedIssue && !(worktree?.name ?? "").toLowerCase().includes(storedIssue.toLowerCase()) ? LINK_PR_HINT(storedIssue) : null;
   /** Picks an issue from the list and links it to this Chat's Worktree. */
-  /** A short confirmation over the transcript that goes away on its own; one with `undo` stays longer and offers Undo. */
-  function showToast(text: string, undo?: () => void) {
+  /** A short confirmation over the transcript that goes away on its own. Steps that can be undone go in the undo history. */
+  function showToast(text: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ text, undo });
-    toastTimer.current = setTimeout(() => setToast(null), undo ? 6000 : 3000);
+    setToast({ text });
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
   function linkIssue() {
     if (!worktree) return;
@@ -2395,18 +2399,12 @@ function ChatPane({
                 {!secondary && <AttentionPill currentChat={chatId} visibleChat={visibleChat} bottom={dockHeight + 12} />}
                 {toast ? (
                   <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
-                    <ToastPill
-                      text={toast.text}
-                      onUndo={
-                        toast.undo &&
-                        (() => {
-                          const { undo } = toast;
-                          if (toastTimer.current) clearTimeout(toastTimer.current);
-                          setToast(null);
-                          undo?.();
-                        })
-                      }
-                    />
+                    <ToastPill text={toast.text} />
+                  </View>
+                ) : null}
+                {historyToast && !secondary ? (
+                  <View pointerEvents="box-none" style={{ position: "absolute", left: 16, right: 16, top: insets.top + 64, alignItems: "center" }}>
+                    <ToastPill key={historyToast.id} {...historyToast} />
                   </View>
                 ) : null}
                 <MessageNavigation

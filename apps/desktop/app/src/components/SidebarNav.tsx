@@ -98,6 +98,9 @@ import {
 import { ScopeRail, type RailScope } from "./sidebar/ScopeRail";
 import { bridgeFor, bridgeForKey, isRemoteKey } from "../lib/computer-bridge";
 import { DoneSection, type DoneEntry } from "./sidebar/DoneSection";
+import { SidebarToast } from "./sidebar/SidebarToast";
+import { undoHistory, type UndoAction } from "../lib/undo-history";
+import { DELETE_UNDO_MS } from "@milagre/shared/archive";
 import { useDoneSettings } from "../lib/done-settings";
 import { patchChatShowingDone, settleDonePending, useDonePending, withDonePending } from "../lib/done-pending";
 import { OpenSubchatContext, jumpChatRows, rowKeys, shownChats, useSubchatFolds, type ShownRow } from "../lib/subchat-rows";
@@ -1182,7 +1185,9 @@ export default memo(function SidebarNav({
           },
         ]
   )
-    .flatMap(({ key, list, done }) => done.map((item) => ({ key, item, onPick: list.onPick, onReopen: list.actions.onReopen, computer: list.computer })))
+    .flatMap(({ key, list, done }) =>
+      done.map((item) => ({ key, item, onPick: list.onPick, onReopen: list.actions.onReopen && reopenFromDone(list.actions), computer: list.computer })),
+    )
     .sort((a, b) => (b.item.doneAt ?? 0) - (a.item.doneAt ?? 0));
   // Each group's slot in the Pinned section, for its list's portal; one ref callback per key, so slots don't remount.
   const [pinSlots, setPinSlots] = useState<Record<string, HTMLElement | null>>({});
@@ -1847,6 +1852,8 @@ export default memo(function SidebarNav({
 
           {!botsMode && <DoneSection entries={doneEntries} retentionHours={doneSettings.retentionHours} collapsed={collapsed} />}
 
+          <SidebarToast collapsed={collapsed} />
+
           {usage && <div className={`mt-3 border-t border-line pt-1.5 ${collapsed ? "mx-auto w-8" : "mx-2 w-[calc(100%-16px)]"}`}>{usage}</div>}
 
           <div
@@ -1944,17 +1951,43 @@ const sameTarget = (a: DropTarget | null, b: DropTarget | null) => a?.id === b?.
 /** What a list's rows read when an action runs: the latest rows, actions and Links. */
 type RowActionsNow = { recents: SidebarRecent[]; actions: ChatRowActions; sidebarLinks: ReturnType<typeof useSidebarLinks> };
 
+/** Done as a step in the undo history: ⌘Z reopens the Chat, ⇧⌘Z moves it to Done again. */
+const doneStep = (actions: () => ChatRowActions, id: string): UndoAction => ({
+  text: "Moved to Done",
+  kind: "done",
+  undoneText: "Back in Chats",
+  undo: () => actions().onReopen?.(id),
+  redo: () => actions().onDone?.(id),
+});
+/** Reopen (from the Done section or the row menu), the same step the other way round. */
+const reopenStep = (actions: () => ChatRowActions, id: string): UndoAction => ({
+  text: "Back in Chats",
+  kind: "undone",
+  undoneText: "Moved to Done",
+  undoneKind: "done",
+  undo: () => actions().onDone?.(id),
+  redo: () => actions().onReopen?.(id),
+});
+
+/** The Done section's Reopen for a list, recorded like the row menu's; one function per set of actions, so rows keep their memo. */
+const reopeners = new WeakMap<ChatRowActions, (id: string) => void>();
+function reopenFromDone(actions: ChatRowActions) {
+  let reopen = reopeners.get(actions);
+  if (!reopen) {
+    reopen = (id) => {
+      actions.onReopen?.(id);
+      undoHistory.record(reopenStep(() => actions, id));
+    };
+    reopeners.set(actions, reopen);
+  }
+  return reopen;
+}
+
 /**
- * A scope's row actions: pinning, Done and deletion that can be undone from a toast, and the Link items that open the shared "Link with…"
+ * A scope's row actions: pinning, Done, Reopen and deletion that can be undone from a toast or with ⌘Z, and the Link items that open the shared "Link with…"
  * and "Remove Link with…" lists. `now` reads the latest state, so one object serves every render.
  */
-function chatRowActions(
-  actions: ChatRowActions,
-  linkProjectId: string | null,
-  scopeKey: string,
-  now: () => RowActionsNow,
-  showToast: (text: string, undo?: () => void, kind?: "deleted" | "done") => void,
-): ChatRowActions {
+function chatRowActions(actions: ChatRowActions, linkProjectId: string | null, scopeKey: string, now: () => RowActionsNow): ChatRowActions {
   return {
     ...actions,
     onPin:
@@ -1967,7 +2000,13 @@ function chatRowActions(
         const next = order === undefined ? pinOrderAt(orders, orders.length) : order;
         const previous = item.pinned ? (item.pinOrder ?? 0) : null;
         latest.actions.onPin(id, next);
-        if ((previous === null) !== (next === null)) showToast(next === null ? "Unpinned" : "Pinned", () => now().actions.onPin?.(id, previous));
+        if ((previous === null) !== (next === null))
+          undoHistory.record({
+            text: next === null ? "Unpinned" : "Pinned",
+            undoneText: next === null ? "Pinned" : "Unpinned",
+            undo: () => now().actions.onPin?.(id, previous),
+            redo: () => now().actions.onPin?.(id, next),
+          });
       }),
     onDone:
       actions.onDone &&
@@ -1975,14 +2014,31 @@ function chatRowActions(
         const latest = now().actions;
         if (!latest.onDone) return;
         latest.onDone(id);
-        showToast("Moved to Done", () => now().actions.onReopen?.(id), "done");
+        undoHistory.record(doneStep(() => now().actions, id));
+      }),
+    onReopen:
+      actions.onReopen &&
+      ((id) => {
+        const latest = now().actions;
+        if (!latest.onReopen) return;
+        latest.onReopen(id);
+        undoHistory.record(reopenStep(() => now().actions, id));
       }),
     onArchive:
       actions.onArchive &&
       ((id, mode, plan) => {
         const latest = now().actions;
         const work = latest.onArchive?.(id, mode, plan);
-        showToast("Chat deleted", latest.onUndoArchive && (() => now().actions.onUndoArchive?.(id)), "deleted");
+        if (!latest.onUndoArchive) undoHistory.notify("Chat deleted");
+        else
+          undoHistory.record({
+            text: "Chat deleted",
+            kind: "deleted",
+            undoneText: "Chat restored",
+            // Only while the deletion waits out its Undo window. No redo: ⇧⌘Z never deletes a Worktree.
+            undo: () => now().actions.onUndoArchive?.(id) ?? false,
+            undoWindowMs: DELETE_UNDO_MS,
+          });
         return work;
       }),
     ...(linkProjectId
@@ -2102,11 +2158,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
   };
   const sidebarLinks = useSidebarLinks();
   const botMarks = useBotMarks();
-  // Both read the latest render's scopes and Links when an action runs, so one set of actions serves every render.
-  const showToast = useEvent((text: string, undo?: () => void, kind?: "deleted" | "done") => {
-    const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-    sidebarLinks.toast(text, { undo, kind, left: (aside?.right ?? 0) + 12 });
-  });
+  // Reads the latest render's scopes and Links when an action runs, so one set of actions serves every render.
   const readScope = useEvent((scopeKey: string): RowActionsNow => {
     const scope = scopes.get(scopeKey);
     return { recents: scope?.rows ?? [], actions: scope?.list.actions ?? {}, sidebarLinks };
@@ -2117,7 +2169,7 @@ function FlatChatList({ chats, scopes, inbox = true }: { chats: (FlatChat & { of
   const actionsOf = (scopeKey: string, scope: FlatScope) => {
     const hit = made.get(scopeKey);
     if (hit && hit.source === scope.list.actions && hit.linkProjectId === scope.list.linkProjectId) return hit.actions;
-    const actions = chatRowActions(scope.list.actions, scope.list.linkProjectId, scopeKey, nowOf(scopeKey), showToast);
+    const actions = chatRowActions(scope.list.actions, scope.list.linkProjectId, scopeKey, nowOf(scopeKey));
     made.set(scopeKey, { source: scope.list.actions, linkProjectId: scope.list.linkProjectId, actions });
     return actions;
   };
@@ -2305,14 +2357,6 @@ function ChatList({
     return sidebarLinks.register(handle);
   }, [scopeKey, linkProjectId]);
 
-  const showToast = useCallback(
-    (text: string, undo?: () => void, kind?: "deleted" | "done") => {
-      const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
-      live.current.sidebarLinks.toast(text, { undo, kind, left: (aside?.right ?? 0) + 12 });
-    },
-    [live],
-  );
-
   /** Beside the sidebar, level with the row the menu or the drop was on. */
   const anchorAt = (top: number) => {
     const aside = listRef.current?.closest("aside")?.getBoundingClientRect();
@@ -2321,10 +2365,7 @@ function ChatList({
 
   // Pinning from the row menu and from a drag both land here, so either can be undone. The Link items open the
   // shared "Link with…" and "Remove Link with…" lists.
-  const rowActions = useMemo(
-    () => chatRowActions(actions, linkProjectId, scopeKey, () => live.current, showToast),
-    [actions, linkProjectId, scopeKey, live, showToast],
-  );
+  const rowActions = useMemo(() => chatRowActions(actions, linkProjectId, scopeKey, () => live.current), [actions, linkProjectId, scopeKey, live]);
 
   const endpoint = (item: SidebarRecent) => ({ pinned: item.pinned, worktree: item.details?.path });
   const linkedTo = (a: SidebarRecent, b: SidebarRecent, bProject: string | null) =>
