@@ -1771,6 +1771,9 @@ function createRuntime(options) {
   async function stopChatWork(chatId) {
     terminals.closeChat(chatId);
     routines.chatArchived(chatId);
+    // A turn still running stops as Stop stops it, so the questions and approvals it waits on end with it instead of
+    // asking from an archived Chat. The clients stop it first, but only when their copy of the runs shows it.
+    if (chats.runs[chatId]) return stopChat(chatId);
     await advisorDelivery.stop(chatId);
     await advisors.stopChat(chatId);
   }
