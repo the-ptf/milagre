@@ -232,7 +232,11 @@ function createRuntime(options) {
       approve: (chatId, request) => agents.askApproval(chatId, request),
       // The desktop app on this computer draws the agent cursor (apps/desktop/electron/agent-cursor.cjs).
       emit,
-      onAction: ({ chatId, app, data }) => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }),
+      onAction: ({ chatId, app, data }) => {
+        void existingChat("capturing its screen")(chatId)
+          .then(() => computerUseScreen.touch({ chatId, app, windowId: data?.window?.id, title: data?.window?.title }))
+          .catch(() => {});
+      },
     });
   // Experimental: devices leased from a Simlock worker or gateway sit beside this Mac's own simulators.
   const { createSimlockSettings, createSimlockHost } = require("./simlock.cjs");
@@ -374,7 +378,13 @@ function createRuntime(options) {
   commands.handle("computer-use:settings:save", (_context, patch) => computerUseSettings.save(patch));
   commands.handle("computer-use:status", () => computerUse.status());
   commands.handle("computer-use:guide", () => computerUse.guide());
-  commands.handle("computer-use:frame", (_context, request) => computerUseScreen.next({ chatId: request?.chatId, after: Number(request?.after) || 0 }));
+  commands.handle("computer-use:frame", async (_context, request) => {
+    await existingChat("viewing its screen")(request?.chatId);
+    const frame = await computerUseScreen.next({ chatId: request.chatId, after: Number(request.after) || 0 });
+    // The Chat may have been deleted while this viewer was waiting for a frame.
+    await existingChat("viewing its screen")(request.chatId);
+    return frame;
+  });
   commands.handle("simlock:settings:read", () => simlockSettings.read());
   commands.handle("simlock:settings:save", (_context, patch) => simlockSettings.save(patch));
   commands.handle("simlock:identity", (_context, request) => simlock.identity(request ?? {}));
@@ -944,6 +954,7 @@ function createRuntime(options) {
     // Read again, the project drops the worktree git no longer lists, with its chats.
     if (states.has(projectPath)) await readProject(projectPath);
     if (result.removed) {
+      for (const id of goneChats) computerUseScreen.forget(id);
       await Promise.all(goneChats.map((id) => artifacts.removeChat(id).catch(() => {})));
       await Promise.all(goneChats.map((id) => pageComments.removeChat(id).catch(() => {})));
       for (const id of goneChats) chats.forget(id);
@@ -1996,6 +2007,7 @@ function createRuntime(options) {
     await worktreeSetups.cancel(chatId);
     await agents.closeChat(chatId);
     await editProject(projectPath, (state) => deleteSession(state, sessionId), { chats: [sessionId] });
+    computerUseScreen.forget(chatId);
     await artifacts.removeChat(chatId).catch(() => {});
   });
   // Opening a chat reads it. Only on opening: "Mark as unread" on the open chat sticks until it's opened again.

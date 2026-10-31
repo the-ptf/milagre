@@ -67,9 +67,25 @@ test("frames follow the window the agent used, deduplicated, and stop when it go
   assert.equal(kept.live, false);
 });
 
-test("a viewer of an idle Chat gets its answer at once", async () => {
-  const { feed } = setup([]);
-  assert.deepEqual(await feed.next({ chatId: "/p#9", after: 0 }), { seq: 0, live: false });
+test("a viewer mounted during a delayed first tool stays subscribed until its capture starts", async () => {
+  const { feed, time } = setup([{ ok: true, data: { data: "FIRST" } }]);
+  let answered = false;
+  const first = feed.next({ chatId: "/p#9", after: 0 }).then((frame) => ((answered = true), frame));
+  await time.tick(5000);
+  assert.equal(answered, false, "the only tool has not completed yet");
+  feed.touch({ chatId: "/p#9", app: "TextEdit" });
+  await time.tick(500);
+  assert.equal((await first).image, "FIRST");
+  const final = feed.next({ chatId: "/p#9", after: 1 });
+  await time.tick(2000);
+  assert.equal((await final).live, false);
+});
+
+test("an idle subscription times out without a busy request loop", async () => {
+  const { feed, time } = setup([]);
+  const idle = feed.next({ chatId: "/p#9" });
+  await time.tick(15000);
+  assert.deepEqual(await idle, { seq: 0, live: false });
 });
 
 test("missing Screen Recording becomes one error frame", async () => {
@@ -89,4 +105,39 @@ test("a closed window falls back to the app's front window", async () => {
   await time.tick(500);
   await time.tick(500);
   assert.deepEqual(calls[1].slice(0, 3), ["screenshot", "--app", "Notes"]);
+});
+
+test("forget removes loaded and unloaded persisted frames across a restart, preserving other Chats", async (t) => {
+  const { feed, time, dir } = setup([{ ok: true, data: { data: "RETAINED" } }]);
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const chatId of ["/p#1", "/p#2", "/p#3"]) feed.touch({ chatId, app: "TextEdit" });
+  await time.tick(2500);
+  feed.forget("/p#1");
+  const restarted = createScreenFeed({ dir, exec: async () => ({ ok: false }) });
+  restarted.forget("/p#2");
+  assert.equal(fs.readdirSync(dir).length, 1);
+  for (const chatId of ["/p#1", "/p#2"]) assert.deepEqual(await restarted.next({ chatId, after: -1 }), { seq: 0, live: false });
+  assert.equal((await restarted.next({ chatId: "/p#3" })).image, "RETAINED");
+});
+
+test("deletion during capture clears waiting viewers and cannot recreate the file or capture timer", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "screen-delete-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const time = clock();
+  let finish;
+  let captures = 0;
+  const feed = createScreenFeed({ dir, ...time, exec: () => (captures++, new Promise((resolve) => (finish = resolve))) });
+  feed.touch({ chatId: "/p#1", app: "TextEdit" });
+  const waiting = feed.next({ chatId: "/p#1" });
+  const capturing = time.tick(500);
+  feed.forget("/p#1");
+  assert.deepEqual(await waiting, { seq: 0, live: false });
+  finish({ ok: true, data: { data: "DELETED" } });
+  await capturing;
+  await time.tick(30000);
+  assert.equal(captures, 1);
+  assert.equal(feed.live("/p#1"), false);
+  assert.deepEqual(fs.readdirSync(dir), []);
+  const restarted = createScreenFeed({ dir, exec: async () => ({ ok: false }) });
+  assert.deepEqual(await restarted.next({ chatId: "/p#1", after: -1 }), { seq: 0, live: false });
 });

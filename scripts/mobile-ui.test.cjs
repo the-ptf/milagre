@@ -18193,3 +18193,57 @@ test("a native transition ending first cancels the queued sidebar arrival", () =
     host.cleanup();
   }
 });
+
+test("the actual phone computer-use card receives the delayed first frame, opens the measured viewer and keeps the final image", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const react = hookHost({ effects: true });
+  const frames = [];
+  const routes = [];
+  const calls = [];
+  let answer = { seq: 0, live: false };
+  const session = { client: { call: async (method, args) => (calls.push([method, args]), answer) } };
+  const { ComputerUseCard } = load("computer-use-card.tsx", {
+    react,
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", Image: "Image", ActivityIndicator: "ActivityIndicator" },
+    "expo-router": { router: { push: (route) => routes.push(route) } },
+    "@hugeicons/core-free-icons": new Proxy({}, { get: (_, name) => String(name) }),
+    "@milagre/shared/desktop-steps": require("../packages/shared/src/desktop-steps.ts"),
+    "@milagre/shared/computer-use": require("../packages/shared/src/computer-use.ts"),
+    "./icons": { Icon: "Icon" },
+    "./session": { useSession: () => session },
+    "./viewer-store": { showImages: (images, index) => frames.push({ images, index }) },
+  });
+  t.after(() => react.unmount());
+  const steps = [{ id: "first", kind: "other", status: "running", title: "Read TextEdit", startedAt: 1000, input: '{"app":"TextEdit"}' }];
+  const render = () => {
+    react.begin();
+    return ComputerUseCard({ steps, chatId: "/p#1" });
+  };
+  assert.equal(find(render(), (node) => node.type === "Pressable").props.disabled, true);
+  await new Promise(setImmediate);
+  answer = { seq: 1, live: true, image: "FIRST", app: "TextEdit", at: 1100, width: 100, height: 80 };
+  steps[0].status = "done";
+  steps[0].endedAt = 1200;
+  render();
+  t.mock.timers.tick(1000);
+  await new Promise(setImmediate);
+  let card = render();
+  assert.equal(find(card, (node) => node.type === "Image").props.source.uri, "data:image/png;base64,FIRST");
+  const button = find(card, (node) => node.type === "Pressable");
+  button.props.ref.current = { measureInWindow: (done) => done(10, 20, 100, 80) };
+  button.props.onPress();
+  assert.deepEqual(routes, ["/viewer"]);
+  assert.equal(frames[0].images[0].source.uri, "data:image/png;base64,FIRST");
+  assert.equal(JSON.stringify(frames[0].images[0].from), JSON.stringify({ x: 10, y: 20, width: 100, height: 80 }));
+  answer = { ...answer, live: false };
+  t.mock.timers.tick(0);
+  await new Promise(setImmediate);
+  card = render();
+  assert.ok(find(card, (node) => node.type === "Image"));
+  assert.equal(
+    find(card, (node) => node.type === "Text" && node.props.children === "Live"),
+    undefined,
+  );
+  assert.equal(calls.length, 3, "one step, no remount, initial/live/final reads");
+});

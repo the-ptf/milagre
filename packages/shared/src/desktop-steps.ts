@@ -83,3 +83,10 @@ export function frameFitsSteps(frameAt: number | undefined, steps: ChatStep[]): 
   const last = Math.max(...steps.map((step) => step.endedAt ?? step.startedAt ?? 0));
   return (first === undefined || frameAt >= first - 1000) && (running || !last || frameAt <= last + CAPTURE_TAIL_MS);
 }
+
+/** Whether the agent may still capture for these steps: one is running, or the last ended within the capture tail. */
+export function desktopStepsActive(steps: ChatStep[], now = Date.now()): boolean {
+  if (steps.some((step) => step.status === "running")) return true;
+  const last = Math.max(0, ...steps.map((step) => step.endedAt ?? 0));
+  return !last || now - last < CAPTURE_TAIL_MS;
+}

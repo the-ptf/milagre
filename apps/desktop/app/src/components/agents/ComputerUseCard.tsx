@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import { Cancel01Icon, CircleIcon, ComputerIcon, Loading03Icon, ArrowExpand01Icon, ArrowShrink01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
-import { desktopStepApps, desktopStepLabel, frameFitsSteps } from "@milagre/shared/desktop-steps";
-import type { ComputerUseApi, ComputerUseFrame } from "@milagre/shared/computer-use";
+import { desktopStepApps, desktopStepLabel, desktopStepsActive, frameFitsSteps } from "@milagre/shared/desktop-steps";
+import { observeComputerUseScreen, type ComputerUseApi, type ComputerUseFrame } from "@milagre/shared/computer-use";
 import type { ChatStep } from "../../model";
 import { bridgeForKey } from "../../lib/computer-bridge";
 import { useReplyChatId } from "./ArtifactCard";
@@ -22,31 +22,28 @@ const seconds = (steps: ChatStep[]) => {
 
 /**
  * The Chat's live screen: long-polls the host for the next frame while its agent works, and keeps the last one. Starts
- * again whenever the reply gets a new desktop step, since that step is what restarts the host's capture.
+ * before the first tool finishes and across reconnects, until the card unmounts.
  */
-function useScreen(chatId: string | null, stepCount: number) {
-  const [frame, setFrame] = useState<ComputerUseFrame | null>(null);
+function useScreen(chatId: string | null, steps: ChatStep[]) {
+  const [screen, setScreen] = useState<{ chatId: string; frame: ComputerUseFrame } | null>(null);
+  // Read in the observer, so it sees the newest steps without restarting; a step starting again restarts it.
+  const latest = useRef(steps);
+  useEffect(() => {
+    latest.current = steps;
+  });
+  const running = steps.some((step) => step.status === "running");
   useEffect(() => {
     if (!chatId) return;
     // A test bridge or an older paired host may not offer it.
     const api = bridgeForKey(chatId).computerUse as ComputerUseApi | undefined;
     if (!api?.frame) return;
-    const state = { disposed: false };
-    void (async () => {
-      let after = 0;
-      while (!state.disposed) {
-        const next = await api.frame({ chatId, after }).catch(() => null);
-        if (state.disposed || !next) return;
-        if (next.seq !== after || !next.live) setFrame(next);
-        after = next.seq;
-        if (!next.live) return;
-      }
-    })();
-    return () => {
-      state.disposed = true;
-    };
-  }, [chatId, stepCount]);
-  return frame;
+    return observeComputerUseScreen(
+      (after) => api.frame({ chatId, after }),
+      (frame) => setScreen({ chatId, frame }),
+      () => desktopStepsActive(latest.current),
+    );
+  }, [chatId, running]);
+  return screen && screen.chatId === chatId ? screen.frame : null;
 }
 
 /**
@@ -55,7 +52,7 @@ function useScreen(chatId: string | null, stepCount: number) {
  */
 export function ComputerUseCard({ steps }: { steps: ChatStep[] }) {
   const chatId = useReplyChatId();
-  const frame = useScreen(chatId, steps.length);
+  const frame = useScreen(chatId, steps);
   const [large, setLarge] = useState(false);
   const [allSteps, setAllSteps] = useState(false);
   // The newest steps beside the screen; earlier ones behind a button, so a long run doesn't stretch the card.

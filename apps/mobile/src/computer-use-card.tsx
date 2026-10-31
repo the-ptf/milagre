@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, Text, View, type ViewInstance } from "react-native";
 import { router } from "expo-router";
 import { Cancel01Icon, CircleIcon, ComputerIcon, Tick02Icon } from "@hugeicons/core-free-icons";
-import { desktopStepApps, desktopStepLabel, frameFitsSteps } from "@milagre/shared/desktop-steps";
-import type { ComputerUseFrame } from "@milagre/shared/computer-use";
+import { desktopStepApps, desktopStepLabel, desktopStepsActive, frameFitsSteps } from "@milagre/shared/desktop-steps";
+import { observeComputerUseScreen, type ComputerUseFrame } from "@milagre/shared/computer-use";
 import type { ChatStep } from "@milagre/shared/model";
 import { Icon } from "./icons";
 import { useSession } from "./session";
@@ -16,29 +16,26 @@ const VISIBLE_STEPS = 6;
 
 /**
  * The Chat's live screen, as on desktop: long-polls the Mac for the next frame while its agent works, and keeps the
- * last one. Starts again when the reply gets a new desktop step.
+ * last one. Stays subscribed while the card is mounted, including before the first tool finishes.
  */
-function useScreen(chatId: string | undefined, stepCount: number) {
+function useScreen(chatId: string | undefined, steps: ChatStep[]) {
   const { client } = useSession();
-  const [frame, setFrame] = useState<ComputerUseFrame | null>(null);
+  const [screen, setScreen] = useState<{ chatId: string; frame: ComputerUseFrame } | null>(null);
+  // Read in the observer, so it sees the newest steps without restarting; a step starting again restarts it.
+  const latest = useRef(steps);
+  useEffect(() => {
+    latest.current = steps;
+  });
+  const running = steps.some((step) => step.status === "running");
   useEffect(() => {
     if (!client || !chatId) return;
-    const state = { disposed: false };
-    void (async () => {
-      let after = 0;
-      while (!state.disposed) {
-        const next = await client.call<ComputerUseFrame>("computer-use:frame", [{ chatId, after }]).catch(() => null);
-        if (state.disposed || !next) return;
-        if (next.seq !== after || !next.live) setFrame(next);
-        after = next.seq;
-        if (!next.live) return;
-      }
-    })();
-    return () => {
-      state.disposed = true;
-    };
-  }, [client, chatId, stepCount]);
-  return frame;
+    return observeComputerUseScreen(
+      (after) => client.call<ComputerUseFrame>("computer-use:frame", [{ chatId, after }]),
+      (frame) => setScreen({ chatId, frame }),
+      () => desktopStepsActive(latest.current),
+    );
+  }, [client, chatId, running]);
+  return screen && screen.chatId === chatId ? screen.frame : null;
 }
 
 /**
@@ -47,7 +44,7 @@ function useScreen(chatId: string | undefined, stepCount: number) {
  */
 export function ComputerUseCard({ steps, chatId }: { steps: ChatStep[]; chatId?: string }) {
   const { colors } = useTheme();
-  const frame = useScreen(chatId, steps.length);
+  const frame = useScreen(chatId, steps);
   const thumb = useRef<ViewInstance>(null);
   const [allSteps, setAllSteps] = useState(false);
   const shown = frame && frameFitsSteps(frame.at, steps) ? frame : null;

@@ -59,12 +59,13 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
     for (const waiter of state.waiters) waiter();
   }
 
-  async function capture(chatId) {
-    const state = feed(chatId);
+  async function capture(chatId, state) {
     const target = state.target;
     if (!target) return;
     const args = ["screenshot", ...(target.windowId ? ["--window-id", target.windowId] : ["--app", target.app]), "--session", CAPTURE_SESSION];
     const envelope = await exec(args, { timeoutMs: 10_000 });
+    // A deleted Chat's in-flight capture must never publish or recreate its persisted image.
+    if (feeds.get(chatId) !== state) return;
     const previous = state.frame;
     if (!envelope.ok) {
       const code = envelope.error?.code;
@@ -95,13 +96,15 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
     const state = feed(chatId);
     if (state.timer || state.capturing) return;
     state.timer = setTimer(async () => {
+      if (feeds.get(chatId) !== state) return;
       state.timer = null;
       state.capturing = true;
       try {
-        await capture(chatId);
+        await capture(chatId, state);
       } finally {
         state.capturing = false;
       }
+      if (feeds.get(chatId) !== state) return;
       if (now() - state.lastActive < idle) schedule(chatId);
       else {
         persist(chatId, state.frame);
@@ -125,11 +128,11 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
     return !!state && (state.timer !== null || state.capturing);
   };
 
-  /** The Chat's frame after `after`, waiting up to `timeoutMs` for one while the feed is live. */
+  /** Wait for a frame even before the first tool completes and starts capture. */
   function next({ chatId, after = 0, timeoutMs = WAIT_MS }) {
     if (typeof chatId !== "string" || !chatId) throw new Error("Name the Chat.");
     const state = feed(chatId);
-    if ((state.frame?.seq ?? 0) > after || !live(chatId)) return Promise.resolve(view(state, live(chatId)));
+    if ((state.frame?.seq ?? 0) > after) return Promise.resolve(view(state, live(chatId)));
     return new Promise((resolve) => {
       const done = () => {
         clearTimer(timer);
@@ -143,10 +146,15 @@ function createScreenFeed({ exec, dir, interval = INTERVAL_MS, idle = IDLE_MS, n
 
   function forget(chatId) {
     const state = feeds.get(chatId);
-    if (!state) return;
-    if (state.timer) clearTimer(state.timer);
-    for (const waiter of state.waiters) waiter();
     feeds.delete(chatId);
+    if (state) {
+      if (state.timer) clearTimer(state.timer);
+      state.frame = null;
+      state.target = null;
+      for (const waiter of state.waiters) waiter();
+    }
+    // Also remove unloaded frames, including ones saved by a previous host process.
+    fs.rmSync(path.join(dir, fileName(chatId)), { force: true });
   }
 
   return { touch, next, live, forget };
