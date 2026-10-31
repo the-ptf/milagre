@@ -32,7 +32,7 @@ const { applyWindowBackground, OPAQUE_BACKGROUND } = require("./window-backgroun
 const { guardNavigation } = require("./links.cjs");
 const { forwardAppShortcuts, setForwardedRules } = require("./app-shortcuts.cjs");
 const { BROWSER_PARTITION, captureBrowserPage, hardenBrowserGuests, hardenBrowserSession } = require("./browser-guests.cjs");
-const { createRemoteBrowserSessions } = require("./browser-remote-sessions.cjs");
+const { clearSignIns, computerPartition, createRemoteBrowserSessions, removeChatPartitions } = require("./browser-remote-sessions.cjs");
 const { createBrowserPanelPages } = require("./browser-panel-pages.cjs");
 const { windowChrome } = require("./window-chrome.cjs");
 const { AttentionNotifier } = require("./notifications.cjs");
@@ -242,6 +242,18 @@ async function startDesktop() {
     harden: hardenBrowserSession,
   });
   ipcMain.handle("browser-panel:remote-partition", (_event, chatKey) => remoteBrowserSessions.prepare(chatKey));
+  // Signs this Mac's Chats' pages ("local"), or one computer's, out of every site; the host forwards the phone's here.
+  ipcMain.handle("browser-panel:clear-sign-ins", async (_event, computerId) => {
+    if (typeof computerId !== "string" || !computerId) throw new Error("Expected a computer.");
+    const partition = computerId === LOCAL_COMPUTER ? BROWSER_PARTITION : computerPartition(computerId);
+    const guests = require("electron")
+      .webContents.getAllWebContents()
+      .filter((contents) => contents.getType() === "webview");
+    await clearSignIns(electronSession.fromPartition(partition), guests);
+    return { cleared: true };
+  });
+  // Each remote Chat had a session of its own before its computer's Chats shared one; their sign-ins go with them.
+  void removeChatPartitions(app.getPath("userData")).catch((error) => console.warn("Browser sessions of single Chats:", error.message));
   // The keys caught from every frame follow this Mac's keybindings.json; an older host has none, so the defaults stay.
   const readKeybindings = () =>
     void runtime

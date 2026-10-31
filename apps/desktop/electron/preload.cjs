@@ -589,6 +589,8 @@ contextBridge.exposeInMainWorld("milagreBrowserPanel", {
   capture: (contentsId, rect) => ipcRenderer.invoke("browser-panel:capture", contentsId, rect),
   /** @param {string} chatKey */
   remotePartition: (chatKey) => ipcRenderer.invoke("browser-panel:remote-partition", chatKey),
+  /** @param {string} computerId */
+  clearSignIns: (computerId) => ipcRenderer.invoke("browser-panel:clear-sign-ins", computerId),
 });
 
 // Kept local to this window, independent of the selected computer or agent host.

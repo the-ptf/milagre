@@ -31,6 +31,9 @@ module.exports = {
   "browser-comments:send-from-page": request({ chatId: s, targetId: s, x: n, y: n, text: s }, ["chatId", "x", "y", "text"]),
   // The desktop's Browser panel pages and their loopback DevTools endpoint; its main process sends them (browser-panel-pages.cjs).
   "browser:panel-pages": request({ port: n, prefix: s, pages: array(object({ id: s, chatId: s, title: s, url: s })) }, ["pages"]),
+  // The Browser panel's sign-ins on this Mac and signing one out, forwarded to the desktop app (host-browser-sign-ins.cjs).
+  "browser:sign-ins": [],
+  "browser:sign-ins:clear": [p("computerId")],
   // What a restart to install an app update would stop; the desktop's updater asks (app-auto-update.cjs).
   "app-update:activity": [],
   // Closing the Mac's Linear sign-in window cancels through main, without a renderer bridge method.
