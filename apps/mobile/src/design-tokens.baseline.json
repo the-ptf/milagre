@@ -101,7 +101,7 @@
     "queued-messages.tsx": 1,
     "side-panels.tsx": 2,
     "simulator.tsx": 2,
-    "split-layout.tsx": 2,
+    "split-layout.tsx": 1,
     "status-indicators.tsx": 1,
     "subagent-glance.tsx": 5,
     "task-output.tsx": 1,

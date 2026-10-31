@@ -19,6 +19,7 @@ import { useTheme } from "./theme";
 import * as Haptics from "expo-haptics";
 import { ArrowHorizontalIcon } from "@hugeicons/core-free-icons";
 import { Icon } from "./icons";
+import { radius } from "./design-tokens";
 import { scaledTiming, useMotionScale } from "./motion";
 
 /**
@@ -221,7 +222,7 @@ function RightDock() {
           style={[s.grabber, { top: top.top, bottom: Math.max(insets.bottom, CARD_MARGIN) }, divider]}
         >
           <Animated.View style={[s.grip, { backgroundColor: colors.lineStrong }, grip]}>
-            <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: 2, backgroundColor: colors.ink2 }, held]} />
+            <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: radius.full, backgroundColor: colors.ink2 }, held]} />
           </Animated.View>
         </Animated.View>
       </GestureDetector>
@@ -321,6 +322,9 @@ export function HardwareShortcuts() {
   return null;
 }
 
+/** The corners of the pinned sidebar's and the docked panel's cards, which the panel's stand-in matches while it is dragged. */
+const CARD_CORNERS = { borderRadius: 18, borderCurve: "continuous" } as const;
+
 const s = StyleSheet.create({
   slot: { overflow: "hidden" },
   dockSlot: { zIndex: 1 },
@@ -328,21 +332,19 @@ const s = StyleSheet.create({
   standIn: {
     position: "absolute",
     right: CARD_MARGIN,
-    borderRadius: 18,
-    borderCurve: "continuous",
+    ...CARD_CORNERS,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
     boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
   },
-  standInBadge: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  grip: { width: 4, height: 44, borderRadius: 2 },
+  standInBadge: { width: 56, height: 56, borderRadius: radius.full, alignItems: "center", justifyContent: "center" },
+  grip: { width: 4, height: 44, borderRadius: radius.full },
   card: {
     flex: 1,
     width: SIDEBAR_WIDTH,
     marginLeft: CARD_MARGIN,
-    borderRadius: 18,
-    borderCurve: "continuous",
+    ...CARD_CORNERS,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
