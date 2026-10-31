@@ -281,6 +281,20 @@ test("chatArchived completes that Chat's heartbeats", () => {
   );
 });
 
+test("chatDone completes that Chat's heartbeats, saying the Chat is done", () => {
+  const ctx = setup();
+  const kept = ctx.store.upsertHeartbeat({ ...base, chatId: "c2" });
+  const ended = ctx.store.list().find((routine) => routine.target.chatId === "c1");
+  ctx.scheduler.start();
+  ctx.scheduler.chatDone("c1");
+  ctx.scheduler.stop();
+  assert.deepEqual(
+    ctx.store.list().map((routine) => routine.id),
+    [kept.id],
+  );
+  assert.equal(ctx.store.get(ended.id).completedReason, "chat done");
+});
+
 test("a claim lost to a crash fails once on restart and does not fire again", async () => {
   const ctx = setup();
   due(ctx);

@@ -2004,6 +2004,8 @@ function createRuntime(options) {
     if (!scopeStates.has(projectPath)) return;
     const patch = sessionPatch(raw);
     if (patch.archived) return archiveChat(projectPath, sessionId, patch);
+    // Done ends the Chat's Heartbeats (its Babysit PR one too) before the save, so no beat lands in it and reopens it.
+    if (patch.done_at) routines.chatDone(`${projectPath}#${sessionId}`);
     await editProject(projectPath, (state) => patchSession(state, sessionId, patch), { chats: [] });
   }
   // Writing to a Done Chat takes it back to the list: the work it was Done with goes on. Only a Done one is written.

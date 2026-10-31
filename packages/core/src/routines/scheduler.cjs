@@ -551,11 +551,13 @@ function createRoutineScheduler({
     onChange();
   }
 
-  function chatArchived(chatId) {
+  // A Chat archived or marked Done ends every Heartbeat on it (a Babysit PR one too): its work is over, and a beat would
+  // only bring a Done Chat back to the list.
+  function chatEnded(chatId, reason) {
     let completed = false;
     for (const routine of store.list()) {
       if (routine.target.kind !== "chat" || routine.target.chatId !== chatId) continue;
-      store.complete(routine.id, "chat archived");
+      store.complete(routine.id, reason);
       completed = true;
     }
     if (completed) onChange();
@@ -603,7 +605,8 @@ function createRoutineScheduler({
     stop,
     tick,
     observe,
-    chatArchived,
+    chatArchived: (chatId) => chatEnded(chatId, "chat archived"),
+    chatDone: (chatId) => chatEnded(chatId, "chat done"),
     runNow,
     enqueueEvent,
     enqueueEvents,

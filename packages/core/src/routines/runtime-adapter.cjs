@@ -857,6 +857,7 @@ function createRoutines({
     },
     sweepRunChats,
     chatArchived: (chatId) => scheduler.chatArchived(chatId),
+    chatDone: (chatId) => scheduler.chatDone(chatId),
     // Recovery first, then the timer and polling.
     start() {
       scheduler.recover();
