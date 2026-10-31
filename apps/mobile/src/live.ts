@@ -1,5 +1,5 @@
 /** What the bridge's live socket says: fetch the runs, or the whole Project, again. It never carries state. */
-export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "keybindings" | "pulls";
+export type LiveSignal = "runs" | "project" | "accounts" | "links" | "designs" | "mcp" | "routines" | "usage" | "token-usage" | "keybindings" | "pulls";
 /** Whether a live message names a signal this app knows; a newer bridge may send others, which are ignored. */
 export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "runs" ||
@@ -10,6 +10,7 @@ export const isLiveSignal = (type: unknown): type is LiveSignal =>
   type === "mcp" ||
   type === "routines" ||
   type === "usage" ||
+  type === "token-usage" ||
   type === "keybindings" ||
   type === "pulls";
 type LiveEvents = { open: unknown; message: { data?: unknown }; error: { message?: string }; close: unknown };
