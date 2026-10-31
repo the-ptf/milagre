@@ -189,6 +189,10 @@ export interface AgentSession {
   handoverDraft?: string;
   /** Set when a quit stopped this chat's turn: when, so a stale one waits for Continue instead of resuming by itself. */
   resumeTurn?: { stoppedAt?: number };
+  /** The daemon's persisted continuation after a usage limit; shared by all clients. */
+  limitResume?: LimitResume;
+  /** The stopped reply eligible for scheduling; turn options remain host-owned. */
+  limitTurn?: { sourceMessageId: number };
   /** How full the agent's context window was when its last turn ended. */
   contextUsage?: ContextUsage;
   /** Claude's predicted follow-up, accepted into the draft without sending. */
@@ -595,6 +599,7 @@ export type ChatContext =
   | LinearIssueContext
   | UsageLimitContext
   | AccountSwitchContext
+  | { kind: "limit-reset" }
   | ChatReloadContext
   | BotContext
   | RoutineRunContext
@@ -968,6 +973,17 @@ export type UsageLimitContext = { kind: "limit" } & UsageLimit;
 
 /** The message that continued a Chat on another account after the usage limit, shown as a line like a handoff. `label` names the account. */
 export type AccountSwitchContext = { kind: "account-switch"; provider: ModelProvider; label: string };
+
+export interface LimitResume {
+  at: string;
+  provider: ModelProvider;
+  accountId: string;
+  sourceMessageId: number;
+  sendId: string;
+  mode: "automatic" | "manual";
+  stoppedAt: number;
+  expiresAt: number;
+}
 
 /** A message for a chat. The main process saves it, then starts or steers the chat's turn. */
 export interface ChatSendRequest {

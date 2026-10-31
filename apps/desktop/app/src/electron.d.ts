@@ -396,6 +396,10 @@ export type MilagreBridge = {
   /** Settings › Accounts: after a usage limit, move the Chat's Project to the next ready account and continue by itself. */
   readLimitAutoSwitch: () => Promise<{ autoSwitch: boolean }>;
   saveLimitAutoSwitch: (value: boolean) => Promise<{ autoSwitch: boolean }>;
+  readLimitResumeAtReset: () => Promise<{ resumeAtReset: boolean }>;
+  saveLimitResumeAtReset: (value: boolean) => Promise<{ resumeAtReset: boolean }>;
+  scheduleLimitResume: (projectPath: string, sessionId: number, sourceMessageId: number) => Promise<boolean>;
+  cancelLimitResume: (projectPath: string, sessionId: number, sendId: string) => Promise<boolean>;
   /** Settings › About: install a downloaded update by itself once no Chat or Routine runs and the Mac sits unused for 5 minutes. Kept by the host, so a paired desktop or the phone flips it too. */
   readAutoUpdate: () => Promise<{ autoUpdate: boolean }>;
   saveAutoUpdate: (value: boolean) => Promise<{ autoUpdate: boolean }>;

@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import { UserSwitchIcon } from "@hugeicons/core-free-icons";
 import type { AccountSwitchContext } from "@milagre/shared/model";
-import { accountSwitchText } from "@milagre/shared/usage-limit";
+import { accountSwitchText, limitResetText } from "@milagre/shared/usage-limit";
 import { Icon } from "./icons";
 import { useTheme } from "./theme";
 
@@ -18,6 +18,17 @@ export function AccountSwitchDivider({ context }: { context: AccountSwitchContex
           {context.label}
         </Text>
       </View>
+      <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
+    </View>
+  );
+}
+
+export function LimitResetDivider() {
+  const { colors } = useTheme();
+  return (
+    <View accessible accessibilityLabel={limitResetText()} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 }}>
+      <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
+      <Text style={{ color: colors.ink3, fontSize: 12, flexShrink: 1 }}>{limitResetText()}</Text>
       <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
     </View>
   );

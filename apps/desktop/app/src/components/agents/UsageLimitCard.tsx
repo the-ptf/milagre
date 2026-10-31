@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Clock01Icon } from "@hugeicons/core-free-icons";
 import { ipcErrorMessage } from "@milagre/shared/result";
-import { limitChoices, limitHeadline, switchedText } from "@milagre/shared/usage-limit";
-import type { ProjectAccountsSnapshot, UsageLimitContext } from "../../model";
+import { limitChoices, limitHeadline, limitResumeLabel, switchedText } from "@milagre/shared/usage-limit";
+import type { ProjectAccountsSnapshot, UsageLimitContext, LimitResume } from "../../model";
 import { isRemoteKey, useBridge, useScope } from "../../lib/computer-bridge";
 
 /**
@@ -15,11 +15,19 @@ export function UsageLimitCard({
   sessionId,
   interactive,
   onOpenAccounts,
+  pending,
+  sourceMessageId,
+  resumeAvailable = false,
+  resumeBlocked = false,
 }: {
   limit: UsageLimitContext;
   sessionId: number;
   interactive: boolean;
   onOpenAccounts?: () => void;
+  pending?: LimitResume;
+  sourceMessageId: number;
+  resumeAvailable?: boolean;
+  resumeBlocked?: boolean;
 }) {
   const bridge = useBridge();
   const scope = useScope();
@@ -30,6 +38,25 @@ export function UsageLimitCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const [resumeSupported, setResumeSupported] = useState(false);
+  useEffect(() => {
+    let stale = false;
+    if (interactive)
+      void Promise.resolve()
+        .then(() => bridge.readLimitResumeAtReset())
+        .then(
+          (value) => {
+            if (!stale) setResumeSupported(typeof value?.resumeAtReset === "boolean");
+            return null;
+          },
+          () => {
+            if (!stale) setResumeSupported(false);
+          },
+        );
+    return () => {
+      stale = true;
+    };
+  }, [bridge, interactive]);
   useEffect(() => {
     if (!live || !scope) return;
     let stale = false;
@@ -64,6 +91,22 @@ export function UsageLimitCard({
   }
 
   const choices = live && snapshot?.scopeKey === scope ? limitChoices(snapshot, limit) : null;
+  const resumeLabel = limitResumeLabel(pending, limit);
+  async function changeResume() {
+    if (!scope || busy) return;
+    setBusy("resume");
+    setError("");
+    try {
+      const changed = pending
+        ? await bridge.cancelLimitResume(scope, sessionId, pending.sendId)
+        : await bridge.scheduleLimitResume(scope, sessionId, sourceMessageId);
+      if (!changed && !pending) setError("This Chat can no longer continue at this reset time.");
+    } catch (reason) {
+      setError(ipcErrorMessage(reason));
+    } finally {
+      setBusy(null);
+    }
+  }
   return (
     <div
       data-slot="usage-limit"
@@ -77,6 +120,26 @@ export function UsageLimitCard({
           <p className="text-[12px] text-ink-3">{detail}</p>
         </div>
       </div>
+      {resumeLabel && !result && (
+        <div className="flex items-center gap-2" data-limit-resume>
+          {pending && (
+            <p role="status" className="text-12 text-ink-2">
+              {resumeLabel}
+            </p>
+          )}
+          {interactive && resumeSupported && resumeAvailable && !resumeBlocked && (
+            <button
+              type="button"
+              data-limit-resume-action
+              disabled={busy !== null}
+              onClick={() => void changeResume()}
+              className="rounded-control border border-line px-2.5 py-1.5 text-12 font-medium text-ink hover:bg-hover disabled:opacity-50"
+            >
+              {pending ? "Cancel" : resumeLabel}
+            </button>
+          )}
+        </div>
+      )}
       {result ? (
         <p data-usage-limit-result role="status" className="text-[12px] text-ink-2">
           {result}

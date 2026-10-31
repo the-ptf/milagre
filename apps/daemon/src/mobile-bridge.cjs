@@ -47,6 +47,8 @@ const METHODS = new Set([
   "linear:move-to-started:save",
   "limits:auto-switch:read",
   "limits:auto-switch:save",
+  "limits:resume-at-reset:read",
+  "limits:resume-at-reset:save",
   "app-update:auto:read",
   "app-update:auto:save",
   // The Mac's desktop app update: what it runs and whether a newer one waits, a check, and the install (host-updates.cjs).
@@ -155,6 +157,8 @@ const METHODS = new Set([
   "chat:send",
   "chat:resume",
   "chat:limit-switch",
+  "chat:limit-resume",
+  "chat:limit-resume:cancel",
   "chat:reload",
   "chat:queue-send",
   "chat:queue-remove",

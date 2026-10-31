@@ -778,6 +778,9 @@ export function LinkWorkspace({
                         }}
                         earlier={earlierMessages}
                         messages={shownMessages}
+                        limitPending={session?.limitResume}
+                        limitSourceMessageId={session?.limitTurn?.sourceMessageId}
+                        limitResumeBlocked={!!session?.queued?.length}
                         pendingMessageId={pendingHere ? pendingSend.message.id : undefined}
                         loading={lean && chatWindow.loading && !shownMessages.length && session !== undefined}
                         loadError={lean ? chatWindow.error : undefined}

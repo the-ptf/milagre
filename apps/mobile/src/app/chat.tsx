@@ -89,7 +89,7 @@ import { handoffSides } from "../handoff-sides";
 import { HandoffDivider } from "../handoff-divider";
 import { showBrief } from "../handoff-brief-store";
 import { WorktreeLinkDivider } from "../worktree-link-divider";
-import { AccountSwitchDivider } from "../account-switch-divider";
+import { AccountSwitchDivider, LimitResetDivider } from "../account-switch-divider";
 import { ChatReloadDivider } from "../chat-reload-divider";
 import { BabysitStoppedDivider } from "../babysit-stopped-divider";
 import { CheckpointRestoreDivider } from "../checkpoint-restore-divider";
@@ -104,7 +104,7 @@ import { chatRoutine, clock, groupQuietRuns, isRoutineRun, mergedRoutineRunText,
 import { CompactionDivider } from "../compaction-divider";
 import { isHandoff } from "@milagre/shared/handoff";
 import { COMPACT_COMMAND, compactionText, isCompaction } from "@milagre/shared/compaction";
-import { accountSwitchText, isAccountSwitch } from "@milagre/shared/usage-limit";
+import { accountSwitchText, isAccountSwitch, isLimitReset, limitResetText } from "@milagre/shared/usage-limit";
 import { isWorktreeLinked, worktreeLinkText } from "@milagre/shared/worktree-link";
 import { BackgroundIndicator, ThinkingIndicator } from "../running-logo";
 import { BottomFade, EdgeFade } from "../bottom-fade";
@@ -757,15 +757,17 @@ function ChatPane({
                 ? `Go to ${compactionText(message.context)}, ${position}.`
                 : isAccountSwitch(message)
                   ? `Go to ${accountSwitchText(message.context)}, ${position}.`
-                  : isChatReload(message)
-                    ? `Go to ${RELOAD_TEXT}, ${position}.`
-                    : isBabysitStopped(message)
-                      ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
-                      : run
-                        ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
-                        : isCheckpointRestore(message)
-                          ? `Go to ${message.body}, ${position}.`
-                          : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
+                  : isLimitReset(message)
+                    ? `Go to ${limitResetText()}, ${position}.`
+                    : isChatReload(message)
+                      ? `Go to ${RELOAD_TEXT}, ${position}.`
+                      : isBabysitStopped(message)
+                        ? `Go to ${babysitStoppedText(message.context).replace(/\.$/, "")}, ${position}.`
+                        : run
+                          ? `Go to ${merged ? mergedRoutineRunText(merged) : routineRunText(run)}, ${position}.`
+                          : isCheckpointRestore(message)
+                            ? `Go to ${message.body}, ${position}.`
+                            : `Go to ${messageSender(message)} message ${position}. ${message.body.slice(0, 88)}`,
         };
       }),
     [shownEntries, handoffModels],
@@ -2212,6 +2214,8 @@ function ChatPane({
                               <CompactionDivider context={message.context} />
                             ) : isAccountSwitch(message) ? (
                               <AccountSwitchDivider context={message.context} />
+                            ) : isLimitReset(message) ? (
+                              <LimitResetDivider />
                             ) : isChatReload(message) ? (
                               <ChatReloadDivider />
                             ) : isBabysitStopped(message) ? (
@@ -2243,7 +2247,14 @@ function ChatPane({
                                   designChoice={designChoice}
                                   designsMoved={designsMoved}
                                   // A limit card offers other accounts only on the Chat's last message, with no turn running.
-                                  limitProjectPath={!run && !pending && message === messages[messages.length - 1] ? project.path : undefined}
+                                  limitPending={message.id === chat?.limitResume?.sourceMessageId ? chat.limitResume : undefined}
+                                  limitResumeAvailable={message.id === chat?.limitTurn?.sourceMessageId}
+                                  limitResumeBlocked={message.id === chat?.limitTurn?.sourceMessageId ? !!chat?.queued?.length : undefined}
+                                  limitProjectPath={
+                                    !run && !pending && message.id === (chat?.limitTurn?.sourceMessageId ?? messages[messages.length - 1]?.id)
+                                      ? project.path
+                                      : undefined
+                                  }
                                   onActivity={openActivity}
                                   highlighted={message.id === undoHighlight}
                                   onOpenChat={openFamilyChat}

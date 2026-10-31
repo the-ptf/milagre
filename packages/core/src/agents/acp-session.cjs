@@ -243,7 +243,7 @@ class AcpSession {
     return this.startTurn(request);
   }
 
-  async beginTurn({ prompt, images = [], model: wanted, effort, permissionMode }) {
+  async beginTurn({ prompt, images = [], model: wanted, effort, permissionMode, canStart }) {
     const turnId = randomUUID();
     Object.assign(this.state, { turnId, hasText: false, textBreak: false, turnCredits: undefined });
     if (permissionMode) this.permissions.setMode(permissionMode);
@@ -270,9 +270,13 @@ class AcpSession {
       await this.failStart(error);
       return { turnId: null, steered: false };
     }
+    if (canStart && !canStart()) {
+      await this.finishTurn([]);
+      return { turnId: null, steered: false, cancelled: true };
+    }
     if (this.cancelRequested || this.closed) {
       await this.finishTurn([{ type: "turn-cancelled" }]);
-      return { turnId: null, steered: false };
+      return { turnId: null, steered: false, cancelled: true };
     }
     const blocks = [];
     if (!this.instructionsSent)

@@ -226,6 +226,22 @@ test("cancels before Codex has started the turn", async (t) => {
   );
 });
 
+test("a continuation cancelled while Codex initializes submits no turn", async (t) => {
+  const { session, events } = codex(t);
+  let allowed = true;
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
+  assert.equal(
+    (await received(session)).some((message) => message.method === "turn/start"),
+    false,
+  );
+});
+
 test("reports a failed turn and a crashed process", async (t) => {
   const failed = codex(t, { scenario: "fail" });
   await failed.session.startTurn(TURN);

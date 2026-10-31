@@ -98,6 +98,8 @@ const ALLOWED: Record<string, string[]> = {
     "connectLinear",
     "disconnectLinear",
     "readLimitAutoSwitch",
+    "readLimitResumeAtReset",
+    "saveLimitResumeAtReset",
     "saveLimitAutoSwitch",
     "readRoutinesEnabled",
     "onMainSyncStatus",

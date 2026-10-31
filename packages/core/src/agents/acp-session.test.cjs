@@ -45,6 +45,19 @@ function antigravity(t, { scenario = "reply", resumeId, linked, mcpExtras, comma
   return { session, events, spawned, tempRoot, cwd };
 }
 const ended = (events, count = 1) => waitUntil(() => events.filter(isTerminal).length >= count);
+
+test("a continuation cancelled during ACP initialization submits no prompt", async (t) => {
+  const { session, events } = antigravity(t);
+  let allowed = true;
+  const turn = session.startTurn({ ...TURN, canStart: () => allowed });
+  allowed = false;
+  assert.equal((await turn).cancelled, true);
+  assert.equal(
+    events.some((event) => event.type === "turn-cancelled"),
+    false,
+  );
+  assert.equal((await sent(session, "session/prompt")).length, 0);
+});
 const fake = (session) => session.rpc.request("fake/received");
 const sent = async (session, method) => (await fake(session)).received.filter((message) => message.method === method).map((message) => message.params);
 const of = (events, type) => events.filter((event) => event.type === type);
