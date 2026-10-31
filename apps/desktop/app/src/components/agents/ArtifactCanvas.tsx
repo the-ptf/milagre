@@ -7,6 +7,8 @@ import {
   ARTIFACT_PAGE,
   artifactCsp,
   artifactDocument,
+  createDesignFontReader,
+  restoreDesignFonts,
   designGroups,
   readPageMessage,
   type Artifact,
@@ -19,7 +21,7 @@ import type { ArtifactRef } from "../../model";
 import Tooltip from "../primitives/Tooltip";
 import { onPanelResizeEnd, panelResizing } from "../../lib/panel-resizing";
 import { useDesignsEnabled } from "../../lib/designs-enabled";
-import { bridgeForKey } from "../../lib/computer-bridge";
+import { bridgeForKey, isRemoteKey, onComputerConnection } from "../../lib/computer-bridge";
 import { DesignPageEditor as DesignEditor } from "./DesignPageEditor";
 import { DESIGN_DELETED, type DesignDeleted } from "./DesignEditor";
 import { designLayout, designNodeAt } from "@milagre/shared/design";
@@ -104,13 +106,26 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 // showing it. The newest (no version asked) can change, so it is read each time. Kept for the last few dozen.
 const versionsRead = new Map<string, Promise<Artifact>>();
 const versionsKept = new Map<string, Artifact>();
+const fontReaders = new WeakMap<object, ReturnType<typeof createDesignFontReader<Artifact>>>();
 const KEEP = 48;
 export function readArtifact(chatId: string, id: string, version: number | null): Promise<Artifact> {
-  if (version === null) return bridgeForKey(chatId).artifacts.get({ chatId, id });
+  const api = bridgeForKey(chatId).artifacts;
+  const request = { chatId, id, ...(version === null ? {} : { version }) };
+  const readDesign = () => {
+    if (!isRemoteKey(chatId)) return api.get(request);
+    let reader = fontReaders.get(api);
+    if (!reader) {
+      reader = createDesignFontReader((args) => api.get(args));
+      fontReaders.set(api, reader);
+      onComputerConnection(chatId, reader.reconnect, () => fontReaders.delete(api));
+    }
+    return reader(request).then(restoreDesignFonts);
+  };
+  if (version === null) return readDesign();
   const key = `${chatId}\n${id}\n${version}`;
   let read = versionsRead.get(key);
   if (!read) {
-    read = bridgeForKey(chatId).artifacts.get({ chatId, id, version });
+    read = readDesign();
     versionsRead.set(key, read);
     read.then(
       (artifact) => {

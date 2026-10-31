@@ -146,7 +146,8 @@ const ALLOWED: Record<string, string[]> = {
   "components/agents/ArtifactCanvas.tsx": ["createArtifactPreview", "releaseArtifactPreview"],
   "components/motion/MediaLightbox.tsx": ["showImageMenu"],
   "lib/state-events.ts": ["onRuntimeSnapshot", "onProjectState", "onLinkState", "onAgentEvent", "onComputerEvent"],
-  "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent"],
+  // Connection metadata and raw events originate on this Mac, including for a paired computer's readers.
+  "lib/computer-bridge.ts": ["on", "onAgentEvent", "onComputerEvent", "onComputersChanged"],
   "lib/computers.ts": ["computers"],
   "lib/computers-store.ts": ["computers", "onComputersChanged"],
   "lib/ports.ts": ["onAgentPorts", "onRuntimeSnapshot", "getAgentPorts", "onComputerEvent"],

@@ -522,7 +522,22 @@ function createChatArtifacts({ directory, validateChat }) {
         if (request.format && formatOf(artifact.versions.at(-1)) !== request.format) throw Error(FORMAT_MISMATCH);
         const isHtml = formatOf(artifact.versions.at(-1)) === "html";
         if (isHtml) artifact = (await activeArtifacts(folder, "html"))[0] ?? artifact;
-        return readVersion(folder, artifact, isHtml ? undefined : request.version);
+        const current = await readVersion(folder, artifact, isHtml ? undefined : request.version);
+        if (!Array.isArray(request.fonts?.have) || current.format !== "design") return current;
+        // Only the generated designHtml head has this shape. Legacy/custom HTML stays self-contained.
+        const block =
+          /^<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=\d+, initial-scale=1"><style>[^<]*<\/style><style>((?:@font-face\{font-family:"[^"<>;{}]+";font-weight:\d+(?: \d+)?;font-style:normal;src:url\(data:font\/ttf;base64,[A-Za-z0-9+/=]+\) format\("truetype"\)\})+)<\/style><\/head><body><main id="design-root">/.exec(
+            current.html,
+          );
+        if (!block) return current;
+        const fontCss = block[1];
+        const fontKey = createHash("sha256").update(fontCss).digest("hex");
+        return {
+          ...current,
+          html: current.html.replace(`<style>${fontCss}</style>`, ""),
+          fontKey,
+          ...(request.fonts.have.includes(fontKey) ? {} : { fontCss }),
+        };
       }),
     exportDesign: (request) =>
       serial(async () => {
